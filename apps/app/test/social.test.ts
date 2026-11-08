@@ -159,21 +159,15 @@ describe("sign-in with Google", () => {
     expect(await usersWithEmail("after@example.test")).toEqual([]);
   });
 
-  it("does not merge into an existing account just because the email matches", async () => {
+  it("joins the existing account with the same verified email", async () => {
     const h = createHarness();
-    await h.signIn("shared@example.test");
+    const otpCookie = await h.signIn("shared@example.test");
     fakeProviders({ sub: "google-3003", email: "shared@example.test", email_verified: true });
     const callback = await finishSocial(h, "google");
-    const location = new URL(callback.headers.get("location") ?? "", ORIGIN);
-    expect(location.pathname).toBe("/login");
-    expect(location.searchParams.get("error")).toBe("account_not_linked");
-    expect(callback.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(
-      false,
-    );
-    const linked = await env.DB.prepare(
-      "select id from accounts where provider_id = 'google' and account_id = 'google-3003'",
-    ).all();
-    expect(linked.results).toEqual([]);
+    expect(errorOf(callback)).toBeNull();
+    expect(await userIdOf(h, cookieHeader(callback))).toBe(await userIdOf(h, otpCookie));
+    expect(await providersOf("shared@example.test")).toEqual(["google"]);
+    expect(await usersWithEmail("shared@example.test")).toHaveLength(1);
   });
 
   it("refuses an account whose email Google does not vouch for", async () => {
@@ -263,54 +257,58 @@ describe("sign-in with GitHub", () => {
     expect(await usersWithEmail("gh-unverified@example.test")).toEqual([]);
   });
 
-  it("keeps Google and GitHub accounts with the same email apart", async () => {
+  it("signs in to the Google account when GitHub has the same verified email", async () => {
     const h = createHarness();
     fakeProviders({ sub: "google-9009", email: "both@example.test", email_verified: true });
-    await finishSocial(h, "google");
+    const google = await finishSocial(h, "google");
     fakeProviders(undefined, {
       id: 9009,
       login: "both",
       email: "both@example.test",
       emails: [{ email: "both@example.test", primary: true, verified: true }],
     });
+    const github = await finishSocial(h, "github");
+    expect(errorOf(github)).toBeNull();
+    expect(await userIdOf(h, cookieHeader(github))).toBe(await userIdOf(h, cookieHeader(google)));
+    expect(await providersOf("both@example.test")).toEqual(["github", "google"]);
+    const tokens = await env.DB.prepare(
+      "select access_token, refresh_token, id_token from accounts where provider_id = 'github' and account_id = '9009'",
+    ).first();
+    expect(tokens).toEqual({ access_token: null, refresh_token: null, id_token: null });
+  });
+
+  it("does not join an existing account when GitHub has not verified the email", async () => {
+    const h = createHarness();
+    await h.signIn("claimed@example.test");
+    fakeProviders(undefined, {
+      id: 9010,
+      login: "claimer",
+      email: null,
+      emails: [{ email: "claimed@example.test", primary: true, verified: false }],
+    });
     const callback = await finishSocial(h, "github");
-    expect(new URL(callback.headers.get("location") ?? "", ORIGIN).searchParams.get("error")).toBe(
-      "account_not_linked",
+    expect(errorOf(callback)).toBe("account_not_linked");
+    expect(callback.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(
+      false,
     );
-    const accounts = await env.DB.prepare(
-      "select provider_id from accounts a join users u on u.id = a.user_id where u.email = 'both@example.test'",
-    ).all();
-    expect(accounts.results).toEqual([{ provider_id: "google" }]);
+    expect(await providersOf("claimed@example.test")).toEqual([]);
+  });
+
+  it("does not join an account whose own email was never verified", async () => {
+    const h = createHarness();
+    await env.DB.prepare(
+      "insert into users (id, name, email, email_verified, created_at, updated_at) values ('legacy-user', '', 'legacy@example.test', 0, 0, 0)",
+    ).run();
+    fakeProviders(undefined, {
+      id: 9011,
+      login: "legacy",
+      email: "legacy@example.test",
+      emails: [{ email: "legacy@example.test", primary: true, verified: true }],
+    });
+    expect(errorOf(await finishSocial(h, "github"))).toBe("account_not_linked");
+    expect(await providersOf("legacy@example.test")).toEqual([]);
   });
 });
-
-/** A signed-in user starts linking a provider; returns the provider URL and the state cookie. */
-async function startLink(h: Harness, cookie: string, provider: "google" | "github") {
-  const response = await h.request(
-    "/api/auth/link-social",
-    json(
-      { provider, callbackURL: `/login?linked=${provider}`, errorCallbackURL: "/login" },
-      { cookie },
-    ),
-  );
-  expect(response.status).toBe(200);
-  const { url } = await response.json<{ url: string }>();
-  return { providerUrl: new URL(url), stateCookie: cookieHeader(response) };
-}
-
-/** Runs the whole link: start it, then come back from the provider with the session. */
-async function finishLink(h: Harness, cookie: string, provider: "google" | "github") {
-  const { providerUrl, stateCookie } = await startLink(h, cookie, provider);
-  const state = providerUrl.searchParams.get("state") ?? "";
-  return h.request(`/api/auth/callback/${provider}?code=provider-code&state=${state}`, {
-    headers: {
-      cookie: [cookie, stateCookie].filter(Boolean).join("; "),
-      accept: "text/html",
-      "sec-fetch-mode": "navigate",
-    },
-    redirect: "manual",
-  });
-}
 
 async function providersOf(email: string) {
   const rows = await env.DB.prepare(
@@ -326,50 +324,16 @@ async function userIdOf(h: Harness, cookie: string): Promise<string> {
   return (await response.json<{ user: { id: string } }>()).user.id;
 }
 
-const errorOf = (response: Response) =>
-  new URL(response.headers.get("location") ?? "", ORIGIN).searchParams.get("error");
+function errorOf(response: Response) {
+  return new URL(response.headers.get("location") ?? "", ORIGIN).searchParams.get("error");
+}
 
-describe("linking a provider to a signed-in account", () => {
-  it("connects GitHub to an account that signed in with Google, and both then sign in", async () => {
-    const h = createHarness();
-    fakeProviders({ sub: "google-1101", email: "link@example.test", email_verified: true });
-    const googleCookie = cookieHeader(await finishSocial(h, "google"));
-    const userId = await userIdOf(h, googleCookie);
-
-    fakeProviders(undefined, {
-      id: 1101,
-      login: "linker",
-      email: "link@example.test",
-      emails: [{ email: "link@example.test", primary: true, verified: true }],
-    });
-    const linked = await finishLink(h, googleCookie, "github");
-    expect(linked.status).toBe(302);
-    const location = new URL(linked.headers.get("location") ?? "", ORIGIN);
-    expect(location.pathname + location.search).toBe("/login?linked=github");
-    expect(await providersOf("link@example.test")).toEqual(["github", "google"]);
-    const tokens = await env.DB.prepare(
-      "select access_token, refresh_token, id_token from accounts where provider_id = 'github' and account_id = '1101'",
-    ).first();
-    expect(tokens).toEqual({ access_token: null, refresh_token: null, id_token: null });
-
-    const githubCookie = cookieHeader(await finishSocial(h, "github"));
-    expect(await userIdOf(h, githubCookie)).toBe(userId);
-  });
-
-  it("connects Google to an account created with an email code", async () => {
-    const h = createHarness();
-    const cookie = await h.signIn("otp-link@example.test");
-    fakeProviders({ sub: "google-1102", email: "otp-link@example.test", email_verified: true });
-    const linked = await finishLink(h, cookie, "google");
-    expect(errorOf(linked)).toBeNull();
-    expect(await providersOf("otp-link@example.test")).toEqual(["google"]);
-  });
-
-  it("lists the providers connected to the signed-in account", async () => {
+describe("sign-in methods of the signed-in account", () => {
+  it("lists the connected providers without their tokens", async () => {
     const h = createHarness();
     const cookie = await h.signIn("list@example.test");
     fakeProviders({ sub: "google-1103", email: "list@example.test", email_verified: true });
-    await finishLink(h, cookie, "google");
+    await finishSocial(h, "google");
     const response = await h.request("/api/auth/list-accounts", { headers: { cookie } });
     expect(response.status).toBe(200);
     const accounts = await response.json<{ providerId: string }[]>();
@@ -377,75 +341,8 @@ describe("linking a provider to a signed-in account", () => {
     expect(JSON.stringify(accounts)).not.toMatch(/accessToken|refreshToken|idToken/);
   });
 
-  it("requires a session to list or link providers", async () => {
+  it("requires a session to list providers", async () => {
     const h = createHarness();
     expect((await h.request("/api/auth/list-accounts")).status).toBe(401);
-    const link = await h.request(
-      "/api/auth/link-social",
-      json({ provider: "github", callbackURL: "/login" }),
-    );
-    expect(link.status).toBe(401);
-  });
-
-  it("refuses a link started from another site", async () => {
-    const h = createHarness();
-    const cookie = await h.signIn("csrf-link@example.test");
-    const response = await h.request(
-      "/api/auth/link-social",
-      json(
-        { provider: "github", callbackURL: "/login" },
-        { cookie, origin: "https://evil.example" },
-      ),
-    );
-    expect(response.status).toBe(403);
-  });
-
-  it("refuses a provider account with a different email", async () => {
-    const h = createHarness();
-    const cookie = await h.signIn("owner@example.test");
-    fakeProviders(undefined, {
-      id: 1104,
-      login: "someone-else",
-      email: "attacker@example.test",
-      emails: [{ email: "attacker@example.test", primary: true, verified: true }],
-    });
-    expect(errorOf(await finishLink(h, cookie, "github"))).toBe("email_does_not_match");
-    expect(await providersOf("owner@example.test")).toEqual([]);
-  });
-
-  it("refuses a provider account whose email the provider does not vouch for", async () => {
-    const h = createHarness();
-    const cookie = await h.signIn("unvouched@example.test");
-    fakeProviders({ sub: "google-1105", email: "unvouched@example.test", email_verified: false });
-    expect(errorOf(await finishLink(h, cookie, "google"))).toBe("email_not_verified");
-    expect(await providersOf("unvouched@example.test")).toEqual([]);
-  });
-
-  it("refuses a provider account that already belongs to another Portifact account", async () => {
-    const h = createHarness();
-    fakeProviders({ sub: "google-1106", email: "first@example.test", email_verified: true });
-    await finishSocial(h, "google");
-    const cookie = await h.signIn("second@example.test");
-    fakeProviders({ sub: "google-1106", email: "second@example.test", email_verified: true });
-    expect(errorOf(await finishLink(h, cookie, "google"))).toBe(
-      "account_already_linked_to_different_user",
-    );
-    expect(await providersOf("second@example.test")).toEqual([]);
-    expect(await providersOf("first@example.test")).toEqual(["google"]);
-  });
-
-  it("does not link when the session ended before the provider sent the browser back", async () => {
-    const h = createHarness();
-    const cookie = await h.signIn("ended@example.test");
-    fakeProviders({ sub: "google-1107", email: "ended@example.test", email_verified: true });
-    const { providerUrl, stateCookie } = await startLink(h, cookie, "google");
-    await h.request("/api/auth/sign-out", json({}, { cookie }));
-    const state = providerUrl.searchParams.get("state") ?? "";
-    const callback = await h.request(`/api/auth/callback/google?code=c&state=${state}`, {
-      headers: { cookie: `${cookie}; ${stateCookie}` },
-      redirect: "manual",
-    });
-    expect(errorOf(callback)).toBe("unable_to_link_account");
-    expect(await providersOf("ended@example.test")).toEqual([]);
   });
 });

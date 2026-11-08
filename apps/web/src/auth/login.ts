@@ -15,6 +15,7 @@ export interface PageEnv {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_PATTERN = /^\d{6}$/;
+const PROVIDERS = ["google", "github"] as const;
 
 export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const { api, location } = env;
@@ -159,27 +160,6 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     }
   });
 
-  for (const button of doc.querySelectorAll<HTMLButtonElement>("button[data-link-provider]")) {
-    button.addEventListener("click", async () => {
-      hideSummary(summary);
-      const provider = button.dataset.linkProvider ?? "";
-      const response = await whileBusy(button, () =>
-        api.post("/link-social", {
-          provider,
-          callbackURL: `/login?linked=${provider}`,
-          errorCallbackURL: "/login",
-        }),
-      );
-      const url = field(response.body, "url");
-      if (response.status === 200 && url) {
-        announce(status, messages.redirecting);
-        location.assign(url);
-      } else {
-        failed(response.status);
-      }
-    });
-  }
-
   // An OAuth client asked for a sign-in: always offer it, even with a session.
   const sessionEmail = oauthQuery ? undefined : await currentUserEmail(api);
   if (sessionEmail && next) {
@@ -190,22 +170,19 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     byId(doc, "signed-in-email").textContent = messages.signedInAs(sessionEmail);
     signedIn.hidden = false;
     await showMethods(doc, api);
-    const linked = new URLSearchParams(location.search).get("linked");
-    if (linked && !providerError) announce(status, messages.providerLinked(linked));
     return;
   }
   signIn.hidden = false;
 }
 
-/** Marks each provider as connected, or offers to connect it. */
+/** Shows which providers already sign in to this account. */
 async function showMethods(doc: Document, api: Api): Promise<void> {
   const response = await api.get("/list-accounts");
   if (response.status !== 200 || !Array.isArray(response.body)) return;
   const connected = new Set(response.body.map((account: unknown) => field(account, "providerId")));
-  for (const button of doc.querySelectorAll<HTMLButtonElement>("button[data-link-provider]")) {
-    const provider = button.dataset.linkProvider ?? "";
-    const isConnected = connected.has(provider);
-    byId(doc, `method-${provider}-connected`).hidden = !isConnected;
-    button.hidden = isConnected;
+  for (const provider of PROVIDERS) {
+    byId(doc, `method-${provider}`).textContent = connected.has(provider)
+      ? messages.methodConnected
+      : messages.methodNotUsed;
   }
 }
