@@ -338,6 +338,7 @@ function summaryOf(version: FakeVersion, currentId: string | null): VersionSumma
     rendererVersion: null,
     committedAt: version.committedAt,
     expiresAt: version.id === currentId ? null : version.expiresAt,
+    sourceOrigin: null,
   };
 }
 
