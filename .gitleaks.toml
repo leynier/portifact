@@ -1,0 +1,14 @@
+# Secret scanning rules for CI's `secrets` job (gitleaks, docs/releasing.md). The default rules
+# apply; the allowlist below only drops false positives, each with the reason it is safe.
+
+[extend]
+useDefault = true
+
+# Idempotency keys in tests ("idempotency-key": "invalid-key-02", idempotencyKey: "parity-once-1")
+# are request identifiers that any client picks, not credentials; the generic-api-key rule reads
+# the word "key" in their name. Only a match that is an idempotency key name and its value is
+# dropped; every other rule still applies to the same files.
+[[allowlists]]
+description = "Idempotency keys are request identifiers, not secrets"
+regexTarget = "match"
+regexes = ['''(?i)^idempotency[-_]?key"?\s*[:=]\s*"[a-z0-9-]+"$''']
