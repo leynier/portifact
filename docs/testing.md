@@ -37,6 +37,8 @@ Workers tests run inside workerd through `@cloudflare/vitest-plugin`, which supp
 
 D1 tests use the real local D1 inside workerd: `packages/db/test/apply-migrations.ts` applies `packages/db/migrations` before the tests, the same SQL that production runs. Assert on database errors through the `cause` chain, because Drizzle wraps SQLite errors.
 
+To control the clock in Workers tests, call the app's `fetch` from the test (it runs in the same isolate) and fake only `Date` with `vi.useFakeTimers({ toFake: ["Date"] })`, so I/O keeps working. Apply D1 migrations in a setup file with `readD1Migrations` and `applyD1Migrations`. `spikes/oauth-server` shows both.
+
 ## Required cases
 
 Every feature covers:

@@ -18,6 +18,7 @@ The project is in its initial build. Some commands and paths below are planned a
 | [docs/design.md](docs/design.md)               | Touching any UI: dashboard, review viewer, Markdown/TXT viewers or the annotation bridge.                                                                                                                             |
 | [docs/accessibility.md](docs/accessibility.md) | Touching any UI or CLI output. Accessibility is part of done.                                                                                                                                                         |
 | [docs/releasing.md](docs/releasing.md)         | Touching branches, versions, CI, release workflows, build scripts or installers.                                                                                                                                      |
+| [docs/decisions/](docs/decisions)              | Touching something a decision record covers, such as the OAuth server in [0001](docs/decisions/0001-oauth-server.md). Add a numbered record when a phase 0 spike or a hard-to-reverse choice settles a question.      |
 
 If a decision in the plan conflicts with the code, do not silently pick one: fix the code or propose a plan update and say so.
 
@@ -39,6 +40,7 @@ packages/ui          Design system: tokens and components
 skills/              Agent skills for using Portifact, installable with npx skills
 assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer and validation scripts
+spikes/              Phase 0 prototypes with their own tests; never deployed or imported by apps and packages
 ```
 
 ## Commands
