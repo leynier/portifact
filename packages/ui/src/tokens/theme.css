@@ -20,13 +20,97 @@
   --color-border-strong: var(--pf-color-border-strong);
   --color-selection: var(--pf-color-selection);
   --color-focus: var(--pf-color-focus);
+  --color-terminal: var(--pf-color-terminal);
+  --color-terminal-text: var(--pf-color-terminal-text);
+  --color-terminal-muted: var(--pf-color-terminal-muted);
+  --color-terminal-border: var(--pf-color-terminal-border);
 
   --font-sans: var(--pf-font-sans);
   --font-mono: var(--pf-font-mono);
 
+  --radius-xs: var(--pf-radius-xs);
   --radius-sm: var(--pf-radius-sm);
   --radius-md: var(--pf-radius-md);
   --radius-lg: var(--pf-radius-lg);
+
+  --shadow-*: initial;
+  --shadow-sm: var(--pf-shadow-sm);
+  --shadow-float: var(--pf-shadow-float);
+
+  --ease-out: var(--pf-ease-out);
+  --animate-rise: pf-rise var(--pf-duration-slow) var(--pf-ease-out) both;
+  --animate-fade: pf-fade var(--pf-duration-slow) var(--pf-ease-out) both;
+  --animate-type: pf-type 1.2s steps(31, end) both;
+  --animate-sweep: pf-sweep var(--pf-duration-slow) var(--pf-ease-out) both;
+  --animate-blink: pf-blink 1.1s steps(1, end) infinite;
+}
+
+/*
+ * Motion. Apps apply these with the `motion-safe:` variant, so nothing moves under
+ * `prefers-reduced-motion` and every element rests in its final state.
+ */
+@keyframes pf-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes pf-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Reveals monospace text left to right; 31 steps match the hero command. */
+@keyframes pf-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes pf-sweep {
+  from {
+    background-size: 0% 100%;
+  }
+}
+
+@keyframes pf-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Staggers an animation: `animate-delay-3` waits three stagger steps. */
+@utility animate-delay-* {
+  animation-delay: calc(--value(integer) * var(--pf-duration-stagger));
+}
+
+/* A text highlight drawn as a background, so it can sweep in with `animate-sweep`. */
+@utility bg-highlight {
+  background-color: transparent;
+  background-image: linear-gradient(var(--pf-color-selection), var(--pf-color-selection));
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
+/* A faint dot grid for product scenes, faded out toward the edges. */
+@utility bg-dot-grid {
+  background-image: radial-gradient(var(--pf-color-selection) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse at top, black 30%, transparent 75%);
+}
+
+/* Diagonal hatching for archived or inactive ranges, such as the lifecycle timeline. */
+@utility bg-hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--pf-color-border-strong) 0 1px,
+    transparent 1px 8px
+  );
 }
 
 @layer base {
@@ -62,5 +146,14 @@
       /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override every component animation */
       animation-duration: 0ms !important;
     }
+  }
+}
+
+/* Hides the disclosure triangle of a `summary`, including Safari's WebKit marker. */
+@utility marker-none {
+  list-style: none;
+
+  &::-webkit-details-marker {
+    display: none;
   }
 }
