@@ -1,0 +1,16 @@
+{
+  "name": "@portifact/scripts",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Repository build, release and CI scripts.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "vitest": "catalog:"
+  }
+}

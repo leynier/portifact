@@ -16,8 +16,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Decides which jobs the change needs (scripts/ci-scope.ts). Jobs it rules out are skipped,
+  # which required checks accept. Pull requests into main always run everything, and if this
+  # job fails the others run anyway: the scope can only save time, never skip a check.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      quality: ${{ steps.scope.outputs.quality }}
+      cli: ${{ steps.scope.outputs.cli }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - id: scope
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          MODE: ${{ github.base_ref == 'main' && 'full' || 'diff' }}
+        run: bun scripts/ci-scope-main.ts "$BASE_SHA" "$HEAD_SHA" "$MODE"
+
   quality:
     name: quality
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.quality != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -106,6 +131,8 @@ jobs:
 
   build:
     name: build
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.cli != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
