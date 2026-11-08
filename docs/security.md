@@ -25,6 +25,25 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 - The content Worker ignores every cookie that is not on its allowlist and clears oversized injected cookies.
 - Read sessions carry signed claims that expire in 60 seconds or less. After that, the Worker rechecks D1. Revocation must take effect within 60 seconds.
 
+### Entry to protected artifacts
+
+A visitor of an artifact that is not `public` signs in on `app.portifact.com` and comes back with a read session for that one artifact origin. No credential, email or session ever lives on `portifact.dev`; the code in `apps/content/src/read-session.ts`, `apps/app/src/read.ts` and `packages/services/src/read-access.ts` follows these rules.
+
+1. A navigation without a usable read session gets `__Host-pf_read_tx` (signed with `READ_SESSION_SECRET`, 10 minutes) holding the artifact, a random nonce and the requested path, and a `303` to `app.portifact.com/read/<id>?state=<nonce>`. The app never sees the path; the `Referrer-Policy: no-referrer` on the redirect keeps it out of `Referer` too.
+2. `/read/<id>` takes the account only from the dashboard session cookie. Without one it sends the visitor to `/login?next=/read/<id>?state=…`; the login page accepts `next` only for its own pages and `/read/<artifact-id>`. With one, `checkReadAccess` applies the domain's `canRead` to the artifact's current policy and requires it to be servable. A missing, unavailable or forbidden artifact gets the same `303` to `/login?error=artifact_unavailable`.
+3. On success the app stores a handoff (`read_handoffs`): only the SHA-256 of a 32-byte code and of the nonce, the artifact, the user and the policy generation, valid 60 seconds. It redirects to `https://<id>.portifact.dev/__portifact/callback?code=…`, a host built from the validated ID, never from input.
+4. The callback accepts only a `GET` navigation that carries the transaction cookie of the same artifact. One guarded update marks the code used and names the new session, and the `read_sessions` row is inserted only if that update happened, so a replayed, expired, cross-artifact or other-browser code (fixation) creates nothing. Every failure answers the same `400` page and clears the transaction.
+5. The callback sets `__Host-pf_read` (`Secure; HttpOnly; SameSite=Lax; Path=/`, no `Domain`, 12 hours) and returns to the stored path as an absolute URL on the same origin, so `//evil.example` stays on the artifact.
+
+The read cookie holds the session ID and HMAC-signed claims: artifact, user, policy generation, claims expiry (60 seconds) and session expiry. The Worker trusts the claims without D1 only while they are unexpired and their generation equals the artifact's current `policyGeneration`, which it reads on every request anyway, so a policy change applies to the next request. Otherwise `refreshReadSession` rechecks the session row and the policy; it renews the claims or clears the cookie and starts the entry again.
+
+- The read cookie is used only for `Sec-Fetch-Site: same-origin` requests and for navigations. Sibling artifacts are same-site, so their `<script>`, `<img>` and CSS loads would carry it; they get a `401` instead. Protected responses also send `Cross-Origin-Resource-Policy: same-origin` and are never embeddable.
+- Requests without fetch metadata fail closed with a `401` page and no redirect, so a client cannot loop.
+- An anonymous visitor cannot tell a missing artifact, an archived protected one and an active protected one apart: all of them go through sign-in.
+- Without a `READ_SESSION_SECRET` of at least 32 characters, protected artifacts answer `503`; public ones keep working.
+- Values are sealed per purpose, so a transaction cookie never validates as a read cookie, and claims are parsed with the strict `ReadClaims` and `ReadTransaction` schemas from `packages/contracts`.
+- Expired handoffs and read sessions are deleted by the maintenance job; deleting an account or an artifact cascades to its sessions.
+
 ### Identity and the authorization server
 
 `app.portifact.com` runs Better Auth in the `portifact-app` Worker as the only identity provider and OAuth authorization server ([decision 0001](decisions/0001-oauth-server.md)). The code is in `apps/app/src/auth`.

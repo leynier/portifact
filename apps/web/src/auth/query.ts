@@ -25,17 +25,21 @@ export function singleParam(query: string, name: string): string | undefined {
 }
 
 const NEXT_PATHS = new Set(["/device"]);
+/** The entry to a protected artifact, which continues to the artifact after signing in. */
+const READ_ENTRY = /^\/read\/[a-z2-7]{10}$/;
 
 /**
  * Where to go after signing in, from the `next` parameter. Only same-origin paths of the auth
- * pages are accepted, so the login page cannot be used to redirect elsewhere.
+ * pages and the artifact entry are accepted, so the login page cannot be used to redirect
+ * elsewhere.
  */
 export function safeNext(search: string, origin: string): string | undefined {
   const raw = new URLSearchParams(search).get("next");
   if (!raw?.startsWith("/") || raw.startsWith("//")) return undefined;
   // A path relative to the origin always parses; the origin check catches "/\evil.example".
   const url = new URL(raw, origin);
-  if (url.origin !== origin || !NEXT_PATHS.has(url.pathname)) return undefined;
+  if (url.origin !== origin) return undefined;
+  if (!NEXT_PATHS.has(url.pathname) && !READ_ENTRY.test(url.pathname)) return undefined;
   return `${url.pathname}${url.search}`;
 }
 

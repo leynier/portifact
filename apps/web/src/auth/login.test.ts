@@ -239,6 +239,23 @@ describe("login page", () => {
     expect(location.assigned.at(-1)).toBe("/device?user_code=ABCDEFGH");
   });
 
+  it("continues to a protected artifact after signing in", async () => {
+    const next = `/read/k7d2qm4xab?state=${"n".repeat(43)}`;
+    api.on("POST", "/sign-in/email-otp", { status: 200, body: { token: "t" } });
+    await open(`?${new URLSearchParams({ next })}`);
+    await requestCode("ada@example.test");
+    await enterCode("123456");
+    expect(location.assigned.at(-1)).toBe(next);
+  });
+
+  it("explains that an artifact cannot be opened with the signed-in account", async () => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    await open("?error=artifact_unavailable");
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.artifact_unavailable);
+    expect(element("signed-in").hidden).toBe(false);
+    expect(location.assigned).toEqual([]);
+  });
+
   it("forwards a signed-in user straight to the next page", async () => {
     api.on("GET", "/get-session", session("ada@example.test"));
     await open("?next=%2Fdevice");

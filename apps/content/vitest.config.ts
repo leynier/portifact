@@ -10,7 +10,13 @@ export default defineConfig(async () => {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+        miniflare: {
+          bindings: {
+            // Fixed value that only exists in local tests. The real one uses wrangler secret.
+            READ_SESSION_SECRET: "test-only-read-session-secret-0123456789abcdef",
+            TEST_MIGRATIONS: migrations,
+          },
+        },
       }),
     ],
     test: {

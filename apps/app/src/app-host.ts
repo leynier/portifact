@@ -16,6 +16,7 @@ import {
 } from "./auth/resource.ts";
 import { authRoutes } from "./auth/routes.ts";
 import type { Env } from "./env.ts";
+import { readRoutes } from "./read.ts";
 
 /** Pages built by apps/web and served from static assets on this host only. */
 export const AUTH_PAGES = ["/login", "/device", "/consent"] as const;
@@ -110,6 +111,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       now: () => Date.now(),
     }),
   );
+  app.route("/", readRoutes(authFor));
 
   // Who the token belongs to. Any valid API token works; no scope is needed.
   app.get("/api/v1/me", async (c) => {

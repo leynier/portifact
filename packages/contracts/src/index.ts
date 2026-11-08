@@ -2,3 +2,4 @@
 // Every boundary validates with these schemas; see AGENTS.md "Architecture rules".
 export * from "./core.ts";
 export * from "./publishing.ts";
+export * from "./read.ts";

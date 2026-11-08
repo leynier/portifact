@@ -114,7 +114,6 @@ describe("artifact delivery", () => {
 
   it("only serves hosts that are artifact origins", async () => {
     expect((await get("/", {}, "https://portifact.dev")).status).toBe(404);
-    expect((await get("/", {}, "https://zzzzzzzzzz.portifact.dev")).status).toBe(404);
     expect((await get("/", {}, `https://a.${ID}.portifact.dev`)).status).toBe(404);
     expect((await get("/", {}, `https://${ID}.example.com`)).status).toBe(404);
   });

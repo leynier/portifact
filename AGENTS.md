@@ -25,8 +25,8 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 ## Repository layout
 
 ```text
-apps/app        Worker for portifact.com and app.portifact.com: landing, installers, identity, OAuth and the /api/v1 publishing API; MCP tools later
-apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
+apps/app        Worker for portifact.com and app.portifact.com: landing, installers, identity, OAuth, the /api/v1 publishing API and the protected-artifact entry; MCP tools later
+apps/content    Worker for <id>.portifact.dev: artifact delivery and read sessions for protected artifacts today; review sessions, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
 packages/cli    portifact CLI
@@ -77,8 +77,9 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - Multi-step state changes in D1 use transactional batches with checked results. A read followed by a separate write is not a transaction.
 - The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one (`--custom` for triggers and other SQL Drizzle does not model). Active-slot accounting for lifecycle transitions is done by triggers in `0001_lifecycle_triggers.sql`; do not also adjust `active_artifacts` in code for those transitions. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
 - Mutations that may be retried take an idempotency key.
+- Protected artifacts are opened through a one-use handoff from `app.portifact.com/read/<id>` to `/__portifact/callback` on the artifact origin, which sets the host-only `__Host-pf_read` cookie; the content Worker needs the `READ_SESSION_SECRET` secret. Follow "Entry to protected artifacts" in [docs/security.md](docs/security.md) before touching any of it.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
-- The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves identity, OAuth and the auth pages (its root, the landing's Sign in target, redirects to `/login` until the dashboard exists), anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
+- The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves identity, OAuth, the auth pages and `/read/<id>` (the entry to protected artifacts) (its root, the landing's Sign in target, redirects to `/login` until the dashboard exists), anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.
 - Prefer the simplest correct solution. Do not add dependencies, services or abstractions the plan does not need; justify any new dependency in the change description.
 

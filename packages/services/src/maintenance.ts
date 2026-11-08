@@ -6,6 +6,7 @@ import { purgeDate } from "@portifact/domain";
 import { and, eq, inArray, isNotNull, lte, ne, notExists, or, sql } from "drizzle-orm";
 import { pruneOperations } from "./idempotency.ts";
 import { abortPublish } from "./publish.ts";
+import { pruneReadSessions } from "./read-access.ts";
 
 const DEFAULT_BATCH = 50;
 
@@ -325,5 +326,6 @@ export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
     purged: (await purgeArchived(db, bucket, now)).processed,
     orphanObjects: (await sweepOrphanObjects(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
+    readSessions: (await pruneReadSessions(db, now)).processed,
   };
 }

@@ -47,7 +47,7 @@ Every push to `main` also runs the `deploy` job after `release`: it applies pend
 
 ### App Worker configuration
 
-Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN`, and `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target. The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
+Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN` (artifact origins, used for public URLs and to send signed-in visitors back from `/read/<id>`), and `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target. The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
 
 Secrets are set once on the `portifact-app` Worker and survive deploys:
 
@@ -60,6 +60,16 @@ Secrets are set once on the `portifact-app` Worker and survive deploys:
 | `R2_SECRET_ACCESS_KEY` | Secret access key of that token. Rotating it voids upload URLs already issued; clients ask for fresh ones with `GET /api/v1/publishes/:id`.      |
 
 Set or rotate one by piping it to `wrangler secret put <NAME> --name portifact-app` from `apps/app`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment, so the value never appears in the shell history or the output. The Google client must allow the redirect URI `https://app.portifact.com/api/auth/callback/google` and the GitHub app the callback URL `https://app.portifact.com/api/auth/callback/github`.
+
+### Content Worker configuration
+
+`apps/content/wrangler.jsonc` holds `CONTENT_DOMAIN` and `APP_ORIGIN` as `vars`. One secret is set once on the `portifact-content` Worker and survives deploys:
+
+| Secret                | Value                                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `READ_SESSION_SECRET` | 32 random bytes, base64 (`openssl rand -base64 32`). Signs the read session and sign-in transaction cookies of artifact origins. Rotating it ends every read session; readers sign in again without noticing. |
+
+Set it with `wrangler secret put READ_SESSION_SECRET --name portifact-content` from `apps/content`, the same way as the app's secrets. Until it is set, protected artifacts answer `503` and public ones are served normally.
 
 For local development, build `apps/web`, apply the migrations to the local database (`npx wrangler d1 migrations apply portifact-control --local` from `apps/app`), put the same names plus `APP_ORIGIN=http://localhost:8787` in `apps/app/.dev.vars` (ignored by git) and run `npx wrangler dev --local-upstream localhost:8787` from `apps/app`. Without `--local-upstream`, `wrangler dev` rewrites every request to the first route's host, `portifact.com`, and the auth pages answer 404. With that origin, `localhost` is the app host; the landing is served by `bun run --cwd apps/web dev`. Migration 0003 links the CLI client to the production API resource, so the device flow against `localhost` needs a local client row linked to `http://localhost:8787/api/v1`.
 
