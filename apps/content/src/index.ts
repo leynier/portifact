@@ -23,6 +23,7 @@ import {
 } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
 import { recordTraffic } from "@portifact/services";
+import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import {
   BRIDGE_PATH,
   bridgeScript,
@@ -54,7 +55,7 @@ import {
 } from "./review.ts";
 import { type CountTraffic, TrafficMeter } from "./traffic.ts";
 
-export interface Env {
+export interface Env extends BudgetEnv {
   DB: D1Database;
   ARTIFACTS: R2Bucket;
   /** Registrable domain of artifact origins, for example `portifact.dev`. */
@@ -78,6 +79,7 @@ const PAGES: Record<
   | "serviceWorker"
   | "fileUnavailable"
   | "trafficExceeded"
+  | "slowDown"
   | "reviewEnded"
   | "endRefused",
   string
@@ -91,6 +93,7 @@ const PAGES: Record<
   serviceWorker: "Service workers are not allowed on artifacts",
   fileUnavailable: "This file is temporarily unavailable",
   trafficExceeded: "This artifact used its traffic for this month. Try again next month",
+  slowDown: "Too many requests right now. Try again in a minute",
   reviewEnded: "Review ended. You can close this tab",
   endRefused: "Use End review in the review tab to end the review",
 };
@@ -249,6 +252,14 @@ async function serve(
   const { request, cycle, now } = delivery;
   if (trafficExhausted(artifact.traffic)) {
     return withCookies(trafficExceeded(cycle.resetsAt, now), setCookies);
+  }
+  // Then budget protection (plan section 12): a tight per-visitor limit, public traffic first.
+  // A refused request sends no file, so it charges no traffic.
+  const isPublic = artifact.accessMode === "public" && reviewSession === undefined;
+  if (await overTrafficLimit(request, delivery.env, delivery.db, isPublic, now)) {
+    const limited = withCookies(message(429, PAGES.slowDown), setCookies);
+    limited.headers.set("Retry-After", "60");
+    return limited;
   }
   const { response, bytes } = await serveFile(delivery, artifact, setCookies, reviewSession);
   delivery.countTraffic({

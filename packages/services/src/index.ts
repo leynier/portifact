@@ -5,6 +5,7 @@ export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";
 export * from "./backups.ts";
+export * from "./budget.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
 export * from "./idempotency.ts";
 export * from "./lifecycle.ts";

@@ -6,6 +6,7 @@ import { type Db, schema } from "@portifact/db";
 import {
   type Block,
   nextMonthStart,
+  protectionBlock,
   publicAccessFrom,
   trafficCycle,
   USAGE_WINDOW_MS,
@@ -14,6 +15,7 @@ import {
   windowTotal,
 } from "@portifact/domain";
 import { and, asc, eq, gt, gte, inArray, sql } from "drizzle-orm";
+import { platformProtection } from "./budget.ts";
 import { getTraffic } from "./traffic.ts";
 
 export interface Meter {
@@ -94,6 +96,7 @@ export async function getAccountUsage(
     );
   const events = await windowEvents(db, input.ownerId, input.now - USAGE_WINDOW_MS);
   const traffic = await getTraffic(db, input.ownerId, input.now);
+  const capacity = protectionBlock((await platformProtection(db, input.now)).actions);
 
   // The monthly counter belongs to the month it was last written in, as preparePublish reads it.
   const resetsAt = nextMonthStart(input.now);
@@ -141,6 +144,7 @@ export async function getAccountUsage(
       documentBytes: LIMITS.documentBytes,
     },
     publicAccessFrom: publicAccessFrom(snapshot.accountCreatedAt),
-    blocks: usageBlocks(snapshot),
+    // The platform's budget protection comes first: it is why the dashboard shows its notice.
+    blocks: capacity ? [capacity, ...usageBlocks(snapshot)] : usageBlocks(snapshot),
   };
 }

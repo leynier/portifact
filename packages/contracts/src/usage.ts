@@ -11,8 +11,8 @@ export type UsageMeter = z.infer<typeof UsageMeter>;
 
 /**
  * Why the account cannot do something right now. `traffic` means its artifacts answer 429 until
- * the next month. `capacity` is reported once the service's budget protection exists (plan
- * section 12); clients should show any reason they do not know with its message.
+ * the next month. `capacity` is the service's budget protection (plan section 12), the same for
+ * every account. Clients should show any reason they do not know with its message.
  */
 export const UsageBlockReason = z.enum([
   "active_artifacts",

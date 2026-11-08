@@ -100,6 +100,38 @@ describe("dashboard API client", () => {
     expect(calls[0]?.path).toBe("/api/auth/get-session");
   });
 
+  it("reads the account's usage", async () => {
+    const usage = {
+      activeArtifacts: { used: 1, limit: 50 },
+      storage: { used: 10, limit: 2_500_000_000, reserved: 0 },
+      publishesLast24h: { used: 1, limit: 100 },
+      newFilesLast24h: { used: 1, limit: 10_000 },
+      newBytesLast24h: { used: 10, limit: 5_000_000_000 },
+      newObjectsThisMonth: { used: 1, limit: 100_000, resetsAt: "2026-12-01T00:00:00.000Z" },
+      openUploads: { used: 0, limit: 2 },
+      trafficThisMonth: {
+        requests: { used: 5, limit: 1_000_000 },
+        bytes: { used: 500, limit: 25_000_000_000 },
+        resetsAt: "2026-12-01T00:00:00.000Z",
+      },
+      versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
+      publicAccessFrom: "2026-09-08T12:00:00.000Z",
+      // Both the platform's protection and the account's traffic quota can block at once.
+      blocks: [
+        { reason: "capacity", stops: "publishing", message: "Paused", until: null },
+        {
+          reason: "traffic",
+          stops: "serving",
+          message: "Used up",
+          until: "2026-12-01T00:00:00.000Z",
+        },
+      ],
+    };
+    const { api, calls } = client(() => Response.json(usage));
+    expect(await api.usage()).toEqual(usage);
+    expect(calls[0]).toMatchObject({ path: "/api/v1/usage", init: { method: "GET" } });
+  });
+
   it("signs out with a same-origin JSON POST and reports failures", async () => {
     const answers = [
       () => Response.json({ success: true }),

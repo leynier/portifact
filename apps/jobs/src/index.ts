@@ -1,12 +1,15 @@
 // The jobs Worker. Its schedule runs the maintenance scans (the safety net), relays pending
-// outbox rows to the `portifact-jobs` queue and reconciles a slice of storage with D1. Its queue
-// consumer runs the relayed jobs. Every job is idempotent and guards every transition, so
+// outbox rows to the `portifact-jobs` queue, reconciles a slice of storage with D1 and runs the
+// budget run (alerts and automatic protection, plan section 12). Its queue consumer runs the
+// relayed jobs. Every job is idempotent and guards every transition, so
 // overlapping runs, retries and duplicate deliveries are safe.
 import { JobMessage } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
 import { reconcileStorage, relayOutbox, runJob, runMaintenance } from "@portifact/services";
+import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
+import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 
-export interface Env {
+export interface Env extends AnalyticsEnv, NotifierEnv {
   DB: D1Database;
   ARTIFACTS: R2Bucket;
   JOBS: Queue<JobMessage>;
@@ -33,6 +36,20 @@ export async function runScheduled(env: Env, now: number) {
   const storage = await reconcileStorage(db, env.ARTIFACTS, now);
   const result = { ...maintenance, relayed, storage };
   console.log(JSON.stringify({ event: "maintenance", ...result }));
+  return result;
+}
+
+/** The budget run with the collector and notifier the environment configures. */
+export async function runScheduledBudget(
+  env: Env,
+  now: number,
+  fetcher: Fetcher = (input, init) => fetch(input, init),
+) {
+  const result = await runBudget(createDb(env.DB), now, {
+    analytics: analyticsFromEnv(env, fetcher),
+    notifier: notifierFromEnv(env),
+  });
+  console.log(JSON.stringify({ event: "budget", ...result }));
   return result;
 }
 
@@ -66,6 +83,8 @@ export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: numb
 export default {
   scheduled: (controller, env, ctx) => {
     ctx.waitUntil(runScheduled(env, controller.scheduledTime));
+    // Independent of maintenance: a failing scan must not stop the budget's protection.
+    ctx.waitUntil(runScheduledBudget(env, controller.scheduledTime));
   },
   queue: (batch, env) => runQueue(batch, env, Date.now()),
 } satisfies ExportedHandler<Env>;
