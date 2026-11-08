@@ -42,6 +42,7 @@ const appSession = (userId: string) => `as_${userId}`;
 
 async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {}) {
   for (const table of [
+    "traffic_counters",
     "read_sessions",
     "read_handoffs",
     "artifact_readers",
@@ -347,6 +348,25 @@ describe("protected entry flow", () => {
       expect(await script.text()).not.toContain(PAGE);
       expect(script.headers.get("set-cookie")).toBeNull();
     }
+  });
+
+  it("checks the traffic quota after authorization: sign-in first, then 429 for a reader", async () => {
+    await db()
+      .insert(schema.trafficCounters)
+      .values({
+        ownerId: OWNER,
+        cycleStart: Date.UTC(2026, 10, 1),
+        requests: 1_000_000,
+        bytes: 0,
+        updatedAt: NOW,
+      });
+    // An anonymous visitor learns nothing about the owner's traffic.
+    expect((await send("/")).status).toBe(303);
+    const cookie = await signIn(READER);
+    const response = await send("/", { cookie });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("portifact-error")).toBe("traffic_exceeded");
+    expect(await response.text()).not.toContain(PAGE);
   });
 
   it("serves public artifacts without a session", async () => {

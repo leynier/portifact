@@ -11,7 +11,24 @@ export interface DocumentOptions {
   title: string;
   /** BCP 47 language of the content. Defaults to `en`. */
   lang?: string;
+  /**
+   * Adds the viewer chrome under the document: a link to the artifact origin's reserved report
+   * path (`/__portifact/report`), which sends the visitor to the report form with the artifact
+   * filled in. Published renderings carry it; the editor's preview, which has no artifact
+   * origin, does not.
+   */
+  reportLink?: boolean;
 }
+
+/** The reserved path of every artifact origin that opens the report form for it. */
+export const REPORT_PATH = "/__portifact/report";
+
+/**
+ * Viewer chrome under the document. `data-portifact-ignore` keeps it out of annotation anchors,
+ * and `data-portifact-chrome` lets review mode remove it, since the review viewer has its own
+ * report link.
+ */
+const REPORT_FOOTER = `<footer class="pf-chrome" data-portifact-chrome data-portifact-ignore><a href="${REPORT_PATH}" rel="nofollow">Report this artifact</a></footer>`;
 
 const LANG = /^[a-z]{2,3}(?:-[a-z0-9]{1,8})*$/i;
 const ATTRIBUTE_ESCAPES: Record<string, string> = {
@@ -39,7 +56,7 @@ interface Shell extends DocumentOptions {
   remoteImages: boolean;
 }
 
-function shell({ title, lang = "en", kind, body, remoteImages }: Shell): string {
+function shell({ title, lang = "en", kind, body, remoteImages, reportLink }: Shell): string {
   if (!LANG.test(lang)) throw new RangeError(`Invalid language tag: ${lang}`);
   return [
     "<!doctype html>",
@@ -58,6 +75,7 @@ function shell({ title, lang = "en", kind, body, remoteImages }: Shell): string 
     `<main class="${kind === "markdown" ? "pf-document pf-markdown" : "pf-document"}">`,
     body,
     "</main>",
+    ...(reportLink ? [REPORT_FOOTER] : []),
     "</body>",
     "</html>",
     "",

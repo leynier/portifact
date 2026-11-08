@@ -14,6 +14,10 @@ export function usageView(report: AccountUsageReport): AccountUsageView {
       ...report.newObjectsThisMonth,
       resetsAt: iso(report.newObjectsThisMonth.resetsAt),
     },
+    trafficThisMonth: {
+      ...report.trafficThisMonth,
+      resetsAt: iso(report.trafficThisMonth.resetsAt),
+    },
     publicAccessFrom: iso(report.publicAccessFrom),
     blocks: report.blocks.map((block) => ({
       ...block,

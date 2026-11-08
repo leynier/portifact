@@ -15,6 +15,7 @@ import {
 } from "./config.ts";
 import type { AuthDeps } from "./deps.ts";
 import { signInCodeEmail } from "./email.ts";
+import { humanHooks } from "./human.ts";
 import { inProcessIntrospection } from "./introspection.ts";
 import { termsHooks } from "./terms.ts";
 
@@ -27,6 +28,7 @@ export const EMAIL_NOT_VERIFIED = "email_not_verified";
 export function createAuth(env: Env, deps: AuthDeps) {
   const urls = authUrls(env.APP_ORIGIN);
   const terms = termsHooks(env.DB, env.BETTER_AUTH_SECRET);
+  const human = humanHooks(env.DB, env.BETTER_AUTH_SECRET);
   const provider = oauthProvider({
     loginPage: "/login",
     consentPage: "/consent",
@@ -107,9 +109,27 @@ export function createAuth(env: Env, deps: AuthDeps) {
       },
     },
     databaseHooks: {
-      // No account is created and no session is issued without the current terms accepted.
-      user: terms.user,
-      session: terms.session,
+      // No account is created and no session is issued without the current terms accepted, and
+      // no account is created without a solved human check (human.ts). The terms come first, so
+      // a refusal for them does not spend the check.
+      user: {
+        create: {
+          before: async (user, ctx) => {
+            const accepted = await terms.user.create.before(user, ctx);
+            await human.requireForNewUser(ctx);
+            return accepted;
+          },
+        },
+      },
+      session: {
+        create: {
+          before: terms.session.create.before,
+          after: async (session, ctx) => {
+            await terms.session.create.after(session, ctx);
+            human.clear(ctx);
+          },
+        },
+      },
       account: {
         create: {
           // Portifact never calls Google or GitHub APIs for the user, so their tokens are not

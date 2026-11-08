@@ -19,6 +19,8 @@ export const ENDPOINT_LIMITS: Record<string, Limit> = {
   "/sign-in/email-otp": { max: 30, windowSeconds: 600 },
   // Signs an acceptance cookie or writes the account's acceptance.
   "/accept-terms": { max: 30, windowSeconds: 600 },
+  // Each request costs a siteverify call and signs a human check cookie.
+  "/verify-human": { max: 30, windowSeconds: 600 },
 };
 
 /**

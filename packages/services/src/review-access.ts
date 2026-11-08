@@ -3,7 +3,7 @@
 // viewer's iframe redeems it on the artifact origin into a review session that reads only that
 // version. Renewing the session's claims applies the same access check as read sessions, so a
 // revocation or signing out of the app ends review within the claims' lifetime.
-import { REVIEW_SESSION } from "@portifact/contracts";
+import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
@@ -57,13 +57,28 @@ export async function reviewSessionTag(code: string): Promise<string> {
     .replace(/=+$/, "");
 }
 
+/** How long a review session lasts, by where it runs. */
+export function reviewSessionTtlMs(kind: ReviewKind): number {
+  return (
+    (kind === "tab" ? REVIEW_SESSION.tabSessionTtlSeconds : REVIEW_SESSION.sessionTtlSeconds) *
+    SECOND_MS
+  );
+}
+
 /**
  * Checks that the user may read the artifact now and stores a one-use code for its current
- * version. Returns the code, which is shown once and stored only as a hash.
+ * version, redeemable only where `kind` says (the viewer's frame by default, or a top-level
+ * review tab). Returns the code, which is shown once and stored only as a hash.
  */
 export async function issueReviewHandoff(
   db: Db,
-  input: { artifactId: string; userId: string; authSessionId: string; now: number },
+  input: {
+    artifactId: string;
+    userId: string;
+    authSessionId: string;
+    now: number;
+    kind?: ReviewKind;
+  },
 ): Promise<Result<IssuedReviewHandoff>> {
   const access = await checkReadAccess(db, input);
   if (!access.ok) return access;
@@ -88,6 +103,7 @@ export async function issueReviewHandoff(
     userId: input.userId,
     authSessionId: input.authSessionId,
     policyGeneration: access.value.policyGeneration,
+    kind: input.kind ?? "frame",
     expiresAt,
     createdAt: input.now,
   });
@@ -95,18 +111,19 @@ export async function issueReviewHandoff(
 }
 
 /**
- * Redeems a review code on the artifact origin it was issued for. One guarded update marks the
- * code used and names the new session, only while the app session that asked for it is live;
- * the session row is inserted only if that update happened, so a replayed or concurrent
+ * Redeems a review code on the artifact origin it was issued for, where it was issued to run
+ * (`kind`): a frame code never opens a tab session, nor the reverse. One guarded update marks
+ * the code used and names the new session, only while the app session that asked for it is
+ * live; the session row is inserted only if that update happened, so a replayed or concurrent
  * redemption creates nothing.
  */
 export async function redeemReviewHandoff(
   db: Db,
-  input: { code: string; artifactId: string; now: number },
+  input: { code: string; artifactId: string; kind: ReviewKind; now: number },
 ): Promise<Result<RedeemedReview>> {
   const codeHash = await hashSecret(input.code);
   const sessionId = randomToken();
-  const expiresAt = input.now + REVIEW_SESSION.sessionTtlSeconds * SECOND_MS;
+  const expiresAt = input.now + reviewSessionTtlMs(input.kind);
   const handoff = schema.reviewHandoffs;
 
   const [claimed] = await db.batch([
@@ -117,6 +134,7 @@ export async function redeemReviewHandoff(
         and(
           eq(handoff.codeHash, codeHash),
           eq(handoff.artifactId, input.artifactId),
+          eq(handoff.kind, input.kind),
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
           liveAppSession(db, handoff.authSessionId, input.now),
@@ -181,6 +199,22 @@ export async function refreshReviewSession(
     policyGeneration: access.value.policyGeneration,
     sessionId: input.sessionId,
   });
+}
+
+/**
+ * Ends a review session at once, for the review tab's "End review". Idempotent: ending a session
+ * that is already gone (or another artifact's) changes nothing.
+ */
+export async function endReviewSession(
+  db: Db,
+  input: { sessionId: string; artifactId: string },
+): Promise<{ ended: boolean }> {
+  const sessions = schema.reviewSessions;
+  const deleted = await db
+    .delete(sessions)
+    .where(and(eq(sessions.id, input.sessionId), eq(sessions.artifactId, input.artifactId)))
+    .returning({ id: sessions.id });
+  return { ended: deleted.length > 0 };
 }
 
 /** Deletes up to `limit` expired review codes and `limit` expired review sessions. Idempotent. */

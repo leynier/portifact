@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`golden output > is stable for renderer version 1 1`] = `
+exports[`golden output > is stable for renderer version 2 1`] = `
 {
   "blocks": [
     {
@@ -186,7 +186,7 @@ a <a href="guide.md#setup">relative link</a>, <a href="http://www.example.com" r
 }
 `;
 
-exports[`golden output > is stable for renderer version 1 2`] = `
+exports[`golden output > is stable for renderer version 2 2`] = `
 "<pre class="pf-text">
 
 &lt;b&gt;&amp;&lt;/b&gt;

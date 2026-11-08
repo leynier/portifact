@@ -1,0 +1,1 @@
+ALTER TABLE `review_handoffs` ADD `kind` text DEFAULT 'frame' NOT NULL;

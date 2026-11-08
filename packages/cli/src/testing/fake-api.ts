@@ -176,6 +176,11 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       newBytesLast24h: { used: 0, limit: 5_000_000_000 },
       newObjectsThisMonth: { used: 0, limit: 100_000, resetsAt: "2026-12-01T00:00:00.000Z" },
       openUploads: { used: 0, limit: 2 },
+      trafficThisMonth: {
+        requests: { used: 0, limit: 1_000_000 },
+        bytes: { used: 0, limit: 25_000_000_000 },
+        resetsAt: "2026-12-01T00:00:00.000Z",
+      },
       versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
       publicAccessFrom: "2026-01-01T00:00:00.000Z",
       blocks: [],

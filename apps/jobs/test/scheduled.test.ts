@@ -37,6 +37,7 @@ describe("scheduled maintenance", () => {
       ctx as unknown as ExecutionContext,
     );
     await Promise.all(waits);
-    expect(waits).toHaveLength(1);
+    // Maintenance and the budget run, independently.
+    expect(waits).toHaveLength(2);
   });
 });

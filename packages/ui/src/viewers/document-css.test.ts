@@ -25,6 +25,10 @@ describe("document viewer stylesheet", () => {
     expect(DOCUMENT_CSS).toMatch(/\.pf-markdown pre \{[^}]*white-space: pre-wrap/);
   });
 
+  it("styles the viewer chrome with tokens only", () => {
+    expect(DOCUMENT_CSS).toMatch(/\.pf-chrome \{[^}]*var\(--pf-color-text-muted\)/);
+  });
+
   it("draws a visible focus indicator with the focus token", () => {
     expect(DOCUMENT_CSS).toMatch(/:focus-visible \{[^}]*var\(--pf-color-focus\)/);
   });

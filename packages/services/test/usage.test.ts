@@ -4,6 +4,7 @@ import { LIMITS } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { beforeEach, describe, expect, it } from "vitest";
 import { commitPublish, preparePublish } from "../src/publish.ts";
+import { recordTraffic } from "../src/traffic.ts";
 import { getAccountUsage } from "../src/usage.ts";
 
 const OWNER = "u_owner";
@@ -61,6 +62,7 @@ beforeEach(async () => {
     "upload_sessions",
     "account_usage",
     "usage_events",
+    "traffic_counters",
     "lifecycle_events",
     "sessions",
     "users",
@@ -93,6 +95,11 @@ describe("getAccountUsage", () => {
       newBytesLast24h: { used: 0, limit: 5_000_000_000 },
       newObjectsThisMonth: { used: 0, limit: 100_000, resetsAt: Date.UTC(2026, 11, 1) },
       openUploads: { used: 0, limit: 2 },
+      trafficThisMonth: {
+        requests: { used: 0, limit: 1_000_000 },
+        bytes: { used: 0, limit: 25_000_000_000 },
+        resetsAt: Date.UTC(2026, 11, 1),
+      },
       versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
       publicAccessFrom: NOW - 23 * DAY,
       blocks: [],
@@ -181,5 +188,39 @@ describe("getAccountUsage", () => {
     const fresh = await getAccountUsage(db(), { ownerId: "u_missing", now: NOW });
     expect(fresh.publicAccessFrom).toBe(NOW + 7 * DAY);
     expect(fresh.blocks.map((block) => block.reason)).toEqual(["account_too_new_for_public"]);
+  });
+
+  it("reports this month's traffic and blocks serving once it is used up, until the next month", async () => {
+    const cycle = Date.UTC(2026, 10, 1);
+    await recordTraffic(
+      db(),
+      [
+        { ownerId: OWNER, cycleStart: cycle, requests: 10, bytes: 1_000 },
+        { ownerId: OWNER, cycleStart: Date.UTC(2026, 9, 1), requests: 999_999, bytes: 9 },
+        { ownerId: OTHER, cycleStart: cycle, requests: 1_000_000, bytes: 0 },
+      ],
+      NOW,
+    );
+    const usage = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    expect(usage.trafficThisMonth).toEqual({
+      requests: { used: 10, limit: 1_000_000 },
+      bytes: { used: 1_000, limit: 25_000_000_000 },
+      resetsAt: Date.UTC(2026, 11, 1),
+    });
+    expect(usage.blocks).toEqual([]);
+
+    const other = await getAccountUsage(db(), { ownerId: OTHER, now: NOW });
+    expect(other.blocks).toEqual([
+      {
+        reason: "traffic",
+        stops: "serving",
+        message: expect.stringContaining("429"),
+        until: Date.UTC(2026, 11, 1),
+      },
+    ]);
+    // A new month starts from zero.
+    const december = await getAccountUsage(db(), { ownerId: OTHER, now: Date.UTC(2026, 11, 1) });
+    expect(december.trafficThisMonth.requests.used).toBe(0);
+    expect(december.blocks).toEqual([]);
   });
 });

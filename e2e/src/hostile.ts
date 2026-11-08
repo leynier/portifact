@@ -104,3 +104,12 @@ window.addEventListener("message", (event) => {
 `;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Trampoline</title></head><body><main><h1>Trampoline</h1></main><script>${script}</script></body></html>`;
 }
+
+/**
+ * An artifact that, opened as a top-level page, navigates that page to `url` (a review tab link
+ * with someone else's code, directly or through another site) to plant a review tab session.
+ */
+export function navigatingPage(url: string): string {
+  const script = `setTimeout(() => { location.href = ${JSON.stringify(url)}; }, 300);`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Navigator</title></head><body><main><h1>Navigator</h1></main><script>${script}</script></body></html>`;
+}

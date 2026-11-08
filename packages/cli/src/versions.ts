@@ -25,6 +25,35 @@ export function parseVersionId(value: string): string {
   return parsed.data;
 }
 
+/** Version IDs never look like this, so `3` or `v3` is always the version number. */
+const VERSION_NUMBER = /^v?([0-9]{1,9})$/i;
+
+/** A version argument given as its ID or as its number, checked before signing in. */
+export type VersionArg = { id: string } | { number: number };
+
+export function parseVersionArg(value: string): VersionArg {
+  const match = VERSION_NUMBER.exec(value.trim());
+  if (!match) return { id: parseVersionId(value) };
+  const number = Number(match[1]);
+  if (number < 1) throw new CliError("invalid_input", messages.errors.invalidVersionId(value));
+  return { number };
+}
+
+/** The ID of a version argument; a number is looked up in the artifact's retained versions. */
+export async function resolveVersionArg(
+  session: Session,
+  artifactId: string,
+  arg: VersionArg,
+): Promise<string> {
+  if ("id" in arg) return arg.id;
+  const items = await listAllVersions(session, artifactId);
+  const match = items.find((item) => item.number === arg.number);
+  if (!match) {
+    throw new CliError("not_found", messages.errors.versionNumberNotFound(artifactId, arg.number));
+  }
+  return match.id;
+}
+
 export async function versions(
   io: Io,
   runtime: Runtime,
@@ -89,8 +118,9 @@ export async function rollback(
   options: OutputOptions,
 ): Promise<void> {
   const artifactId = parseArtifactId(id);
-  const versionId = parseVersionId(version);
+  const target = parseVersionArg(version);
   const session = await openSession(io, runtime);
+  const versionId = await resolveVersionArg(session, artifactId, target);
   // The base is the version current right now; a publish in between makes this a conflict.
   const artifact = await callApi(session, {
     method: "GET",

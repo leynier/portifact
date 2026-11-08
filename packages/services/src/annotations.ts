@@ -37,23 +37,28 @@ import {
   type AnnotationWrite,
   canRead,
   checkAnnotationAction,
+  checkAnnotationCapacity,
   checkAnnotationModeChange,
   checkAnnotationWrite,
   checkDeleteOwnMessage,
   checkEditMessage,
+  checkHumanVerdict,
   checkResolve,
   checkThreadWritable,
   effectiveState,
   fail,
+  type HumanVerdict,
   type ModerationAction,
   messageBodyVisible,
   moderationTransition,
+  needsHumanCheck,
   ok,
   type Result,
   threadVisible,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { platformProtection } from "./budget.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -82,6 +87,17 @@ export interface AnnotationActor {
   userId: string;
   artifactId: string;
   now: number;
+}
+
+/**
+ * The human check a new comment may need (plan section 13), built by the adapter from the
+ * request: the Turnstile token the client sent, if any, and a verifier bound to the provider and
+ * the caller's IP. API, dashboard and MCP all pass one, so they decide identically; clients that
+ * cannot show the challenge simply send no token.
+ */
+export interface HumanCheck {
+  token: string | undefined;
+  verify(token: string): Promise<HumanVerdict>;
 }
 
 export interface AnnotationListInput extends AnnotationActor {
@@ -305,6 +321,36 @@ function causeMatches(error: unknown, pattern: RegExp): boolean {
 }
 
 /** Runs `precheck`, writes, and on a lost claim runs `precheck` again to explain why. */
+/**
+ * Comments by the author on artifacts they do not own, counted up to the number that still
+ * needs a human check. Events go with their artifact, so deleting one may ask again.
+ */
+async function commentsOnOthersArtifacts(db: Db, userId: string): Promise<number> {
+  const e = schema.annotationEvents;
+  const t = schema.artifacts;
+  const [row] = await db.all<{ count: number }>(
+    sql`select count(*) as count from (select 1 from ${e} join ${t} on ${t.id} = ${e.artifactId} where ${e.actorId} = ${userId} and ${e.kind} in ('thread_created', 'message_created') and ${t.ownerId} <> ${userId} limit ${ANNOTATION_LIMITS.humanCheckedComments})`,
+  );
+  return Number(row?.count ?? 0);
+}
+
+/**
+ * Decides the human check of one comment. The token is single use at the provider and a
+ * write that loses its claim runs its checks again, so the verdict is fetched at most once.
+ */
+function humanGate(db: Db, userId: string, check: HumanCheck) {
+  let verdict: Promise<HumanVerdict> | undefined;
+  return async (loaded: Authorized): Promise<Result<true>> => {
+    if (!needsHumanCheck(loaded.role, await commentsOnOthersArtifacts(db, userId))) {
+      return ok(true);
+    }
+    if (check.token === undefined) return checkHumanVerdict("missing");
+    const token = check.token;
+    verdict ??= check.verify(token).catch((): HumanVerdict => "unavailable");
+    return checkHumanVerdict(await verdict);
+  };
+}
+
 async function guardedWrite<T, P>(
   precheck: () => Promise<Result<P>>,
   write: (prepared: P) => Promise<Result<boolean>>,
@@ -362,6 +408,9 @@ async function checkLimits(
   write: AnnotationWrite,
   threadMessages = 0,
 ): Promise<Result<true>> {
+  // Budget protection pauses new comments (plan section 12); moderation never passes through here.
+  const capacity = checkAnnotationCapacity((await platformProtection(db, now)).actions);
+  if (!capacity.ok) return capacity;
   return checkAnnotationWrite(await usage(db, loaded, actorId, now, threadMessages), write);
 }
 
@@ -406,7 +455,12 @@ export async function setAnnotationMode(
 /** Starts a thread with its first message on the artifact's current version. */
 export async function createAnnotationThread(
   db: Db,
-  input: AnnotationActor & { versionId: string; target: AnnotationTarget; body: string },
+  input: AnnotationActor & {
+    versionId: string;
+    target: AnnotationTarget;
+    body: string;
+    humanCheck: HumanCheck;
+  },
 ): Promise<Result<AnnotationThreadView>> {
   const targetJson = JSON.stringify(input.target);
   const targetBytes = utf8Length(targetJson);
@@ -414,6 +468,7 @@ export async function createAnnotationThread(
   const threadId = crypto.randomUUID();
   const messageId = crypto.randomUUID();
   const writeId = crypto.randomUUID();
+  const checkHuman = humanGate(db, input.userId, input.humanCheck);
 
   return guardedWrite(
     async () => {
@@ -437,7 +492,9 @@ export async function createAnnotationThread(
         kind: "thread",
         addedBytes: bodyBytes + targetBytes,
       });
-      return limits.ok ? loaded : limits;
+      if (!limits.ok) return limits;
+      const human = await checkHuman(loaded.value);
+      return human.ok ? loaded : human;
     },
     async (loaded) => {
       const a = loaded.artifact;
@@ -505,11 +562,12 @@ function insertMessage(
 /** Adds a reply to a thread of the current version. */
 export async function replyToAnnotationThread(
   db: Db,
-  input: AnnotationActor & { threadId: string; body: string },
+  input: AnnotationActor & { threadId: string; body: string; humanCheck: HumanCheck },
 ): Promise<Result<AnnotationThreadView>> {
   const bodyBytes = utf8Length(input.body);
   const messageId = crypto.randomUUID();
   const writeId = crypto.randomUUID();
+  const checkHuman = humanGate(db, input.userId, input.humanCheck);
   return guardedWrite(
     async () => {
       const loaded = await authorize(db, input, "participate");
@@ -529,7 +587,9 @@ export async function replyToAnnotationThread(
         { kind: "reply", addedBytes: bodyBytes },
         thread.messageCount,
       );
-      return limits.ok ? loaded : limits;
+      if (!limits.ok) return limits;
+      const human = await checkHuman(loaded.value);
+      return human.ok ? loaded : human;
     },
     (loaded) => {
       const a = loaded.artifact;
