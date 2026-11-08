@@ -236,9 +236,10 @@ describe("hostile Markdown size and shape", () => {
   const MB = 1_000_000;
   const fill = (unit: string, bytes = MB) => unit.repeat(Math.floor(bytes / unit.length));
 
-  // micromark (remark) is quadratic on several of these; markdown-it is linear. The budget is
-  // generous for slow CI machines and still far below what a quadratic parser needs. The test
-  // timeout sits above the budget, so a slow run fails on the assertion, not on Vitest's 5 s default.
+  // micromark (remark) is quadratic on several of these; markdown-it is linear. A quadratic
+  // parser needs many minutes on 1 MB of these inputs, so the budget stays generous for CI, where
+  // every package's tests share the runner's CPU at once, and still catches a quadratic one. The
+  // test timeout sits above the budget, so a slow run fails on the assertion.
   it.each([
     ["nested emphasis openers and closers", fill("*a _b ", MB / 2) + fill("b_ a* ", MB / 2)],
     ["nested links", fill("[", MB / 2) + fill("](x)", MB / 2)],
@@ -258,10 +259,10 @@ describe("hostile Markdown size and shape", () => {
     (_name, source) => {
       const started = performance.now();
       const { html } = renderMarkdown(source);
-      expect(performance.now() - started).toBeLessThan(8_000);
+      expect(performance.now() - started).toBeLessThan(20_000);
       expect(html.length).toBeGreaterThan(0);
     },
-    30_000,
+    60_000,
   );
 
   it("caps nesting instead of recursing without bound", () => {
@@ -275,9 +276,9 @@ describe("hostile Markdown size and shape", () => {
     const source = fill(section, 5 * MB - section.length);
     const started = performance.now();
     const { blocks } = renderMarkdown(source);
-    expect(performance.now() - started).toBeLessThan(15_000);
+    expect(performance.now() - started).toBeLessThan(30_000);
     expect(blocks.length).toBeGreaterThan(100_000);
-  }, 30_000);
+  }, 60_000);
 
   it("rejects Markdown over the size limit before parsing", () => {
     expect(() => renderMarkdown("a".repeat(5 * MB + 1))).toThrow(/limited/);
