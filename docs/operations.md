@@ -14,6 +14,8 @@ The operator tool (`apps/jobs/scripts/operator.ts`) talks to the production D1 d
 
 From the repository root, with `CLOUDFLARE_API_TOKEN` set to a token with D1 edit access on the account (or after `wrangler login`):
 
+The script runs on Node (`--experimental-transform-types`), not Bun: Wrangler refuses remote bindings under Bun, whose `fetch` ignores the dispatcher Miniflare routes them through.
+
 ```bash
 bun run --cwd apps/jobs operator reports                     # open reports, oldest first
 bun run --cwd apps/jobs operator show-artifact <id>          # state, access, owner and account suspension
