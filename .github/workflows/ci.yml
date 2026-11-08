@@ -28,6 +28,7 @@ jobs:
       - run: bun run check
       - run: bun run test
       - run: shellcheck scripts/install.sh
+      - run: node scripts/check-release-notes.mjs
 
   pr-title:
     name: pr-title
