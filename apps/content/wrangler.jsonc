@@ -29,12 +29,12 @@
   "ratelimits": [
     {
       "name": "PUBLIC_TRAFFIC_LIMIT",
-      "namespace_id": "1001",
+      "namespace_id": "7301",
       "simple": { "limit": 120, "period": 60 }
     },
     {
       "name": "PROTECTED_TRAFFIC_LIMIT",
-      "namespace_id": "1002",
+      "namespace_id": "7302",
       "simple": { "limit": 240, "period": 60 }
     }
   ],
