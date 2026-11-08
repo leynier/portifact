@@ -3,8 +3,11 @@
 // first-party device token and client management endpoints.
 import { Hono } from "hono";
 import type { Env } from "../env.ts";
+import { humanCheck } from "../turnstile.ts";
 import type { Auth } from "./auth.ts";
 import { AUTH_BASE_PATH, authUrls } from "./config.ts";
+import type { FetchLike } from "./deps.ts";
+import { VERIFY_HUMAN_PATH, verifyHuman } from "./human.ts";
 import { checkLimits, ENDPOINT_LIMITS, otpSendChecks, pruneOldCounters } from "./limits.ts";
 import { ACCEPT_TERMS_PATH, acceptTerms } from "./terms.ts";
 
@@ -33,13 +36,15 @@ const ENDPOINTS: Record<string, { method: "GET" | "POST"; kind: EndpointKind }> 
   "/device/deny": { method: "POST", kind: "browser" },
   // Portifact's own endpoint (terms.ts), answered by the Worker instead of Better Auth.
   [ACCEPT_TERMS_PATH]: { method: "POST", kind: "browser" },
+  // Portifact's own endpoint (human.ts): the login page's human check before a sign-in.
+  [VERIFY_HUMAN_PATH]: { method: "POST", kind: "browser" },
   "/oauth2/token": { method: "POST", kind: "client" },
   "/oauth2/revoke": { method: "POST", kind: "client" },
   "/oauth2/register": { method: "POST", kind: "client" },
   "/device/code": { method: "POST", kind: "client" },
 };
 
-export function authRoutes(authFor: (env: Env) => Auth) {
+export function authRoutes(authFor: (env: Env) => Auth, siteverifyFor: (env: Env) => FetchLike) {
   const routes = new Hono<{ Bindings: Env }>();
 
   routes.all(`${AUTH_BASE_PATH}/*`, async (c) => {
@@ -69,6 +74,17 @@ export function authRoutes(authFor: (env: Env) => Auth) {
           secret: c.env.BETTER_AUTH_SECRET,
           sessionUserId: async (req) =>
             (await authFor(c.env).api.getSession({ headers: req.headers }))?.user.id,
+          now: Date.now(),
+        }),
+      );
+    }
+
+    if (path === VERIFY_HUMAN_PATH) {
+      const check = humanCheck(c.env, siteverifyFor(c.env), request, undefined);
+      return authHeaders(
+        await verifyHuman(request, {
+          secret: c.env.BETTER_AUTH_SECRET,
+          verify: check.verify,
           now: Date.now(),
         }),
       );

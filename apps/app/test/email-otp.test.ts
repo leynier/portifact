@@ -28,7 +28,7 @@ function sendCode(h: Harness, email: string, ip = "198.51.100.7", type = "sign-i
 
 // The login page accepts the terms before sending the code, so a sign-in carries the cookie.
 async function verify(h: Harness, email: string, otp: string) {
-  const cookie = await h.acceptTerms();
+  const cookie = await h.beforeSignIn();
   return h.request("/api/auth/sign-in/email-otp", json({ email, otp }, { cookie }));
 }
 

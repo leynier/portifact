@@ -115,6 +115,7 @@ export interface DashboardApi {
     threadId: string,
     body: string,
     idempotencyKey: string,
+    turnstileToken?: string,
   ): Promise<AnnotationThreadView>;
   setThreadState(
     artifactId: string,
@@ -321,12 +322,12 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         "idempotency-key": idempotencyKey,
       });
     },
-    reply(artifactId, threadId, body, idempotencyKey) {
+    reply(artifactId, threadId, body, idempotencyKey, turnstileToken) {
       return call(
         `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/messages`,
         AnnotationThreadView,
         "POST",
-        { body },
+        turnstileToken === undefined ? { body } : { body, turnstileToken },
         { "idempotency-key": idempotencyKey },
       );
     },

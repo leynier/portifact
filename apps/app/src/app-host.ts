@@ -1,6 +1,6 @@
 // app.portifact.com: the dashboard, identity, the OAuth authorization server, protected
 // resource metadata and the auth pages. Every path not listed here answers 404.
-import { TokenPrincipal } from "@portifact/contracts";
+import { TokenPrincipal, TURNSTILE_ORIGIN, TURNSTILE_SITE_KEY_META } from "@portifact/contracts";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { Hono } from "hono";
@@ -66,6 +66,20 @@ export const PAGE_CSP = [
   "base-uri 'none'",
 ].join("; ");
 
+/**
+ * The policy of a page that renders the human check (Turnstile): its script and its challenge
+ * frame come from Cloudflare's challenge origin, and nothing else is added.
+ */
+export function withHumanCheck(policy: string): string {
+  const scripts = policy.replace("script-src 'self'", `script-src 'self' ${TURNSTILE_ORIGIN}`);
+  return /(^|; )frame-src /.test(scripts)
+    ? scripts.replace(/(^|; )frame-src ([^;]*)/, `$1frame-src $2 ${TURNSTILE_ORIGIN}`)
+    : `${scripts}; frame-src ${TURNSTILE_ORIGIN}`;
+}
+
+/** The login page's policy: the strict page policy plus the human check of new accounts. */
+export const LOGIN_CSP = withHumanCheck(PAGE_CSP);
+
 /** The S3 endpoint of the artifacts bucket, which the dashboard uploads to and downloads from. */
 export function storageOrigin(r2AccountId: string): string {
   return `https://${r2AccountId}.r2.cloudflarestorage.com`;
@@ -98,8 +112,9 @@ export function dashboardPolicy(
     `style-src 'self' ${stylesheetSource}`,
   ).replace("connect-src 'self'", `connect-src 'self' ${storage}`);
   // The review viewer frames artifact origins. Client-side navigation keeps the policy of the
-  // first page, so every dashboard route sends it. The frames are cross-site and sandboxed.
-  return `${policy}; frame-src https://*.${contentDomain}`;
+  // first page, so every dashboard route sends it. The frames are cross-site and sandboxed. It
+  // also renders the human check of a visitor's first comments.
+  return withHumanCheck(`${policy}; frame-src https://*.${contentDomain}`);
 }
 
 export async function dashboardCsp(
@@ -197,7 +212,10 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     authFor(c.env).handler(c.req.raw),
   );
 
-  app.route("/", authRoutes(authFor));
+  app.route(
+    "/",
+    authRoutes(authFor, (env) => depsFor(env).siteverify),
+  );
   app.route(
     "/",
     apiRoutes({
@@ -205,6 +223,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       resource: (env) => resources(env).api,
       session: sessionUserFor,
       presigner: presignerFor,
+      siteverify: (env) => depsFor(env).siteverify,
       now: () => Date.now(),
     }),
   );
@@ -241,6 +260,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       introspect: introspectFor,
       resource: (env) => resources(env).mcp,
       presigner: presignerFor,
+      siteverify: (env) => depsFor(env).siteverify,
       now: () => Date.now(),
     }),
   );
@@ -255,17 +275,22 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
         const next = `${url.pathname}${url.search}`;
         return c.redirect(`/login?${new URLSearchParams({ next })}`, 302);
       }
-      return trustedPage(
-        await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
-        await dashboardCsp(c.env),
+      return withSiteKey(
+        trustedPage(
+          await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
+          await dashboardCsp(c.env),
+        ),
+        c.env.TURNSTILE_SITE_KEY,
       );
     });
   }
 
   for (const page of AUTH_PAGES) {
-    app.get(page, async (c) =>
-      trustedPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
-    );
+    app.get(page, async (c) => {
+      const asset = await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)));
+      if (page !== "/login") return trustedPage(asset);
+      return withSiteKey(trustedPage(asset, LOGIN_CSP), c.env.TURNSTILE_SITE_KEY);
+    });
   }
 
   for (const file of STATIC_FILES) {
@@ -276,6 +301,32 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   app.notFound((c) => c.json({ error: { code: "not_found", message: "Not found." } }, 404));
 
   return { app, authFor };
+}
+
+const META_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+  "'": "&#39;",
+};
+
+/**
+ * Gives a page the public Turnstile site key in a `<meta>`, so the static bundle needs no
+ * build per environment. Without a key the page renders no challenge.
+ */
+export function withSiteKey(page: Response, siteKey: string | undefined): Response {
+  if (!siteKey) return page;
+  const content = siteKey.replace(/[&<>"']/g, (char) => META_ESCAPES[char] ?? char);
+  return new HTMLRewriter()
+    .on("head", {
+      element(head) {
+        head.append(`<meta name="${TURNSTILE_SITE_KEY_META}" content="${content}">`, {
+          html: true,
+        });
+      },
+    })
+    .transform(page);
 }
 
 /** Headers of every page on the app host: strict CSP, never cached, no referrer. */

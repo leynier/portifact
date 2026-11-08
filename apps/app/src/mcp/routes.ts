@@ -7,6 +7,7 @@ import { LIMITS } from "@portifact/contracts";
 import { Hono } from "hono";
 import type { Presigner } from "../api/presign.ts";
 import { MCP_BASELINE_SCOPES } from "../auth/config.ts";
+import type { FetchLike } from "../auth/deps.ts";
 import {
   authorizeResourceRequest,
   type Introspect,
@@ -14,12 +15,15 @@ import {
   protectedResourceMetadataUrl,
 } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
+import { humanCheck } from "../turnstile.ts";
 import { createPortifactServer, TOOL_SCOPES } from "./tools.ts";
 
 export interface McpDeps {
   introspect(env: Env): Introspect;
   resource(env: Env): ProtectedResource;
   presigner(env: Env): Presigner;
+  /** Turnstile's siteverify transport, for the human check of new comments. */
+  siteverify(env: Env): FetchLike;
   now(): number;
 }
 
@@ -51,6 +55,7 @@ export function mcpRoutes(deps: McpDeps) {
           userId: principal.userId,
           now: deps.now,
           presigner: deps.presigner(c.env),
+          humanCheck: humanCheck(c.env, deps.siteverify(c.env), c.req.raw, undefined),
         }),
       { legacy: "stateless", maxRequestBodySize: MAX_REQUEST_BYTES },
     );

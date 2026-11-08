@@ -181,7 +181,7 @@ describe("sign-up with an email code", () => {
   it("records the version and the time of acceptance on the new account", async () => {
     const h = createHarness();
     const email = "with-terms@example.test";
-    const cookie = await h.acceptTerms();
+    const cookie = await h.beforeSignIn();
     const acceptedAt = (
       await openAcceptance(SECRET, readCookie(cookie, TERMS_COOKIE) ?? "", Date.now())
     )?.acceptedAt.getTime();

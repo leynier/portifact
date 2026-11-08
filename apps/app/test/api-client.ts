@@ -1,5 +1,6 @@
 // An API client for tests: a CLI token for a signed-in user, and a site published with it.
 import { env } from "cloudflare:workers";
+import { ANNOTATION_LIMITS } from "@portifact/contracts";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
 import { approveDevice, pollDeviceToken, requestDeviceCode } from "./flows.ts";
 import type { Harness } from "./harness.ts";
@@ -54,4 +55,25 @@ export async function publishSite(c: TokenClient, name = "Plan"): Promise<string
   const commit = await c.call(`/api/v1/publishes/${uploadId}/commit`, { method: "POST" });
   if (commit.status !== 200) throw new Error(`commit failed with ${commit.status}`);
   return artifactId;
+}
+
+/**
+ * Seeds comments by these accounts on `artifactId` (which none of them owns), long ago, so they
+ * are past the human check of their first comments. Tests about something else use it; the
+ * human-check tests start from a fresh account instead.
+ */
+export async function pastHumanCheck(emails: string[], artifactId: string): Promise<void> {
+  for (const email of emails) {
+    const user = await env.DB.prepare("select id from users where email = ?")
+      .bind(email)
+      .first<{ id: string }>();
+    if (!user) throw new Error(`no account for ${email}`);
+    for (let i = 0; i < ANNOTATION_LIMITS.humanCheckedComments; i++) {
+      await env.DB.prepare(
+        "insert into annotation_events (artifact_id, thread_id, actor_id, write_id, kind, at) values (?, 'seed', ?, ?, 'message_created', 0)",
+      )
+        .bind(artifactId, user.id, crypto.randomUUID())
+        .run();
+    }
+  }
 }

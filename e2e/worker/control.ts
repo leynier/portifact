@@ -16,6 +16,12 @@ export type E2eEnv = AppEnv & ContentEnv;
 
 const DAY = 86_400_000;
 
+/**
+ * Seeded comments skip the human check on purpose: this Worker only runs in the e2e suite, and
+ * the check itself is covered by the services and app tests.
+ */
+const HUMAN = { token: "e2e-seed", verify: async () => "passed" as const };
+
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -171,6 +177,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   if (path === "/thread") {
     const thread = input as ThreadInput;
     const result = await createAnnotationThread(db, {
+      humanCheck: HUMAN,
       userId: thread.userId,
       artifactId: thread.artifactId,
       versionId: thread.versionId,
