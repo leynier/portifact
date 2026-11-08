@@ -4,6 +4,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  foreignKey,
   index,
   integer,
   primaryKey,
@@ -358,6 +359,50 @@ export const uploadSessions = sqliteTable(
   ],
 );
 
+/**
+ * R2 multipart uploads of an upload session, one per object over the multipart threshold (plan
+ * section 9). `upload_id` is R2's; the client puts each part straight to R2 through presigned
+ * URLs and reports its ETag into `multipart_parts`. A closed session leaves an
+ * `abort_multipart` job that aborts what was not completed and deletes these rows.
+ */
+export const multipartUploads = sqliteTable(
+  "multipart_uploads",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => uploadSessions.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    ownerId: text("owner_id").notNull(),
+    r2Key: text("r2_key").notNull(),
+    uploadId: text("upload_id").notNull(),
+    partSize: integer("part_size").notNull(),
+    partCount: integer("part_count").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sessionId, t.sha256] }),
+    check("multipart_uploads_plan", sql`${t.partSize} > 0 and ${t.partCount} > 0`),
+  ],
+);
+
+/** Parts of a multipart upload the client reported as stored, with the ETag R2 answered. */
+export const multipartParts = sqliteTable(
+  "multipart_parts",
+  {
+    sessionId: text("session_id").notNull(),
+    sha256: text("sha256").notNull(),
+    partNumber: integer("part_number").notNull(),
+    etag: text("etag").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sessionId, t.sha256, t.partNumber] }),
+    foreignKey({
+      columns: [t.sessionId, t.sha256],
+      foreignColumns: [multipartUploads.sessionId, multipartUploads.sha256],
+    }).onDelete("cascade"),
+  ],
+);
+
 /** Per-account counters kept in the same transactions as the work they admit. */
 export const accountUsage = sqliteTable(
   "account_usage",
@@ -432,7 +477,12 @@ export const operations = sqliteTable(
 );
 
 /** Follow-up jobs of the transactional outbox (packages/services/src/outbox.ts). */
-export const OUTBOX_TOPICS = ["purge_artifact", "account_deletion", "delete_objects"] as const;
+export const OUTBOX_TOPICS = [
+  "purge_artifact",
+  "account_deletion",
+  "delete_objects",
+  "abort_multipart",
+] as const;
 
 /**
  * Transactional outbox: a job written in the same D1 batch as the state change that needs it.

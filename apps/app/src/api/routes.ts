@@ -13,8 +13,10 @@ import {
   type OAuthScope,
   PreparedPublish,
   PublishRequest,
+  UploadedPart,
 } from "@portifact/contracts";
 import { createDb, type Db } from "@portifact/db";
+import { type MultipartConfig, partRange } from "@portifact/domain";
 import {
   type ArtifactRow,
   abortPublish,
@@ -25,9 +27,11 @@ import {
   getArtifact,
   type LifecycleOutcome,
   listArtifacts,
+  type PendingUpload,
   type PreparedUpload,
   preparePublish,
   renewArtifact,
+  reportUploadedPart,
   restoreArtifact,
   type StoredResponse,
   updateAccess,
@@ -63,6 +67,8 @@ export interface ApiDeps {
   /** Turnstile's siteverify transport, for the human check of new comments. */
   siteverify(env: Env): FetchLike;
   now(): number;
+  /** Threshold and part size of multipart uploads; undefined for the defaults. */
+  multipart?(env: Env): MultipartConfig | undefined;
 }
 
 export function apiRoutes(deps: ApiDeps) {
@@ -99,7 +105,7 @@ export function apiRoutes(deps: ApiDeps) {
       const db = createDb(c.env.DB);
       const now = deps.now();
       return idempotent(c, { userId, operation: "publish.prepare", request: body.value, now }, () =>
-        prepare(db, deps.presigner(c.env), userId, body.value, now),
+        prepare(c.env, db, deps, userId, body.value, now),
       );
     }),
   );
@@ -116,6 +122,23 @@ export function apiRoutes(deps: ApiDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(await prepared(deps.presigner(c.env), result.value, now));
+    }),
+  );
+
+  // A part of a multipart object reached storage; its ETag lets the commit assemble the object.
+  api.post(
+    "/api/v1/publishes/:uploadId/parts",
+    guarded("artifacts:write", async (c, userId) => {
+      const body = await readJson(c, UploadedPart);
+      if (!body.ok) return body.response;
+      const result = await reportUploadedPart(createDb(c.env.DB), {
+        ownerId: userId,
+        sessionId: c.req.param("uploadId") as string,
+        ...body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.body(null, 204);
     }),
   );
 
@@ -266,25 +289,34 @@ export function apiRoutes(deps: ApiDeps) {
 }
 
 async function prepare(
+  env: Env,
   db: Db,
-  presigner: Presigner,
+  deps: ApiDeps,
   ownerId: string,
   body: z.infer<typeof PublishRequest>,
   now: number,
 ): Promise<StoredResponse> {
-  const result = await preparePublish(db, {
-    ownerId,
-    ...(body.artifactId ? { artifactId: body.artifactId } : {}),
-    type: body.type,
-    name: body.name,
-    entrypoint: body.entrypoint,
-    baseVersionId: body.baseVersionId,
-    files: body.files,
-    sourceOrigin: body.sourceOrigin,
-    now,
-  });
+  const config = deps.multipart?.(env);
+  const multipart = body.multipart
+    ? { bucket: env.ARTIFACTS, ...(config ? { config } : {}) }
+    : undefined;
+  const result = await preparePublish(
+    db,
+    {
+      ownerId,
+      ...(body.artifactId ? { artifactId: body.artifactId } : {}),
+      type: body.type,
+      name: body.name,
+      entrypoint: body.entrypoint,
+      baseVersionId: body.baseVersionId,
+      files: body.files,
+      sourceOrigin: body.sourceOrigin,
+      now,
+    },
+    multipart,
+  );
   if (!result.ok) return failure(result.code, result.message);
-  return { status: 201, body: await prepared(presigner, result.value, now) };
+  return { status: 201, body: await prepared(deps.presigner(env), result.value, now) };
 }
 
 async function prepared(presigner: Presigner, upload: PreparedUpload, now: number) {
@@ -298,11 +330,43 @@ async function prepared(presigner: Presigner, upload: PreparedUpload, now: numbe
   });
 }
 
-async function target(
-  presigner: Presigner,
-  upload: { sha256: string; size: number; r2Key: string },
-  now: number,
-) {
+async function target(presigner: Presigner, upload: PendingUpload, now: number) {
+  const { multipart } = upload;
+  if (multipart) {
+    const done = new Set(multipart.doneParts);
+    const missing: number[] = [];
+    for (let part = 1; part <= multipart.partCount; part += 1) {
+      if (!done.has(part)) missing.push(part);
+    }
+    return {
+      sha256: upload.sha256,
+      size: upload.size,
+      method: "MULTIPART" as const,
+      partSize: multipart.partSize,
+      partCount: multipart.partCount,
+      doneParts: multipart.doneParts,
+      parts: await Promise.all(
+        missing.map(async (partNumber) => {
+          const range = partRange(upload.size, multipart, partNumber);
+          const signed = await presigner.presignPart(
+            multipart.key,
+            multipart.uploadId,
+            partNumber,
+            range.size,
+            now,
+          );
+          return {
+            partNumber,
+            ...range,
+            method: "PUT" as const,
+            url: signed.url,
+            headers: signed.headers,
+            expiresAt: iso(signed.expiresAt),
+          };
+        }),
+      ),
+    };
+  }
   const signed = await presigner.presignPut(upload.r2Key, upload.size, upload.sha256, now);
   return {
     sha256: upload.sha256,

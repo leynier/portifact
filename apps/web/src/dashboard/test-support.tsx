@@ -192,19 +192,21 @@ function fakeStorage(): FakeStorage {
       }
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
       storage.puts.push({ url: target.url, headers: target.headers, size: body.size });
+      // The fake API hands out single PUTs only; multipart is covered by publish/upload.test.ts.
+      if (!("sha256" in target)) return { status: 404 };
       const fault = nextFault();
-      if (fault && "network" in fault) return 0;
-      if (fault && "status" in fault) return fault.status;
+      if (fault && "network" in fault) return { status: 0 };
+      if (fault && "status" in fault) return { status: fault.status };
       onProgress(Math.floor(body.size / 2));
       const signedSize = Number(target.headers["content-length"]);
       const checksum = target.headers["x-amz-checksum-sha256"];
       if (signedSize !== body.size || checksum !== base64OfHex(await sha256OfBlob(body))) {
-        return 400;
+        return { status: 400 };
       }
-      if (Date.parse(target.expiresAt) <= Date.now()) return 403;
+      if (Date.parse(target.expiresAt) <= Date.now()) return { status: 403 };
       onProgress(body.size);
       storage.objects.set(target.sha256, body);
-      return 200;
+      return { status: 200 };
     },
     async get(url) {
       storage.gets.push(url);

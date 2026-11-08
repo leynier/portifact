@@ -67,9 +67,16 @@ export async function startLocalTarget(): Promise<Target> {
       const path = new URL(url).pathname.split("/").slice(1).map(decodeURIComponent);
       if (path[0] !== BUCKET) throw new Error(`Unexpected upload URL ${new URL(url).host}`);
       const key = path.slice(1).join("/");
+      // A multipart part carries its upload ID and part number, as S3 UploadPart does.
+      const signed = new URL(url).searchParams;
+      const query = new URLSearchParams({ key });
+      for (const name of ["uploadId", "partNumber"]) {
+        const value = signed.get(name);
+        if (value !== null) query.set(name, value);
+      }
       return request({
         method: "PUT",
-        url: `${CONTROL}/storage?key=${encodeURIComponent(key)}`,
+        url: `${CONTROL}/storage?${query}`,
         headers,
         body,
       });

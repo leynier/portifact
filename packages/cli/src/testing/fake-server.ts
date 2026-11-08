@@ -342,7 +342,7 @@ function readBody(request: IncomingMessage): Promise<Buffer> {
 
 function reply(response: ServerResponse, answer: Reply) {
   if (answer.body === undefined) {
-    response.writeHead(answer.status, { "cache-control": "no-store" });
+    response.writeHead(answer.status, { "cache-control": "no-store", ...answer.headers });
     return response.end();
   }
   if (Buffer.isBuffer(answer.body)) {

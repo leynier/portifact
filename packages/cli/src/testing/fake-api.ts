@@ -21,11 +21,13 @@ import {
   PublishRequest,
   RollbackRequest,
   type SourceOrigin,
+  UploadedPart,
 } from "@portifact/contracts";
 
 export interface Reply {
   status: number;
   body?: unknown;
+  headers?: Record<string, string>;
 }
 
 export interface FakeArtifact {
@@ -79,8 +81,26 @@ interface UploadSession {
   sourceOrigin: SourceOrigin | null;
   /** Objects this upload must send; they stay pending until the commit verifies them. */
   needed: Map<string, number>;
+  /** Objects uploaded in parts, by SHA-256. */
+  multipart: Map<string, FakeMultipart>;
   state: "uploading" | "committed" | "aborted";
   committed?: unknown;
+}
+
+interface FakeMultipart {
+  partSize: number;
+  partCount: number;
+  /** Parts storage holds, with the ETag it answered. */
+  stored: Map<number, { etag: string; bytes: Buffer }>;
+  /** Parts the client reported, with the ETag it sent. */
+  reported: Map<number, string>;
+}
+
+export interface PartPutRecord {
+  sha256: string;
+  partNumber: number;
+  bytes: number;
+  status: number;
 }
 
 export interface PutRecord {
@@ -98,8 +118,19 @@ export interface FakeApiState {
   uploaded: Map<string, Buffer>;
   sessions: Map<string, UploadSession>;
   puts: PutRecord[];
+  /** Part uploads to storage, in the order they finished. */
+  partPuts: PartPutRecord[];
+  /** Part reports the API received. */
+  partReports: { sha256: string; partNumber: number; etag: string }[];
+  /**
+   * Multipart threshold and part size for clients that ask for multipart; null turns multipart
+   * off, as on a server older than it.
+   */
+  multipart: { thresholdBytes: number; partBytes: number } | null;
+  /** Answer part uploads without an ETag header, as storage does without the CORS rule. */
+  hideEtag: boolean;
   /** Upload URLs the server handed out, by token. */
-  urls: Map<string, { sha256: string; size: number; expiresAt: number }>;
+  urls: Map<string, { sha256: string; size: number; expiresAt: number; partNumber?: number }>;
   /** Versions of each artifact, oldest first. */
   versions: Map<string, FakeVersion[]>;
   /** Download links the server handed out, by token. */
@@ -138,6 +169,10 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     uploaded: new Map(),
     sessions: new Map(),
     puts: [],
+    partPuts: [],
+    partReports: [],
+    multipart: { thresholdBytes: 64 * 1024 * 1024, partBytes: 16 * 1024 * 1024 },
+    hideEtag: false,
     urls: new Map(),
     versions: new Map(),
     downloadUrls: new Map(),
@@ -217,6 +252,16 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       state.gets.push({ sha256, headers, status: reply.status });
       return reply;
     }
+    const part = /^\/r2\/parts\/([0-9a-f]{64})\/(\d+)$/.exec(url.pathname);
+    if (part && method === "PUT") {
+      return storePart(
+        part[1] as string,
+        Number(part[2]),
+        url.searchParams.get("token") ?? "",
+        headers,
+        body,
+      );
+    }
     if (!match || method !== "PUT") return undefined;
     const sha256 = match[1] as string;
     const reply = checkUpload(sha256, url.searchParams.get("token") ?? "", headers, body);
@@ -244,6 +289,45 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       return { status: 400, body: "BadDigest" };
     }
     return { status: 200 };
+  }
+
+  function storePart(
+    sha256: string,
+    partNumber: number,
+    token: string,
+    headers: IncomingHttpHeaders,
+    body: Buffer,
+  ): Reply {
+    const signed = state.urls.get(token);
+    const record = (status: number) =>
+      state.partPuts.push({ sha256, partNumber, bytes: body.length, status });
+    if (!signed || signed.sha256 !== sha256 || signed.partNumber !== partNumber) {
+      record(403);
+      return { status: 403, body: "SignatureDoesNotMatch" };
+    }
+    if (clock() >= signed.expiresAt) {
+      record(403);
+      return { status: 403, body: "Request has expired" };
+    }
+    if (headers.authorization !== undefined) {
+      record(400);
+      return { status: 400, body: "Unexpected header" };
+    }
+    if (headers["content-length"] !== String(signed.size) || body.length !== signed.size) {
+      record(403);
+      return { status: 403, body: "SignatureDoesNotMatch" };
+    }
+    const upload = [...state.sessions.values()]
+      .map((session) => session.multipart.get(sha256))
+      .find((found) => found !== undefined);
+    if (!upload) {
+      record(404);
+      return { status: 404, body: "NoSuchUpload" };
+    }
+    const etag = `"${createHash("md5").update(body).digest("hex")}"`;
+    upload.stored.set(partNumber, { etag, bytes: body });
+    record(200);
+    return { status: 200, ...(state.hideEtag ? {} : { headers: { etag } }) };
   }
 
   function checkDownload(sha256: string, token: string, headers: IncomingHttpHeaders): Reply {
@@ -475,8 +559,71 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       expiresAt: iso(clock() + UPLOAD_TTL_MS),
       uploads: [...session.needed]
         .filter(([sha256]) => !state.stored.has(sha256))
-        .map(([sha256, size]) => uploadTarget(sha256, size)),
+        .map(([sha256, size]) => {
+          const upload = session.multipart.get(sha256);
+          return upload ? multipartTarget(sha256, size, upload) : uploadTarget(sha256, size);
+        }),
     };
+  }
+
+  function multipartTarget(sha256: string, size: number, upload: FakeMultipart) {
+    const doneParts = [...upload.reported.keys()].sort((a, b) => a - b);
+    const parts = [];
+    for (let partNumber = 1; partNumber <= upload.partCount; partNumber += 1) {
+      if (upload.reported.has(partNumber)) continue;
+      const offset = (partNumber - 1) * upload.partSize;
+      const partSize = Math.min(upload.partSize, size - offset);
+      const token = randomUUID();
+      const expiresAt = clock() + state.urlTtlMs;
+      state.urls.set(token, { sha256, size: partSize, expiresAt, partNumber });
+      parts.push({
+        partNumber,
+        offset,
+        size: partSize,
+        method: "PUT",
+        url: `${origin()}/r2/parts/${sha256}/${partNumber}?token=${token}`,
+        headers: { "content-length": String(partSize) },
+        expiresAt: iso(expiresAt),
+      });
+    }
+    return {
+      sha256,
+      size,
+      method: "MULTIPART",
+      partSize: upload.partSize,
+      partCount: upload.partCount,
+      doneParts,
+      parts,
+    };
+  }
+
+  function reportPart(ownerId: string, id: string, raw: string): Reply {
+    const session = state.sessions.get(id);
+    if (!session || session.ownerId !== ownerId) return error("not_found", "Upload not found.");
+    if (session.state !== "uploading") return error("upload_incomplete", "Upload is closed.");
+    const parsed = UploadedPart.safeParse(parseJson(raw));
+    if (!parsed.success) return error("invalid_input", "Invalid part.");
+    const upload = session.multipart.get(parsed.data.sha256);
+    if (!upload || parsed.data.partNumber > upload.partCount) {
+      return error("invalid_input", "Not a part of this upload.");
+    }
+    upload.reported.set(parsed.data.partNumber, parsed.data.etag);
+    state.partReports.push(parsed.data);
+    return { status: 204 };
+  }
+
+  /** Assembles a multipart object at commit, as R2 does with the reported ETags. */
+  function assemble(sha256: string, upload: FakeMultipart): boolean {
+    const chunks: Buffer[] = [];
+    for (let partNumber = 1; partNumber <= upload.partCount; partNumber += 1) {
+      const stored = upload.stored.get(partNumber);
+      if (!stored || stored.etag !== upload.reported.get(partNumber)) return false;
+      chunks.push(stored.bytes);
+    }
+    const bytes = Buffer.concat(chunks);
+    if (sha256Of(bytes) !== sha256) return false;
+    state.uploaded.set(sha256, bytes);
+    return true;
   }
 
   function prepare(ownerId: string, key: string | undefined, raw: string): Reply {
@@ -513,8 +660,19 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       versionNumber = artifact.versions + 1;
     }
     const needed = new Map<string, number>();
+    const multipart = new Map<string, FakeMultipart>();
     for (const file of request.files) {
-      if (!state.stored.has(file.sha256)) needed.set(file.sha256, file.size);
+      if (state.stored.has(file.sha256)) continue;
+      needed.set(file.sha256, file.size);
+      const config = state.multipart;
+      if (request.multipart && config && file.size > config.thresholdBytes) {
+        multipart.set(file.sha256, {
+          partSize: config.partBytes,
+          partCount: Math.ceil(file.size / config.partBytes),
+          stored: new Map(),
+          reported: new Map(),
+        });
+      }
     }
     const session: UploadSession = {
       id: `up_${randomUUID().replaceAll("-", "")}`,
@@ -529,6 +687,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       files: request.files,
       sourceOrigin: request.sourceOrigin ?? null,
       needed,
+      multipart,
       state: "uploading",
     };
     state.sessions.set(session.id, session);
@@ -547,6 +706,13 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     if (!session || session.ownerId !== ownerId) return error("not_found", "Upload not found.");
     if (session.state === "committed") return { status: 200, body: session.committed };
     if (session.state !== "uploading") return error("upload_incomplete", "Upload is closed.");
+    for (const [sha256, upload] of session.multipart) {
+      if (state.stored.has(sha256) || state.uploaded.has(sha256)) continue;
+      if (!assemble(sha256, upload)) {
+        upload.reported.clear();
+        return error("upload_incomplete", `${sha256} could not be assembled from its parts.`);
+      }
+    }
     const missing = [...session.needed.keys()].filter(
       (sha256) => !state.stored.has(sha256) && !state.uploaded.has(sha256),
     );
@@ -683,6 +849,10 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const path = url.pathname.slice("/api/v1".length);
     const route = `${method} ${path}`;
     if (route === "POST /publishes") return prepare(ownerId, key, raw);
+    const parts = /^\/publishes\/([^/]+)\/parts$/.exec(path);
+    if (parts && method === "POST") {
+      return reportPart(ownerId, decodeURIComponent(parts[1] as string), raw);
+    }
     let match = /^\/publishes\/([^/]+)(\/commit)?$/.exec(path);
     if (match) {
       const id = decodeURIComponent(match[1] as string);

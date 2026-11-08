@@ -127,6 +127,13 @@
       "when": 1794161693841,
       "tag": "0017_email_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1794163066639,
+      "tag": "0018_multipart_uploads",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,13 @@ export * from "./idempotency.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";
 export * from "./moderation.ts";
+export {
+  abortSessionMultipart,
+  type MultipartState,
+  type ReportPartInput,
+  reportUploadedPart,
+  stagingKey,
+} from "./multipart.ts";
 export * from "./outbox.ts";
 export * from "./publish.ts";
 export * from "./read-access.ts";
