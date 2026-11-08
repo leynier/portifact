@@ -18,6 +18,9 @@ import { artifactOrigin, bounced, REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../sr
 
 // The page's own policy blocks every script, the bridge included, so engines where the frame
 // keeps the review cookie reach the fallback too.
+/** The page the content Worker answers a review code it does not redeem with. */
+const REFUSED = "This review link has expired or was already used";
+
 const SITE = {
   "index.html":
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="script-src \'none\'"><title>Launch plan</title></head><body><main><h1>Launch plan</h1><p>Hello brave new world</p><a href="details.html">Details</a></main></body></html>',
@@ -142,15 +145,10 @@ test("an artifact cannot open a review tab session in a visitor's browser", asyn
     });
     const before = (await contentRequests()).length;
     await page.goto(`${artifactOrigin(planter.artifactId)}/`);
-    await expect
-      .poll(async () =>
-        (await contentRequests())
-          .slice(before)
-          .some(
-            (r) => r.host.startsWith(reviewed.artifactId) && r.path === "/__portifact/review/tab",
-          ),
-      )
-      .toBe(true);
+    // Wait for the browser to show the refusal, not only for the stack to have answered: until
+    // the page commits it, the navigation is still in flight and would cut off the next goto.
+    await expect(page.getByRole("heading", { name: REFUSED })).toBeVisible();
+    expect(page.url()).toContain(`${artifactOrigin(reviewed.artifactId)}/__portifact/review/tab?`);
     const exchange = (await contentRequests())
       .slice(before)
       .find((r) => r.host.startsWith(reviewed.artifactId) && r.path === "/__portifact/review/tab");
@@ -210,7 +208,10 @@ test("a frame session a sibling plants in the artifact's own partition is never 
     });
     const since = (await contentRequests()).length;
     await page.goto(`${artifactOrigin(sibling.artifactId)}/`);
-    await expect.poll(() => exchangeHit(since)).toBe(true);
+    // The frame's load event means its answer, with the cookie, reached the browser; the
+    // stack's log alone does not, and leaving the page earlier would drop the frame's answer.
+    await expect(page.getByText("planted")).toBeVisible();
+    expect(await exchangeHit(since)).toBe(true);
   };
   /** Whether this engine stores a partitioned cookie set in a same-site frame at all. */
   const keepsPartitioned =

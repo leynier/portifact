@@ -14,10 +14,11 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@portifact/ui";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { CircleAlert, Eye, Info, RefreshCw } from "lucide-react";
+import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
+import { CircleAlert, Download, Eye, Info, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
-import { useDashboard, useFormatDate, useT } from "../context.tsx";
+import { type AccessLogFormat, exportAccessLog } from "../access-log-export.ts";
+import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { errorMessage } from "./artifact-list.tsx";
 
@@ -67,6 +68,7 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-4">
+          <AccessLogExport artifactId={artifact.id} />
           <Table caption={t("accessLog.caption")}>
             <TableHead>
               <TableRow>
@@ -107,5 +109,51 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
       </p>
       {body}
     </section>
+  );
+}
+
+/** Downloads the whole log, every page of it, as CSV or JSON. */
+function AccessLogExport({ artifactId }: { artifactId: string }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const { api, save } = useDashboard();
+  const exporter = useMutation({
+    mutationFn: (format: AccessLogFormat) => exportAccessLog(api, artifactId, format),
+    onSuccess: (file, format) => {
+      save(file);
+      announce(t(format === "csv" ? "accessLog.export.doneCsv" : "accessLog.export.doneJson"));
+    },
+  });
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          icon={<Download className="size-4" />}
+          busy={exporter.isPending && exporter.variables === "csv"}
+          onClick={() => exporter.mutate("csv")}
+        >
+          {t("accessLog.export.csv")}
+        </Button>
+        <Button
+          size="sm"
+          icon={<Download className="size-4" />}
+          busy={exporter.isPending && exporter.variables === "json"}
+          onClick={() => exporter.mutate("json")}
+        >
+          {t("accessLog.export.json")}
+        </Button>
+      </div>
+      <p className="text-sm text-text-muted">{t("accessLog.export.hint")}</p>
+      {exporter.isError ? (
+        <Callout
+          tone="error"
+          title={t("accessLog.export.failed")}
+          icon={<CircleAlert className="size-5" />}
+        >
+          {errorMessage(t, exporter.error)}
+        </Callout>
+      ) : null}
+    </div>
   );
 }
