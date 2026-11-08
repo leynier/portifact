@@ -1,7 +1,19 @@
 // How artifact facts are shown: every state has a label and an icon, never tone alone.
-import type { ArtifactState } from "@portifact/contracts";
+import type { AccessMode, ArtifactState, ArtifactType } from "@portifact/contracts";
 import { Badge } from "@portifact/ui";
-import { Archive, Ban, CircleCheck, PencilLine, Trash2 } from "lucide-react";
+import {
+  Archive,
+  Ban,
+  CircleCheck,
+  FileText,
+  Globe,
+  Lock,
+  PanelsTopLeft,
+  PencilLine,
+  ScrollText,
+  Trash2,
+  Users,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import type { LifecycleAction } from "./api.ts";
 import { useT } from "./context.tsx";
@@ -27,6 +39,40 @@ export function StateBadge({ state }: { state: ArtifactState }) {
     <Badge icon={icon} emphasis={emphasis}>
       {t(`state.${state}`)}
     </Badge>
+  );
+}
+
+const ACCESS_ICONS: Record<AccessMode, ReactNode> = {
+  restricted: <Lock className={ICON} />,
+  authenticated: <Users className={ICON} />,
+  public: <Globe className={ICON} />,
+};
+
+/** Who can open an artifact, as a short label with its icon. */
+export function AccessBadge({ mode }: { mode: AccessMode }) {
+  const t = useT();
+  return (
+    <Badge icon={ACCESS_ICONS[mode]} emphasis="subtle">
+      {t(`list.access.${mode}`)}
+    </Badge>
+  );
+}
+
+const TYPE_ICONS: Record<ArtifactType, ReactNode> = {
+  site: <PanelsTopLeft className="size-4" />,
+  markdown: <FileText className="size-4" />,
+  text: <ScrollText className="size-4" />,
+};
+
+/** The artifact's type, as an icon in a tile; the type's name is the caller's text. */
+export function TypeIcon({ type }: { type: ArtifactType }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex size-9 shrink-0 items-center justify-center rounded-sm border border-border bg-surface text-text"
+    >
+      {TYPE_ICONS[type]}
+    </span>
   );
 }
 

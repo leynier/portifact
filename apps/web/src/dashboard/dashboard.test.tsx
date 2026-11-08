@@ -126,25 +126,40 @@ describe("artifact list", () => {
           .map((c) => c.textContent),
       ),
     ).toEqual([
+      // The name comes with the type and the ID; the last cell holds the quick actions.
       [
-        "Launch plan",
-        "Site",
+        "Launch planSitek7d2qm4xab",
         "Active",
         "Restricted",
         "Dec 8, 2026",
         "2 kB1 version kept",
         "Updated Nov 8, 2026",
+        "",
       ],
       [
-        "Old report",
-        "Markdown",
+        "Old reportMarkdownm3n4p5q6rs",
         "Archived",
         "Restricted",
         "Dec 8, 2026",
         "2 kB1 version kept",
         "Updated Nov 8, 2026",
+        "",
       ],
     ]);
+    // An active artifact opens and goes to review from its row; an archived one cannot.
+    const [active, archived] = rows as [HTMLElement, HTMLElement];
+    expect(
+      within(active)
+        .getByRole("link", { name: "Open the published Launch plan" })
+        .getAttribute("href"),
+    ).toBe("https://k7d2qm4xab.portifact.dev/");
+    expect(
+      within(active)
+        .getByRole("link", { name: "Review and comment on Launch plan" })
+        .getAttribute("href"),
+    ).toBe("/review/k7d2qm4xab");
+    expect(within(archived).queryByRole("link", { name: /Open the published/ })).toBeNull();
+    expect(within(archived).queryByRole("link", { name: /Review and comment/ })).toBeNull();
     expect(within(table).getByRole("link", { name: "Launch plan" }).getAttribute("href")).toBe(
       "/artifacts/k7d2qm4xab",
     );
@@ -179,7 +194,7 @@ describe("artifact list", () => {
       .map((row) =>
         within(row)
           .getAllByRole("cell")
-          .slice(5)
+          .slice(4, 6)
           .map((cell) => [...cell.children].map((line) => line.textContent)),
       );
     expect(cells).toEqual([
@@ -294,7 +309,7 @@ describe("artifact search and filters", () => {
     within(screen.getByRole("table"))
       .getAllByRole("row")
       .slice(1)
-      .map((row) => within(row).getAllByRole("cell")[0]?.textContent);
+      .map((row) => within(row).getAllByRole("link")[0]?.textContent);
   const select = (name: string) => screen.getByRole("combobox", { name }) as HTMLSelectElement;
   const lastListPath = () =>
     server.requests
@@ -434,7 +449,6 @@ describe("artifact detail", () => {
       .getAllByRole("term")
       .map((t) => t.textContent);
     expect(terms).toEqual([
-      "URL",
       "Type",
       "State",
       "Access",
@@ -444,9 +458,9 @@ describe("artifact detail", () => {
       "Archived",
       "Deleted for good on",
     ]);
-    expect(
-      within(facts).getByRole("link", { name: "https://m3n4p5q6rs.portifact.dev/" }),
-    ).toBeTruthy();
+    // The link leads the page, ready to copy, above the details.
+    expect(screen.getByRole("link", { name: "https://m3n4p5q6rs.portifact.dev/" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
     expect(facts.textContent).toContain("Only you and the people you add");
     expect(document.title).toBe("Old report · Portifact");
   });
