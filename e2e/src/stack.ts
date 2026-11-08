@@ -43,6 +43,8 @@ export interface Stack {
 }
 
 const E2E_DIR = new URL("..", import.meta.url).pathname;
+/** Cloudflare's limit on request and response headers, 128 KB in total each. */
+const HEADER_LIMIT = 128 * 1024;
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-connection", "upgrade", "host"]);
 
 /** A Worker response as raw HTTP, so headers and bytes pass through untouched. */
@@ -120,6 +122,9 @@ export async function startStack(): Promise<Stack> {
           method: request.method,
           headers,
           rejectUnauthorized: false,
+          // Responses that expire injected cookies carry many Set-Cookie headers; Cloudflare
+          // allows 128 KB of response headers.
+          maxHeaderSize: HEADER_LIMIT,
         },
         (incoming) => {
           readBody(incoming).then(
@@ -139,47 +144,52 @@ export async function startStack(): Promise<Stack> {
   };
 
   const tls = selfSignedCertificate();
-  const front = createHttpsServer({ key: tls.key, cert: tls.cert }, async (request, response) => {
-    try {
-      const host = request.headers.host ?? "";
-      const url = `https://${host}${request.url ?? "/"}`;
-      if (host === REDIRECT_HOST) {
-        const to = new URL(url).searchParams.get("to") ?? "";
-        const target = URL.canParse(to) ? new URL(to) : null;
-        if (target?.protocol !== "https:" || !isStackHost(target.hostname)) {
-          response.writeHead(400).end();
+  // Cloudflare refuses requests whose headers pass 128 KB in total; Node's default (16 KiB) would
+  // refuse the oversized Cookie headers the injected-cookie test needs to reach the Worker.
+  const front = createHttpsServer(
+    { key: tls.key, cert: tls.cert, maxHeaderSize: HEADER_LIMIT },
+    async (request, response) => {
+      try {
+        const host = request.headers.host ?? "";
+        const url = `https://${host}${request.url ?? "/"}`;
+        if (host === REDIRECT_HOST) {
+          const to = new URL(url).searchParams.get("to") ?? "";
+          const target = URL.canParse(to) ? new URL(to) : null;
+          if (target?.protocol !== "https:" || !isStackHost(target.hostname)) {
+            response.writeHead(400).end();
+            return;
+          }
+          response.writeHead(302, { location: target.href, "cache-control": "no-store" }).end();
           return;
         }
-        response.writeHead(302, { location: target.href, "cache-control": "no-store" }).end();
-        return;
-      }
-      const result = await forward(url, request);
-      const extra: string[] = [];
-      if (host.endsWith(`.${CONTENT_SITE}`)) {
-        const path = new URL(url).pathname;
-        requests.push({
-          host,
-          path,
-          status: result.status,
-          cookieNames: cookieNames(request.headers.cookie),
-          site: (request.headers["sec-fetch-site"] as string | undefined) ?? null,
-          mode: (request.headers["sec-fetch-mode"] as string | undefined) ?? null,
-          dest: (request.headers["sec-fetch-dest"] as string | undefined) ?? null,
-        });
-        // Next to the review cookie, an ordinary third-party cookie: if the browser keeps it,
-        // third-party cookies are not blocked in this run.
-        const setsReview = setCookies(result).some((cookie) =>
-          cookie.startsWith(`${REVIEW_COOKIE}=`),
-        );
-        if (path === "/__portifact/review" && setsReview) {
-          extra.push(`${CONTROL_COOKIE}=1; Path=/; Secure; SameSite=None`);
+        const result = await forward(url, request);
+        const extra: string[] = [];
+        if (host.endsWith(`.${CONTENT_SITE}`)) {
+          const path = new URL(url).pathname;
+          requests.push({
+            host,
+            path,
+            status: result.status,
+            cookieNames: cookieNames(request.headers.cookie),
+            site: (request.headers["sec-fetch-site"] as string | undefined) ?? null,
+            mode: (request.headers["sec-fetch-mode"] as string | undefined) ?? null,
+            dest: (request.headers["sec-fetch-dest"] as string | undefined) ?? null,
+          });
+          // Next to the review cookie, an ordinary third-party cookie: if the browser keeps it,
+          // third-party cookies are not blocked in this run.
+          const setsReview = setCookies(result).some((cookie) =>
+            cookie.startsWith(`${REVIEW_COOKIE}=`),
+          );
+          if (path === "/__portifact/review" && setsReview) {
+            extra.push(`${CONTROL_COOKIE}=1; Path=/; Secure; SameSite=None`);
+          }
         }
+        send(response, result, extra);
+      } catch (error) {
+        response.writeHead(502).end(String(error));
       }
-      send(response, result, extra);
-    } catch (error) {
-      response.writeHead(502).end(String(error));
-    }
-  });
+    },
+  );
   await new Promise<void>((resolve) => front.listen(0, "127.0.0.1", resolve));
   const proxy = await startProxy((front.address() as AddressInfo).port);
 
