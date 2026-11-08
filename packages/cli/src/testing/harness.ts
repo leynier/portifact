@@ -1,8 +1,10 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { OAuthScope } from "@portifact/contracts";
 import { run } from "../cli.ts";
-import type { Runtime, SecretsApi } from "../runtime.ts";
+import { KEYRING_SERVICE } from "../credentials.ts";
+import { nodeFileBody, type Runtime, type SecretsApi } from "../runtime.ts";
 import type { FakeServer } from "./fake-server.ts";
 
 /** An in-memory OS credential store, or one that fails like Linux without a Secret Service. */
@@ -34,10 +36,18 @@ export interface Harness {
   sleeps: number[];
   /** URLs the CLI asked to open in a browser. */
   opened: string[];
+  /** Questions the CLI asked at the terminal. */
+  prompts: string[];
   secrets: FakeSecrets | undefined;
   configDir: string;
+  /** A scratch folder for files to publish, removed by cleanup. */
+  workspace: string;
   /** Moves the controlled clock forward. */
   advance(ms: number): void;
+  /** Stores tokens as if `portifact login` had run, with every product scope by default. */
+  signIn(scopes?: string[]): void;
+  /** Writes files under the workspace and returns the folder's path. */
+  files(folder: string, contents: Record<string, string | Buffer>): Promise<string>;
   invoke(...argv: string[]): Promise<{ code: number; stdout: string; stderr: string }>;
   cleanup(): Promise<void>;
 }
@@ -47,13 +57,19 @@ export interface HarnessOptions {
   secrets?: FakeSecrets | undefined;
   interactive?: boolean;
   browserOpens?: boolean;
+  /** Answers to confirmation prompts, in order; without it nobody can answer a prompt. */
+  answers?: string[];
   env?: Record<string, string>;
 }
 
 export async function createHarness(options: HarnessOptions): Promise<Harness> {
-  const configDir = join(await mkdtemp(join(tmpdir(), "portifact-cli-")), "config", "portifact");
+  const base = await mkdtemp(join(tmpdir(), "portifact-cli-"));
+  const configDir = join(base, "config", "portifact");
+  const workspace = join(base, "work");
   const sleeps: number[] = [];
   const opened: string[] = [];
+  const prompts: string[] = [];
+  const answers = options.answers;
   let clock = Date.parse("2026-11-08T12:00:00Z");
   const secrets = "secrets" in options ? options.secrets : new FakeSecrets();
 
@@ -73,16 +89,48 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     secrets,
     configDir,
     interactive: options.interactive ?? false,
+    prompt: answers
+      ? async (question) => {
+          prompts.push(question);
+          return answers.shift() ?? "";
+        }
+      : undefined,
+    fileBody: nodeFileBody,
   };
+  // Upload URLs expire on the same controlled clock the CLI reads.
+  options.server.clock = () => clock;
 
   return {
     runtime,
     sleeps,
     opened,
+    prompts,
     secrets,
     configDir,
+    workspace,
     advance(ms) {
       clock += ms;
+    },
+    signIn(scopes = [...OAuthScope.options, "offline_access"]) {
+      const pair = options.server.issue(scopes);
+      secrets?.entries.set(
+        `${KEYRING_SERVICE}\u0000${options.server.origin}`,
+        JSON.stringify({
+          accessToken: pair.accessToken,
+          refreshToken: pair.refreshToken,
+          expiresAt: clock + 3_600_000,
+          scopes,
+        }),
+      );
+    },
+    async files(folder, contents) {
+      const root = join(workspace, folder);
+      await mkdir(root, { recursive: true });
+      for (const [path, content] of Object.entries(contents)) {
+        await mkdir(dirname(join(root, path)), { recursive: true });
+        await writeFile(join(root, path), content);
+      }
+      return root;
     },
     async invoke(...argv) {
       const out: string[] = [];
@@ -94,6 +142,6 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       );
       return { code, stdout: out.join(""), stderr: err.join("") };
     },
-    cleanup: () => rm(join(configDir, "..", ".."), { recursive: true, force: true }),
+    cleanup: () => rm(base, { recursive: true, force: true }),
   };
 }

@@ -1,9 +1,16 @@
 // A local HTTP server that behaves like app.portifact.com for the CLI's requests: the device
-// code endpoint, device and refresh grants, revocation and GET /api/v1/me. The token endpoint's
-// answers to device polls are scripted, so each test chooses the sequence it needs.
+// code endpoint, device and refresh grants, revocation, GET /api/v1/me, the publishing and
+// artifact API (fake-api.ts) and presigned storage uploads. The token endpoint's answers to
+// device polls are scripted, and any request can be answered or dropped by a scripted fault.
 import { randomUUID } from "node:crypto";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import type { AddressInfo } from "node:net";
+import { createFakeApi, type FakeApiState, type Reply, scopeFor } from "./fake-api.ts";
 
 export type PollOutcome =
   | "pending"
@@ -19,6 +26,22 @@ export interface RecordedRequest {
   path: string;
   form: Record<string, string>;
   authorization: string | undefined;
+  headers: IncomingHttpHeaders;
+  /** The body as text; empty for storage uploads. */
+  body: string;
+}
+
+/**
+ * A fault for the next request that matches: answer with `reply` instead of handling it, drop the
+ * connection before handling it, or handle it and drop the connection instead of answering.
+ */
+export interface Fault {
+  method: string;
+  path: RegExp;
+  reply?: Reply;
+  drop?: "before" | "after";
+  /** Runs when the fault triggers, to change the server's state at that moment. */
+  effect?: () => void;
 }
 
 interface AccessToken {
@@ -51,6 +74,11 @@ export interface FakeServer {
   rotateRefreshTokens: boolean;
   /** Tokens the server issued, to check they never appear in output. */
   issuedTokens: string[];
+  /** The publishing API's data: artifacts, uploads, stored objects and storage requests. */
+  api: FakeApiState;
+  faults: Fault[];
+  /** The time the server sees; the harness points it at the CLI's controlled clock. */
+  clock: () => number;
   accessTokens: Map<string, AccessToken>;
   refreshTokens: Map<string, { userId: string; scopes: string[] }>;
   /** Issues a token pair directly, as if a login had happened before the test. */
@@ -64,7 +92,14 @@ export const USER_CODE = "WDJBMJHT";
 
 export async function startFakeServer(): Promise<FakeServer> {
   const revoked = new Set<string>();
+  const fakeApi = createFakeApi(
+    () => origin,
+    () => fake.clock(),
+  );
   const fake: Omit<FakeServer, "origin" | "close"> = {
+    api: fakeApi.state,
+    faults: [],
+    clock: () => Date.now(),
     requests: [],
     pollOutcomes: [],
     device: { interval: 5, expiresIn: 600 },
@@ -95,14 +130,37 @@ export async function startFakeServer(): Promise<FakeServer> {
 
   async function handle(request: IncomingMessage, response: ServerResponse) {
     const url = new URL(request.url ?? "/", origin);
-    const body = await readBody(request);
+    const method = request.method ?? "GET";
+    const bytes = await readBody(request);
+    const isStorage = url.pathname.startsWith("/r2/");
+    const body = isStorage ? "" : bytes.toString("utf8");
     const form = Object.fromEntries(new URLSearchParams(body));
     fake.requests.push({
-      method: request.method ?? "GET",
+      method,
       path: url.pathname,
       form,
       authorization: request.headers.authorization,
+      headers: request.headers,
+      body,
     });
+
+    const faultIndex = fake.faults.findIndex(
+      (fault) => fault.method === method && fault.path.test(url.pathname),
+    );
+    const fault = faultIndex === -1 ? undefined : fake.faults.splice(faultIndex, 1)[0];
+    fault?.effect?.();
+    if (fault?.drop === "before") return response.socket?.destroy();
+    if (fault?.reply) return reply(response, fault.reply);
+
+    const answer = isStorage
+      ? fakeApi.storage(method, url, request.headers, bytes)
+      : url.pathname.startsWith("/api/v1/") && url.pathname !== "/api/v1/me"
+        ? api(method, url, request.headers, body)
+        : undefined;
+    if (answer) {
+      if (fault?.drop === "after") return response.socket?.destroy();
+      return reply(response, answer);
+    }
 
     const route = `${request.method} ${url.pathname}`;
     if (route === "POST /api/auth/device/code") return deviceCode(response);
@@ -113,6 +171,27 @@ export async function startFakeServer(): Promise<FakeServer> {
     }
     if (route === "GET /api/v1/me") return me(request.headers.authorization, response);
     return send(response, 404, { error: { code: "not_found", message: "Not found." } });
+  }
+
+  function api(method: string, url: URL, headers: IncomingHttpHeaders, body: string): Reply {
+    const access = accessFor(headers.authorization);
+    if (!access) return { status: 401, body: { error: "invalid_token" } };
+    if (!access.scopes.includes(scopeFor(method, url.pathname))) {
+      return { status: 403, body: { error: "insufficient_scope" } };
+    }
+    const key = headers["idempotency-key"];
+    return (
+      fakeApi.api(method, url, access.userId, typeof key === "string" ? key : undefined, body) ?? {
+        status: 404,
+        body: { error: { code: "not_found", message: "Not found." } },
+      }
+    );
+  }
+
+  function accessFor(authorization: string | undefined) {
+    const value = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
+    const access = fake.accessTokens.get(value);
+    return access && !access.revoked ? access : undefined;
   }
 
   function deviceCode(response: ServerResponse) {
@@ -236,16 +315,25 @@ function scopesFrom(scope: string): string[] {
   return scope.split(" ").filter(Boolean);
 }
 
-function readBody(request: IncomingMessage): Promise<string> {
+function readBody(request: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    let body = "";
-    request.setEncoding("utf8");
-    request.on("data", (chunk: string) => {
-      body += chunk;
-    });
-    request.on("end", () => resolve(body));
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk: Buffer) => chunks.push(chunk));
+    request.on("end", () => resolve(Buffer.concat(chunks)));
     request.on("error", reject);
   });
+}
+
+function reply(response: ServerResponse, answer: Reply) {
+  if (answer.body === undefined) {
+    response.writeHead(answer.status, { "cache-control": "no-store" });
+    return response.end();
+  }
+  if (typeof answer.body === "string") {
+    response.writeHead(answer.status, { "content-type": "application/xml" });
+    return response.end(answer.body);
+  }
+  return send(response, answer.status, answer.body);
 }
 
 function send(response: ServerResponse, status: number, body: unknown) {

@@ -15,7 +15,7 @@ Portifact is in early development and gains commands release by release. Before 
 2. Run `portifact --help` to see the commands this version supports.
 3. Use only commands and flags that `--help` lists. Never guess a command. If the user asks for something the installed version cannot do, say so and suggest updating.
 
-Versions whose `--help` lists `login` can sign in, sign out and show the signed-in account. Publishing commands are not available in the CLI yet. The MCP server at `https://app.portifact.com/mcp` can already list, publish and manage small documents; see below.
+Versions whose `--help` lists `login` can sign in, sign out and show the signed-in account. Versions whose `--help` also lists `publish` can publish files and folders and manage artifacts and their access, as described below. Annotations are not available yet. The MCP server at `https://app.portifact.com/mcp` can already list, publish and manage small documents; see below.
 
 ## Install or update the CLI
 
@@ -51,17 +51,52 @@ Credentials go to the operating system's credential store. When there is none (f
 
 `PORTIFACT_APP_ORIGIN` points the CLI at another server and exists for tests and staging. Do not set it unless the user asks.
 
+## Publish
+
+Only in versions whose `--help` lists `publish`.
+
+1. Preview first: `portifact publish <path> --dry-run --json` builds the manifest without signing in or uploading. It returns `{"dryRun","type","name","entrypoint","totalBytes","files":[{"path","size","sha256","contentType"}],"excluded":[{"path","reason"}]}`. Show the user the files and what was left out, and stop if anything looks private.
+2. Publish: `portifact publish <path> --json`. The result is `{"artifactId","versionId","versionNumber","url","expiresAt","uploadId","files","totalBytes","uploadedFiles","uploadedBytes"}`. Progress and the manifest go to stderr.
+
+- The type is inferred from the path: a folder or an `.html` file is a `site`, `.md` is `markdown` and `.txt` is `text`. Pass `--type site|markdown|text` for other files. Folders can only be sites.
+- A single HTML file is published as the site's `index.html`. A folder needs an `index.html`, or `--entry <path>` with the page to open first.
+- `--name` sets the name shown in the artifact list; it defaults to the file or folder name.
+- `--artifact <id>` publishes a new version of an existing artifact, keeping its name, type and access unless `--name` changes the name. If someone else published in between, it fails with `version_conflict` (exit 6); check the artifact and publish again.
+- Folders always leave out `.git`, `node_modules`, caches, OS files and files that may hold secrets (`.env` and `.env.*` except examples, `.dev.vars`, `.npmrc`, `.netrc`, SSH keys, `*.pem`, `*.key`, `*.p12`, Terraform state and similar). Naming such a file directly is refused. The filter is a safety net, not a review: still check the manifest.
+- Symbolic links and special files are refused, never followed.
+- Files the account already stores are not uploaded again. Interrupted uploads are retried, and if publishing fails after the upload started, the CLI cancels it so nothing is half published.
+- ZIP files and `--source` (private sources next to the published files) are not supported yet.
+
+## Manage artifacts
+
+Only in versions whose `--help` lists these commands. Every command takes `--json`.
+
+- `portifact list [--limit N] [--cursor C]` returns `{"items":[...],"nextCursor"}`; pass `nextCursor` as `--cursor` for the next page. `portifact info <id>` returns one item: `{"id","name","type","state","accessMode","annotations","currentVersionId","url","expiresAt","archivedAt","purgeAt","createdAt","updatedAt"}`.
+- `portifact renew <id>`, `archive <id>` and `restore <id>` return `{"artifactId","state","expiresAt","purgeAt"}`. Ask before archiving.
+- `portifact delete <id>` deletes permanently. It asks the person at the terminal to type the artifact ID; without a terminal it requires `--yes` and otherwise fails with exit 2. Only pass `--yes` after the user confirmed that exact artifact.
+
+## Control access
+
+Only in versions whose `--help` lists `access`. Every command takes `--json` and prints `{"artifactId","mode","readers","indexable","embeddable","policyGeneration"}`.
+
+- `portifact access <id>` shows the current policy. Use it to report the access mode after publishing.
+- `portifact access set <id> restricted|authenticated|public`: `restricted` is the owner plus listed readers, `authenticated` is anyone signed in to Portifact, `public` is anyone with the link. Accounts in their first 7 days cannot make an artifact public (`account_too_new_for_public`, exit 7).
+- `portifact access add <id> <email>...` and `access remove <id> <email>...` change the reader list (at most 100 addresses at a time). Readers only matter while the mode is `restricted`.
+
 ### Output and exit codes
 
 With `--json`, the result is one JSON object on stdout, and a failure is `{"error":{"code","message"}}` on stdout. Instructions, progress and warnings always go to stderr. No output ever contains a token.
 
-| Exit code | Meaning                                                                                          |
-| --------- | ------------------------------------------------------------------------------------------------ |
-| 0         | Success                                                                                          |
-| 1         | Failure: network (`network_error`), unexpected server answer (`server_error`) or `rate_limited` |
-| 2         | Invalid usage or invalid `PORTIFACT_APP_ORIGIN` (`invalid_input`)                                |
-| 3         | Not signed in, or the session expired or was revoked (`unauthenticated`); run `portifact login`  |
-| 4         | The login was denied (`authorization_denied`) or its code expired (`authorization_expired`)      |
+| Exit code | Meaning                                                                                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0         | Success                                                                                                                                                    |
+| 1         | Failure: `network_error`, `server_error`, `rate_limited`, `capacity_unavailable`, `upload_failed` or `cancelled` (a deletion was not confirmed)          |
+| 2         | Invalid usage or input, including a bad path, a refused file, a missing `--yes` or an invalid `PORTIFACT_APP_ORIGIN` (`invalid_input`)                      |
+| 3         | Not signed in, or the session expired or was revoked (`unauthenticated`); run `portifact login`                                                            |
+| 4         | The login was denied (`authorization_denied`) or its code expired (`authorization_expired`)                                                                |
+| 5         | The artifact or upload does not exist or belongs to someone else (`not_found`), or the session lacks permission (`forbidden`)                              |
+| 6         | Conflict with the artifact's state: `version_conflict`, `upload_incomplete` or `artifact_archived` (restore it first)                                     |
+| 7         | A limit was reached: `quota_exceeded`, `traffic_exceeded` or `account_too_new_for_public`                                                                  |
 
 ## Choosing the CLI or MCP
 

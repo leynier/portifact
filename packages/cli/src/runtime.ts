@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
+import { createReadStream } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createInterface } from "node:readline/promises";
+import { Readable } from "node:stream";
 
 /** Output sinks, injected so the CLI can be tested without touching the process streams. */
 export interface Io {
@@ -14,6 +17,8 @@ export interface SecretsApi {
   set(options: { service: string; name: string; value: string }): Promise<void>;
   delete(options: { service: string; name: string }): Promise<boolean>;
 }
+
+export type RequestBody = NonNullable<RequestInit["body"]>;
 
 /** Everything the commands take from the outside world, injected so tests control it. */
 export interface Runtime {
@@ -29,6 +34,17 @@ export interface Runtime {
   configDir: string;
   /** A person is at the terminal, so opening a browser makes sense. */
   interactive: boolean;
+  /**
+   * Asks the person at the terminal and resolves their answer. Undefined when nobody can answer
+   * (stdin is not a terminal, or CI), so commands that need a confirmation ask for a flag instead.
+   */
+  prompt: ((question: string) => Promise<string>) | undefined;
+  /** A request body that streams a file from disk, so large files are not read into memory. */
+  fileBody: (path: string) => RequestBody;
+}
+
+interface BunFileApi {
+  file(path: string): Blob;
 }
 
 export function defaultRuntime(): Runtime {
@@ -45,7 +61,27 @@ export function defaultRuntime(): Runtime {
     secrets: (globalThis as { Bun?: { secrets?: SecretsApi } }).Bun?.secrets,
     configDir: defaultConfigDir(process.platform, env, homedir()),
     interactive: Boolean(process.stderr.isTTY) && !env.CI,
+    prompt: process.stdin.isTTY && process.stderr.isTTY && !env.CI ? promptOnTerminal : undefined,
+    fileBody: (path) => {
+      // Bun sends a file with its length and without copying it through JavaScript.
+      const bun = (globalThis as { Bun?: BunFileApi }).Bun;
+      return bun ? bun.file(path) : nodeFileBody(path);
+    },
   };
+}
+
+/** Streams a file as a request body on Node, where tests run. */
+export function nodeFileBody(path: string): RequestBody {
+  return Readable.toWeb(createReadStream(path)) as RequestBody;
+}
+
+async function promptOnTerminal(question: string): Promise<string> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr });
+  try {
+    return await terminal.question(question);
+  } finally {
+    terminal.close();
+  }
 }
 
 export function defaultConfigDir(

@@ -30,10 +30,50 @@ describe("portifact cli", () => {
     expect(result.stdout).toContain("Usage: portifact");
     expect(result.stdout).toContain("-v, --version");
     expect(result.stdout).toContain("-h, --help");
-    for (const command of ["login", "logout", "whoami"]) {
+    for (const command of [
+      "login",
+      "logout",
+      "whoami",
+      "publish",
+      "list",
+      "info",
+      "renew",
+      "archive",
+      "restore",
+      "delete",
+      "access",
+    ]) {
       expect(result.stdout).toMatch(new RegExp(`^  ${command} `, "m"));
     }
+    expect(result.stdout).toContain("Exit codes:");
+    expect(result.stdout).toContain("7  limit reached");
     expect(result.stderr).toBe("");
+  });
+
+  it("documents publishing options and what is not supported yet", async () => {
+    const result = await invoke("publish", "--help");
+    expect(result.code).toBe(0);
+    for (const flag of ["--type", "--name", "--entry", "--artifact", "--dry-run", "--json"]) {
+      expect(result.stdout).toContain(flag);
+    }
+    expect(result.stdout).toContain("ZIP files and --source");
+    expect(result.stdout).toContain("node_modules");
+  });
+
+  it("documents the access subcommands and the delete confirmation flag", async () => {
+    const access = await invoke("access", "--help");
+    for (const sub of ["set", "add", "remove"]) {
+      expect(access.stdout).toMatch(new RegExp(`^  ${sub} `, "m"));
+    }
+    expect((await invoke("delete", "--help")).stdout).toContain("-y, --yes");
+  });
+
+  it("fails with the usage exit code when an argument is missing", async () => {
+    for (const argv of [["publish"], ["info"], ["access", "set", "abcdefghij"]]) {
+      const result = await invoke(...argv);
+      expect(result.code).toBe(2);
+      expect(result.stderr).toContain("missing required argument");
+    }
   });
 
   it("documents --json and --no-browser in the help of each command", async () => {
@@ -85,6 +125,7 @@ describe("portifact cli", () => {
     expect(result).toEqual({ code: 0, stdout: notice, stderr: "" });
     expect(notice).toContain("early development");
     expect(notice).toContain("portifact login");
+    expect(notice).toContain("portifact publish <path>");
   });
 
   it("fails with the usage exit code and an error on unknown options", async () => {
