@@ -10,6 +10,11 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import {
+  annotationScope,
+  createFakeAnnotations,
+  type FakeAnnotationState,
+} from "./fake-annotations.ts";
 import { createFakeApi, type FakeApiState, type Reply, scopeFor } from "./fake-api.ts";
 
 export type PollOutcome =
@@ -76,6 +81,8 @@ export interface FakeServer {
   issuedTokens: string[];
   /** The publishing API's data: artifacts, uploads, stored objects and storage requests. */
   api: FakeApiState;
+  /** The annotations API's data: modes, threads and the caller's role. */
+  annotations: FakeAnnotationState;
   faults: Fault[];
   /** The time the server sees; the harness points it at the CLI's controlled clock. */
   clock: () => number;
@@ -96,8 +103,14 @@ export async function startFakeServer(): Promise<FakeServer> {
     () => origin,
     () => fake.clock(),
   );
+  const fakeAnnotations = createFakeAnnotations(
+    fakeApi.state.artifacts,
+    () => fake.userId,
+    () => fake.clock(),
+  );
   const fake: Omit<FakeServer, "origin" | "close"> = {
     api: fakeApi.state,
+    annotations: fakeAnnotations.state,
     faults: [],
     clock: () => Date.now(),
     requests: [],
@@ -176,12 +189,15 @@ export async function startFakeServer(): Promise<FakeServer> {
   function api(method: string, url: URL, headers: IncomingHttpHeaders, body: string): Reply {
     const access = accessFor(headers.authorization);
     if (!access) return { status: 401, body: { error: "invalid_token" } };
-    if (!access.scopes.includes(scopeFor(method, url.pathname))) {
+    const scope = annotationScope(method, url.pathname) ?? scopeFor(method, url.pathname);
+    if (!access.scopes.includes(scope)) {
       return { status: 403, body: { error: "insufficient_scope" } };
     }
-    const key = headers["idempotency-key"];
+    const key =
+      typeof headers["idempotency-key"] === "string" ? headers["idempotency-key"] : undefined;
     return (
-      fakeApi.api(method, url, access.userId, typeof key === "string" ? key : undefined, body) ?? {
+      fakeAnnotations.api(method, url, key, body) ??
+      fakeApi.api(method, url, access.userId, key, body) ?? {
         status: 404,
         body: { error: { code: "not_found", message: "Not found." } },
       }

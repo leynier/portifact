@@ -80,7 +80,7 @@ portifact annotations set ARTIFACT_ID open
 portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback to your agent
 ```
 
-`publish` and `access` arrive in the next release; annotations are still in development. Agents without a shell can already list artifacts, publish small Markdown, text or single-page HTML documents and manage their lifecycle through the MCP server at `https://app.portifact.com/mcp`.
+`publish`, `access` and `annotations` arrive in the next release; reviewing in the browser is still in development. Agents without a shell can already list artifacts, publish small Markdown, text or single-page HTML documents and manage their lifecycle through the MCP server at `https://app.portifact.com/mcp`.
 
 ## Status
 
@@ -100,7 +100,8 @@ portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback
 | ZIP input, private sources from git, Markdown assets    | Next release   |
 | Account usage and limits (`portifact usage`, API, MCP)  | Next release   |
 | Access control (private, signed-in, email list, public) | In development |
-| Annotations and review                                  | In development |
+| Annotations from the CLI, API and MCP                   | Next release   |
+| Review mode: annotate in the browser                    | In development |
 | Web dashboard: artifact list, renew, archive, restore   | Available      |
 | Web dashboard: access settings and account              | Next release   |
 
