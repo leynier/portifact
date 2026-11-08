@@ -77,7 +77,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -101,5 +101,10 @@ jobs:
           $env:PORTIFACT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'bin'
           $env:PORTIFACT_NO_MODIFY_PATH = '1'
           ./scripts/install.ps1
-          $version = & (Join-Path $env:PORTIFACT_INSTALL_DIR 'portifact.exe') --version
+          $exe = Join-Path $env:PORTIFACT_INSTALL_DIR 'portifact.exe'
+          $version = & $exe --version
           if ($version -notmatch '^\d+\.\d+\.\d+') { throw "Unexpected version output: $version" }
+          # The installed executable must match the machine: arm64 runners must not get the x64 build.
+          $machine = [System.BitConverter]::ToUInt16([System.IO.File]::ReadAllBytes($exe), [System.BitConverter]::ToInt32([System.IO.File]::ReadAllBytes($exe), 0x3C) + 4)
+          $expected = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 0xAA64 } else { 0x8664 }
+          if ($machine -ne $expected) { throw ('Installed binary machine type 0x{0:X} does not match 0x{1:X}' -f $machine, $expected) }
