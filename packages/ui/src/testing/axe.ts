@@ -9,9 +9,14 @@ export interface AxeViolation {
   nodes: string[];
 }
 
-/** Runs axe on `root` and returns its violations, empty when the markup passes. */
+/**
+ * Runs axe on `root` and returns its violations, empty when the markup passes. Frames are not
+ * entered: the only ones the product draws hold rendered user documents (`PreviewFrame`), whose
+ * markup the renderer's own tests check, and happy-dom cannot message into them.
+ */
 export async function axeViolations(root: Element): Promise<AxeViolation[]> {
   const results = await axe.run(root, {
+    iframes: false,
     rules: { "color-contrast": { enabled: false } },
     resultTypes: ["violations"],
   });

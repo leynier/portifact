@@ -188,6 +188,32 @@ export const versions = sqliteTable(
   ],
 );
 
+/**
+ * Declared git origin of a version's private sources (plan section 6, "Fuentes desde git"): the
+ * commit, branch and credential-free remote, and whether the sources had uncommitted changes.
+ * Owner-only, like the sources. A rollback copies the row to its new version.
+ */
+export const sourceOrigins = sqliteTable(
+  "source_origins",
+  {
+    versionId: text("version_id")
+      .primaryKey()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    commit: text("commit"),
+    branch: text("branch"),
+    remote: text("remote"),
+    dirty: integer("dirty", { mode: "boolean" }).notNull(),
+  },
+  (t) => [
+    check(
+      "source_origins_commit_format",
+      sql`${t.commit} is null or length(${t.commit}) in (40, 64)`,
+    ),
+    check("source_origins_branch_length", sql`${t.branch} is null or length(${t.branch}) <= 255`),
+    check("source_origins_remote_length", sql`${t.remote} is null or length(${t.remote}) <= 2048`),
+  ],
+);
+
 /** Content-addressed objects stored in R2, deduplicated per account. */
 export const objects = sqliteTable(
   "objects",

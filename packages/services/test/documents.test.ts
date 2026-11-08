@@ -6,6 +6,7 @@ import { createDb, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
+import { previewDocument } from "../src/documents.ts";
 import { rerenderDocuments } from "../src/maintenance.ts";
 import {
   commitPublish,
@@ -449,5 +450,39 @@ describe("security re-render", () => {
     expect((await version(archived.versionId))?.rendererVersion).toBe(RENDERER_VERSION);
     expect((await version(deleted.versionId))?.rendererVersion).toBe("0");
     expect((await version(lost.versionId))?.rendererVersion).toBe("0");
+  });
+});
+
+describe("preview a document", () => {
+  it("renders Markdown and text like a commit would, without storing anything", () => {
+    const markdown = previewDocument({
+      type: "markdown",
+      name: "Plan",
+      source: "# Hello\n\n<b>x</b>",
+    });
+    expect(markdown.ok && markdown.value.rendererVersion).toBe(RENDERER_VERSION);
+    const html = markdown.ok ? markdown.value.html : "";
+    expect(html).toContain("<h1");
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+    expect(html).toContain("<title>Plan</title>");
+    const text = previewDocument({ type: "text", name: "Notes", source: "<script>1</script>" });
+    expect(text.ok && text.value.html).toContain("&lt;script&gt;1&lt;/script&gt;");
+    expect(text.ok && text.value.html).not.toContain("<script>");
+  });
+
+  it("refuses sources over the document limit and binary text", () => {
+    const tooLarge = previewDocument({
+      type: "text",
+      name: "Big",
+      source: "é".repeat(LIMITS.documentBytes / 2 + 1),
+    });
+    expect(tooLarge).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(previewDocument({ type: "markdown", name: "Bin", source: "a\u0000b" })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    });
+    expect(
+      previewDocument({ type: "text", name: "Edge", source: "a".repeat(LIMITS.documentBytes) }).ok,
+    ).toBe(true);
   });
 });

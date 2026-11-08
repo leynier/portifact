@@ -74,6 +74,7 @@ npx skills add leynier/portifact
 
 ```bash
 portifact publish ./report.html          # get a private URL
+portifact publish ./dist --source .      # attach the private sources git versions
 portifact access add ARTIFACT_ID ana@example.com
 portifact annotations set ARTIFACT_ID open
 portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback to your agent
@@ -96,12 +97,15 @@ portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback
 | Publish HTML, Markdown and text from the CLI            | Next release   |
 | Manage artifacts and access from the CLI                | Next release   |
 | Versions, rollback and download (CLI, API and MCP)      | Next release   |
+| ZIP input, private sources from git, Markdown assets    | Next release   |
+| Account usage and limits (`portifact usage`, API, MCP)  | Next release   |
 | Access control (private, signed-in, email list, public) | In development |
 | Annotations from the CLI, API and MCP                   | Next release   |
 | Review mode: annotate in the browser                    | In development |
 | Web dashboard: artifact list, renew, archive, restore   | Available      |
 | Web dashboard: access settings and account              | Next release   |
 | Abuse reports, suspension, account export and deletion  | Next release   |
+| Web dashboard: publish, edit documents, version history | Next release   |
 
 ## Documentation
 

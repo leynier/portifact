@@ -10,6 +10,7 @@ import {
   type AccessMode,
   type AccessPolicyView,
   AccessUpdate,
+  type AccountUsageView,
   ARTIFACT_ID_ALPHABET,
   type ArtifactSummary,
   type ArtifactType,
@@ -19,6 +20,7 @@ import {
   type ManifestFile,
   PublishRequest,
   RollbackRequest,
+  type SourceOrigin,
 } from "@portifact/contracts";
 
 export interface Reply {
@@ -60,6 +62,7 @@ export interface FakeVersion {
   committedAt: number;
   /** End of retention once it is no longer current. */
   expiresAt: number | null;
+  sourceOrigin?: SourceOrigin | null;
 }
 
 interface UploadSession {
@@ -73,6 +76,7 @@ interface UploadSession {
   versionNumber: number;
   entrypoint: string;
   files: ManifestFile[];
+  sourceOrigin: SourceOrigin | null;
   /** Objects this upload must send; they stay pending until the commit verifies them. */
   needed: Map<string, number>;
   state: "uploading" | "committed" | "aborted";
@@ -119,6 +123,8 @@ export interface FakeApiState {
   urlTtlMs: number;
   /** Creates an artifact as if it had been published before the test. */
   seed(overrides?: Partial<FakeArtifact>): FakeArtifact;
+  /** What GET /usage answers. */
+  usage: AccountUsageView;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -161,6 +167,18 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     },
     tooNewForPublic: false,
     urlTtlMs: 15 * 60 * 1000,
+    usage: {
+      activeArtifacts: { used: 0, limit: 50 },
+      storage: { used: 0, reserved: 0, limit: 2_500_000_000 },
+      publishesLast24h: { used: 0, limit: 100 },
+      newFilesLast24h: { used: 0, limit: 10_000 },
+      newBytesLast24h: { used: 0, limit: 5_000_000_000 },
+      newObjectsThisMonth: { used: 0, limit: 100_000, resetsAt: "2026-12-01T00:00:00.000Z" },
+      openUploads: { used: 0, limit: 2 },
+      versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
+      publicAccessFrom: "2026-01-01T00:00:00.000Z",
+      blocks: [],
+    },
     seed(overrides = {}) {
       const now = clock();
       const artifact: FakeArtifact = {
@@ -248,7 +266,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   /** Appends a committed version, makes it current and starts the previous one's retention. */
   function addVersion(
     artifact: FakeArtifact,
-    version: Pick<FakeVersion, "id" | "entrypoint" | "files">,
+    version: Pick<FakeVersion, "id" | "entrypoint" | "files" | "sourceOrigin">,
   ): FakeVersion {
     const now = clock();
     const list = state.versions.get(artifact.id) ?? [];
@@ -295,6 +313,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       rendererVersion: null,
       committedAt: iso(version.committedAt),
       expiresAt: current || version.expiresAt === null ? null : iso(version.expiresAt),
+      sourceOrigin: version.sourceOrigin ?? null,
     };
   }
 
@@ -403,6 +422,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       id: `ver_${randomUUID().replaceAll("-", "")}`,
       entrypoint: target.entrypoint,
       files: target.files.map((file) => ({ ...file })),
+      sourceOrigin: target.sourceOrigin ?? null,
     });
     return {
       status: 200,
@@ -501,6 +521,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       versionNumber,
       entrypoint: request.entrypoint,
       files: request.files,
+      sourceOrigin: request.sourceOrigin ?? null,
       needed,
       state: "uploading",
     };
@@ -552,6 +573,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       id: session.versionId,
       entrypoint: session.entrypoint,
       files: session.files.map((file) => ({ ...file })),
+      sourceOrigin: session.sourceOrigin,
     });
     state.artifacts.set(artifact.id, artifact);
     session.state = "committed";
@@ -663,6 +685,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       if (method === "DELETE" && !match[2]) return abort(ownerId, id);
     }
     if (route === "GET /artifacts") return listArtifacts(url);
+    if (route === "GET /usage") return { status: 200, body: state.usage };
     const versions = versionRoute(method, path, url, key, raw);
     if (versions) return versions;
     match = /^\/artifacts\/([^/]+)(?:\/(renew|archive|restore|access))?$/.exec(path);

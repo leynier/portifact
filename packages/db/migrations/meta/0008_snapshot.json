@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "845d16aa-6a32-48aa-b952-b844f8558245",
+  "id": "f7b9275d-abe5-4619-9cc3-1eb67d5100e8",
   "prevId": "e11bb24d-22f4-4ca4-805c-3337f812679a",
   "tables": {
     "abuse_reports": {
@@ -50,13 +50,6 @@
           "autoincrement": false,
           "default": "'open'"
         },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -71,37 +64,8 @@
           "name": "abuse_reports_status_idx",
           "columns": ["status", "created_at"],
           "isUnique": false
-        },
-        "abuse_reports_artifact_idx": {
-          "name": "abuse_reports_artifact_idx",
-          "columns": ["artifact_id"],
-          "isUnique": false
         }
       },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "account_deletions": {
-      "name": "account_deletions",
-      "columns": {
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "requested_at": {
-          "name": "requested_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -790,13 +754,6 @@
           "notNull": false,
           "autoincrement": false
         },
-        "suspension_reason": {
-          "name": "suspension_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -1334,98 +1291,73 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "suspensions": {
-      "name": "suspensions",
+    "source_origins": {
+      "name": "source_origins",
       "columns": {
-        "id": {
-          "name": "id",
+        "version_id": {
+          "name": "version_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "target_id": {
-          "name": "target_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "previous_state": {
-          "name": "previous_state",
+        "commit": {
+          "name": "commit",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "report_id": {
-          "name": "report_id",
+        "branch": {
+          "name": "branch",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "parent_id": {
-          "name": "parent_id",
+        "remote": {
+          "name": "remote",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
+        "dirty": {
+          "name": "dirty",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        },
-        "lifted_at": {
-          "name": "lifted_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         }
       },
-      "indexes": {
-        "suspensions_open_target_idx": {
-          "name": "suspensions_open_target_idx",
-          "columns": ["kind", "target_id"],
-          "isUnique": true,
-          "where": "\"suspensions\".\"lifted_at\" is null"
-        },
-        "suspensions_parent_idx": {
-          "name": "suspensions_parent_idx",
-          "columns": ["parent_id"],
-          "isUnique": false
+      "indexes": {},
+      "foreignKeys": {
+        "source_origins_version_id_versions_id_fk": {
+          "name": "source_origins_version_id_versions_id_fk",
+          "tableFrom": "source_origins",
+          "tableTo": "versions",
+          "columnsFrom": ["version_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "source_origins_commit_format": {
+          "name": "source_origins_commit_format",
+          "value": "\"source_origins\".\"commit\" is null or length(\"source_origins\".\"commit\") in (40, 64)"
+        },
+        "source_origins_branch_length": {
+          "name": "source_origins_branch_length",
+          "value": "\"source_origins\".\"branch\" is null or length(\"source_origins\".\"branch\") <= 255"
+        },
+        "source_origins_remote_length": {
+          "name": "source_origins_remote_length",
+          "value": "\"source_origins\".\"remote\" is null or length(\"source_origins\".\"remote\") <= 2048"
+        }
+      }
     },
     "tombstones": {
       "name": "tombstones",

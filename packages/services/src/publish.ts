@@ -7,6 +7,7 @@ import {
   checkDocumentManifest,
   checkPublish,
   checkRenderedVersion,
+  checkSourceOrigin,
   DOCUMENT_CONTENT_TYPES,
   type DocumentType,
   fail,
@@ -15,6 +16,7 @@ import {
   nextExpiry,
   ok,
   type Result,
+  type SourceOriginInput,
   validateManifestPaths,
 } from "@portifact/domain";
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
@@ -56,6 +58,8 @@ export interface PrepareInput {
   /** The version the client based its changes on (`null` for a new artifact). */
   baseVersionId: string | null;
   files: ManifestEntry[];
+  /** Declared git origin of the source files; owner-only metadata of the version. */
+  sourceOrigin?: SourceOriginInput | undefined;
   now: number;
 }
 
@@ -196,6 +200,11 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
     ? documentManifest(input.type, entrypoint, validated.value)
     : validated;
   if (!manifest.ok) return manifest;
+  if (input.sourceOrigin) {
+    const sources = manifest.value.filter((file) => file.kind === "source").length;
+    const origin = checkSourceOrigin(input.sourceOrigin, sources);
+    if (!origin.ok) return origin;
+  }
   const name = input.name.trim();
   if (name.length === 0 || name.length > 200)
     return fail("invalid_input", "Name must be 1 to 200 characters.");
@@ -339,6 +348,17 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
           contentType: file.contentType,
         })),
       ),
+      ...(input.sourceOrigin
+        ? [
+            db.insert(schema.sourceOrigins).values({
+              versionId,
+              commit: input.sourceOrigin.commit,
+              branch: input.sourceOrigin.branch,
+              remote: input.sourceOrigin.remote,
+              dirty: input.sourceOrigin.dirty,
+            }),
+          ]
+        : []),
       ...(uploads.length > 0
         ? [
             db

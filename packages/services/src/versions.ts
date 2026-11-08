@@ -5,7 +5,15 @@
 // to the artifact, not to its versions, so a rollback never brings back a removed reader.
 import { CURRENT_VERSION, type DownloadKind, LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
-import { checkPublish, fail, nextExpiry, normalizePath, ok, type Result } from "@portifact/domain";
+import {
+  checkPublish,
+  fail,
+  nextExpiry,
+  normalizePath,
+  ok,
+  type Result,
+  type SourceOriginInput,
+} from "@portifact/domain";
 import {
   and,
   asc,
@@ -39,6 +47,8 @@ export interface VersionInfo {
   committedAt: number;
   /** End of retention for a previous version; null for the current one. */
   expiresAt: number | null;
+  /** Declared git origin of the sources; null when the publisher sent none. */
+  sourceOrigin: SourceOriginInput | null;
 }
 
 export interface VersionPage {
@@ -147,7 +157,13 @@ const versionColumns = {
   rendererVersion: schema.versions.rendererVersion,
   committedAt: schema.versions.committedAt,
   expiresAt: schema.versions.expiresAt,
+  originCommit: schema.sourceOrigins.commit,
+  originBranch: schema.sourceOrigins.branch,
+  originRemote: schema.sourceOrigins.remote,
+  originDirty: schema.sourceOrigins.dirty,
 };
+
+const originJoin = eq(schema.sourceOrigins.versionId, schema.versions.id);
 
 type VersionRow = {
   id: string;
@@ -160,6 +176,10 @@ type VersionRow = {
   rendererVersion: string | null;
   committedAt: number | null;
   expiresAt: number | null;
+  originCommit: string | null;
+  originBranch: string | null;
+  originRemote: string | null;
+  originDirty: boolean | null;
 };
 
 function toInfo(row: VersionRow, currentVersionId: string | null): VersionInfo {
@@ -177,6 +197,16 @@ function toInfo(row: VersionRow, currentVersionId: string | null): VersionInfo {
     // Committed versions always have a commit time; the fallback keeps the type total.
     committedAt: row.committedAt ?? 0,
     expiresAt: current ? null : row.expiresAt,
+    // The join finds no row when the publisher declared no origin; `dirty` is never null in one.
+    sourceOrigin:
+      row.originDirty === null
+        ? null
+        : {
+            commit: row.originCommit,
+            branch: row.originBranch,
+            remote: row.originRemote,
+            dirty: row.originDirty,
+          },
   };
 }
 
@@ -192,6 +222,7 @@ async function resolveVersion(
   const [row] = await db
     .select(versionColumns)
     .from(schema.versions)
+    .leftJoin(schema.sourceOrigins, originJoin)
     .where(
       and(
         eq(schema.versions.id, id),
@@ -228,6 +259,7 @@ export async function listVersions(
   const rows = await db
     .select(versionColumns)
     .from(schema.versions)
+    .leftJoin(schema.sourceOrigins, originJoin)
     .where(
       and(
         eq(schema.versions.artifactId, artifact.id),
@@ -489,6 +521,19 @@ export async function rollbackArtifact(
         })
         .from(files)
         .where(and(eq(files.versionId, target.id), switched)),
+    ),
+    // The files include the sources, so their declared origin comes along.
+    db.insert(schema.sourceOrigins).select(
+      db
+        .select({
+          versionId: sql<string>`${versionId}`.as("version_id"),
+          commit: schema.sourceOrigins.commit,
+          branch: schema.sourceOrigins.branch,
+          remote: schema.sourceOrigins.remote,
+          dirty: schema.sourceOrigins.dirty,
+        })
+        .from(schema.sourceOrigins)
+        .where(and(eq(schema.sourceOrigins.versionId, target.id), switched)),
     ),
     // The version that stops being current is retained for seven days, like after a publish.
     db

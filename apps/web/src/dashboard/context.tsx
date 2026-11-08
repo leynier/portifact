@@ -2,12 +2,21 @@ import { useLingui } from "@lingui/react";
 import { createContext, useCallback, useContext } from "react";
 import type { DashboardApi } from "./api.ts";
 import type { MessageId } from "./i18n/en.ts";
+import type { ManifestBuilder } from "./publish/builder.ts";
+import type { SavedFile } from "./publish/download.ts";
+import type { StorageTransport } from "./publish/upload.ts";
 
 /** What the dashboard needs from the outside world, so tests can provide fakes. */
 export interface DashboardEnv {
   api: DashboardApi;
   /** Leaves the single-page app for another page of the host, such as the login page. */
   leave(url: string): void;
+  /** Builds manifests off the main thread (a Web Worker in the browser). */
+  manifests: ManifestBuilder;
+  /** Uploads to and downloads from storage through presigned URLs. */
+  storage: StorageTransport;
+  /** Hands a file to the user, as a download. */
+  save(file: SavedFile): void;
 }
 
 export const DashboardContext = createContext<DashboardEnv | null>(null);
@@ -42,6 +51,29 @@ export function useFormatDate(): (iso: string, withTime?: boolean) => string {
         new Date(iso),
         withTime ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" },
       ),
+    [i18n],
+  );
+}
+
+const BYTE_UNITS = [
+  { unit: "gigabyte", size: 1e9 },
+  { unit: "megabyte", size: 1e6 },
+  { unit: "kilobyte", size: 1e3 },
+] as const;
+
+/** Formats a size in decimal units, like the product's limits: 1 MB is 1,000,000 bytes. */
+export function useFormatBytes(): (bytes: number) => string {
+  const { i18n } = useLingui();
+  return useCallback(
+    (bytes: number) => {
+      const scale = BYTE_UNITS.find((entry) => bytes >= entry.size);
+      return i18n.number(scale ? bytes / scale.size : bytes, {
+        style: "unit",
+        unit: scale ? scale.unit : "byte",
+        unitDisplay: "short",
+        maximumFractionDigits: scale ? 1 : 0,
+      });
+    },
     [i18n],
   );
 }

@@ -1,8 +1,8 @@
 {
-  "id": "0f035e39-610a-4ced-a0ef-9686ad16c3ad",
-  "prevId": "845d16aa-6a32-48aa-b952-b844f8558245",
   "version": "6",
   "dialect": "sqlite",
+  "id": "237639b9-8c8e-4020-a7d8-9443adabcb41",
+  "prevId": "f7b9275d-abe5-4619-9cc3-1eb67d5100e8",
   "tables": {
     "abuse_reports": {
       "name": "abuse_reports",
@@ -278,11 +278,11 @@
         "annotation_events_artifact_id_artifacts_id_fk": {
           "name": "annotation_events_artifact_id_artifacts_id_fk",
           "tableFrom": "annotation_events",
-          "columnsFrom": ["artifact_id"],
           "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -389,11 +389,11 @@
         "annotation_messages_thread_id_annotation_threads_id_fk": {
           "name": "annotation_messages_thread_id_annotation_threads_id_fk",
           "tableFrom": "annotation_messages",
-          "columnsFrom": ["thread_id"],
           "tableTo": "annotation_threads",
+          "columnsFrom": ["thread_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -551,11 +551,11 @@
         "annotation_threads_artifact_id_artifacts_id_fk": {
           "name": "annotation_threads_artifact_id_artifacts_id_fk",
           "tableFrom": "annotation_threads",
-          "columnsFrom": ["artifact_id"],
           "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -654,11 +654,11 @@
         "artifact_readers_artifact_id_artifacts_id_fk": {
           "name": "artifact_readers_artifact_id_artifacts_id_fk",
           "tableFrom": "artifact_readers",
-          "columnsFrom": ["artifact_id"],
           "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1203,29 +1203,29 @@
         "read_handoffs_artifact_id_artifacts_id_fk": {
           "name": "read_handoffs_artifact_id_artifacts_id_fk",
           "tableFrom": "read_handoffs",
-          "columnsFrom": ["artifact_id"],
           "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "read_handoffs_user_id_users_id_fk": {
           "name": "read_handoffs_user_id_users_id_fk",
           "tableFrom": "read_handoffs",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "read_handoffs_auth_session_id_sessions_id_fk": {
           "name": "read_handoffs_auth_session_id_sessions_id_fk",
           "tableFrom": "read_handoffs",
-          "columnsFrom": ["auth_session_id"],
           "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1305,34 +1305,102 @@
         "read_sessions_artifact_id_artifacts_id_fk": {
           "name": "read_sessions_artifact_id_artifacts_id_fk",
           "tableFrom": "read_sessions",
-          "columnsFrom": ["artifact_id"],
           "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "read_sessions_user_id_users_id_fk": {
           "name": "read_sessions_user_id_users_id_fk",
           "tableFrom": "read_sessions",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "read_sessions_auth_session_id_sessions_id_fk": {
           "name": "read_sessions_auth_session_id_sessions_id_fk",
           "tableFrom": "read_sessions",
-          "columnsFrom": ["auth_session_id"],
           "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "source_origins": {
+      "name": "source_origins",
+      "columns": {
+        "version_id": {
+          "name": "version_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "commit": {
+          "name": "commit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "branch": {
+          "name": "branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "remote": {
+          "name": "remote",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "dirty": {
+          "name": "dirty",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "source_origins_version_id_versions_id_fk": {
+          "name": "source_origins_version_id_versions_id_fk",
+          "tableFrom": "source_origins",
+          "tableTo": "versions",
+          "columnsFrom": ["version_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "source_origins_commit_format": {
+          "name": "source_origins_commit_format",
+          "value": "\"source_origins\".\"commit\" is null or length(\"source_origins\".\"commit\") in (40, 64)"
+        },
+        "source_origins_branch_length": {
+          "name": "source_origins_branch_length",
+          "value": "\"source_origins\".\"branch\" is null or length(\"source_origins\".\"branch\") <= 255"
+        },
+        "source_origins_remote_length": {
+          "name": "source_origins_remote_length",
+          "value": "\"source_origins\".\"remote\" is null or length(\"source_origins\".\"remote\") <= 2048"
+        }
+      }
     },
     "suspensions": {
       "name": "suspensions",
@@ -1413,8 +1481,8 @@
         "suspensions_open_target_idx": {
           "name": "suspensions_open_target_idx",
           "columns": ["kind", "target_id"],
-          "where": "\"suspensions\".\"lifted_at\" is null",
-          "isUnique": true
+          "isUnique": true,
+          "where": "\"suspensions\".\"lifted_at\" is null"
         },
         "suspensions_parent_idx": {
           "name": "suspensions_parent_idx",
@@ -1681,11 +1749,11 @@
         "version_files_version_id_versions_id_fk": {
           "name": "version_files_version_id_versions_id_fk",
           "tableFrom": "version_files",
-          "columnsFrom": ["version_id"],
           "tableTo": "versions",
+          "columnsFrom": ["version_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -1804,11 +1872,11 @@
         "versions_artifact_id_artifacts_id_fk": {
           "name": "versions_artifact_id_artifacts_id_fk",
           "tableFrom": "versions",
-          "columnsFrom": ["artifact_id"],
           "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1926,11 +1994,11 @@
         "accounts_user_id_users_id_fk": {
           "name": "accounts_user_id_users_id_fk",
           "tableFrom": "accounts",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2187,38 +2255,38 @@
         "oauth_access_tokens_client_id_oauth_clients_client_id_fk": {
           "name": "oauth_access_tokens_client_id_oauth_clients_client_id_fk",
           "tableFrom": "oauth_access_tokens",
-          "columnsFrom": ["client_id"],
           "tableTo": "oauth_clients",
+          "columnsFrom": ["client_id"],
           "columnsTo": ["client_id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_access_tokens_session_id_sessions_id_fk": {
           "name": "oauth_access_tokens_session_id_sessions_id_fk",
           "tableFrom": "oauth_access_tokens",
-          "columnsFrom": ["session_id"],
           "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         },
         "oauth_access_tokens_user_id_users_id_fk": {
           "name": "oauth_access_tokens_user_id_users_id_fk",
           "tableFrom": "oauth_access_tokens",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_access_tokens_refresh_id_oauth_refresh_tokens_id_fk": {
           "name": "oauth_access_tokens_refresh_id_oauth_refresh_tokens_id_fk",
           "tableFrom": "oauth_access_tokens",
-          "columnsFrom": ["refresh_id"],
           "tableTo": "oauth_refresh_tokens",
+          "columnsFrom": ["refresh_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2304,20 +2372,20 @@
         "oauth_client_resources_client_id_oauth_clients_client_id_fk": {
           "name": "oauth_client_resources_client_id_oauth_clients_client_id_fk",
           "tableFrom": "oauth_client_resources",
-          "columnsFrom": ["client_id"],
           "tableTo": "oauth_clients",
+          "columnsFrom": ["client_id"],
           "columnsTo": ["client_id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_client_resources_resource_id_oauth_resources_identifier_fk": {
           "name": "oauth_client_resources_resource_id_oauth_resources_identifier_fk",
           "tableFrom": "oauth_client_resources",
-          "columnsFrom": ["resource_id"],
           "tableTo": "oauth_resources",
+          "columnsFrom": ["resource_id"],
           "columnsTo": ["identifier"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2599,11 +2667,11 @@
         "oauth_clients_user_id_users_id_fk": {
           "name": "oauth_clients_user_id_users_id_fk",
           "tableFrom": "oauth_clients",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2693,20 +2761,20 @@
         "oauth_consents_client_id_oauth_clients_client_id_fk": {
           "name": "oauth_consents_client_id_oauth_clients_client_id_fk",
           "tableFrom": "oauth_consents",
-          "columnsFrom": ["client_id"],
           "tableTo": "oauth_clients",
+          "columnsFrom": ["client_id"],
           "columnsTo": ["client_id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_consents_user_id_users_id_fk": {
           "name": "oauth_consents_user_id_users_id_fk",
           "tableFrom": "oauth_consents",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2874,29 +2942,29 @@
         "oauth_refresh_tokens_client_id_oauth_clients_client_id_fk": {
           "name": "oauth_refresh_tokens_client_id_oauth_clients_client_id_fk",
           "tableFrom": "oauth_refresh_tokens",
-          "columnsFrom": ["client_id"],
           "tableTo": "oauth_clients",
+          "columnsFrom": ["client_id"],
           "columnsTo": ["client_id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         },
         "oauth_refresh_tokens_session_id_sessions_id_fk": {
           "name": "oauth_refresh_tokens_session_id_sessions_id_fk",
           "tableFrom": "oauth_refresh_tokens",
-          "columnsFrom": ["session_id"],
           "tableTo": "sessions",
+          "columnsFrom": ["session_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "set null"
+          "onDelete": "set null",
+          "onUpdate": "no action"
         },
         "oauth_refresh_tokens_user_id_users_id_fk": {
           "name": "oauth_refresh_tokens_user_id_users_id_fk",
           "tableFrom": "oauth_refresh_tokens",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3140,11 +3208,11 @@
         "sessions_user_id_users_id_fk": {
           "name": "sessions_user_id_users_id_fk",
           "tableFrom": "sessions",
-          "columnsFrom": ["user_id"],
           "tableTo": "users",
+          "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3293,9 +3361,9 @@
   "views": {},
   "enums": {},
   "_meta": {
-    "columns": {},
     "schemas": {},
-    "tables": {}
+    "tables": {},
+    "columns": {}
   },
   "internal": {
     "indexes": {}

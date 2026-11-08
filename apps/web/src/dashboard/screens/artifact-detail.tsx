@@ -1,6 +1,7 @@
 import type { ArtifactSummary } from "@portifact/contracts";
 import {
   Button,
+  buttonClasses,
   Callout,
   ConfirmDialog,
   DetailList,
@@ -15,8 +16,11 @@ import {
   ArrowLeft,
   Ban,
   CircleAlert,
+  FilePen,
+  History,
   RefreshCw,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { ApiFailure, type LifecycleAction } from "../api.ts";
@@ -189,6 +193,42 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
               : []),
           ]}
         />
+      </section>
+
+      <section aria-labelledby="content-heading" className="mt-8">
+        <h2 id="content-heading" className="mb-3 text-lg font-semibold">
+          {t("content.title")}
+        </h2>
+        <div className="flex flex-wrap gap-3">
+          {artifact.state === "active" || artifact.state === "draft" ? (
+            <Link
+              to="/artifacts/$artifactId/publish"
+              params={{ artifactId: artifact.id }}
+              className={buttonClasses()}
+            >
+              <Upload aria-hidden="true" className="size-4" />
+              {t("content.publishVersion")}
+            </Link>
+          ) : null}
+          {artifact.type !== "site" && artifact.state === "active" ? (
+            <Link
+              to="/artifacts/$artifactId/edit"
+              params={{ artifactId: artifact.id }}
+              className={buttonClasses()}
+            >
+              <FilePen aria-hidden="true" className="size-4" />
+              {t("content.edit")}
+            </Link>
+          ) : null}
+          <Link
+            to="/artifacts/$artifactId/history"
+            params={{ artifactId: artifact.id }}
+            className={buttonClasses()}
+          >
+            <History aria-hidden="true" className="size-4" />
+            {t("content.history")}
+          </Link>
+        </div>
       </section>
 
       <AccessSettings artifact={artifact} />
