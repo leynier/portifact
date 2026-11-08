@@ -34,7 +34,7 @@ packages/contracts   Shared schemas, errors and OpenAPI
 packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
 packages/services    Use cases that apply domain rules with D1 and R2: publish, restore and more
 packages/db          Drizzle schema, migrations and queries
-packages/render      Markdown and TXT rendering pipeline
+packages/render      Markdown and TXT rendering to safe HTML documents (markdown-it); not wired into delivery yet
 packages/anchors     Annotation anchor model and resolution
 packages/bridge      Review script injected into artifacts
 packages/ui          Design system: tokens and components
@@ -57,6 +57,7 @@ bun run build          # build apps (the landing in apps/web/dist)
 bun run dev            # local dev servers (Vite for apps/web, wrangler for apps/app)
 bun run build:cli      # compile the CLI for this platform into dist/release (--all for every platform)
 bun run --cwd packages/db generate -- --name <change>   # create a D1 migration from schema.ts
+bun run --cwd packages/ui sync-tokens   # regenerate tokens-css.ts after editing tokens.css
 bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
 ```
 

@@ -1,0 +1,22 @@
+// Markdown and plain-text rendering for artifact viewers. Pure: no I/O, deterministic output.
+export {
+  type DocumentOptions,
+  documentPolicy,
+  type RenderedDocument,
+  renderMarkdownDocument,
+  renderTextDocument,
+} from "./document.ts";
+export { RenderError, type RenderErrorReason } from "./errors.ts";
+export {
+  DEFAULT_LABELS,
+  type Heading,
+  type MarkdownOptions,
+  type RenderedMarkdown,
+  type RenderLabels,
+  renderMarkdown,
+  type SourceBlock,
+} from "./markdown.ts";
+export { assertSourceSize, decodeSource, MAX_SOURCE_BYTES, utf8ByteLength } from "./source.ts";
+export { escapeText, type RenderedText, renderText } from "./text.ts";
+export { classifyUrl, type UrlTarget } from "./urls.ts";
+export { RENDERER_VERSION } from "./version.ts";
