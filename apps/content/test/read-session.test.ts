@@ -11,7 +11,7 @@ import {
   cookieValue,
   READ_COOKIE,
   seal,
-  TRANSACTION_COOKIE,
+  TRANSACTION_COOKIE_PREFIX,
   unseal,
   usableSecret,
 } from "../src/cookies.ts";
@@ -37,6 +37,9 @@ const STRANGER = "u_stranger";
 
 type Mode = "public" | "authenticated" | "restricted";
 
+/** ID of the app session (Better Auth) that `userId` signed in with. */
+const appSession = (userId: string) => `as_${userId}`;
+
 async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {}) {
   for (const table of [
     "read_sessions",
@@ -46,6 +49,7 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
     "versions",
     "objects",
     "artifacts",
+    "sessions",
     "users",
   ]) {
     await env.DB.exec(`DELETE FROM ${table}`);
@@ -62,6 +66,19 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
         ...user,
         name: user.id,
         emailVerified: true,
+        createdAt: at,
+        updatedAt: at,
+      })),
+    );
+  // The app.portifact.com session each account signed in to the artifact with.
+  await db()
+    .insert(schema.sessions)
+    .values(
+      [OWNER, READER, STRANGER].map((userId) => ({
+        id: appSession(userId),
+        token: `token-${userId}`,
+        userId,
+        expiresAt: new Date(NOW + 7 * DAY),
         createdAt: at,
         updatedAt: at,
       })),
@@ -170,21 +187,63 @@ function pair(response: Response, name: string): string {
   return cookie.split(";")[0] ?? "";
 }
 
+/** Transaction cookies a response sets or clears. */
+function transactionCookies(response: Response): string[] {
+  return response.headers
+    .getSetCookie()
+    .filter((cookie) => cookie.startsWith(TRANSACTION_COOKIE_PREFIX));
+}
+
+/** The `name=value` pair of the transaction cookie a response opens. */
+function txPair(response: Response): string {
+  const opened = transactionCookies(response).filter((cookie) => !cookie.includes("Max-Age=0"));
+  expect(opened).toHaveLength(1);
+  return opened[0]?.split(";")[0] ?? "";
+}
+
+const nameOf = (cookiePair: string) => cookiePair.slice(0, cookiePair.indexOf("="));
+
 /** Starts the entry flow and returns the transaction cookie and the state sent to the app. */
-async function start(path = "/", origin = ORIGIN) {
-  const response = await send(path, { origin });
+async function start(path = "/", origin = ORIGIN, options: Send = {}) {
+  const response = await send(path, { origin, ...options });
   expect(response.status).toBe(303);
   const location = new URL(response.headers.get("location") ?? "");
   return {
     response,
     location,
     state: location.searchParams.get("state") ?? "",
-    tx: pair(response, TRANSACTION_COOKIE),
+    tx: txPair(response),
   };
 }
 
+/** A browser's cookie jar for one artifact origin: applies `Set-Cookie` like a browser. */
+class Jar {
+  readonly cookies = new Map<string, string>();
+  apply(response: Response) {
+    for (const cookie of response.headers.getSetCookie()) {
+      const [cookiePair = ""] = cookie.split(";");
+      const name = nameOf(cookiePair);
+      if (cookie.includes("Max-Age=0")) this.cookies.delete(name);
+      else this.cookies.set(name, cookiePair.slice(name.length + 1));
+    }
+    return response;
+  }
+  get header() {
+    return [...this.cookies].map(([name, value]) => `${name}=${value}`).join("; ");
+  }
+  get transactions() {
+    return [...this.cookies.keys()].filter((name) => name.startsWith(TRANSACTION_COOKIE_PREFIX));
+  }
+}
+
 async function issue(userId: string, state: string, artifactId = ID, now = NOW) {
-  const result = await issueReadHandoff(db(), { artifactId, userId, state, now });
+  const result = await issueReadHandoff(db(), {
+    artifactId,
+    userId,
+    authSessionId: appSession(userId),
+    state,
+    now,
+  });
   if (!result.ok) throw new Error(`no access for ${userId}: ${result.code}`);
   return result.value.code;
 }
@@ -234,16 +293,18 @@ describe("protected entry flow", () => {
     expect([...location.searchParams.keys()]).toEqual(["state"]);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(setCookieFor(response, TRANSACTION_COOKIE)).toMatch(
-      /^__Host-pf_read_tx=[^;]+; Max-Age=600; Path=\/; Secure; HttpOnly; SameSite=Lax$/,
-    );
+    expect(transactionCookies(response)).toEqual([
+      expect.stringMatching(
+        /^__Host-pf_read_tx_[A-Za-z0-9_-]{16}=[^;]+; Max-Age=600; Path=\/; Secure; HttpOnly; SameSite=Lax$/,
+      ),
+    ]);
 
     const back = await callback(await issue(READER, state), tx);
     expect(back.status).toBe(303);
     expect(back.headers.get("location")).toBe(`${ORIGIN}/docs/page?tab=2`);
     expect(back.headers.get("cache-control")).toBe("no-store");
     expect(back.headers.get("referrer-policy")).toBe("no-referrer");
-    expect(setCookieFor(back, TRANSACTION_COOKIE)).toBe(clearCookie(TRANSACTION_COOKIE));
+    expect(transactionCookies(back)).toEqual([clearCookie(nameOf(tx))]);
     const read = setCookieFor(back, READ_COOKIE) ?? "";
     expect(read).toMatch(
       /^__Host-pf_read=[^;]+; Max-Age=43200; Path=\/; Secure; HttpOnly; SameSite=Lax$/,
@@ -293,6 +354,43 @@ describe("protected entry flow", () => {
     const response = await send("/", { headers: {} });
     expect(response.status).toBe(200);
     expect(response.headers.get("cross-origin-resource-policy")).toBe("same-site");
+  });
+
+  it("answers a public artifact that is not servable exactly like an unknown one", async () => {
+    const unknown = "zzzzzzzzzz";
+    const snapshot = async (response: Response, id: string) => ({
+      status: response.status,
+      // The ID, the state and the transaction cookie's name and value differ on every request.
+      location:
+        response.headers
+          .get("location")
+          ?.replace(`/read/${id}?`, "/read/<id>?")
+          .replace(/state=[^&]+/, "state=") ?? null,
+      body: await response.text(),
+      cookies: response.headers
+        .getSetCookie()
+        .map((cookie) => cookie.replace(/_tx_[^=]+=[^;]*/, "_tx_=")),
+      headers: [...response.headers].filter(
+        ([name]) => name !== "set-cookie" && name !== "location",
+      ),
+    });
+    for (const overrides of [
+      { state: "archived" as const, archivedAt: NOW - DAY },
+      { expiresAt: NOW - 1 },
+      { currentVersionId: null },
+      { state: "suspended" as const },
+    ]) {
+      await seed({ accessMode: "public", ...overrides });
+      for (const headers of [NAVIGATE, SAME_ORIGIN, {}]) {
+        const gone = await snapshot(await send("/", { headers }), ID);
+        const missing = await snapshot(
+          await send("/", { headers, origin: `https://${unknown}.portifact.dev` }),
+          unknown,
+        );
+        const label = `${JSON.stringify(overrides)} ${JSON.stringify(headers)}`;
+        expect(gone, label).toEqual(missing);
+      }
+    }
   });
 
   it("answers an unknown artifact exactly like a protected one", async () => {
@@ -346,6 +444,28 @@ describe("protected entry flow", () => {
     expect(sameOriginPath("evil.example", ORIGIN)).toBe(`${ORIGIN}/`);
   });
 
+  it("finishes sign-in for long requested URLs", async () => {
+    for (const path of [
+      `/docs?q=${"a".repeat(1_500)}`,
+      `/docs?q=${"\\".repeat(1_000)}`,
+      `/${"a".repeat(1_400)}?q=${"b".repeat(1_400)}`,
+    ]) {
+      const { state, tx } = await start(path);
+      const back = await callback(await issue(READER, state), tx);
+      expect(back.status, path).toBe(303);
+      expect([
+        `${ORIGIN}${new URL(path, ORIGIN).pathname}${new URL(path, ORIGIN).search}`,
+        `${ORIGIN}/`,
+      ]).toContain(back.headers.get("location"));
+      expect(setCookieFor(back, READ_COOKIE)).toBeDefined();
+    }
+    // Short enough to keep: the full path survives.
+    const kept = `/docs?q=${"a".repeat(1_000)}`;
+    const { state, tx } = await start(kept);
+    const back = await callback(await issue(READER, state), tx);
+    expect(back.headers.get("location")).toBe(`${ORIGIN}${kept}`);
+  });
+
   it("returns to the root when the requested URL is too long to keep", async () => {
     const { state, tx } = await start(`/${"a".repeat(2_100)}`);
     const back = await callback(await issue(READER, state), tx);
@@ -363,7 +483,8 @@ describe("handoff redemption", () => {
     const replay = await callback(code, tx);
     expect(replay.status).toBe(400);
     expect(setCookieFor(replay, READ_COOKIE)).toBeUndefined();
-    expect(setCookieFor(replay, TRANSACTION_COOKIE)).toBe(clearCookie(TRANSACTION_COOKIE));
+    // A failed callback leaves live transactions alone: another tab may still need them.
+    expect(transactionCookies(replay)).toEqual([]);
     expect(replay.headers.get("referrer-policy")).toBe("no-referrer");
   });
 
@@ -435,7 +556,72 @@ describe("handoff redemption", () => {
     expect((await callback(code, `${name}=${forged}.${signature}`)).status).toBe(400);
     // A read cookie's signature is not valid for a transaction.
     const asRead = await seal(env.READ_SESSION_SECRET, "pf_read", decoded);
-    expect((await callback(code, `${TRANSACTION_COOKIE}=${asRead}`)).status).toBe(400);
+    expect((await callback(code, `${name}=${asRead}`)).status).toBe(400);
+    // A transaction under another name than its nonce's is not this transaction.
+    const other = await start();
+    expect((await callback(code, `${nameOf(other.tx)}=${value}`)).status).toBe(400);
+  });
+});
+
+describe("concurrent sign-ins", () => {
+  beforeEach(() => seed());
+
+  it("lets a second tab start signing in without breaking the first", async () => {
+    const jar = new Jar();
+    const first = await start("/first", ORIGIN, { cookie: jar.header });
+    jar.apply(first.response);
+    const second = await start("/second", ORIGIN, { cookie: jar.header, now: NOW + 1 });
+    jar.apply(second.response);
+    expect(nameOf(second.tx)).not.toBe(nameOf(first.tx));
+    expect(transactionCookies(second.response)).toHaveLength(1);
+    expect(jar.transactions).toHaveLength(2);
+
+    const firstBack = jar.apply(await callback(await issue(READER, first.state), jar.header));
+    expect(firstBack.status).toBe(303);
+    expect(firstBack.headers.get("location")).toBe(`${ORIGIN}/first`);
+    expect(transactionCookies(firstBack)).toEqual([clearCookie(nameOf(first.tx))]);
+
+    const secondBack = jar.apply(await callback(await issue(READER, second.state), jar.header));
+    expect(secondBack.status).toBe(303);
+    expect(secondBack.headers.get("location")).toBe(`${ORIGIN}/second`);
+    expect(jar.transactions).toEqual([]);
+  });
+
+  it("keeps at most three sign-ins open and drops the oldest", async () => {
+    const jar = new Jar();
+    const started = [];
+    for (let i = 0; i < 4; i += 1) {
+      const step = await start(`/tab${i}`, ORIGIN, { cookie: jar.header, now: NOW + i });
+      jar.apply(step.response);
+      started.push(step);
+    }
+    expect(jar.transactions).toHaveLength(3);
+    expect(jar.transactions).not.toContain(nameOf(started[0]?.tx ?? ""));
+    const oldest = await callback(await issue(READER, started[0]?.state ?? ""), jar.header);
+    expect(oldest.status).toBe(400);
+    const newest = await callback(await issue(READER, started[3]?.state ?? ""), jar.header);
+    expect(newest.headers.get("location")).toBe(`${ORIGIN}/tab3`);
+  });
+
+  it("clears expired and unreadable transactions when a sign-in starts", async () => {
+    const jar = new Jar();
+    jar.apply((await start("/old")).response);
+    const [stale = ""] = jar.transactions;
+    const garbage = `${TRANSACTION_COOKIE_PREFIX}garbage00000000`;
+    const oversized = `${TRANSACTION_COOKIE_PREFIX}oversized0000000`;
+    const injected = `${TRANSACTION_COOKIE_PREFIX}injected00000000`;
+    jar.cookies.set(garbage, "not-a-sealed-value");
+    jar.cookies.set(oversized, "v".repeat(2_049));
+    const later = NOW + READ_SESSION.transactionTtlSeconds * 1000;
+    // A name sent twice means something injected a second cookie: neither value is trusted.
+    const cookie = `${jar.header}; ${injected}=a; ${injected}=b`;
+    const response = jar.apply((await start("/new", ORIGIN, { cookie, now: later })).response);
+    expect(transactionCookies(response)).toEqual(
+      expect.arrayContaining(
+        [stale, garbage, oversized, injected].map((name) => clearCookie(name)),
+      ),
+    );
+    expect(jar.transactions).toHaveLength(1);
   });
 });
 
@@ -449,6 +635,23 @@ describe("read session claims", () => {
     const later = await send("/", { cookie, now: NOW + CLAIMS_MS });
     expect(later.status).toBe(303);
     expect(setCookieFor(later, READ_COOKIE)).toBe(clearCookie(READ_COOKIE));
+  });
+
+  it("ends access within the claims lifetime once the reader signs out of the app", async () => {
+    const cookie = await signIn(READER);
+    await sql("DELETE FROM sessions WHERE user_id = ?", READER);
+    expect((await send("/", { cookie, now: NOW + CLAIMS_MS - 1 })).status).toBe(200);
+    const later = await send("/", { cookie, now: NOW + CLAIMS_MS });
+    expect(later.status).toBe(303);
+    expect(setCookieFor(later, READ_COOKIE)).toBe(clearCookie(READ_COOKIE));
+    const script = await send("/app.js", { cookie, headers: SAME_ORIGIN, now: NOW + CLAIMS_MS });
+    expect(script.status).toBe(401);
+  });
+
+  it("ends access once the app session expires", async () => {
+    const cookie = await signIn(READER);
+    await sql("UPDATE sessions SET expires_at = ? WHERE user_id = ?", NOW + CLAIMS_MS, READER);
+    expect((await send("/", { cookie, now: NOW + CLAIMS_MS })).status).toBe(303);
   });
 
   it("renews claims after they expire while access remains", async () => {
@@ -568,7 +771,7 @@ describe("configuration", () => {
     for (const secret of [undefined, "too-short"]) {
       const response = await send("/", { secret });
       expect(response.status).toBe(503);
-      expect(setCookieFor(response, TRANSACTION_COOKIE)).toBeUndefined();
+      expect(transactionCookies(response)).toEqual([]);
       expect((await callback("x".repeat(43), undefined, { secret })).status).toBe(503);
     }
     await seed({ accessMode: "public" });

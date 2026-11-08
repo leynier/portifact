@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9dae7e45-700a-48f9-aed2-e8085acdf27a",
+  "id": "b255cdbf-55fe-4553-8e5b-ae2330d773be",
   "prevId": "f4737d76-46f1-439b-8828-18d0e6e4cf4b",
   "tables": {
     "abuse_reports": {
@@ -675,6 +675,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "auth_session_id": {
+          "name": "auth_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "policy_generation": {
           "name": "policy_generation",
           "type": "integer",
@@ -717,6 +724,11 @@
           "name": "read_handoffs_expires_idx",
           "columns": ["expires_at"],
           "isUnique": false
+        },
+        "read_handoffs_auth_session_idx": {
+          "name": "read_handoffs_auth_session_idx",
+          "columns": ["auth_session_id"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -734,6 +746,15 @@
           "tableFrom": "read_handoffs",
           "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "read_handoffs_auth_session_id_sessions_id_fk": {
+          "name": "read_handoffs_auth_session_id_sessions_id_fk",
+          "tableFrom": "read_handoffs",
+          "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -762,6 +783,13 @@
         },
         "user_id": {
           "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "auth_session_id": {
+          "name": "auth_session_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -798,6 +826,11 @@
           "name": "read_sessions_artifact_idx",
           "columns": ["artifact_id"],
           "isUnique": false
+        },
+        "read_sessions_auth_session_idx": {
+          "name": "read_sessions_auth_session_idx",
+          "columns": ["auth_session_id"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -815,6 +848,15 @@
           "tableFrom": "read_sessions",
           "tableTo": "users",
           "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "read_sessions_auth_session_id_sessions_id_fk": {
+          "name": "read_sessions_auth_session_id_sessions_id_fk",
+          "tableFrom": "read_sessions",
+          "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"

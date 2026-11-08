@@ -3,10 +3,19 @@
 // trust their claims without D1. See docs/security.md, "Cookies and sessions".
 
 export const READ_COOKIE = "__Host-pf_read";
-export const TRANSACTION_COOKIE = "__Host-pf_read_tx";
+/**
+ * Sign-in transactions are one cookie each, named after the start of their nonce, so a second
+ * tab signing in to the same artifact does not overwrite the first tab's transaction.
+ */
+export const TRANSACTION_COOKIE_PREFIX = "__Host-pf_read_tx_";
+const TRANSACTION_TAG_LENGTH = 16;
 
-/** Larger values are never ours: they are ignored instead of parsed. */
-const MAX_VALUE_LENGTH = 2_048;
+export function transactionCookieName(nonce: string): string {
+  return `${TRANSACTION_COOKIE_PREFIX}${nonce.slice(0, TRANSACTION_TAG_LENGTH)}`;
+}
+
+/** Larger values are never ours: they are ignored instead of parsed, and never set. */
+export const MAX_VALUE_LENGTH = 2_048;
 const MIN_SECRET_LENGTH = 32;
 
 /**
@@ -24,6 +33,31 @@ export function cookieValue(header: string | null, name: string): string | null 
   }
   const [value] = values;
   return values.length === 1 && value && value.length <= MAX_VALUE_LENGTH ? value : null;
+}
+
+/**
+ * Every cookie whose name starts with `prefix`, exactly and case-sensitively. `duplicated`
+ * holds names the header carries more than once, whose values are not trusted.
+ */
+export function cookiesWithPrefix(
+  header: string | null,
+  prefix: string,
+): { values: Map<string, string>; duplicated: Set<string> } {
+  const values = new Map<string, string>();
+  const duplicated = new Set<string>();
+  for (const part of header?.split(";") ?? []) {
+    const separator = part.indexOf("=");
+    if (separator === -1) continue;
+    const name = part.slice(0, separator).trim();
+    if (!name.startsWith(prefix)) continue;
+    if (values.has(name) || duplicated.has(name)) {
+      values.delete(name);
+      duplicated.add(name);
+      continue;
+    }
+    values.set(name, part.slice(separator + 1).trim());
+  }
+  return { values, duplicated };
 }
 
 export interface CookieOptions {

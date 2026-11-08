@@ -26,6 +26,8 @@ export const messages = {
     state_mismatch: "The sign-in took too long or was started in another tab. Try again.",
     artifact_unavailable:
       "This artifact does not exist, is no longer available or cannot be opened with this account. To use another account, sign out and open the link again.",
+    read_rate_limited:
+      "This account opened too many artifacts in a short time. Wait a few minutes and open the link again.",
   } as Record<string, string>,
   providerErrorFallback: "Sign-in did not finish. Try again.",
   deviceCodeRequired: "Enter the code shown in your terminal.",

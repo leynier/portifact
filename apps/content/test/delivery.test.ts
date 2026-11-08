@@ -168,7 +168,9 @@ describe("artifact delivery", () => {
     );
   });
 
-  it("does not serve artifacts that are not active", async () => {
+  it("does not serve artifacts that are not active and answers them like unknown ones", async () => {
+    const unknown = await get("/", {}, "https://zzzzzzzzzz.portifact.dev");
+    const unknownText = await unknown.text();
     for (const overrides of [
       { expiresAt: NOW - 1 },
       { state: "draft" as const },
@@ -178,7 +180,8 @@ describe("artifact delivery", () => {
     ]) {
       await seed(overrides);
       const response = await get("/");
-      expect(response.status).toBe(404);
+      expect(response.status).toBe(unknown.status);
+      expect(await response.text()).toBe(unknownText);
       expect(response.headers.get("cache-control")).toBe("no-store");
     }
   });

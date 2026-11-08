@@ -32,6 +32,7 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
     "read_handoffs",
     "artifact_readers",
     "artifacts",
+    "sessions",
     "users",
   ]) {
     await env.DB.exec(`DELETE FROM ${table}`);
@@ -51,6 +52,19 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
           emailVerified: false,
         },
       ].map((user) => ({ ...user, createdAt: at, updatedAt: at })),
+    );
+  // One app.portifact.com session per account, the one that signed in to the artifact.
+  await db()
+    .insert(schema.sessions)
+    .values(
+      [OWNER, READER, STRANGER, UNVERIFIED].map((userId) => ({
+        id: appSession(userId),
+        token: `token-${userId}`,
+        userId,
+        expiresAt: new Date(NOW + 7 * DAY),
+        createdAt: at,
+        updatedAt: at,
+      })),
     );
   for (const id of [ID, OTHER_ID]) {
     await db()
@@ -75,22 +89,34 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
     ]);
 }
 
+/** ID of the app session (Better Auth) that `userId` signed in with. */
+const appSession = (userId: string) => `as_${userId}`;
+
+const signOut = (userId: string) =>
+  db().delete(schema.sessions).where(eq(schema.sessions.userId, userId));
+
 const check = (userId: string, now = NOW) => checkReadAccess(db(), { artifactId: ID, userId, now });
 
 async function issue(userId = READER, state = "state-nonce", artifactId = ID) {
-  const result = await issueReadHandoff(db(), { artifactId, userId, state, now: NOW });
+  const result = await issueReadHandoff(db(), {
+    artifactId,
+    userId,
+    authSessionId: appSession(userId),
+    state,
+    now: NOW,
+  });
   if (!result.ok) throw new Error(`issue failed: ${result.code}`);
   return result.value.code;
 }
 
 const redeem = (
   code: string,
-  overrides: Partial<{ artifactId: string; state: string; now: number }> = {},
+  overrides: Partial<{ artifactId: string; states: string[]; now: number }> = {},
 ) =>
   redeemReadHandoff(db(), {
     code,
     artifactId: ID,
-    state: "state-nonce",
+    states: ["state-nonce"],
     now: NOW + 1000,
     ...overrides,
   });
@@ -167,6 +193,7 @@ describe("read handoffs", () => {
       artifactId: ID,
       userId: READER,
       policyGeneration: 1,
+      authSessionId: appSession(READER),
       expiresAt: NOW + HANDOFF_MS,
       usedAt: null,
     });
@@ -174,17 +201,54 @@ describe("read handoffs", () => {
     const result = await redeem(code);
     expect(result).toMatchObject({
       ok: true,
-      value: { userId: READER, policyGeneration: 1, expiresAt: NOW + 1000 + SESSION_MS },
+      value: {
+        userId: READER,
+        policyGeneration: 1,
+        expiresAt: NOW + 1000 + SESSION_MS,
+        state: "state-nonce",
+      },
     });
     if (!result.ok) return;
     const [session] = await db().select().from(schema.readSessions);
-    expect(session).toMatchObject({ id: result.value.sessionId, artifactId: ID, userId: READER });
+    expect(session).toMatchObject({
+      id: result.value.sessionId,
+      artifactId: ID,
+      userId: READER,
+      authSessionId: appSession(READER),
+    });
+  });
+
+  it("redeems with whichever of the browser's open transactions the code was issued for", async () => {
+    const code = await issue(READER, "second-tab");
+    expect(await redeem(code, { states: ["first-tab", "second-tab", "third-tab"] })).toMatchObject({
+      ok: true,
+      value: { state: "second-tab" },
+    });
+    expect((await redeem(await issue(), { states: [] })).ok).toBe(false);
+  });
+
+  it("refuses to redeem a code once the account signed out of the app", async () => {
+    const code = await issue();
+    await signOut(READER);
+    expect((await redeem(code)).ok).toBe(false);
+    expect(await sessionCount()).toBe(0);
+  });
+
+  it("refuses to redeem a code once the app session expired", async () => {
+    const code = await issue();
+    await db()
+      .update(schema.sessions)
+      .set({ expiresAt: new Date(NOW + 1000) })
+      .where(eq(schema.sessions.userId, READER));
+    expect((await redeem(code)).ok).toBe(false);
+    expect(await sessionCount()).toBe(0);
   });
 
   it("does not issue a code to an account without access", async () => {
     const result = await issueReadHandoff(db(), {
       artifactId: ID,
       userId: STRANGER,
+      authSessionId: appSession(STRANGER),
       state: "s",
       now: NOW,
     });
@@ -221,7 +285,7 @@ describe("read handoffs", () => {
 
   it("refuses a code from another browser's transaction", async () => {
     const code = await issue();
-    expect((await redeem(code, { state: "attacker-nonce" })).ok).toBe(false);
+    expect((await redeem(code, { states: ["attacker-nonce"] })).ok).toBe(false);
     expect(await sessionCount()).toBe(0);
   });
 
@@ -284,6 +348,30 @@ describe("read session refresh", () => {
     expect((await refresh(id, NOW + 120_000, OTHER_ID)).ok).toBe(false);
   });
 
+  it("ends the read session when the account signs out of the app", async () => {
+    const id = await session();
+    await signOut(READER);
+    expect(await refresh(id)).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("ends the read session when the app session expires", async () => {
+    const id = await session();
+    await db()
+      .update(schema.sessions)
+      .set({ expiresAt: new Date(NOW + 120_000) })
+      .where(eq(schema.sessions.userId, READER));
+    expect((await refresh(id, NOW + 120_000 - 1)).ok).toBe(true);
+    expect((await refresh(id, NOW + 120_000)).ok).toBe(false);
+  });
+
+  it("keeps read sessions of other app sessions after one signs out", async () => {
+    const id = await session();
+    const owner = await session(OWNER);
+    await signOut(READER);
+    expect((await refresh(id)).ok).toBe(false);
+    expect((await refresh(owner)).ok).toBe(true);
+  });
+
   it("ends sessions when the account is deleted", async () => {
     const id = await session();
     await db().delete(schema.users).where(eq(schema.users.id, READER));
@@ -304,5 +392,14 @@ describe("read session pruning", () => {
     expect(await sessionCount()).toBe(1);
     expect(await pruneReadSessions(db(), NOW + 1000 + SESSION_MS)).toEqual({ processed: 1 });
     expect(await pruneReadSessions(db(), NOW + 1000 + SESSION_MS)).toEqual({ processed: 0 });
+  });
+
+  it("deletes in bounded batches", async () => {
+    for (const state of ["a", "b", "c"]) await issue(READER, state);
+    const later = NOW + HANDOFF_MS;
+    expect(await pruneReadSessions(db(), later, 2)).toEqual({ processed: 2 });
+    expect(await db().select().from(schema.readHandoffs)).toHaveLength(1);
+    expect(await pruneReadSessions(db(), later, 2)).toEqual({ processed: 1 });
+    expect(await pruneReadSessions(db(), later, 2)).toEqual({ processed: 0 });
   });
 });

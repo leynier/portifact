@@ -73,10 +73,9 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
 
   const found = await findDeliveryArtifact(db, id);
   const artifact = found && isServable(found, now) ? found : null;
-  if (found?.accessMode === "public") {
-    return artifact ? serve(request, env, db, artifact, url, []) : notFound();
-  }
-  // Not public, or unknown: both go through sign-in, so neither reveals whether it exists.
+  if (artifact?.accessMode === "public") return serve(request, env, db, artifact, url, []);
+  // Protected, unknown or not servable (in any mode): all go through sign-in, so an anonymous
+  // visitor cannot tell an archived or expired artifact from one that never existed.
   const decision = await authorizeRead(request, env, db, id, artifact, now);
   if (decision.kind !== "allow") return decisionResponse(decision);
   return serve(request, env, db, decision.artifact, url, decision.setCookies);

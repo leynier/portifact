@@ -5,8 +5,9 @@ import { createDb, schema } from "@portifact/db";
 import { hashSecret, redeemReadHandoff } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { UNAVAILABLE_URL } from "../src/read.ts";
-import { createHarness, type Harness } from "./harness.ts";
+import { READ_ENTRY_LIMIT } from "../src/auth/limits.ts";
+import { RATE_LIMITED_URL, UNAVAILABLE_URL } from "../src/read.ts";
+import { createHarness, type Harness, json } from "./harness.ts";
 
 const ID = "k7d2qm4xab";
 const STATE = "n".repeat(43);
@@ -97,6 +98,12 @@ describe("read handoff", () => {
     expect(location.toString()).not.toContain(STATE);
 
     const [row] = await handoffs();
+    const appSessions = await db()
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, await userId(READER_EMAIL)));
+    // Bound to the app session that asked for it, so signing out ends it.
+    expect(appSessions.map((session) => session.id)).toContain(row?.authSessionId);
     expect(row).toMatchObject({
       codeHash: await hashSecret(code),
       stateHash: await hashSecret(STATE),
@@ -108,13 +115,32 @@ describe("read handoff", () => {
 
     // The artifact origin redeems it once, for this browser's transaction only.
     const redeem = (state: string) =>
-      redeemReadHandoff(db(), { code, artifactId: ID, state, now: Date.now() });
+      redeemReadHandoff(db(), { code, artifactId: ID, states: [state], now: Date.now() });
     expect((await redeem("x".repeat(43))).ok).toBe(false);
     expect(await redeem(STATE)).toMatchObject({
       ok: true,
       value: { userId: await userId(READER_EMAIL) },
     });
     expect((await redeem(STATE)).ok).toBe(false);
+  });
+
+  it("voids codes and read sessions when the app session signs out", async () => {
+    // A session of its own, so signing out leaves the shared ones alone.
+    const cookie = await h.signIn(READER_EMAIL);
+    const location = new URL((await entry(cookie)).headers.get("location") ?? "");
+    const code = location.searchParams.get("code") ?? "";
+    const signOut = await h.request("/api/auth/sign-out", json({}, { cookie }));
+    expect(signOut.status).toBe(200);
+    const redeemed = await redeemReadHandoff(db(), {
+      code,
+      artifactId: ID,
+      states: [STATE],
+      now: Date.now(),
+    });
+    expect(redeemed.ok).toBe(false);
+    expect(await db().select().from(schema.readSessions)).toHaveLength(0);
+    // The shared session of the same account still works.
+    expect((await entry(cookies[READER_EMAIL])).headers.get("location")).toContain("/__portifact/");
   });
 
   it("admits the owner and readers of restricted artifacts and any account otherwise", async () => {
@@ -179,6 +205,24 @@ describe("read handoff", () => {
     expect(head.headers.get("location")).toBe(UNAVAILABLE_URL);
     expect((await read(`/read/${ID}?state=${STATE}`, reader, { method: "POST" })).status).toBe(404);
     expect(await handoffs()).toHaveLength(0);
+  });
+
+  it("limits how many entries one account starts", async () => {
+    await env.DB.exec("DELETE FROM rate_limits");
+    for (let i = 0; i < READ_ENTRY_LIMIT.max; i += 1) {
+      expect((await entry(cookies[READER_EMAIL])).headers.get("location")).toContain(
+        "/__portifact/",
+      );
+    }
+    const refused = await entry(cookies[READER_EMAIL]);
+    expect(refused.status).toBe(303);
+    expect(refused.headers.get("location")).toBe(RATE_LIMITED_URL);
+    expect(Number(refused.headers.get("retry-after"))).toBeGreaterThan(0);
+    expectNoStore(refused);
+    expect(await handoffs()).toHaveLength(READ_ENTRY_LIMIT.max);
+    // Other accounts keep their own budget.
+    expect((await entry(cookies[OWNER_EMAIL])).headers.get("location")).toContain("/__portifact/");
+    await env.DB.exec("DELETE FROM rate_limits");
   });
 
   it("serves the entry only on the app host", async () => {

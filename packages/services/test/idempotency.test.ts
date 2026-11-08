@@ -142,6 +142,16 @@ describe("idempotent mutations", () => {
     expect(await pruneOperations(db(), NOW)).toBe(0);
   });
 
+  it("prunes in bounded batches", async () => {
+    const old = NOW - IDEMPOTENCY_TTL_MS - 10;
+    for (let i = 0; i < 3; i += 1) {
+      await runIdempotent(db(), request({ now: old }), async () => ({ status: 200, body: i }));
+    }
+    expect(await pruneOperations(db(), NOW, 2)).toBe(2);
+    expect(await pruneOperations(db(), NOW, 2)).toBe(1);
+    expect(await pruneOperations(db(), NOW, 2)).toBe(0);
+  });
+
   it("hashes equal bodies equally and different bodies differently", async () => {
     expect(await hashRequest({ a: 1 })).toBe(await hashRequest({ a: 1 }));
     expect(await hashRequest({ a: 1 })).not.toBe(await hashRequest({ a: 2 }));

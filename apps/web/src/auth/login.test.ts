@@ -256,6 +256,13 @@ describe("login page", () => {
     expect(location.assigned).toEqual([]);
   });
 
+  it("explains that too many artifacts were opened in a short time", async () => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    await open("?error=read_rate_limited");
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.read_rate_limited);
+    expect(location.assigned).toEqual([]);
+  });
+
   it("forwards a signed-in user straight to the next page", async () => {
     api.on("GET", "/get-session", session("ada@example.test"));
     await open("?next=%2Fdevice");

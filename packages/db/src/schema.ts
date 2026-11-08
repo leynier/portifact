@@ -11,7 +11,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { users } from "./auth-schema.ts";
+import { sessions, users } from "./auth-schema.ts";
 
 const timestamp = (name: string) => integer(name, { mode: "number" });
 const createdAt = () => timestamp("created_at").notNull().default(sql`(unixepoch() * 1000)`);
@@ -90,6 +90,13 @@ export const readHandoffs = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     stateHash: text("state_hash").notNull(),
+    /**
+     * The app.portifact.com session that asked for the code. Signing out deletes it, which
+     * deletes the code and every read session that came from it.
+     */
+    authSessionId: text("auth_session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
     /** Policy generation the access check passed against; the read session starts from it. */
     policyGeneration: integer("policy_generation").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
@@ -97,7 +104,10 @@ export const readHandoffs = sqliteTable(
     sessionId: text("session_id"),
     createdAt: createdAt(),
   },
-  (t) => [index("read_handoffs_expires_idx").on(t.expiresAt)],
+  (t) => [
+    index("read_handoffs_expires_idx").on(t.expiresAt),
+    index("read_handoffs_auth_session_idx").on(t.authSessionId),
+  ],
 );
 
 /** Read sessions per artifact and user, behind the `__Host-pf_read` cookie of one origin. */
@@ -111,6 +121,13 @@ export const readSessions = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The app.portifact.com session the reader signed in with. Claims are renewed only while it
+     * exists and has not expired, so signing out of the app ends the read session too.
+     */
+    authSessionId: text("auth_session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
     expiresAt: timestamp("expires_at").notNull(),
     createdAt: createdAt(),
   },
@@ -118,6 +135,7 @@ export const readSessions = sqliteTable(
     index("read_sessions_expires_idx").on(t.expiresAt),
     index("read_sessions_user_idx").on(t.userId),
     index("read_sessions_artifact_idx").on(t.artifactId),
+    index("read_sessions_auth_session_idx").on(t.authSessionId),
   ],
 );
 

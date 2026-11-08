@@ -2,7 +2,8 @@
 // protegido"):
 //
 // 1. A navigation without a read session gets a signed transaction cookie (artifact, nonce,
-//    path) and goes to app.portifact.com/read/<id>?state=<nonce>.
+//    path) and goes to app.portifact.com/read/<id>?state=<nonce>. Each transaction has its own
+//    cookie, so up to MAX_TRANSACTIONS tabs can sign in to one artifact at the same time.
 // 2. The app checks the account and the policy and sends the browser back to
 //    /__portifact/callback with a one-use code bound to this artifact and nonce.
 // 3. The callback redeems the code and sets `__Host-pf_read`: a session ID plus signed claims
@@ -13,17 +14,22 @@ import type { Db, DeliveryArtifact } from "@portifact/db";
 import { randomToken, redeemReadHandoff, refreshReadSession } from "@portifact/services";
 import {
   clearCookie,
+  cookiesWithPrefix,
   cookieValue,
+  MAX_VALUE_LENGTH,
   READ_COOKIE,
   seal,
   setCookie,
-  TRANSACTION_COOKIE,
+  TRANSACTION_COOKIE_PREFIX,
+  transactionCookieName,
   unseal,
   usableSecret,
 } from "./cookies.ts";
 
 const SECOND_MS = 1000;
 export const CALLBACK_PATH = "/__portifact/callback";
+/** Sign-ins one browser may have open per artifact; starting another drops the oldest. */
+export const MAX_TRANSACTIONS = 3;
 
 export interface ReadEnv {
   /** Origin of the app that signs users in, for example `https://app.portifact.com`. */
@@ -88,9 +94,10 @@ async function claimsCookie(
 }
 
 /**
- * Authorizes a request for an artifact that is not public. `artifact` is null when the
- * artifact is missing or not servable; without a session that looks exactly like a protected
- * artifact, so the response never tells an anonymous visitor whether it exists.
+ * Authorizes a request for an artifact that is not served publicly. `artifact` is null when
+ * the artifact is missing or not servable, whatever its access mode; without a session that
+ * looks exactly like a protected artifact, so the response never tells an anonymous visitor
+ * whether it exists.
  */
 export async function authorizeRead(
   request: Request,
@@ -157,17 +164,21 @@ async function startSignIn(
   setCookies: string[],
 ): Promise<SignInStep> {
   const url = new URL(request.url);
-  const requested = `${url.pathname}${url.search}`;
+  const open = await openTransactions(request, secret, artifactId, now);
+  // Room for the new one: the oldest open transactions beyond the cap are dropped.
+  const dropped = open.live.slice(MAX_TRANSACTIONS - 1).map((entry) => entry.name);
+  for (const name of [...open.stale, ...dropped]) setCookies.push(clearCookie(name));
+
   const nonce = randomToken();
   const transaction: ReadTransaction = {
     v: 1,
     aid: artifactId,
     nonce,
-    path: requested.length <= 2_048 ? requested : "/",
+    path: `${url.pathname}${url.search}`,
     exp: now + READ_SESSION.transactionTtlSeconds * SECOND_MS,
   };
   setCookies.push(
-    setCookie(TRANSACTION_COOKIE, await seal(secret, TRANSACTION_PURPOSE, transaction), {
+    setCookie(transactionCookieName(nonce), await sealTransaction(secret, transaction), {
       maxAgeSeconds: READ_SESSION.transactionTtlSeconds,
     }),
   );
@@ -177,9 +188,64 @@ async function startSignIn(
 }
 
 /**
- * `/__portifact/callback?code=…`: redeems the app's handoff code for this browser's
- * transaction and returns to the requested path with a read session. Every failure answers the
- * same page and clears the transaction.
+ * The sealed transaction, returning to `/` instead of the requested path when the path would
+ * make the cookie too long to be read back.
+ */
+async function sealTransaction(secret: string, transaction: ReadTransaction): Promise<string> {
+  const sealed = await seal(secret, TRANSACTION_PURPOSE, transaction);
+  // The sealed value is longer than the path, so this also keeps the path within the schema.
+  if (sealed.length <= MAX_VALUE_LENGTH) return sealed;
+  return seal(secret, TRANSACTION_PURPOSE, { ...transaction, path: "/" });
+}
+
+interface OpenTransaction {
+  name: string;
+  transaction: ReadTransaction;
+}
+
+/**
+ * The browser's transaction cookies on this origin: `live` ones (valid, for this artifact,
+ * unexpired, under their own nonce's name), newest first, and the names of `stale` ones to
+ * clear.
+ */
+async function openTransactions(
+  request: Request,
+  secret: string,
+  artifactId: string,
+  now: number,
+): Promise<{ live: OpenTransaction[]; stale: string[] }> {
+  const { values, duplicated } = cookiesWithPrefix(
+    request.headers.get("Cookie"),
+    TRANSACTION_COOKIE_PREFIX,
+  );
+  const live: OpenTransaction[] = [];
+  const stale = [...duplicated];
+  for (const [name, value] of values) {
+    const parsed =
+      value.length <= MAX_VALUE_LENGTH
+        ? ReadTransaction.safeParse(await unseal(secret, TRANSACTION_PURPOSE, value))
+        : null;
+    const transaction = parsed?.success ? parsed.data : null;
+    if (
+      transaction &&
+      transaction.aid === artifactId &&
+      transaction.exp > now &&
+      name === transactionCookieName(transaction.nonce)
+    ) {
+      live.push({ name, transaction });
+    } else {
+      stale.push(name);
+    }
+  }
+  live.sort((a, b) => b.transaction.exp - a.transaction.exp);
+  return { live: live.slice(0, MAX_TRANSACTIONS), stale };
+}
+
+/**
+ * `/__portifact/callback?code=…`: redeems the app's handoff code for one of this browser's
+ * open transactions and returns to its requested path with a read session. Every failure
+ * answers the same page; it clears only transactions that are no longer usable, because
+ * another tab may still be signing in with the others.
  */
 export async function handleCallback(
   request: Request,
@@ -192,39 +258,38 @@ export async function handleCallback(
   if (!usableSecret(secret)) {
     return { kind: "page", status: 503, page: "unavailable", setCookies: [] };
   }
+  const open = await openTransactions(request, secret, artifactId, now);
+  const cleared = open.stale.map(clearCookie);
   const failed: SignInStep = {
     kind: "page",
     status: 400,
     page: "linkExpired",
-    setCookies: [clearCookie(TRANSACTION_COOKIE)],
+    setCookies: cleared,
   };
   if (!isNavigation(request)) return failed;
 
   const url = new URL(request.url);
   const codes = url.searchParams.getAll("code");
   const code = codes.length === 1 ? OpaqueToken.safeParse(codes[0]) : null;
-  const value = cookieValue(request.headers.get("Cookie"), TRANSACTION_COOKIE);
-  const transaction = value
-    ? ReadTransaction.safeParse(await unseal(secret, TRANSACTION_PURPOSE, value))
-    : null;
-  if (!code?.success || !transaction?.success) return failed;
-  const tx = transaction.data;
-  if (tx.aid !== artifactId || tx.exp <= now) return failed;
+  if (!code?.success || open.live.length === 0) return failed;
 
   const redeemed = await redeemReadHandoff(db, {
     code: code.data,
     artifactId,
-    state: tx.nonce,
+    states: open.live.map((entry) => entry.transaction.nonce),
     now,
   });
   if (!redeemed.ok) return failed;
-
   const session = redeemed.value;
+  const used = open.live.find((entry) => entry.transaction.nonce === session.state);
+  if (!used) return failed;
+
   return {
     kind: "redirect",
-    location: sameOriginPath(tx.path, url.origin),
+    location: sameOriginPath(used.transaction.path, url.origin),
     setCookies: [
-      clearCookie(TRANSACTION_COOKIE),
+      ...cleared,
+      clearCookie(used.name),
       await claimsCookie(
         secret,
         {

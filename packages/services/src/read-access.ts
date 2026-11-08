@@ -5,9 +5,12 @@
 import { READ_SESSION } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { canRead, effectiveState, fail, ok, type Result } from "@portifact/domain";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, exists, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 
 const SECOND_MS = 1000;
+/** Rows each prune deletes per run, like the other maintenance jobs. */
+const PRUNE_BATCH = 500;
 
 export interface ReadGrant {
   userId: string;
@@ -18,6 +21,26 @@ export interface ReadSessionGrant extends ReadGrant {
   sessionId: string;
   /** End of the read session, in milliseconds. Claims are renewed until then. */
   expiresAt: number;
+}
+
+/** A new read session, with the transaction nonce its code was issued for. */
+export interface RedeemedReadSession extends ReadSessionGrant {
+  state: string;
+}
+
+/**
+ * Whether the app.portifact.com session behind a code or read session still exists and has not
+ * expired. Signing out, signing out everywhere and revoking a session all delete the row.
+ */
+function liveAppSession(db: Db, authSessionId: SQLiteColumn, now: number) {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(schema.sessions)
+      .where(
+        and(eq(schema.sessions.id, authSessionId), gt(schema.sessions.expiresAt, new Date(now))),
+      ),
+  );
 }
 
 const unavailable = () =>
@@ -98,13 +121,13 @@ export async function checkReadAccess(
 }
 
 /**
- * Checks access and stores a one-use code bound to the artifact, the user, the policy
- * generation and the artifact origin's transaction nonce (`state`). Returns the code, which is
- * shown once and stored only as a hash.
+ * Checks access and stores a one-use code bound to the artifact, the user, the app session
+ * (`authSessionId`, Better Auth's session ID), the policy generation and the artifact origin's
+ * transaction nonce (`state`). Returns the code, which is shown once and stored only as a hash.
  */
 export async function issueReadHandoff(
   db: Db,
-  input: { artifactId: string; userId: string; state: string; now: number },
+  input: { artifactId: string; userId: string; authSessionId: string; state: string; now: number },
 ): Promise<Result<{ code: string; expiresAt: number }>> {
   const access = await checkReadAccess(db, input);
   if (!access.ok) return access;
@@ -115,6 +138,7 @@ export async function issueReadHandoff(
     artifactId: input.artifactId,
     userId: input.userId,
     stateHash: await hashSecret(input.state),
+    authSessionId: input.authSessionId,
     policyGeneration: access.value.policyGeneration,
     expiresAt,
     createdAt: input.now,
@@ -123,17 +147,24 @@ export async function issueReadHandoff(
 }
 
 /**
- * Redeems a handoff code on the artifact origin it was issued for, with the nonce of that
- * browser's transaction. The guarded update marks the code used and names the new session;
- * the session row is inserted only if that update happened, so a replayed or concurrent
- * redemption creates nothing.
+ * Redeems a handoff code on the artifact origin it was issued for, with the nonces of that
+ * browser's open transactions (`states`); the code matches at most one. The app session that
+ * asked for the code must still be live. The guarded update marks the code used and names the
+ * new session; the session row is inserted only if that update happened, so a replayed or
+ * concurrent redemption creates nothing.
  */
 export async function redeemReadHandoff(
   db: Db,
-  input: { code: string; artifactId: string; state: string; now: number },
-): Promise<Result<ReadSessionGrant>> {
+  input: { code: string; artifactId: string; states: readonly string[]; now: number },
+): Promise<Result<RedeemedReadSession>> {
+  const expired = fail<never>(
+    "invalid_input",
+    "This sign-in link has expired or was already used.",
+  );
+  if (input.states.length === 0) return expired;
   const codeHash = await hashSecret(input.code);
-  const stateHash = await hashSecret(input.state);
+  const stateHashes = new Map<string, string>();
+  for (const state of input.states) stateHashes.set(await hashSecret(state), state);
   const sessionId = randomToken();
   const expiresAt = input.now + READ_SESSION.sessionTtlSeconds * SECOND_MS;
   const handoff = schema.readHandoffs;
@@ -146,18 +177,24 @@ export async function redeemReadHandoff(
         and(
           eq(handoff.codeHash, codeHash),
           eq(handoff.artifactId, input.artifactId),
-          eq(handoff.stateHash, stateHash),
+          inArray(handoff.stateHash, [...stateHashes.keys()]),
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
+          liveAppSession(db, handoff.authSessionId, input.now),
         ),
       )
-      .returning({ userId: handoff.userId, policyGeneration: handoff.policyGeneration }),
+      .returning({
+        userId: handoff.userId,
+        policyGeneration: handoff.policyGeneration,
+        stateHash: handoff.stateHash,
+      }),
     db.insert(schema.readSessions).select(
       db
         .select({
           id: sql<string>`${sessionId}`.as("id"),
           artifactId: handoff.artifactId,
           userId: handoff.userId,
+          authSessionId: handoff.authSessionId,
           expiresAt: sql<number>`${expiresAt}`.as("expires_at"),
           createdAt: sql<number>`${input.now}`.as("created_at"),
         })
@@ -166,15 +203,21 @@ export async function redeemReadHandoff(
     ),
   ]);
   const row = claimed[0];
-  if (!row) {
-    return fail("invalid_input", "This sign-in link has expired or was already used.");
-  }
-  return ok({ sessionId, expiresAt, ...row });
+  const state = row && stateHashes.get(row.stateHash);
+  if (!row || state === undefined) return expired;
+  return ok({
+    sessionId,
+    expiresAt,
+    userId: row.userId,
+    policyGeneration: row.policyGeneration,
+    state,
+  });
 }
 
 /**
  * Renews a read session's claims: the session must exist for this artifact and be unexpired,
- * and the account must still pass the current access policy.
+ * the app session it came from must still be live (so signing out of the app ends it), and the
+ * account must still pass the current access policy.
  */
 export async function refreshReadSession(
   db: Db,
@@ -188,6 +231,7 @@ export async function refreshReadSession(
         eq(schema.readSessions.id, input.sessionId),
         eq(schema.readSessions.artifactId, input.artifactId),
         gt(schema.readSessions.expiresAt, input.now),
+        liveAppSession(db, schema.readSessions.authSessionId, input.now),
       ),
     )
     .limit(1);
@@ -197,17 +241,44 @@ export async function refreshReadSession(
   return ok({ ...access.value, sessionId: input.sessionId, expiresAt: session.expiresAt });
 }
 
-/** Deletes expired handoffs and read sessions. Idempotent; called by the maintenance job. */
-export async function pruneReadSessions(db: Db, now: number): Promise<{ processed: number }> {
+/**
+ * Deletes up to `limit` expired handoffs and `limit` expired read sessions. Idempotent; called
+ * by the maintenance job, which picks up the rest on its next runs.
+ */
+export async function pruneReadSessions(
+  db: Db,
+  now: number,
+  limit = PRUNE_BATCH,
+): Promise<{ processed: number }> {
+  const handoff = schema.readHandoffs;
+  const session = schema.readSessions;
   const [handoffs, sessions] = await db.batch([
     db
-      .delete(schema.readHandoffs)
-      .where(sql`${schema.readHandoffs.expiresAt} <= ${now}`)
-      .returning({ id: schema.readHandoffs.codeHash }),
+      .delete(handoff)
+      .where(
+        inArray(
+          handoff.codeHash,
+          db
+            .select({ id: handoff.codeHash })
+            .from(handoff)
+            .where(lte(handoff.expiresAt, now))
+            .limit(limit),
+        ),
+      )
+      .returning({ id: handoff.codeHash }),
     db
-      .delete(schema.readSessions)
-      .where(sql`${schema.readSessions.expiresAt} <= ${now}`)
-      .returning({ id: schema.readSessions.id }),
+      .delete(session)
+      .where(
+        inArray(
+          session.id,
+          db
+            .select({ id: session.id })
+            .from(session)
+            .where(lte(session.expiresAt, now))
+            .limit(limit),
+        ),
+      )
+      .returning({ id: session.id }),
   ]);
   return { processed: handoffs.length + sessions.length };
 }
