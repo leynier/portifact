@@ -115,6 +115,13 @@ export const messages = {
     `  ${message}${until === null ? "" : ` Lifts ${formatDate(until)}.`}`,
   pulled: (count: number, bytes: number, version: number, id: string, out: string) =>
     `Downloaded ${count} ${plural(count, "file", "files")} (${formatBytes(bytes)}) of version ${version} of ${id} into ${out}.`,
+  historyAdded: (count: number, first: number, last: number, id: string, out: string) =>
+    `Added ${count} ${plural(count, "version", "versions")} of ${id} to the Git history in ${out}: ${first === last ? `v${first}` : `v${first} to v${last}`}, one commit and tag each.`,
+  historyEmptyCommits: (versions: readonly number[], reason: "none" | "purged") =>
+    `${reason === "none" ? "Without private sources" : "Sources no longer retained"}, so the commit is empty: ${versions.map((n) => `v${n}`).join(", ")}.`,
+  historyUpToDate: (out: string, version: number, id: string) =>
+    `The Git history in ${out} is already up to date with version ${version} of ${id}.`,
+  historyNothing: (id: string) => `${id} has no published versions, so no Git history was created.`,
 
   errors: {
     notSignedIn: (origin: string) =>
@@ -198,6 +205,24 @@ export const messages = {
     downloadMismatch: (path: string) =>
       `${path} did not match its size or SHA-256 after downloading, so the pull stopped. Run the command again.`,
     pullCleanedUp: (out: string) => `Removed the partial download in ${out}.`,
+    gitNeedsSource:
+      "--git works only with --source: it builds a Git history of the private sources.",
+    gitWithPublished: "--git downloads only the private sources. Leave out --published.",
+    gitWithVersion: "--git adds every retained version. Leave out --version.",
+    gitMissing:
+      "pull --git needs Git, and the `git` command could not be run. Install Git and run the command again.",
+    gitFailed: (step: string, out: string) =>
+      `git ${step} failed in ${out}, so the history was not changed. Run the command again.`,
+    historyNotOurs: (out: string) =>
+      `${out} exists and is not a Git history made by \`portifact pull --source --git\`. Choose a folder that does not exist yet.`,
+    historyOtherArtifact: (out: string, other: string) =>
+      `${out} holds the Git history of ${other}. Choose another folder.`,
+    historyDiverged: (out: string, reason: string) =>
+      `${out} changed since the last pull (${reason}), so nothing was added. Choose a folder that does not exist yet to start a new history.`,
+    historyBlocked: (out: string) =>
+      `Could not update the files in ${out}: an untracked file or link is in the way of a file of the new versions. Move it, then run the command again.`,
+    historyDirty: (out: string) =>
+      `${out} has uncommitted changes to files Portifact wrote. Commit or discard them, then run the command again.`,
   },
 } as const;
 
