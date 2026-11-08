@@ -26,9 +26,9 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 ## Repository layout
 
 ```text
-apps/app        Worker for portifact.com and app.portifact.com: landing, installers, identity, OAuth and the /api/v1 publishing API; MCP tools later
+apps/app        Worker for portifact.com and app.portifact.com: landing, installers, dashboard, identity, OAuth and the /api/v1 publishing API; MCP tools later
 apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
-apps/web        Landing page today; dashboard and review viewer later (Vite)
+apps/web        Landing, auth pages and the dashboard SPA (React, TanStack Router and Query, Lingui); review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
 packages/cli    portifact CLI: login, logout and whoami today; commands take an injected Runtime (packages/cli/src/runtime.ts)
 packages/contracts   Shared schemas, errors and OpenAPI
@@ -38,7 +38,7 @@ packages/db          Drizzle schema, migrations and queries
 packages/render      Markdown and TXT rendering to safe HTML documents (markdown-it); not wired into delivery yet
 packages/anchors     Annotation anchor model and resolution
 packages/bridge      Review script injected into artifacts
-packages/ui          Design system: tokens and components
+packages/ui          Design system: tokens, React components and patterns, and the axe test helper
 skills/              Agent skills for using Portifact, installable with npx skills
 assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer, CI-scope and validation scripts; a workspace whose pure logic is unit tested
@@ -74,13 +74,14 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice. If two concurrent requests would write the same new state (a counter or generation plus one), `exists(...)` on it is true for both: condition the dependent writes on the old state the request read and run the guarded update last instead (see `packages/services/src/access.ts`).
 - Web, CLI and MCP must behave identically for the same operation: same permission checks, quotas, states and errors. Add a parity test when you add an operation.
 - MCP has no privileged path. It goes through the same authorization as the API.
+- `/api/v1` accepts a bearer token or the dashboard's session cookie; both resolve in `apps/app/src/api/access.ts` to one user and the same scope check. Session requests must carry `Sec-Fetch-Site: same-origin` and, on mutations, the exact app `Origin`. New routes go through `guarded` and get both for free.
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.
 - Input and output shapes live in `packages/contracts` and are validated at every boundary.
 - Multi-step state changes in D1 use transactional batches with checked results. A read followed by a separate write is not a transaction.
 - The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one (`--custom` for triggers and other SQL Drizzle does not model). Active-slot accounting for lifecycle transitions is done by triggers in `0001_lifecycle_triggers.sql`; do not also adjust `active_artifacts` in code for those transitions. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
 - Mutations that may be retried take an idempotency key.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
-- The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves identity, OAuth and the auth pages (its root, the landing's Sign in target, redirects to `/login` until the dashboard exists), anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
+- The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves the dashboard at `/` and its client routes (`DASHBOARD_ROUTES` in `apps/app/src/app-host.ts`, kept in sync with `apps/web/src/dashboard/router.tsx`; without a session they redirect to `/login?next=...`), identity, OAuth and the auth pages, anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.
 - Prefer the simplest correct solution. Do not add dependencies, services or abstractions the plan does not need; justify any new dependency in the change description.
 

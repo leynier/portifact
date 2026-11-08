@@ -80,7 +80,7 @@ describe("login page", () => {
       path: "/sign-in/email-otp",
       body: { email: "ada@example.test", otp: "123456" },
     });
-    expect(location.assigned).toEqual(["/login"]);
+    expect(location.assigned).toEqual(["/"]);
     expect(element("status").textContent).toBe(messages.redirecting);
   });
 
@@ -178,7 +178,7 @@ describe("login page", () => {
     expect(api.calls.at(-1)).toEqual({
       method: "POST",
       path: "/sign-in/social",
-      body: { provider: "github", callbackURL: "/login", errorCallbackURL: "/login" },
+      body: { provider: "github", callbackURL: "/", errorCallbackURL: "/login" },
     });
     expect(location.assigned).toEqual(["https://accounts.google.com/o/oauth2/v2/auth?x=1"]);
   });

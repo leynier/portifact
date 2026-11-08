@@ -49,7 +49,7 @@ describe("auth pages on app.portifact.com", () => {
   it("sends the root, where the landing's Sign in link points, to the login page", async () => {
     const response = await get("/");
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("/login");
+    expect(response.headers.get("location")).toBe("/login?next=%2F");
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 

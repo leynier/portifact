@@ -40,17 +40,16 @@ import {
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { z } from "zod";
-import {
-  authorizeResourceRequest,
-  type Introspect,
-  type ProtectedResource,
-} from "../auth/resource.ts";
+import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
+import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import type { Presigner } from "./presign.ts";
 
 export interface ApiDeps {
   introspect(env: Env): Introspect;
   resource(env: Env): ProtectedResource;
+  /** The dashboard's session cookie, accepted from the app origin only (./access.ts). */
+  session(env: Env): SessionLookup;
   presigner(env: Env): Presigner;
   now(): number;
 }
@@ -66,19 +65,23 @@ export function apiRoutes(deps: ApiDeps) {
   });
 
   /**
-   * Runs `handler` for the token's user when the token is valid for the API and `scope`. Route
-   * patterns guarantee their params, so handlers read them with `as string`.
+   * Runs `handler` for the calling user when the bearer token or the dashboard session allows
+   * `scope` at the API. Route patterns guarantee their params, so handlers read them with
+   * `as string`.
    */
   const guarded =
     (scope: OAuthScope, handler: (c: ApiContext, userId: string) => Promise<Response>) =>
     async (c: ApiContext) => {
-      const decision = await authorizeResourceRequest(
-        deps.introspect(c.env),
+      const decision = await authorizeApiRequest(
+        {
+          introspect: deps.introspect(c.env),
+          resource: deps.resource(c.env),
+          session: deps.session(c.env),
+        },
         c.req.raw,
-        deps.resource(c.env),
-        [scope],
+        scope,
       );
-      return decision.ok ? handler(c, decision.principal.userId) : decision.response;
+      return decision.ok ? handler(c, decision.userId) : decision.response;
     };
 
   api.post(
