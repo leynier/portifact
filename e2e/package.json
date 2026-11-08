@@ -17,6 +17,7 @@
     "@portifact/services": "workspace:*",
     "@cloudflare/workers-types": "^5.0.0",
     "@types/node": "catalog:",
+    "axe-core": "catalog:",
     "typescript": "catalog:",
     "wrangler": "^4.0.0"
   }

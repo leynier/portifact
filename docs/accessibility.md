@@ -57,6 +57,6 @@ Accessibility is tested like any other behavior. See [testing.md](testing.md).
 
 - Component tests query by role and accessible name, which also verifies the accessible name exists.
 - `vitest-axe` runs on every component story and state in `packages/ui`.
-- `@axe-core/playwright` runs on every main screen in the end-to-end tests, in both themes. Any violation fails the build.
+- axe-core runs in real browsers in the end-to-end tests (`e2e/src/axe.ts`), in both themes, so contrast is checked too; the sign-in page has it today, and every main screen should. Any violation fails the build.
 - End-to-end tests include keyboard-only paths: sign in, publish, change access, annotate text, annotate an element, reply and restore.
 - Automated tools find only part of the problems. Before release, run a manual check with the keyboard alone, with VoiceOver or NVDA, at 200% zoom and with reduced motion.

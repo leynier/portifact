@@ -9,9 +9,13 @@ export const messages = {
   emailInvalid: "Enter a valid email address, like name@example.com.",
   codeRequired: "Enter the 6-digit code from the email.",
   codeInvalid: "That code is not valid or has expired. Check it or send a new code.",
-  codeSent: (email: string) =>
-    `We sent a 6-digit code to ${email}. It expires in 5 minutes and works once.`,
+  codeSent: (email: string) => `We sent a 6-digit code to ${email}.`,
+  codeSentStatus: "Code sent. Enter the 6-digit code from the email.",
   codeResent: "A new code is on its way.",
+  resendCode: "Send a new code",
+  resendIn: (seconds: number) => `Send a new code in ${seconds}s`,
+  humanCheckNeeded:
+    "One more step: Cloudflare needs a quick check that you are human. Complete it below the sign-in options to continue.",
   emailSuppressed:
     "We cannot send email to this address because earlier messages to it bounced or were reported as spam. Sign in with Google or GitHub, or write to privacy@portifact.com to have it reviewed.",
   emailCapacity:
@@ -21,13 +25,12 @@ export const messages = {
   methodConnected: "Connected",
   methodNotUsed: "Not used yet",
   redirecting: "Signing you in.",
-  termsRequired: "Confirm you are 18 or older and accept the terms to continue.",
   termsUpdateFor: (email: string) => `Signed in as ${email}`,
   providerErrors: {
     human_verification_required:
-      "New accounts need a quick check that you are human. Complete the check on this page, or reload it if the check does not appear, and try again.",
+      "New accounts need a quick check that you are human, and it did not finish. Try again; if a check appears below the sign-in options, complete it. If nothing appears, reload the page or allow challenges.cloudflare.com.",
     terms_not_accepted:
-      "Portifact needs you to confirm you are 18 or older and accept the terms before signing in. Check the box and try again.",
+      "Your acceptance of the terms did not reach Portifact, or it expired after 30 minutes. Choose a sign-in option again to continue.",
     account_not_linked:
       "Your provider has not verified this email address, so it cannot open the Portifact account that uses it. Verify it there, or sign in with an email code.",
     email_not_verified:

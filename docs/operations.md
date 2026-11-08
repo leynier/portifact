@@ -85,7 +85,7 @@ Rotate or set them with `wrangler secret put <NAME> --name portifact-jobs` from 
 
 ### Alert emails (optional)
 
-Alert emails are a no-op until the `portifact-jobs` Worker has a `send_email` binding named `BUDGET_EMAIL` and the vars `BUDGET_ALERT_TO` (the operator's address) and `BUDGET_ALERT_FROM` (a sender verified in Cloudflare Email Service). With all three, each run emails the cycle's alerts that were not emailed yet and marks them; a failed send is retried on the next run.
+Alert emails are a no-op until the `portifact-jobs` Worker has a `send_email` binding named `BUDGET_EMAIL` and the vars `BUDGET_ALERT_TO` (the operator's address) and `BUDGET_ALERT_FROM` (a sender verified in Cloudflare Email Service). With all three, each run emails the cycle's alerts that were not emailed yet and marks them; a failed send is retried on the next run. The email (`budgetAlertEmail` in `packages/emails`) has an HTML version and a plain-text alternative with the projection, level, protection in effect, the new alerts and the `operator budget` command; `bun run --cwd packages/emails preview` shows it.
 
 ## Email quota and suppressions
 

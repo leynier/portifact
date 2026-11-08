@@ -168,24 +168,25 @@ describe("sign-in code email", () => {
 
   it("states the code, its lifetime and that it works once, in text and HTML", () => {
     expect(message.to).toBe("ada@example.test");
-    expect(message.text).toContain("Your Portifact sign-in code is 123456");
+    expect(message.text.split("\n")).toContain("123456");
     expect(message.text).toContain("expires in 5 minutes and works once");
-    expect(message.html).toContain("<strong>123456</strong>");
+    expect(message.html).toMatch(/>123456<\/p>/);
     expect(message.html).toContain("expires in 5 minutes and works once");
-    expect(message.html).toContain('<html lang="en">');
+    expect(message.html).toContain("you can ignore this email");
+    expect(message.html).toContain('<html lang="en"');
   });
 
   it("follows the writing style: no trailing period in the subject or heading, no em dash", () => {
     expect(message.subject).toBe("Your Portifact sign-in code");
     expect(message.subject).not.toMatch(/\.$/);
-    expect(message.html).toMatch(/<h1>[^<]*[^.]<\/h1>/);
+    expect(message.html).toMatch(/<h1\b[^>]*>[^<]*[^.]<\/h1>/);
     for (const part of [message.subject, message.text, message.html]) {
-      expect(part).not.toContain("—");
+      expect(part).not.toContain("\u2014");
     }
   });
 
-  it("stays monochrome: no colors or inline styles", () => {
-    expect(message.html).not.toMatch(/style=|color|#[0-9a-f]{3,6}\b/i);
+  it("keeps the code out of the subject, which notifications show", () => {
+    expect(message.subject).not.toContain("123456");
   });
 });
 

@@ -28,9 +28,11 @@
     "R2_SECRET_ACCESS_KEY": "e2e",
     "BETTER_AUTH_SECRET": "e2e-only-better-auth-secret-0123456789abcdef",
     "READ_SESSION_SECRET": "e2e-only-read-session-secret-0123456789abcdef",
-    // No human check widget: seeded accounts and owners' comments never need one, and the suite
-    // loads nothing from challenges.cloudflare.com.
-    "TURNSTILE_SITE_KEY": ""
+    // The human check runs against a fake Turnstile: the test front end serves the script at its
+    // real URL (src/turnstile-fake.ts) and the e2e Worker fakes siteverify (worker/index.ts), so
+    // nothing leaves the machine. Not secrets.
+    "TURNSTILE_SITE_KEY": "e2e-turnstile-site-key",
+    "TURNSTILE_SECRET_KEY": "e2e-turnstile-secret"
   },
   "d1_databases": [
     {
