@@ -18,6 +18,7 @@ The project is in its initial build. Some commands and paths below are planned a
 | [docs/design.md](docs/design.md)               | Touching any UI: dashboard, review viewer, Markdown/TXT viewers or the annotation bridge.                                                                                                                             |
 | [docs/accessibility.md](docs/accessibility.md) | Touching any UI or CLI output. Accessibility is part of done.                                                                                                                                                         |
 | [docs/releasing.md](docs/releasing.md)         | Touching branches, versions, CI, release workflows, build scripts or installers.                                                                                                                                      |
+| [docs/decisions/](docs/decisions)              | Touching something a decision record covers, such as the OAuth server in [0001](docs/decisions/0001-oauth-server.md). Add a numbered record when a phase 0 spike or a hard-to-reverse choice settles a question.      |
 
 If a decision in the plan conflicts with the code, do not silently pick one: fix the code or propose a plan update and say so.
 
@@ -25,11 +26,12 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 
 ```text
 apps/app        Worker for portifact.com: landing assets and installers today; API, auth, OAuth, MCP and jobs later
-apps/content    Worker content: artifact delivery, session handoffs, bridge, viewers
+apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 packages/cli    portifact CLI
 packages/contracts   Shared schemas, errors and OpenAPI
-packages/domain      Business rules: quotas, access, lifecycle, annotations
+packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
+packages/services    Use cases that apply domain rules with D1 and R2: publish, restore and more
 packages/db          Drizzle schema, migrations and queries
 packages/render      Markdown and TXT rendering pipeline
 packages/anchors     Annotation anchor model and resolution
@@ -38,6 +40,7 @@ packages/ui          Design system: tokens and components
 skills/              Agent skills for using Portifact, installable with npx skills
 assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer and validation scripts
+spikes/              Phase 0 prototypes with their own tests; never deployed or imported by apps and packages
 ```
 
 ## Commands
@@ -52,6 +55,7 @@ bun run test           # Vitest with coverage thresholds, through Turborepo (Wor
 bun run build          # build apps (the landing in apps/web/dist)
 bun run dev            # local dev servers (Vite for apps/web, wrangler for apps/app)
 bun run build:cli      # compile the CLI for this platform into dist/release (--all for every platform)
+bun run --cwd packages/db generate -- --name <change>   # create a D1 migration from schema.ts
 ```
 
 Planned as the code arrives: `bun run test:e2e` (Playwright on Chromium, Firefox and WebKit) and `bun run test:mutation` (Stryker on critical packages). Add them here when they exist.
@@ -62,12 +66,14 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 
 ## Architecture rules
 
-- Business rules live only in `packages/domain`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over the same services; never reimplement a rule in an adapter.
+- Business rules live only in `packages/domain` (pure functions) and the use cases that apply them with storage live in `packages/services`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over these services; never reimplement a rule in an adapter.
+- In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice.
 - Web, CLI and MCP must behave identically for the same operation: same permission checks, quotas, states and errors. Add a parity test when you add an operation.
 - MCP has no privileged path. It goes through the same authorization as the API.
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.
 - Input and output shapes live in `packages/contracts` and are validated at every boundary.
 - Multi-step state changes in D1 use transactional batches with checked results. A read followed by a separate write is not a transaction.
+- The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
 - Mutations that may be retried take an idempotency key.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.

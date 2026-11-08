@@ -1,0 +1,26 @@
+{
+  "name": "@portifact/spike-oauth-server",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Phase 0 spike: one OAuth authorization server for the CLI and MCP clients, on Workers with Better Auth and D1. Never deployed.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@better-auth/cimd": "^1.7.16",
+    "@better-auth/oauth-provider": "^1.7.16",
+    "better-auth": "^1.7.16",
+    "hono": "^4.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "^4.0.0"
+  }
+}
