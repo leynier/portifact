@@ -128,6 +128,8 @@ gh attestation verify portifact-linux-x64.tar.gz --repo leynier/portifact
 
 The `ci` workflow runs on every pull request and again on `develop` after each merge, which keeps the readme's CI and coverage badges current. It runs lint, typecheck, tests with coverage thresholds, `shellcheck` and a render of sample release notes with the configured preset (`scripts/check-release-notes.mjs`). It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS, and Windows x64 and arm64, checking that each machine gets its native build, and across Linux distributions in containers. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
 
+Mutation testing has its own `mutation` workflow, which runs weekly, on demand and on pull requests into `main`; see [testing.md](testing.md#mutation-testing).
+
 A first `changes` job (`scripts/ci-scope.ts`) skips work the diff cannot affect, and skipped jobs satisfy required checks. The CLI build and the installer smoke tests run only when the CLI, a workspace package it depends on, its build or installer scripts, shared tooling (`package.json`, `bun.lock`, `bunfig.toml`, root tsconfig) or the workflows change. Lint, typecheck and tests are skipped only when every changed file is under `docs/`, `license` or issue templates; `readme.md`, `AGENTS.md` and `skills/` still run them because checks read those files. Pull requests into `main` always run everything, and if `changes` fails the other jobs run anyway. When you add a file the CLI build or the installers depend on, add it to `CLI_FILES` in `scripts/ci-scope.ts` with a test.
 
 ## Setup and recovery

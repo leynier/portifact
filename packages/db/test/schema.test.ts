@@ -148,6 +148,38 @@ describe("control database schema", () => {
     expect(row?.activeArtifacts).toBe(50);
   });
 
+  it("refuses opening a third upload but always lets uploads close", async () => {
+    await db()
+      .insert(schema.accountUsage)
+      .values({ ownerId: "u_owner", openUploads: 1, monthStartedAt: now });
+    const change = (delta: number) =>
+      env.DB.prepare("UPDATE account_usage SET open_uploads = open_uploads + ? WHERE owner_id = ?")
+        .bind(delta, "u_owner")
+        .run();
+
+    await change(1);
+    await rejects(change(1), /account_usage_open_uploads_limit/);
+    await change(-1);
+    const [row] = await db().select().from(schema.accountUsage);
+    expect(row?.openUploads).toBe(1);
+  });
+
+  it("lets an account above the open uploads limit close them but not open more", async () => {
+    // Possible only for rows written before the trigger existed.
+    await db()
+      .insert(schema.accountUsage)
+      .values({ ownerId: "u_owner", openUploads: 3, monthStartedAt: now });
+    const change = (delta: number) =>
+      env.DB.prepare("UPDATE account_usage SET open_uploads = open_uploads + ? WHERE owner_id = ?")
+        .bind(delta, "u_owner")
+        .run();
+
+    await rejects(change(1), /account_usage_open_uploads_limit/);
+    await change(-1);
+    const [row] = await db().select().from(schema.accountUsage);
+    expect(row?.openUploads).toBe(2);
+  });
+
   it("rejects storage beyond 2.5 GB including reservations", async () => {
     await rejects(
       db().insert(schema.accountUsage).values({
