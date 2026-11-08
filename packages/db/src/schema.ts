@@ -155,6 +155,7 @@ export const versions = sqliteTable(
     entrypoint: text("entrypoint").notNull(),
     publishedBytes: integer("published_bytes").notNull(),
     sourceBytes: integer("source_bytes").notNull().default(0),
+    /** `RENDERER_VERSION` of the stored rendering of a document; null for sites. */
     rendererVersion: text("renderer_version"),
     committedAt: timestamp("committed_at"),
     /** Previous versions expire seven days after they stop being current. */
@@ -188,14 +189,19 @@ export const objects = sqliteTable(
   ],
 );
 
-/** Manifest entries: which object backs each path of a version. */
+/**
+ * Manifest entries: which object backs each path of a version. `published` and `source` come
+ * from the client. A document version also gets `rendered` (the HTML page served at the root)
+ * and, for Markdown, `block_map` (the block ids and source positions anchors refer to), both at
+ * the entrypoint's path and written by the server when it renders the version.
+ */
 export const versionFiles = sqliteTable(
   "version_files",
   {
     versionId: text("version_id")
       .notNull()
       .references(() => versions.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["published", "source"] }).notNull(),
+    kind: text("kind", { enum: ["published", "source", "rendered", "block_map"] }).notNull(),
     path: text("path").notNull(),
     ownerId: text("owner_id").notNull(),
     sha256: text("sha256").notNull(),
