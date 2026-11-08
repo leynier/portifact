@@ -1,6 +1,6 @@
 # Legal pages and terms acceptance
 
-Portifact publishes three legal documents on `portifact.com` and records, for every account, which version of them it accepted. The texts are drafts until a lawyer reviews them, which must happen before registration opens (plan section 17).
+Portifact publishes three legal documents on `portifact.com` and records, for every account, which version of them it accepted. A lawyer reviewed the texts on 2026-11-08, as plan section 17 requires before registration opens; have any material change reviewed again before it ships.
 
 ## Pages
 
@@ -11,13 +11,13 @@ Portifact publishes three legal documents on `portifact.com` and records, for ev
 | `/acceptable-use` | `apps/web/acceptable-use.html` | Prohibited content and behavior, coding agents, abuse reports, enforcement                                                                |
 
 - They are static Vite entries like the landing (`apps/web/vite.config.ts`), load only the shared stylesheet and no script, and use design-system token utilities only. `apps/app/src/site.ts` serves them on `portifact.com` with the strict `PAGE_CSP`, `no-cache`, `nosniff` and `X-Frame-Options: DENY`; the app host answers 404 for them.
-- Each page shows the draft notice, the version and the effective date. `apps/web/src/legal.test.ts` checks that both match `TERMS_VERSION`, so the pages and the code cannot drift.
+- Each page shows the version and the effective date. `apps/web/src/legal.test.ts` checks that both match `TERMS_VERSION`, so the pages and the code cannot drift.
 - The pages were written once from a generator that is not kept; edit the HTML directly and keep the structure (one `h1`, a table of contents whose links match the `section` ids, captioned tables, the legal footer with `aria-current`).
 - The landing footer and the footers of `/login`, `/device`, `/consent` and `/report` link all three pages; the landing footer also links the report form and the abuse address.
 - Write them in plain language and describe only what the product does today; mark planned features as planned (access logs today). When a feature ships or a rule changes (quotas, retention, cookies, processors), update the affected page in the same change.
 - The report form (`app.portifact.com/report`, linked from the landing footer, from `/__portifact/report` on every artifact, from the "Report this artifact" footer of rendered Markdown and TXT documents and from the review viewer), suspension and its notice, and the dashboard's data export and account deletion are live and described in the Terms ("Reports and enforcement", ending the account), the Acceptable Use Policy ("Reporting abuse", enforcement) and the Privacy Policy (rights, retention of deleted accounts and abuse reports). Keep them in sync with [operations.md](operations.md) and the account deletion rules in [security.md](security.md).
 
-Contact addresses used by the pages: `abuse@portifact.com`, `privacy@portifact.com` and `legal@portifact.com`. Mail routing for them (Cloudflare Email Routing) must exist before registration opens.
+Contact addresses used by the pages: `abuse@portifact.com`, `privacy@portifact.com` and `legal@portifact.com`. Cloudflare Email Routing on `portifact.com` forwards all three to the operator's inbox (set up 2026-11-08); a new address needs its own routing rule.
 
 ## Acceptance at sign-in
 

@@ -79,6 +79,11 @@ describe("usage", () => {
     newBytesLast24h: meter,
     newObjectsThisMonth: { ...meter, resetsAt: "2026-12-01T00:00:00.000Z" },
     openUploads: { used: 0, limit: 2 },
+    trafficThisMonth: {
+      requests: { used: 1_000_000, limit: 1_000_000 },
+      bytes: { used: 30_000_000_000, limit: 25_000_000_000 },
+      resetsAt: "2026-12-01T00:00:00.000Z",
+    },
     versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
     publicAccessFrom: "2026-11-01T00:00:00.000Z",
     blocks: [
@@ -87,6 +92,12 @@ describe("usage", () => {
         stops: "publishing",
         message: "Limit reached.",
         until: "2026-11-09T00:00:00.000Z",
+      },
+      {
+        reason: "traffic",
+        stops: "serving",
+        message: "Traffic used.",
+        until: "2026-12-01T00:00:00.000Z",
       },
     ],
   };
@@ -100,6 +111,16 @@ describe("usage", () => {
     expect(
       AccountUsageView.safeParse({ ...view, activeArtifacts: { used: -1, limit: 50 } }).success,
     ).toBe(false);
+    const traffic = view.trafficThisMonth;
+    for (const bad of [
+      { ...traffic, bytes: { used: -1, limit: 1 } },
+      { ...traffic, resetsAt: "next month" },
+      { requests: traffic.requests, bytes: traffic.bytes },
+    ]) {
+      expect(AccountUsageView.safeParse({ ...view, trafficThisMonth: bad }).success).toBe(false);
+    }
+    const { trafficThisMonth: _, ...withoutTraffic } = view;
+    expect(AccountUsageView.safeParse(withoutTraffic).success).toBe(false);
     const block = view.blocks[0];
     expect(UsageBlock.safeParse({ ...block, reason: "mood" }).success).toBe(false);
     expect(UsageBlock.safeParse({ ...block, stops: "everything" }).success).toBe(false);

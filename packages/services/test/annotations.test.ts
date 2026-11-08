@@ -412,7 +412,7 @@ describe("starting threads", () => {
 
   it("follows the annotations mode and the artifact's state", async () => {
     const off = await world({ annotations: "off" });
-    expect(start(off, off.reader)).resolves.toMatchObject({ code: "forbidden" });
+    await expect(start(off, off.reader)).resolves.toMatchObject({ code: "forbidden" });
     expect(code(await start(off, off.owner))).toBe("forbidden");
     expect(code(await list(off, off.reader))).toBe("forbidden");
     expect(code(await list(off, off.owner))).toBe("ok");

@@ -5,6 +5,7 @@ import {
   AccessPolicyView,
   type AccessUpdate,
   AccountDeletionResult,
+  AccountUsageView,
   AnnotationDeleteResult,
   AnnotationModeView,
   AnnotationPage,
@@ -81,6 +82,8 @@ export interface DashboardApi {
   disconnectApp(clientId: string): Promise<DisconnectResult>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
+  /** The account's quotas, this month's traffic and what blocks it now. */
+  usage(): Promise<AccountUsageView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -259,6 +262,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     deleteAccount(confirmEmail) {
       return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });
+    },
+    usage() {
+      return call("/api/v1/usage", AccountUsageView);
     },
     preparePublish(request, idempotencyKey) {
       return call("/api/v1/publishes", PreparedPublish, "POST", request, {

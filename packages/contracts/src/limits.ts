@@ -24,6 +24,17 @@ export const LIMITS = {
 } as const;
 
 /**
+ * Traffic each account may serve per calendar month (UTC), across all of its artifacts (plan
+ * section 2). Requests count every authorized request a content Worker answers for one of its
+ * artifacts, including 304s and 404s inside it; bytes count the bodies it sends. When either is
+ * used up, that account's artifacts answer 429 `traffic_exceeded` until the next month.
+ */
+export const TRAFFIC_LIMITS = {
+  requestsPerMonth: 1_000_000,
+  bytesPerMonth: 25_000_000_000,
+} as const;
+
+/**
  * Annotation limits (plan section 2). Bodies count Unicode code points and UTF-8 bytes.
  * `messagesPerThread`, `artifactWritesPer24h` and the page size are safety caps, not product
  * tiers.
