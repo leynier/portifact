@@ -1,0 +1,41 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Test-only Worker for the end-to-end suite: it routes by host to the real app and content
+  // Workers (worker/index.ts), so both share one local D1 and R2. Never deployed.
+  "name": "portifact-e2e",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "assets": {
+    "directory": "../apps/web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    "run_worker_first": true
+  },
+  // Test-only values. The hosts stand in for app.portifact.com and portifact.dev; `.test` is
+  // reserved and not on the Public Suffix List, like portifact.dev.
+  "vars": {
+    "APP_ORIGIN": "https://app.portifact.test",
+    "CONTENT_DOMAIN": "portifact-content.test",
+    "GOOGLE_CLIENT_ID": "e2e",
+    "GITHUB_CLIENT_ID": "e2e",
+    "GOOGLE_CLIENT_SECRET": "e2e",
+    "GITHUB_CLIENT_SECRET": "e2e",
+    "R2_ACCOUNT_ID": "e2e",
+    "R2_BUCKET": "portifact-e2e",
+    "R2_ACCESS_KEY_ID": "e2e",
+    "R2_SECRET_ACCESS_KEY": "e2e",
+    "BETTER_AUTH_SECRET": "e2e-only-better-auth-secret-0123456789abcdef",
+    "READ_SESSION_SECRET": "e2e-only-read-session-secret-0123456789abcdef"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portifact-e2e",
+      "database_id": "00000000-0000-4000-8000-00000000e2e0",
+      "migrations_dir": "../packages/db/migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-e2e" }]
+}

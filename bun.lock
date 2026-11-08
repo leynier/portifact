@@ -119,6 +119,20 @@
         "vitest": "catalog:",
       },
     },
+    "e2e": {
+      "name": "@portifact/e2e",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.0.0",
+        "@playwright/test": "~1.64.1",
+        "@portifact/contracts": "workspace:*",
+        "@portifact/db": "workspace:*",
+        "@portifact/services": "workspace:*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "wrangler": "^4.0.0",
+      },
+    },
     "packages/anchors": {
       "name": "@portifact/anchors",
       "version": "0.0.0",
@@ -638,6 +652,8 @@
     "@portifact/db": ["@portifact/db@workspace:packages/db"],
 
     "@portifact/domain": ["@portifact/domain@workspace:packages/domain"],
+
+    "@portifact/e2e": ["@portifact/e2e@workspace:e2e"],
 
     "@portifact/jobs": ["@portifact/jobs@workspace:apps/jobs"],
 
