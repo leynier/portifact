@@ -55,6 +55,8 @@ The dashboard is tested the same way, through its real API client and router: `s
 
 End-to-end tests of review mode must block third-party cookies explicitly and prove it with an unpartitioned control cookie. Chromium needs the full browser (`channel: "chromium"`) with a profile that sets `profile.cookie_controls_mode = 1`; the headless shell ignores profile preferences. Firefox uses `network.cookie.cookieBehavior`. WebKit blocks by default, but only macOS uses Safari's cookie layer: WebKit on Linux has no partitioned cookies. `spikes/review-cookies` shows all three and maps hosts through a local proxy, which works in every engine.
 
+Every Vitest config sets `testTimeout: 30_000`. CI runs every package's tests at once on one runner, so heavy property and size tests can take several times longer than locally; a test that cares about speed asserts its own time budget, and the timeout only catches hangs.
+
 ## Required cases
 
 Every feature covers:
