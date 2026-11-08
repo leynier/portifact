@@ -1,0 +1,21 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // Phase 0 spike. Never deployed: no routes, no workers.dev, and a placeholder D1 ID that
+  // only local tests use.
+  "name": "portifact-spike-oauth-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  // global_fetch_strictly_public keeps Client ID Metadata Document fetches off private and
+  // internal addresses.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portifact-spike-oauth",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
