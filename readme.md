@@ -18,8 +18,7 @@ Coding agents now produce real work: implementation plans, progress reports, pro
 
 **Portifact gives that work a home.** Publish an HTML site, a Markdown document or a plain text file in one step, from your terminal or straight from your agent. You get a stable URL, decide exactly who can open it, and collect comments on the exact sentence or element they refer to. Your agent can then read that feedback and act on it.
 
-> [!NOTE]
-> Portifact is in early development. The installer, the CLI binary and the agent skill are available today; publishing, sharing and annotations are being built in the open. Watch the repository or check the [releases](https://github.com/leynier/portifact/releases) to follow along.
+> **Status:** Portifact is in early development. The installer, the CLI binary and the agent skill are available today; publishing, sharing and annotations are being built in the open. Watch the repository or check the [releases](https://github.com/leynier/portifact/releases) to follow along.
 
 ## Install it with your agent
 
