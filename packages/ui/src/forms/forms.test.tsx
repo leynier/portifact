@@ -11,11 +11,12 @@ interface Values {
   notes: string;
   mode: "a" | "b";
   indexable: boolean;
+  kind: string;
 }
 
 function Example({ onSubmit }: { onSubmit(values: Values): Promise<void> | void }) {
   const form = useAppForm({
-    defaultValues: { email: "", notes: "", mode: "a", indexable: false } as Values,
+    defaultValues: { email: "", notes: "", mode: "a", indexable: false, kind: "any" } as Values,
     validationLogic: revalidateLogic(),
     validators: {
       onDynamic: ({ value }) =>
@@ -46,6 +47,17 @@ function Example({ onSubmit }: { onSubmit(values: Values): Promise<void> | void 
         <form.AppField name="indexable">
           {(field) => <field.CheckboxField label="Indexable" />}
         </form.AppField>
+        <form.AppField name="kind">
+          {(field) => (
+            <field.SelectField
+              label="Kind"
+              options={[
+                { value: "any", label: "Any" },
+                { value: "site", label: "Site" },
+              ]}
+            />
+          )}
+        </form.AppField>
         <form.SubmitButton>Save</form.SubmitButton>
       </form.Form>
     </form.AppForm>
@@ -65,6 +77,9 @@ describe("form hook", () => {
     });
     fireEvent.click(screen.getByRole("radio", { name: "B" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Indexable" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), {
+      target: { value: "site" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith({
@@ -72,6 +87,7 @@ describe("form hook", () => {
         notes: "line 1\nline 2",
         mode: "b",
         indexable: true,
+        kind: "site",
       }),
     );
   });

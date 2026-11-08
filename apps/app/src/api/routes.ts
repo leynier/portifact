@@ -5,11 +5,11 @@ import {
   AccessPolicyView,
   AccessUpdate,
   ArtifactList,
+  ArtifactListQuery,
   ArtifactSummary,
   CommittedPublish,
   type ErrorCode,
   LifecycleResult,
-  ListQuery,
   type OAuthScope,
   PreparedPublish,
   PublishRequest,
@@ -179,15 +179,30 @@ export function apiRoutes(deps: ApiDeps) {
   api.get(
     "/api/v1/artifacts",
     guarded("artifacts:read", async (c, userId) => {
-      const query = ListQuery.safeParse({
+      // An empty parameter means no filter, as an empty search box would send it.
+      const param = (name: string) => c.req.query(name) || undefined;
+      const query = ArtifactListQuery.safeParse({
         cursor: c.req.query("cursor"),
         limit: c.req.query("limit"),
+        search: param("search"),
+        state: param("state"),
+        type: param("type"),
+        access: param("access"),
+        annotations: param("annotations"),
       });
-      if (!query.success) return error(c, "invalid_input", "Invalid cursor or limit.");
+      if (!query.success) {
+        return error(
+          c,
+          "invalid_input",
+          "Invalid cursor, limit, search, state, type, access or annotations.",
+        );
+      }
+      const { cursor, limit, ...filters } = query.data;
       const page = await listArtifacts(createDb(c.env.DB), {
         ownerId: userId,
-        cursor: query.data.cursor,
-        limit: query.data.limit,
+        cursor,
+        limit,
+        filters,
       });
       if (!page) return error(c, "invalid_input", "Invalid cursor.");
       return c.json(
