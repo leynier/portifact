@@ -1,7 +1,10 @@
-// app.portifact.com: identity, the OAuth authorization server, protected resource metadata and
-// the auth pages. Every path not listed here answers 404.
+// app.portifact.com: the dashboard, identity, the OAuth authorization server, protected
+// resource metadata and the auth pages. Every path not listed here answers 404.
 import { TokenPrincipal } from "@portifact/contracts";
 import { Hono } from "hono";
+import type { SessionLookup } from "./api/access.ts";
+import { r2Presigner } from "./api/presign.ts";
+import { apiRoutes } from "./api/routes.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
 import type { AuthDeps } from "./auth/deps.ts";
@@ -14,14 +17,25 @@ import {
 } from "./auth/resource.ts";
 import { authRoutes } from "./auth/routes.ts";
 import type { Env } from "./env.ts";
+import { mcpRoutes } from "./mcp/routes.ts";
+import { readRoutes } from "./read.ts";
 
 /** Pages built by apps/web and served from static assets on this host only. */
 export const AUTH_PAGES = ["/login", "/device", "/consent"] as const;
 
+/** The dashboard SPA, built by apps/web as dashboard.html and served on this host only. */
+export const DASHBOARD_PAGE = "/dashboard";
+
+/**
+ * Client routes of the dashboard (apps/web/src/dashboard/router.tsx). Each one serves the SPA;
+ * any other path keeps answering 404, so a typo never looks like an empty dashboard.
+ */
+export const DASHBOARD_ROUTES = ["/", "/artifacts/:artifactId"] as const;
+
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
 
-// Strict policy for the auth pages: only same-origin scripts, styles, images and requests,
+// Strict policy for the dashboard and the auth pages: only same-origin scripts, styles, images and requests,
 // no framing, no plugins and no base or form targets elsewhere.
 export const PAGE_CSP = [
   "default-src 'none'",
@@ -53,6 +67,12 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       (await authFor(env).api.introspectBearer({
         headers: new Headers({ authorization: `Bearer ${token}` }),
       })) as IntrospectionPayload;
+
+  // The signed-in user behind the dashboard's session cookie, checked against D1.
+  const sessionUserFor =
+    (env: Env): SessionLookup =>
+    async (request) =>
+      (await authFor(env).api.getSession({ headers: request.headers }))?.user.id;
 
   const resources = (env: Env) => {
     const urls = authUrls(env.APP_ORIGIN);
@@ -93,6 +113,23 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   );
 
   app.route("/", authRoutes(authFor));
+  app.route(
+    "/",
+    apiRoutes({
+      introspect: introspectFor,
+      resource: (env) => resources(env).api,
+      session: sessionUserFor,
+      presigner: (env) =>
+        r2Presigner({
+          accountId: env.R2_ACCOUNT_ID,
+          bucket: env.R2_BUCKET,
+          accessKeyId: env.R2_ACCESS_KEY_ID,
+          secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+        }),
+      now: () => Date.now(),
+    }),
+  );
+  app.route("/", readRoutes(authFor));
 
   // Who the token belongs to. Any valid API token works; no scope is needed.
   app.get("/api/v1/me", async (c) => {
@@ -107,42 +144,33 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     return c.json(TokenPrincipal.parse(decision.principal));
   });
 
-  // The MCP endpoint authenticates like the final server will, so clients can discover the
-  // authorization server and sign in. The tools arrive in phase 5.
-  app.all("/mcp", async (c) => {
-    const decision = await authorizeResourceRequest(
-      introspectFor(c.env),
-      c.req.raw,
-      resources(c.env).mcp,
-      MCP_BASELINE_SCOPES,
-    );
-    if (!decision.ok) return decision.response;
-    return c.json(
-      {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32601, message: "The Portifact MCP tools are not available yet." },
-      },
-      501,
-    );
-  });
+  app.route(
+    "/",
+    mcpRoutes({
+      introspect: introspectFor,
+      resource: (env) => resources(env).mcp,
+      now: () => Date.now(),
+    }),
+  );
 
-  // The landing's "Sign in" link points here. Until the dashboard is served at the root, the
-  // login page is the way in; it shows the signed-in account when there is a session.
-  app.get("/", (c) => {
-    c.header("Cache-Control", "no-store");
-    return c.redirect("/login", 302);
-  });
+  // The landing's "Sign in" link points at the root. Without a session the visitor goes to the
+  // login page, which comes back here after signing in.
+  for (const route of DASHBOARD_ROUTES) {
+    app.get(route, async (c) => {
+      c.header("Cache-Control", "no-store");
+      if (!(await sessionUserFor(c.env)(c.req.raw))) {
+        const url = new URL(c.req.url);
+        const next = `${url.pathname}${url.search}`;
+        return c.redirect(`/login?${new URLSearchParams({ next })}`, 302);
+      }
+      return trustedPage(await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))));
+    });
+  }
 
   for (const page of AUTH_PAGES) {
-    app.get(page, async (c) => {
-      const asset = await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)));
-      const response = new Response(asset.body, asset);
-      response.headers.set("Content-Security-Policy", PAGE_CSP);
-      response.headers.set("Cache-Control", "no-store");
-      response.headers.set("Referrer-Policy", "no-referrer");
-      return response;
-    });
+    app.get(page, async (c) =>
+      trustedPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
+    );
   }
 
   for (const file of STATIC_FILES) {
@@ -153,4 +181,13 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   app.notFound((c) => c.json({ error: { code: "not_found", message: "Not found." } }, 404));
 
   return { app, authFor };
+}
+
+/** Headers of every page on the app host: strict CSP, never cached, no referrer. */
+function trustedPage(asset: Response): Response {
+  const response = new Response(asset.body, asset);
+  response.headers.set("Content-Security-Policy", PAGE_CSP);
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
 }

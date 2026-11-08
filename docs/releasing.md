@@ -47,19 +47,31 @@ Every push to `main` also runs the `deploy` job after `release`: it applies pend
 
 ### App Worker configuration
 
-Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID` and `GITHUB_CLIENT_ID`. The Worker also binds the `portifact-control` D1 database and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
+Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN` (artifact origins, used for public URLs and to send signed-in visitors back from `/read/<id>`), and `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target. The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
 
 Secrets are set once on the `portifact-app` Worker and survive deploys:
 
-| Secret                 | Value                                                                                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`   | 32 random bytes, base64 (`openssl rand -base64 32`). Rotating it signs out every session and voids pending authorization and consent requests. |
-| `GOOGLE_CLIENT_SECRET` | Secret of the Google OAuth client whose ID is `GOOGLE_CLIENT_ID`.                                                                              |
-| `GITHUB_CLIENT_SECRET` | Secret of the GitHub OAuth app whose ID is `GITHUB_CLIENT_ID`.                                                                                 |
+| Secret                 | Value                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BETTER_AUTH_SECRET`   | 32 random bytes, base64 (`openssl rand -base64 32`). Rotating it signs out every session and voids pending authorization and consent requests.   |
+| `GOOGLE_CLIENT_SECRET` | Secret of the Google OAuth client whose ID is `GOOGLE_CLIENT_ID`.                                                                                |
+| `GITHUB_CLIENT_SECRET` | Secret of the GitHub OAuth app whose ID is `GITHUB_CLIENT_ID`.                                                                                   |
+| `R2_ACCESS_KEY_ID`     | Access key ID of the R2 API token `portifact-app-uploads`, limited to Object Read and Write on `portifact-artifacts`. It only signs upload URLs. |
+| `R2_SECRET_ACCESS_KEY` | Secret access key of that token. Rotating it voids upload URLs already issued; clients ask for fresh ones with `GET /api/v1/publishes/:id`.      |
 
 Set or rotate one by piping it to `wrangler secret put <NAME> --name portifact-app` from `apps/app`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment, so the value never appears in the shell history or the output. The Google client must allow the redirect URI `https://app.portifact.com/api/auth/callback/google` and the GitHub app the callback URL `https://app.portifact.com/api/auth/callback/github`.
 
-For local development, build `apps/web`, apply the migrations to the local database (`npx wrangler d1 migrations apply portifact-control --local` from `apps/app`), put the same names plus `APP_ORIGIN=http://localhost:8787` in `apps/app/.dev.vars` (ignored by git) and run `npx wrangler dev --local-upstream localhost:8787` from `apps/app`. Without `--local-upstream`, `wrangler dev` rewrites every request to the first route's host, `portifact.com`, and the auth pages answer 404. With that origin, `localhost` is the app host; the landing is served by `bun run --cwd apps/web dev`. Migration 0003 links the CLI client to the production API resource, so the device flow against `localhost` needs a local client row linked to `http://localhost:8787/api/v1`.
+### Content Worker configuration
+
+`apps/content/wrangler.jsonc` holds `CONTENT_DOMAIN` and `APP_ORIGIN` as `vars`. One secret is set once on the `portifact-content` Worker and survives deploys:
+
+| Secret                | Value                                                                                                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `READ_SESSION_SECRET` | 32 random bytes, base64 (`openssl rand -base64 32`). Signs the read session and sign-in transaction cookies of artifact origins. Rotating it ends every read session; readers sign in again without noticing. |
+
+Set it with `wrangler secret put READ_SESSION_SECRET --name portifact-content` from `apps/content`, the same way as the app's secrets. Until it is set, protected artifacts answer `503` and public ones are served normally.
+
+For local development, build `apps/web`, apply the migrations to the local database (`npx wrangler d1 migrations apply portifact-control --local` from `apps/app`), put the same names plus `APP_ORIGIN=http://localhost:8787` in `apps/app/.dev.vars` (ignored by git) and run `npx wrangler dev --local-upstream localhost:8787` from `apps/app`. Without `--local-upstream`, `wrangler dev` rewrites every request to the first route's host, `portifact.com`, and the auth pages answer 404. With that origin, `localhost` is the app host; the landing is served by `bun run --cwd apps/web dev`. Migration 0003 links the CLI client to the production API resource, so the device flow against `localhost` needs a local client row linked to `http://localhost:8787/api/v1`; then point the CLI at it with `PORTIFACT_APP_ORIGIN=http://localhost:8787`.
 
 The token is an account API token named `portifact-ci-deploy`, limited to Workers, D1, R2 and Queues on the account plus Workers Routes, DNS and Zone read on `portifact.com` and `portifact.dev`. It expires on 2027-11-07; rotate it before then.
 
@@ -70,7 +82,7 @@ The token is an account API token named `portifact-ci-deploy`, limited to Worker
 - Linux glibc builds need glibc 2.17 or newer, so they run on Debian, Ubuntu, RHEL and its rebuilds (Rocky, Alma, CentOS 7+), Fedora, Amazon Linux and openSUSE.
 - Musl builds are for Alpine and need `libstdc++` and `libgcc` (`apk add libstdc++ libgcc`); the installer checks for them and says so.
 - x64 builds use Bun's baseline targets, so they also run on CPUs without AVX2.
-- `scripts/smoke-linux-distros.sh` installs and runs the CLI in containers of those distributions, all in parallel; CI runs it on every pull request.
+- `scripts/smoke-linux-distros.sh` installs and runs the CLI in containers of those distributions, all in parallel; CI runs it on every pull request that can affect the CLI.
 
 ## Installing
 
@@ -93,6 +105,8 @@ gh attestation verify portifact-linux-x64.tar.gz --repo leynier/portifact
 ## Checks on pull requests
 
 The `ci` workflow runs on every pull request and again on `develop` after each merge, which keeps the readme's CI and coverage badges current. It runs lint, typecheck, tests with coverage thresholds, `shellcheck` and a render of sample release notes with the configured preset (`scripts/check-release-notes.mjs`). It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS, and Windows x64 and arm64, checking that each machine gets its native build, and across Linux distributions in containers. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
+
+A first `changes` job (`scripts/ci-scope.ts`) skips work the diff cannot affect, and skipped jobs satisfy required checks. The CLI build and the installer smoke tests run only when the CLI, a workspace package it depends on, its build or installer scripts, shared tooling (`package.json`, `bun.lock`, `bunfig.toml`, root tsconfig) or the workflows change. Lint, typecheck and tests are skipped only when every changed file is under `docs/`, `license` or issue templates; `readme.md`, `AGENTS.md` and `skills/` still run them because checks read those files. Pull requests into `main` always run everything, and if `changes` fails the other jobs run anyway. When you add a file the CLI build or the installers depend on, add it to `CLI_FILES` in `scripts/ci-scope.ts` with a test.
 
 ## Setup and recovery
 

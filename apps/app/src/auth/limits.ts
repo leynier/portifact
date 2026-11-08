@@ -1,5 +1,5 @@
-// Rate limits on the auth endpoints that cost money or storage: sending sign-in codes,
-// registering clients and starting device authorizations. Counters live in D1, so every
+// Rate limits on the endpoints that cost money or storage: sending sign-in codes, registering
+// clients, starting device authorizations and entering protected artifacts. Counters live in D1, so every
 // isolate sees the same count.
 import { OTP_LIMITS } from "@portifact/contracts";
 import { hitRateLimit, pruneRateLimits } from "@portifact/db";
@@ -18,6 +18,12 @@ export const ENDPOINT_LIMITS: Record<string, Limit> = {
   // Guessing codes: each code allows three attempts; this caps fresh attempts per IP.
   "/sign-in/email-otp": { max: 30, windowSeconds: 600 },
 };
+
+/**
+ * Per-account limit on entries to protected artifacts (`/read/<id>`): each one that passes the
+ * access check stores a handoff code.
+ */
+export const READ_ENTRY_LIMIT: Limit = { max: 60, windowSeconds: 600 };
 
 /**
  * Checks the limits in order and stops at the first one exceeded, so a refused request does

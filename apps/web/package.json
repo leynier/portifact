@@ -2,7 +2,7 @@
   "name": "@portifact/web",
   "version": "0.0.0",
   "private": true,
-  "description": "Portifact landing page and, later, the dashboard and review viewer.",
+  "description": "Portifact landing page, auth pages and the dashboard; the review viewer later.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -12,14 +12,28 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
-    "@portifact/ui": "workspace:*"
+    "@lingui/core": "^6.0.0",
+    "@lingui/message-utils": "^6.0.0",
+    "@lingui/react": "^6.0.0",
+    "@portifact/contracts": "workspace:*",
+    "@portifact/ui": "workspace:*",
+    "@tanstack/react-query": "^5.90.0",
+    "@tanstack/react-router": "^1.130.0",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@portifact/contracts": "workspace:*",
     "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "^6.0.0",
     "@vitest/coverage-istanbul": "catalog:",
-    "happy-dom": "^21.0.4",
+    "axe-core": "catalog:",
+    "happy-dom": "catalog:",
     "tailwindcss": "^4.0.0",
     "typescript": "catalog:",
     "vite": "^8.0.0",

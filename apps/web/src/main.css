@@ -3,3 +3,5 @@
 
 @source "../*.html";
 @source "./auth/*.ts";
+@source "./dashboard";
+@source "../../../packages/ui/src";

@@ -8,6 +8,8 @@
   "preview_urls": false,
   // Every artifact origin: <id>.portifact.dev. Needs a proxied wildcard DNS record.
   "routes": [{ "pattern": "*.portifact.dev/*", "zone_name": "portifact.dev" }],
+  // Secret, set with `wrangler secret put`: READ_SESSION_SECRET signs read session cookies
+  // (docs/releasing.md). Without it protected artifacts answer 503 and public ones still work.
   "vars": {
     "CONTENT_DOMAIN": "portifact.dev",
     "APP_ORIGIN": "https://app.portifact.com"

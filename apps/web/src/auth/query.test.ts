@@ -36,6 +36,16 @@ describe("next after sign-in", () => {
     );
   });
 
+  it("accepts the entry to a protected artifact with its state", () => {
+    const next = `/read/k7d2qm4xab?state=${"n".repeat(43)}`;
+    expect(safeNext(`?${new URLSearchParams({ next })}`, ORIGIN)).toBe(next);
+  });
+
+  it("accepts the dashboard routes", () => {
+    expect(safeNext("?next=%2F", ORIGIN)).toBe("/");
+    expect(safeNext("?next=%2Fartifacts%2Fk7d2qm4xab", ORIGIN)).toBe("/artifacts/k7d2qm4xab");
+  });
+
   it("refuses other sites, other paths and tricks that leave the origin", () => {
     for (const next of [
       "https://evil.example/device",
@@ -43,6 +53,16 @@ describe("next after sign-in", () => {
       "/\\evil.example/device",
       "/consent",
       "/login",
+      "/read",
+      "/read/",
+      "/read/K7D2QM4XAB",
+      "/read/k7d2qm4xab/extra",
+      "/read/k7d2qm4xa1",
+      "//evil.example/read/k7d2qm4xab",
+      "https://evil.example/read/k7d2qm4xab",
+      "/artifacts",
+      "/artifacts/a/b",
+      "/dashboard",
       "device",
       "",
     ]) {

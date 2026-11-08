@@ -80,7 +80,7 @@ describe("login page", () => {
       path: "/sign-in/email-otp",
       body: { email: "ada@example.test", otp: "123456" },
     });
-    expect(location.assigned).toEqual(["/login"]);
+    expect(location.assigned).toEqual(["/"]);
     expect(element("status").textContent).toBe(messages.redirecting);
   });
 
@@ -178,7 +178,7 @@ describe("login page", () => {
     expect(api.calls.at(-1)).toEqual({
       method: "POST",
       path: "/sign-in/social",
-      body: { provider: "github", callbackURL: "/login", errorCallbackURL: "/login" },
+      body: { provider: "github", callbackURL: "/", errorCallbackURL: "/login" },
     });
     expect(location.assigned).toEqual(["https://accounts.google.com/o/oauth2/v2/auth?x=1"]);
   });
@@ -237,6 +237,30 @@ describe("login page", () => {
     await requestCode("ada@example.test");
     await enterCode("123456");
     expect(location.assigned.at(-1)).toBe("/device?user_code=ABCDEFGH");
+  });
+
+  it("continues to a protected artifact after signing in", async () => {
+    const next = `/read/k7d2qm4xab?state=${"n".repeat(43)}`;
+    api.on("POST", "/sign-in/email-otp", { status: 200, body: { token: "t" } });
+    await open(`?${new URLSearchParams({ next })}`);
+    await requestCode("ada@example.test");
+    await enterCode("123456");
+    expect(location.assigned.at(-1)).toBe(next);
+  });
+
+  it("explains that an artifact cannot be opened with the signed-in account", async () => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    await open("?error=artifact_unavailable");
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.artifact_unavailable);
+    expect(element("signed-in").hidden).toBe(false);
+    expect(location.assigned).toEqual([]);
+  });
+
+  it("explains that too many artifacts were opened in a short time", async () => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    await open("?error=read_rate_limited");
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.read_rate_limited);
+    expect(location.assigned).toEqual([]);
   });
 
   it("forwards a signed-in user straight to the next page", async () => {

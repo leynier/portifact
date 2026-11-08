@@ -1,0 +1,30 @@
+{
+  "name": "@portifact/render",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Markdown and plain-text rendering pipeline for artifact viewers.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@portifact/contracts": "workspace:*",
+    "@portifact/ui": "workspace:*",
+    "github-slugger": "^2.0.0",
+    "markdown-it": "^15.0.3",
+    "markdown-it-footnote": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "fast-check": "^4.0.0",
+    "parse5": "^8.1.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
