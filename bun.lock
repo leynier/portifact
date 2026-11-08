@@ -49,6 +49,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/render": "workspace:*",
         "@portifact/services": "workspace:*",
       },
       "devDependencies": {
@@ -207,6 +208,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/render": "workspace:*",
         "drizzle-orm": "^0.45.0",
       },
       "devDependencies": {

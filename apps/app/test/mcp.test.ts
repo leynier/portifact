@@ -228,7 +228,7 @@ describe("publishing inline", () => {
       expect(committed.url).toBe(`https://${committed.artifactId}.portifact.dev/`);
       expect(result.content[0]?.text).toContain(committed.url);
       const file = await env.DB.prepare(
-        "select path, content_type as contentType, sha256 from version_files where version_id = ?",
+        "select path, content_type as contentType, sha256 from version_files where version_id = ? and kind = 'published'",
       )
         .bind(committed.versionId)
         .first<{ path: string; contentType: string; sha256: string }>();
@@ -424,9 +424,12 @@ describe("publishing inline", () => {
     const { artifactId, versionId } = first.value;
 
     // Another client prepares, uploads and commits on the same base while this publish is
-    // writing its bytes.
+    // writing its bytes (once: the commit writes its rendering through the same bucket).
+    let raced = false;
     const racing = {
       put: async (key: string, value: Uint8Array, options: R2PutOptions) => {
+        if (raced) return env.ARTIFACTS.put(key, value, options);
+        raced = true;
         const other = new TextEncoder().encode("other");
         const sha = await sha256("other");
         const prepared = await preparePublish(db, {
