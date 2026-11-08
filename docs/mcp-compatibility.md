@@ -1,0 +1,61 @@
+# MCP compatibility
+
+Which MCP clients work with the remote server at `https://app.portifact.com/mcp`, how they authenticate and what to expect from each. Plan section 17 asks for this matrix; [decision 0001](decisions/0001-oauth-server.md) lists what had to be verified with real clients. The public version is served at `https://portifact.com/mcp-compatibility` from `apps/web/mcp-compatibility.html`; keep both in sync.
+
+## Matrix
+
+Tested on 2026-11-08 against production (`portifact-app` v0.11.0) with the maintainer's account.
+
+| Client                     | Version tested      | Client registration                                                                                         | Protocol revision               | Initial scopes                  | Scope step-up                                                                                               | Tools listed                         | List, publish, get, versions, delete         | Token refresh                                   | Result                               |
+| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------ | -------------------------------------------- | ----------------------------------------------- | ------------------------------------ |
+| Claude.ai custom connector | Web app, 2026-11-08 | CIMD (`https://claude.ai/oauth/mcp-oauth-client-metadata`), PKCE                                            | Not recorded                    | `artifacts:read offline_access` | Automatic: the publish asked the user to consent again with `artifacts:write` added                         | 24 (9 read-only, 15 write or delete) | List and publish passed; the rest not tested | Not observed                                    | Works                                |
+| Claude Code                | 2.1.319             | CIMD (`https://claude.ai/oauth/claude-code-client-metadata`), PKCE S256, `http://localhost:<port>/callback` | 2026-07-28                      | `artifacts:read offline_access` | The call fails and the user re-authenticates with `/mcp`; the new grant keeps the earlier scopes            | 24                                   | All passed                                   | Passed (forced by expiring the stored token)    | Works                                |
+| Codex CLI                  | 0.167.0             | CIMD (`https://chatgpt.com/oauth/codex/client.json`), PKCE S256, `http://127.0.0.1:<port>/callback`         | 2025-06-18 (stateless fallback) | `artifacts:read offline_access` | None: the call fails with "Insufficient scope"; sign in again with `codex mcp login portifact --scopes ...` | 24                                   | All passed                                   | Failed before the fix in this change, see below | Works, with the refresh fix deployed |
+
+All three clients use the Client ID Metadata Document, none fell back to dynamic client registration, and all send `resource=https://app.portifact.com/mcp` in the authorization request. Claude Code and Codex received `code`, `state` and `iss` in the callback.
+
+## Claude.ai
+
+Verified by the maintainer with a custom connector, "Sign in now" and "Use Claude's published identity".
+
+- OAuth with PKCE through CIMD worked.
+- The first sign-in asked only for `artifacts:read offline_access`. The first publish triggered a step-up: the consent page came back with `artifacts:read artifacts:write offline_access`, after which `publish_document` and `list_artifacts` worked.
+- The connector listed 9 read-only and 15 write or delete tools.
+
+## Claude Code
+
+- `claude mcp add --transport http portifact https://app.portifact.com/mcp` adds the server; sign in from the interactive `/mcp` menu ("Authenticate"). The authorization request carries `prompt=consent`, so the consent page always shows.
+- Claude Code negotiates the 2026-07-28 revision (`/mcp` shows "Protocol: 2026-07-28").
+- Step-up: a tool call that needs a missing scope gets 403 `insufficient_scope`. Claude Code records the union of the granted and the needed scopes, fails the call with `MCP server "portifact" needs additional permissions (scope: "artifacts:write")` and a hint to run `/mcp` to re-authenticate, and disconnects the server for the rest of that session. After "Re-authenticate" in `/mcp` the grant holds every scope asked so far (`artifacts:read offline_access artifacts:write`, then `... artifacts:delete`), and the call works. In `claude -p` there is no way to re-authenticate, so the run ends with that message.
+- Results: `list_artifacts`, `publish_document` (private by default, `accessMode: restricted`), `get_artifact`, `list_versions`, `get_version` and `delete_artifact` with `confirm` passed. Claude Code shows the structured content of results.
+- Errors: a well-formed but unknown ID returns a tool error with `{ "error": { "code": "not_found", "message": "Artifact not found." } }`. A malformed ID is refused by the SDK's input validation before the tool runs (`Input validation error: Invalid arguments for tool get_artifact: artifactId: Invalid artifact id`), so it has no Portifact error code.
+- Refresh: with the stored access token marked expired, Claude Code refreshed proactively, got a new one-hour token and kept every scope.
+- Revocation: after "Disconnect" on the dashboard's Account page, the next run could not refresh and asked the user to authenticate again.
+
+## Codex CLI
+
+- `codex mcp add portifact --url https://app.portifact.com/mcp` detects OAuth and starts the sign-in at once; `codex mcp login portifact` does it again later. `--no-browser` prints the authorization URL and still waits for the loopback callback. Codex stores the tokens in the OS keyring; `codex mcp logout portifact` deletes them.
+- If the user already approved the same scopes for Codex, the authorization returns without showing the consent page.
+- Codex negotiates `2025-06-18`, which the server answers through the SDK's stateless 2025 fallback.
+- Step-up: `codex exec` does not ask for more access. The call fails with `Transport send error: ... error: Insufficient scope`. Sign in with every scope needed up front, for example `codex mcp login portifact --scopes artifacts:read,artifacts:write,artifacts:delete,offline_access`; the consent page then lists all of them.
+- Destructive tools need approval: with `approval_policy = "never"`, `delete_artifact` fails with `MCP tool call requires approval, but approval policy is never`. Approve it in an interactive session, or allow that one tool with `-c 'mcp_servers.portifact.tools.delete_artifact.approval_mode="approve"'`.
+- Results: the same scenario as Claude Code passed, with the same error results for unknown and malformed IDs.
+- Refresh bug found and fixed here: `chatgpt.com` serves Codex's metadata document with an `ETag` and `Cache-Control: max-age=300`. Once the cached copy was older than five minutes, the CIMD plugin revalidated it with `If-None-Match`, `chatgpt.com` answered `304 Not Modified`, and our fetch transport (`createClientMetadataFetch` in `apps/app/src/auth/deps.ts`) treated every 3xx as a refused redirect. Every refresh and authorization for Codex in that isolate then failed with `invalid_client: Failed to fetch metadata document (network error or redirect blocked)` until the isolate was evicted. Claude's documents carry no `ETag`, so they always get a 200 and were not affected. The transport now passes 304 through, and `apps/app/test/authorization-code.test.ts` covers a refresh after revalidation. Codex refresh in production needs a re-check once this change is released.
+
+## Not covered yet
+
+- Dynamic client registration with a real client (`codex mcp login --oauth-client-registration dcr`), to avoid leaving a registered client in production.
+- Claude Desktop and Claude.ai's get, versions and delete tools, error results and refresh.
+- Annotation tools with real clients.
+- Codex token refresh after the fix is deployed.
+
+## Re-running the checks
+
+Run them against production after a release that touches `apps/app/src/auth`, `apps/app/src/mcp` or Better Auth, and when a client ships a major update. Use your own account, keep each client isolated from your real configuration and clean up afterwards.
+
+1. Check the discovery documents: `curl -si -X POST https://app.portifact.com/mcp` answers 401 with `resource_metadata` and `scope="artifacts:read"`, and `https://app.portifact.com/.well-known/oauth-authorization-server/api/auth` lists `client_id_metadata_document_supported: true` and `none` in `token_endpoint_auth_methods_supported`.
+2. Codex CLI: create a temporary `CODEX_HOME` with only a copy of `~/.codex/auth.json`, run `codex mcp add portifact --url https://app.portifact.com/mcp` and approve the consent. Run `codex exec --skip-git-repo-check -s read-only --json "<prompt>" < /dev/null` (without `< /dev/null` it waits for stdin) with prompts that list artifacts, publish a small private Markdown document, read it back with `get_artifact`, `list_versions` and `get_version`, call `get_artifact` on `zzzzzzzzzz` and delete the document with explicit confirmation. Set `RUST_LOG=rmcp=debug` to see the negotiated protocol version. Then run `codex mcp logout portifact` and delete the temporary `CODEX_HOME`.
+3. Claude Code: run it with a temporary `CLAUDE_CONFIG_DIR` (model access through `ANTHROPIC_API_KEY` or your usual login), add the server with `--scope local` inside a throwaway directory, authenticate from `/mcp` in an interactive session and run the same scenario with `claude -p --allowedTools 'mcp__portifact__*' --debug-file <file>`. The debug file shows `negotiatedProtocolVersion`, step-up and refresh. Remove the server with `claude mcp remove portifact --scope local` and delete both directories.
+4. Claude.ai: add a custom connector in Settings, sign in, ask Claude to list and then publish a document, and check that the second request asks for consent again.
+5. To check refresh without waiting an hour, wait more than five minutes after a sign-in (so the metadata document must be revalidated) and expire the client's stored access token, or revoke and confirm the client asks to sign in again.
+6. Clean up: delete every test artifact, disconnect the test clients on the dashboard's Account page and update this document and `apps/web/mcp-compatibility.html` with the date, the versions and any change.

@@ -19,7 +19,8 @@ export interface AuthDeps {
 // Fetch transport for Client ID Metadata Documents on Workers. The Worker runs with the
 // global_fetch_strictly_public compatibility flag, so fetch() cannot reach private or
 // internal addresses. Redirects are refused, because a document must be served at the
-// exact client_id URL, and only HTTPS is allowed.
+// exact client_id URL, and only HTTPS is allowed. 304 Not Modified is not a redirect: the
+// plugin revalidates a stale cached document with its ETag and handles the 304 itself.
 export function createClientMetadataFetch(fetchImpl: FetchLike): FetchLike {
   return async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input.toString());
@@ -27,7 +28,7 @@ export function createClientMetadataFetch(fetchImpl: FetchLike): FetchLike {
       throw new Error("client metadata must be served over https");
     }
     const response = await fetchImpl(url, { ...init, redirect: "manual" });
-    if (response.status >= 300 && response.status < 400) {
+    if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       throw new Error("client metadata redirects are not followed");
     }
     return response;

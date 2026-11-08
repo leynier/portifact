@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { TERMS_VERSION } from "@portifact/contracts";
 import type { MultipartConfig } from "@portifact/domain";
 import { type Auth, createAuth } from "../src/auth/auth.ts";
-import type { AuthDeps } from "../src/auth/deps.ts";
+import { type AuthDeps, createClientMetadataFetch } from "../src/auth/deps.ts";
 import type { EmailMessage } from "../src/auth/email.ts";
 import { createWorker } from "../src/index.ts";
 
@@ -70,13 +70,19 @@ export function createHarness(
         outbox.push(message);
       },
     },
-    fetchClientMetadata: async (input) => {
+    // The production transport over a fake network. Documents carry an ETag, as chatgpt.com's
+    // does, so a revalidation after max-age is answered 304 Not Modified.
+    fetchClientMetadata: createClientMetadataFetch(async (input, init) => {
       const url = input instanceof Request ? input.url : input.toString();
       fetchedMetadata.push(url);
       const document = clientMetadata.get(url);
       if (!document) return new Response("not found", { status: 404 });
-      return Response.json(document, { headers: { "cache-control": "max-age=300" } });
-    },
+      const headers = { "cache-control": "max-age=300", etag: `W/"${etagOf(document)}"` };
+      if (new Headers(init?.headers).get("if-none-match") === headers.etag) {
+        return new Response(null, { status: 304, headers });
+      }
+      return Response.json(document, { headers });
+    }),
     // Siteverify as Cloudflare documents it; each token passes once, like the real one.
     siteverify: async (input, init) => {
       const url = input instanceof Request ? input.url : input.toString();
@@ -180,6 +186,13 @@ export function form(values: Record<string, string>): RequestInit {
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(values).toString(),
   };
+}
+
+/** A stable validator for a fake metadata document: changes whenever the document does. */
+function etagOf(document: unknown): string {
+  let hash = 0;
+  for (const char of JSON.stringify(document)) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+  return (hash >>> 0).toString(16);
 }
 
 export function json(body: unknown, headers: Record<string, string> = {}): RequestInit {
