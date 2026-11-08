@@ -46,10 +46,10 @@ describe("version history", () => {
     const [current, previous] = await rows();
     expect(current?.textContent).toContain("Version 2");
     expect(current?.textContent).toContain("Current");
-    expect(current?.textContent).toContain("2 files, 12 byte");
+    expect(current?.textContent).toContain("2 files, 12 bytes");
     expect(current?.textContent).toContain("While current");
     expect(previous?.textContent).toContain("Version 1");
-    expect(previous?.textContent).toContain("1 source, 9 byte");
+    expect(previous?.textContent).toContain("1 source, 9 bytes");
     expect(previous?.textContent).not.toContain("Current");
     expect(
       within(current as HTMLElement).queryByRole("button", { name: "Roll back to version 2" }),

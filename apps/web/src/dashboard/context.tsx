@@ -70,7 +70,8 @@ export function useFormatBytes(): (bytes: number) => string {
       return i18n.number(scale ? bytes / scale.size : bytes, {
         style: "unit",
         unit: scale ? scale.unit : "byte",
-        unitDisplay: "short",
+        // The short form of a byte is "byte" whatever the count, so plain bytes are spelled out.
+        unitDisplay: scale ? "short" : "long",
         maximumFractionDigits: scale ? 1 : 0,
       });
     },
