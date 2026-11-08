@@ -6,4 +6,6 @@ export * from "./lifecycle.ts";
 export * from "./paths.ts";
 export * from "./quotas.ts";
 export * from "./result.ts";
+export * from "./sources.ts";
 export * from "./terms.ts";
+export * from "./usage.ts";

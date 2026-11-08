@@ -434,6 +434,118 @@ describe("API and MCP parity for versions", () => {
   });
 });
 
+describe("API and MCP parity for usage and source origins", () => {
+  it("usage gives the same quotas, counters and blocks", async () => {
+    const b = await both("parity-usage@example.test");
+    const empty = fromTool(await b.tool("get_usage", {}));
+    expect(empty).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(empty.body).toMatchObject({
+      activeArtifacts: { used: 0, limit: 50 },
+      publishesLast24h: { used: 0, limit: 100 },
+      // A new account cannot make artifacts public yet.
+      blocks: [{ reason: "account_too_new_for_public", stops: "public_access" }],
+    });
+
+    await b.tool("publish_document", { type: "markdown", name: "Doc", content: "# One" });
+    await publishThroughApi(b, await ownerId(b), "# Two");
+    const viaMcp = fromTool(await b.tool("get_usage", {}));
+    expect(viaMcp).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(viaMcp.body).toMatchObject({
+      activeArtifacts: { used: 2 },
+      publishesLast24h: { used: 2 },
+      // Rendered pages are written by the server and do not count as uploaded files.
+      newFilesLast24h: { used: 2 },
+    });
+  });
+
+  it("usage is the caller's own and needs artifacts:read at both", async () => {
+    const b = await both("parity-usage-owner@example.test");
+    const other = await both("parity-usage-other@example.test");
+    await other.tool("publish_document", { type: "text", name: "Other", content: "x" });
+    expect((await fromApi(await b.apiCall("/api/v1/usage"))).body).toMatchObject({
+      activeArtifacts: { used: 0 },
+    });
+
+    const h = createHarness();
+    const email = "parity-usage-scope@example.test";
+    const apiDenied = await api(h, await apiToken(h, email, "annotations:read"), "/api/v1/usage");
+    const mcpDenied = await rawCall(
+      h,
+      await mcpToken(h, email, "annotations:read"),
+      "get_usage",
+      {},
+    );
+    expect(apiDenied.status).toBe(403);
+    expect(mcpDenied.status).toBe(apiDenied.status);
+    expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
+    expect(mcpDenied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
+  });
+
+  it("a source origin sent to the API shows the same in list_versions and get_version", async () => {
+    const b = await both("parity-origin@example.test");
+    const origin = {
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      branch: "main",
+      remote: "git@github.com:leynier/portifact.git",
+      dirty: false,
+    };
+    const source = "export const a = 1;";
+    const owner = await ownerId(b);
+    await env.ARTIFACTS.put(`objects/${owner}/${await sha256(source)}`, source, {
+      sha256: await sha256(source),
+    });
+    const committed = await publishThroughApi(b, owner, "# With sources", {
+      files: [
+        {
+          path: "index.md",
+          sha256: await sha256("# With sources"),
+          size: 14,
+          contentType: "text/markdown; charset=utf-8",
+        },
+        {
+          path: "src/a.ts",
+          kind: "source",
+          sha256: await sha256(source),
+          size: source.length,
+          contentType: "text/plain",
+        },
+      ],
+      sourceOrigin: origin,
+    });
+    expect(committed.ok).toBe(true);
+    const id = (committed.body as { artifactId: string }).artifactId;
+    const list = fromTool(await b.tool("list_versions", { artifactId: id }));
+    expect(list).toEqual(await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions`)));
+    expect((list.body as { items: { sourceOrigin: unknown }[] }).items[0]?.sourceOrigin).toEqual(
+      origin,
+    );
+    expect(fromTool(await b.tool("get_version", { artifactId: id, versionId: "current" }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions/current`)),
+    );
+
+    // A remote with a token is refused, whoever sends it.
+    const refused = await publishThroughApi(b, owner, "# Token", {
+      files: [
+        {
+          path: "index.md",
+          sha256: await sha256("# Token"),
+          size: 7,
+          contentType: "text/markdown; charset=utf-8",
+        },
+        {
+          path: "src/a.ts",
+          kind: "source",
+          sha256: await sha256(source),
+          size: source.length,
+          contentType: "text/plain",
+        },
+      ],
+      sourceOrigin: { ...origin, remote: "https://ghp_secret@github.com/o/r.git" },
+    });
+    expect(refused).toMatchObject({ ok: false, body: { error: { code: "invalid_input" } } });
+  });
+});
+
 describe("API and MCP parity for annotations", () => {
   const EVERY =
     "artifacts:read artifacts:write artifacts:share annotations:read annotations:write annotations:moderate offline_access";

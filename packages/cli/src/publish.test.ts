@@ -156,6 +156,9 @@ describe("portifact publish", () => {
       "uploadId",
       "files",
       "totalBytes",
+      "sourceFiles",
+      "sourceBytes",
+      "sourceOrigin",
       "uploadedFiles",
       "uploadedBytes",
     ]);

@@ -24,6 +24,27 @@ export const ManifestFile = z.object({
 });
 export type ManifestFile = z.infer<typeof ManifestFile>;
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point
+const NO_CONTROL = /^[^\u0000-\u001f\u007f]*$/;
+
+/**
+ * Where a version's private sources came from in git (plan section 6, "Fuentes desde git"). The
+ * client declares it and the server only checks its form; only the owner sees it, like the
+ * sources. `commit` is null in a repository without commits, `branch` on a detached HEAD and
+ * `remote` without one. The remote never carries credentials (see `checkSourceOrigin`).
+ */
+export const SourceOrigin = z.strictObject({
+  commit: z
+    .string()
+    .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "Invalid commit")
+    .nullable(),
+  branch: z.string().min(1).max(255).regex(NO_CONTROL, "Invalid branch").nullable(),
+  remote: z.string().min(1).max(2_048).regex(NO_CONTROL, "Invalid remote").nullable(),
+  /** The sources had changes that were not committed. */
+  dirty: z.boolean(),
+});
+export type SourceOrigin = z.infer<typeof SourceOrigin>;
+
 /** Starts a publish: a new artifact without `artifactId`, a new version with it. */
 export const PublishRequest = z.object({
   artifactId: ArtifactId.optional(),
@@ -33,6 +54,8 @@ export const PublishRequest = z.object({
   /** The version the client based its changes on; `null` for a new artifact. */
   baseVersionId: z.string().min(1).max(64).nullable().default(null),
   files: z.array(ManifestFile).min(1).max(LIMITS.filesPerVersion),
+  /** Git origin of the `source` files; only with at least one of them. */
+  sourceOrigin: SourceOrigin.optional(),
 });
 export type PublishRequest = z.infer<typeof PublishRequest>;
 

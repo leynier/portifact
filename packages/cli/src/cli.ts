@@ -16,6 +16,7 @@ import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
+import { usage } from "./usage.ts";
 import { rollback, versions } from "./versions.ts";
 
 export type { Io } from "./runtime.ts";
@@ -39,12 +40,20 @@ With --json, a failure prints {"error":{"code","message"}} on stdout.
 `;
 
 const PUBLISH_HELP = `
-The type is inferred from the path: a folder or .html file is a site, .md is markdown and
-.txt is text. A single HTML file is published as the site's index.html. Folders leave out
-.git, node_modules, caches and files that may hold secrets (.env, keys, credentials).
-Publishing a new version keeps the artifact's access as it is.
+The type is inferred from the path: a folder, .zip or .html file is a site, .md is markdown and
+.txt is text. A single HTML file is published as the site's index.html. A ZIP file is expanded
+safely first; when every file in it is inside one folder, that folder becomes the root. Folders
+and ZIP files leave out .git, node_modules, caches and files that may hold secrets (.env, keys,
+credentials). Publishing a new version keeps the artifact's access as it is.
 
-ZIP files and --source (private sources) are not supported yet; they arrive in a later release.
+--source attaches private sources that only you can see and download. A folder inside a git
+repository attaches what git versions plus new files it does not ignore, or with --ref exactly
+the tree of that commit, and records the commit, branch, remote (without credentials) and
+whether there were uncommitted changes. Submodules are left out and Git LFS pointers are
+reported. Other folders and ZIP files use the default exclusions. Secret files are never attached.
+
+--assets publishes a folder of images and other files with a Markdown document; it must be
+inside the document's folder so its relative links resolve.
 `;
 
 const PULL_HELP = `
@@ -151,6 +160,9 @@ export async function run(
     .option("--name <name>", "name shown in your artifact list (default: the file or folder name)")
     .option("--entry <path>", "page a site opens first (default: index.html)")
     .option("--artifact <id>", "publish a new version of this artifact")
+    .option("--source <path>", "attach private sources: a folder, file or ZIP file (owner only)")
+    .option("--ref <commit>", "with --source in a git repository: attach exactly this commit")
+    .option("--assets <dir>", "folder of assets a Markdown document links to")
     .option("--dry-run", "print the manifest without uploading or signing in")
     .option("--json", "Print the result as JSON")
     .addHelpText("after", PUBLISH_HELP)
@@ -164,6 +176,9 @@ export async function run(
             name?: string;
             entry?: string;
             artifact?: string;
+            source?: string;
+            ref?: string;
+            assets?: string;
             dryRun?: boolean;
             json?: boolean;
           },
@@ -174,6 +189,9 @@ export async function run(
             name: options.name,
             entry: options.entry,
             artifact: options.artifact,
+            source: options.source,
+            ref: options.ref,
+            assets: options.assets,
             dryRun: options.dryRun === true,
             json: options.json === true,
           }),
@@ -337,6 +355,16 @@ export async function run(
             source: options.source === true,
             json: options.json === true,
           }),
+      ),
+    );
+
+  program
+    .command("usage")
+    .description("Show your account's quotas, current usage and anything blocking it")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }) =>
+        usage(io, runtime, { json: options.json === true }),
       ),
     );
 
