@@ -48,6 +48,7 @@
       "name": "@portifact/content",
       "version": "0.0.0",
       "dependencies": {
+        "@portifact/bridge": "workspace:*",
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
@@ -90,6 +91,7 @@
         "@lingui/message-utils": "^6.0.0",
         "@lingui/react": "^6.0.0",
         "@noble/hashes": "^2.4.0",
+        "@portifact/bridge": "workspace:*",
         "@portifact/contracts": "workspace:*",
         "@portifact/domain": "workspace:*",
         "@portifact/ui": "workspace:*",
@@ -117,6 +119,20 @@
         "vitest": "catalog:",
       },
     },
+    "e2e": {
+      "name": "@portifact/e2e",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.0.0",
+        "@playwright/test": "~1.64.1",
+        "@portifact/contracts": "workspace:*",
+        "@portifact/db": "workspace:*",
+        "@portifact/services": "workspace:*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "wrangler": "^4.0.0",
+      },
+    },
     "packages/anchors": {
       "name": "@portifact/anchors",
       "version": "0.0.0",
@@ -128,6 +144,23 @@
         "@vitest/coverage-istanbul": "catalog:",
         "fast-check": "^4.0.0",
         "happy-dom": "^21.0.4",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/bridge": {
+      "name": "@portifact/bridge",
+      "version": "0.0.0",
+      "dependencies": {
+        "@portifact/anchors": "workspace:*",
+        "@portifact/contracts": "workspace:*",
+        "@portifact/ui": "workspace:*",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "happy-dom": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -608,6 +641,8 @@
 
     "@portifact/app": ["@portifact/app@workspace:apps/app"],
 
+    "@portifact/bridge": ["@portifact/bridge@workspace:packages/bridge"],
+
     "@portifact/cli": ["@portifact/cli@workspace:packages/cli"],
 
     "@portifact/content": ["@portifact/content@workspace:apps/content"],
@@ -617,6 +652,8 @@
     "@portifact/db": ["@portifact/db@workspace:packages/db"],
 
     "@portifact/domain": ["@portifact/domain@workspace:packages/domain"],
+
+    "@portifact/e2e": ["@portifact/e2e@workspace:e2e"],
 
     "@portifact/jobs": ["@portifact/jobs@workspace:apps/jobs"],
 

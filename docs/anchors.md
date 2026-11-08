@@ -12,7 +12,7 @@ A thread points at an immutable version, a file path and a target. The target sh
 | `text`     | `quote` (W3C TextQuoteSelector: `exact`, `prefix`, `suffix`), `position` (TextPositionSelector), optional `domHint` selector and optional `source` (Markdown block and source offsets, or TXT offsets). |
 | `element`  | Up to four `selectors` (primary first), `tagName`, a text `fingerprint` and an optional `rect` as a visual hint.                                                                                        |
 
-`contentHash` is `contentHash()` from `packages/anchors`: SHA-256 of the UTF-8 normalized text.
+`contentHash` is `contentHash()` from `packages/anchors`: SHA-256 of the UTF-8 normalized text. The bridge sets it from the page's text when it creates a target, sets `renderer` (`portifact-render@<version>`) only on pages Portifact rendered, and does not fill `source` yet.
 
 ## Normalization and offsets
 

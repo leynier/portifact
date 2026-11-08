@@ -83,7 +83,8 @@ Add these rules to the content Worker, as recorded in [security.md](../security.
 - Honor the review cookie only for `Sec-Fetch-Site: same-origin`, or `cross-site` with `Sec-Fetch-Mode: navigate`. Fail closed without fetch metadata.
 - Send `Cross-Origin-Resource-Policy: same-origin` on review-mode responses.
 - Match cookie names exactly and case-sensitively, and require exactly one review value.
-- Detect a dropped cookie on the content origin: the exchange redirects through a reserved check path that verifies the cookie arrived, and otherwise answers a small page that tells the viewer (exact `targetOrigin`) that review mode is unavailable, so the viewer can offer the fallback. The spike shows the signal exists (the next request arrives without the cookie); the check path itself is for phase 7.
+- Fetch metadata cannot tell the viewer's own frame navigation from one an artifact in the viewer bounces through a redirector on another site: both arrive as `cross-site`, `navigate`, `iframe`. The exchange therefore cannot stop a planted review session, and the viewer detects one instead: the bridge echoes a tag of the session its page runs in and the viewer compares it with the tag it got with its code (see "Review mode" in security.md).
+- Detect a dropped cookie on the content origin: the exchange redirects through a reserved check path that verifies the cookie arrived, and otherwise answers a small page that tells the viewer (exact `targetOrigin`) that review mode is unavailable, so the viewer can offer the fallback. The spike shows the signal exists (the next request arrives without the cookie). Implemented as `/__portifact/review/check` (see "Review mode" in security.md).
 
 ## Fallbacks
 

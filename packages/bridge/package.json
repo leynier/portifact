@@ -1,0 +1,30 @@
+{
+  "name": "@portifact/bridge",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Review bridge injected into artifacts in review mode, and the message protocol the viewer shares with it.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./bundle": "./dist/bundle.ts"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@portifact/anchors": "workspace:*",
+    "@portifact/contracts": "workspace:*",
+    "@portifact/ui": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "happy-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

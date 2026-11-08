@@ -28,6 +28,12 @@ export const ENDPOINT_LIMITS: Record<string, Limit> = {
 export const READ_ENTRY_LIMIT: Limit = { max: 60, windowSeconds: 600 };
 
 /**
+ * Per-account limit on review codes (`POST /api/v1/artifacts/:id/review`): each one stores a
+ * code. The viewer asks for one per page load and when a review session ends.
+ */
+export const REVIEW_START_LIMIT: Limit = { max: 60, windowSeconds: 600 };
+
+/**
  * Checks the limits in order and stops at the first one exceeded, so a refused request does
  * not use up a later, wider budget.
  */

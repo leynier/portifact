@@ -33,6 +33,7 @@ describe("dashboard pages", () => {
       ["/", "/"],
       ["/artifacts/k7d2qm4xab?tab=x", "/artifacts/k7d2qm4xab?tab=x"],
       ["/account", "/account"],
+      ["/review/k7d2qm4xab", "/review/k7d2qm4xab"],
     ] as const) {
       const response = await h.request(path, { redirect: "manual" });
       expect(response.status, path).toBe(302);
@@ -57,6 +58,7 @@ describe("dashboard pages", () => {
       "/artifacts/k7d2qm4xab/edit",
       "/artifacts/k7d2qm4xab/history",
       "/account",
+      "/review/k7d2qm4xab",
     ]) {
       const response = await h.request(path, { headers: { cookie } });
       expect(response.status, path).toBe(200);
@@ -85,6 +87,8 @@ describe("dashboard pages", () => {
       "/artifacts",
       "/artifacts/a/b",
       "/account/x",
+      "/review",
+      "/review/a/b",
     ]) {
       expect((await h.request(path, { headers: { cookie } })).status, path).toBe(404);
     }
@@ -96,7 +100,7 @@ describe("dashboard pages", () => {
 });
 
 describe("dashboard policy", () => {
-  it("adds only the storage endpoint and the document stylesheet to the page policy", async () => {
+  it("adds only the storage endpoint, the document stylesheet and artifact frames to the page policy", async () => {
     const policy = await dashboardCsp(env);
     const digest = await crypto.subtle.digest(
       "SHA-256",
@@ -105,18 +109,19 @@ describe("dashboard policy", () => {
     const hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
     const storage = `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
     expect(policy).toBe(
-      PAGE_CSP.replace("style-src 'self'", `style-src 'self' 'sha256-${hash}'`).replace(
+      `${PAGE_CSP.replace("style-src 'self'", `style-src 'self' 'sha256-${hash}'`).replace(
         "connect-src 'self'",
         `connect-src 'self' ${storage}`,
-      ),
+      )}; frame-src https://*.portifact.dev`,
     );
-    // Frames, scripts and images stay as strict as the page policy: no other origin anywhere.
+    // Scripts and images stay as strict as the page policy; frames only from artifact origins,
+    // for the review viewer.
     expect(policy).toContain("default-src 'none'");
     expect(policy).toContain("script-src 'self';");
     expect(policy).toContain("img-src 'self';");
-    expect(policy).not.toContain("frame-src");
+    expect(policy).toContain("frame-ancestors 'none'");
     expect(policy).not.toContain("unsafe");
-    expect(policy.match(/https:\/\/[^\s;]+/g)).toEqual([storage]);
+    expect(policy.match(/https:\/\/[^\s;]+/g)).toEqual([storage, "https://*.portifact.dev"]);
   });
 });
 

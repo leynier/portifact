@@ -8,7 +8,8 @@
       "apps/*",
       "packages/*",
       "scripts",
-      "spikes/*"
+      "spikes/*",
+      "e2e"
     ],
     "catalog": {
       "@testing-library/react": "^16.0.0",
@@ -31,6 +32,7 @@
     "test": "turbo run test",
     "build:cli": "bun scripts/build-cli.ts",
     "spike:review-cookies": "bun run --cwd spikes/review-cookies spike",
+    "test:e2e": "turbo run build --filter=@portifact/web --filter=@portifact/bridge && bun run --cwd e2e e2e",
     "dev": "turbo run dev",
     "build": "turbo run build"
   },

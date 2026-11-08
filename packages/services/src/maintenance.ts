@@ -12,6 +12,7 @@ import { renderDocument, renderingStatements, storeRenderings } from "./document
 import { pruneOperations } from "./idempotency.ts";
 import { abortPublish } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
+import { pruneReviewSessions } from "./review-access.ts";
 
 const DEFAULT_BATCH = 50;
 
@@ -447,5 +448,6 @@ export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
+    reviewSessions: (await pruneReviewSessions(db, now)).processed,
   };
 }
