@@ -31,7 +31,7 @@ describe("CI scope", () => {
       "apps/web/src/dashboard/screens/review.tsx",
       "packages/bridge/src/bridge.ts",
       "packages/services/src/review-access.ts",
-      "packages/db/migrations/0012_review_tab.sql",
+      "packages/db/migrations/0014_review_tab.sql",
       "e2e/tests/review.spec.ts",
       "e2e/playwright.config.ts",
       "turbo.json",
