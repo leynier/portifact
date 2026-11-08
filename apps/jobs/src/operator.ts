@@ -35,7 +35,11 @@ import {
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
 
-export const OPERATOR_USAGE = `Usage: bun run --cwd apps/jobs operator [--local] <command>
+export const OPERATOR_USAGE = `Usage: bun run --cwd apps/jobs operator [--local | --config <file>] <command>
+
+  --local          the local D1 state of wrangler dev in apps/app
+  --config <file>  a Wrangler configuration whose remote DB binding replaces production
+                   (a scratch database for a backup drill); relative to apps/jobs
 
 Commands:
   reports [--status open|actioned|dismissed|all] [--limit N]
@@ -88,6 +92,39 @@ export function parseTombstones(
     markers.push(parsed.data);
   }
   return { ok: true, markers };
+}
+
+/** Which database the script binds: production, the local dev state or another configuration. */
+export type OperatorTarget =
+  | { ok: true; target: "production" | "local"; config: null; args: string[] }
+  | { ok: true; target: "config"; config: string; args: string[] }
+  | { ok: false; message: string };
+
+/** Takes the script's own `--local` and `--config <file>` flags out of the command arguments. */
+export function operatorTarget(argv: readonly string[]): OperatorTarget {
+  const args: string[] = [];
+  let local = false;
+  let config: string | null = null;
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i] as string;
+    if (arg === "--local") {
+      local = true;
+    } else if (arg === "--config") {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        return { ok: false, message: "--config needs a Wrangler configuration file." };
+      }
+      config = value;
+      i += 1;
+    } else {
+      args.push(arg);
+    }
+  }
+  if (local && config !== null) {
+    return { ok: false, message: "Use --local or --config, not both." };
+  }
+  if (config !== null) return { ok: true, target: "config", config, args };
+  return { ok: true, target: local ? "local" : "production", config: null, args };
 }
 
 export interface OperatorResult {
