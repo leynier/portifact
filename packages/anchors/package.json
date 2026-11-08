@@ -1,0 +1,26 @@
+{
+  "name": "@portifact/anchors",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Annotation anchors: creation from a selection and resolution against a document.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.dom.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@portifact/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "fast-check": "^4.0.0",
+    "happy-dom": "^21.0.4",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
