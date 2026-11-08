@@ -244,9 +244,18 @@ async function completeUpload(
     )
     .orderBy(schema.multipartParts.partNumber);
   try {
-    await bucket.resumeMultipartUpload(input.state.key, input.state.uploadId).complete(parts);
+    await bucket
+      .resumeMultipartUpload(input.state.key, input.state.uploadId)
+      .complete(parts.map((part) => ({ partNumber: part.partNumber, etag: bareEtag(part.etag) })));
     return null;
-  } catch {
+  } catch (error) {
+    // Only the error's name and message: they carry no token, key material or user content.
+    console.error(
+      JSON.stringify({
+        event: "multipart_complete_failed",
+        error: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
+      }),
+    );
     // A reported ETag or part R2 does not have: the client sends every part again.
     await forgetParts(db, input.sessionId, input.sha256);
     return `${input.sha256} could not be assembled from its parts; they must be uploaded again`;
@@ -303,6 +312,14 @@ export interface ReportPartInput {
  * Records a part the client put to storage, with the ETag storage answered. Reporting the same
  * part again replaces its ETag, so a retried or re-uploaded part is harmless.
  */
+/**
+ * The ETag as R2's binding expects it. Clients read it from the S3 endpoint's `ETag` header,
+ * which quotes it (`"abc"`), while `R2MultipartUpload.complete` refuses quoted values.
+ */
+export function bareEtag(etag: string): string {
+  return etag.replace(/^W\//, "").replace(/^"(.*)"$/, "$1");
+}
+
 export async function reportUploadedPart(db: Db, input: ReportPartInput): Promise<Result<true>> {
   const [session] = await db
     .select({
@@ -347,7 +364,7 @@ export async function reportUploadedPart(db: Db, input: ReportPartInput): Promis
         sessionId: input.sessionId,
         sha256: input.sha256,
         partNumber: input.partNumber,
-        etag: input.etag,
+        etag: bareEtag(input.etag),
       })
       .onConflictDoUpdate({
         target: [
@@ -355,7 +372,7 @@ export async function reportUploadedPart(db: Db, input: ReportPartInput): Promis
           schema.multipartParts.sha256,
           schema.multipartParts.partNumber,
         ],
-        set: { etag: input.etag },
+        set: { etag: bareEtag(input.etag) },
       });
   } catch (error) {
     // The session closed meanwhile and its cleanup removed the upload.
