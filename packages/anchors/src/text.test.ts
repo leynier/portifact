@@ -275,6 +275,7 @@ describe("resolveTextAnchor", () => {
   });
 
   it("returns only matches within the allowed edits of the quote", () => {
+    // The counterexample CI found first stays in every run.
     fc.assert(
       fc.property(
         fc.string({ unit: fc.constantFrom("a", "b", "c", " "), minLength: 8, maxLength: 24 }),
@@ -295,12 +296,20 @@ describe("resolveTextAnchor", () => {
           );
         },
       ),
+      { examples: [["aabaacaa", "aaaaaa"]] },
     );
   });
 });
 
 describe("approximateMatches", () => {
   const chars = (value: string) => Array.from(value);
+
+  it("finds nothing when the closest substring needs one edit more than allowed", () => {
+    // Found by the property test in CI (seed 1763099554): a quote of 8 code points allows 1
+    // edit, and "aaaaaa" is 2 deletions away from "aabaacaa".
+    expect(approximateMatches(chars("aaaaaa"), chars("aabaacaa"), 1)).toEqual([]);
+    expect(approximateMatches(chars("aaaaaa"), chars("aabaacaa"), 2)).not.toEqual([]);
+  });
 
   it("finds the closest substring and reports its span", () => {
     expect(approximateMatches(chars("xxhelloxx"), chars("helo"), 1)).toEqual([

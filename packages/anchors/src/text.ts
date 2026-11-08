@@ -210,7 +210,10 @@ export function approximateMatches(
       best = distance;
       spans = [];
     }
-    if (distance === best) spans.push({ start: currentStart[m] as number, end: j });
+    // `best` starts one above the limit, so a distance must also be within the limit to count.
+    if (distance === best && distance <= maxErrors) {
+      spans.push({ start: currentStart[m] as number, end: j });
+    }
     [previous, current] = [current, previous];
     [previousStart, currentStart] = [currentStart, previousStart];
   }
