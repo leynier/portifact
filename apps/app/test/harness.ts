@@ -49,14 +49,20 @@ export interface Harness {
   siteverifyCalls: { secret: string; token: string; remoteIp: string | null }[];
 }
 
-export function createHarness(options: { env?: Partial<Cloudflare.Env> } = {}): Harness {
+export function createHarness(
+  options: {
+    env?: Partial<Cloudflare.Env>;
+    /** Replaces the fake sender, for example to fail the way Email Service does. */
+    email?: AuthDeps["email"];
+  } = {},
+): Harness {
   const outbox: EmailMessage[] = [];
   const clientMetadata = new Map<string, unknown>();
   const fetchedMetadata: string[] = [];
   const siteverifyCalls: Harness["siteverifyCalls"] = [];
   const workerEnv = { ...env, ...options.env } as Cloudflare.Env;
   const deps: AuthDeps = {
-    email: {
+    email: options.email ?? {
       send: async (message) => {
         outbox.push(message);
       },

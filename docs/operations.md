@@ -1,6 +1,6 @@
 # Operations
 
-How the operator handles abuse reports and suspensions (plan section 13), how storage is verified and a database backup restored (plan section 10), and the budget alerts and protection (plan section 12). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
+How the operator handles abuse reports and suspensions (plan section 13), how storage is verified and a database backup restored (plan section 10), the budget alerts and protection (plan section 12), and the email quota and suppressions (plan section 17). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
 
 ## Why a local tool and not an operator account
 
@@ -27,6 +27,8 @@ bun run --cwd apps/jobs operator reinstate-account <user-id|email>
 bun run --cwd apps/jobs operator storage-report [--limit N]          # what the storage reconciliation found
 bun run --cwd apps/jobs operator export-tombstones --out <file>      # before restoring a backup
 bun run --cwd apps/jobs operator apply-tombstones --file <file>      # after restoring a backup
+bun run --cwd apps/jobs operator email-suppressions                  # addresses that get no sign-in codes
+bun run --cwd apps/jobs operator lift-email-suppression <email>
 ```
 
 `--local` runs against the local D1 state of `wrangler dev` in `apps/app` instead (apply the migrations there first with `wrangler d1 migrations apply portifact-control --local --persist-to apps/app/.wrangler/state`). The remote binding is defined in `apps/jobs/operator.wrangler.jsonc`, which is never deployed. Reasons are the `AbuseReason` values in `packages/contracts/src/moderation.ts`.
@@ -72,7 +74,7 @@ An override replaces the automatic decision at once, in both directions, until `
 
 ### Cloudflare analytics
 
-The jobs Worker measures R2 operations and storage, Worker requests and D1 rows through Cloudflare's GraphQL Analytics API (`apps/jobs/src/analytics.ts`). In production the `portifact-jobs` Worker has both settings below, so the collector runs on every budget run; without either of them it stays off and the projection uses only what D1 knows (the bytes of every stored object and the objects created this cycle, one class A upload each).
+The jobs Worker measures R2 operations and storage, Worker requests and D1 rows through Cloudflare's GraphQL Analytics API (`apps/jobs/src/analytics.ts`). In production the `portifact-jobs` Worker has both settings below, so the collector runs on every budget run; without either of them it stays off and the projection uses only what D1 knows (the bytes of every stored object and the objects created this cycle, one class A upload each). Emails always come from D1 (`email_counters`), with or without analytics.
 
 | Name                 | Kind   | Value                                                                                                                           |
 | -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -84,6 +86,19 @@ Rotate or set them with `wrangler secret put <NAME> --name portifact-jobs` from 
 ### Alert emails (optional)
 
 Alert emails are a no-op until the `portifact-jobs` Worker has a `send_email` binding named `BUDGET_EMAIL` and the vars `BUDGET_ALERT_TO` (the operator's address) and `BUDGET_ALERT_FROM` (a sender verified in Cloudflare Email Service). With all three, each run emails the cycle's alerts that were not emailed yet and marks them; a failed send is retried on the next run.
+
+## Email quota and suppressions
+
+Sign-in codes stop for the rest of the month once `SIGN_IN_EMAILS_PER_CYCLE` (19,900) emails were sent in the UTC month, below the 20,000-email admission limit so codes alone never stop publishing; the login page then suggests Google or GitHub. The daily budget (600 codes) normally keeps the month far below it. `operator budget` shows the cycle's `emails`, counted as they are sent (`email_counters`).
+
+Addresses whose mail bounced permanently or was reported as spam get no more codes (see "Identity" in [security.md](security.md)). Cloudflare Email Service reports them through the `portifact-email-events` queue (set up in [releasing.md](releasing.md)), and a send it refuses because its own list holds the address is recorded too. The person sees an explanation that points to Google, GitHub and `privacy@portifact.com`.
+
+```bash
+bun run --cwd apps/jobs operator email-suppressions [--limit N]     # suppressions in effect: id, masked hint, reason, dates
+bun run --cwd apps/jobs operator lift-email-suppression <email>     # after checking with the person that the address works now
+```
+
+Only the masked hint is stored, so lifting needs the address from the person who wrote in. Lifting ours does not lift Cloudflare's: if sends still fail (the next request records a `provider` suppression again), remove the address from the sending domain's suppression list in the Cloudflare dashboard (Email Service, Suppressions) or through its API, unless the entry is `read_only` (complaints and missing mailboxes usually are; only Cloudflare Support can review those). A complaint means the person marked our mail as spam: lift it only at their request. The consumer logs `email_event` (type, event ID, outcome), `email_event_malformed` and `email_event_failed`; malformed events are dropped and failed ones retried up to 5 times, after which Cloudflare's own suppression still blocks sends and the next refused send records it.
 
 ## Account deletions
 

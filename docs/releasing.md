@@ -43,7 +43,7 @@ The `release` workflow (`.github/workflows/release.yml`):
 
 ## Deploying portifact.com
 
-Every push to `main` also runs the `deploy` job after `release`: it applies pending D1 migrations to `portifact-control` (`wrangler d1 migrations apply --remote`), deploys the `portifact-content` Worker (artifact origins on `*.portifact.dev`, D1 plus the private R2 bucket `portifact-artifacts`), deploys the `portifact-jobs` Worker (maintenance every 15 minutes and the consumer of the `portifact-jobs` queue, no routes), builds `apps/web` and deploys the `portifact-app` Worker, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect and that `app.portifact.com` serves the authorization server metadata. The Worker owns `portifact.com`, `www.portifact.com` and `app.portifact.com` as custom domains and routes by host: the apex serves the landing and installers, `www` redirects to the apex, and `app` serves identity, OAuth and the auth pages (see [security.md](security.md)). Pull requests validate both bundles with `wrangler deploy --dry-run`. Migrations must stay backward compatible with the code still running during a deploy: add columns and tables first, remove them in a later release.
+Every push to `main` also runs the `deploy` job after `release`: it applies pending D1 migrations to `portifact-control` (`wrangler d1 migrations apply --remote`), deploys the `portifact-content` Worker (artifact origins on `*.portifact.dev`, D1 plus the private R2 bucket `portifact-artifacts`), deploys the `portifact-jobs` Worker (maintenance every 15 minutes and the consumer of the `portifact-jobs` and `portifact-email-events` queues, no routes), builds `apps/web` and deploys the `portifact-app` Worker, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect and that `app.portifact.com` serves the authorization server metadata. The Worker owns `portifact.com`, `www.portifact.com` and `app.portifact.com` as custom domains and routes by host: the apex serves the landing and installers, `www` redirects to the apex, and `app` serves identity, OAuth and the auth pages (see [security.md](security.md)). Pull requests validate both bundles with `wrangler deploy --dry-run`. Migrations must stay backward compatible with the code still running during a deploy: add columns and tables first, remove them in a later release.
 
 ### Jobs Worker queue
 
@@ -54,6 +54,20 @@ npx wrangler queues create portifact-jobs
 ```
 
 It survives deploys. The deploy token already has Queues access. No dead-letter queue is configured: a message whose retries run out is dropped, and the outbox sends its job again an hour later because the row is still there. Pull requests validate the binding with `wrangler deploy --dry-run`, which does not check that the queue exists.
+
+### Email events queue
+
+Cloudflare Email Service reports bounces and complaints through an event subscription to a queue, which the `portifact-jobs` Worker consumes (the second consumer in `apps/jobs/wrangler.jsonc`) to keep the email suppression list (see "Email quota and suppressions" in [operations.md](operations.md)). Before the first release that ships this consumer, the maintainer, with the deploy credentials:
+
+1. Creates the queue, because deploying a consumer of a missing queue fails: `npx wrangler queues create portifact-email-events`.
+2. Subscribes it to the sending domain in the dashboard: Queues, `portifact-email-events`, Subscriptions, Subscribe to events, source Email Sending, domain `portifact.com` (the domain that sends from `noreply@portifact.com`), events `message.bounced` and `message.complained`.
+3. After the deploy, checks the jobs Worker's logs for `email_event` lines once a bounce happens (sending a code to a non-existent mailbox at a domain you control produces one). `email_event_malformed` means the subscription delivers another body shape than the event JSON or a JSON string of it, which the consumer accepts; fix the parser before relying on it.
+
+No dead-letter queue is configured: an event whose 5 retries fail is dropped, and Cloudflare's own suppression still refuses the next send, which records a `provider` suppression. Without the subscription nothing breaks: suppressions then come only from refused sends.
+
+### Third-party notices
+
+`third-party-notices.md` and the CLI's embedded copy (`packages/cli/src/third-party-notices.ts`, printed by `portifact licenses`) list the licenses and notices of every production dependency of the Workers, the web pages and the CLI binary, generated from the installed packages by `bun run notices` (`scripts/third-party-notices.ts`). The app Worker serves the Markdown as plain text at `portifact.com/third-party-notices` (copied into `apps/web/dist` by the Vite build). `bun run check` fails when either file is stale or when a shipped package's license is not in `AGPL_COMPATIBLE` (`scripts/notices.ts`); adding a license there is a license review, so say why in the change. Versions are left out so routine updates do not change the files, but a new or removed dependency, or a changed license text, does: run `bun run notices` after `bun install` and commit the result, including on Dependabot's pull requests, which fail `check` until then.
 
 ### App Worker configuration
 

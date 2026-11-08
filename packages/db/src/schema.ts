@@ -789,4 +789,41 @@ export const budgetAlerts = sqliteTable(
   (t) => [uniqueIndex("budget_alerts_cycle_kind_idx").on(t.cycleStart, t.kind)],
 );
 
+/** Why an address is suppressed (contracts: EmailSuppressionReason). */
+export const EMAIL_SUPPRESSION_REASONS = ["hard_bounce", "complaint", "provider"] as const;
+
+/**
+ * Addresses Portifact does not send sign-in codes to, because their mail bounced permanently or
+ * was reported as spam (packages/services/src/email.ts). Keyed by a SHA-256 of the normalized
+ * address, never the address itself; `hint` is a masked form (`a***@example.com`) for the
+ * operator. Rows end at `expires_at` and the maintenance job prunes them.
+ */
+export const emailSuppressions = sqliteTable(
+  "email_suppressions",
+  {
+    emailHash: text("email_hash").primaryKey(),
+    hint: text("hint").notNull(),
+    reason: text("reason", { enum: EMAIL_SUPPRESSION_REASONS }).notNull(),
+    /** The Email Service event that recorded it, when one did. */
+    eventId: text("event_id"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [index("email_suppressions_expires_idx").on(t.expiresAt)],
+);
+
+/**
+ * Emails sent per UTC day, the platform's email metric for the budget run and the monthly cap of
+ * sign-in codes. Aggregate counts only, nothing about recipients.
+ */
+export const emailCounters = sqliteTable(
+  "email_counters",
+  {
+    day: timestamp("day").primaryKey(),
+    sent: integer("sent").notNull().default(0),
+  },
+  (t) => [check("email_counters_nonnegative", sql`${t.sent} >= 0`)],
+);
+
 export * from "./auth-schema.ts";
