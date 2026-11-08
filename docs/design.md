@@ -46,7 +46,7 @@ Use the files as they are: do not recolor, stretch, add effects or rebuild the l
 - If something is missing, add the token, variant or component to `packages/ui` first, with its story and tests, then use it.
 - Light and dark themes are both driven by semantic tokens, so a component never branches on the theme.
 
-`bun run check` runs a design-system check that fails on these violations. Do not disable it; if a rule blocks a legitimate case, change the rule in a separate, explained change.
+`bun run check` runs `scripts/check-design-system.ts` (rules in `packages/ui/src/design-check.ts`), which fails on arbitrary Tailwind values, inline `style` attributes, Tailwind's default palette and raw color values outside `packages/ui/src/tokens`. The Tailwind theme in `packages/ui/src/tokens/theme.css` removes the default palette, so only token colors exist as utilities. Do not disable it; if a rule blocks a legitimate case, change the rule in a separate, explained change.
 
 ## Forms
 

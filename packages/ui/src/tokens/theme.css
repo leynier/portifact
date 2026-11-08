@@ -1,0 +1,66 @@
+/*
+ * Tailwind CSS v4 theme built only from Portifact tokens. The default Tailwind palette is
+ * removed, so utilities such as `bg-blue-500` do not exist and every color utility resolves
+ * to a semantic token.
+ */
+@import "./tokens.css";
+
+@theme inline {
+  --color-*: initial;
+  --font-*: initial;
+
+  --color-canvas: var(--pf-color-canvas);
+  --color-surface: var(--pf-color-surface);
+  --color-surface-raised: var(--pf-color-surface-raised);
+  --color-surface-inverse: var(--pf-color-surface-inverse);
+  --color-text: var(--pf-color-text);
+  --color-text-muted: var(--pf-color-text-muted);
+  --color-text-inverse: var(--pf-color-text-inverse);
+  --color-border: var(--pf-color-border);
+  --color-border-strong: var(--pf-color-border-strong);
+  --color-selection: var(--pf-color-selection);
+  --color-focus: var(--pf-color-focus);
+
+  --font-sans: var(--pf-font-sans);
+  --font-mono: var(--pf-font-mono);
+
+  --radius-sm: var(--pf-radius-sm);
+  --radius-md: var(--pf-radius-md);
+  --radius-lg: var(--pf-radius-lg);
+}
+
+@layer base {
+  html {
+    background: var(--pf-color-canvas);
+    color: var(--pf-color-text);
+    font-family: var(--pf-font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--pf-color-selection);
+    color: var(--pf-color-text);
+  }
+
+  a {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--pf-color-focus);
+    outline-offset: 3px;
+    border-radius: var(--pf-radius-sm);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override every component transition */
+      transition-duration: 0ms !important;
+      /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override every component animation */
+      animation-duration: 0ms !important;
+    }
+  }
+}

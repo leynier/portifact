@@ -32,6 +32,9 @@ jobs:
       - run: bun run test
       - run: shellcheck scripts/*.sh
       - run: node scripts/check-release-notes.mjs
+      - name: Validate the app Worker bundle
+        working-directory: apps/app
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/app-worker"
 
   coverage-badge:
     name: coverage-badge

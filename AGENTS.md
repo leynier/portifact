@@ -24,9 +24,9 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 ## Repository layout
 
 ```text
-apps/app        Worker app: API, auth, OAuth server, MCP, cron/queues, dashboard assets
+apps/app        Worker for portifact.com: landing assets and installers today; API, auth, OAuth, MCP and jobs later
 apps/content    Worker content: artifact delivery, session handoffs, bridge, viewers
-apps/web        Dashboard and review viewer (React + Vite)
+apps/web        Landing page today; dashboard and review viewer later (Vite)
 packages/cli    portifact CLI
 packages/contracts   Shared schemas, errors and OpenAPI
 packages/domain      Business rules: quotas, access, lifecycle, annotations
@@ -46,13 +46,15 @@ Use Bun from the repository root as package manager and script runner. Turborepo
 
 ```bash
 bun install
-bun run check          # Biome lint and format check, then typecheck of scripts and packages
+bun run check          # Biome, typecheck, skills validation and the design-system check
 bun run format         # apply Biome formatting and safe fixes
-bun run test           # Vitest with coverage thresholds, through Turborepo
+bun run test           # Vitest with coverage thresholds, through Turborepo (Workers tests run in workerd)
+bun run build          # build apps (the landing in apps/web/dist)
+bun run dev            # local dev servers (Vite for apps/web, wrangler for apps/app)
 bun run build:cli      # compile the CLI for this platform into dist/release (--all for every platform)
 ```
 
-Planned as the code arrives: `bun run dev` (local Workers and dashboard), `bun run test:e2e` (Playwright on Chromium, Firefox and WebKit), `bun run test:mutation` (Stryker on critical packages) and the design-system check inside `bun run check`. Add them here when they exist.
+Planned as the code arrives: `bun run test:e2e` (Playwright on Chromium, Firefox and WebKit) and `bun run test:mutation` (Stryker on critical packages). Add them here when they exist.
 
 A task is not done until `bun run check` and `bun run test` pass. Use `bun run test`, not `bun test`: the latter starts Bun's own test runner instead of Vitest. Run `bun run test:e2e` when the change affects a user flow, a browser behavior or content delivery.
 

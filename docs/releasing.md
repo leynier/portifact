@@ -41,6 +41,12 @@ The `release` workflow (`.github/workflows/release.yml`):
 7. Signs build provenance attestations for the archives through GitHub's OIDC token (Sigstore).
 8. Syncs `develop` with `main`. This runs after every push to `main`, even when there is nothing to release, so `main` is never ahead of `develop`. It fast-forwards `develop` to `main`, leaving both on the same commit; only if `develop` received new commits during the run does it create a merge commit instead.
 
+## Deploying portifact.com
+
+Every push to `main` also runs the `deploy` job after `release`: it builds `apps/web` and deploys the `portifact-app` Worker with `wrangler`, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect. The Worker owns `portifact.com` and `www.portifact.com` as custom domains; `www` redirects to the apex. Pull requests validate the bundle with `wrangler deploy --dry-run`.
+
+The token is an account API token named `portifact-ci-deploy`, limited to Workers, D1, R2 and Queues on the account plus Workers Routes, DNS and Zone read on `portifact.com` and `portifact.dev`. It expires on 2027-11-07; rotate it before then.
+
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.
