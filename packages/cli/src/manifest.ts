@@ -4,9 +4,16 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { type ArtifactType, LIMITS } from "@portifact/contracts";
-import { validateManifestPaths } from "@portifact/domain";
+import {
+  contentTypeFor,
+  DEFAULT_ENTRY,
+  type ExclusionReason,
+  exclusionOf,
+  inferType,
+  validateManifestPaths,
+} from "@portifact/domain";
 import { CliError } from "./errors.ts";
 import { messages } from "./messages.ts";
 
@@ -20,7 +27,8 @@ export interface LocalFile {
   contentType: string;
 }
 
-export type ExclusionReason = "default" | "secret";
+export type { ExclusionReason } from "@portifact/domain";
+export { contentTypeOf, DEFAULT_ENTRY, exclusionOf, inferType } from "@portifact/domain";
 
 export interface LocalManifest {
   type: ArtifactType;
@@ -35,125 +43,6 @@ export interface ManifestOptions {
   type?: ArtifactType | undefined;
   entry?: string | undefined;
 }
-
-/** Version control data, dependencies, caches and OS clutter. `.git` is matched in any case. */
-const DEFAULT_EXCLUDED = new Set([
-  ".git",
-  ".hg",
-  ".svn",
-  "node_modules",
-  ".cache",
-  "__pycache__",
-  ".pytest_cache",
-  ".mypy_cache",
-  ".ruff_cache",
-  ".parcel-cache",
-  ".turbo",
-  ".wrangler",
-  ".eslintcache",
-  ".sass-cache",
-  ".ds_store",
-  "thumbs.db",
-]);
-
-/** Names that hold credentials or keys. Matched in any case. */
-const SECRET_NAMES = new Set([
-  ".env",
-  ".dev.vars",
-  ".npmrc",
-  ".pypirc",
-  ".netrc",
-  ".git-credentials",
-  ".htpasswd",
-  ".ssh",
-  ".aws",
-  ".gnupg",
-  "id_rsa",
-  "id_dsa",
-  "id_ecdsa",
-  "id_ed25519",
-]);
-const SECRET_EXTENSIONS = new Set([
-  ".pem",
-  ".key",
-  ".p12",
-  ".pfx",
-  ".jks",
-  ".keystore",
-  ".kdbx",
-  ".ppk",
-  ".tfstate",
-]);
-/** Example files that document variables without values. */
-const ENV_TEMPLATES = new Set(["example", "sample", "template", "dist"]);
-
-export function exclusionOf(name: string): ExclusionReason | undefined {
-  const lower = name.toLowerCase();
-  if (DEFAULT_EXCLUDED.has(lower)) return "default";
-  if (SECRET_NAMES.has(lower) || SECRET_EXTENSIONS.has(extname(lower))) return "secret";
-  if (lower.endsWith(".tfstate.backup")) return "secret";
-  for (const prefix of [".env.", ".dev.vars."]) {
-    if (lower.startsWith(prefix) && !ENV_TEMPLATES.has(lower.slice(prefix.length))) {
-      return "secret";
-    }
-  }
-  return undefined;
-}
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".htm": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".json": "application/json",
-  ".map": "application/json",
-  ".webmanifest": "application/manifest+json",
-  ".xml": "application/xml",
-  ".txt": "text/plain; charset=utf-8",
-  ".md": "text/markdown; charset=utf-8",
-  ".markdown": "text/markdown; charset=utf-8",
-  ".csv": "text/csv; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".avif": "image/avif",
-  ".ico": "image/x-icon",
-  ".pdf": "application/pdf",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".otf": "font/otf",
-  ".wasm": "application/wasm",
-  ".mp3": "audio/mpeg",
-  ".wav": "audio/wav",
-  ".ogg": "audio/ogg",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-};
-
-export function contentTypeOf(path: string): string {
-  return CONTENT_TYPES[extname(path).toLowerCase()] ?? "application/octet-stream";
-}
-
-const TYPE_BY_EXTENSION: Record<string, ArtifactType> = {
-  ".html": "site",
-  ".htm": "site",
-  ".md": "markdown",
-  ".markdown": "markdown",
-  ".txt": "text",
-};
-
-/** The artifact type a path implies: a folder is a site, a file goes by its extension. */
-export function inferType(path: string, isFolder: boolean): ArtifactType | undefined {
-  return isFolder ? "site" : TYPE_BY_EXTENSION[extname(path).toLowerCase()];
-}
-
-/** The site page served at the root of the artifact. */
-export const DEFAULT_ENTRY = "index.html";
 
 export async function buildManifest(
   input: string,
@@ -222,12 +111,6 @@ export async function buildManifest(
     });
   }
   return { type, entrypoint: entryPath, files, excluded, totalBytes };
-}
-
-function contentTypeFor(type: ArtifactType, path: string): string {
-  if (type === "markdown") return "text/markdown; charset=utf-8";
-  if (type === "text") return "text/plain; charset=utf-8";
-  return contentTypeOf(path);
 }
 
 async function walk(

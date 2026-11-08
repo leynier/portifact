@@ -184,3 +184,31 @@
     display: none;
   }
 }
+
+/*
+ * A native `progress` drawn with tokens in every engine: the track is the border color and the
+ * filled part the text color, so it keeps contrast in both themes.
+ */
+@utility progress-bar {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: var(--pf-space-2);
+  border: 0;
+  border-radius: var(--pf-radius-sm);
+  overflow: hidden;
+  background-color: var(--pf-color-border);
+  color: var(--pf-color-text);
+
+  &::-webkit-progress-bar {
+    background-color: var(--pf-color-border);
+  }
+
+  &::-webkit-progress-value {
+    background-color: var(--pf-color-text);
+  }
+
+  &::-moz-progress-bar {
+    background-color: var(--pf-color-text);
+  }
+}

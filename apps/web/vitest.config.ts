@@ -17,6 +17,7 @@ export default defineConfig({
         "src/pages/**",
         "src/auth/test-page.ts",
         "src/dashboard/main.tsx",
+        "src/dashboard/publish/worker.ts",
         "src/dashboard/test-support.tsx",
       ],
       thresholds: { lines: 85, branches: 80, functions: 85, statements: 85 },

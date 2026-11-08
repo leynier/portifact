@@ -5,6 +5,7 @@
 import { type Db, schema } from "@portifact/db";
 import { type DocumentType, fail, ok, type Result } from "@portifact/domain";
 import {
+  assertSourceSize,
   decodeSource,
   RENDERER_VERSION,
   RenderError,
@@ -164,4 +165,34 @@ export function renderingStatements(db: Db, rows: RenderingRows) {
         }),
     ];
   });
+}
+
+export interface PreviewInput {
+  type: DocumentType;
+  name: string;
+  source: string;
+}
+
+/**
+ * Renders a source the way a commit would, without storing anything, for the dashboard's editor.
+ * Applies the same checks as the commit: at most the document limit in UTF-8 and no NUL
+ * characters (binary data).
+ */
+export function previewDocument(
+  input: PreviewInput,
+): Result<{ html: string; rendererVersion: string }> {
+  try {
+    assertSourceSize(input.source);
+    if (input.source.includes("\u0000")) {
+      throw new RenderError("binary", "Documents must be text, not binary");
+    }
+    const document =
+      input.type === "markdown"
+        ? renderMarkdownDocument(input.source, { title: input.name })
+        : renderTextDocument(input.source, { title: input.name });
+    return ok({ html: document.html, rendererVersion: document.rendererVersion });
+  } catch (error) {
+    if (error instanceof RenderError) return fail(error.code, error.message);
+    throw error;
+  }
 }

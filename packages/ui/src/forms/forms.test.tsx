@@ -8,13 +8,14 @@ afterEach(cleanup);
 
 interface Values {
   email: string;
+  notes: string;
   mode: "a" | "b";
   indexable: boolean;
 }
 
 function Example({ onSubmit }: { onSubmit(values: Values): Promise<void> | void }) {
   const form = useAppForm({
-    defaultValues: { email: "", mode: "a", indexable: false } as Values,
+    defaultValues: { email: "", notes: "", mode: "a", indexable: false } as Values,
     validationLogic: revalidateLogic(),
     validators: {
       onDynamic: ({ value }) =>
@@ -28,6 +29,9 @@ function Example({ onSubmit }: { onSubmit(values: Values): Promise<void> | void 
     <form.AppForm>
       <form.Form label="Example">
         <form.AppField name="email">{(field) => <field.TextField label="Email" />}</form.AppField>
+        <form.AppField name="notes">
+          {(field) => <field.TextAreaField label="Notes" />}
+        </form.AppField>
         <form.AppField name="mode">
           {(field) => (
             <field.RadioGroupField
@@ -56,12 +60,16 @@ describe("form hook", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Email" }), {
       target: { value: "ana@example.com" },
     });
+    fireEvent.change(screen.getByRole("textbox", { name: "Notes" }), {
+      target: { value: "line 1\nline 2" },
+    });
     fireEvent.click(screen.getByRole("radio", { name: "B" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Indexable" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith({
         email: "ana@example.com",
+        notes: "line 1\nline 2",
         mode: "b",
         indexable: true,
       }),

@@ -6,14 +6,25 @@ import {
   type ArtifactSummary,
   type BrowserSession,
   type ConnectedApp,
+  DocumentPreviewRequest,
   type ErrorCode,
   LIMITS,
+  type ManifestFile,
+  type PreparedPublish,
+  PublishRequest,
+  RollbackRequest,
+  type UploadTarget,
+  type VersionSummary,
 } from "@portifact/contracts";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
 import { createI18n } from "./i18n/i18n.ts";
+import { inProcessBuilder } from "./publish/builder.ts";
+import type { SavedFile } from "./publish/download.ts";
+import { sha256OfBlob } from "./publish/hash.ts";
+import type { StorageTransport } from "./publish/upload.ts";
 import { createQueryClient } from "./query-client.ts";
 import { createDashboardRouter } from "./router.tsx";
 
@@ -73,8 +84,121 @@ export function browserSession(overrides: Partial<BrowserSession> = {}): Browser
   };
 }
 
+/** A committed version as the fake API keeps it. */
+export interface FakeVersion {
+  id: string;
+  number: number;
+  committedAt: string;
+  expiresAt: string | null;
+  entrypoint: string;
+  files: ManifestFile[];
+}
+
+interface FakeUpload {
+  id: string;
+  key: string;
+  artifactId: string;
+  versionId: string;
+  versionNumber: number;
+  request: PublishRequest;
+  /** The response prepare gave, replayed for the same idempotency key. */
+  state: "open" | "committed" | "aborted";
+}
+
+type StorageFault = { status: number } | { network: true } | { corrupt: true };
+
+/**
+ * Presigned storage as the dashboard sees it: uploads must send the signed size and checksum
+ * and bytes that match them, and downloads serve the stored bytes. Faults answer, drop or
+ * corrupt the next transfers.
+ */
+export interface FakeStorage extends StorageTransport {
+  /** Verified objects by SHA-256. */
+  objects: Map<string, Blob>;
+  puts: { url: string; headers: Record<string, string>; size: number }[];
+  gets: string[];
+  fail(fault: StorageFault, times?: number): void;
+  /** Holds the next upload until the returned function is called or the upload is aborted. */
+  hold(): () => void;
+}
+
+function base64OfHex(hex: string): string {
+  let binary = "";
+  for (let i = 0; i < hex.length; i += 2)
+    binary += String.fromCharCode(Number.parseInt(hex.slice(i, i + 2), 16));
+  return btoa(binary);
+}
+
+function fakeStorage(): FakeStorage {
+  const faults: { fault: StorageFault; times: number }[] = [];
+  const nextFault = () => {
+    const found = faults.find((f) => f.times > 0);
+    if (found) found.times -= 1;
+    return found?.fault;
+  };
+  let held: Promise<void> | undefined;
+  const storage: FakeStorage = {
+    objects: new Map(),
+    puts: [],
+    gets: [],
+    fail(fault, times = 1) {
+      faults.push({ fault, times });
+    },
+    hold() {
+      let release = () => {};
+      held = new Promise((resolve) => {
+        release = resolve;
+      });
+      return release;
+    },
+    async put(target, body, onProgress, signal) {
+      if (held) {
+        const waiting = held;
+        held = undefined;
+        await new Promise<void>((resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+          void waiting.then(resolve);
+        });
+      }
+      if (signal.aborted) throw new DOMException("Aborted", "AbortError");
+      storage.puts.push({ url: target.url, headers: target.headers, size: body.size });
+      const fault = nextFault();
+      if (fault && "network" in fault) return 0;
+      if (fault && "status" in fault) return fault.status;
+      onProgress(Math.floor(body.size / 2));
+      const signedSize = Number(target.headers["content-length"]);
+      const checksum = target.headers["x-amz-checksum-sha256"];
+      if (signedSize !== body.size || checksum !== base64OfHex(await sha256OfBlob(body))) {
+        return 400;
+      }
+      if (Date.parse(target.expiresAt) <= Date.now()) return 403;
+      onProgress(body.size);
+      storage.objects.set(target.sha256, body);
+      return 200;
+    },
+    async get(url) {
+      storage.gets.push(url);
+      const fault = nextFault();
+      if (fault && ("network" in fault || "status" in fault))
+        throw new TypeError("Failed to fetch");
+      const sha = /\/download\/([0-9a-f]{64})/.exec(url)?.[1] ?? "";
+      const blob = storage.objects.get(sha);
+      if (!blob) throw new TypeError("missing object");
+      if (fault && "corrupt" in fault) return new Blob(["corrupted"]);
+      return blob;
+    },
+  };
+  return storage;
+}
+
 export interface FakeServer {
   artifacts: ArtifactSummary[];
+  /** Committed versions by artifact ID, newest first. */
+  versions: Record<string, FakeVersion[]>;
+  uploads: FakeUpload[];
+  storage: FakeStorage;
+  /** How long upload URLs the fake API issues stay valid. */
+  uploadUrlTtlMs: number;
   email: string | null;
   /** When the account was created; null leaves it out of the session. */
   createdAt: string | null;
@@ -99,6 +223,10 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const failures: { key: string; failure: Failure; times: number }[] = [];
   const server: FakeServer = {
     artifacts,
+    versions: {},
+    uploads: [],
+    storage: fakeStorage(),
+    uploadUrlTtlMs: 15 * 60 * 1000,
     email: "ada@example.test",
     createdAt: "2026-09-01T12:00:00.000Z",
     access: {},
@@ -129,13 +257,310 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
           { status: failure.failure.status },
         );
       }
-      return route(server, method, url);
+      return route(server, method, url, new Headers(init.headers));
     },
   };
   return server;
 }
 
-function route(server: FakeServer, method: string, url: URL): Response {
+function json(body: unknown, status = 200): Response {
+  return Response.json(body, { status });
+}
+
+function apiError(code: ErrorCode, status: number): Response {
+  return json({ error: { code, message: "x" } }, status);
+}
+
+const ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+let idCounter = 0;
+
+function newArtifactId(): string {
+  idCounter += 1;
+  let n = idCounter;
+  let id = "";
+  for (let i = 0; i < 10; i++) {
+    id = (ID_ALPHABET[n % 32] as string) + id;
+    n = Math.floor(n / 32);
+  }
+  return id;
+}
+
+/** Adds a committed version, with its bytes stored, as if published earlier. */
+export async function seedVersion(
+  server: FakeServer,
+  artifactId: string,
+  files: { path: string; text: string; kind?: "published" | "source"; contentType?: string }[],
+  overrides: Partial<FakeVersion> = {},
+): Promise<FakeVersion> {
+  const manifest: ManifestFile[] = [];
+  for (const file of files) {
+    const blob = new Blob([file.text]);
+    const sha256 = await sha256OfBlob(blob);
+    server.storage.objects.set(sha256, blob);
+    manifest.push({
+      path: file.path,
+      kind: file.kind ?? "published",
+      sha256,
+      size: blob.size,
+      contentType: file.contentType ?? "text/html; charset=utf-8",
+    });
+  }
+  const existing = server.versions[artifactId] ?? [];
+  const number = (existing[0]?.number ?? 0) + 1;
+  const version: FakeVersion = {
+    id: `ver${artifactId}${number}`,
+    number,
+    committedAt: NOW,
+    expiresAt: null,
+    entrypoint: manifest.find((f) => f.kind === "published")?.path ?? "index.html",
+    files: manifest,
+    ...overrides,
+  };
+  for (const old of existing) old.expiresAt ??= "2026-11-15T12:00:00.000Z";
+  server.versions[artifactId] = [version, ...existing];
+  const artifact = server.artifacts.find((a) => a.id === artifactId);
+  if (artifact) artifact.currentVersionId = version.id;
+  return version;
+}
+
+function summaryOf(version: FakeVersion, currentId: string | null): VersionSummary {
+  const of = (kind: "published" | "source") => version.files.filter((f) => f.kind === kind);
+  const bytes = (files: ManifestFile[]) => files.reduce((sum, f) => sum + f.size, 0);
+  return {
+    id: version.id,
+    number: version.number,
+    current: version.id === currentId,
+    entrypoint: version.entrypoint,
+    publishedBytes: bytes(of("published")),
+    sourceBytes: bytes(of("source")),
+    publishedFiles: of("published").length,
+    sourceFiles: of("source").length,
+    rendererVersion: null,
+    committedAt: version.committedAt,
+    expiresAt: version.id === currentId ? null : version.expiresAt,
+  };
+}
+
+function preparedOf(server: FakeServer, upload: FakeUpload): PreparedPublish {
+  const pending = new Map<string, ManifestFile>();
+  for (const file of upload.request.files) {
+    if (!server.storage.objects.has(file.sha256)) pending.set(file.sha256, file);
+  }
+  const expiresAt = new Date(Date.now() + server.uploadUrlTtlMs).toISOString();
+  const uploads: UploadTarget[] = [...pending.values()].map((file, index) => ({
+    sha256: file.sha256,
+    size: file.size,
+    method: "PUT",
+    url: `https://storage.test/objects/${file.sha256}?sig=${server.requests.length}-${index}`,
+    headers: {
+      "content-length": String(file.size),
+      host: "storage.test",
+      "x-amz-checksum-sha256": base64OfHex(file.sha256),
+    },
+    expiresAt,
+  }));
+  return {
+    artifactId: upload.artifactId,
+    versionId: upload.versionId,
+    versionNumber: upload.versionNumber,
+    uploadId: upload.id,
+    expiresAt: new Date(Date.now() + 24 * 3_600_000).toISOString(),
+    uploads,
+  };
+}
+
+/** The publishing, version and preview routes of /api/v1, as the Worker answers them. */
+function publishingRoute(
+  server: FakeServer,
+  method: string,
+  url: URL,
+  headers: Headers,
+): Response | undefined {
+  const path = url.pathname;
+  const body = server.bodies.at(-1);
+  if (path === "/api/v1/publishes" && method === "POST") {
+    const key = headers.get("idempotency-key") ?? "";
+    if (key.length < 8) return apiError("invalid_input", 400);
+    const replay = server.uploads.find((u) => u.key === key);
+    if (replay) return json(preparedOf(server, replay), 201);
+    const parsed = PublishRequest.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    const request = parsed.data;
+    let artifact = request.artifactId
+      ? server.artifacts.find((a) => a.id === request.artifactId)
+      : undefined;
+    if (request.artifactId && !artifact) return apiError("not_found", 404);
+    if (artifact && artifact.currentVersionId !== request.baseVersionId) {
+      return apiError("version_conflict", 409);
+    }
+    if (!artifact) {
+      artifact = {
+        id: newArtifactId(),
+        name: request.name,
+        type: request.type,
+        state: "draft",
+        accessMode: "restricted",
+        annotations: "off",
+        currentVersionId: null,
+        url: "",
+        expiresAt: null,
+        archivedAt: null,
+        purgeAt: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+      artifact.url = `https://${artifact.id}.portifact.dev/`;
+      server.artifacts.push(artifact);
+    }
+    const number = (server.versions[artifact.id]?.[0]?.number ?? 0) + 1;
+    const upload: FakeUpload = {
+      id: `up${server.uploads.length + 1}`,
+      key,
+      artifactId: artifact.id,
+      versionId: `ver${artifact.id}${number}`,
+      versionNumber: number,
+      request,
+      state: "open",
+    };
+    server.uploads.push(upload);
+    return json(preparedOf(server, upload), 201);
+  }
+  const publish = /^\/api\/v1\/publishes\/([^/]+)(\/commit)?$/.exec(path);
+  if (publish) {
+    const upload = server.uploads.find((u) => u.id === publish[1]);
+    if (!upload) return apiError("not_found", 404);
+    if (method === "GET" && !publish[2]) {
+      return upload.state === "open"
+        ? json(preparedOf(server, upload))
+        : apiError("not_found", 404);
+    }
+    if (method === "DELETE" && !publish[2]) {
+      upload.state = "aborted";
+      return new Response(null, { status: 204 });
+    }
+    if (method === "POST" && publish[2]) {
+      if (upload.state !== "open") return apiError("not_found", 404);
+      if (preparedOf(server, upload).uploads.length > 0) return apiError("upload_incomplete", 409);
+      const artifact = server.artifacts.find((a) => a.id === upload.artifactId) as ArtifactSummary;
+      if (artifact.currentVersionId !== (upload.request.baseVersionId ?? null)) {
+        return apiError("version_conflict", 409);
+      }
+      upload.state = "committed";
+      const version: FakeVersion = {
+        id: upload.versionId,
+        number: upload.versionNumber,
+        committedAt: NOW,
+        expiresAt: null,
+        entrypoint: upload.request.entrypoint,
+        files: upload.request.files,
+      };
+      for (const old of server.versions[artifact.id] ?? [])
+        old.expiresAt ??= "2026-11-15T12:00:00.000Z";
+      server.versions[artifact.id] = [version, ...(server.versions[artifact.id] ?? [])];
+      Object.assign(artifact, {
+        currentVersionId: version.id,
+        state: "active",
+        expiresAt: "2026-12-08T12:00:00.000Z",
+      });
+      return json({
+        artifactId: artifact.id,
+        versionId: version.id,
+        versionNumber: version.number,
+        url: artifact.url,
+        expiresAt: "2026-12-08T12:00:00.000Z",
+      });
+    }
+  }
+  if (path === "/api/v1/documents/preview" && method === "POST") {
+    const parsed = DocumentPreviewRequest.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    const escaped = parsed.data.source.replace(/[&<>]/g, (c) => `&#${c.charCodeAt(0)};`);
+    return json({
+      html: `<!doctype html><title>${parsed.data.name}</title><main>${escaped}</main>`,
+      rendererVersion: "1",
+    });
+  }
+  const versions =
+    /^\/api\/v1\/artifacts\/([^/]+)\/(versions|rollback)(?:\/([^/]+))?(\/download)?$/.exec(path);
+  if (!versions) return undefined;
+  const artifact = server.artifacts.find((a) => a.id === versions[1]);
+  if (!artifact) return apiError("not_found", 404);
+  const list = server.versions[artifact.id] ?? [];
+  if (versions[2] === "rollback" && method === "POST") {
+    const parsed = RollbackRequest.safeParse(body);
+    if (!parsed.success || !headers.get("idempotency-key")) return apiError("invalid_input", 400);
+    if (artifact.state !== "active") return apiError("artifact_archived", 409);
+    if (parsed.data.baseVersionId !== artifact.currentVersionId) {
+      return apiError("version_conflict", 409);
+    }
+    const from = list.find((v) => v.id === parsed.data.versionId);
+    if (!from) return apiError("not_found", 404);
+    const number = (list[0]?.number ?? 0) + 1;
+    const version: FakeVersion = {
+      ...from,
+      id: `ver${artifact.id}${number}`,
+      number,
+      expiresAt: null,
+    };
+    for (const old of list) old.expiresAt ??= "2026-11-15T12:00:00.000Z";
+    server.versions[artifact.id] = [version, ...list];
+    artifact.currentVersionId = version.id;
+    return json({
+      artifactId: artifact.id,
+      versionId: version.id,
+      versionNumber: number,
+      url: artifact.url,
+      expiresAt: "2026-12-08T12:00:00.000Z",
+      fromVersionId: from.id,
+      fromVersionNumber: from.number,
+    });
+  }
+  if (versions[2] !== "versions" || method !== "GET") return apiError("not_found", 404);
+  if (!versions[3]) {
+    const start = Number(url.searchParams.get("cursor") ?? 0);
+    const items = list.slice(start, start + server.pageSize);
+    const next = start + server.pageSize;
+    return json({
+      artifactId: artifact.id,
+      items: items.map((v) => summaryOf(v, artifact.currentVersionId)),
+      nextCursor: next < list.length ? String(next) : null,
+    });
+  }
+  const ref = versions[3] === "current" ? artifact.currentVersionId : versions[3];
+  const version = list.find((v) => v.id === ref);
+  if (!version) return apiError("not_found", 404);
+  if (!versions[4]) {
+    return json({
+      ...summaryOf(version, artifact.currentVersionId),
+      artifactId: artifact.id,
+      files: version.files,
+    });
+  }
+  const kind = url.searchParams.get("kind") ?? "published";
+  const only = url.searchParams.get("path");
+  const files = version.files.filter((f) => f.kind === kind && (!only || f.path === only));
+  if (files.length === 0) return apiError("not_found", 404);
+  return json({
+    artifactId: artifact.id,
+    versionId: version.id,
+    versionNumber: version.number,
+    kind,
+    entrypoint: version.entrypoint,
+    files: files.map((f) => ({
+      path: f.path,
+      sha256: f.sha256,
+      size: f.size,
+      contentType: f.contentType,
+      method: "GET",
+      url: `https://storage.test/download/${f.sha256}?sig=1`,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    })),
+  });
+}
+
+function route(server: FakeServer, method: string, url: URL, headers: Headers): Response {
+  const publishing = publishingRoute(server, method, url, headers);
+  if (publishing) return publishing;
   const path = url.pathname;
   if (path === "/api/auth/get-session") {
     return Response.json(
@@ -246,6 +671,7 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
 
 export function renderDashboard(path: string, server: FakeServer) {
   const left: string[] = [];
+  const saved: SavedFile[] = [];
   const leave = (url: string) => {
     left.push(url);
   };
@@ -259,11 +685,16 @@ export function renderDashboard(path: string, server: FakeServer) {
           onUnauthenticated: () => leave("unauthenticated"),
         }),
         leave,
+        manifests: inProcessBuilder,
+        storage: server.storage,
+        save: (file) => {
+          saved.push(file);
+        },
       }}
       i18n={createI18n()}
       queryClient={queryClient}
       router={router}
     />,
   );
-  return { ...view, left, router, queryClient };
+  return { ...view, left, saved, router, queryClient };
 }

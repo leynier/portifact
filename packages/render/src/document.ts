@@ -26,6 +26,13 @@ function escapeAttribute(text: string): string {
   return text.replace(/[&<>"']/g, (char) => ATTRIBUTE_ESCAPES[char] ?? char);
 }
 
+/**
+ * The text of the page's only `<style>` element. It is the same for every document, so a page
+ * that frames a rendering through `srcdoc`, and so inherits its own policy, can allow exactly
+ * this stylesheet by its hash.
+ */
+export const DOCUMENT_STYLESHEET = `\n${TOKENS_CSS}\n${DOCUMENT_CSS}\n`;
+
 interface Shell extends DocumentOptions {
   kind: "markdown" | "text";
   body: string;
@@ -45,7 +52,7 @@ function shell({ title, lang = "en", kind, body, remoteImages }: Shell): string 
     '<meta name="color-scheme" content="light dark">',
     `<meta name="generator" content="portifact-render ${RENDERER_VERSION}">`,
     `<title>${escapeAttribute(title)}</title>`,
-    `<style>\n${TOKENS_CSS}\n${DOCUMENT_CSS}\n</style>`,
+    `<style>${DOCUMENT_STYLESHEET}</style>`,
     "</head>",
     "<body>",
     `<main class="${kind === "markdown" ? "pf-document pf-markdown" : "pf-document"}">`,

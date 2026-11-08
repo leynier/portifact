@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { LIMITS } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CliError } from "./errors.ts";
-import { buildManifest, contentTypeOf, exclusionOf, hashFile, inferType } from "./manifest.ts";
+import { buildManifest, hashFile } from "./manifest.ts";
 import { sha256Of } from "./testing/fake-api.ts";
 
 let dir: string;
@@ -25,77 +25,6 @@ async function failure(promise: Promise<unknown>): Promise<CliError> {
   expect(error).toBeInstanceOf(CliError);
   return error as CliError;
 }
-
-describe("exclusionOf", () => {
-  it("leaves out version control, dependencies, caches and OS clutter in any case", () => {
-    for (const name of [
-      ".git",
-      ".GIT",
-      ".Git",
-      "node_modules",
-      "__pycache__",
-      ".turbo",
-      ".DS_Store",
-    ]) {
-      expect(exclusionOf(name)).toBe("default");
-    }
-  });
-
-  it("flags files that may hold secrets", () => {
-    for (const name of [
-      ".env",
-      ".env.local",
-      ".ENV.production",
-      ".dev.vars",
-      ".npmrc",
-      ".netrc",
-      "id_rsa",
-      "id_ed25519",
-      "server.pem",
-      "tls.KEY",
-      "cert.p12",
-      "terraform.tfstate",
-      "terraform.tfstate.backup",
-      ".ssh",
-      ".aws",
-    ]) {
-      expect(exclusionOf(name)).toBe("secret");
-    }
-  });
-
-  it("keeps ordinary files and documented environment templates", () => {
-    for (const name of [
-      "index.html",
-      ".env.example",
-      ".env.sample",
-      ".env.template",
-      "id_rsa.pub",
-      "keys.json",
-      ".well-known",
-      "environment.md",
-    ]) {
-      expect(exclusionOf(name)).toBeUndefined();
-    }
-  });
-});
-
-describe("contentTypeOf and inferType", () => {
-  it("maps known extensions in any case and falls back to octet-stream", () => {
-    expect(contentTypeOf("a/INDEX.HTML")).toBe("text/html; charset=utf-8");
-    expect(contentTypeOf("app.mjs")).toBe("text/javascript; charset=utf-8");
-    expect(contentTypeOf("font.woff2")).toBe("font/woff2");
-    expect(contentTypeOf("Makefile")).toBe("application/octet-stream");
-    expect(contentTypeOf("data.bin")).toBe("application/octet-stream");
-  });
-
-  it("treats folders as sites and files by extension", () => {
-    expect(inferType("/x/dist", true)).toBe("site");
-    expect(inferType("/x/page.htm", false)).toBe("site");
-    expect(inferType("/x/plan.markdown", false)).toBe("markdown");
-    expect(inferType("/x/notes.txt", false)).toBe("text");
-    expect(inferType("/x/data.csv", false)).toBeUndefined();
-  });
-});
 
 describe("hashFile", () => {
   it("hashes the bytes on disk and counts them", async () => {
