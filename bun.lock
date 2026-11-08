@@ -26,6 +26,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/render": "workspace:*",
         "@portifact/services": "workspace:*",
         "aws4fetch": "^1.0.20",
         "better-auth": "1.7.17",
@@ -85,10 +86,13 @@
         "@lingui/core": "^6.0.0",
         "@lingui/message-utils": "^6.0.0",
         "@lingui/react": "^6.0.0",
+        "@noble/hashes": "^2.4.0",
         "@portifact/contracts": "workspace:*",
+        "@portifact/domain": "workspace:*",
         "@portifact/ui": "workspace:*",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.130.0",
+        "fflate": "^0.8.2",
         "lucide-react": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",
@@ -1022,6 +1026,8 @@
     "fast-check": ["fast-check@4.10.2", "", { "dependencies": { "pure-rand": "^8.0.0" } }, "sha512-iK2f+YrcmoeGqk6fA0ea2bptcu/itMIm4NfEozq6N25+aG6h7s5HZbB/k1aV7b5w5sFLMCbbtRUsTVR+BgC3xw=="],
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
+
+    "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
 
     "figures": ["figures@6.1.0", "", { "dependencies": { "is-unicode-supported": "^2.0.0" } }, "sha512-d+l3qxjSesT4V7v2fh+QnmFnUWv9lSpjarhShNTgBOfA0ttejbQUAlHLitbjkoRiDulW0OPoQPYIGhIC8ohejg=="],
 

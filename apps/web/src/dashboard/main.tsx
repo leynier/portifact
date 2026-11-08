@@ -5,6 +5,9 @@ import { loginUrl } from "../auth/query.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
 import { createI18n } from "./i18n/i18n.ts";
+import { workerBuilder } from "./publish/builder.ts";
+import { saveFile } from "./publish/save.ts";
+import { xhrTransport } from "./publish/transport.ts";
 import { createQueryClient } from "./query-client.ts";
 import { createDashboardRouter } from "./router.tsx";
 
@@ -16,6 +19,9 @@ const env = {
       leave(loginUrl(`${window.location.pathname}${window.location.search}`)),
   }),
   leave,
+  manifests: workerBuilder(),
+  storage: xhrTransport,
+  save: saveFile,
 };
 
 const root = document.getElementById("root");

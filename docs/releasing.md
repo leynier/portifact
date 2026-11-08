@@ -61,6 +61,28 @@ Secrets are set once on the `portifact-app` Worker and survive deploys:
 
 Set or rotate one by piping it to `wrangler secret put <NAME> --name portifact-app` from `apps/app`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment, so the value never appears in the shell history or the output. The Google client must allow the redirect URI `https://app.portifact.com/api/auth/callback/google` and the GitHub app the callback URL `https://app.portifact.com/api/auth/callback/github`.
 
+### Storage CORS for the dashboard
+
+The dashboard uploads to and downloads from the `portifact-artifacts` bucket's S3 endpoint directly from the browser, so the bucket needs a CORS rule. The maintainer applies it once in the Cloudflare dashboard (R2, `portifact-artifacts`, Settings, CORS policy) or with `npx wrangler r2 bucket cors set portifact-artifacts --file cors.json`; it survives deploys. Without it, browser uploads and downloads fail with a network error while the CLI keeps working.
+
+```json
+{
+  "rules": [
+    {
+      "allowed": {
+        "origins": ["https://app.portifact.com"],
+        "methods": ["PUT", "GET"],
+        "headers": ["x-amz-checksum-sha256", "content-type"]
+      },
+      "exposeHeaders": ["ETag"],
+      "maxAgeSeconds": 3600
+    }
+  ]
+}
+```
+
+Only the app origin is allowed: never add `*.portifact.dev` or `*`. The URLs are still presigned, so CORS only decides which page may read the answers. `host` and `content-length` are signed too, but the browser sets them and they are not CORS request headers. For local development against a real bucket, add `http://localhost:8787` in a separate rule and remove it afterwards. The dashboard's `connect-src` already allows `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` (`dashboardCsp` in `apps/app/src/app-host.ts`).
+
 ### Content Worker configuration
 
 `apps/content/wrangler.jsonc` holds `CONTENT_DOMAIN` and `APP_ORIGIN` as `vars`. One secret is set once on the `portifact-content` Worker and survives deploys:

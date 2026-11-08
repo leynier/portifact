@@ -3,6 +3,7 @@ export * from "./account.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";
+export { type PreviewInput, previewDocument } from "./documents.ts";
 export * from "./idempotency.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";

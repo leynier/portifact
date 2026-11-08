@@ -1,5 +1,6 @@
 // Markdown and plain-text rendering for artifact viewers. Pure: no I/O, deterministic output.
 export {
+  DOCUMENT_STYLESHEET,
   type DocumentOptions,
   type RenderedDocument,
   renderMarkdownDocument,

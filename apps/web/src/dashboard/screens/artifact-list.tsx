@@ -1,5 +1,6 @@
 import {
   Button,
+  buttonClasses,
   Callout,
   EmptyState,
   LoadingState,
@@ -13,7 +14,7 @@ import {
 } from "@portifact/ui";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CircleAlert, Inbox, RefreshCw } from "lucide-react";
+import { CircleAlert, Inbox, RefreshCw, Upload } from "lucide-react";
 import { ApiFailure } from "../api.ts";
 import { useDashboard, useFormatDate, useT } from "../context.tsx";
 import { StateBadge } from "../presentation.tsx";
@@ -36,7 +37,18 @@ export function ArtifactListScreen() {
     ...refreshOptions,
   });
 
-  const header = <PageHeader title={t("list.title")} description={t("list.description")} />;
+  const header = (
+    <PageHeader
+      title={t("list.title")}
+      description={t("list.description")}
+      actions={
+        <Link to="/publish" className={buttonClasses({ intent: "primary" })}>
+          <Upload aria-hidden="true" className="size-4" />
+          {t("list.publish")}
+        </Link>
+      }
+    />
+  );
 
   if (list.isPending) {
     return (

@@ -9,7 +9,10 @@ import {
 import { AccountScreen } from "./screens/account.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen } from "./screens/artifact-list.tsx";
+import { DocumentEditorScreen } from "./screens/document-editor.tsx";
+import { HistoryScreen } from "./screens/history.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
+import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
 import { Shell } from "./screens/shell.tsx";
 
 export function createDashboardRouter(history?: RouterHistory) {
@@ -24,13 +27,41 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/artifacts/$artifactId",
     component: ArtifactDetailScreen,
   });
+  const publish = createRoute({
+    getParentRoute: () => root,
+    path: "/publish",
+    component: PublishScreen,
+  });
+  const publishVersion = createRoute({
+    getParentRoute: () => root,
+    path: "/artifacts/$artifactId/publish",
+    component: PublishVersionScreen,
+  });
+  const edit = createRoute({
+    getParentRoute: () => root,
+    path: "/artifacts/$artifactId/edit",
+    component: DocumentEditorScreen,
+  });
+  const versionHistory = createRoute({
+    getParentRoute: () => root,
+    path: "/artifacts/$artifactId/history",
+    component: HistoryScreen,
+  });
   const account = createRoute({
     getParentRoute: () => root,
     path: "/account",
     component: AccountScreen,
   });
   return createRouter({
-    routeTree: root.addChildren([list, detail, account]),
+    routeTree: root.addChildren([
+      list,
+      publish,
+      detail,
+      publishVersion,
+      edit,
+      versionHistory,
+      account,
+    ]),
     ...(history ? { history } : {}),
     scrollRestoration: true,
   });

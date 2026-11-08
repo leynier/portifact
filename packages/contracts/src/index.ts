@@ -5,6 +5,7 @@ export * from "./anchors.ts";
 export * from "./annotation-tools.ts";
 export * from "./annotations.ts";
 export * from "./core.ts";
+export * from "./documents.ts";
 export * from "./legal.ts";
 export * from "./limits.ts";
 export * from "./mcp.ts";

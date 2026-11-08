@@ -39,6 +39,7 @@ import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { annotationRoutes } from "./annotations.ts";
+import { documentRoutes } from "./documents.ts";
 import {
   type ApiContext,
   error,
@@ -255,6 +256,7 @@ export function apiRoutes(deps: ApiDeps) {
 
   api.route("/", annotationRoutes(guarded, deps.now));
   versionRoutes(api, guarded, deps);
+  documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);
 
   return api;

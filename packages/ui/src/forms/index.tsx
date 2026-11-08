@@ -16,6 +16,8 @@ import {
   type CheckboxProps,
   RadioGroup as RadioGroupControl,
   type RadioGroupProps,
+  TextArea,
+  type TextAreaProps,
   TextInput,
   type TextInputProps,
 } from "../components/fields.tsx";
@@ -42,6 +44,20 @@ function TextField(props: Bound<TextInputProps>) {
   const field = useFieldContext<string>();
   return (
     <TextInput
+      {...props}
+      name={field.name}
+      value={field.state.value}
+      onChange={(event) => field.handleChange(event.target.value)}
+      onBlur={field.handleBlur}
+      error={firstError(field.state.meta.errors)}
+    />
+  );
+}
+
+function TextAreaField(props: Bound<TextAreaProps>) {
+  const field = useFieldContext<string>();
+  return (
+    <TextArea
       {...props}
       name={field.name}
       value={field.state.value}
@@ -148,6 +164,6 @@ function SubmitButton({
 export const { useAppForm, withForm } = createFormHook({
   fieldContext,
   formContext,
-  fieldComponents: { TextField, CheckboxField, RadioGroupField },
+  fieldComponents: { TextField, TextAreaField, CheckboxField, RadioGroupField },
   formComponents: { Form, SubmitButton },
 });

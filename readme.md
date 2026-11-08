@@ -104,6 +104,7 @@ portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback
 | Review mode: annotate in the browser                    | In development |
 | Web dashboard: artifact list, renew, archive, restore   | Available      |
 | Web dashboard: access settings and account              | Next release   |
+| Web dashboard: publish, edit documents, version history | Next release   |
 
 ## Documentation
 
