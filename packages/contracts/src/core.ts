@@ -46,6 +46,7 @@ export const ErrorCode = z.enum([
   "capacity_unavailable",
   "rate_limited",
   "reauthentication_required",
+  "human_verification_required",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 

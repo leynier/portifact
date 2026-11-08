@@ -66,7 +66,7 @@ describe("portifact.com", () => {
       expect(response.headers.get("strict-transport-security"), path).toContain("max-age=");
       const html = await response.text();
       expect(html, path).toContain(`>${title}</h1>`);
-      expect(html, path).toContain("Draft pending legal review");
+      expect(html, path).not.toContain("Draft pending legal review");
       expect(html, path).toContain(`<time datetime="${TERMS_VERSION}">`);
       // Everything the page loads is on its own origin, as the policy requires.
       for (const [, url] of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {

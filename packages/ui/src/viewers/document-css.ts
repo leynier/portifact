@@ -215,5 +215,17 @@ const TEXT_CSS = `
 }
 `;
 
+/** Viewer chrome Portifact draws around a document: the report link under it. */
+const CHROME_CSS = `
+.pf-chrome {
+  max-width: var(--pf-measure);
+  margin: 0 auto;
+  padding: var(--pf-space-4) var(--pf-space-4) var(--pf-space-8);
+  border-top: var(--pf-border-width) solid var(--pf-color-border);
+  font-size: var(--pf-text-sm);
+  color: var(--pf-color-text-muted);
+}
+`;
+
 /** Every rule the Markdown and TXT document viewers need, without the token declarations. */
-export const DOCUMENT_CSS = `${BASE_CSS}${MARKDOWN_CSS}${TEXT_CSS}`.trim();
+export const DOCUMENT_CSS = `${BASE_CSS}${MARKDOWN_CSS}${TEXT_CSS}${CHROME_CSS}`.trim();

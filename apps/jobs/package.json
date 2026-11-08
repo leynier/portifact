@@ -2,7 +2,7 @@
   "name": "@portifact/jobs",
   "version": "0.0.0",
   "private": true,
-  "description": "Scheduled maintenance Worker (archive, expire uploads, prune, purge, account deletions) and the operator tool.",
+  "description": "Scheduled maintenance Worker (archive, expire uploads, prune, purge, account deletions, budget protection) and the operator tool.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -13,11 +13,12 @@
   "dependencies": {
     "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
+    "@portifact/domain": "workspace:*",
     "@portifact/services": "workspace:*",
     "drizzle-orm": "^0.45.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/vitest-plugin": "^1.6.0",
     "@cloudflare/workers-types": "^5.0.0",
     "@types/bun": "^1.0.0",
     "@vitest/coverage-istanbul": "catalog:",

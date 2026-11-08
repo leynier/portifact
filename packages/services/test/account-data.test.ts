@@ -13,6 +13,7 @@ import {
   createAnnotationThread,
   deleteOwnAnnotationMessage,
   eraseAuthorFromThread,
+  type HumanCheck,
   replyToAnnotationThread,
   setAnnotationMode,
 } from "../src/annotations.ts";
@@ -52,6 +53,9 @@ async function shared(ownerId: string, readers: { email: string }[]) {
   return published;
 }
 
+/** A solved human check, so visitors' first comments go through. */
+const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
+
 let clock = NOW;
 /** Distinct times keep message order and the per-minute rate limits apart. */
 const tick = () => {
@@ -61,6 +65,7 @@ const tick = () => {
 
 async function thread(artifactId: string, versionId: string, userId: string, body: string) {
   const result = await createAnnotationThread(db(), {
+    humanCheck: HUMAN,
     userId,
     artifactId,
     versionId,
@@ -74,6 +79,7 @@ async function thread(artifactId: string, versionId: string, userId: string, bod
 
 async function reply(artifactId: string, threadId: string, userId: string, body: string) {
   const result = await replyToAnnotationThread(db(), {
+    humanCheck: HUMAN,
     userId,
     artifactId,
     threadId,
@@ -324,6 +330,12 @@ describe("finishing the deletion", () => {
       now: NOW,
     });
 
+    await db()
+      .insert(schema.trafficCounters)
+      .values([
+        { ownerId: owner.id, cycleStart: 0, requests: 3, bytes: 30, updatedAt: NOW },
+        { ownerId: "u_bystander", cycleStart: 0, requests: 1, bytes: 1, updatedAt: NOW },
+      ]);
     // Without the purge, the account cannot finish.
     await processAccountDeletions(db(), env.ARTIFACTS, NOW + 1, 100);
     expect(await deletion(owner.id)).toBeDefined();
@@ -338,9 +350,11 @@ describe("finishing the deletion", () => {
     expect(await deletion(owner.id)).toBeUndefined();
     const keys = (await env.ARTIFACTS.list({ prefix: `objects/${owner.id}/` })).objects;
     expect(keys).toEqual([]);
-    for (const table of [schema.objects, schema.accountUsage]) {
+    for (const table of [schema.objects, schema.accountUsage, schema.trafficCounters]) {
       expect(await db().select().from(table).where(eq(table.ownerId, owner.id))).toEqual([]);
     }
+    const bystander = eq(schema.trafficCounters.ownerId, "u_bystander");
+    expect(await db().select().from(schema.trafficCounters).where(bystander)).toHaveLength(1);
     expect(
       await db().select().from(schema.usageEvents).where(eq(schema.usageEvents.ownerId, owner.id)),
     ).toEqual([]);

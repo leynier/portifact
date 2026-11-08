@@ -11,6 +11,7 @@ export const CONTROL_HOST = "control.e2e.test";
 export const REDIRECT_HOST = "redirect.elsewhere.test";
 export const SESSION_COOKIE = "__Host-pf.session_token";
 export const REVIEW_COOKIE = "__Host-pf_review";
+export const REVIEW_TAB_COOKIE = "__Host-pf_review_tab";
 /**
  * Unpartitioned `SameSite=None` cookie the test front end sets next to the review cookie. Whether
  * the browser sends it back inside the viewer's frame proves how it treats ordinary third-party

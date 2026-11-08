@@ -63,7 +63,7 @@ export async function renderDocument(
   const encoder = new TextEncoder();
   const outputs: { kind: Rendering["kind"]; contentType: string; text: string }[] = [];
   if (input.type === "markdown") {
-    const document = renderMarkdownDocument(source, { title: input.name });
+    const document = renderMarkdownDocument(source, { title: input.name, reportLink: true });
     outputs.push({ kind: "rendered", contentType: HTML, text: document.html });
     outputs.push({
       kind: "block_map",
@@ -76,7 +76,7 @@ export async function renderDocument(
       }),
     });
   } else {
-    const document = renderTextDocument(source, { title: input.name });
+    const document = renderTextDocument(source, { title: input.name, reportLink: true });
     outputs.push({ kind: "rendered", contentType: HTML, text: document.html });
   }
   const files: Rendering[] = [];

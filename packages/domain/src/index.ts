@@ -1,5 +1,6 @@
 export * from "./access.ts";
 export * from "./annotations.ts";
+export * from "./budget.ts";
 export * from "./documents.ts";
 export * from "./files.ts";
 export * from "./ids.ts";
@@ -9,4 +10,5 @@ export * from "./quotas.ts";
 export * from "./result.ts";
 export * from "./sources.ts";
 export * from "./terms.ts";
+export * from "./traffic.ts";
 export * from "./usage.ts";

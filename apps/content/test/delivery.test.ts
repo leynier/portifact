@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { createDb, schema } from "@portifact/db";
 import { beforeEach, describe, expect, it } from "vitest";
 import worker, { artifactIdFromHost, byteSpan, handle, requestedPath } from "../src/index.ts";
@@ -154,9 +154,16 @@ describe("artifact delivery", () => {
     expect((await get("/")).status).toBe(200);
   });
 
-  it("handles requests through the Worker entry point", async () => {
-    const response = await worker.fetch(new Request(`${ORIGIN}/`), env);
+  it("handles requests through the Worker entry point and meters them after the response", async () => {
+    await env.DB.exec("DELETE FROM traffic_counters");
+    const ctx = createExecutionContext();
+    const response = await worker.fetch(new Request(`${ORIGIN}/`), env, ctx);
     expect(response.status).toBe(200);
+    expect(await response.text()).toBe("<h1>Plan</h1>");
+    // The write happens in waitUntil, once the isolate's window closes.
+    await waitOnExecutionContext(ctx);
+    const rows = await createDb(env.DB).select().from(schema.trafficCounters);
+    expect(rows).toMatchObject([{ ownerId: "u_owner", requests: 1, bytes: 13 }]);
   });
 
   it("rejects other methods and service worker registration", async () => {

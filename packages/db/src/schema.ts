@@ -185,6 +185,13 @@ export const reviewHandoffs = sqliteTable(
     usedAt: timestamp("used_at"),
     sessionId: text("session_id"),
     createdAt: createdAt(),
+    /**
+     * Where the code may be redeemed: `frame` in the viewer's iframe (partitioned cookie) or
+     * `tab` in a top-level review tab (first-party cookie, shorter session).
+     */
+    kind: text("kind", { enum: ["frame", "tab"] })
+      .notNull()
+      .default("frame"),
   },
   (t) => [
     index("review_handoffs_expires_idx").on(t.expiresAt),
@@ -387,6 +394,28 @@ export const usageEvents = sqliteTable(
   (t) => [index("usage_events_owner_kind_at_idx").on(t.ownerId, t.kind, t.at)],
 );
 
+/**
+ * Traffic each account's artifacts served per cycle (plan section 14): requests and body bytes
+ * from the content Worker, added in batches. `cycle_start` is the start of the UTC calendar month.
+ * Rows of past cycles are pruned by the maintenance job and an account's rows go with its
+ * deletion.
+ */
+export const trafficCounters = sqliteTable(
+  "traffic_counters",
+  {
+    ownerId: text("owner_id").notNull(),
+    cycleStart: timestamp("cycle_start").notNull(),
+    requests: integer("requests").notNull().default(0),
+    bytes: integer("bytes").notNull().default(0),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.cycleStart] }),
+    check("traffic_counters_nonnegative", sql`${t.requests} >= 0 and ${t.bytes} >= 0`),
+    index("traffic_counters_cycle_idx").on(t.cycleStart),
+  ],
+);
+
 /** Idempotency: the stored result of a mutation, returned again when it is retried. */
 export const operations = sqliteTable(
   "operations",
@@ -402,19 +431,58 @@ export const operations = sqliteTable(
   (t) => [primaryKey({ columns: [t.actorId, t.idempotencyKey] })],
 );
 
-/** Transactional outbox for queue jobs (archive, purge, cleanup). */
+/** Follow-up jobs of the transactional outbox (packages/services/src/outbox.ts). */
+export const OUTBOX_TOPICS = ["purge_artifact", "account_deletion", "delete_objects"] as const;
+
+/**
+ * Transactional outbox: a job written in the same D1 batch as the state change that needs it.
+ * The scheduled run relays pending rows to the `portifact-jobs` queue and the consumer deletes a
+ * row once its job is done. `subject` is the artifact, account or owner the job is about, and
+ * `generation` the artifact's lifecycle generation a purge was claimed with, so a stale job never
+ * acts on an artifact that changed since. `payload` holds the job's data as JSON.
+ */
 export const outbox = sqliteTable(
   "outbox",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    topic: text("topic").notNull(),
+    topic: text("topic", { enum: OUTBOX_TOPICS }).notNull(),
     payload: text("payload", { mode: "json" }).notNull(),
     availableAt: timestamp("available_at").notNull(),
     dispatchedAt: timestamp("dispatched_at"),
     attempts: integer("attempts").notNull().default(0),
     createdAt: createdAt(),
+    subject: text("subject"),
+    generation: integer("generation"),
   },
-  (t) => [index("outbox_pending_idx").on(t.dispatchedAt, t.availableAt)],
+  (t) => [
+    index("outbox_pending_idx").on(t.dispatchedAt, t.availableAt),
+    index("outbox_subject_idx").on(t.topic, t.subject),
+  ],
+);
+
+/** Where each paginated maintenance scan resumes, and when its current pass started. */
+export const maintenanceCursors = sqliteTable("maintenance_cursors", {
+  name: text("name").primaryKey(),
+  cursor: text("cursor").notNull().default(""),
+  passStartedAt: timestamp("pass_started_at").notNull(),
+  updatedAt: timestamp("updated_at").notNull(),
+});
+
+/**
+ * What the storage reconciliation found and nothing deleted: `missing` (a verified object row
+ * whose R2 object is gone), `size_mismatch` (the R2 object has another size) and `orphan` (an R2
+ * object no row references). The operator reviews them with `operator storage-report`.
+ */
+export const storageFindings = sqliteTable(
+  "storage_findings",
+  {
+    kind: text("kind", { enum: ["missing", "size_mismatch", "orphan"] }).notNull(),
+    r2Key: text("r2_key").notNull(),
+    detail: text("detail"),
+    firstSeenAt: timestamp("first_seen_at").notNull(),
+    lastSeenAt: timestamp("last_seen_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.r2Key] })],
 );
 
 export const lifecycleEvents = sqliteTable(
@@ -657,6 +725,68 @@ export const annotationUsage = sqliteTable(
     check("annotation_usage_messages_limit", sql`${t.messages} <= 5000`),
     check("annotation_usage_bytes_limit", sql`${t.bytes} <= 50000000`),
   ],
+);
+
+/** Budget levels and protection actions; the rules that use them live in packages/domain/src/budget.ts. */
+export const BUDGET_LEVELS = ["none", "alert25", "alert50", "slow75", "protect100"] as const;
+
+/**
+ * The platform's budget state (plan section 12): one row, written by the jobs Worker every run with
+ * the cycle's metrics, projected spend and automatic protection, and by the operator tool for an
+ * override. Services read it to enforce protection; nothing else writes it.
+ */
+export const platformBudget = sqliteTable(
+  "platform_budget",
+  {
+    id: text("id").primaryKey().default("global"),
+    /** Start of the cycle the metrics belong to (calendar month in UTC). */
+    cycleStart: timestamp("cycle_start").notNull(),
+    /** Automatic level and actions (a JSON array of protection actions) from the last run. */
+    level: text("level", { enum: BUDGET_LEVELS }).notNull().default("none"),
+    actions: text("actions").notNull().default("[]"),
+    projectedCents: integer("projected_cents").notNull().default(0),
+    /** The last measured metrics (JSON) and whether Cloudflare's analytics contributed to them. */
+    metrics: text("metrics").notNull(),
+    analytics: text("analytics", { enum: ["off", "ok", "failed"] })
+      .notNull()
+      .default("off"),
+    measuredAt: timestamp("measured_at").notNull(),
+    /** When the automatic level or actions last changed. */
+    levelChangedAt: timestamp("level_changed_at").notNull(),
+    /** Operator override: replaces the automatic decision until `override_until` (null: cleared by hand). */
+    overrideLevel: text("override_level", { enum: BUDGET_LEVELS }),
+    overrideSteps: integer("override_steps"),
+    overrideUntil: timestamp("override_until"),
+    overrideNote: text("override_note"),
+    overrideSetAt: timestamp("override_set_at"),
+  },
+  (t) => [
+    check("platform_budget_single_row", sql`${t.id} = 'global'`),
+    check(
+      "platform_budget_override_steps",
+      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 4`,
+    ),
+  ],
+);
+
+/**
+ * Budget alerts for the operator, at most one per kind and cycle: a spend threshold crossed
+ * (`spend_25` ... `spend_100`) or a global admission limit reached (`admission_<metric>`).
+ * `notified_at` is set once the alert email went out; without email configured it stays null and
+ * the operator tool shows the alert.
+ */
+export const budgetAlerts = sqliteTable(
+  "budget_alerts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    cycleStart: timestamp("cycle_start").notNull(),
+    kind: text("kind").notNull(),
+    level: text("level", { enum: BUDGET_LEVELS }).notNull(),
+    projectedCents: integer("projected_cents").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    notifiedAt: timestamp("notified_at"),
+  },
+  (t) => [uniqueIndex("budget_alerts_cycle_kind_idx").on(t.cycleStart, t.kind)],
 );
 
 export * from "./auth-schema.ts";

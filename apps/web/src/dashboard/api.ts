@@ -5,6 +5,7 @@ import {
   AccessPolicyView,
   type AccessUpdate,
   AccountDeletionResult,
+  AccountUsageView,
   AnnotationDeleteResult,
   AnnotationModeView,
   AnnotationPage,
@@ -26,6 +27,7 @@ import {
   PreparedPublish,
   type PublishRequest,
   ReviewStart,
+  ReviewTabStart,
   type RollbackRequest,
   RolledBack,
   SignOutOthersResult,
@@ -81,6 +83,8 @@ export interface DashboardApi {
   disconnectApp(clientId: string): Promise<DisconnectResult>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
+  /** The account's quotas, this month's traffic and what blocks it now. */
+  usage(): Promise<AccountUsageView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -103,6 +107,8 @@ export interface DashboardApi {
   previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
   /** A one-use review code and the URL the review viewer's iframe opens with it. */
   startReview(artifactId: string): Promise<ReviewStart>;
+  /** A one-use code and the link that opens the artifact in a top-level review tab. */
+  startReviewTab(artifactId: string): Promise<ReviewTabStart>;
   /** A page of the current version's threads; with `cursor`, only what changed since. */
   listAnnotations(artifactId: string, cursor?: string): Promise<AnnotationPage>;
   createThread(
@@ -115,6 +121,7 @@ export interface DashboardApi {
     threadId: string,
     body: string,
     idempotencyKey: string,
+    turnstileToken?: string,
   ): Promise<AnnotationThreadView>;
   setThreadState(
     artifactId: string,
@@ -259,6 +266,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     deleteAccount(confirmEmail) {
       return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });
     },
+    usage() {
+      return call("/api/v1/usage", AccountUsageView);
+    },
     preparePublish(request, idempotencyKey) {
       return call("/api/v1/publishes", PreparedPublish, "POST", request, {
         "idempotency-key": idempotencyKey,
@@ -312,6 +322,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     startReview(artifactId) {
       return call(`${artifactPath(artifactId)}/review`, ReviewStart, "POST");
     },
+    startReviewTab(artifactId) {
+      return call(`${artifactPath(artifactId)}/review/tab`, ReviewTabStart, "POST");
+    },
     listAnnotations(artifactId, cursor) {
       const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
       return call(`${annotationsPath(artifactId)}${query}`, AnnotationPage);
@@ -321,12 +334,12 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         "idempotency-key": idempotencyKey,
       });
     },
-    reply(artifactId, threadId, body, idempotencyKey) {
+    reply(artifactId, threadId, body, idempotencyKey, turnstileToken) {
       return call(
         `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/messages`,
         AnnotationThreadView,
         "POST",
-        { body },
+        turnstileToken === undefined ? { body } : { body, turnstileToken },
         { "idempotency-key": idempotencyKey },
       );
     },

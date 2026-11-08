@@ -13,6 +13,11 @@ export const en = {
   "shell.signingOut": "Signing you out.",
   "shell.signOutFailed": "Sign out did not finish. Try again.",
   "shell.loadingAccount": "Loading your account",
+  "shell.capacity.title": "Portifact is protecting its capacity",
+  "shell.capacity.new_artifacts":
+    "Creating new artifacts is paused for now. Updates to your artifacts still work, and your artifacts stay online.",
+  "shell.capacity.publishing":
+    "New uploads are paused for now, and new comments may be too. Your artifacts stay online, and you can still read, export, delete, renew and reduce access.",
 
   "list.title": "Artifacts",
   "list.description": "Everything you published. The list refreshes while this tab is open.",
@@ -213,6 +218,24 @@ export const en = {
   "account.delete.reauth.action": "Sign in again",
   "account.delete.done": "Your account was deleted.",
   "account.actionFailed.title": "The action did not finish",
+  "usage.title": "Usage",
+  "usage.hint":
+    "Your quotas and what your artifacts served this month. Traffic is counted every few seconds, so it can lag slightly behind.",
+  "usage.loading": "Loading your usage",
+  "usage.error": "Usage could not be loaded",
+  "usage.meter": "{used} of {limit}",
+  "usage.activeArtifacts": "Active artifacts",
+  "usage.storage": "Storage",
+  "usage.publishes": "Publishes, last 24 hours",
+  "usage.trafficRequests": "Requests served this month",
+  "usage.trafficBytes": "Data served this month",
+  "usage.trafficResets": "Traffic resets on",
+  "usage.blocks": "Blocked now",
+  "usage.lifts": "{message} Lifts {date}.",
+  "usage.traffic.title": "Your artifacts used this month's traffic",
+  "usage.traffic.body":
+    "Your artifacts served 1 million requests or 25 GB this month, so visitors get an error (HTTP 429) on all of them until {date}. Your other quotas are not affected: you can still publish, change access and manage your artifacts. Other people's artifacts keep working.",
+  "usage.traffic.link": "See your usage",
   "account.cancel": "Cancel",
 
   "scope.artifacts:read": "See your artifacts, their settings and their versions",
@@ -430,6 +453,15 @@ export const en = {
   "review.status.silent.title": "The page does not answer the review tools",
   "review.status.silent.body":
     "Its own security policy may block them. You can still leave general comments on the page.",
+  "review.tab.title": "Review in a separate tab",
+  "review.tab.body":
+    "Open the artifact in its own tab to see it in review mode. The tab shows the artifact itself, written by its author, not Portifact: do not sign in or enter anything there, even if it looks like Portifact. It has no review tools, so write your comments here. Its review session ends after {minutes} minutes, or when you choose End review in the tab.",
+  "review.tab.prepare": "Prepare a review tab",
+  "review.tab.open": "Open the review tab",
+  "review.tab.ready": "The review tab link is ready.",
+  "review.tab.opened":
+    "The review tab opened. Choose End review in the tab when you are done; comments stay here.",
+  "review.tab.expired": "The link expired before it was opened. Prepare a new one.",
   "review.status.ended.title": "This review session ended",
   "review.status.ended.body":
     "The page in the frame says so. Comments here keep working; reload the review to use the review tools in the page again.",
@@ -487,6 +519,13 @@ export const en = {
   "review.composer.empty": "Write a comment.",
   "review.composer.invalid": "The comment is too long or holds characters that are not allowed.",
   "review.composer.posted": "Comment posted.",
+  "review.humanCheck.label": "Confirm you are human",
+  "review.humanCheck.body":
+    "Your first comments on other people's artifacts need this check. Complete it, then post again.",
+  "review.humanCheck.unavailable":
+    "The check could not load on this page. Reload the page and try again.",
+  "review.humanCheck.missing": "Complete the check first, then post again.",
+  "review.report": "Report this artifact",
   "review.target.general": "General comment on {path}",
   "review.target.element": "Element {tag}",
   "review.target.quote": "Quoted text",
@@ -554,13 +593,15 @@ export const en = {
   "error.version_conflict": "The artifact changed meanwhile. Reload and try again.",
   "error.quota_exceeded":
     "You reached the limit of active artifacts. Archive or delete one, then try again.",
-  "error.traffic_exceeded": "The artifact used its traffic for this period.",
+  "error.traffic_exceeded": "Your artifacts used this month's traffic. They work again next month.",
   "error.upload_incomplete": "The upload is not complete yet.",
   "error.artifact_archived": "The artifact is archived. Restore it first.",
   "error.account_too_new_for_public": "New accounts cannot make artifacts public yet.",
   "error.capacity_unavailable": "Portifact is at capacity right now. Try again later.",
   "error.rate_limited": "Too many requests. Wait a moment and try again.",
   "error.reauthentication_required": "Sign in again to do that.",
+  "error.human_verification_required":
+    "Your first comments on other people's artifacts need a quick check that you are human. Complete it, then post again.",
 } as const;
 
 export type MessageId = keyof typeof en;

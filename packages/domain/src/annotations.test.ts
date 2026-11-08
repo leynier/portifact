@@ -10,10 +10,12 @@ import {
   checkAnnotationWrite,
   checkDeleteOwnMessage,
   checkEditMessage,
+  checkHumanVerdict,
   checkResolve,
   checkThreadWritable,
   messageBodyVisible,
   moderationTransition,
+  needsHumanCheck,
   threadVisible,
 } from "./annotations.ts";
 
@@ -233,5 +235,34 @@ describe("annotation limits", () => {
     expect(code({ ownerBytes: 50_000_000 }, { kind: "edit", addedBytes: 1 })).toBe(
       "quota_exceeded",
     );
+  });
+});
+
+describe("human check on first comments", () => {
+  it("applies to a participant's first comments on other people's artifacts only", () => {
+    const first = ANNOTATION_LIMITS.humanCheckedComments;
+    expect(needsHumanCheck("participant", 0)).toBe(true);
+    expect(needsHumanCheck("participant", first - 1)).toBe(true);
+    expect(needsHumanCheck("participant", first)).toBe(false);
+    expect(needsHumanCheck("participant", first + 10)).toBe(false);
+    expect(needsHumanCheck("owner", 0)).toBe(false);
+  });
+
+  it("passes a verified token and refuses everything else with a documented code", () => {
+    expect(checkHumanVerdict("passed")).toEqual({ ok: true, value: true });
+    expect(checkHumanVerdict("missing")).toMatchObject({
+      ok: false,
+      code: "human_verification_required",
+    });
+    const missing = checkHumanVerdict("missing");
+    expect(missing.ok ? "" : missing.message).toContain("review viewer");
+    const failed = checkHumanVerdict("failed");
+    expect(failed).toMatchObject({ ok: false, code: "human_verification_required" });
+    expect(failed.ok ? "" : failed.message).toContain("Complete it again");
+    // A provider outage or a missing secret fails closed, as a retryable 503.
+    expect(checkHumanVerdict("unavailable")).toMatchObject({
+      ok: false,
+      code: "capacity_unavailable",
+    });
   });
 });

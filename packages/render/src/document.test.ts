@@ -1,6 +1,11 @@
 import { TOKENS_CSS } from "@portifact/ui/tokens-css";
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_STYLESHEET, renderMarkdownDocument, renderTextDocument } from "./document.ts";
+import {
+  DOCUMENT_STYLESHEET,
+  REPORT_PATH,
+  renderMarkdownDocument,
+  renderTextDocument,
+} from "./document.ts";
 import { documentPolicy } from "./policy.ts";
 import { attr, byTag, document, text } from "./test-html.ts";
 import { RENDERER_VERSION } from "./version.ts";
@@ -11,6 +16,41 @@ function head(html: string) {
   const meta = (key: string, value: string) => metas.find((m) => attr(m, key) === value);
   return { root, meta };
 }
+
+describe("report link", () => {
+  it("puts a footer with the artifact's report path under published documents", () => {
+    for (const { html } of [
+      renderMarkdownDocument("# Plan", { title: "t", reportLink: true }),
+      renderTextDocument("plain", { title: "t", reportLink: true }),
+    ]) {
+      const root = document(html);
+      const footers = byTag(root, "footer");
+      expect(footers).toHaveLength(1);
+      const footer = footers[0] ?? (root as never);
+      // Outside main, so it is chrome, not content; ignored by annotation anchors and removable
+      // in review mode.
+      expect(byTag(byTag(root, "main")[0] ?? root, "footer")).toHaveLength(0);
+      expect(attr(footer, "class")).toBe("pf-chrome");
+      expect(attr(footer, "data-portifact-ignore")).toBe("");
+      expect(attr(footer, "data-portifact-chrome")).toBe("");
+      const links = byTag(footer, "a");
+      expect(links.map((a) => [attr(a, "href"), attr(a, "rel"), text(a)])).toEqual([
+        ["/__portifact/report", "nofollow", "Report this artifact"],
+      ]);
+      expect(REPORT_PATH).toBe("/__portifact/report");
+      // Still no scripts or forms: the link is a plain navigation the document policy allows.
+      expect(byTag(root, "script")).toHaveLength(0);
+      expect(byTag(root, "form")).toHaveLength(0);
+    }
+  });
+
+  it("leaves it out unless asked, as in the editor's preview", () => {
+    expect(byTag(document(renderTextDocument("x", { title: "t" }).html), "footer")).toHaveLength(0);
+    expect(
+      byTag(document(renderMarkdownDocument("# x", { title: "t" }).html), "footer"),
+    ).toHaveLength(0);
+  });
+});
 
 describe("document wrapper", () => {
   it("is a complete, accessible document with the content in a main landmark", () => {

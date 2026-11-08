@@ -38,8 +38,8 @@ describe("legal pages", () => {
         for (const img of html.match(/<img\b[^>]*>/g) ?? []) expect(img).toMatch(/\balt="[^"]+"/);
       });
 
-      it("is marked as a draft pending legal review, with the current version and date", () => {
-        expect(html).toContain("Draft pending legal review");
+      it("shows the current version and date, with no draft notice", () => {
+        expect(html).not.toContain("Draft pending legal review");
         expect(html).toContain(`<span data-terms-version>${TERMS_VERSION}</span>`);
         expect(html).toContain(`<time datetime="${TERMS_VERSION}">${EFFECTIVE}</time>`);
       });

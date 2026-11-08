@@ -34,12 +34,18 @@ import {
   setAnnotationThreadState,
 } from "@portifact/services";
 import { Hono } from "hono";
+import type { FetchLike } from "../auth/deps.ts";
 import type { Env } from "../env.ts";
+import { humanCheck } from "../turnstile.ts";
 import { type ApiContext, error, failure, type Guarded, idempotent, readJson } from "./http.ts";
 
 const BASE = "/api/v1/artifacts/:artifactId/annotations";
 
-export function annotationRoutes(guarded: Guarded, now: () => number) {
+export function annotationRoutes(
+  guarded: Guarded,
+  now: () => number,
+  siteverify: (env: Env) => FetchLike,
+) {
   const api = new Hono<{ Bindings: Env }>();
   const artifactId = (c: ApiContext) => c.req.param("artifactId") as string;
   const param = (c: ApiContext, name: string) => c.req.param(name) as string;
@@ -109,14 +115,18 @@ export function annotationRoutes(guarded: Guarded, now: () => number) {
       if (!body.ok) return body.response;
       const at = now();
       const id = artifactId(c);
+      const { turnstileToken, ...thread } = body.value;
       return idempotent(
         c,
-        { userId, operation: "annotations.thread.create", request: [id, body.value], now: at },
+        // The token is single use and not part of what the request asks for: a retry with the
+        // same key replays the first answer whatever token it carries.
+        { userId, operation: "annotations.thread.create", request: [id, thread], now: at },
         async () => {
           const result = await createAnnotationThread(createDb(c.env.DB), {
             userId,
             artifactId: id,
-            ...body.value,
+            ...thread,
+            humanCheck: humanCheck(c.env, siteverify(c.env), c.req.raw, turnstileToken),
             now: at,
           });
           if (!result.ok) return failure(result.code, result.message);
@@ -148,12 +158,13 @@ export function annotationRoutes(guarded: Guarded, now: () => number) {
       const at = now();
       const id = artifactId(c);
       const threadId = param(c, "threadId");
+      const { turnstileToken, ...reply } = body.value;
       return idempotent(
         c,
         {
           userId,
           operation: "annotations.message.create",
-          request: [id, threadId, body.value],
+          request: [id, threadId, reply],
           now: at,
         },
         async () => {
@@ -161,7 +172,8 @@ export function annotationRoutes(guarded: Guarded, now: () => number) {
             userId,
             artifactId: id,
             threadId,
-            body: body.value.body,
+            body: reply.body,
+            humanCheck: humanCheck(c.env, siteverify(c.env), c.req.raw, turnstileToken),
             now: at,
           });
           if (!result.ok) return failure(result.code, result.message);

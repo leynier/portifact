@@ -20,6 +20,8 @@ export const messages = {
   termsRequired: "Confirm you are 18 or older and accept the terms to continue.",
   termsUpdateFor: (email: string) => `Signed in as ${email}`,
   providerErrors: {
+    human_verification_required:
+      "New accounts need a quick check that you are human. Complete the check on this page, or reload it if the check does not appear, and try again.",
     terms_not_accepted:
       "Portifact needs you to confirm you are 18 or older and accept the terms before signing in. Check the box and try again.",
     account_not_linked:

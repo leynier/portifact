@@ -6,6 +6,8 @@ export * from "./annotation-tools.ts";
 export * from "./annotations.ts";
 export * from "./core.ts";
 export * from "./documents.ts";
+export * from "./human.ts";
+export * from "./jobs.ts";
 export * from "./legal.ts";
 export * from "./limits.ts";
 export * from "./mcp.ts";

@@ -19,6 +19,10 @@ export default defineConfig(async () => {
             GITHUB_CLIENT_SECRET: "test-github-secret",
             R2_ACCESS_KEY_ID: "test-r2-access-key-id",
             R2_SECRET_ACCESS_KEY: "test-r2-secret-access-key",
+            // Cloudflare's documented Turnstile test keys (always pass). Siteverify itself is a
+            // fake in test/harness.ts, so no test reaches Cloudflare.
+            TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
+            TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
             TEST_MIGRATIONS: migrations,
           },
         },

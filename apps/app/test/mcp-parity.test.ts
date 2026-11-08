@@ -3,9 +3,11 @@
 // controlled time, and must give the same body, the same error and the same permission boundary.
 import { env } from "cloudflare:workers";
 import { createDb } from "@portifact/db";
-import { suspendArtifact } from "@portifact/services";
+import { RENDERER_VERSION } from "@portifact/render";
+import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
+import { pastHumanCheck } from "./api-client.ts";
 import { createHarness, type Harness } from "./harness.ts";
 import {
   api,
@@ -127,7 +129,7 @@ describe("API and MCP parity", () => {
       ...["block_map", "published", "rendered"],
     ]);
     expect(files.results.slice(0, 3)).toEqual(files.results.slice(3));
-    expect(files.results[0]?.renderer_version).toBe("1");
+    expect(files.results[0]?.renderer_version).toBe(RENDERER_VERSION);
   });
 
   it("get and list return the same artifact summaries", async () => {
@@ -481,6 +483,37 @@ describe("API and MCP parity for usage and source origins", () => {
     });
   });
 
+  it("usage reports the same traffic and traffic block, and only the caller's", async () => {
+    const b = await both("parity-traffic@example.test");
+    const other = await both("parity-traffic-other@example.test");
+    const insert = env.DB.prepare(
+      "insert into traffic_counters (owner_id, cycle_start, requests, bytes, updated_at) values (?, ?, ?, ?, ?)",
+    );
+    const november = Date.UTC(2026, 10, 1);
+    await insert.bind(await ownerId(b), november, 1_000_000, 42, NOW).run();
+    await insert.bind(await ownerId(other), november, 7, 7, NOW).run();
+    const viaMcp = fromTool(await b.tool("get_usage", {}));
+    expect(viaMcp).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(viaMcp.body).toMatchObject({
+      trafficThisMonth: {
+        requests: { used: 1_000_000, limit: 1_000_000 },
+        bytes: { used: 42, limit: 25_000_000_000 },
+        resetsAt: "2026-12-01T00:00:00.000Z",
+      },
+      blocks: expect.arrayContaining([
+        expect.objectContaining({
+          reason: "traffic",
+          stops: "serving",
+          until: "2026-12-01T00:00:00.000Z",
+        }),
+      ]),
+    });
+    const theirs = fromTool(await other.tool("get_usage", {}));
+    expect(theirs.body).toMatchObject({ trafficThisMonth: { requests: { used: 7 } } });
+    const reasons = (theirs.body as { blocks: { reason: string }[] }).blocks.map((x) => x.reason);
+    expect(reasons).not.toContain("traffic");
+  });
+
   it("usage is the caller's own and needs artifacts:read at both", async () => {
     const b = await both("parity-usage-owner@example.test");
     const other = await both("parity-usage-other@example.test");
@@ -614,14 +647,27 @@ describe("API and MCP parity for annotations", () => {
     return thread(value as unknown as Thread & Record<string, unknown>);
   }
 
-  /** An owner and a reader, each with an API and an MCP token, on a Markdown artifact. */
-  async function reviewed(prefix: string) {
+  /**
+   * An owner and a reader, each with an API and an MCP token, on a Markdown artifact. The reader
+   * is past the human check of first comments unless `fresh` is set.
+   */
+  async function reviewed(prefix: string, fresh = false) {
     const owner = await both(`${prefix}-owner@example.test`, EVERY);
     const reader = await both(`${prefix}-reader@example.test`, EVERY);
     const published = fromTool(
       await owner.tool("publish_document", { type: "markdown", name: "Plan", content: "# Plan" }),
     ).body as { artifactId: string; versionId: string };
     const id = published.artifactId;
+    if (!fresh) {
+      const other = fromTool(
+        await owner.tool("publish_document", {
+          type: "markdown",
+          name: "Other",
+          content: "# Other",
+        }),
+      ).body as { artifactId: string };
+      await pastHumanCheck([`${prefix}-reader@example.test`], other.artifactId);
+    }
     const share = await owner.apiCall(
       `/api/v1/artifacts/${id}/access`,
       json("PATCH", { addReaders: [`${prefix}-reader@example.test`] }),
@@ -882,6 +928,56 @@ describe("API and MCP parity for annotations", () => {
     }
   });
 
+  it("asks for the human check the same way: a visitor's first comments without a token", async () => {
+    const { owner, reader, id, versionId, base } = await reviewed("parity-ann-human", true);
+    await owner.apiCall(`${base}/mode`, json("PUT", { mode: "open" }));
+    const api = await fromApi(
+      await reader.apiCall(
+        `${base}/threads`,
+        json("POST", { versionId, target: DOC, body: "Hi" }, crypto.randomUUID()),
+      ),
+    );
+    const mcp = fromTool(
+      await reader.tool("create_annotation", {
+        artifactId: id,
+        versionId,
+        target: DOC,
+        body: "Hi",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(mcp).toEqual(api);
+    expect(api.body).toMatchObject({ error: { code: "human_verification_required" } });
+    // The owner answers from any client: the agent workflow never meets the check.
+    const ownerThread = fromTool(
+      await owner.tool("create_annotation", {
+        artifactId: id,
+        versionId,
+        target: DOC,
+        body: "Owner",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(ownerThread.ok).toBe(true);
+    const threadId = (ownerThread.body as unknown as Thread).id;
+    const replyApi = await fromApi(
+      await reader.apiCall(
+        `${base}/threads/${threadId}/messages`,
+        json("POST", { body: "Re" }, crypto.randomUUID()),
+      ),
+    );
+    const replyMcp = fromTool(
+      await reader.tool("reply_annotation", {
+        artifactId: id,
+        threadId,
+        body: "Re",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(replyMcp).toEqual(replyApi);
+    expect(replyApi.body).toMatchObject({ error: { code: "human_verification_required" } });
+  });
+
   it("refuses the same way: no access, annotations off, stale version or revision, bad cursor", async () => {
     const { owner, reader, id, versionId, base } = await reviewed("parity-ann-errors");
     const stranger = await both("parity-ann-errors-stranger@example.test", EVERY);
@@ -1062,5 +1158,121 @@ describe("API and MCP parity for annotations", () => {
       (await rawCall(b.h, token, "list_annotations", { artifactId: "abcdefghij" })).status,
     ).toBe(200);
     expect((await b.apiCall(base)).status).toBe(404);
+  });
+});
+
+describe("API and MCP parity under budget protection", () => {
+  const EVERY =
+    "artifacts:read artifacts:write artifacts:share annotations:read annotations:write annotations:moderate offline_access";
+  const DOC = { schema: 1, path: "index.md", anchor: { kind: "document" } };
+
+  async function protect(level: "slow75" | "protect100", steps = 1) {
+    await setBudgetOverride(createDb(env.DB), { level, steps, until: null, note: null, now: NOW });
+  }
+  afterEach(async () => {
+    await clearBudgetOverride(createDb(env.DB), NOW);
+  });
+
+  it("refuses new artifacts, then uploads, with the same error, and keeps updates and reads", async () => {
+    const b = await both("parity-budget@example.test", EVERY);
+    const owner = await ownerId(b);
+    const mine = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Doc", content: "v1" }),
+    ).body as { artifactId: string; versionId: string };
+
+    await protect("slow75");
+    const viaApi = await publishThroughApi(b, owner, "new");
+    expect(viaApi).toMatchObject({ ok: false, body: { error: { code: "capacity_unavailable" } } });
+    expect(
+      fromTool(await b.tool("publish_document", { type: "markdown", name: "Doc", content: "new" })),
+    ).toEqual(viaApi);
+    const update = fromTool(
+      await b.tool("publish_document", {
+        type: "markdown",
+        name: "Doc",
+        content: "v2",
+        artifactId: mine.artifactId,
+        baseVersionId: mine.versionId,
+      }),
+    );
+    expect(update.ok).toBe(true);
+
+    await protect("protect100", 2);
+    const refused = await b.apiCall("/api/v1/publishes", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        type: "markdown",
+        name: "Doc",
+        entrypoint: "index.md",
+        artifactId: mine.artifactId,
+        baseVersionId: (update.body as { versionId: string }).versionId,
+        files: [
+          {
+            path: "index.md",
+            sha256: await sha256("v3"),
+            size: 2,
+            contentType: "text/markdown; charset=utf-8",
+          },
+        ],
+      }),
+    });
+    expect(refused.status).toBe(503);
+    expect(
+      fromTool(
+        await b.tool("publish_document", {
+          type: "markdown",
+          name: "Doc",
+          content: "v3",
+          artifactId: mine.artifactId,
+          baseVersionId: (update.body as { versionId: string }).versionId,
+        }),
+      ),
+    ).toEqual(await fromApi(refused));
+
+    // Reads, renewal and the usage notice stay the same at both.
+    const id = mine.artifactId;
+    expect(fromTool(await b.tool("get_artifact", { artifactId: id }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${id}`)),
+    );
+    expect(fromTool(await b.tool("renew_artifact", { artifactId: id }))).toMatchObject({
+      ok: true,
+    });
+    const usage = fromTool(await b.tool("get_usage", {}));
+    expect(usage).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect((usage.body as { blocks: unknown[] }).blocks[0]).toMatchObject({
+      reason: "capacity",
+      stops: "publishing",
+    });
+  });
+
+  it("pauses new comments with the same error at both", async () => {
+    const b = await both("parity-budget-comments@example.test", EVERY);
+    const doc = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Plan", content: "# Plan" }),
+    ).body as { artifactId: string; versionId: string };
+    const id = doc.artifactId;
+    expect(fromTool(await b.tool("set_annotations", { artifactId: id, mode: "open" })).ok).toBe(
+      true,
+    );
+    await protect("protect100", 2);
+    const viaApi = await fromApi(
+      await b.apiCall(`/api/v1/artifacts/${id}/annotations/threads`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ versionId: doc.versionId, target: DOC, body: "Hi" }),
+      }),
+    );
+    expect(viaApi).toMatchObject({ ok: false, body: { error: { code: "capacity_unavailable" } } });
+    const viaMcp = fromTool(
+      await b.tool("create_annotation", {
+        artifactId: id,
+        versionId: doc.versionId,
+        target: DOC,
+        body: "Hi",
+        idempotencyKey: "parity-budget-create",
+      }),
+    );
+    expect(viaMcp).toEqual(viaApi);
   });
 });

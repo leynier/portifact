@@ -14,6 +14,7 @@ import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { formatBytes, formatDate, messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import type { Session } from "./session.ts";
 
 /** Versions asked for per request; the command follows the cursor until the last page. */
 const PAGE_SIZE = 100;
@@ -24,6 +25,35 @@ export function parseVersionId(value: string): string {
   return parsed.data;
 }
 
+/** Version IDs never look like this, so `3` or `v3` is always the version number. */
+const VERSION_NUMBER = /^v?([0-9]{1,9})$/i;
+
+/** A version argument given as its ID or as its number, checked before signing in. */
+export type VersionArg = { id: string } | { number: number };
+
+export function parseVersionArg(value: string): VersionArg {
+  const match = VERSION_NUMBER.exec(value.trim());
+  if (!match) return { id: parseVersionId(value) };
+  const number = Number(match[1]);
+  if (number < 1) throw new CliError("invalid_input", messages.errors.invalidVersionId(value));
+  return { number };
+}
+
+/** The ID of a version argument; a number is looked up in the artifact's retained versions. */
+export async function resolveVersionArg(
+  session: Session,
+  artifactId: string,
+  arg: VersionArg,
+): Promise<string> {
+  if ("id" in arg) return arg.id;
+  const items = await listAllVersions(session, artifactId);
+  const match = items.find((item) => item.number === arg.number);
+  if (!match) {
+    throw new CliError("not_found", messages.errors.versionNumberNotFound(artifactId, arg.number));
+  }
+  return match.id;
+}
+
 export async function versions(
   io: Io,
   runtime: Runtime,
@@ -32,19 +62,7 @@ export async function versions(
 ): Promise<void> {
   const artifactId = parseArtifactId(id);
   const session = await openSession(io, runtime);
-  const items: VersionSummary[] = [];
-  let cursor: string | null = null;
-  do {
-    const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
-    if (cursor !== null) query.set("cursor", cursor);
-    const page: VersionList = await callApi(session, {
-      method: "GET",
-      path: `/artifacts/${artifactId}/versions?${query}`,
-      schema: VersionList,
-    });
-    items.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor !== null);
+  const items = await listAllVersions(session, artifactId);
 
   if (options.json) {
     writeJson(io, { artifactId, items });
@@ -71,6 +89,27 @@ export async function versions(
   );
 }
 
+/** Every retained version of the artifact, newest first, following the cursor to the last page. */
+export async function listAllVersions(
+  session: Session,
+  artifactId: string,
+): Promise<VersionSummary[]> {
+  const items: VersionSummary[] = [];
+  let cursor: string | null = null;
+  do {
+    const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
+    if (cursor !== null) query.set("cursor", cursor);
+    const page: VersionList = await callApi(session, {
+      method: "GET",
+      path: `/artifacts/${artifactId}/versions?${query}`,
+      schema: VersionList,
+    });
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return items;
+}
+
 export async function rollback(
   io: Io,
   runtime: Runtime,
@@ -79,8 +118,9 @@ export async function rollback(
   options: OutputOptions,
 ): Promise<void> {
   const artifactId = parseArtifactId(id);
-  const versionId = parseVersionId(version);
+  const target = parseVersionArg(version);
   const session = await openSession(io, runtime);
+  const versionId = await resolveVersionArg(session, artifactId, target);
   // The base is the version current right now; a publish in between makes this a conflict.
   const artifact = await callApi(session, {
     method: "GET",
