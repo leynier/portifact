@@ -80,6 +80,18 @@ export const messages = {
     `Note: access is ${mode}, so the reader list applies only after \`portifact access set <id> restricted\`.`,
   accessChanged: (id: string) => `Updated access to ${id}.`,
 
+  // Versions.
+  versionsEmpty: (id: string) => `${id} has no published versions.`,
+  rolledBack: (id: string, version: number, from: number, url: string, expiresAt: string) =>
+    [
+      `Rolled back ${id}: version ${version} has the files of version ${from}. Access did not change.`,
+      `URL: ${url}`,
+      `Expires: ${formatDate(expiresAt)}`,
+    ].join("\n"),
+  downloaded: (done: number, total: number) => `Downloaded ${done} of ${total}.`,
+  pulled: (count: number, bytes: number, version: number, id: string, out: string) =>
+    `Downloaded ${count} ${plural(count, "file", "files")} (${formatBytes(bytes)}) of version ${version} of ${id} into ${out}.`,
+
   errors: {
     notSignedIn: (origin: string) =>
       `Not signed in to ${origin}. Run \`portifact login\` to sign in.`,
@@ -129,6 +141,18 @@ export const messages = {
     confirmationRequired: (id: string) =>
       `Deleting is permanent. Run \`portifact delete ${id} --yes\` to confirm without a prompt.`,
     deleteCancelled: "Nothing was deleted: the confirmation did not match the artifact ID.",
+    invalidVersionId: (value: string) =>
+      `${JSON.stringify(value)} is not a version ID. Run \`portifact versions <id>\` to list them.`,
+    noCurrentVersion: (id: string) => `${id} has no published version to roll back.`,
+    outExists: (path: string) =>
+      `${path} already exists. pull writes into a new folder; choose a path that does not exist.`,
+    outInsideGit: (path: string) => `${path} is inside a .git folder. Choose another folder.`,
+    unsafePath: (path: string, reason: string) =>
+      `The server sent a file path that cannot be written safely (${JSON.stringify(path)}: ${reason}). Nothing was written.`,
+    downloadFailed: (path: string) => `Could not download ${path}. Run the command again.`,
+    downloadMismatch: (path: string) =>
+      `${path} did not match its size or SHA-256 after downloading, so the pull stopped. Run the command again.`,
+    pullCleanedUp: (out: string) => `Removed the partial download in ${out}.`,
   },
 } as const;
 

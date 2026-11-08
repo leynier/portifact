@@ -161,7 +161,8 @@ async function existingObjects(db: Db, ownerId: string, hashes: string[]): Promi
   return found;
 }
 
-async function windowSum(
+/** Sum of an account's usage events of one kind since `since`, for the 24-hour limits. */
+export async function windowSum(
   db: Db,
   ownerId: string,
   kind: "publish" | "new_files" | "new_bytes",

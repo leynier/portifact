@@ -81,6 +81,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
         : undefined;
     };
 
+  const presignerFor = (env: Env) =>
+    r2Presigner({
+      accountId: env.R2_ACCOUNT_ID,
+      bucket: env.R2_BUCKET,
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    });
+
   const resources = (env: Env) => {
     const urls = authUrls(env.APP_ORIGIN);
     const resource = (identifier: string, name: string): ProtectedResource => ({
@@ -126,13 +134,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       introspect: introspectFor,
       resource: (env) => resources(env).api,
       session: sessionUserFor,
-      presigner: (env) =>
-        r2Presigner({
-          accountId: env.R2_ACCOUNT_ID,
-          bucket: env.R2_BUCKET,
-          accessKeyId: env.R2_ACCESS_KEY_ID,
-          secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-        }),
+      presigner: presignerFor,
       now: () => Date.now(),
     }),
   );
@@ -156,6 +158,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     mcpRoutes({
       introspect: introspectFor,
       resource: (env) => resources(env).mcp,
+      presigner: presignerFor,
       now: () => Date.now(),
     }),
   );

@@ -13,7 +13,9 @@ import { login, logout, whoami, writeJson } from "./commands.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
 import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
+import { pull } from "./pull.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
+import { rollback, versions } from "./versions.ts";
 
 export type { Io } from "./runtime.ts";
 
@@ -24,11 +26,11 @@ export const notice = messages.notice;
 const EXIT_CODES_HELP = `
 Exit codes:
   0  success
-  1  failure: network, unexpected server answer, rate limit, upload or cancelled
+  1  failure: network, unexpected server answer, rate limit, upload, download or cancelled
   2  invalid usage or input
   3  not signed in, or the session ended
   4  login denied or expired
-  5  artifact or upload not found, or not allowed
+  5  artifact, version or upload not found, or not allowed
   6  conflict with the artifact's state (version conflict, incomplete upload, archived)
   7  limit reached (quota, traffic, account too new for public access)
 
@@ -42,6 +44,13 @@ The type is inferred from the path: a folder or .html file is a site, .md is mar
 Publishing a new version keeps the artifact's access as it is.
 
 ZIP files and --source (private sources) are not supported yet; they arrive in a later release.
+`;
+
+const PULL_HELP = `
+Without --published or --source, pull downloads the published files. Files go into a new
+folder: published files under <out>/published and sources under <out>/source. The folder must
+not exist yet. Every file is checked against its SHA-256; paths inside a .git folder are refused.
+Readers an artifact is shared with can pull the published files of a Markdown or text artifact.
 `;
 
 const LIST_MAX = 100;
@@ -265,6 +274,63 @@ export async function run(
         ),
       );
   }
+
+  program
+    .command("versions")
+    .description("List the versions of an artifact you can still download or roll back to")
+    .argument("<id>", "artifact ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        versions(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+
+  program
+    .command("rollback")
+    .description("Make a previous version current again, as a new version with its files")
+    .argument("<id>", "artifact ID")
+    .argument("<version>", "version ID, from `portifact versions`")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, version: string) =>
+        rollback(io, runtime, id, version, { json: options.json === true }),
+      ),
+    );
+
+  program
+    .command("pull")
+    .description("Download a version's published files or private sources into a new folder")
+    .argument("<id>", "artifact ID")
+    .requiredOption("--out <dir>", "new folder to download into; it must not exist")
+    .option("--version <id>", "version ID to download (default: the current version)")
+    .option("--published", "download the published files (the default)")
+    .option("--source", "download the private sources (owner only)")
+    .option("--json", "Print the result as JSON")
+    .addHelpText("after", PULL_HELP)
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: {
+            out: string;
+            version?: string;
+            published?: boolean;
+            source?: boolean;
+            json?: boolean;
+          },
+          id: string,
+        ) =>
+          pull(io, runtime, id, {
+            out: options.out,
+            version: options.version,
+            published: options.published === true,
+            source: options.source === true,
+            json: options.json === true,
+          }),
+      ),
+    );
 
   for (const command of [...program.commands, ...access.commands]) {
     command.exitOverride().configureOutput({ writeOut: io.stdout, writeErr: io.stderr });
