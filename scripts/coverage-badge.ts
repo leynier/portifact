@@ -26,12 +26,17 @@ if (files === 0 || total === 0) {
 }
 
 const percent = Math.floor((covered / total) * 1000) / 10;
-console.log(
-  JSON.stringify({
-    schemaVersion: 1,
-    label: "coverage",
-    message: `${percent}%`,
-    labelColor: "000000",
-    color: "444444",
-  }),
-);
+// Conventional coverage badge colors, so the badge reads like any other project's.
+const color =
+  percent >= 95
+    ? "brightgreen"
+    : percent >= 90
+      ? "green"
+      : percent >= 80
+        ? "yellowgreen"
+        : percent >= 70
+          ? "yellow"
+          : percent >= 60
+            ? "orange"
+            : "red";
+console.log(JSON.stringify({ schemaVersion: 1, label: "coverage", message: `${percent}%`, color }));
