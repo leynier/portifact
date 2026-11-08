@@ -91,6 +91,8 @@ async function sendPart(
   data: Uint8Array,
   partNumber: number,
   report = true,
+  /** How the client got the ETag: R2's S3 endpoint sends it quoted, the binding does not. */
+  quoted = false,
 ) {
   const { partSize, key, uploadId } = await currentState(ownerId, sessionId, large.sha256);
   const slice = data.slice((partNumber - 1) * partSize, partNumber * partSize);
@@ -104,7 +106,7 @@ async function sendPart(
       sessionId,
       sha256: large.sha256,
       partNumber,
-      etag: part.etag,
+      etag: quoted ? `"${part.etag}"` : part.etag,
       now: NOW,
     });
     expect(reported).toEqual({ ok: true, value: true });
@@ -235,6 +237,23 @@ describe("a multipart upload", () => {
     expect(left).toEqual([]);
     // The object survives the cleanup of its session's multipart upload.
     expect((await env.ARTIFACTS.head(large.r2Key))?.size).toBe(SIZE);
+  });
+
+  it("commits parts whose ETags are quoted, as the S3 endpoint's ETag header sends them", async () => {
+    const id = owner();
+    const data = bytes(SIZE, 9);
+    const { prepared, large } = await prepareLarge(id, data);
+    for (const part of [1, 2, 3])
+      await sendPart(id, prepared.sessionId, large, data, part, true, true);
+
+    const committed = await commitPublish(db(), env.ARTIFACTS, {
+      ownerId: id,
+      sessionId: prepared.sessionId,
+      now: NOW,
+    });
+    expect(committed).toMatchObject({ ok: true });
+    expect((await env.ARTIFACTS.head(large.r2Key))?.size).toBe(SIZE);
+    await runJobs(prepared.sessionId);
   });
 
   it("refuses the commit while parts are missing and keeps the upload open", async () => {
