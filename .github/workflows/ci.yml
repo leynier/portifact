@@ -1,0 +1,104 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run test
+      - run: shellcheck scripts/install.sh
+
+  pr-title:
+    name: pr-title
+    if: github.base_ref == 'develop'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  main-source:
+    name: main-source
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Only develop can be merged into main
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          if [ "$HEAD_REF" != "develop" ]; then
+            echo "Pull requests into main must come from develop (got '$HEAD_REF')." >&2
+            exit 1
+          fi
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run build:cli -- --all
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-assets
+          path: dist/release/
+          retention-days: 3
+
+  smoke:
+    name: smoke (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist/release
+      - name: Install with install.sh and run
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          PORTIFACT_DOWNLOAD_URL="file://$PWD/dist/release" PORTIFACT_INSTALL_DIR="$RUNNER_TEMP/bin" \
+            PORTIFACT_NO_MODIFY_PATH=1 bash scripts/install.sh
+          "$RUNNER_TEMP/bin/portifact" --version | grep -E '^[0-9]+\.[0-9]+\.[0-9]+'
+          "$RUNNER_TEMP/bin/portifact" | grep -q 'early development'
+      - name: Install with install.ps1 and run
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PORTIFACT_DOWNLOAD_URL = Join-Path $PWD 'dist\release'
+          $env:PORTIFACT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'bin'
+          $env:PORTIFACT_NO_MODIFY_PATH = '1'
+          ./scripts/install.ps1
+          $version = & (Join-Path $env:PORTIFACT_INSTALL_DIR 'portifact.exe') --version
+          if ($version -notmatch '^\d+\.\d+\.\d+') { throw "Unexpected version output: $version" }
