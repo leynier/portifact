@@ -65,10 +65,11 @@ gh attestation verify portifact-linux-x64.tar.gz --repo leynier/portifact
 
 ## Checks on pull requests
 
-The `ci` workflow runs lint, typecheck, tests with coverage thresholds and `shellcheck`. It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS and Windows. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
+The `ci` workflow runs lint, typecheck, tests with coverage thresholds, `shellcheck` and a render of sample release notes with the configured preset (`scripts/check-release-notes.mjs`). It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS and Windows. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
 
 ## Setup and recovery
 
 - Secret `RELEASE_DEPLOY_KEY`: private half of a write-enabled deploy key. The `develop` and `main` rulesets allow this deploy key to bypass them. If you rotate it, update both the deploy key and the secret.
 - A failed release leaves no tag. Fix the cause on `develop` and merge into `main` again.
 - If the release succeeded but the sync into `develop` failed, merge `main` into `develop` through a pull request.
+- Keep `conventional-changelog-conventionalcommits` on the major version that matches the changelog writer bundled with semantic-release. Version 10 of the preset needs `conventional-changelog-writer` 9, while semantic-release 25 ships writer 8, so the preset stays on 9. `scripts/check-release-notes.mjs` catches a mismatch in CI.
