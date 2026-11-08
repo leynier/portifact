@@ -115,6 +115,7 @@ interface Fixtures {
 
 export const test = base.extend<Fixtures>({
   engine: [{ blocksThirdPartyCookies: true, reviewWorks: true }, { option: true }],
+  // biome-ignore lint/correctness/noEmptyPattern: Playwright requires a destructuring pattern.
   proxy: async ({}, use) => {
     const server = process.env.PF_E2E_PROXY;
     if (!server) throw new Error("the e2e stack is not running (global-setup.ts)");
