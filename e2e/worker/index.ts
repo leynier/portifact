@@ -4,7 +4,7 @@
 // test runner, never through the browsers' proxy) to the seeding endpoints in control.ts. The
 // content Worker runs on the clock in clock.ts, which tests can move forward.
 import app from "../../apps/app/src/index.ts";
-import { handle, isolateMeter } from "../../apps/content/src/index.ts";
+import { handle, isolateMeter, isolateOpenings } from "../../apps/content/src/index.ts";
 import { contentNow } from "./clock.ts";
 import { CONTROL_HOST, control, type E2eEnv } from "./control.ts";
 
@@ -13,8 +13,14 @@ export default {
     const host = new URL(request.url).hostname;
     if (host === CONTROL_HOST) return control(request, env);
     if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) {
-      return handle(request, env, contentNow(), (charge) =>
-        isolateMeter(env).count(charge, (promise) => ctx.waitUntil(promise)),
+      // Like the content Worker's own fetch: traffic and access log batches after the response.
+      const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
+      return handle(
+        request,
+        env,
+        contentNow(),
+        (charge) => isolateMeter(env).count(charge, waitUntil),
+        (opening) => isolateOpenings(env).record(opening, waitUntil),
       );
     }
     return app.fetch(request, env, ctx);
