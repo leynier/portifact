@@ -94,7 +94,7 @@ export interface DashboardApi {
   /** The account's quotas, this month's traffic and what blocks it now. */
   usage(): Promise<AccountUsageView>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
-  accessLog(artifactId: string, cursor?: string): Promise<AccessLogView>;
+  accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -301,8 +301,11 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     usage() {
       return call("/api/v1/usage", AccountUsageView);
     },
-    accessLog(artifactId, cursor) {
-      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+    accessLog(artifactId, cursor, limit) {
+      const params = new URLSearchParams();
+      if (cursor) params.set("cursor", cursor);
+      if (limit !== undefined) params.set("limit", String(limit));
+      const query = params.size > 0 ? `?${params}` : "";
       return call(
         `/api/v1/artifacts/${encodeURIComponent(artifactId)}/access-log${query}`,
         AccessLogView,
