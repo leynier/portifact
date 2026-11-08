@@ -5,17 +5,19 @@ import { LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { purgeDate } from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
-import { and, eq, inArray, isNotNull, lte, ne, notExists, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lte, ne, notExists, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { processAccountDeletions } from "./account-data.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneOperations } from "./idempotency.ts";
+import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { abortPublish } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 
 const DEFAULT_BATCH = 50;
+const RELEASE_CHUNK = 40;
 
 export interface JobResult {
   processed: number;
@@ -180,18 +182,23 @@ export async function purgeArchived(
   let processed = 0;
   for (const artifact of due) {
     if (artifact.state === "archived") {
-      const claimed = await db
-        .update(schema.artifacts)
-        .set({ state: "purging", lifecycleGeneration: artifact.generation + 1, updatedAt: now })
-        .where(
-          and(
-            eq(schema.artifacts.id, artifact.id),
-            eq(schema.artifacts.state, "archived"),
-            eq(schema.artifacts.lifecycleGeneration, artifact.generation),
-            lte(schema.artifacts.purgeAt, now),
-          ),
-        )
-        .returning({ id: schema.artifacts.id });
+      const a = schema.artifacts;
+      const stillDue = and(
+        eq(a.id, artifact.id),
+        eq(a.state, "archived"),
+        eq(a.lifecycleGeneration, artifact.generation),
+        lte(a.purgeAt, now),
+      ) as SQL;
+      // The job is written with the claim, conditioned on the same old state, so a crash after
+      // the claim leaves the purge to the queue; the claim goes last.
+      const [, claimed] = await db.batch([
+        purgeJobs(db, stillDue, now, now + OUTBOX_INLINE_GRACE_MS),
+        db
+          .update(a)
+          .set({ state: "purging", lifecycleGeneration: artifact.generation + 1, updatedAt: now })
+          .where(stillDue)
+          .returning({ id: a.id }),
+      ]);
       if (claimed.length === 0) continue;
     }
     await deleteArtifactData(db, bucket, artifact.id, now);
@@ -227,13 +234,21 @@ export async function deleteArtifactData(
     db
       .delete(schema.artifacts)
       .where(and(eq(schema.artifacts.id, artifactId), eq(schema.artifacts.state, "purging"))),
+    closeJobs(
+      db,
+      "purge_artifact",
+      artifactId,
+      sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId})`,
+    ),
   ]);
   await releaseOrphans(db, bucket, files, now);
 }
 
 /**
- * Deletes objects that no manifest references any more. Only the statement that deletes a row
- * releases its bytes, so concurrent runs never release the same object twice.
+ * Deletes objects that no manifest references any more. One batch writes a `delete_objects` job
+ * with their R2 keys, releases their bytes from the account and deletes their rows, so only the
+ * run whose batch deletes a row releases it, and a crash before the R2 delete leaves it to the
+ * queue instead of leaking the object.
  */
 export async function releaseOrphans(
   db: Db,
@@ -247,47 +262,38 @@ export async function releaseOrphans(
     set.add(sha256);
     byOwner.set(ownerId, set);
   }
+  const o = schema.objects;
+  const vf = schema.versionFiles;
   for (const [ownerId, hashes] of byOwner) {
     const list = [...hashes];
-    for (let i = 0; i < list.length; i += 80) {
-      const chunk = list.slice(i, i + 80);
-      const removed = await db
-        .delete(schema.objects)
-        .where(
-          and(
-            eq(schema.objects.ownerId, ownerId),
-            inArray(schema.objects.sha256, chunk),
-            notExists(
-              db
-                .select({ one: sql`1` })
-                .from(schema.versionFiles)
-                .where(
-                  and(
-                    eq(schema.versionFiles.ownerId, schema.objects.ownerId),
-                    eq(schema.versionFiles.sha256, schema.objects.sha256),
-                  ),
-                ),
-            ),
-          ),
-        )
-        .returning({
-          size: schema.objects.size,
-          r2Key: schema.objects.r2Key,
-          state: schema.objects.state,
-        });
-      if (removed.length === 0) continue;
-      await bucket.delete(removed.map((object) => object.r2Key));
-      const freed = removed
-        .filter((object) => object.state === "verified")
-        .reduce((sum, object) => sum + object.size, 0);
-      if (freed > 0) {
-        await db
+    // Each statement repeats the chunk at most twice and D1 binds at most 100 values.
+    for (let i = 0; i < list.length; i += RELEASE_CHUNK) {
+      const chunk = list.slice(i, i + RELEASE_CHUNK);
+      const orphan = sql`${o.ownerId} = ${ownerId} and ${o.sha256} in (${sql.join(
+        chunk.map((hash) => sql`${hash}`),
+        sql`, `,
+      )}) and not exists (select 1 from ${vf} where ${vf.ownerId} = ${o.ownerId} and ${vf.sha256} = ${o.sha256})`;
+      const [job, , removed] = await db.batch([
+        db
+          .insert(schema.outbox)
+          .select(
+            sql`select null, 'delete_objects', json_object('keys', json_group_array(${o.r2Key})), ${now + OUTBOX_INLINE_GRACE_MS}, null, 0, ${now}, ${ownerId}, null from ${o} where ${orphan} having count(*) > 0`,
+          )
+          .returning({ id: schema.outbox.id }),
+        db
           .update(schema.accountUsage)
           .set({
-            storedBytes: sql`max(0, ${schema.accountUsage.storedBytes} - ${freed})`,
+            storedBytes: sql`max(0, ${schema.accountUsage.storedBytes} - (select coalesce(sum(${o.size}), 0) from ${o} where ${orphan} and ${o.state} = 'verified'))`,
             updatedAt: now,
           })
-          .where(eq(schema.accountUsage.ownerId, ownerId));
+          .where(eq(schema.accountUsage.ownerId, ownerId)),
+        db.delete(o).where(orphan).returning({ r2Key: o.r2Key }),
+      ]);
+      if (removed.length === 0) continue;
+      await bucket.delete(removed.map((object) => object.r2Key));
+      const jobId = job[0]?.id;
+      if (jobId !== undefined) {
+        await db.delete(schema.outbox).where(eq(schema.outbox.id, jobId));
       }
     }
   }

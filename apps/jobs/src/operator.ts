@@ -1,12 +1,16 @@
 // Operator commands for abuse handling (plan section 13): list and resolve reports, suspend and
-// reinstate artifacts and accounts. They run only from `scripts/operator.ts` on the operator's
+// reinstate artifacts and accounts; and for backups (plan section 10): review the storage
+// reconciliation's findings, and export and re-apply tombstones around a D1 Time Travel restore. They run only from `scripts/operator.ts` on the operator's
 // machine, with the deploy credentials, against the D1 binding; no web route reaches them. Each
 // command calls the same services the tests cover, and prints plain text without secrets.
-import { AbuseReason } from "@portifact/contracts";
+import { AbuseReason, TombstoneMarker } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import {
   accountSuspension,
+  applyTombstones,
+  exportTombstones,
   listAbuseReports,
+  listStorageFindings,
   reinstateAccount,
   reinstateArtifact,
   resolveAbuseReport,
@@ -25,8 +29,43 @@ Commands:
   reinstate-artifact <artifact-id>
   suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
   reinstate-account <user-id|email>
+  storage-report [--limit N]
+  export-tombstones --out <file>
+  apply-tombstones [--file <file>]
 
 Reasons: ${AbuseReason.options.join(", ")}`;
+
+/** Files the backup commands read and write; the script passes the real file system. */
+export interface OperatorFiles {
+  read(path: string): Promise<string>;
+  write(path: string, text: string): Promise<void>;
+}
+
+const noFiles: OperatorFiles = {
+  read: async () => Promise.reject(new Error("No file access.")),
+  write: async () => Promise.reject(new Error("No file access.")),
+};
+
+/** Parses the JSON lines `export-tombstones` writes; any bad line refuses the whole file. */
+export function parseTombstones(
+  text: string,
+): { ok: true; markers: TombstoneMarker[] } | { ok: false; line: number } {
+  const markers: TombstoneMarker[] = [];
+  const lines = text.split("\n");
+  for (const [index, line] of lines.entries()) {
+    if (line.trim() === "") continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      return { ok: false, line: index + 1 };
+    }
+    const parsed = TombstoneMarker.safeParse(value);
+    if (!parsed.success) return { ok: false, line: index + 1 };
+    markers.push(parsed.data);
+  }
+  return { ok: true, markers };
+}
 
 export interface OperatorResult {
   exitCode: number;
@@ -81,6 +120,7 @@ export async function runOperator(
   db: Db,
   argv: readonly string[],
   now: number,
+  files: OperatorFiles = noFiles,
 ): Promise<OperatorResult> {
   const { positional, options } = parseArgs(argv);
   const [command, ...args] = positional;
@@ -209,6 +249,46 @@ export async function runOperator(
         output: result.value.changed
           ? `Reinstated account ${userId} and ${result.value.artifacts} artifact(s).`
           : `Account ${userId} was not suspended.`,
+      };
+    }
+    case "storage-report": {
+      const limit = Number(options.get("limit") ?? 100);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        return usage("--limit must be 1 to 1000.");
+      }
+      const findings = await listStorageFindings(db, limit);
+      if (findings.length === 0) return { exitCode: 0, output: "No storage findings." };
+      const lines = findings.map(
+        (f) =>
+          `${f.kind}  ${f.r2Key}  first ${new Date(f.firstSeenAt).toISOString()}  last ${new Date(f.lastSeenAt).toISOString()}${f.detail ? `  ${f.detail}` : ""}`,
+      );
+      return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "export-tombstones": {
+      const out = options.get("out");
+      if (!out) return usage("export-tombstones needs --out <file>.");
+      const markers = await exportTombstones(db);
+      await files.write(out, markers.map((marker) => `${JSON.stringify(marker)}\n`).join(""));
+      return { exitCode: 0, output: `Wrote ${markers.length} tombstone marker(s) to ${out}.` };
+    }
+    case "apply-tombstones": {
+      const file = options.get("file");
+      let markers: TombstoneMarker[] = [];
+      if (file !== undefined) {
+        if (!file) return usage("--file needs a path.");
+        const parsed = parseTombstones(await files.read(file));
+        if (!parsed.ok) {
+          return {
+            exitCode: 1,
+            output: `Line ${parsed.line} of ${file} is not a tombstone marker; nothing was applied.`,
+          };
+        }
+        markers = parsed.markers;
+      }
+      const result = await applyTombstones(db, markers, now);
+      return {
+        exitCode: 0,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again. The jobs Worker purges them on its next runs.`,
       };
     }
     default:
