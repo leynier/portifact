@@ -25,13 +25,13 @@ bun run --cwd apps/jobs operator reinstate-artifact <id>
 bun run --cwd apps/jobs operator suspend-account <user-id|email> --reason malware
 bun run --cwd apps/jobs operator reinstate-account <user-id|email>
 bun run --cwd apps/jobs operator storage-report [--limit N]          # what the storage reconciliation found
-bun run --cwd apps/jobs operator export-tombstones --out <file>      # before restoring a backup
-bun run --cwd apps/jobs operator apply-tombstones --file <file>      # after restoring a backup
+bun run --cwd apps/jobs operator export-tombstones --out <absolute file>   # before restoring a backup
+bun run --cwd apps/jobs operator apply-tombstones --file <absolute file>   # after restoring a backup
 bun run --cwd apps/jobs operator email-suppressions                  # addresses that get no sign-in codes
 bun run --cwd apps/jobs operator lift-email-suppression <email>
 ```
 
-`--local` runs against the local D1 state of `wrangler dev` in `apps/app` instead (apply the migrations there first with `wrangler d1 migrations apply portifact-control --local --persist-to apps/app/.wrangler/state`). The remote binding is defined in `apps/jobs/operator.wrangler.jsonc`, which is never deployed. Reasons are the `AbuseReason` values in `packages/contracts/src/moderation.ts`.
+`--local` runs against the local D1 state of `wrangler dev` in `apps/app` instead (apply the migrations there first with `wrangler d1 migrations apply portifact-control --local --persist-to apps/app/.wrangler/state`). The remote binding is defined in `apps/jobs/operator.wrangler.jsonc`, which is never deployed. `--config <file>` uses the `DB` binding of another Wrangler configuration instead, for example a scratch database in a backup drill; never edit `operator.wrangler.jsonc` to point it elsewhere. `bun run --cwd apps/jobs` runs the script in `apps/jobs`, so relative paths (`--config`, `--out`, `--file`) resolve from there, not from the repository root: pass absolute paths. Reasons are the `AbuseReason` values in `packages/contracts/src/moderation.ts`.
 
 Report text is untrusted: the tool prints each report on one plain line and never prints the reporter's email (it says `has-email`); read it from D1 only when replying.
 
@@ -110,9 +110,13 @@ An account whose artifacts served 1 million requests or 25 GB in the current UTC
 
 ## Maintenance and the outbox
 
-State changes that need follow-up work write a job to the `outbox` table in the same D1 batch (`packages/services/src/outbox.ts`): `purge_artifact` when an artifact is claimed for purging (deletion by its owner, the six-month purge, account deletion, re-applied tombstones), `account_deletion` with a deletion request, `delete_objects` with the R2 keys whose rows a release just deleted, and `abort_multipart` when an upload session with multipart uploads closes (it aborts the R2 uploads not completed and deletes their staging copies under `uploads/`, which the storage reconciliation does not scan). Every 15 minutes the jobs Worker runs the maintenance scans, relays due rows to the `portifact-jobs` queue and reconciles a slice of storage. The consumer deletes a row once its job is done; a job whose row is gone is already done, a purge whose artifact is no longer in the `purging` state and generation it was claimed with is stale and dropped, and a `delete_objects` job keeps any key that has a row again. A row still there an hour after it was sent is sent again.
+State changes that need follow-up work write a job to the `outbox` table in the same D1 batch (`packages/services/src/outbox.ts`): `purge_artifact` when an artifact is claimed for purging (deletion by its owner, the six-month purge, account deletion, re-applied tombstones), `account_deletion` with a deletion request, `delete_objects` with the R2 keys whose rows a release just deleted, `erase_access_events` when an artifact is purged or an account is deleted (it deletes their rows from the separate `portifact-access` database), and `abort_multipart` when an upload session with multipart uploads closes (it aborts the R2 uploads not completed and deletes their staging copies under `uploads/`, which the storage reconciliation does not scan). Every 15 minutes the jobs Worker runs the maintenance scans, relays due rows to the `portifact-jobs` queue and reconciles a slice of storage. The consumer deletes a row once its job is done; a job whose row is gone is already done, a purge whose artifact is no longer in the `purging` state and generation it was claimed with is stale and dropped, and a `delete_objects` job keeps any key that has a row again. A row still there an hour after it was sent is sent again.
 
 `select topic, subject, attempts, dispatched_at from outbox order by id` shows what is pending. Rows with many attempts point at a job that keeps failing; the Worker logs `job_failed` with the topic and the error message. The scans in `runMaintenance` still archive, purge, prune and finish deletions on their own, so a queue outage only delays the work.
+
+## Access logs
+
+Openings of artifacts by signed-in visitors live in the `portifact-access` D1 database (see "Access logs" in [security.md](security.md)). Each scheduled run prunes rows older than 30 days (`prunedAccessEvents` in the `maintenance` log line, or `failed` with an `access_log_prune_failed` line; the rest of the run goes on). Only the artifact's owner reads them through the product; there is no operator command, and a visitor's request about their own entries goes through `privacy@portifact.com`: `npx wrangler d1 execute portifact-access --remote --command "select artifact_id, opened_at from access_events where user_id = '<id>'"` lists them, and deleting the account erases them. The database is not part of the control database's Time Travel restore: restoring `portifact-control` does not bring access log rows back, and the erase jobs of re-applied tombstones delete any rows of resurrected accounts or artifacts again. It has its own Time Travel, but restoring it would bring back entries that were erased, so do not.
 
 ## Storage reconciliation
 
@@ -129,10 +133,37 @@ A finding disappears once a later pass sees the key fine again or no longer sees
 The database backup is D1 Time Travel (30 days on Workers Paid). R2 is not rewound, so a restore can bring back rows of artifacts and accounts deleted since, and lose the tombstones that recorded those deletions. Re-applying the tombstones afterwards deletes them again. With the deploy credentials, from the repository root:
 
 1. Note the current state so the restore can be undone: `npx wrangler d1 time-travel info portifact-control` prints the current bookmark.
-2. Export what the restore must not bring back from the live database: `bun run --cwd apps/jobs operator export-tombstones --out tombstones.jsonl`. The file lists tombstones, account deletions in progress and artifacts already claimed for purging, one JSON object per line. It holds user and artifact IDs: keep it out of the repository and delete it when done.
-3. Restore: `npx wrangler d1 time-travel restore portifact-control --timestamp <RFC 3339 time>` (or `--bookmark <bookmark>`).
-4. Re-apply the tombstones: `bun run --cwd apps/jobs operator apply-tombstones --file tombstones.jsonl`. It stores the markers as tombstones, claims every artifact that has a tombstone or belongs to a tombstoned account for purging, and deletes every tombstoned account the restore brought back the way a deletion request does, each with its outbox job. Running it again changes nothing. Without `--file` it applies the tombstones the restored database still has.
-5. The jobs Worker purges the claimed artifacts and finishes the deletions within the next runs. Check with `select count(*) from artifacts where state = 'purging'` and `select * from account_deletions`.
+2. Export what the restore must not bring back from the live database: `bun run --cwd apps/jobs operator export-tombstones --out "$HOME/portifact-tombstones.jsonl"`. The file lists tombstones, account deletions in progress and artifacts already claimed for purging, one JSON object per line. It holds user and artifact IDs: write it outside the repository (a relative path lands in `apps/jobs`, which is not ignored) and delete it when done.
+3. Restore: `npx wrangler d1 time-travel restore portifact-control --timestamp <RFC 3339 time>` (or `--bookmark <bookmark>`). It asks for confirmation (there is no `--yes`; without a terminal Wrangler proceeds on its own), cancels queries in flight and prints a bookmark that undoes it; note that one too.
+4. Re-apply the tombstones: `bun run --cwd apps/jobs operator apply-tombstones --file "$HOME/portifact-tombstones.jsonl"`. It stores the markers as tombstones, claims every artifact that has a tombstone or belongs to a tombstoned account for purging, and deletes every tombstoned account the restore brought back the way a deletion request does, each with its outbox job. Running it again changes nothing. Without `--file` it applies the tombstones the restored database still has.
+5. The jobs Worker purges the claimed artifacts and finishes the deletions within the next runs; an account deletion stays pending until its artifacts are purged, so it finishes one run after them. Check with `select count(*) from artifacts where state = 'purging'` and `select * from account_deletions`.
 6. Run `storage-report` after a full reconciliation pass and handle `missing` and `orphan` findings as described above.
 
 If the live database cannot be read for step 2, restore to the latest point that can, export from it, then restore to the point you need and apply. Migrations applied after the restore point are rewound too: apply them again with `wrangler d1 migrations apply portifact-control --remote` before step 4.
+
+### Backup drill
+
+Rehearse the restore on a scratch database, never on `portifact-control`. With the deploy credentials:
+
+1. `npx wrangler d1 create portifact-drill-<date>`, then a Wrangler configuration outside the repository with a `DB` binding to it (`"remote": true`, `migrations_dir` pointing at `packages/db/migrations`) and `npx wrangler d1 migrations apply portifact-drill-<date> --remote -c <that file>`.
+2. Seed it through the services (users, active and archived artifacts with versions and objects, annotation threads), for example with a throwaway Node script that binds the configuration with `getPlatformProxy` and a local R2 bucket. The publish commit uses the Workers-only `crypto.DigestStream`, so such a script needs a small polyfill on Node.
+3. `npx wrangler d1 time-travel info portifact-drill-<date>` for the bookmark, then delete as production does: an artifact deleted by its owner, an account deletion left in progress, and an account deletion finished by its jobs.
+4. Follow "Restoring a backup" with `--config <that file>` on every operator command and the scratch database's name in the Wrangler commands. Check that the restore brings the deleted rows back without their tombstones, that `apply-tombstones` claims the resurrected artifacts and deletes the accounts again, that a second run reports `0 restored, 0 artifact(s) claimed for purging, 0 account(s) deleted again`, and that the outbox jobs finish the purge.
+5. Delete the database (`npx wrangler d1 delete portifact-drill-<date>`), the configuration, the export and any local state.
+
+Results of 2026-11-08 (Wrangler 4.158.0, Node 24, an empty database plus the seed):
+
+| Step                             | Time  | Result                                                                                                                                                           |
+| -------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create the database              | 1.4 s |                                                                                                                                                                  |
+| Apply the 19 migrations          | 4.2 s |                                                                                                                                                                  |
+| Seed through the services        | 10 s  | 4 users, 6 artifacts (4 active, 2 archived), 6 versions, 7 objects, 2 threads with 3 messages                                                                    |
+| `time-travel info`               | 1.1 s | Bookmark recorded                                                                                                                                                |
+| Deletions                        | 2.9 s | 3 tombstones (2 artifacts, 1 account), 1 deletion in progress, 2 artifacts `purging`                                                                             |
+| `export-tombstones`              | 3.4 s | 6 markers (4 artifacts, 2 accounts)                                                                                                                              |
+| `time-travel restore --bookmark` | 1.8 s | All 6 artifacts and 4 users back as seeded; tombstones, deletions and outbox empty                                                                               |
+| `apply-tombstones --file`        | 3.4 s | 6 restored, 4 artifacts claimed for purging, 2 accounts deleted again, with 4 `purge_artifact` and 2 `account_deletion` jobs; untouched rows stayed as they were |
+| `apply-tombstones --file` again  | 3.1 s | Nothing changed                                                                                                                                                  |
+| Outbox jobs, two passes          | 5.4 s | 4 artifacts purged; both account deletions pending on the first pass and finished on the second; the deleted account's thread erased; outbox empty               |
+
+What did not work as documented, fixed in this document and the tool: the export command wrote its file to `apps/jobs/` instead of the repository root, because `bun run --cwd` runs the script there and relative paths resolve from it (the directory is not ignored, so the IDs could be committed); the operator tool could only reach production or the local state, so `--config` was added for drills; and `time-travel restore` has no `--yes`. Each operator command opens a remote binding first, which accounts for most of its 3 seconds. R2 was a local bucket in the drill, so the storage reconciliation's findings after a restore were not exercised.

@@ -126,8 +126,24 @@ describe("artifact list", () => {
           .map((c) => c.textContent),
       ),
     ).toEqual([
-      ["Launch plan", "Site", "Active", "Dec 8, 2026"],
-      ["Old report", "Markdown", "Archived", "Dec 8, 2026"],
+      [
+        "Launch plan",
+        "Site",
+        "Active",
+        "Restricted",
+        "Dec 8, 2026",
+        "2 kB1 version kept",
+        "Updated Nov 8, 2026",
+      ],
+      [
+        "Old report",
+        "Markdown",
+        "Archived",
+        "Restricted",
+        "Dec 8, 2026",
+        "2 kB1 version kept",
+        "Updated Nov 8, 2026",
+      ],
     ]);
     expect(within(table).getByRole("link", { name: "Launch plan" }).getAttribute("href")).toBe(
       "/artifacts/k7d2qm4xab",
@@ -135,6 +151,59 @@ describe("artifact list", () => {
     expect(screen.getByText("Showing 2 artifacts")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
     expect(document.title).toBe("Artifacts · Portifact");
+  });
+
+  it("shows each artifact's size, kept versions, open threads and last comment activity", async () => {
+    server.artifacts = [
+      artifact("k7d2qm4xab", { name: "Launch plan", annotations: "open" }),
+      artifact("m3n4p5q6rs", { name: "Old report", currentVersionId: null }),
+      artifact("p2q3r4s5tu", { name: "Notes", annotations: "locked" }),
+    ];
+    server.activity = {
+      k7d2qm4xab: {
+        versions: 3,
+        currentBytes: 1_500_000,
+        openThreads: 2,
+        lastAnnotationAt: "2026-11-07T09:30:00.000Z",
+      },
+      m3n4p5q6rs: { versions: 0, currentBytes: null, openThreads: 0, lastAnnotationAt: null },
+      p2q3r4s5tu: { versions: 1, currentBytes: 900, openThreads: 0, lastAnnotationAt: null },
+    };
+    const { container } = renderDashboard("/", server);
+    const table = await screen.findByRole("table", { name: "Your artifacts" });
+    expect(within(table).getByRole("columnheader", { name: "Size" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Activity" })).toBeTruthy();
+    const cells = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) =>
+        within(row)
+          .getAllByRole("cell")
+          .slice(5)
+          .map((cell) => [...cell.children].map((line) => line.textContent)),
+      );
+    expect(cells).toEqual([
+      [
+        ["1.5 MB", "3 versions kept"],
+        ["Updated Nov 8, 2026", "2 open threads", "Comments changed Nov 7, 2026"],
+      ],
+      // Without a version there is no size; with comments off, no thread count either.
+      [["No version", "0 versions kept"], ["Updated Nov 8, 2026"]],
+      [
+        ["900 bytes", "1 version kept"],
+        ["Updated Nov 8, 2026", "No open threads"],
+      ],
+    ]);
+    // Traffic is not per artifact: the list says so and points to the account's usage.
+    expect(
+      screen.getByText("Traffic is counted for your whole account, not per artifact.", {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "See usage" }).getAttribute("href")).toBe(
+      "/account#usage",
+    );
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it("shows a loading state in words while the list loads", async () => {
@@ -217,6 +286,142 @@ describe("artifact list", () => {
     await act(() => vi.advanceTimersByTimeAsync(40_000));
     expect(server.listRequests()).toBe(afterFailure + 1);
     await waitFor(() => expect(screen.queryByText("The list could not be refreshed")).toBeNull());
+  });
+});
+
+describe("artifact search and filters", () => {
+  const rowNames = () =>
+    within(screen.getByRole("table"))
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[0]?.textContent);
+  const select = (name: string) => screen.getByRole("combobox", { name }) as HTMLSelectElement;
+  const lastListPath = () =>
+    server.requests
+      .filter((r) => r.path.startsWith("/api/v1/artifacts") && r.method === "GET")
+      .at(-1)?.path;
+
+  beforeEach(() => {
+    server.artifacts.push(
+      artifact("p4r5s2t3uv", {
+        name: "Launch notes",
+        type: "markdown",
+        accessMode: "public",
+        annotations: "open",
+      }),
+    );
+  });
+
+  it("searches by name on the server, keeps the filters in the URL and announces the count", async () => {
+    const { container, router } = renderDashboard("/", server);
+    await screen.findByRole("table", { name: "Your artifacts" });
+    const form = screen.getByRole("form", { name: "Search and filter artifacts" });
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search" }), {
+      target: { value: "  LAUNCH " },
+    });
+    fireEvent.change(select("Type"), { target: { value: "markdown" } });
+    fireEvent.submit(form);
+
+    await screen.findByRole("table", { name: "Your artifacts that match the search and filters" });
+    await waitFor(() => expect(rowNames()).toEqual(["Launch notes"]));
+    expect(lastListPath()).toBe("/api/v1/artifacts?search=LAUNCH&type=markdown");
+    expect(router.state.location.search).toEqual({ search: "LAUNCH", type: "markdown" });
+    expect(screen.getByText("Showing 1 matching artifact").getAttribute("role")).toBe("status");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("filters by state, access and comments, and finds an artifact by its ID", async () => {
+    renderDashboard("/", server);
+    await screen.findByRole("table");
+    const form = screen.getByRole("form", { name: "Search and filter artifacts" });
+    expect(Array.from(select("State").options, (option) => option.textContent)).toEqual([
+      "Any state",
+      "Active",
+      "Archived",
+      "Suspended",
+      "Being deleted",
+    ]);
+
+    fireEvent.change(select("State"), { target: { value: "archived" } });
+    fireEvent.submit(form);
+    await waitFor(() => expect(rowNames()).toEqual(["Old report"]));
+
+    fireEvent.change(select("State"), { target: { value: "any" } });
+    fireEvent.change(select("Access"), { target: { value: "public" } });
+    fireEvent.change(select("Comments"), { target: { value: "open" } });
+    fireEvent.submit(form);
+    await waitFor(() => expect(rowNames()).toEqual(["Launch notes"]));
+    expect(lastListPath()).toBe("/api/v1/artifacts?access=public&annotations=open");
+
+    fireEvent.change(select("Access"), { target: { value: "any" } });
+    fireEvent.change(select("Comments"), { target: { value: "any" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search" }), {
+      target: { value: "k7d2qm" },
+    });
+    fireEvent.submit(form);
+    await waitFor(() => expect(rowNames()).toEqual(["Launch plan"]));
+  });
+
+  it("says when nothing matches and clears the filters back to every artifact", async () => {
+    const { router } = renderDashboard("/?search=nothing", server);
+    expect(await screen.findByRole("heading", { name: "No artifacts match" })).toBeTruthy();
+    expect((screen.getByRole("searchbox", { name: "Search" }) as HTMLInputElement).value).toBe(
+      "nothing",
+    );
+    fireEvent.click(button("Clear filters"));
+    await waitFor(() => expect(rowNames()).toHaveLength(3));
+    expect(router.state.location.search).toEqual({});
+    expect((screen.getByRole("searchbox", { name: "Search" }) as HTMLInputElement).value).toBe("");
+  });
+
+  it("reads the filters from the URL, drops values the API would refuse and follows back", async () => {
+    const { router } = renderDashboard("/?state=deleted&type=markdown&access=everyone", server);
+    await waitFor(() => expect(rowNames()).toEqual(["Old report", "Launch notes"]));
+    expect(lastListPath()).toBe("/api/v1/artifacts?type=markdown");
+    expect(select("Type").value).toBe("markdown");
+    expect(select("State").value).toBe("any");
+    expect(select("Access").value).toBe("any");
+
+    fireEvent.change(select("Type"), { target: { value: "site" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Search and filter artifacts" }));
+    await waitFor(() => expect(rowNames()).toEqual(["Launch plan"]));
+    act(() => router.history.back());
+    await waitFor(() => expect(rowNames()).toEqual(["Old report", "Launch notes"]));
+    expect(select("Type").value).toBe("markdown");
+  });
+
+  it("pages through the filtered list with the same filters", async () => {
+    server.artifacts = ["a", "b", "c", "d"].map((letter, i) =>
+      artifact(letter.repeat(10), { name: `Report ${letter}`, type: i < 3 ? "text" : "site" }),
+    );
+    server.pageSize = 2;
+    renderDashboard("/?type=text", server);
+    await screen.findByText("Showing 2 matching artifacts");
+    fireEvent.click(button("Load more"));
+    expect(await screen.findByText("Showing 3 matching artifacts")).toBeTruthy();
+    expect(lastListPath()).toBe("/api/v1/artifacts?cursor=2&type=text");
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("refuses a search longer than the API takes, next to the field", async () => {
+    renderDashboard("/", server);
+    await screen.findByRole("table");
+    const before = server.listRequests();
+    const search = screen.getByRole("searchbox", { name: "Search" });
+    fireEvent.change(search, { target: { value: "x".repeat(201) } });
+    fireEvent.submit(screen.getByRole("form", { name: "Search and filter artifacts" }));
+    expect(await screen.findByText("Search for at most 200 characters")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(search));
+    expect(server.listRequests()).toBe(before);
+  });
+
+  it("hides the search while the account has no artifacts", async () => {
+    server.artifacts = [];
+    renderDashboard("/", server);
+    await screen.findByRole("heading", { name: "No artifacts yet" });
+    expect(screen.queryByRole("form", { name: "Search and filter artifacts" })).toBeNull();
   });
 });
 

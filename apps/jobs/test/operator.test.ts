@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { createDb, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { OPERATOR_USAGE, parseArgs, runOperator } from "../src/operator.ts";
+import { OPERATOR_USAGE, operatorTarget, parseArgs, runOperator } from "../src/operator.ts";
 
 const NOW = Date.UTC(2026, 10, 8, 12);
 const db = () => createDb(env.DB);
@@ -68,6 +68,54 @@ describe("operator arguments", () => {
       ["flag", ""],
       ["note", "x y"],
     ]);
+  });
+
+  it("targets production unless --local or --config says otherwise", () => {
+    expect(operatorTarget(["budget"])).toEqual({
+      ok: true,
+      target: "production",
+      config: null,
+      args: ["budget"],
+    });
+    expect(operatorTarget(["--local", "reports", "--limit", "5"])).toEqual({
+      ok: true,
+      target: "local",
+      config: null,
+      args: ["reports", "--limit", "5"],
+    });
+    expect(
+      operatorTarget([
+        "export-tombstones",
+        "--config",
+        "/tmp/drill.jsonc",
+        "--out",
+        "/tmp/t.jsonl",
+      ]),
+    ).toEqual({
+      ok: true,
+      target: "config",
+      config: "/tmp/drill.jsonc",
+      args: ["export-tombstones", "--out", "/tmp/t.jsonl"],
+    });
+  });
+
+  it("refuses a --config without a file and --config with --local", () => {
+    for (const argv of [
+      ["budget", "--config"],
+      ["--config", "--local", "budget"],
+      ["--local", "--config", "drill.jsonc", "budget"],
+      ["--config", "drill.jsonc", "--local", "budget"],
+    ]) {
+      expect(operatorTarget(argv), argv.join(" ")).toMatchObject({ ok: false });
+    }
+    expect(operatorTarget(["--config"])).toEqual({
+      ok: false,
+      message: "--config needs a Wrangler configuration file.",
+    });
+    expect(operatorTarget(["--local", "--config", "x.jsonc"])).toEqual({
+      ok: false,
+      message: "Use --local or --config, not both.",
+    });
   });
 
   it("explains usage for missing or unknown commands and bad options", async () => {

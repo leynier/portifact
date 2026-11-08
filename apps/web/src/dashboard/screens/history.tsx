@@ -1,7 +1,7 @@
 // Version history (plan section 6, "Historial" and "Archivo"): the retained versions with their
 // files, downloads of the published files and the sources (checked against the manifest and
-// packaged in the browser), rollback after a confirmation, and, while the artifact is archived,
-// the purge date with restore and delete.
+// packaged in the browser), rollback after a confirmation, the conversations on earlier versions
+// (read-only) and, while the artifact is archived, the purge date with restore and delete.
 import type { ArtifactSummary, DownloadKind, VersionSummary } from "@portifact/contracts";
 import {
   Badge,
@@ -41,6 +41,7 @@ import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { artifactQuery } from "./artifact-detail.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
+import { EarlierConversations } from "./earlier-conversations.tsx";
 
 export const versionsQuery = (artifactId: string) => ["versions", artifactId] as const;
 
@@ -408,6 +409,7 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
       >
         {t("history.confirmRollback.body")}
       </ConfirmDialog>
+      <EarlierConversations artifactId={artifact.id} versions={items} />
     </div>
   );
 }

@@ -16,6 +16,8 @@ import {
   type CheckboxProps,
   RadioGroup as RadioGroupControl,
   type RadioGroupProps,
+  Select,
+  type SelectProps,
   TextArea,
   type TextAreaProps,
   TextInput,
@@ -94,6 +96,20 @@ function RadioGroupField(props: Bound<RadioGroupProps<string>>) {
   );
 }
 
+function SelectField(props: Bound<SelectProps<string>>) {
+  const field = useFieldContext<string>();
+  return (
+    <Select
+      {...props}
+      name={field.name}
+      value={field.state.value}
+      onChange={field.handleChange}
+      onBlur={field.handleBlur}
+      error={firstError(field.state.meta.errors)}
+    />
+  );
+}
+
 export interface FormProps {
   /** Accessible name of the form, when it has no visible heading of its own. */
   label?: string;
@@ -164,6 +180,6 @@ function SubmitButton({
 export const { useAppForm, withForm } = createFormHook({
   fieldContext,
   formContext,
-  fieldComponents: { TextField, TextAreaField, CheckboxField, RadioGroupField },
+  fieldComponents: { TextField, TextAreaField, CheckboxField, RadioGroupField, SelectField },
   formComponents: { Form, SubmitButton },
 });

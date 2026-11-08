@@ -38,6 +38,12 @@
       "database_name": "portifact-e2e",
       "database_id": "00000000-0000-4000-8000-00000000e2e0",
       "migrations_dir": "../packages/db/migrations"
+    },
+    {
+      "binding": "ACCESS_DB",
+      "database_name": "portifact-e2e-access",
+      "database_id": "00000000-0000-4000-8000-00000000e2e1",
+      "migrations_dir": "../packages/db/access-migrations"
     }
   ],
   "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-e2e" }]

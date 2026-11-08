@@ -4,9 +4,11 @@ declare global {
   namespace Cloudflare {
     interface Env {
       DB: D1Database;
+      ACCESS_DB: D1Database;
       ARTIFACTS: R2Bucket;
       JOBS: Queue<import("@portifact/contracts").JobMessage>;
       TEST_MIGRATIONS: D1Migration[];
+      TEST_ACCESS_MIGRATIONS: D1Migration[];
     }
   }
 }

@@ -1,6 +1,8 @@
 // Test support for the dashboard: an in-memory /api/v1 and session endpoint behind the real
 // API client, and a renderer with memory history. Only used by tests.
 import {
+  type AccessLogEntry,
+  type AccessLogView,
   type AccessPolicyView,
   AccessUpdate,
   type AccountUsageView,
@@ -8,6 +10,8 @@ import {
   type AnnotationRole,
   type AnnotationsState,
   type AnnotationThreadView,
+  type ArtifactActivity,
+  ArtifactListQuery,
   type ArtifactSummary,
   type BrowserSession,
   type ConnectedApp,
@@ -19,6 +23,7 @@ import {
   PublishRequest,
   type ReviewStart,
   RollbackRequest,
+  UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
   type VersionSummary,
@@ -59,6 +64,13 @@ export function usageView(overrides: Partial<AccountUsageView> = {}): AccountUsa
     ...overrides,
   };
 }
+
+export const DEFAULT_ACTIVITY: ArtifactActivity = {
+  versions: 1,
+  currentBytes: 2048,
+  openThreads: 0,
+  lastAnnotationAt: null,
+};
 
 export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): ArtifactSummary {
   return {
@@ -276,6 +288,8 @@ export function fakeThread(
 
 export interface FakeServer {
   artifacts: ArtifactSummary[];
+  /** What the list says about each artifact's activity; missing ones get `DEFAULT_ACTIVITY`. */
+  activity: Record<string, ArtifactActivity>;
   /** Answers to POST /review, by artifact ID; missing ones answer 404. */
   reviews: Record<string, ReviewStart>;
   /** Review tab codes issued so far (POST /review/tab answers with the review's origin). */
@@ -298,6 +312,8 @@ export interface FakeServer {
   apps: ConnectedApp[];
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
+  /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
+  accessLogs: Record<string, AccessLogEntry[]>;
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -315,6 +331,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const failures: { key: string; failure: Failure; times: number }[] = [];
   const server: FakeServer = {
     artifacts,
+    activity: {},
     reviews: {},
     reviewTabs: 0,
     annotations: {},
@@ -329,6 +346,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     sessions: [browserSession({ current: true })],
     apps: [],
     usage: usageView(),
+    accessLogs: {},
     bodies: [],
     pageSize: 50,
     requests: [],
@@ -691,6 +709,22 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     server.email = null;
     return Response.json({ deleted: true });
   }
+  const log = /^\/api\/v1\/artifacts\/([^/]+)\/access-log$/.exec(path);
+  if (log && method === "GET") {
+    const artifact = server.artifacts.find((a) => a.id === log[1]);
+    if (!artifact) return apiError("not_found", 404);
+    const all = server.accessLogs[artifact.id] ?? [];
+    const offset = Number(url.searchParams.get("cursor") ?? "0");
+    const page = all.slice(offset, offset + server.pageSize);
+    const next = offset + server.pageSize;
+    return json({
+      artifactId: artifact.id,
+      entries: page,
+      nextCursor: next < all.length ? String(next) : null,
+      windowMinutes: 30,
+      retentionDays: 30,
+    } satisfies AccessLogView);
+  }
   if (path === "/api/v1/usage" && method === "GET") {
     return Response.json(server.usage);
   }
@@ -724,12 +758,29 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   if (path === "/api/auth/sign-out" && method === "POST") return Response.json({ success: true });
   if (path === "/api/v1/artifacts" && method === "GET") {
-    const start = Number(url.searchParams.get("cursor") ?? 0);
-    const items = server.artifacts.slice(start, start + server.pageSize);
+    // Validated and filtered like the Worker: empty parameters are no filter.
+    const query = ArtifactListQuery.safeParse(
+      Object.fromEntries([...url.searchParams].filter(([, value]) => value !== "")),
+    );
+    if (!query.success) return apiError("invalid_input", 400);
+    const { cursor, limit: _limit, ...filters } = query.data;
+    const search = filters.search?.toLowerCase();
+    const matching = server.artifacts.filter(
+      (a) =>
+        (search === undefined || a.name.toLowerCase().includes(search) || a.id.includes(search)) &&
+        (filters.state === undefined || a.state === filters.state) &&
+        (filters.type === undefined || a.type === filters.type) &&
+        (filters.access === undefined || a.accessMode === filters.access) &&
+        (filters.annotations === undefined || a.annotations === filters.annotations),
+    );
+    const start = Number(cursor ?? 0);
+    const items = matching
+      .slice(start, start + server.pageSize)
+      .map((a) => ({ ...a, activity: server.activity[a.id] ?? DEFAULT_ACTIVITY }));
     const next = start + server.pageSize;
     return Response.json({
       items,
-      nextCursor: next < server.artifacts.length ? String(next) : null,
+      nextCursor: next < matching.length ? String(next) : null,
     });
   }
   const match = /^\/api\/v1\/artifacts\/([^/]+)(?:\/(renew|archive|restore))?$/.exec(path);
@@ -764,6 +815,20 @@ const missing = () =>
   Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
 
 /** The review code and annotations endpoints, with the rules the viewer depends on. */
+/**
+ * Which threads a version filter covers, like the Worker: `current`, `all` or one version, and
+ * other versions only for the owner (null when refused).
+ */
+function inVersion(
+  store: FakeAnnotations,
+  version: string,
+): ((thread: AnnotationThreadView) => boolean) | null {
+  if (version === "current" || version === store.currentVersionId) return (t) => t.current;
+  if (store.role !== "owner") return null;
+  if (version === "all") return () => true;
+  return (t) => t.versionId === version;
+}
+
 function reviewRoute(
   server: FakeServer,
   method: string,
@@ -811,16 +876,44 @@ function reviewRoute(
     if (store.mode === "off" && store.role !== "owner") {
       return Response.json({ error: { code: "forbidden", message: "x" } }, { status: 403 });
     }
+    const scoped = inVersion(store, url.searchParams.get("version") ?? "current");
+    if (!scoped) return apiError("forbidden", 403);
     const since = Number(url.searchParams.get("cursor") ?? 0);
     return Response.json({
       artifactId: id,
       annotations: store.mode,
       currentVersionId: store.currentVersionId,
       role: store.role,
-      threads: store.threads.filter((t) => t.seq > since).map(view),
+      threads: store.threads.filter((t) => t.seq > since && scoped(t)).map(view),
       removed: since > 0 ? store.deleted.filter((d) => d.seq > since).map((d) => d.id) : [],
       cursor: String(store.seq),
       hasMore: false,
+    });
+  }
+  if (rest === "/export" && method === "GET") {
+    const scoped = inVersion(store, url.searchParams.get("version") ?? "current");
+    if (!scoped) return apiError("forbidden", 403);
+    const state = url.searchParams.get("state");
+    const threads = store.threads
+      .filter((t) => scoped(t) && (state === null || t.state === state))
+      .map(view);
+    const artifact = server.artifacts.find((a) => a.id === id);
+    if (url.searchParams.get("format") === "markdown") {
+      return new Response(`# ${artifact?.name}\n\n${threads.length} threads\n`, {
+        headers: { "content-type": "text/markdown; charset=utf-8" },
+      });
+    }
+    return Response.json({
+      notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+      exportedAt: NOW,
+      artifact: {
+        id,
+        name: artifact?.name ?? id,
+        type: artifact?.type ?? "site",
+        annotations: store.mode,
+        currentVersionId: store.currentVersionId,
+      },
+      threads,
     });
   }
   if (rest === "/mode" && method === "PUT") {

@@ -53,6 +53,8 @@ export type ReviewDecision =
       kind: "review";
       mode: ReviewKind;
       artifact: ServableArtifact;
+      /** The signed-in reviewer, for the access log. */
+      userId: string;
       versionId: string;
       sessionTag: string;
       setCookies: string[];
@@ -266,6 +268,7 @@ async function authorizeChannel(
     kind: "review",
     mode: channel.mode,
     artifact,
+    userId: claims.uid,
     versionId: claims.vid,
     sessionTag: claims.tag,
     setCookies,

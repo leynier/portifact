@@ -8,6 +8,7 @@ import {
   type AnnotationMessageView,
   type AnnotationTarget,
   type AnnotationThreadView,
+  type AnnotationVersionFilter,
   REVIEW_SESSION,
   type ReviewStart,
   type ReviewTabStart,
@@ -20,6 +21,8 @@ import {
   ConfirmDialog,
   LoadingState,
   PageHeader,
+  Select,
+  type SelectOption,
 } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,8 +34,8 @@ import {
   CircleCheck,
   CircleDot,
   Crosshair,
+  Download,
   ExternalLink,
-  EyeOff,
   Info,
   LocateFixed,
   MapPinOff,
@@ -43,10 +46,11 @@ import {
   Send,
   Trash2,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiFailure } from "../api.ts";
-import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
+import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
+import { MessageContent, TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
 import {
   applyThread,
@@ -71,6 +75,8 @@ export function ReviewScreen() {
   const { artifactId } = useParams({ from: "/review/$artifactId" });
   const { api } = useDashboard();
   const [attempt, setAttempt] = useState(0);
+  // Which version's threads the panel lists; only the owner can pick another one.
+  const [version, setVersion] = useState<AnnotationVersionFilter>("current");
   const start = useQuery({
     queryKey: ["review-start", artifactId, attempt],
     queryFn: () => api.startReview(artifactId),
@@ -79,7 +85,7 @@ export function ReviewScreen() {
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const threads = useThreads(artifactId);
+  const threads = useThreads(artifactId, version);
   useDocumentTitle(start.data ? t("review.documentTitle", { name: start.data.name }) : undefined);
 
   const back = (
@@ -138,6 +144,8 @@ export function ReviewScreen() {
         key={attempt}
         start={start.data}
         threads={threads}
+        version={version}
+        onVersion={setVersion}
         onRestart={() => {
           setAttempt((n) => n + 1);
           void threads.refetch();
@@ -155,13 +163,36 @@ type ThreadsQuery = ReturnType<typeof useThreads>;
  */
 type Draft = { id: number; target: AnnotationTarget } | null;
 
+/** Which threads the panel shows, besides the version: by status and by author. */
+interface ThreadFilter {
+  status: "all" | "open" | "resolved";
+  /** `all`, `own`, `former` (accounts that are gone) or an author's ID. */
+  author: string;
+}
+
+const ALL_THREADS: ThreadFilter = { status: "all", author: "all" };
+
+function authorKey(thread: AnnotationThreadView): string {
+  if (thread.own) return "own";
+  return thread.author ? `id:${thread.author.id}` : "former";
+}
+
+function matchesFilter(thread: AnnotationThreadView, filter: ThreadFilter): boolean {
+  if (filter.status !== "all" && thread.state !== filter.status) return false;
+  return filter.author === "all" || authorKey(thread) === filter.author;
+}
+
 function ReviewSession({
   start,
   threads,
+  version,
+  onVersion,
   onRestart,
 }: {
   start: ReviewStart;
   threads: ThreadsQuery;
+  version: AnnotationVersionFilter;
+  onVersion(version: AnnotationVersionFilter): void;
   onRestart(): void;
 }) {
   const t = useT();
@@ -187,7 +218,15 @@ function ReviewSession({
     setPicking(false);
   };
 
+  const [filterState, setFilter] = useState<ThreadFilter>(ALL_THREADS);
+  // Numbers follow creation over every thread of the version, so filtering never renumbers.
   const numbers = new Map((threads.data?.threads ?? []).map((thread, i) => [thread.id, i + 1]));
+  const authors = authorOptions(t, threads.data?.threads ?? []);
+  // An author who has no thread in the chosen version any more stops filtering.
+  const filter = authors.some((option) => option.value === filterState.author)
+    ? filterState
+    : { ...filterState, author: "all" };
+  const shown = (threads.data?.threads ?? []).filter((thread) => matchesFilter(thread, filter));
 
   const bridge = useBridge(frame, start.origin, start.sessionTag, {
     onSelection(target) {
@@ -225,12 +264,14 @@ function ReviewSession({
     state,
     page?.path,
     active,
-    data?.threads.map((thread) => [thread.id, thread.revision]),
+    shown.map((thread) => [thread.id, thread.revision, thread.current]),
   ]);
   // markerKey summarizes what the effect sends, so it runs only when that changes.
   useEffect(() => {
     if (state !== "connected" || !data || !page) return;
-    const markers = data.threads
+    // Only the version in the frame has places in it, and only threads the filters show.
+    const markers = shown
+      .filter((thread) => thread.current)
       .filter((thread) => thread.target.anchor.kind !== "document")
       .filter((thread) => thread.target.path === page.path)
       .slice(0, 200)
@@ -379,9 +420,22 @@ function ReviewSession({
               }}
             />
           ) : null}
+          {data ? (
+            <CommentTools
+              start={start}
+              role={data.role}
+              version={version}
+              onVersion={onVersion}
+              filter={filter}
+              onFilter={setFilter}
+              authors={authors}
+            />
+          ) : null}
           <ThreadList
             start={start}
             threads={threads}
+            shown={shown}
+            filtered={filter.status !== "all" || filter.author !== "all"}
             numbers={numbers}
             active={active}
             resolutions={bridge.resolutions}
@@ -686,39 +740,144 @@ function Composer({
   );
 }
 
-function TargetSummary({ target }: { target: AnnotationTarget }) {
+/** "Everyone", then you, each other author once and accounts that are gone, from the threads. */
+function authorOptions(t: T, threads: AnnotationThreadView[]): SelectOption[] {
+  const options: SelectOption[] = [{ value: "all", label: t("review.filter.author.all") }];
+  if (threads.some((thread) => thread.own)) {
+    options.push({ value: "own", label: t("review.filter.author.own") });
+  }
+  const named = new Map<string, string>();
+  for (const thread of threads) {
+    if (!thread.own && thread.author) named.set(`id:${thread.author.id}`, thread.author.name);
+  }
+  options.push(
+    ...[...named]
+      .sort(([, a], [, b]) => a.localeCompare(b))
+      .map(([value, label]) => ({ value, label })),
+  );
+  if (threads.some((thread) => !thread.own && !thread.author)) {
+    options.push({ value: "former", label: t("review.filter.author.former") });
+  }
+  return options;
+}
+
+/**
+ * Filters for the comments panel and the export. Status and author narrow the threads already
+ * loaded; the version (owner only) loads another version's threads, or all of them. The export
+ * is the file `portifact annotations export` writes, for the chosen version and status.
+ */
+function CommentTools({
+  start,
+  role,
+  version,
+  onVersion,
+  filter,
+  onFilter,
+  authors,
+}: {
+  start: ReviewStart;
+  role: ThreadsState["role"];
+  version: AnnotationVersionFilter;
+  onVersion(version: AnnotationVersionFilter): void;
+  filter: ThreadFilter;
+  onFilter(filter: ThreadFilter): void;
+  authors: SelectOption[];
+}) {
   const t = useT();
-  const { anchor } = target;
-  if (anchor.kind === "document") {
-    return (
-      <p className="text-sm text-text-muted">{t("review.target.general", { path: target.path })}</p>
-    );
-  }
-  if (anchor.kind === "element") {
-    return (
-      <div className="text-sm">
-        <p className="text-text-muted">{t("review.target.element", { tag: anchor.tagName })}</p>
-        {anchor.fingerprint ? (
-          <blockquote className="mt-1 border-l-2 border-border-strong pl-3 break-words">
-            {anchor.fingerprint}
-          </blockquote>
-        ) : null}
-      </div>
-    );
-  }
+  const announce = useAnnounce();
+  const { api, save } = useDashboard();
+  const owner = role === "owner";
+  const versions = useQuery({
+    queryKey: ["review-versions", start.artifactId],
+    queryFn: () => api.listVersions(start.artifactId),
+    enabled: owner,
+    staleTime: 60_000,
+  });
+  const exporter = useMutation({
+    mutationFn: (format: "json" | "markdown") =>
+      api.exportAnnotations(start.artifactId, {
+        format,
+        version,
+        ...(filter.status === "all" ? {} : { state: filter.status }),
+      }),
+    onSuccess: (file, format) => {
+      save(file);
+      announce(t(format === "json" ? "review.export.doneJson" : "review.export.doneMarkdown"));
+    },
+  });
+  const versionOptions: SelectOption[] = [
+    { value: "current", label: t("review.filter.version.current") },
+    { value: "all", label: t("review.filter.version.all") },
+    ...(versions.data?.items ?? [])
+      .filter((item) => !item.current)
+      .map((item) => ({
+        value: item.id,
+        label: t("review.filter.version.number", { number: item.number }),
+      })),
+  ];
   return (
-    <figure className="text-sm">
-      <figcaption className="sr-only">{t("review.target.quote")}</figcaption>
-      <blockquote className="border-l-2 border-border-strong pl-3 break-words">
-        {anchor.quote.exact}
-      </blockquote>
-    </figure>
+    <section
+      aria-labelledby="review-tools-heading"
+      className="flex flex-col gap-3 rounded-md border border-border p-3"
+    >
+      <h3 id="review-tools-heading" className="text-base font-semibold">
+        {t("review.filter.heading")}
+      </h3>
+      <Select
+        label={t("review.filter.status")}
+        value={filter.status}
+        options={[
+          { value: "all", label: t("review.filter.status.all") },
+          { value: "open", label: t("review.filter.status.open") },
+          { value: "resolved", label: t("review.filter.status.resolved") },
+        ]}
+        onChange={(status) => onFilter({ ...filter, status })}
+      />
+      <Select
+        label={t("review.filter.author")}
+        value={filter.author}
+        options={authors}
+        onChange={(author) => onFilter({ ...filter, author })}
+      />
+      {owner ? (
+        <Select
+          label={t("review.filter.version")}
+          description={t("review.filter.version.hint")}
+          value={version}
+          options={versionOptions}
+          onChange={onVersion}
+        />
+      ) : null}
+      <p className="text-sm text-text-muted">{t("review.export.hint")}</p>
+      {exporter.isError ? <ActionError error={exporter.error} /> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          icon={<Download className="size-4" />}
+          busy={exporter.isPending && exporter.variables === "json"}
+          onClick={() => exporter.mutate("json")}
+        >
+          {t("review.export.json")}
+        </Button>
+        <Button
+          size="sm"
+          icon={<Download className="size-4" />}
+          busy={exporter.isPending && exporter.variables === "markdown"}
+          onClick={() => exporter.mutate("markdown")}
+        >
+          {t("review.export.markdown")}
+        </Button>
+      </div>
+    </section>
   );
 }
 
 interface ThreadListProps {
   start: ReviewStart;
   threads: ThreadsQuery;
+  /** The threads the filters let through, in creation order. */
+  shown: AnnotationThreadView[];
+  filtered: boolean;
   numbers: Map<string, number>;
   active: string | null;
   resolutions: ReadonlyMap<string, { confidence: string }>;
@@ -728,7 +887,7 @@ interface ThreadListProps {
   register(id: string, element: HTMLElement | null): void;
 }
 
-function ThreadList({ threads, numbers, ...rest }: ThreadListProps) {
+function ThreadList({ threads, shown, filtered, numbers, ...rest }: ThreadListProps) {
   const t = useT();
   if (threads.isPending) return <LoadingState label={t("review.comments.loading")} />;
   if (threads.isError && !threads.data) {
@@ -756,13 +915,16 @@ function ThreadList({ threads, numbers, ...rest }: ThreadListProps) {
           {t("review.comments.refreshFailed")}
         </p>
       ) : null}
-      <p className="text-sm text-text-muted">
-        {data.threads.length === 0
-          ? t("review.comments.empty")
-          : t("review.comments.count", { count: data.threads.length })}
+      <p role="status" className="text-sm text-text-muted">
+        {countMessage(t, {
+          loading: threads.isPlaceholderData,
+          total: data.threads.length,
+          shown: shown.length,
+          filtered,
+        })}
       </p>
       <ol className="flex flex-col gap-4">
-        {data.threads.map((thread) => (
+        {(threads.isPlaceholderData ? [] : shown).map((thread) => (
           <ThreadItem
             key={thread.id}
             thread={thread}
@@ -776,6 +938,17 @@ function ThreadList({ threads, numbers, ...rest }: ThreadListProps) {
   );
 }
 
+function countMessage(
+  t: T,
+  state: { loading: boolean; total: number; shown: number; filtered: boolean },
+): string {
+  if (state.loading) return t("review.comments.loading");
+  if (state.total === 0) return t("review.comments.empty");
+  if (!state.filtered) return t("review.comments.count", { count: state.total });
+  if (state.shown === 0) return t("review.comments.noMatch");
+  return t("review.comments.filteredCount", { shown: state.shown, count: state.total });
+}
+
 function ThreadItem({
   start,
   thread,
@@ -787,7 +960,7 @@ function ThreadItem({
   located,
   onShow,
   register,
-}: Omit<ThreadListProps, "threads" | "numbers"> & {
+}: Omit<ThreadListProps, "threads" | "numbers" | "shown" | "filtered"> & {
   thread: AnnotationThreadView;
   number: number;
   state: ThreadsState;
@@ -842,7 +1015,12 @@ function ThreadItem({
   const elsewhere = kind !== "document" && thread.target.path !== path;
   const orphaned = !elsewhere && resolution?.confidence === "orphaned";
   const showable =
-    located && kind !== "document" && !elsewhere && resolution !== undefined && !orphaned;
+    located &&
+    thread.current &&
+    kind !== "document" &&
+    !elsewhere &&
+    resolution !== undefined &&
+    !orphaned;
   const titleId = `thread-${thread.id}-title`;
 
   return (
@@ -875,6 +1053,9 @@ function ThreadItem({
               {t("review.thread.otherPage", { path: thread.target.path })}
             </Badge>
           ) : null}
+          {thread.current ? null : (
+            <Badge emphasis="quiet">{t("review.thread.otherVersion")}</Badge>
+          )}
         </div>
         <TargetSummary target={thread.target} />
         <ol className="flex flex-col gap-3">
@@ -970,7 +1151,6 @@ function MessageItem({
   owner: boolean;
 }) {
   const t = useT();
-  const formatDate = useFormatDate();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
@@ -983,32 +1163,9 @@ function MessageItem({
       announce(t("review.message.moderated"));
     },
   });
-  const author = message.own
-    ? t("review.message.you")
-    : (message.author?.name ?? t("review.message.formerAccount"));
-  let body: ReactNode;
-  if (message.state === "deleted") {
-    body = <p className="text-sm text-text-muted italic">{t("review.message.deleted")}</p>;
-  } else if (message.body === null) {
-    body = <p className="text-sm text-text-muted italic">{t("review.message.hidden")}</p>;
-  } else {
-    body = <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>;
-  }
   return (
     <li className="flex flex-col gap-1">
-      <p className="text-sm">
-        <span className="font-medium">{author}</span>{" "}
-        <span className="text-text-muted">
-          <time dateTime={message.createdAt}>{formatDate(message.createdAt, true)}</time>
-          {message.editedAt ? ` · ${t("review.message.edited")}` : ""}
-        </span>
-      </p>
-      {message.state === "hidden" && message.body !== null ? (
-        <Badge emphasis="quiet" icon={<EyeOff className="size-3.5" />}>
-          {t("review.message.hidden")}
-        </Badge>
-      ) : null}
-      {body}
+      <MessageContent message={message} />
       {moderate.isError ? <ActionError error={moderate.error} /> : null}
       {owner && !message.own && message.state !== "deleted" ? (
         <div className="flex flex-wrap gap-3">

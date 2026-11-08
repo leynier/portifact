@@ -174,3 +174,41 @@ describe("scheduled relay", () => {
     expect(row?.dispatchedAt).toBeNull();
   });
 });
+
+describe("access log jobs", () => {
+  const events = async (artifact: string) =>
+    (
+      await env.ACCESS_DB.prepare("select user_id from access_events where artifact_id = ?")
+        .bind(artifact)
+        .all()
+    ).results;
+
+  it("erases a purged artifact's access log from the access log database", async () => {
+    const id = artifactId();
+    const insert = env.ACCESS_DB.prepare(
+      "insert into access_events (artifact_id, window_start, user_id, owner_id, email, opened_at) values (?, ?, ?, 'u_o', 'r@example.test', ?)",
+    );
+    await insert.bind(id, NOW, "u_a", NOW).run();
+    await insert.bind(id, NOW, "u_b", NOW).run();
+    await insert.bind("keep234567", NOW, "u_a", NOW).run();
+    const [job] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "erase_access_events",
+        payload: { kind: "artifact" },
+        availableAt: NOW,
+        subject: id,
+      })
+      .returning();
+    const result = await deliver([{ id: must(job).id, topic: "erase_access_events" }]);
+    expect(result.explicitAcks).toEqual(["m0"]);
+    expect(await events(id)).toEqual([]);
+    expect(await events("keep234567")).toEqual([{ user_id: "u_a" }]);
+    expect(
+      await db()
+        .select()
+        .from(schema.outbox)
+        .where(eq(schema.outbox.id, must(job).id)),
+    ).toEqual([]);
+  });
+});

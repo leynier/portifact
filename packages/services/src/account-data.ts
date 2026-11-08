@@ -8,6 +8,7 @@ import { type AccountExport, FRESH_SESSION_MS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
+import { eraseAccessEventsJob } from "./access-log.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
@@ -284,6 +285,8 @@ export async function requestAccountDeletion(
       .set({ reporterEmail: null })
       .where(sql`lower(${schema.abuseReports.reporterEmail}) = ${email}`),
     db.delete(schema.deviceCodes).where(eq(schema.deviceCodes.userId, input.userId)),
+    // The account's openings of other people's artifacts are in the access log database.
+    eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs.
     db.delete(schema.users).where(eq(schema.users.id, input.userId)),
   ]);
@@ -425,6 +428,19 @@ export async function advanceAccountDeletion(
       .select(sql`select 'account', ${userId}, ${now} where ${nothingLeft}`)
       .onConflictDoNothing(),
     closeJobs(db, "account_deletion", userId, and(nothingLeft, tombstoned) as SQL),
+    // Erases the account's openings once more as it finishes: this also covers a deletion that
+    // a restore re-applied (applyTombstones) and an opening recorded while it was in progress.
+    eraseAccessEventsJob(
+      db,
+      "user",
+      userId,
+      and(
+        nothingLeft,
+        tombstoned,
+        sql`exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${userId})`,
+      ) as SQL,
+      now,
+    ),
     db
       .delete(schema.accountDeletions)
       .where(and(eq(schema.accountDeletions.userId, userId), nothingLeft, tombstoned))

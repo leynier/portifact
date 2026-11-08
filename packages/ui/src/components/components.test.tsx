@@ -6,6 +6,7 @@ import { Badge } from "./badge.tsx";
 import { Button, buttonClasses } from "./button.tsx";
 import { Callout } from "./callout.tsx";
 import { DetailList } from "./detail-list.tsx";
+import { Disclosure } from "./disclosure.tsx";
 import { EmptyState } from "./empty-state.tsx";
 import { LiveRegion } from "./live-region.tsx";
 import { LoadingState } from "./loading-state.tsx";
@@ -215,5 +216,37 @@ describe("accessibility", () => {
       </div>,
     );
     expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
+describe("Disclosure", () => {
+  it("hides its content until the summary opens it, and reports each change", async () => {
+    const onToggle = vi.fn();
+    const { container } = render(
+      <Disclosure summary="Version 2: 3 threads" onToggle={onToggle}>
+        <p>Thread 1</p>
+      </Disclosure>,
+    );
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    const summary = screen.getByText("Version 2: 3 threads").closest("summary") as HTMLElement;
+    expect(details.open).toBe(false);
+    expect(summary.parentElement).toBe(details);
+    expect(summary.querySelector("[aria-hidden='true'] svg")).not.toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(onToggle).toHaveBeenLastCalledWith(true);
+    expect(screen.getByText("Thread 1")).toBeDefined();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("can start open", () => {
+    const { container } = render(
+      <Disclosure summary="Details" defaultOpen>
+        <p>Shown</p>
+      </Disclosure>,
+    );
+    expect((container.querySelector("details") as HTMLDetailsElement).open).toBe(true);
   });
 });

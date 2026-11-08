@@ -3,6 +3,8 @@
 export interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  /** The access log database (`portifact-access`); the app only reads it, for the owner. */
+  ACCESS_DB: D1Database;
   /** Artifact content and sources, keyed by owner and SHA-256 (packages/services). */
   ARTIFACTS: R2Bucket;
   EMAIL: SendEmail;

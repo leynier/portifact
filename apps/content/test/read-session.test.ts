@@ -6,6 +6,7 @@ import { READ_SESSION } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { issueReadHandoff, suspendArtifact } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { LogOpening, Opening } from "../src/access-log.ts";
 import {
   clearCookie,
   cookieValue,
@@ -164,6 +165,8 @@ interface Send {
   origin?: string;
   method?: string;
   secret?: string | undefined;
+  /** Receives the openings the request records in the owner's access log. */
+  logOpening?: LogOpening;
 }
 
 function send(path: string, options: Send = {}) {
@@ -174,7 +177,7 @@ function send(path: string, options: Send = {}) {
     headers,
   });
   const testEnv = "secret" in options ? { ...env, READ_SESSION_SECRET: options.secret } : env;
-  return handle(request, testEnv, options.now ?? NOW);
+  return handle(request, testEnv, options.now ?? NOW, undefined, options.logOpening);
 }
 
 /** The `name=value` pair a response sets for `name`, or undefined. */
@@ -815,6 +818,85 @@ describe("read session claims", () => {
   });
 });
 
+describe("caching and injected cookies", () => {
+  beforeEach(() => seed());
+
+  const ETAG = `"${"a".repeat(64)}"`;
+
+  it("reauthorizes every revalidation: an ETag a reader got earns nobody else a 304", async () => {
+    const cookie = await signIn(READER);
+    const warm = await send("/", { cookie });
+    expect(warm.status).toBe(200);
+    expect(warm.headers.get("etag")).toBe(ETAG);
+    expect(warm.headers.get("cache-control")).toBe("private, no-cache");
+    const revalidate = { "If-None-Match": ETAG };
+    expect((await send("/", { cookie, headers: { ...NAVIGATE, ...revalidate } })).status).toBe(304);
+    const anonymous = await send("/", { headers: { ...NAVIGATE, ...revalidate } });
+    expect(anonymous.status).toBe(303);
+    const anonymousScript = await send("/app.js", { headers: { ...SAME_ORIGIN, ...revalidate } });
+    expect(anonymousScript.status).toBe(401);
+    expect(anonymousScript.headers.get("etag")).toBeNull();
+    await sql("DELETE FROM artifact_readers WHERE email = ?", "reader@example.com");
+    await bumpPolicy();
+    const revoked = await send("/", {
+      cookie,
+      headers: { ...NAVIGATE, ...revalidate },
+      now: NOW + 1,
+    });
+    expect(revoked.status).toBe(303);
+  });
+
+  it("keeps protected responses private, unembeddable and noindex even when embedding and indexing are on", async () => {
+    await seed({ embeddable: true, indexable: true });
+    const cookie = await signIn(READER);
+    const response = await send("/", { cookie });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
+    expect(response.headers.get("content-security-policy")).toBe(
+      `frame-ancestors 'self' ${env.APP_ORIGIN}`,
+    );
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
+  });
+
+  it("grants nothing to hundreds of injected cookies and keeps a reader's session working among them", async () => {
+    // What a sibling artifact can plant with Domain=portifact.dev: filler, unprefixed and
+    // lowercase look-alikes of Portifact's names, and a second copy of the read cookie's name.
+    const injected = [
+      ...Array.from({ length: 300 }, (_, i) => `junk${i}=${"x".repeat(64)}`),
+      "pf_read=forged",
+      "__host-pf_read=forged",
+      `${TRANSACTION_COOKIE_PREFIX}forged=forged`,
+    ].join("; ");
+    const anonymous = await send("/", { cookie: injected });
+    expect(anonymous.status).toBe(303);
+    expect(await anonymous.text()).not.toContain(PAGE);
+    const script = await send("/app.js", { cookie: injected, headers: SAME_ORIGIN });
+    expect(script.status).toBe(401);
+    const cookie = await signIn(READER);
+    const reader = await send("/", { cookie: `${injected}; ${cookie}` });
+    expect(reader.status).toBe(200);
+    expect(await reader.text()).toBe(PAGE);
+    // The answer expires the injected cookies on the shared domain, never the read session.
+    const cleared = reader.headers.getSetCookie();
+    expect(cleared.length).toBeGreaterThan(0);
+    for (const set of cleared) {
+      expect(set).toMatch(
+        /^[^=]+=; Max-Age=0; Domain=portifact\.dev; Path=\/; Secure; SameSite=None/,
+      );
+      expect(set.startsWith(`${READ_COOKIE}=`)).toBe(false);
+    }
+    // Look-alikes of Portifact's names go first.
+    expect(cleared[0]?.startsWith("pf_read=") || cleared[0]?.startsWith("__host-pf_read=")).toBe(
+      true,
+    );
+    // A planted second value under the real name makes both untrusted.
+    expect((await send("/", { cookie: `${injected}; ${cookie}; ${READ_COOKIE}=x.y` })).status).toBe(
+      303,
+    );
+  });
+});
+
 describe("configuration", () => {
   beforeEach(() => seed());
 
@@ -870,5 +952,76 @@ describe("cookie helpers", () => {
       .replaceAll("/", "_")
       .replace(/=+$/, "");
     expect(await unseal(secret, "p", `${body}.${signature}`)).toBeNull();
+  });
+});
+
+describe("access log openings", () => {
+  beforeEach(() => seed());
+
+  const recorder = () => {
+    const openings: Opening[] = [];
+    return { openings, logOpening: (opening: Opening) => openings.push(opening) };
+  };
+
+  it("records a signed-in reader's page loads, never the page's subresources", async () => {
+    const cookie = await signIn(READER);
+    const { openings, logOpening } = recorder();
+    expect((await send("/", { cookie, logOpening })).status).toBe(200);
+    expect((await send("/app.js", { cookie, headers: SAME_ORIGIN, logOpening })).status).toBe(200);
+    expect(openings).toEqual([{ artifactId: ID, userId: READER, at: NOW }]);
+  });
+
+  it("records nothing for the owner, a missing page, a refusal or the sign-in steps", async () => {
+    const { openings, logOpening } = recorder();
+    const owner = await signIn(OWNER);
+    expect((await send("/", { cookie: owner, logOpening })).status).toBe(200);
+    const reader = await signIn(READER);
+    expect((await send("/missing.html", { cookie: reader, logOpening })).status).toBe(404);
+    expect((await send("/", { method: "HEAD", cookie: reader, logOpening })).status).toBe(200);
+    const stranger = await start("/", ORIGIN, { logOpening });
+    expect(stranger.response.status).toBe(303);
+    expect((await send("/", { cookie: reader, headers: SIBLING, logOpening })).status).toBe(401);
+    expect(openings).toEqual([]);
+  });
+
+  it("records a sibling's link to the artifact but not a frame a sibling opened", async () => {
+    const cookie = await signIn(READER);
+    const { openings, logOpening } = recorder();
+    const fromSibling = { "Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate" };
+    const framed = await send("/", {
+      cookie,
+      headers: { ...fromSibling, "Sec-Fetch-Dest": "iframe" },
+      logOpening,
+    });
+    // Served, but frame-ancestors keeps it from rendering in the sibling.
+    expect(framed.status).toBe(200);
+    expect(framed.headers.get("content-security-policy")).toBe(`frame-ancestors 'self' ${APP}`);
+    expect(openings).toEqual([]);
+    await send("/", {
+      cookie,
+      headers: { ...fromSibling, "Sec-Fetch-Dest": "document" },
+      logOpening,
+    });
+    // A frame inside the artifact itself is the artifact showing its own page.
+    await send("/", {
+      cookie,
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "iframe",
+      },
+      logOpening,
+    });
+    expect(openings).toEqual([
+      { artifactId: ID, userId: READER, at: NOW },
+      { artifactId: ID, userId: READER, at: NOW },
+    ]);
+  });
+
+  it("never identifies visitors of public artifacts", async () => {
+    await seed({ accessMode: "public" });
+    const { openings, logOpening } = recorder();
+    expect((await send("/", { logOpening })).status).toBe(200);
+    expect(openings).toEqual([]);
   });
 });

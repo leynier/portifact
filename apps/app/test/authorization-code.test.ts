@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   authorizeWithPkce,
   callMcp,
@@ -8,7 +8,15 @@ import {
   startAuthorization,
   type TokenResponse,
 } from "./flows.ts";
-import { API_RESOURCE, createHarness, ISSUER, json, MCP_RESOURCE, pkcePair } from "./harness.ts";
+import {
+  API_RESOURCE,
+  createHarness,
+  form,
+  ISSUER,
+  json,
+  MCP_RESOURCE,
+  pkcePair,
+} from "./harness.ts";
 
 const CLAUDE_CODE_CIMD = "https://claude.ai/oauth/claude-code-client-metadata";
 
@@ -19,6 +27,22 @@ function claudeCodeMetadata() {
     client_id: CLAUDE_CODE_CIMD,
     client_name: "Claude Code",
     redirect_uris: ["http://localhost/callback", "http://127.0.0.1/callback"],
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  };
+}
+
+const CODEX_CIMD = "https://chatgpt.com/oauth/codex/client.json";
+
+function codexMetadata() {
+  // Shape of the document Codex CLI publishes, which chatgpt.com serves with an ETag.
+  return {
+    client_id: CODEX_CIMD,
+    client_name: "Codex",
+    client_uri: "https://chatgpt.com/codex",
+    application_type: "native",
+    redirect_uris: ["http://127.0.0.1/callback", "http://localhost/callback"],
     grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     token_endpoint_auth_method: "none",
@@ -248,6 +272,50 @@ describe("authorization code with PKCE", () => {
 });
 
 describe("Client ID Metadata Documents", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps serving a client after its cached document is revalidated with 304", async () => {
+    // Found with Codex CLI against production: once the cached document went stale, the
+    // plugin revalidated it with If-None-Match, chatgpt.com answered 304 and the transport
+    // took it for a redirect, so every refresh and authorization failed with invalid_client.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-08T18:00:00Z"));
+    const h = createHarness();
+    h.clientMetadata.set(CODEX_CIMD, codexMetadata());
+    const cookie = await h.signIn("cimd-revalidate@example.test");
+    const { code, verifier } = await authorizeWithPkce(h, { clientId: CODEX_CIMD, cookie });
+    const issued = await exchangeCode(h, { clientId: CODEX_CIMD, code, verifier });
+    expect(issued.status).toBe(200);
+    const tokens = await issued.json<TokenResponse>();
+
+    // Past the document's max-age of 300 seconds, still within the access token's hour.
+    vi.setSystemTime(new Date("2026-11-08T18:06:00Z"));
+    const refreshed = await h.request(
+      "/api/auth/oauth2/token",
+      form({
+        grant_type: "refresh_token",
+        refresh_token: tokens.refresh_token ?? "",
+        client_id: CODEX_CIMD,
+        resource: MCP_RESOURCE,
+      }),
+    );
+    expect(refreshed.status).toBe(200);
+    const renewed = await refreshed.json<TokenResponse>();
+    expect((await callMcp(h, renewed.access_token)).status).toBe(200);
+    expect(h.fetchedMetadata.filter((url) => url === CODEX_CIMD)).toHaveLength(2);
+
+    const { challenge } = await pkcePair();
+    const again = await startAuthorization(h, {
+      clientId: CODEX_CIMD,
+      cookie,
+      codeChallenge: challenge,
+      scope: "artifacts:read artifacts:write offline_access",
+    });
+    expect(new URL(again.headers.get("location") ?? "", ISSUER).pathname).toBe("/consent");
+  });
+
   it("accepts Claude Code's document and its loopback redirect on any port", async () => {
     const h = createHarness();
     h.clientMetadata.set(CLAUDE_CODE_CIMD, claudeCodeMetadata());

@@ -1,4 +1,11 @@
-import { ArtifactType } from "@portifact/contracts";
+import {
+  AccessMode,
+  AnnotationsState,
+  type ArtifactListFilters,
+  ArtifactType,
+  LIST_SEARCH_MAX,
+  ListedArtifactState,
+} from "@portifact/contracts";
 import { Command, CommanderError, InvalidArgumentError, Option } from "commander";
 import packageJson from "../package.json" with { type: "json" };
 import * as annotationCommands from "./annotations.ts";
@@ -13,6 +20,7 @@ import {
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
 import { pullHistory } from "./history.ts";
+import { logs } from "./logs.ts";
 import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
@@ -213,14 +221,46 @@ export async function run(
     .description("List your artifacts, most recently updated first")
     .option("--limit <n>", `artifacts per page, 1 to ${LIST_MAX} (default: 50)`, parseLimit)
     .option("--cursor <cursor>", "continue from where the previous page ended")
+    .option("--search <text>", "only artifacts whose name or ID contains this text", parseSearch)
+    .addOption(
+      new Option("--state <state>", "only artifacts in this state").choices(
+        ListedArtifactState.options,
+      ),
+    )
+    .addOption(
+      new Option("--type <type>", "only artifacts of this type").choices(ArtifactType.options),
+    )
+    .addOption(
+      new Option("--access <mode>", "only artifacts with this access mode").choices(
+        AccessMode.options,
+      ),
+    )
+    .addOption(
+      new Option(
+        "--annotations <mode>",
+        "only artifacts whose annotations are in this mode",
+      ).choices(AnnotationsState.options),
+    )
     .option("--json", "Print the result as JSON")
     .action(
-      execute((io, runtime, options: { limit?: number; cursor?: string; json?: boolean }) =>
-        list(io, runtime, {
-          limit: options.limit,
-          cursor: options.cursor,
-          json: options.json === true,
-        }),
+      execute(
+        (
+          io,
+          runtime,
+          options: ArtifactListFilters & { limit?: number; cursor?: string; json?: boolean },
+        ) =>
+          list(io, runtime, {
+            limit: options.limit,
+            cursor: options.cursor,
+            filters: {
+              search: options.search,
+              state: options.state,
+              type: options.type,
+              access: options.access,
+              annotations: options.annotations,
+            },
+            json: options.json === true,
+          }),
       ),
     );
 
@@ -386,6 +426,18 @@ export async function run(
     .action(() => {
       io.stdout(THIRD_PARTY_NOTICES);
     });
+
+  program
+    .command("logs")
+    .description("Show who opened one of your artifacts in the last 30 days (signed-in visitors)")
+    .argument("<id>", "artifact ID")
+    .option("--since <time>", "only openings since a duration ago (30m, 12h, 7d) or an ISO date")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { since?: string; json?: boolean }, id: string) =>
+        logs(io, runtime, id, { since: options.since, json: options.json === true }),
+      ),
+    );
 
   program
     .command("usage")
@@ -656,6 +708,14 @@ function parseRevision(value: string): number {
     throw new InvalidArgumentError(messages.errors.invalidRevision);
   }
   return revision;
+}
+
+function parseSearch(value: string): string {
+  const search = value.trim();
+  if (search.length === 0 || search.length > LIST_SEARCH_MAX) {
+    throw new InvalidArgumentError(messages.errors.invalidSearch(LIST_SEARCH_MAX));
+  }
+  return search;
 }
 
 function parseLimit(value: string): number {

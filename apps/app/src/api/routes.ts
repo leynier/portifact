@@ -5,11 +5,11 @@ import {
   AccessPolicyView,
   AccessUpdate,
   ArtifactList,
+  ArtifactListQuery,
   ArtifactSummary,
   CommittedPublish,
   type ErrorCode,
   LifecycleResult,
-  ListQuery,
   type OAuthScope,
   PreparedPublish,
   PublishRequest,
@@ -42,7 +42,9 @@ import type { z } from "zod";
 import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
+import { artifactListItem } from "../mcp/present.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
+import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
 import {
@@ -179,20 +181,36 @@ export function apiRoutes(deps: ApiDeps) {
   api.get(
     "/api/v1/artifacts",
     guarded("artifacts:read", async (c, userId) => {
-      const query = ListQuery.safeParse({
+      // An empty parameter means no filter, as an empty search box would send it.
+      const param = (name: string) => c.req.query(name) || undefined;
+      const query = ArtifactListQuery.safeParse({
         cursor: c.req.query("cursor"),
         limit: c.req.query("limit"),
+        search: param("search"),
+        state: param("state"),
+        type: param("type"),
+        access: param("access"),
+        annotations: param("annotations"),
       });
-      if (!query.success) return error(c, "invalid_input", "Invalid cursor or limit.");
+      if (!query.success) {
+        return error(
+          c,
+          "invalid_input",
+          "Invalid cursor, limit, search, state, type, access or annotations.",
+        );
+      }
+      const { cursor, limit, ...filters } = query.data;
       const page = await listArtifacts(createDb(c.env.DB), {
         ownerId: userId,
-        cursor: query.data.cursor,
-        limit: query.data.limit,
+        cursor,
+        limit,
+        filters,
+        now: deps.now(),
       });
       if (!page) return error(c, "invalid_input", "Invalid cursor.");
       return c.json(
         ArtifactList.parse({
-          items: page.items.map((row) => summary(c.env, row)),
+          items: page.items.map((row) => artifactListItem(c.env, row)),
           nextCursor: page.nextCursor,
         }),
       );
@@ -284,6 +302,7 @@ export function apiRoutes(deps: ApiDeps) {
   versionRoutes(api, guarded, deps);
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);
+  accessLogRoutes(api, guarded, deps.now);
 
   return api;
 }

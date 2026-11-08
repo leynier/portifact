@@ -82,6 +82,8 @@ describe("portifact list", () => {
           purgeAt: null,
           createdAt: "2026-11-07T12:00:00.000Z",
           updatedAt: "2026-11-07T12:00:00.000Z",
+          // The fake seeds no versions or threads for this artifact.
+          activity: { versions: 0, currentBytes: null, openThreads: 0, lastAnnotationAt: null },
         },
       ],
       nextCursor: null,
@@ -104,6 +106,64 @@ describe("portifact list", () => {
       expect(result.code).toBe(2);
       expect(result.stderr).toContain("Use a whole number from 1 to 100.");
     }
+    expect(server.requests).toHaveLength(0);
+  });
+
+  it("searches and filters on the server, and repeats the filters for the next page", async () => {
+    h.signIn();
+    const plan = seed({ name: "Launch plan", updatedAt: NOW - DAY });
+    const rollout = seed({ name: "Launch rollout", updatedAt: NOW - 2 * DAY });
+    seed({ name: "Old launch notes", type: "text", state: "archived", updatedAt: NOW - 3 * DAY });
+    seed({ name: "Budget", updatedAt: NOW - 4 * DAY });
+
+    const result = await h.invoke(
+      "list",
+      "--search",
+      "  LAUNCH ",
+      "--state",
+      "active",
+      "--type",
+      "site",
+      "--access",
+      "restricted",
+      "--annotations",
+      "off",
+      "--limit",
+      "1",
+    );
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(plan.id);
+    expect(result.stdout).not.toContain(rollout.id);
+    expect(result.stderr).toContain(
+      "More artifacts: run `portifact list --cursor c1 --search LAUNCH --state active --type site --access restricted --annotations off`.",
+    );
+
+    const next = await h.invoke("list", "--search", "launch", "--state", "active", "--json");
+    expect(json(next).items.map((item: { id: string }) => item.id)).toEqual([plan.id, rollout.id]);
+
+    const spaced = await h.invoke("list", "--search", "it's launch", "--limit", "1");
+    expect(spaced.stdout).toBe("No artifacts match these filters.\n");
+    seed({ name: "it's launch day" });
+    seed({ name: "it's launch eve" });
+    const quoted = await h.invoke("list", "--search", "it's launch", "--limit", "1");
+    expect(quoted.stderr).toContain("--cursor c1 --search 'it'\\''s launch'`.");
+  });
+
+  it("refuses an unknown filter value or an empty search before any request", async () => {
+    h.signIn();
+    for (const args of [
+      ["--state", "deleted"],
+      ["--type", "pdf"],
+      ["--access", "private"],
+      ["--annotations", "on"],
+      ["--search", "   "],
+      ["--search", "x".repeat(201)],
+    ]) {
+      const result = await h.invoke("list", ...args);
+      expect(result.code, args.join(" ")).toBe(2);
+    }
+    const search = await h.invoke("list", "--search", "");
+    expect(search.stderr).toContain("Search for 1 to 200 characters.");
     expect(server.requests).toHaveLength(0);
   });
 

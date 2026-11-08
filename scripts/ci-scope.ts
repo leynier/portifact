@@ -10,9 +10,15 @@ export interface Scope {
   cli: boolean;
   /** The Playwright suite in e2e/ against the app and content Workers, in every engine. */
   e2e: boolean;
+  /**
+   * The secret scan of the whole Git history. The change's own commits and the checked-out tree
+   * are scanned on every run, because any file can hold a secret; the history only needs a new
+   * pass when the rules that judge it change.
+   */
+  secretsHistory: boolean;
 }
 
-export const FULL_SCOPE: Scope = { quality: true, cli: true, e2e: true };
+export const FULL_SCOPE: Scope = { quality: true, cli: true, e2e: true, secretsHistory: true };
 
 /** Files that change how the CLI binary or its installers are built, shipped or tested. */
 const CLI_FILES = [
@@ -36,8 +42,14 @@ const E2E_FILES = [
   /^\.github\/workflows\/ci\.yml$/,
 ];
 
-/** Files no check reads. Everything else, including readme.md and skills/, needs quality. */
-const INERT_FILES = [/^docs\//, /^license$/, /^\.github\/ISSUE_TEMPLATE\//];
+/** Files that change how the secret scan judges what it finds, or how it runs. */
+const SECRET_SCAN_FILES = [/^\.gitleaks\.toml$/, /^\.github\/workflows\/ci\.yml$/];
+
+/**
+ * Files no quality check reads. Everything else, including readme.md and skills/, needs
+ * quality. The secret scan reads every file, so nothing is inert to it.
+ */
+const INERT_FILES = [/^docs\//, /^license$/, /^\.github\/ISSUE_TEMPLATE\//, /^\.gitleaks\.toml$/];
 
 /** Workspace packages the CLI depends on, from its package.json dependencies. */
 export function cliWorkspaceDeps(cliPackageJson: string): string[] {
@@ -60,6 +72,7 @@ export function scopeOf(files: readonly string[], cliDeps: readonly string[] = [
     quality: files.some((file) => !INERT_FILES.some((pattern) => pattern.test(file))),
     cli: files.some((file) => cliPatterns.some((pattern) => pattern.test(file))),
     e2e: files.some((file) => E2E_FILES.some((pattern) => pattern.test(file))),
+    secretsHistory: files.some((file) => SECRET_SCAN_FILES.some((pattern) => pattern.test(file))),
   };
 }
 
@@ -83,7 +96,7 @@ export function changedFiles(base: string, head: string, cwd?: string): string[]
 }
 
 export function formatOutput(scope: Scope): string {
-  return `quality=${scope.quality}\ncli=${scope.cli}\ne2e=${scope.e2e}\n`;
+  return `quality=${scope.quality}\ncli=${scope.cli}\ne2e=${scope.e2e}\nsecrets_history=${scope.secretsHistory}\n`;
 }
 
 export interface RunIo {

@@ -37,14 +37,15 @@ function repoAssets(): Plugin {
 }
 
 /**
- * HTML entries: the landing and the legal pages on portifact.com, and the dashboard and auth
- * pages and the public report page on app.portifact.com.
+ * HTML entries: the landing, the legal pages and the MCP compatibility page on portifact.com,
+ * and the dashboard and auth pages and the public report page on app.portifact.com.
  */
 const pages = [
   "index",
   "terms",
   "privacy",
   "acceptable-use",
+  "mcp-compatibility",
   "dashboard",
   "login",
   "device",

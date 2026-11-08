@@ -1,6 +1,7 @@
+import { UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiFailure, dashboardApi, type FetchLike } from "./api.ts";
-import { artifact } from "./test-support.tsx";
+import { artifact, DEFAULT_ACTIVITY } from "./test-support.tsx";
 
 function client(answer: (path: string, init: RequestInit) => Response | Promise<Response>) {
   const calls: { path: string; init: RequestInit }[] = [];
@@ -25,12 +26,87 @@ async function failure(promise: Promise<unknown>): Promise<ApiFailure> {
 
 describe("dashboard API client", () => {
   it("lists artifacts with the cursor, same-origin credentials and validated output", async () => {
-    const page = { items: [artifact("k7d2qm4xab")], nextCursor: "c2" };
+    const page = {
+      items: [{ ...artifact("k7d2qm4xab"), activity: DEFAULT_ACTIVITY }],
+      nextCursor: "c2",
+    };
     const { api, calls } = client(() => Response.json(page));
     expect(await api.listArtifacts()).toEqual(page);
     await api.listArtifacts("c2");
     expect(calls.map((c) => c.path)).toEqual(["/api/v1/artifacts", "/api/v1/artifacts?cursor=c2"]);
     expect(calls[0]?.init).toMatchObject({ method: "GET", credentials: "same-origin" });
+    // An item without its activity is not the documented shape.
+    const old = client(() => Response.json({ items: [artifact("k7d2qm4xab")], nextCursor: null }));
+    expect((await failure(old.api.listArtifacts())).code).toBe("unexpected");
+  });
+
+  it("sends only the filters given, so the API applies them", async () => {
+    const { api, calls } = client(() => Response.json({ items: [], nextCursor: null }));
+    await api.listArtifacts(undefined, { search: "plan & notes", state: "archived" });
+    await api.listArtifacts("c2", {
+      type: "site",
+      access: "public",
+      annotations: "open",
+      search: "",
+    });
+    expect(calls.map((c) => c.path)).toEqual([
+      "/api/v1/artifacts?search=plan+%26+notes&state=archived",
+      "/api/v1/artifacts?cursor=c2&type=site&access=public&annotations=open",
+    ]);
+  });
+
+  it("lists the threads of a version and exports them as JSON or Markdown", async () => {
+    const exported = {
+      notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+      exportedAt: "2026-11-08T12:00:00.000Z",
+      artifact: {
+        id: "k7d2qm4xab",
+        name: "Plan",
+        type: "site",
+        annotations: "open",
+        currentVersionId: "v1",
+      },
+      threads: [],
+    };
+    const { api, calls } = client((path) => {
+      if (path.includes("format=markdown")) {
+        return new Response("# Plan\n", { headers: { "content-type": "text/markdown" } });
+      }
+      if (path.includes("/export")) return Response.json(exported);
+      return Response.json({ error: { code: "forbidden", message: "x" } }, { status: 403 });
+    });
+    expect((await failure(api.listAnnotations("k7d2qm4xab", undefined, "all"))).code).toBe(
+      "forbidden",
+    );
+    await failure(api.listAnnotations("k7d2qm4xab", "9", "v1"));
+    await failure(api.listAnnotations("k7d2qm4xab"));
+
+    const json = await api.exportAnnotations("k7d2qm4xab", { format: "json", version: "all" });
+    expect(json.fileName).toBe("k7d2qm4xab-annotations.json");
+    expect(JSON.parse(await json.blob.text())).toEqual(exported);
+    const markdown = await api.exportAnnotations("k7d2qm4xab", {
+      format: "markdown",
+      version: "current",
+      state: "open",
+    });
+    expect(markdown.fileName).toBe("k7d2qm4xab-annotations.md");
+    expect(await markdown.blob.text()).toBe("# Plan\n");
+    expect(calls.map((c) => c.path)).toEqual([
+      "/api/v1/artifacts/k7d2qm4xab/annotations?version=all",
+      "/api/v1/artifacts/k7d2qm4xab/annotations?cursor=9&version=v1",
+      "/api/v1/artifacts/k7d2qm4xab/annotations",
+      "/api/v1/artifacts/k7d2qm4xab/annotations/export?format=json&version=all",
+      "/api/v1/artifacts/k7d2qm4xab/annotations/export?format=markdown&version=current&state=open",
+    ]);
+    expect(calls.at(-1)?.init.headers).toMatchObject({ accept: "text/markdown" });
+  });
+
+  it("refuses an export whose JSON is not an annotations export", async () => {
+    const { api } = client(() => Response.json({ threads: "nope" }));
+    expect(
+      (await failure(api.exportAnnotations("k7d2qm4xab", { format: "json", version: "current" })))
+        .code,
+    ).toBe("unexpected");
   });
 
   it("sends lifecycle actions to their routes", async () => {

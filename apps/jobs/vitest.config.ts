@@ -6,11 +6,16 @@ export default defineConfig(async () => {
   const migrations = await readD1Migrations(
     fileURLToPath(new URL("../../packages/db/migrations", import.meta.url)),
   );
+  const accessMigrations = await readD1Migrations(
+    fileURLToPath(new URL("../../packages/db/access-migrations", import.meta.url)),
+  );
   return {
     plugins: [
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
-        miniflare: { bindings: { TEST_MIGRATIONS: migrations } },
+        miniflare: {
+          bindings: { TEST_MIGRATIONS: migrations, TEST_ACCESS_MIGRATIONS: accessMigrations },
+        },
       }),
     ],
     test: {

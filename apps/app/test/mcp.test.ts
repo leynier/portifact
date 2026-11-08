@@ -21,6 +21,7 @@ import {
 const TOOLS = [
   "archive_artifact",
   "delete_artifact",
+  "get_access_logs",
   "get_artifact",
   "get_download",
   "get_usage",
@@ -84,7 +85,13 @@ describe("the MCP endpoint", () => {
     expect(byName.get("get_artifact")?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get("delete_artifact")?.annotations?.destructiveHint).toBe(true);
     expect(byName.get("delete_artifact")?.inputSchema.required).toEqual(["artifactId", "confirm"]);
-    for (const name of ["list_versions", "get_version", "get_download", "get_usage"]) {
+    for (const name of [
+      "list_versions",
+      "get_version",
+      "get_download",
+      "get_usage",
+      "get_access_logs",
+    ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
     }
     expect(byName.get("rollback_artifact")?.annotations).toMatchObject({
@@ -301,6 +308,27 @@ describe("publishing inline", () => {
         (item) => item.accessMode === "restricted",
       ),
     ).toBe(true);
+  });
+
+  it("publishes a local path as the document's text, never reading a file by that name", async () => {
+    const h = createHarness();
+    const client = await connect(h, await mcpToken(h, "paths@example.test"));
+    for (const content of ["/etc/passwd", "~/project/plan.md", "file:///C:/Users/me/plan.md"]) {
+      const result = await callTool(client, "publish_document", {
+        type: "markdown",
+        name: "path",
+        content,
+      });
+      const committed = body<Committed>(result);
+      const file = await env.DB.prepare(
+        "select o.r2_key as r2Key, f.size as size from version_files f join objects o on o.sha256 = f.sha256 where f.version_id = ? and f.kind = 'published'",
+      )
+        .bind(committed.versionId)
+        .first<{ r2Key: string; size: number }>();
+      expect(file?.size).toBe(new TextEncoder().encode(content).length);
+      const stored = await env.ARTIFACTS.get(file?.r2Key ?? "");
+      expect(await stored?.text()).toBe(content);
+    }
   });
 
   it("accepts exactly the inline limit in UTF-8 bytes and refuses one byte more", async () => {

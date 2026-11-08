@@ -21,7 +21,7 @@ describe("CI scope", () => {
         "apps/web/index.html",
         "packages/services/src/publish.ts",
       ]),
-    ).toEqual({ quality: true, cli: false, e2e: true });
+    ).toEqual({ quality: true, cli: false, e2e: true, secretsHistory: false });
   });
 
   it("runs the end-to-end suite for the Workers, the dashboard, their packages and the suite", () => {
@@ -71,19 +71,15 @@ describe("CI scope", () => {
   });
 
   it("runs everything when shared tooling, dependencies or the workflows change", () => {
-    for (const file of [
-      "package.json",
-      "bun.lock",
-      "bunfig.toml",
-      "tsconfig.base.json",
-      ".github/workflows/ci.yml",
-    ]) {
-      expect(scopeOf([file]), file).toEqual(FULL_SCOPE);
+    for (const file of ["package.json", "bun.lock", "bunfig.toml", "tsconfig.base.json"]) {
+      expect(scopeOf([file]), file).toEqual({ ...FULL_SCOPE, secretsHistory: false });
     }
+    expect(scopeOf([".github/workflows/ci.yml"])).toEqual(FULL_SCOPE);
     expect(scopeOf([".github/workflows/release.yml"])).toEqual({
       quality: true,
       cli: true,
       e2e: false,
+      secretsHistory: false,
     });
   });
 
@@ -107,7 +103,26 @@ describe("CI scope", () => {
       quality: false,
       cli: false,
       e2e: false,
+      secretsHistory: false,
     });
+  });
+
+  it("rescans the whole history only when the secret scan's rules or workflow change", () => {
+    expect(scopeOf([".gitleaks.toml"])).toEqual({
+      quality: false,
+      cli: false,
+      e2e: false,
+      secretsHistory: true,
+    });
+    expect(scopeOf([".github/workflows/ci.yml"]).secretsHistory).toBe(true);
+    for (const file of [
+      "apps/app/src/index.ts",
+      "docs/security.md",
+      "gitleaks.toml",
+      "a/.gitleaks.toml",
+    ]) {
+      expect(scopeOf([file]).secretsHistory, file).toBe(false);
+    }
   });
 
   it("still checks files that tests or checks read, like the readme and skills", () => {
@@ -150,8 +165,8 @@ describe("CI scope", () => {
   });
 
   it("writes GitHub Actions outputs", () => {
-    expect(formatOutput({ quality: true, cli: false, e2e: true })).toBe(
-      "quality=true\ncli=false\ne2e=true\n",
+    expect(formatOutput({ quality: true, cli: false, e2e: true, secretsHistory: false })).toBe(
+      "quality=true\ncli=false\ne2e=true\nsecrets_history=false\n",
     );
   });
 

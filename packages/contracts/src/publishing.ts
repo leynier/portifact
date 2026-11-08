@@ -160,8 +160,28 @@ export const ArtifactSummary = z.object({
 });
 export type ArtifactSummary = z.infer<typeof ArtifactSummary>;
 
+/**
+ * Consumption and activity of an artifact in the list. Traffic is counted per account, not per
+ * artifact, so it is in the account usage (`GET /api/v1/usage`), not here.
+ */
+export const ArtifactActivity = z.object({
+  /** Committed versions that can still be read, the current one included. */
+  versions: z.int().min(0),
+  /** Bytes of the current version, published files and sources; `null` without one. */
+  currentBytes: z.int().min(0).nullable(),
+  /** Open threads on the current version. */
+  openThreads: z.int().min(0),
+  /** When a thread on any version last changed: a comment, reply, resolution or moderation. */
+  lastAnnotationAt: z.iso.datetime().nullable(),
+});
+export type ArtifactActivity = z.infer<typeof ArtifactActivity>;
+
+/** An artifact in the list: its summary and its activity. */
+export const ArtifactListItem = ArtifactSummary.extend({ activity: ArtifactActivity });
+export type ArtifactListItem = z.infer<typeof ArtifactListItem>;
+
 export const ArtifactList = z.object({
-  items: z.array(ArtifactSummary),
+  items: z.array(ArtifactListItem),
   /** Pass as `cursor` to get the next page; `null` on the last page. */
   nextCursor: z.string().nullable(),
 });
@@ -171,6 +191,30 @@ export const ListQuery = z.object({
   cursor: z.string().max(200).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+
+/** States the artifact list can show: drafts and deleted artifacts are never listed. */
+export const ListedArtifactState = z.enum(["active", "archived", "suspended", "purging"]);
+export type ListedArtifactState = z.infer<typeof ListedArtifactState>;
+
+/** Longest text the artifact list searches for, as long as the longest name. */
+export const LIST_SEARCH_MAX = 200;
+
+/**
+ * Narrows the artifact list. `search` matches a part of the name (letters A to Z in any case)
+ * or of the ID; every filter given must hold. A cursor continues only the same filters.
+ */
+export const ArtifactListFilters = z.object({
+  search: z.string().trim().min(1).max(LIST_SEARCH_MAX).optional(),
+  state: ListedArtifactState.optional(),
+  type: ArtifactType.optional(),
+  access: AccessMode.optional(),
+  annotations: AnnotationsState.optional(),
+});
+export type ArtifactListFilters = z.infer<typeof ArtifactListFilters>;
+
+/** Query of `GET /api/v1/artifacts`: a page and the filters. */
+export const ArtifactListQuery = ListQuery.extend(ArtifactListFilters.shape);
+export type ArtifactListQuery = z.infer<typeof ArtifactListQuery>;
 
 export const LifecycleResult = z.object({
   state: z.enum(["active", "archived", "deleted"]),

@@ -7,6 +7,7 @@ import { purgeDate } from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
 import { and, eq, inArray, isNotNull, lte, ne, notExists, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
@@ -231,6 +232,15 @@ export async function deleteArtifactData(
       event: "purged",
       at: now,
     }),
+    // Its access log is in another database: a job erases it, written only by the batch that
+    // deletes the artifact.
+    eraseAccessEventsJob(
+      db,
+      "artifact",
+      artifactId,
+      sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
+      now,
+    ),
     // Cascades to readers, versions and manifest entries.
     db
       .delete(schema.artifacts)

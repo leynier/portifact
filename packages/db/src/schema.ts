@@ -258,6 +258,9 @@ export const versions = sqliteTable(
   (t) => [
     uniqueIndex("versions_artifact_number_idx").on(t.artifactId, t.number),
     index("versions_state_expires_idx").on(t.state, t.expiresAt),
+    // An artifact's committed versions, counted for every row of the artifact list; without it
+    // the planner may walk every committed version through `versions_state_expires_idx`.
+    index("versions_artifact_state_idx").on(t.artifactId, t.state),
     check("versions_bytes_nonnegative", sql`${t.publishedBytes} >= 0 and ${t.sourceBytes} >= 0`),
   ],
 );
@@ -482,6 +485,7 @@ export const OUTBOX_TOPICS = [
   "account_deletion",
   "delete_objects",
   "abort_multipart",
+  "erase_access_events",
 ] as const;
 
 /**

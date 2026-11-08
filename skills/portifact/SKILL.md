@@ -15,7 +15,7 @@ Portifact is in early development and gains commands release by release. Before 
 2. Run `portifact --help` to see the commands this version supports.
 3. Use only commands and flags that `--help` lists. Never guess a command. If the user asks for something the installed version cannot do, say so and suggest updating.
 
-Versions whose `--help` lists `login` can sign in, sign out and show the signed-in account. Versions whose `--help` also lists `publish` can publish files and folders and manage artifacts and their access, and versions whose `--help` lists `versions`, `rollback` and `pull` can list versions, roll back and download, and versions whose `--help` lists `annotations` can manage comment threads, as described below. Versions whose `portifact publish --help` lists `--source`, `--ref` and `--assets` publish ZIP files, attach private sources and publish Markdown assets, versions whose `portifact pull --help` lists `--git` build a Git history of the private sources, versions whose `--help` lists `usage` show the account's quotas, and versions whose `--help` lists `licenses` print the licenses of the open source software in the binary (`portifact licenses`; also at `https://portifact.com/third-party-notices`). The MCP server at `https://app.portifact.com/mcp` can list, publish and manage small documents, list, download and roll back versions, read, write, moderate and export annotations, and report usage; see below.
+Versions whose `--help` lists `login` can sign in, sign out and show the signed-in account. Versions whose `--help` also lists `publish` can publish files and folders and manage artifacts and their access, and versions whose `--help` lists `versions`, `rollback` and `pull` can list versions, roll back and download, and versions whose `--help` lists `annotations` can manage comment threads, as described below. Versions whose `portifact publish --help` lists `--source`, `--ref` and `--assets` publish ZIP files, attach private sources and publish Markdown assets, versions whose `portifact pull --help` lists `--git` build a Git history of the private sources, versions whose `--help` lists `usage` show the account's quotas, versions whose `--help` lists `logs` show who opened an artifact, and versions whose `--help` lists `licenses` print the licenses of the open source software in the binary (`portifact licenses`; also at `https://portifact.com/third-party-notices`). The MCP server at `https://app.portifact.com/mcp` can list, publish and manage small documents, list, download and roll back versions, read, write, moderate and export annotations, and report usage and access logs; see below.
 
 ## Install or update the CLI
 
@@ -75,7 +75,7 @@ Only in versions whose `--help` lists `publish`.
 
 Only in versions whose `--help` lists these commands. Every command takes `--json`.
 
-- `portifact list [--limit N] [--cursor C]` returns `{"items":[...],"nextCursor"}`; pass `nextCursor` as `--cursor` for the next page. `portifact info <id>` returns one item: `{"id","name","type","state","accessMode","annotations","currentVersionId","url","expiresAt","archivedAt","purgeAt","createdAt","updatedAt"}`, plus `"suspension":{"reason"}` while the artifact is suspended.
+- `portifact list [--limit N] [--cursor C] [--search TEXT] [--state active|archived|suspended|purging] [--type site|markdown|text] [--access public|authenticated|restricted] [--annotations off|open|locked]` returns `{"items":[...],"nextCursor"}`; pass `nextCursor` as `--cursor`, with the same filters, for the next page. Each item is what `portifact info` returns plus `"activity":{"versions","currentBytes","openThreads","lastAnnotationAt"}`: the retained versions (the current one included), the current version's bytes (published files and sources, `null` without a version), the open threads on the current version and when a thread on any version last changed (`null` without threads). Traffic is counted per account, not per artifact, so it is only in `portifact usage`. `--search` matches a part of the name (letters in any case) or of the ID, and every filter given must hold, so use them to find an artifact instead of paging through everything. `portifact info <id>` returns one item: `{"id","name","type","state","accessMode","annotations","currentVersionId","url","expiresAt","archivedAt","purgeAt","createdAt","updatedAt"}`, plus `"suspension":{"reason"}` while the artifact is suspended.
 - `portifact renew <id>`, `archive <id>` and `restore <id>` return `{"artifactId","state","expiresAt","purgeAt"}`. Ask before archiving.
 - `portifact delete <id>` deletes permanently. It asks the person at the terminal to type the artifact ID; without a terminal it requires `--yes` and otherwise fails with exit 2. Only pass `--yes` after the user confirmed that exact artifact.
 
@@ -102,6 +102,10 @@ An artifact keeps its current version plus the versions it replaced during the l
 ## Usage and limits
 
 Only in versions whose `--help` lists `usage`. `portifact usage --json` prints `{"activeArtifacts","storage","publishesLast24h","newFilesLast24h","newBytesLast24h","newObjectsThisMonth","openUploads","trafficThisMonth","versionLimits","publicAccessFrom","blocks"}`. Each quota is `{"used","limit"}`; `storage` adds `reserved` (bytes held by uploads in progress) and `newObjectsThisMonth` adds `resetsAt`. `trafficThisMonth` is `{"requests","bytes","resetsAt"}`: the requests and bytes all of the user's artifacts served this calendar month (UTC), each `{"used","limit"}` (1 million requests and 25 GB), counted every few seconds. `blocks` lists what stops the account right now, each `{"reason","stops","message","until"}`: `stops` is `new_artifacts`, `publishing`, `public_access` or `serving`, and `until` is when it lifts by itself, or `null` when the user must free capacity (archive or delete artifacts). A `traffic` block stops `serving`: every artifact of the user answers HTTP 429 until `until` (the next month), while publishing and other accounts' artifacts are unaffected. A block with reason `capacity` means Portifact itself is protecting its capacity: new artifacts or new uploads (and possibly new comments) are paused for everyone, nothing the user frees lifts it, and reading, exporting, deleting, renewing and reducing access still work. Check it before a large publish, to explain a `quota_exceeded` or `capacity_unavailable` error and when the user's artifacts answer 429, and show the user the block's message.
+
+## Access logs
+
+Only in versions whose `--help` lists `logs`. `portifact logs <id>` lists who opened one of the user's artifacts in the last 30 days, newest first: the verified email of each signed-in visitor and when, one entry per visitor every 30 minutes. `--since 7d` (or `30m`, `12h`, or an ISO date) limits it to recent openings, and `--json` prints `{"artifactId","entries","nextCursor","windowMinutes","retentionDays"}` with every entry as `{"email","openedAt"}`. Only the owner can read it; anyone else gets `not_found` (exit 5). Anonymous visits to public artifacts and the owner's own visits are never recorded, and openings can be missing, so it is not a complete audit. The emails are the visitors' personal data: show them to the user and do not send them anywhere else.
 
 ## Annotations
 
@@ -145,9 +149,15 @@ With `--json`, the result is one JSON object on stdout, and a failure is `{"erro
 
 Add `https://app.portifact.com/mcp` as a remote MCP server (Streamable HTTP). The client signs the user in with OAuth in the browser; first it asks only for `artifacts:read`, and it asks the user again for `artifacts:write`, `artifacts:delete`, `annotations:read`, `annotations:write` or `annotations:moderate` the first time a tool needs them.
 
+How a missing scope shows up depends on the client:
+
+- Claude.ai asks the user to allow it in the browser and continues.
+- Claude Code fails the call with a message that it "needs additional permissions" and disconnects the server for that session. Ask the user to run `/mcp`, choose Re-authenticate and allow it, then retry; `claude -p` cannot sign in.
+- Codex CLI fails the call with "Insufficient scope" and never asks by itself. Ask the user to sign in again with every scope the task needs, for example `codex mcp login portifact --scopes artifacts:read,artifacts:write,artifacts:delete,offline_access` (add the `annotations:*` scopes for comments). Codex also asks the user to approve tools that delete.
+
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `list_artifacts` | `artifacts:read` | The user's artifacts, newest first, 50 per page; pass `nextCursor` back as `cursor` for more. |
+| `list_artifacts` | `artifacts:read` | The user's artifacts, newest first, 50 per page, each with its `activity` as in `portifact list`; narrow with `search`, `state`, `type`, `access` and `annotations`, and pass `nextCursor` back as `cursor` with the same filters for more. |
 | `get_artifact` | `artifacts:read` | One artifact: state, access mode, URL, expiry and `currentVersionId`. |
 | `publish_document` | `artifacts:write` | Publishes `markdown`, `text` or a single self-contained HTML page (`site`) sent as `content`, up to 256 KiB of UTF-8. |
 | `renew_artifact` | `artifacts:write` | Restarts the 30 days of an active artifact. |
@@ -159,6 +169,7 @@ Add `https://app.portifact.com/mcp` as a remote MCP server (Streamable HTTP). Th
 | `get_download` | `artifacts:read` | Links valid for 5 minutes that download a version's `published` files or its `source` files (owner only); `path` limits it to one file. |
 | `rollback_artifact` | `artifacts:write` | Makes a retained version current again as a new version. Needs `baseVersionId`; access does not change. |
 | `get_usage` | `artifacts:read` | The account's quotas, current usage, 24-hour windows and what blocks it now, as `portifact usage --json` prints them. |
+| `get_access_logs` | `artifacts:read` | Who opened one of the user's artifacts in the last 30 days (owner only), newest first, as `portifact logs --json` prints them; `since` limits it, and pass `nextCursor` back as `cursor` for older entries. |
 | `set_annotations` | `annotations:moderate` | Sets annotations on an artifact to `off`, `open` or `locked` (owner only). |
 | `list_annotations` | `annotations:read` | The threads with their messages, in change order; call again with `cursor` while `hasMore` is true, and later for only the changes. |
 | `get_thread` | `annotations:read` | One thread with every message. |

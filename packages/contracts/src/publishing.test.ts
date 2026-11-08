@@ -4,8 +4,11 @@ import { LIMITS } from "./limits.ts";
 import {
   AccessUpdate,
   ArtifactList,
+  ArtifactListItem,
+  ArtifactListQuery,
   ERROR_STATUS,
   IdempotencyKey,
+  LIST_SEARCH_MAX,
   ListQuery,
   ManifestFile,
   PublishRequest,
@@ -67,6 +70,38 @@ describe("publishing contracts", () => {
     });
   });
 
+  it("parses the artifact list filters and refuses unknown values", () => {
+    expect(
+      ArtifactListQuery.parse({
+        limit: "5",
+        search: " notes ",
+        state: "active",
+        type: "site",
+        access: "restricted",
+        annotations: "locked",
+      }),
+    ).toEqual({
+      limit: 5,
+      search: "notes",
+      state: "active",
+      type: "site",
+      access: "restricted",
+      annotations: "locked",
+    });
+    expect(ArtifactListQuery.parse({})).toEqual({ limit: 50 });
+    expect(ArtifactListQuery.safeParse({ search: "" }).success).toBe(false);
+    expect(ArtifactListQuery.safeParse({ search: "x".repeat(LIST_SEARCH_MAX) }).success).toBe(true);
+    expect(ArtifactListQuery.safeParse({ search: "x".repeat(LIST_SEARCH_MAX + 1) }).success).toBe(
+      false,
+    );
+    for (const state of ["draft", "deleted", "ACTIVE"]) {
+      expect(ArtifactListQuery.safeParse({ state }).success, state).toBe(false);
+    }
+    expect(ArtifactListQuery.safeParse({ type: "pdf" }).success).toBe(false);
+    expect(ArtifactListQuery.safeParse({ access: "private" }).success).toBe(false);
+    expect(ArtifactListQuery.safeParse({ annotations: "on" }).success).toBe(false);
+  });
+
   it("maps every error code to a client or service status", () => {
     for (const code of ErrorCode.options) {
       expect(ERROR_STATUS[code], code).toBeGreaterThanOrEqual(400);
@@ -87,5 +122,52 @@ describe("publishing contracts", () => {
         addReaders: Array.from({ length: LIMITS.readersPerChange + 1 }, (_, i) => `r${i}@x.test`),
       }).success,
     ).toBe(false);
+  });
+
+  it("lists each artifact with its activity and refuses impossible figures", () => {
+    const item = {
+      id: "k7d2qm4xab",
+      name: "Plan",
+      type: "site",
+      state: "active",
+      accessMode: "restricted",
+      annotations: "open",
+      currentVersionId: "ver_1",
+      url: "https://k7d2qm4xab.portifact.dev/",
+      expiresAt: null,
+      archivedAt: null,
+      purgeAt: null,
+      createdAt: "2026-11-08T00:00:00.000Z",
+      updatedAt: "2026-11-08T00:00:00.000Z",
+      activity: {
+        versions: 2,
+        currentBytes: 1200,
+        openThreads: 3,
+        lastAnnotationAt: "2026-11-08T01:00:00.000Z",
+      },
+    };
+    expect(ArtifactList.parse({ items: [item], nextCursor: null }).items[0]?.activity).toEqual(
+      item.activity,
+    );
+    expect(
+      ArtifactListItem.safeParse({
+        ...item,
+        activity: { ...item.activity, currentBytes: null, lastAnnotationAt: null },
+      }).success,
+    ).toBe(true);
+    const { activity: _, ...withoutActivity } = item;
+    expect(ArtifactListItem.safeParse(withoutActivity).success).toBe(false);
+    for (const bad of [
+      { versions: -1 },
+      { versions: 1.5 },
+      { currentBytes: -1 },
+      { openThreads: -1 },
+      { lastAnnotationAt: "yesterday" },
+    ]) {
+      expect(
+        ArtifactListItem.safeParse({ ...item, activity: { ...item.activity, ...bad } }).success,
+        JSON.stringify(bad),
+      ).toBe(false);
+    }
   });
 });

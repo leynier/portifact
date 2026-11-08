@@ -7,9 +7,11 @@ import {
   createAnnotationThread,
   issueReviewHandoff,
   preparePublish,
+  updateAccess,
 } from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
+import { setContentClockOffset } from "./clock.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
 export type E2eEnv = AppEnv & ContentEnv;
@@ -53,6 +55,8 @@ interface PublishInput {
   accessMode?: "public" | "authenticated" | "restricted";
   readers?: string[];
   annotations?: "off" | "open" | "locked";
+  /** Publishes a new version of this artifact on `baseVersionId` instead of a new artifact. */
+  update?: { artifactId: string; baseVersionId: string };
 }
 
 interface ThreadInput {
@@ -72,9 +76,23 @@ interface ReviewCodeInput {
   kind?: "frame" | "tab";
 }
 
+interface AccessInput {
+  ownerId: string;
+  artifactId: string;
+  removeReaders?: string[];
+  addReaders?: string[];
+}
+
+interface ClockInput {
+  /** How far ahead of real time the content Worker's clock runs; 0 puts it back. */
+  offsetMs: number;
+}
+
 interface SqlInput {
   query: string;
   params?: (string | number | null)[];
+  /** `access` runs it against the access log database instead of the control database. */
+  database?: "control" | "access";
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -204,7 +222,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       type: publish.type,
       name: publish.name,
       entrypoint: entries[0]?.[0] ?? "index.html",
-      baseVersionId: null,
+      ...(publish.update
+        ? { artifactId: publish.update.artifactId, baseVersionId: publish.update.baseVersionId }
+        : { baseVersionId: null }),
       files,
       now,
     });
@@ -220,6 +240,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     });
     if (!committed.ok) return Response.json(committed, { status: 400 });
     const artifactId = committed.value.artifactId;
+    if (publish.update) {
+      return Response.json({ artifactId, versionId: committed.value.versionId });
+    }
     await env.DB.prepare(
       "UPDATE artifacts SET access_mode = ?, annotations = ?, policy_generation = policy_generation + 1 WHERE id = ?",
     )
@@ -267,9 +290,29 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });
   }
 
+  // The owner's access change, through the same service the API, MCP and dashboard call.
+  if (path === "/access") {
+    const { ownerId, artifactId, removeReaders, addReaders } = input as AccessInput;
+    const result = await updateAccess(db, {
+      ownerId,
+      artifactId,
+      change: { removeReaders, addReaders },
+      now,
+    });
+    return Response.json(result, { status: result.ok ? 200 : 400 });
+  }
+
+  if (path === "/clock") {
+    const { offsetMs } = input as ClockInput;
+    setContentClockOffset(offsetMs);
+    return Response.json({ offsetMs });
+  }
+
   if (path === "/sql") {
-    const { query, params = [] } = input as SqlInput;
-    const { results } = await env.DB.prepare(query)
+    const { query, params = [], database } = input as SqlInput;
+    const target = database === "access" ? env.ACCESS_DB : env.DB;
+    const { results } = await target
+      .prepare(query)
       .bind(...params)
       .all();
     return Response.json(results);

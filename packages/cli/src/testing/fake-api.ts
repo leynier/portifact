@@ -7,11 +7,15 @@ import { createHash, randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import {
   type AbuseReason,
+  type AccessLogEntry,
+  AccessLogQuery,
+  type AccessLogView,
   type AccessMode,
   type AccessPolicyView,
   AccessUpdate,
   type AccountUsageView,
   ARTIFACT_ID_ALPHABET,
+  ArtifactListFilters,
   type ArtifactSummary,
   type ArtifactType,
   ERROR_STATUS,
@@ -112,6 +116,8 @@ export interface PutRecord {
 
 export interface FakeApiState {
   artifacts: Map<string, FakeArtifact>;
+  /** Access log entries by artifact, newest first, as GET /artifacts/:id/access-log pages them. */
+  accessLogs: Map<string, AccessLogEntry[]>;
   /** Objects the account already stores, by SHA-256. */
   stored: Map<string, Buffer>;
   /** Objects uploaded and not committed yet. */
@@ -165,6 +171,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   const idempotency = new Map<string, { hash: string; reply: Reply }>();
   const state: FakeApiState = {
     artifacts: new Map(),
+    accessLogs: new Map(),
     stored: new Map(),
     uploaded: new Map(),
     sessions: new Map(),
@@ -375,6 +382,20 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     artifact.expiresAt = now + 30 * DAY_MS;
     artifact.updatedAt = now;
     return added;
+  }
+
+  /** Retained versions and the current one's bytes; the fake keeps no comment threads here. */
+  function activityOf(artifact: FakeArtifact) {
+    const retained = (state.versions.get(artifact.id) ?? []).filter(
+      (version) => retainedVersion(artifact, version.id) !== undefined,
+    );
+    const current = retained.find((version) => version.id === artifact.currentVersionId);
+    return {
+      versions: retained.length,
+      currentBytes: current ? current.files.reduce((sum, file) => sum + file.size, 0) : null,
+      openThreads: 0,
+      lastAnnotationAt: null,
+    };
   }
 
   function retainedVersion(artifact: FakeArtifact, ref: string): FakeVersion | undefined {
@@ -766,6 +787,32 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     return { status: 204 };
   }
 
+  /** Pages by offset (`c<offset>`), like the artifact list; filters by `since` like the Worker. */
+  function accessLog(id: string, url: URL): Reply {
+    const artifact = state.artifacts.get(id);
+    if (!artifact || artifact.state === "deleted") return error("not_found", "Artifact not found.");
+    const query = AccessLogQuery.safeParse({
+      cursor: url.searchParams.get("cursor") ?? undefined,
+      limit: url.searchParams.get("limit") ?? undefined,
+      since: url.searchParams.get("since") ?? undefined,
+    });
+    if (!query.success) return error("invalid_input", "Invalid cursor, limit or since.");
+    const offset = query.data.cursor === undefined ? 0 : Number(query.data.cursor.slice(1));
+    if (!Number.isInteger(offset)) return error("invalid_input", "Invalid cursor.");
+    const since = query.data.since;
+    const all = (state.accessLogs.get(id) ?? []).filter(
+      (entry) => since === undefined || entry.openedAt >= since,
+    );
+    const body: AccessLogView = {
+      artifactId: id,
+      entries: all.slice(offset, offset + query.data.limit),
+      nextCursor: offset + query.data.limit < all.length ? `c${offset + query.data.limit}` : null,
+      windowMinutes: 30,
+      retentionDays: 30,
+    };
+    return { status: 200, body };
+  }
+
   function listArtifacts(url: URL): Reply {
     const limit = Number(url.searchParams.get("limit") ?? "50");
     const cursor = url.searchParams.get("cursor");
@@ -773,8 +820,29 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset)) {
       return error("invalid_input", "Invalid cursor or limit.");
     }
-    const all = [...state.artifacts.values()].filter((artifact) => artifact.state !== "deleted");
-    const items = all.slice(offset, offset + limit).map(summary);
+    const query = Object.fromEntries(
+      ["search", "state", "type", "access", "annotations"].flatMap((name) => {
+        const value = url.searchParams.get(name);
+        return value ? [[name, value]] : [];
+      }),
+    );
+    const filters = ArtifactListFilters.safeParse(query);
+    if (!filters.success) return error("invalid_input", "Invalid filter.");
+    const search = filters.data.search?.toLowerCase();
+    const matches = (item: ArtifactSummary) =>
+      (search === undefined ||
+        item.name.toLowerCase().includes(search) ||
+        item.id.includes(search)) &&
+      (filters.data.state === undefined || item.state === filters.data.state) &&
+      (filters.data.type === undefined || item.type === filters.data.type) &&
+      (filters.data.access === undefined || item.accessMode === filters.data.access) &&
+      (filters.data.annotations === undefined || item.annotations === filters.data.annotations);
+    const all = [...state.artifacts.values()]
+      .filter((artifact) => artifact.state !== "deleted")
+      .filter((artifact) => matches(summary(artifact)));
+    const items = all
+      .slice(offset, offset + limit)
+      .map((artifact) => ({ ...summary(artifact), activity: activityOf(artifact) }));
     const nextCursor = offset + limit < all.length ? `c${offset + limit}` : null;
     return { status: 200, body: { items, nextCursor } };
   }
@@ -862,6 +930,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     if (route === "GET /artifacts") return listArtifacts(url);
     if (route === "GET /usage") return { status: 200, body: state.usage };
+    const log = /^\/artifacts\/([^/]+)\/access-log$/.exec(path);
+    if (log && method === "GET") return accessLog(decodeURIComponent(log[1] as string), url);
     const versions = versionRoute(method, path, url, key, raw);
     if (versions) return versions;
     match = /^\/artifacts\/([^/]+)(?:\/(renew|archive|restore|access))?$/.exec(path);

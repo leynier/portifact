@@ -75,11 +75,43 @@ describe("portifact.com", () => {
     }
   });
 
+  it("serves the MCP compatibility page with the strict page headers", async () => {
+    const response = await get("https://portifact.com/mcp-compatibility");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(response.headers.get("content-security-policy")).toBe(PAGE_CSP);
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("x-frame-options")).toBe("DENY");
+    expect(response.headers.get("strict-transport-security")).toContain("max-age=");
+    const html = await response.text();
+    expect(html).toContain(">MCP compatibility</h1>");
+    expect(html).toContain("https://app.portifact.com/mcp");
+    for (const [, url] of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
+      expect((await get(`https://portifact.com${url}`)).status, url).toBe(200);
+    }
+  });
+
+  it("keeps /mcp on the app host for the MCP server, never the compatibility page", async () => {
+    const mcp = await get("https://app.portifact.com/mcp", { method: "POST" });
+    expect(mcp.status).toBe(401);
+    expect(mcp.headers.get("www-authenticate")).toContain("resource_metadata=");
+    const page = await get("https://app.portifact.com/mcp-compatibility");
+    expect(page.status).toBe(404);
+  });
+
   it("links the legal pages from the landing page", async () => {
     const html = await (await get("https://portifact.com/")).text();
     for (const path of ["/terms", "/privacy", "/acceptable-use"]) {
       expect(html).toContain(`href="${path}"`);
     }
+  });
+
+  it("links the MCP compatibility page and the dashboard from the landing page", async () => {
+    const html = await (await get("https://portifact.com/")).text();
+    expect(html).toContain('href="/mcp-compatibility"');
+    expect(html).toContain('href="https://app.portifact.com/"');
+    expect((await get("https://portifact.com/mcp-compatibility")).status).toBe(200);
   });
 
   it("serves the third-party notices as plain text with the strict page headers", async () => {
