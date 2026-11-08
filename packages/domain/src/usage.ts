@@ -1,6 +1,7 @@
 // What blocks an account right now (plan sections 6 "Uso" and 12): the same limits checkPublish
 // and checkAccessChange apply, read from the account's counters, with when each block lifts.
 import { LIMITS } from "@portifact/contracts";
+import { type TrafficUsage, trafficCycle, trafficExhausted } from "./traffic.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const USAGE_WINDOW_MS = DAY_MS;
@@ -25,6 +26,8 @@ export interface UsageSnapshot {
   publishes: readonly WindowEvent[];
   newFiles: readonly WindowEvent[];
   newBytes: readonly WindowEvent[];
+  /** What the account's artifacts served in the current traffic cycle. */
+  traffic: TrafficUsage;
 }
 
 export type BlockReason =
@@ -35,11 +38,12 @@ export type BlockReason =
   | "new_files_per_24h"
   | "new_bytes_per_24h"
   | "new_objects_per_month"
-  | "account_too_new_for_public";
+  | "account_too_new_for_public"
+  | "traffic";
 
 export interface Block {
   reason: BlockReason;
-  stops: "new_artifacts" | "publishing" | "public_access";
+  stops: "new_artifacts" | "publishing" | "public_access" | "serving";
   message: string;
   /** When it lifts by itself; null when the account must free capacity. */
   until: number | null;
@@ -70,8 +74,7 @@ export function windowReleaseAt(
 
 /** Start of the next calendar month in UTC, when the monthly object count resets. */
 export function nextMonthStart(now: number): number {
-  const date = new Date(now);
-  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+  return trafficCycle(now).resetsAt;
 }
 
 /** From when an account may make artifacts public (the same rule as checkAccessChange). */
@@ -149,6 +152,15 @@ export function usageBlocks(usage: UsageSnapshot): Block[] {
       stops: "public_access",
       message: `Accounts can make artifacts public after ${LIMITS.publicAccessMinAccountAgeDays} days.`,
       until: publicFrom,
+    });
+  }
+  if (trafficExhausted(usage.traffic)) {
+    blocks.push({
+      reason: "traffic",
+      stops: "serving",
+      message:
+        "Your artifacts served this month's traffic (1 million requests or 25 GB). They answer 429 until the next month; publishing still works.",
+      until: trafficCycle(usage.now).resetsAt,
     });
   }
   return blocks;
