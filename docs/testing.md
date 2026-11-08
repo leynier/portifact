@@ -35,6 +35,8 @@ Mock only true external boundaries: identity providers, the email provider and t
 
 Workers tests run inside workerd through `@cloudflare/vitest-plugin`, which supports Vitest 4, so the workspace catalog stays on Vitest 4. Keep `compatibility_date` in each `wrangler.jsonc` no newer than the date the installed workerd supports, or the test runtime refuses to start.
 
+D1 tests use the real local D1 inside workerd: `packages/db/test/apply-migrations.ts` applies `packages/db/migrations` before the tests, the same SQL that production runs. Assert on database errors through the `cause` chain, because Drizzle wraps SQLite errors.
+
 ## Required cases
 
 Every feature covers:
