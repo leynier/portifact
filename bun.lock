@@ -50,6 +50,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/render": "workspace:*",
         "@portifact/services": "workspace:*",
       },
       "devDependencies": {
@@ -126,7 +127,7 @@
     },
     "packages/cli": {
       "name": "@portifact/cli",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "dependencies": {
         "@portifact/contracts": "workspace:*",
         "@portifact/domain": "workspace:*",
@@ -208,6 +209,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/render": "workspace:*",
         "drizzle-orm": "^0.45.0",
       },
       "devDependencies": {

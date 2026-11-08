@@ -66,6 +66,7 @@ Only in versions whose `--help` lists `publish`.
 - Symbolic links and special files are refused, never followed.
 - Files the account already stores are not uploaded again. Interrupted uploads are retried, and if publishing fails after the upload started, the CLI cancels it so nothing is half published.
 - ZIP files and `--source` (private sources next to the published files) are not supported yet.
+- Portifact renders a `markdown` or `text` artifact itself: its URL opens a page rendered from the document, where raw HTML in Markdown shows as text and nothing runs. The original file downloads from its own path under the artifact URL (for example `<url>plan.md`, or `<url>index.md` for `publish_document`), with the same access as the page. A document is at most 5 MB of UTF-8 text, and a `text` artifact is a single file.
 
 ## Manage artifacts
 

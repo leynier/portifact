@@ -1,9 +1,13 @@
 // Maintenance jobs (plan section 10). Each job takes a small batch, is idempotent and safe to
 // run concurrently: state changes are conditional on the lifecycle generation, and storage is
 // released only by the statement that actually deletes the object rows.
+import { LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { purgeDate } from "@portifact/domain";
+import { SECURE_RENDERER_VERSION } from "@portifact/render";
 import { and, eq, inArray, isNotNull, lte, ne, notExists, or, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { abortPublish } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
@@ -317,6 +321,119 @@ export async function sweepOrphanObjects(
   return { processed: orphans.length };
 }
 
+/**
+ * Re-renders retained document versions whose rendering is older than the oldest secure
+ * renderer, or missing. Documents are otherwise never re-rendered, so this does nothing until a
+ * security fix raises `SECURE_RENDERER_VERSION`. The fix applies even to an account at its
+ * storage limit: the new bytes are counted up to the limit, never refused.
+ */
+export async function rerenderDocuments(
+  db: Db,
+  bucket: R2Bucket,
+  now: number,
+  limit = 10,
+): Promise<JobResult> {
+  const due = await db
+    .select({
+      versionId: schema.versions.id,
+      entrypoint: schema.versions.entrypoint,
+      rendererVersion: schema.versions.rendererVersion,
+      ownerId: schema.artifacts.ownerId,
+      type: schema.artifacts.type,
+      name: schema.artifacts.name,
+      sourceSha256: schema.objects.sha256,
+      sourceKey: schema.objects.r2Key,
+    })
+    .from(schema.versions)
+    .innerJoin(schema.artifacts, eq(schema.artifacts.id, schema.versions.artifactId))
+    .innerJoin(
+      schema.versionFiles,
+      and(
+        eq(schema.versionFiles.versionId, schema.versions.id),
+        eq(schema.versionFiles.kind, "published"),
+        eq(schema.versionFiles.path, schema.versions.entrypoint),
+      ),
+    )
+    .innerJoin(
+      schema.objects,
+      and(
+        eq(schema.objects.ownerId, schema.versionFiles.ownerId),
+        eq(schema.objects.sha256, schema.versionFiles.sha256),
+      ),
+    )
+    .where(
+      and(
+        inArray(schema.artifacts.type, ["markdown", "text"]),
+        inArray(schema.artifacts.state, ["active", "archived", "suspended"]),
+        eq(schema.versions.state, "committed"),
+        sql`(${schema.versions.rendererVersion} is null or cast(${schema.versions.rendererVersion} as integer) < ${Number(SECURE_RENDERER_VERSION)})`,
+      ),
+    )
+    .limit(limit);
+
+  let processed = 0;
+  for (const version of due) {
+    if (version.type === "site") continue;
+    const rendered = await renderDocument(bucket, {
+      type: version.type,
+      name: version.name,
+      sourceKey: version.sourceKey,
+      sourceSha256: version.sourceSha256,
+    });
+    // A committed source rendered once, so this only fails if its bytes are gone; skip it.
+    if (!rendered.ok) continue;
+    const previous = await db
+      .select({ ownerId: schema.versionFiles.ownerId, sha256: schema.versionFiles.sha256 })
+      .from(schema.versionFiles)
+      .where(
+        and(
+          eq(schema.versionFiles.versionId, version.versionId),
+          inArray(schema.versionFiles.kind, ["rendered", "block_map"]),
+        ),
+      );
+    await storeRenderings(bucket, version.ownerId, rendered.value.files);
+    // Only the run that still sees the old renderer version applies its rendering.
+    const unchanged = sql`exists (select 1 from ${schema.versions} where ${schema.versions.id} = ${version.versionId} and ${schema.versions.rendererVersion} is ${version.rendererVersion})`;
+    const accountUpdates = rendered.value.files.map((file) =>
+      db
+        .update(schema.accountUsage)
+        .set({
+          storedBytes: sql`min(${schema.accountUsage.storedBytes} + ${file.bytes.byteLength}, ${LIMITS.accountBytes} - ${schema.accountUsage.reservedBytes})`,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.accountUsage.ownerId, version.ownerId),
+            unchanged,
+            sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${version.ownerId} and ${schema.objects.sha256} = ${file.sha256} and ${schema.objects.state} = 'verified')`,
+          ),
+        ),
+    );
+    // Bytes are counted before the objects become verified, so each new object counts once,
+    // and the version moves to the new renderer last.
+    const statements: BatchItem<"sqlite">[] = [
+      ...accountUpdates,
+      ...renderingStatements(db, {
+        ownerId: version.ownerId,
+        versionId: version.versionId,
+        entrypoint: version.entrypoint,
+        files: rendered.value.files,
+        state: "verified",
+        guard: unchanged,
+        now,
+      }),
+      db
+        .update(schema.versions)
+        .set({ rendererVersion: rendered.value.rendererVersion })
+        .where(and(eq(schema.versions.id, version.versionId), unchanged)),
+    ];
+    await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+    await releaseOrphans(db, bucket, previous, now);
+    processed += 1;
+  }
+  return { processed };
+}
+
 /** Runs every job once. Called from the scheduled handler. */
 export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
   return {
@@ -325,6 +442,7 @@ export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
     prunedVersions: (await pruneVersions(db, bucket, now)).processed,
     purged: (await purgeArchived(db, bucket, now)).processed,
     orphanObjects: (await sweepOrphanObjects(db, bucket, now)).processed,
+    rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
   };
