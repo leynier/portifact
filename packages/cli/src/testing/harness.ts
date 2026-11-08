@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { OAuthScope } from "@portifact/contracts";
 import { run } from "../cli.ts";
 import { KEYRING_SERVICE } from "../credentials.ts";
+import { type Git, gitRunner } from "../git.ts";
 import { nodeFileBody, type Runtime, type SecretsApi } from "../runtime.ts";
 import type { FakeServer } from "./fake-server.ts";
 
@@ -60,6 +61,8 @@ export interface HarnessOptions {
   /** Answers to confirmation prompts, in order; without it nobody can answer a prompt. */
   answers?: string[];
   env?: Record<string, string>;
+  /** Runs git; the real binary by default. */
+  git?: Git;
 }
 
 export async function createHarness(options: HarnessOptions): Promise<Harness> {
@@ -96,6 +99,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
         }
       : undefined,
     fileBody: nodeFileBody,
+    git: options.git ?? gitRunner(),
   };
   // Upload URLs expire on the same controlled clock the CLI reads.
   options.server.clock = () => clock;

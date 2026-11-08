@@ -115,7 +115,7 @@ export interface FakeApiState {
   seedVersion(
     artifact: FakeArtifact,
     files: { published: Record<string, string | Buffer>; source?: Record<string, string | Buffer> },
-    options?: { entrypoint?: string },
+    options?: { entrypoint?: string; sourceOrigin?: SourceOrigin | null },
   ): FakeVersion;
   /** The account is in its first days, so it cannot make an artifact public. */
   tooNewForPublic: boolean;
@@ -163,6 +163,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         id: `ver_${randomUUID().replaceAll("-", "")}`,
         entrypoint: options.entrypoint ?? Object.keys(files.published)[0] ?? "index.html",
         files: entries,
+        sourceOrigin: options.sourceOrigin ?? null,
       });
     },
     tooNewForPublic: false,

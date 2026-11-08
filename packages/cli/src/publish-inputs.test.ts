@@ -1,7 +1,8 @@
 // portifact publish with ZIP input, private sources (--source, --ref) and Markdown assets, and
 // portifact usage, against the fake server.
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sha256Of } from "./testing/fake-api.ts";
@@ -17,7 +18,15 @@ beforeAll(() => {
   process.env.GIT_CONFIG_NOSYSTEM = "1";
 });
 
+let scratchTmp: string;
+let previousTmp: string | undefined;
+
 beforeEach(async () => {
+  // Expansions land in a folder of this file alone, so tests that run in parallel and use the
+  // same prefixes in the shared temporary folder cannot look like leftovers.
+  previousTmp = process.env.TMPDIR;
+  scratchTmp = await mkdtemp(join(tmpdir(), "pf-inputs-tmp-"));
+  process.env.TMPDIR = scratchTmp;
   server = await startFakeServer();
   h = await createHarness({ server });
 });
@@ -25,6 +34,9 @@ beforeEach(async () => {
 afterEach(async () => {
   await h.cleanup();
   await server.close();
+  if (previousTmp === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = previousTmp;
+  await rm(scratchTmp, { recursive: true, force: true });
 });
 
 function prepareBody() {
@@ -50,7 +62,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 async function tmpLeftovers(): Promise<string[]> {
-  const entries = await readdir(process.env.TMPDIR ?? "/tmp");
+  const entries = await readdir(scratchTmp);
   return entries.filter(
     (name) => name.startsWith("portifact-zip-") || name.startsWith("portifact-git-"),
   );
