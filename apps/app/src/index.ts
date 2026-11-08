@@ -1,37 +1,24 @@
-import { Hono } from "hono";
+// Entry point of the portifact-app Worker. It owns three hostnames and routes by host:
+// portifact.com and www.portifact.com serve the site, app.portifact.com serves identity and
+// the authorization server. Any other host answers 404.
+import { createAppHost } from "./app-host.ts";
+import { type AuthDeps, workerDeps } from "./auth/deps.ts";
+import type { Env } from "./env.ts";
+import { createSite, SITE_HOST } from "./site.ts";
 
-export interface Env {
-  ASSETS: Fetcher;
+export type { Env };
+
+export function createWorker(depsFor: (env: Env) => AuthDeps) {
+  const site = createSite();
+  const { app } = createAppHost(depsFor);
+  return {
+    fetch(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response> {
+      const host = new URL(request.url).hostname;
+      if (host === new URL(env.APP_ORIGIN).hostname) return app.fetch(request, env, ctx);
+      if (host === SITE_HOST || host === `www.${SITE_HOST}`) return site.fetch(request, env, ctx);
+      return new Response("Not found", { status: 404 });
+    },
+  } satisfies ExportedHandler<Env>;
 }
 
-const REPO = "leynier/portifact";
-const CANONICAL_HOST = "portifact.com";
-
-/** Installer scripts are attached to every GitHub release; the latest one is always current. */
-const installers: Record<string, string> = {
-  "/install": "install.sh",
-  "/install.ps1": "install.ps1",
-};
-
-export const app = new Hono<{ Bindings: Env }>();
-
-// Serve everything from the apex domain so links, cookies and caches have one origin.
-app.use("*", async (c, next) => {
-  const url = new URL(c.req.url);
-  if (url.hostname === `www.${CANONICAL_HOST}`) {
-    url.hostname = CANONICAL_HOST;
-    return c.redirect(url.toString(), 301);
-  }
-  await next();
-});
-
-for (const [path, asset] of Object.entries(installers)) {
-  app.get(path, (c) => {
-    c.header("Cache-Control", "no-store");
-    return c.redirect(`https://github.com/${REPO}/releases/latest/download/${asset}`, 302);
-  });
-}
-
-app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
-
-export default app;
+export default createWorker(workerDeps);

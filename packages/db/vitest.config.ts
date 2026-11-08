@@ -24,7 +24,7 @@ export default defineConfig(async () => {
         provider: "istanbul" as const,
         reporter: ["text", "json-summary"],
         include: ["src/**/*.ts"],
-        exclude: ["src/schema.ts"],
+        exclude: ["src/schema.ts", "src/auth-schema.ts"],
         thresholds: { lines: 90, branches: 85, functions: 90, statements: 90 },
       },
     },

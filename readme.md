@@ -88,6 +88,7 @@ These commands describe the planned interface; the current release does not incl
 | Installer for macOS, Linux and Windows (x64 and arm64)  | Available      |
 | Signed releases with checksums and provenance           | Available      |
 | Agent skill (`npx skills add leynier/portifact`)        | Available      |
+| Sign-in (Google, GitHub, email code) and OAuth          | In development |
 | Publish HTML, Markdown and text                         | In development |
 | Access control (private, signed-in, email list, public) | In development |
 | Annotations and review                                  | In development |

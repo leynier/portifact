@@ -20,6 +20,12 @@
       "name": "@portifact/app",
       "version": "0.0.0",
       "dependencies": {
+        "@better-auth/cimd": "1.7.17",
+        "@better-auth/oauth-provider": "1.7.17",
+        "@portifact/contracts": "workspace:*",
+        "@portifact/db": "workspace:*",
+        "better-auth": "1.7.17",
+        "drizzle-orm": "^0.45.0",
         "hono": "^4.0.0",
       },
       "devDependencies": {
@@ -70,6 +76,7 @@
         "@portifact/ui": "workspace:*",
       },
       "devDependencies": {
+        "@portifact/contracts": "workspace:*",
         "@tailwindcss/vite": "^4.0.0",
         "@types/node": "catalog:",
         "@vitest/coverage-istanbul": "catalog:",

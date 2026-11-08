@@ -30,8 +30,19 @@ function brandAssets(): Plugin {
   };
 }
 
+/** HTML entries: the landing on portifact.com and the auth pages on app.portifact.com. */
+const pages = ["index", "login", "device", "consent"];
+
 export default defineConfig({
   plugins: [tailwindcss(), brandAssets()],
   server: { fs: { allow: ["../.."] } },
-  build: { outDir: "dist", emptyOutDir: true },
+  build: {
+    outDir: "dist",
+    emptyOutDir: true,
+    rollupOptions: {
+      input: Object.fromEntries(
+        pages.map((page) => [page, fileURLToPath(new URL(`./${page}.html`, import.meta.url))]),
+      ),
+    },
+  },
 });

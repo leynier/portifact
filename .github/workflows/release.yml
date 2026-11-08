@@ -123,3 +123,14 @@ jobs:
             sleep 10
           done
           test "$(curl -s -o /dev/null -w '%{http_code}' https://portifact.com/install)" = 302
+      - name: Check the authorization server
+        run: |
+          # The first deploy creates the app.portifact.com custom domain; its certificate can
+          # take a few minutes.
+          metadata=https://app.portifact.com/.well-known/oauth-authorization-server/api/auth
+          for attempt in $(seq 1 18); do
+            if curl -fsS "$metadata" | grep -q '"issuer":"https://app.portifact.com/api/auth"'; then break; fi
+            if [ "$attempt" = 18 ]; then echo "app.portifact.com did not serve its metadata" >&2; exit 1; fi
+            sleep 10
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' https://app.portifact.com/login)" = 200

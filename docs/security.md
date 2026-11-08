@@ -25,6 +25,20 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 - The content Worker ignores every cookie that is not on its allowlist and clears oversized injected cookies.
 - Read sessions carry signed claims that expire in 60 seconds or less. After that, the Worker rechecks D1. Revocation must take effect within 60 seconds.
 
+### Identity and the authorization server
+
+`app.portifact.com` runs Better Auth in the `portifact-app` Worker as the only identity provider and OAuth authorization server ([decision 0001](decisions/0001-oauth-server.md)). The code is in `apps/app/src/auth`.
+
+- The session cookie is `__Host-pf.session_token` with `Secure; HttpOnly; SameSite=Lax; Path=/` and no `Domain`. Every Better Auth cookie uses the `__Host-pf.` prefix, set through `cookiePrefix` with `useSecureCookies: false` so Better Auth does not add `__Secure-` in front.
+- Only the endpoints Portifact uses are reachable under `/api/auth`; the allowlist in `apps/app/src/auth/routes.ts` answers 404 for everything else, including password sign-up, admin and client management endpoints, OIDC userinfo, HTTP introspection and `/device/token` (which would issue first-party session tokens). Adding a Better Auth endpoint means adding it to the allowlist with a test.
+- Browser endpoints (sign-in, sign-out, consent, device approval) require the exact `Origin` of the app on every `POST`. Client endpoints (token, revoke, registration, device code) never see cookies: the Worker strips them, so a registration or token request cannot act on a browser session.
+- Every `/api/auth` response sends `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The auth pages (`/login`, `/device`, `/consent`) send a strict CSP (`default-src 'none'`, same-origin scripts, styles, images and requests, `frame-ancestors 'none'`), `no-store` and `no-referrer`. They are served only on the app host; `portifact.com` answers 404 for them.
+- Identities are never merged because an email matches. Google and GitHub accounts are keyed by the provider's stable ID, implicit linking is off, and a provider sign-in whose email belongs to another account is refused with `account_not_linked`. A provider that does not mark the email as verified cannot create an account (`email_not_verified`), so a later email code for that address never lands in someone else's account.
+- Google and GitHub tokens are not stored: the account row keeps only the provider and its user ID.
+- Email codes are 6 digits, valid for 5 minutes, single use, three attempts, and stored as hashes. Sending is limited per IP, per address (one per minute, five per hour) and by a global daily budget, in D1 counters keyed by an HMAC of the address, never the address itself. The answer is the same whether or not an account exists. Only sign-in codes can be requested. Code guesses, client registrations and device codes are also limited per IP.
+- The device page binds a code to the first signed-in user who opens it; nobody else can approve it. A device request cannot name the user who approves it (`user_id` is refused).
+- Access tokens are opaque and checked against D1 on every request. A resource accepts a token only if its audience contains that exact resource: CLI tokens work only at `/api/v1`, MCP tokens only at `/mcp`. The seeded CLI client is linked to the API only.
+
 ### Access control
 
 - Every request to `portifact.dev` follows this order: rate limit, resolve artifact, check state and dates, authenticate, authorize the version, check traffic quota, resolve the path, and only then read bytes from cache or R2.
@@ -60,7 +74,7 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 ### Secrets and logs
 
 - No secrets in the repository. Local secrets live in `.dev.vars`, which is ignored by git.
-- Never log tokens, cookies, OTP codes, presigned URLs, private emails beyond what access logs require, or full comment bodies.
+- Never log tokens, cookies, OTP codes, presigned URLs, private emails beyond what access logs require, or full comment bodies. The email sender replaces provider errors with a generic one, because a provider error can echo the message that holds the code.
 
 ## Review checklist
 

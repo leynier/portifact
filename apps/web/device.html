@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Connect a device to Portifact</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <script type="module" src="/src/pages/device.ts"></script>
+  </head>
+  <body class="min-h-screen bg-canvas text-text antialiased">
+    <a
+      href="#main"
+      class="sr-only z-50 rounded-sm bg-surface-inverse px-3 py-2 text-text-inverse focus:not-sr-only focus:fixed focus:top-4 focus:left-4"
+      >Skip to content</a
+    >
+    <header class="border-b border-border">
+      <div class="mx-auto flex h-16 max-w-md items-center px-4">
+        <a href="https://portifact.com/" class="no-underline" aria-label="Portifact home">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="../../assets/brand/wordmark-dark.svg" />
+            <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-7 w-auto" />
+          </picture>
+        </a>
+      </div>
+    </header>
+
+    <main id="main" class="mx-auto max-w-md px-4 py-12">
+      <h1 class="text-2xl font-semibold tracking-tight">Connect a device</h1>
+      <p class="mt-2 text-text-muted">Approve the Portifact CLI or another app that showed you a code.</p>
+      <p id="signed-in-email" class="mt-2 text-sm text-text-muted"></p>
+
+      <div id="error-summary" role="alert" tabindex="-1" class="mt-6 rounded-md border-2 border-border-strong bg-surface p-4 text-sm font-medium" hidden></div>
+      <p id="status" role="status" aria-live="polite" class="sr-only"></p>
+
+      <form id="code-form" class="mt-8" novalidate hidden>
+        <label for="user-code" class="block text-sm font-medium">Code shown in your terminal</label>
+        <input id="user-code" name="user_code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required class="mt-2 h-11 w-full rounded-sm border border-border-strong bg-canvas px-3 font-mono text-base tracking-widest" />
+        <p id="user-code-error" class="mt-2 border-l-2 border-border-strong pl-2 text-sm font-medium" hidden></p>
+        <button type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-md bg-surface-inverse px-6 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60">Continue</button>
+      </form>
+
+      <section id="review" class="mt-8" aria-labelledby="review-heading" hidden>
+        <h2 id="review-heading" tabindex="-1" class="text-lg font-semibold">Approve this sign-in?</h2>
+        <dl class="mt-4 space-y-4 text-sm">
+          <div>
+            <dt class="font-medium">App</dt>
+            <dd id="client-name" class="mt-1 text-text-muted"></dd>
+          </div>
+          <div>
+            <dt class="font-medium">Code</dt>
+            <dd id="review-code" class="mt-1 font-mono text-text-muted"></dd>
+          </div>
+          <div>
+            <dt class="font-medium">Access to</dt>
+            <dd id="resource" class="mt-1 text-text-muted"></dd>
+          </div>
+          <div>
+            <dt class="font-medium">It will be able to</dt>
+            <dd class="mt-1"><ul id="scopes" class="list-disc space-y-1 pl-5 text-text-muted"></ul></dd>
+          </div>
+        </dl>
+        <p class="mt-6 border-l-2 border-border-strong pl-3 text-sm">Approve only if you started this from your own terminal and the code matches.</p>
+        <div class="mt-6 flex flex-col gap-3 sm:flex-row">
+          <button id="approve" type="button" class="inline-flex h-11 flex-1 items-center justify-center rounded-md bg-surface-inverse px-6 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60">Approve</button>
+          <button id="deny" type="button" class="inline-flex h-11 flex-1 items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Deny</button>
+        </div>
+      </section>
+
+      <section id="done" class="mt-8" aria-labelledby="done-message" hidden>
+        <p id="done-message" class="font-medium"></p>
+      </section>
+    </main>
+
+    <footer class="border-t border-border">
+      <p class="mx-auto max-w-md px-4 py-8 text-sm text-text-muted">
+        <a href="https://portifact.com/" class="text-text-muted hover:text-text">portifact.com</a>
+      </p>
+    </footer>
+  </body>
+</html>

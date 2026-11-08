@@ -43,7 +43,23 @@ The `release` workflow (`.github/workflows/release.yml`):
 
 ## Deploying portifact.com
 
-Every push to `main` also runs the `deploy` job after `release`: it applies pending D1 migrations to `portifact-control` (`wrangler d1 migrations apply --remote`), deploys the `portifact-content` Worker (artifact origins on `*.portifact.dev`, D1 plus the private R2 bucket `portifact-artifacts`), deploys the `portifact-jobs` Worker (maintenance every 15 minutes, no routes), builds `apps/web` and deploys the `portifact-app` Worker, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect. The Worker owns `portifact.com` and `www.portifact.com` as custom domains; `www` redirects to the apex. Pull requests validate both bundles with `wrangler deploy --dry-run`. Migrations must stay backward compatible with the code still running during a deploy: add columns and tables first, remove them in a later release.
+Every push to `main` also runs the `deploy` job after `release`: it applies pending D1 migrations to `portifact-control` (`wrangler d1 migrations apply --remote`), deploys the `portifact-content` Worker (artifact origins on `*.portifact.dev`, D1 plus the private R2 bucket `portifact-artifacts`), deploys the `portifact-jobs` Worker (maintenance every 15 minutes, no routes), builds `apps/web` and deploys the `portifact-app` Worker, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect and that `app.portifact.com` serves the authorization server metadata. The Worker owns `portifact.com`, `www.portifact.com` and `app.portifact.com` as custom domains and routes by host: the apex serves the landing and installers, `www` redirects to the apex, and `app` serves identity, OAuth and the auth pages (see [security.md](security.md)). Pull requests validate both bundles with `wrangler deploy --dry-run`. Migrations must stay backward compatible with the code still running during a deploy: add columns and tables first, remove them in a later release.
+
+### App Worker configuration
+
+Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID` and `GITHUB_CLIENT_ID`. The Worker also binds the `portifact-control` D1 database and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
+
+Secrets are set once on the `portifact-app` Worker and survive deploys:
+
+| Secret                 | Value                                                                                                                                          |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`   | 32 random bytes, base64 (`openssl rand -base64 32`). Rotating it signs out every session and voids pending authorization and consent requests. |
+| `GOOGLE_CLIENT_SECRET` | Secret of the Google OAuth client whose ID is `GOOGLE_CLIENT_ID`.                                                                              |
+| `GITHUB_CLIENT_SECRET` | Secret of the GitHub OAuth app whose ID is `GITHUB_CLIENT_ID`.                                                                                 |
+
+Set or rotate one by piping it to `wrangler secret put <NAME> --name portifact-app` from `apps/app`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment, so the value never appears in the shell history or the output. The Google client must allow the redirect URI `https://app.portifact.com/api/auth/callback/google` and the GitHub app the callback URL `https://app.portifact.com/api/auth/callback/github`.
+
+For local development, build `apps/web`, apply the migrations to the local database (`npx wrangler d1 migrations apply portifact-control --local` from `apps/app`), put the same names plus `APP_ORIGIN=http://localhost:8787` in `apps/app/.dev.vars` (ignored by git) and run `npx wrangler dev --local-upstream localhost:8787` from `apps/app`. Without `--local-upstream`, `wrangler dev` rewrites every request to the first route's host, `portifact.com`, and the auth pages answer 404. With that origin, `localhost` is the app host; the landing is served by `bun run --cwd apps/web dev`. Migration 0003 links the CLI client to the production API resource, so the device flow against `localhost` needs a local client row linked to `http://localhost:8787/api/v1`.
 
 The token is an account API token named `portifact-ci-deploy`, limited to Workers, D1, R2 and Queues on the account plus Workers Routes, DNS and Zone read on `portifact.com` and `portifact.dev`. It expires on 2027-11-07; rotate it before then.
 
