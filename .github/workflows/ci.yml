@@ -35,6 +35,9 @@ jobs:
       - name: Validate the app Worker bundle
         working-directory: apps/app
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/app-worker"
+      - name: Validate the content Worker bundle
+        working-directory: apps/content
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/content-worker"
 
   coverage-badge:
     name: coverage-badge
