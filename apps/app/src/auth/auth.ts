@@ -78,8 +78,10 @@ export function createAuth(env: Env, deps: AuthDeps) {
     session: { expiresIn: 7 * 24 * 3600, updateAge: 24 * 3600 },
     account: {
       // Identities are never merged because an email matches (plan section 5). A provider
-      // account whose email belongs to another account is refused, not linked.
-      accountLinking: { disableImplicitLinking: true },
+      // account whose email belongs to another account is refused, not linked. Linking is an
+      // explicit operation of a signed-in user (/link-social), and only for a provider account
+      // that vouches for the same email, so a stolen session cannot attach a foreign login.
+      accountLinking: { disableImplicitLinking: true, allowDifferentEmails: false },
       updateAccountOnSignIn: false,
     },
     user: {

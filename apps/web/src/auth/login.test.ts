@@ -292,3 +292,84 @@ describe("login page", () => {
     expect(button.hasAttribute("aria-busy")).toBe(false);
   });
 });
+
+describe("sign-in methods of a signed-in user", () => {
+  const linkButton = (provider: string) =>
+    document.querySelector<HTMLButtonElement>(`button[data-link-provider="${provider}"]`);
+
+  beforeEach(() => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+  });
+
+  it("shows connected providers and offers to connect the others", async () => {
+    api.on("GET", "/list-accounts", {
+      status: 200,
+      body: [{ providerId: "google" }, { providerId: "credential" }],
+    });
+    await open();
+    expect(element("method-google-connected").hidden).toBe(false);
+    expect(linkButton("google")?.hidden).toBe(true);
+    expect(element("method-github-connected").hidden).toBe(true);
+    expect(linkButton("github")?.hidden).toBe(false);
+    expect(linkButton("github")?.textContent).toBe("Connect GitHub");
+  });
+
+  it("offers nothing to connect when the list cannot be loaded", async () => {
+    api.on("GET", "/list-accounts", { status: 500, body: null });
+    await open();
+    expect(linkButton("google")?.hidden).toBe(true);
+    expect(linkButton("github")?.hidden).toBe(true);
+  });
+
+  it("starts linking a provider and follows the provider URL", async () => {
+    api.on("GET", "/list-accounts", { status: 200, body: [{ providerId: "google" }] });
+    api.on("POST", "/link-social", {
+      status: 200,
+      body: { url: "https://github.com/login/oauth/authorize?x=1", redirect: true },
+    });
+    await open();
+    linkButton("github")?.click();
+    await settle();
+    expect(api.calls.at(-1)).toEqual({
+      method: "POST",
+      path: "/link-social",
+      body: { provider: "github", callbackURL: "/login?linked=github", errorCallbackURL: "/login" },
+    });
+    expect(location.assigned).toEqual(["https://github.com/login/oauth/authorize?x=1"]);
+    expect(element("status").textContent).toBe(messages.redirecting);
+  });
+
+  it("reports a link that could not start", async () => {
+    api.on("GET", "/list-accounts", { status: 200, body: [] });
+    api.on("POST", "/link-social", { status: 429, body: null });
+    await open();
+    linkButton("google")?.click();
+    await settle();
+    expect(location.assigned).toEqual([]);
+    expect(element("error-summary").textContent).toBe(messages.rateLimited);
+  });
+
+  it("announces the provider that was just connected", async () => {
+    api.on("GET", "/list-accounts", {
+      status: 200,
+      body: [{ providerId: "google" }, { providerId: "github" }],
+    });
+    await open("?linked=github");
+    expect(element("status").textContent).toBe(messages.providerLinked("github"));
+    expect(element("status").textContent).toBe("GitHub is connected.");
+    expect(element("method-github-connected").hidden).toBe(false);
+  });
+
+  it("explains a link refused for a different email instead of announcing success", async () => {
+    api.on("GET", "/list-accounts", { status: 200, body: [] });
+    await open("?error=email_does_not_match");
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.email_does_not_match);
+    expect(element("status").textContent).toBe("");
+  });
+
+  it("tells a provider sign-in refused for a taken email how to connect it", async () => {
+    api.on("GET", "/get-session", { status: 200, body: null });
+    await open("?error=account_not_linked");
+    expect(element("error-summary").textContent).toContain("Sign-in methods");
+  });
+});
