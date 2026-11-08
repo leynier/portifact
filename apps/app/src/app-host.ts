@@ -127,6 +127,13 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     );
   });
 
+  // The landing's "Sign in" link points here. Until the dashboard is served at the root, the
+  // login page is the way in; it shows the signed-in account when there is a session.
+  app.get("/", (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.redirect("/login", 302);
+  });
+
   for (const page of AUTH_PAGES) {
     app.get(page, async (c) => {
       const asset = await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)));

@@ -46,6 +46,13 @@ describe("auth pages on app.portifact.com", () => {
     expect((await get("/favicon.svg")).status).toBe(200);
   });
 
+  it("sends the root, where the landing's Sign in link points, to the login page", async () => {
+    const response = await get("/");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/login");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("answers 404 for unknown paths", async () => {
     for (const path of ["/dashboard", "/api/v1/unknown", "/login/extra", "/.well-known/x"]) {
       expect((await get(path)).status, path).toBe(404);
