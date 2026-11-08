@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { gitRunner } from "./git.ts";
 import { sha256Of } from "./testing/fake-api.ts";
 import { type FakeServer, startFakeServer } from "./testing/fake-server.ts";
 import { createHarness, type Harness } from "./testing/harness.ts";
@@ -61,11 +62,10 @@ function git(cwd: string, ...args: string[]): string {
   ).trim();
 }
 
+/** Everything in this file's temporary folder but the harness's own folder. */
 async function tmpLeftovers(): Promise<string[]> {
   const entries = await readdir(scratchTmp);
-  return entries.filter(
-    (name) => name.startsWith("portifact-zip-") || name.startsWith("portifact-git-"),
-  );
+  return entries.filter((name) => !h.workspace.startsWith(join(scratchTmp, name)));
 }
 
 describe("publish a ZIP file", () => {
@@ -111,10 +111,9 @@ describe("publish a ZIP file", () => {
 
   it("removes the expanded files after publishing", async () => {
     const zip = await zipAt("site.zip", [{ name: "index.html", data: "<p>x</p>" }]);
-    const before = await tmpLeftovers();
     const result = await h.invoke("publish", zip, "--dry-run", "--json");
-    expect(result.code).toBe(0);
-    expect(await tmpLeftovers()).toEqual(before);
+    expect(result.code, result.stderr).toBe(0);
+    expect(await tmpLeftovers()).toEqual([]);
   });
 });
 
@@ -182,6 +181,33 @@ describe("publish --source", () => {
       origin: { branch: "main", dirty: false, remote: null },
       lfsPointers: [],
     });
+  });
+
+  it("removes the expanded tree of --ref when reading its origin fails", async () => {
+    const real = gitRunner();
+    const failing = await createHarness({
+      server,
+      // The origin's remote is read with git config; a git that cannot run fails the publish.
+      git: (args, cwd, options) =>
+        args[0] === "config"
+          ? Promise.reject(new Error("spawn git EAGAIN"))
+          : real(args, cwd, options),
+    });
+    try {
+      const dist = await failing.files("dist", { "index.html": "<p>built</p>" });
+      const repo = await failing.files("repo", { "main.ts": "v1" });
+      git(repo, "init", "-q", "-b", "main");
+      git(repo, "add", "-A");
+      git(repo, "commit", "-q", "-m", "v1");
+
+      await expect(
+        failing.invoke("publish", dist, "--source", repo, "--ref", "HEAD", "--dry-run"),
+      ).rejects.toThrow("spawn git EAGAIN");
+      const entries = await readdir(scratchTmp);
+      expect(entries.filter((name) => /^portifact-(zip|git)-/.test(name))).toEqual([]);
+    } finally {
+      await failing.cleanup();
+    }
   });
 
   it("prints sources and their origin in a text dry run, and warns about LFS pointers", async () => {

@@ -59,11 +59,31 @@ const sentOf = <T extends BridgeMessage["type"]>(type: T) =>
     .map((entry) => entry.message)
     .filter((message): message is Extract<BridgeMessage, { type: T }> => message.type === type);
 
-// Content hashes use crypto.subtle, which resolves on a real thread, so let real time pass too.
-const realTimeout = globalThis.setTimeout;
+// Content hashes use crypto.subtle, which resolves on another thread whenever it is done, so no
+// fixed real wait is long enough on a loaded machine. Every digest the bridge starts is tracked
+// and settle waits for all of them instead.
+const digests = new Set<Promise<ArrayBuffer>>();
+
+function trackDigests() {
+  const subtle = globalThis.crypto.subtle;
+  const digest = subtle.digest.bind(subtle);
+  return vi.spyOn(subtle, "digest").mockImplementation((...args) => {
+    const pending = digest(...args);
+    digests.add(pending);
+    const done = () => digests.delete(pending);
+    pending.then(done, done);
+    return pending;
+  });
+}
+
+/** Advances the fake clock, then waits until every content hash and the work after it is done. */
 async function settle(ms: number) {
   await vi.advanceTimersByTimeAsync(ms);
-  await new Promise((resolve) => realTimeout(resolve, 20));
+  do {
+    await Promise.allSettled([...digests]);
+    // A macrotask runs only once every microtask queued after the digests has run.
+    await new Promise((resolve) => setImmediate(resolve));
+  } while (digests.size > 0);
 }
 
 function select(node: Node, start: number, endNode: Node, end: number) {
@@ -93,7 +113,10 @@ async function textTarget(quote: string): Promise<AnnotationTarget> {
   return { schema: 1, path: "index.html", anchor };
 }
 
+let digestSpy: ReturnType<typeof trackDigests>;
+
 beforeEach(() => {
+  digestSpy = trackDigests();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
   parent = fakeParent();
   window.history.replaceState(null, "", "/");
@@ -104,6 +127,7 @@ afterEach(() => {
   bridge = undefined;
   window.getSelection()?.removeAllRanges();
   vi.useRealTimers();
+  digestSpy.mockRestore();
 });
 
 describe("handshake", () => {
