@@ -15,10 +15,17 @@ export interface Env {
   /** Cloudflare account and bucket of the R2 S3 endpoint that presigned uploads target. */
   R2_ACCOUNT_ID: string;
   R2_BUCKET: string;
+  /**
+   * Public Turnstile site key the login page and the review viewer render the human check with.
+   * Empty until the widget exists; then no challenge is shown and new accounts are refused.
+   */
+  TURNSTILE_SITE_KEY: string;
   BETTER_AUTH_SECRET: string;
   GOOGLE_CLIENT_SECRET: string;
   GITHUB_CLIENT_SECRET: string;
   /** R2 API token limited to Object Read and Write on R2_BUCKET; signs upload and download URLs only. */
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
+  /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
+  TURNSTILE_SECRET_KEY?: string | undefined;
 }

@@ -1,6 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { PAGE_CSP } from "../src/app-host.ts";
+import { LOGIN_CSP, PAGE_CSP, withHumanCheck } from "../src/app-host.ts";
 import { createHarness, json, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
 const ARTIFACT_ORIGIN = "https://k7d2qm4xab.portifact.dev";
@@ -19,7 +19,9 @@ describe("auth pages on app.portifact.com", () => {
       const response = await get(path);
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
-      expect(response.headers.get("content-security-policy")).toBe(PAGE_CSP);
+      expect(response.headers.get("content-security-policy")).toBe(
+        path === "/login" ? LOGIN_CSP : PAGE_CSP,
+      );
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response.headers.get("x-frame-options")).toBe("DENY");
@@ -36,6 +38,36 @@ describe("auth pages on app.portifact.com", () => {
     expect(PAGE_CSP).toContain("frame-ancestors 'none'");
     expect(PAGE_CSP).not.toContain("unsafe");
     expect(PAGE_CSP).not.toMatch(/https?:/);
+  });
+
+  it("lets only the login page load Turnstile, and nothing else from another origin", () => {
+    const challenges = "https://challenges.cloudflare.com";
+    expect(LOGIN_CSP).toBe(
+      `${PAGE_CSP.replace("script-src 'self'", `script-src 'self' ${challenges}`)}; frame-src ${challenges}`,
+    );
+    expect(LOGIN_CSP).not.toContain("unsafe");
+    expect(LOGIN_CSP.match(/https?:\/\/[^\s;]+/g)).toEqual([challenges, challenges]);
+    // A policy that already frames something keeps it and adds the challenge frame.
+    expect(withHumanCheck("script-src 'self'; frame-src https://a.test; img-src 'self'")).toBe(
+      `script-src 'self' ${challenges}; frame-src https://a.test ${challenges}; img-src 'self'`,
+    );
+  });
+
+  it("gives the login page the public Turnstile site key, escaped, and no other page", async () => {
+    const html = await (await get("/login")).text();
+    expect(html).toContain(
+      '<meta name="portifact-turnstile-site-key" content="1x00000000000000000000AA">',
+    );
+    for (const path of ["/device", "/consent", "/report"]) {
+      expect(await (await get(path)).text(), path).not.toContain("portifact-turnstile-site-key");
+    }
+    const { withSiteKey } = await import("../src/app-host.ts");
+    const page = () =>
+      new Response("<html><head></head></html>", { headers: { "content-type": "text/html" } });
+    expect(await withSiteKey(page(), 'k"><script>').text()).toContain(
+      'content="k&quot;&gt;&lt;script&gt;"',
+    );
+    expect(await withSiteKey(page(), "").text()).not.toContain("<meta");
   });
 
   it("serves the bundles and favicon the pages load", async () => {
@@ -147,7 +179,7 @@ describe("session cookie", () => {
     const code = h.outbox.at(-1)?.text.match(/(\d{6})/)?.[1];
     const response = await h.request(
       "/api/auth/sign-in/email-otp",
-      json({ email, otp: code }, { cookie: await h.acceptTerms() }),
+      json({ email, otp: code }, { cookie: await h.beforeSignIn() }),
     );
     const cookies = response.headers.getSetCookie();
     // The session cookie, and the used terms acceptance being cleared.

@@ -131,6 +131,22 @@ describe("markdown delivery", () => {
     expect(response.headers.has("content-disposition")).toBe(false);
   });
 
+  it("shows a report link under the page that opens the report form for this artifact", async () => {
+    const id = await publish({ type: "markdown", files });
+    const html = await (await get(id, "/")).text();
+    expect(html).toContain(
+      '<footer class="pf-chrome" data-portifact-chrome data-portifact-ignore><a href="/__portifact/report" rel="nofollow">Report this artifact</a></footer>',
+    );
+    // Following it stays on the artifact origin first, then lands on the form with the
+    // artifact filled in; the content origin never gets credentials.
+    const followed = await get(id, "/__portifact/report");
+    expect(followed.status).toBe(303);
+    expect(followed.headers.get("location")).toBe(
+      `https://app.portifact.com/report?artifact=${id}`,
+    );
+    expect(followed.headers.getSetCookie()).toEqual([]);
+  });
+
   it("revalidates, answers HEAD and serves ranges of the rendered page", async () => {
     const id = await publish({ type: "markdown", files });
     const etag = `"${await renderedSha(id)}"`;
@@ -183,9 +199,9 @@ describe("text delivery", () => {
 
     const page = await get(id, "/");
     expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8");
-    expect(await page.text()).toContain(
-      '<pre class="pf-text">\n&lt;b&gt;literal&lt;/b&gt;\n</pre>',
-    );
+    const html = await page.text();
+    expect(html).toContain('<pre class="pf-text">\n&lt;b&gt;literal&lt;/b&gt;\n</pre>');
+    expect(html).toContain('<a href="/__portifact/report" rel="nofollow">Report this artifact</a>');
 
     const original = await get(id, "/notes.txt");
     expect(await original.text()).toBe(body);

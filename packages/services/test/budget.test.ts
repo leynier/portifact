@@ -7,6 +7,7 @@ import {
   createAnnotationThread,
   deleteAnnotationThread,
   exportAnnotations,
+  type HumanCheck,
   replyToAnnotationThread,
   setAnnotationMode,
   setAnnotationThreadState,
@@ -340,37 +341,61 @@ describe("enforcement", () => {
   it("pauses new comments from the second step; moderation and export keep working", async () => {
     const owner = await user();
     const site = await publishSite(owner.id);
+    const reader = await user("Reader");
     const actor = { userId: owner.id, artifactId: site.artifactId, now: NOW };
     expect((await setAnnotationMode(db(), { ...actor, mode: "open" })).ok).toBe(true);
+    const shared = await updateAccess(db(), {
+      ownerId: owner.id,
+      artifactId: site.artifactId,
+      change: { mode: "restricted", addReaders: [reader.email] },
+      now: NOW,
+    });
+    expect(shared.ok).toBe(true);
+    const visitor = { userId: reader.id, artifactId: site.artifactId, now: NOW };
     const target = {
       schema: 1 as const,
       path: "index.html",
       anchor: { kind: "document" as const },
     };
+    // A reader's first comments on someone else's artifact need a human check (plan section 13).
+    const verified: string[] = [];
+    const humanCheck: HumanCheck = {
+      token: "solved",
+      verify: async (token) => {
+        verified.push(token);
+        return "passed";
+      },
+    };
 
     await protect("protect100", 1);
     const thread = await createAnnotationThread(db(), {
-      ...actor,
+      ...visitor,
       versionId: site.versionId,
       target,
       body: "Still allowed at the first step",
+      humanCheck,
     });
     if (!thread.ok) throw new Error(thread.message);
+    expect(verified).toEqual(["solved"]);
 
     await protect("protect100", 2);
     const paused = await createAnnotationThread(db(), {
-      ...actor,
+      ...visitor,
       versionId: site.versionId,
       target,
       body: "Paused",
+      humanCheck,
     });
     expect(paused).toMatchObject({ ok: false, code: "capacity_unavailable" });
     const reply = await replyToAnnotationThread(db(), {
-      ...actor,
+      ...visitor,
       threadId: thread.value.id,
       body: "Paused too",
+      humanCheck,
     });
     expect(reply).toMatchObject({ ok: false, code: "capacity_unavailable" });
+    // Refused before the human check: no Turnstile token was spent on a paused comment.
+    expect(verified).toEqual(["solved"]);
 
     const resolved = await setAnnotationThreadState(db(), {
       ...actor,

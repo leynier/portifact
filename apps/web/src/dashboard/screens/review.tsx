@@ -34,6 +34,7 @@ import {
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
+import { useHumanCheck } from "../review/human-check.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
 import {
   applyThread,
@@ -299,6 +300,13 @@ function ReviewSession({
             className="h-screen w-full rounded-md border border-border-strong bg-canvas"
           />
           <p className="text-sm text-text-muted">{t("review.frame.isolated")}</p>
+          {data?.role === "participant" ? (
+            <p className="text-sm">
+              <a href={`/report?${new URLSearchParams({ artifact: start.artifactId })}`}>
+                {t("review.report")}
+              </a>
+            </p>
+          ) : null}
         </section>
 
         <section aria-labelledby="review-comments-heading" className="flex min-w-0 flex-col gap-4">
@@ -500,11 +508,24 @@ function Composer({
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
-  // One key per comment, so a retried post never creates a second thread.
-  const key = useRef(crypto.randomUUID());
+  // One key per comment, so a retried post never creates a second thread; a post refused for
+  // the human check gets a new one with the solved token.
+  const human = useHumanCheck();
   const post = useMutation({
     mutationFn: (body: string) =>
-      api.createThread(start.artifactId, { versionId: start.versionId, target, body }, key.current),
+      api.createThread(
+        start.artifactId,
+        {
+          versionId: start.versionId,
+          target,
+          body,
+          ...(human.token === undefined ? {} : { turnstileToken: human.token }),
+        },
+        human.key,
+      ),
+    onError: (error) => {
+      human.failed(error);
+    },
     onSuccess: async (thread) => {
       applyThread(queryClient, start.artifactId, thread);
       announce(t("review.composer.posted"));
@@ -517,10 +538,12 @@ function Composer({
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
     onSubmit: ({ value }) =>
-      post.mutateAsync(value.body).then(
-        () => {},
-        () => {},
-      ),
+      human.ready()
+        ? post.mutateAsync(value.body).then(
+            () => {},
+            () => {},
+          )
+        : undefined,
   });
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border-strong p-3">
@@ -538,6 +561,7 @@ function Composer({
                 />
               )}
             </form.AppField>
+            {human.field}
             <div className="flex flex-wrap gap-2">
               <form.SubmitButton icon={<Send className="size-4" />} busy={post.isPending}>
                 {t("review.composer.submit")}
@@ -914,9 +938,12 @@ function ReplyForm({
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
-  const key = useRef(crypto.randomUUID());
+  const human = useHumanCheck();
   const reply = useMutation({
-    mutationFn: (body: string) => api.reply(artifactId, threadId, body, key.current),
+    mutationFn: (body: string) => api.reply(artifactId, threadId, body, human.key, human.token),
+    onError: (error) => {
+      human.failed(error);
+    },
     onSuccess: (thread) => {
       applyThread(queryClient, artifactId, thread);
       announce(t("review.reply.posted"));
@@ -928,10 +955,12 @@ function ReplyForm({
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
     onSubmit: ({ value }) =>
-      reply.mutateAsync(value.body).then(
-        () => {},
-        () => {},
-      ),
+      human.ready()
+        ? reply.mutateAsync(value.body).then(
+            () => {},
+            () => {},
+          )
+        : undefined,
   });
   return (
     <div className="flex flex-col gap-2">
@@ -942,6 +971,7 @@ function ReplyForm({
             <form.AppField name="body">
               {(field) => <field.TextAreaField label={t("review.reply.body")} rows={3} autoFocus />}
             </form.AppField>
+            {human.field}
             <div className="flex flex-wrap gap-2">
               <form.SubmitButton icon={<Send className="size-4" />} busy={reply.isPending}>
                 {t("review.reply.submit")}

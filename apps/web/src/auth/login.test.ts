@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
+import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { setupLogin } from "./login.ts";
 import { messages } from "./messages.ts";
 import {
@@ -530,5 +532,115 @@ describe("a signed-in account without the current terms", () => {
     expect(element("terms-update").hidden).toBe(true);
     expect(element("sign-in").hidden).toBe(false);
     expect(element("status").textContent).toBe(messages.signedOut);
+  });
+});
+
+describe("human check of new accounts", () => {
+  /** A widget that renders a marker and lets the test solve, expire or reset it. */
+  function fakeWidget() {
+    const rendered: { container: HTMLElement; solve(token: string): void; reset(): void }[] = [];
+    let removed = 0;
+    const widget: HumanCheckWidget = {
+      render(container, callbacks) {
+        const marker = document.createElement("p");
+        marker.textContent = "challenge";
+        container.append(marker);
+        rendered.push({ container, solve: callbacks.onToken, reset: callbacks.onReset });
+        return () => {
+          marker.remove();
+          removed += 1;
+        };
+      },
+    };
+    return { widget, rendered, removed: () => removed };
+  }
+
+  async function openWith(widget: HumanCheckWidget | null) {
+    location = fakeLocation("");
+    await setupLogin(document, { ...pageEnv(api, location), humanCheck: widget });
+    element<HTMLInputElement>("terms-accept").checked = true;
+  }
+
+  it("shows the check in a labelled group and sends its token once, before the sign-in", async () => {
+    api.on("POST", "/verify-human", { status: 200, body: { verified: true } });
+    const fake = fakeWidget();
+    await openWith(fake.widget);
+    const group = element("human-check");
+    expect(group.hidden).toBe(false);
+    expect(group.tagName).toBe("FIELDSET");
+    expect(group.querySelector("legend")?.textContent).toContain("human");
+    expect(fake.rendered).toHaveLength(1);
+    expect(fake.rendered[0]?.container.id).toBe("human-check-widget");
+
+    fake.rendered[0]?.solve("token-1");
+    await requestCode("new@example.test");
+    const paths = api.calls.map((call) => call.path);
+    expect(paths.slice(paths.indexOf("/accept-terms"))).toEqual([
+      "/accept-terms",
+      "/verify-human",
+      "/email-otp/send-verification-otp",
+    ]);
+    expect(api.calls).toContainEqual({
+      method: "POST",
+      path: "/verify-human",
+      body: { token: "token-1" },
+    });
+    // The token is single use: a fresh challenge replaces it, and nothing is sent until solved.
+    expect(fake.rendered).toHaveLength(2);
+    expect(fake.removed()).toBe(1);
+    api.calls.length = 0;
+    element<HTMLButtonElement>("resend-code").click();
+    await settle();
+    expect(api.calls.map((call) => call.path)).not.toContain("/verify-human");
+  });
+
+  it("sends the token before a provider sign-in too, and not after it expired", async () => {
+    api.on("POST", "/verify-human", { status: 200, body: { verified: true } });
+    api.on("POST", "/sign-in/social", { status: 200, body: { url: "https://github.com/x" } });
+    const fake = fakeWidget();
+    await openWith(fake.widget);
+    fake.rendered[0]?.solve("expired-token");
+    fake.rendered[0]?.reset();
+    const github = document.querySelector<HTMLButtonElement>('button[data-provider="github"]');
+    github?.click();
+    await settle();
+    expect(api.calls.map((call) => call.path)).not.toContain("/verify-human");
+
+    fake.rendered[0]?.solve("token-2");
+    github?.click();
+    await settle();
+    const paths = api.calls.map((call) => call.path);
+    expect(paths.indexOf("/verify-human")).toBeLessThan(paths.lastIndexOf("/sign-in/social"));
+  });
+
+  it("still signs an existing account in when the check is refused or missing", async () => {
+    api.on("POST", "/verify-human", { status: 403, body: null });
+    api.on("POST", "/sign-in/email-otp", { status: 200, body: { token: "t" } });
+    const fake = fakeWidget();
+    await openWith(fake.widget);
+    fake.rendered[0]?.solve("refused");
+    await requestCode("ada@example.test");
+    await enterCode("123456");
+    expect(location.assigned).toEqual(["/"]);
+  });
+
+  it("explains a refused sign-up and hides the check when the page has no site key", async () => {
+    api.on("POST", "/sign-in/email-otp", {
+      status: 403,
+      body: { code: HUMAN_VERIFICATION_REQUIRED, message: "x" },
+    });
+    await openWith(null);
+    expect(element("human-check").hidden).toBe(true);
+    await requestCode("new@example.test");
+    await enterCode("123456");
+    expect(element("error-summary").textContent).toBe(
+      messages.providerErrors[HUMAN_VERIFICATION_REQUIRED],
+    );
+    expect(api.calls.map((call) => call.path)).not.toContain("/verify-human");
+  });
+
+  it("explains a provider sign-up refused for the check", async () => {
+    await open(`?error=${HUMAN_VERIFICATION_REQUIRED}`);
+    expect(element("error-summary").textContent).toContain("human");
   });
 });

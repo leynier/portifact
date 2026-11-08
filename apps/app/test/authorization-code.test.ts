@@ -172,7 +172,7 @@ describe("authorization code with PKCE", () => {
     const otp = h.outbox.findLast((message) => message.to === email)?.text.match(/(\d{6})/)?.[1];
     const signedIn = await h.request(
       "/api/auth/sign-in/email-otp",
-      json({ email, otp, oauth_query: oauthQuery }, { cookie: await h.acceptTerms() }),
+      json({ email, otp, oauth_query: oauthQuery }, { cookie: await h.beforeSignIn() }),
     );
     expect(signedIn.status).toBe(200);
     const body = await signedIn.json<{ url?: string }>();

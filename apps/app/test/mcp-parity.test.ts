@@ -3,9 +3,11 @@
 // controlled time, and must give the same body, the same error and the same permission boundary.
 import { env } from "cloudflare:workers";
 import { createDb } from "@portifact/db";
+import { RENDERER_VERSION } from "@portifact/render";
 import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
+import { pastHumanCheck } from "./api-client.ts";
 import { createHarness, type Harness } from "./harness.ts";
 import {
   api,
@@ -127,7 +129,7 @@ describe("API and MCP parity", () => {
       ...["block_map", "published", "rendered"],
     ]);
     expect(files.results.slice(0, 3)).toEqual(files.results.slice(3));
-    expect(files.results[0]?.renderer_version).toBe("1");
+    expect(files.results[0]?.renderer_version).toBe(RENDERER_VERSION);
   });
 
   it("get and list return the same artifact summaries", async () => {
@@ -645,14 +647,27 @@ describe("API and MCP parity for annotations", () => {
     return thread(value as unknown as Thread & Record<string, unknown>);
   }
 
-  /** An owner and a reader, each with an API and an MCP token, on a Markdown artifact. */
-  async function reviewed(prefix: string) {
+  /**
+   * An owner and a reader, each with an API and an MCP token, on a Markdown artifact. The reader
+   * is past the human check of first comments unless `fresh` is set.
+   */
+  async function reviewed(prefix: string, fresh = false) {
     const owner = await both(`${prefix}-owner@example.test`, EVERY);
     const reader = await both(`${prefix}-reader@example.test`, EVERY);
     const published = fromTool(
       await owner.tool("publish_document", { type: "markdown", name: "Plan", content: "# Plan" }),
     ).body as { artifactId: string; versionId: string };
     const id = published.artifactId;
+    if (!fresh) {
+      const other = fromTool(
+        await owner.tool("publish_document", {
+          type: "markdown",
+          name: "Other",
+          content: "# Other",
+        }),
+      ).body as { artifactId: string };
+      await pastHumanCheck([`${prefix}-reader@example.test`], other.artifactId);
+    }
     const share = await owner.apiCall(
       `/api/v1/artifacts/${id}/access`,
       json("PATCH", { addReaders: [`${prefix}-reader@example.test`] }),
@@ -911,6 +926,56 @@ describe("API and MCP parity for annotations", () => {
     for (const threadId of [apiDoomed, mcpDoomed]) {
       expect((await owner.apiCall(`${base}/threads/${threadId}`)).status).toBe(404);
     }
+  });
+
+  it("asks for the human check the same way: a visitor's first comments without a token", async () => {
+    const { owner, reader, id, versionId, base } = await reviewed("parity-ann-human", true);
+    await owner.apiCall(`${base}/mode`, json("PUT", { mode: "open" }));
+    const api = await fromApi(
+      await reader.apiCall(
+        `${base}/threads`,
+        json("POST", { versionId, target: DOC, body: "Hi" }, crypto.randomUUID()),
+      ),
+    );
+    const mcp = fromTool(
+      await reader.tool("create_annotation", {
+        artifactId: id,
+        versionId,
+        target: DOC,
+        body: "Hi",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(mcp).toEqual(api);
+    expect(api.body).toMatchObject({ error: { code: "human_verification_required" } });
+    // The owner answers from any client: the agent workflow never meets the check.
+    const ownerThread = fromTool(
+      await owner.tool("create_annotation", {
+        artifactId: id,
+        versionId,
+        target: DOC,
+        body: "Owner",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(ownerThread.ok).toBe(true);
+    const threadId = (ownerThread.body as unknown as Thread).id;
+    const replyApi = await fromApi(
+      await reader.apiCall(
+        `${base}/threads/${threadId}/messages`,
+        json("POST", { body: "Re" }, crypto.randomUUID()),
+      ),
+    );
+    const replyMcp = fromTool(
+      await reader.tool("reply_annotation", {
+        artifactId: id,
+        threadId,
+        body: "Re",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(replyMcp).toEqual(replyApi);
+    expect(replyApi.body).toMatchObject({ error: { code: "human_verification_required" } });
   });
 
   it("refuses the same way: no access, annotations off, stale version or revision, bad cursor", async () => {

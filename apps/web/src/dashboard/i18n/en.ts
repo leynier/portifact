@@ -510,6 +510,13 @@ export const en = {
   "review.composer.empty": "Write a comment.",
   "review.composer.invalid": "The comment is too long or holds characters that are not allowed.",
   "review.composer.posted": "Comment posted.",
+  "review.humanCheck.label": "Confirm you are human",
+  "review.humanCheck.body":
+    "Your first comments on other people's artifacts need this check. Complete it, then post again.",
+  "review.humanCheck.unavailable":
+    "The check could not load on this page. Reload the page and try again.",
+  "review.humanCheck.missing": "Complete the check first, then post again.",
+  "review.report": "Report this artifact",
   "review.target.general": "General comment on {path}",
   "review.target.element": "Element {tag}",
   "review.target.quote": "Quoted text",
@@ -584,6 +591,8 @@ export const en = {
   "error.capacity_unavailable": "Portifact is at capacity right now. Try again later.",
   "error.rate_limited": "Too many requests. Wait a moment and try again.",
   "error.reauthentication_required": "Sign in again to do that.",
+  "error.human_verification_required":
+    "Your first comments on other people's artifacts need a quick check that you are human. Complete it, then post again.",
 } as const;
 
 export type MessageId = keyof typeof en;
