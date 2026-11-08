@@ -84,9 +84,18 @@ describe("dashboard API client", () => {
   });
 
   it("reads the signed-in account, or null without a session", async () => {
-    const sessions = [{ user: { email: "ada@example.test", name: null } }, null];
+    const sessions = [
+      { user: { email: "ada@example.test", name: null } },
+      { user: { email: "ada@example.test", name: "Ada", createdAt: "2026-11-01T12:00:00.000Z" } },
+      null,
+    ];
     const { api, calls } = client(() => Response.json(sessions.shift()));
-    expect(await api.account()).toEqual({ email: "ada@example.test", name: "" });
+    expect(await api.account()).toEqual({ email: "ada@example.test", name: "", createdAt: null });
+    expect(await api.account()).toEqual({
+      email: "ada@example.test",
+      name: "Ada",
+      createdAt: "2026-11-01T12:00:00.000Z",
+    });
     expect(await api.account()).toBeNull();
     expect(calls[0]?.path).toBe("/api/auth/get-session");
   });
@@ -107,5 +116,59 @@ describe("dashboard API client", () => {
     });
     expect((await failure(api.signOut())).code).toBe("unexpected");
     expect((await failure(api.signOut())).code).toBe("network");
+  });
+
+  it("reads and changes the access policy with a JSON PATCH", async () => {
+    const policy = {
+      mode: "restricted",
+      readers: ["ana@example.com"],
+      indexable: false,
+      embeddable: false,
+      policyGeneration: 3,
+    };
+    const { api, calls } = client(() => Response.json(policy));
+    expect(await api.getAccess("k7d2qm4xab")).toEqual(policy);
+    expect(await api.updateAccess("k7d2qm4xab", { addReaders: ["ana@example.com"] })).toEqual(
+      policy,
+    );
+    expect(calls[0]).toMatchObject({
+      path: "/api/v1/artifacts/k7d2qm4xab/access",
+      init: { method: "GET", headers: { accept: "application/json" } },
+    });
+    expect(calls[0]?.init.body).toBeUndefined();
+    expect(calls[1]).toMatchObject({
+      path: "/api/v1/artifacts/k7d2qm4xab/access",
+      init: {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "content-type": "application/json" },
+        body: '{"addReaders":["ana@example.com"]}',
+      },
+    });
+  });
+
+  it("reads sign-in methods, sessions and connected apps, and ends them by their routes", async () => {
+    const at = "2026-11-08T12:00:00.000Z";
+    const answers: Record<string, unknown> = {
+      "GET /api/auth/list-accounts": [
+        { id: "a1", providerId: "github", accountId: "42", createdAt: at, userId: "u" },
+      ],
+      "GET /api/v1/account/sessions": {
+        items: [{ current: true, userAgent: null, createdAt: at, lastActiveAt: at, expiresAt: at }],
+      },
+      "POST /api/v1/account/sessions/sign-out-others": { signedOut: 2 },
+      "GET /api/v1/account/apps": { items: [] },
+      "DELETE /api/v1/account/apps/mcp%2Fclient": { clientId: "mcp/client", disconnected: true },
+    };
+    const { api, calls } = client((path, init) => Response.json(answers[`${init.method} ${path}`]));
+    expect(await api.signInMethods()).toEqual([{ provider: "github", connectedAt: at }]);
+    expect((await api.browserSessions()).items).toHaveLength(1);
+    expect(await api.signOutOtherSessions()).toEqual({ signedOut: 2 });
+    expect(await api.connectedApps()).toEqual({ items: [] });
+    expect(await api.disconnectApp("mcp/client")).toEqual({
+      clientId: "mcp/client",
+      disconnected: true,
+    });
+    expect(calls).toHaveLength(5);
   });
 });

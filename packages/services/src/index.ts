@@ -1,4 +1,5 @@
 export * from "./access.ts";
+export * from "./account.ts";
 export * from "./artifacts.ts";
 export * from "./idempotency.ts";
 export * from "./lifecycle.ts";

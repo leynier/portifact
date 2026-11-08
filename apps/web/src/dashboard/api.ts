@@ -2,11 +2,17 @@
 // The browser sends the session cookie, fetch metadata and the Origin header, which the Worker
 // checks (apps/app/src/api/access.ts). Every response is validated with the shared contracts.
 import {
+  AccessPolicyView,
+  type AccessUpdate,
   ApiError,
   ArtifactList,
   ArtifactSummary,
+  BrowserSessionList,
+  ConnectedAppList,
+  DisconnectResult,
   type ErrorCode,
   LifecycleResult,
+  SignOutOthersResult,
 } from "@portifact/contracts";
 import { z } from "zod";
 
@@ -30,6 +36,14 @@ export type LifecycleAction = "renew" | "archive" | "restore" | "delete";
 export interface Account {
   email: string;
   name: string;
+  /** When the account was created (ISO), which decides when it may publish in public. */
+  createdAt: string | null;
+}
+
+/** A way to sign in to the account besides an email code, such as Google or GitHub. */
+export interface SignInMethod {
+  provider: string;
+  connectedAt: string;
 }
 
 export interface DashboardApi {
@@ -39,11 +53,25 @@ export interface DashboardApi {
   listArtifacts(cursor?: string): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
   lifecycle(artifactId: string, action: LifecycleAction): Promise<LifecycleResult>;
+  getAccess(artifactId: string): Promise<AccessPolicyView>;
+  updateAccess(artifactId: string, change: AccessUpdate): Promise<AccessPolicyView>;
+  signInMethods(): Promise<SignInMethod[]>;
+  browserSessions(): Promise<BrowserSessionList>;
+  signOutOtherSessions(): Promise<SignOutOthersResult>;
+  connectedApps(): Promise<ConnectedAppList>;
+  disconnectApp(clientId: string): Promise<DisconnectResult>;
 }
 
 const SessionBody = z.object({
-  user: z.object({ email: z.string(), name: z.string().nullish() }),
+  user: z.object({
+    email: z.string(),
+    name: z.string().nullish(),
+    createdAt: z.string().nullish(),
+  }),
 });
+
+// Better Auth's /list-accounts: one row per linked provider. Only what the page shows is kept.
+const AccountsBody = z.array(z.object({ providerId: z.string(), createdAt: z.string() }));
 
 export interface DashboardApiOptions {
   fetch: FetchLike;
@@ -55,14 +83,19 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
   const call = async <T>(
     path: string,
     schema: z.ZodType<T>,
-    method: "GET" | "POST" | "DELETE" = "GET",
+    method: "GET" | "POST" | "PATCH" | "DELETE" = "GET",
+    payload?: unknown,
   ): Promise<T> => {
     let response: Response;
     try {
       response = await fetch(path, {
         method,
         credentials: "same-origin",
-        headers: { accept: "application/json" },
+        headers:
+          payload === undefined
+            ? { accept: "application/json" }
+            : { accept: "application/json", "content-type": "application/json" },
+        ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       });
     } catch {
       throw new ApiFailure("network", 0);
@@ -84,7 +117,13 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
   return {
     async account() {
       const session = await call("/api/auth/get-session", SessionBody.nullable());
-      return session ? { email: session.user.email, name: session.user.name ?? "" } : null;
+      return session
+        ? {
+            email: session.user.email,
+            name: session.user.name ?? "",
+            createdAt: session.user.createdAt ?? null,
+          }
+        : null;
     },
     async signOut() {
       let response: Response;
@@ -112,6 +151,37 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return action === "delete"
         ? call(base, LifecycleResult, "DELETE")
         : call(`${base}/${action}`, LifecycleResult, "POST");
+    },
+    getAccess(artifactId) {
+      return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/access`, AccessPolicyView);
+    },
+    updateAccess(artifactId, change) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/access`,
+        AccessPolicyView,
+        "PATCH",
+        change,
+      );
+    },
+    async signInMethods() {
+      const accounts = await call("/api/auth/list-accounts", AccountsBody);
+      return accounts.map((a) => ({ provider: a.providerId, connectedAt: a.createdAt }));
+    },
+    browserSessions() {
+      return call("/api/v1/account/sessions", BrowserSessionList);
+    },
+    signOutOtherSessions() {
+      return call("/api/v1/account/sessions/sign-out-others", SignOutOthersResult, "POST");
+    },
+    connectedApps() {
+      return call("/api/v1/account/apps", ConnectedAppList);
+    },
+    disconnectApp(clientId) {
+      return call(
+        `/api/v1/account/apps/${encodeURIComponent(clientId)}`,
+        DisconnectResult,
+        "DELETE",
+      );
     },
   };
 }

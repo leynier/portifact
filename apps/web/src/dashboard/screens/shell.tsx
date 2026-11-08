@@ -56,6 +56,9 @@ export function Shell() {
         <Link key="artifacts" to="/" activeOptions={{ exact: false }} className={navLinkClasses}>
           {t("shell.artifacts")}
         </Link>,
+        <Link key="account" to="/account" className={navLinkClasses}>
+          {t("shell.accountLink")}
+        </Link>,
       ]}
       account={
         account.data ? (

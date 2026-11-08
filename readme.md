@@ -97,6 +97,7 @@ portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback
 | Access control (private, signed-in, email list, public) | In development |
 | Annotations and review                                  | In development |
 | Web dashboard: artifact list, renew, archive, restore   | Available      |
+| Web dashboard: access settings and account              | Next release   |
 
 ## Documentation
 
