@@ -47,7 +47,7 @@ Every push to `main` also runs the `deploy` job after `release`: it applies pend
 
 ### App Worker configuration
 
-Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN` (artifact origins, used for public URLs and to send signed-in visitors back from `/read/<id>`), `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target, and `TURNSTILE_SITE_KEY`, the public site key of the human check (empty until the widget exists; see below). The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
+Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN` (artifact origins, used for public URLs and to send signed-in visitors back from `/read/<id>`), `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target, and `TURNSTILE_SITE_KEY`, the public site key of the human check (see below). The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
 
 Secrets are set once on the `portifact-app` Worker and survive deploys:
 
@@ -64,7 +64,7 @@ Set or rotate one by piping it to `wrangler secret put <NAME> --name portifact-a
 
 ### Human check (Turnstile)
 
-Account creation and a visitor's first comments need a Cloudflare Turnstile widget ([security.md](security.md), "Human check"). The code fails closed, so until both values exist the deployed app refuses new accounts (existing accounts keep signing in) and visitors' first comments. The maintainer creates them once:
+Account creation and a visitor's first comments need a Cloudflare Turnstile widget ([security.md](security.md), "Human check"). The code fails closed, so until both values exist the deployed app refuses new accounts (existing accounts keep signing in) and visitors' first comments. Both exist since 2026-11-08 (widget `portifact-app`, secret set on the Worker). To recreate them:
 
 1. In the Cloudflare dashboard, Turnstile, add a widget named `portifact-app` in Managed mode with the hostname `app.portifact.com` only, and pre-clearance off.
 2. Put its site key in `TURNSTILE_SITE_KEY` in `apps/app/wrangler.jsonc` (public; it ships with the next deploy).

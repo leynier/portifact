@@ -24,8 +24,8 @@
   },
   // Non-secret configuration. Secrets (BETTER_AUTH_SECRET, GOOGLE_CLIENT_SECRET,
   // GITHUB_CLIENT_SECRET, TURNSTILE_SECRET_KEY) are set with `wrangler secret put`; see
-  // docs/releasing.md. TURNSTILE_SITE_KEY stays empty until the Turnstile widget exists, and
-  // until then new accounts are refused (fail closed).
+  // docs/releasing.md. TURNSTILE_SITE_KEY is the public site key of the `portifact-app`
+  // Turnstile widget; without it or its secret, new accounts are refused (fail closed).
   "vars": {
     "APP_ORIGIN": "https://app.portifact.com",
     "GOOGLE_CLIENT_ID": "929390487848-4aapfnvndu3g70ihbg8k0g4ad0fa86pv.apps.googleusercontent.com",
@@ -33,7 +33,7 @@
     "CONTENT_DOMAIN": "portifact.dev",
     "R2_ACCOUNT_ID": "6df65be91ad130fd6aa8cb64ac017f22",
     "R2_BUCKET": "portifact-artifacts",
-    "TURNSTILE_SITE_KEY": ""
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAF462kw4p7tuP3gM"
   },
   "d1_databases": [
     {
