@@ -111,5 +111,5 @@ Ranked by launch risk. Small assertions that already held were added as tests by
 11. ~~**R2 public access.**~~ Done on 2026-11-08 (R2 row). Record a dated check that the bucket has no `r2.dev` URL and no custom domain.
 12. **Account export and deletion in production.** Run both with a throwaway account and record the result.
 13. **Secret scanning.** Consider a secret scanner in CI; today only `.gitignore` and review keep secrets out.
-14. **Mutation score of `packages/services`.** Record the first full run and set its break threshold ([testing.md](testing.md#mutation-testing)).
+14. ~~**Mutation score of `packages/services`.**~~ Done: 83.08% on the first full run (2026-11-08), break threshold 83 ([testing.md](testing.md#mutation-testing)).
 15. **Staging with its own domains.** Deferred by the maintainer.
