@@ -57,6 +57,8 @@ export function publish(input: {
   files: Record<string, string>;
   accessMode?: "public" | "authenticated" | "restricted";
   readers?: string[];
+  /** Publishes a new version of an existing artifact, keeping its access and comment mode. */
+  update?: { artifactId: string; baseVersionId: string };
 }): Promise<Published> {
   return control<Published>("/publish", { type: "site", ...input });
 }

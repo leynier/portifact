@@ -82,6 +82,8 @@ describe("portifact list", () => {
           purgeAt: null,
           createdAt: "2026-11-07T12:00:00.000Z",
           updatedAt: "2026-11-07T12:00:00.000Z",
+          // The fake seeds no versions or threads for this artifact.
+          activity: { versions: 0, currentBytes: null, openThreads: 0, lastAnnotationAt: null },
         },
       ],
       nextCursor: null,

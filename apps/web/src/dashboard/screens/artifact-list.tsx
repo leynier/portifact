@@ -2,6 +2,7 @@ import {
   AccessMode,
   AnnotationsState,
   ArtifactListFilters,
+  type ArtifactListItem,
   ArtifactType,
   LIST_SEARCH_MAX,
   ListedArtifactState,
@@ -26,7 +27,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { CircleAlert, Inbox, RefreshCw, Search, SearchX, Upload, X } from "lucide-react";
 import { useEffect } from "react";
 import { ApiFailure } from "../api.ts";
-import { useDashboard, useFormatDate, useT } from "../context.tsx";
+import { useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
 import { StateBadge } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
@@ -198,6 +199,8 @@ export function ArtifactListScreen() {
                 <TableHeaderCell>{t("list.column.state")}</TableHeaderCell>
                 <TableHeaderCell>{t("list.column.access")}</TableHeaderCell>
                 <TableHeaderCell>{t("list.column.expires")}</TableHeaderCell>
+                <TableHeaderCell>{t("list.column.usage")}</TableHeaderCell>
+                <TableHeaderCell>{t("list.column.activity")}</TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -220,6 +223,12 @@ export function ArtifactListScreen() {
                   <TableCell>
                     {artifact.expiresAt ? formatDate(artifact.expiresAt) : t("list.never")}
                   </TableCell>
+                  <TableCell>
+                    <UsageCell artifact={artifact} />
+                  </TableCell>
+                  <TableCell>
+                    <ActivityCell artifact={artifact} />
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -239,8 +248,51 @@ export function ArtifactListScreen() {
               </Button>
             ) : null}
           </div>
+          <p className="mt-2 text-sm text-text-muted">
+            {t("list.trafficNote")}{" "}
+            <Link to="/account" hash="usage">
+              {t("list.trafficLink")}
+            </Link>
+          </p>
         </>
       )}
+    </>
+  );
+}
+
+/** What the artifact's current version stores and how many versions are kept. */
+function UsageCell({ artifact }: { artifact: ArtifactListItem }) {
+  const t = useT();
+  const formatBytes = useFormatBytes();
+  const { activity } = artifact;
+  return (
+    <>
+      <span className="block">
+        {activity.currentBytes === null ? t("list.noVersion") : formatBytes(activity.currentBytes)}
+      </span>
+      <span className="block text-text-muted">
+        {t("list.versions", { count: activity.versions })}
+      </span>
+    </>
+  );
+}
+
+/** The last update, the open threads while comments can be on, and the last thread change. */
+function ActivityCell({ artifact }: { artifact: ArtifactListItem }) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  const { activity } = artifact;
+  return (
+    <>
+      <span className="block">{t("list.updated", { date: formatDate(artifact.updatedAt) })}</span>
+      {artifact.annotations !== "off" || activity.openThreads > 0 ? (
+        <span className="block">{t("list.openThreads", { count: activity.openThreads })}</span>
+      ) : null}
+      {activity.lastAnnotationAt ? (
+        <span className="block text-text-muted">
+          {t("list.lastComment", { date: formatDate(activity.lastAnnotationAt) })}
+        </span>
+      ) : null}
     </>
   );
 }

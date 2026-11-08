@@ -5,6 +5,7 @@ export { Button, type ButtonProps, buttonClasses } from "./components/button.tsx
 export { Callout, type CalloutProps } from "./components/callout.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog.tsx";
 export { type DetailItem, DetailList } from "./components/detail-list.tsx";
+export { Disclosure, type DisclosureProps } from "./components/disclosure.tsx";
 export { EmptyState, type EmptyStateProps } from "./components/empty-state.tsx";
 export {
   Checkbox,

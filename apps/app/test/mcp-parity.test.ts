@@ -743,6 +743,52 @@ describe("API and MCP parity for annotations", () => {
     return response.json<Thread>();
   }
 
+  it("the artifact list reports the same activity through both", async () => {
+    const { owner, reader, id, versionId, base } = await reviewed("parity-activity");
+    await owner.apiCall(`${base}/mode`, json("PUT", { mode: "open" }));
+    const resolved = await apiThread(reader, base, versionId, "Fixed already");
+    await apiThread(reader, base, versionId, "Still open");
+    nextMinute();
+    const resolvedAt = new Date(Date.now()).toISOString();
+    const resolve = await owner.apiCall(
+      `${base}/threads/${resolved.id}/resolve`,
+      json("POST", {}, crypto.randomUUID()),
+    );
+    expect(resolve.status).toBe(200);
+
+    const listed = async () => {
+      const viaApi = await fromApi(await owner.apiCall("/api/v1/artifacts?search=plan"));
+      expect(fromTool(await owner.tool("list_artifacts", { search: "plan" }))).toEqual(viaApi);
+      return (viaApi.body as { items: { id: string; activity: unknown }[] }).items.find(
+        (item) => item.id === id,
+      )?.activity;
+    };
+    expect(await listed()).toEqual({
+      versions: 1,
+      currentBytes: new TextEncoder().encode("# Plan").byteLength,
+      openThreads: 1,
+      lastAnnotationAt: resolvedAt,
+    });
+
+    // A new version keeps the earlier one retained; its open thread stays with it.
+    nextMinute();
+    const updated = fromTool(
+      await owner.tool("publish_document", {
+        type: "markdown",
+        name: "Plan",
+        content: "# Plan, second draft",
+        artifactId: id,
+        baseVersionId: versionId,
+      }),
+    );
+    expect(updated.ok).toBe(true);
+    expect(await listed()).toMatchObject({
+      versions: 2,
+      openThreads: 0,
+      lastAnnotationAt: resolvedAt,
+    });
+  });
+
   it("mode, threads, replies, reads, lists and exports give the same bodies", async () => {
     const { owner, reader, id, versionId, base } = await reviewed("parity-ann");
 

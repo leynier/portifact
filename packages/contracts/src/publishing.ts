@@ -160,8 +160,28 @@ export const ArtifactSummary = z.object({
 });
 export type ArtifactSummary = z.infer<typeof ArtifactSummary>;
 
+/**
+ * Consumption and activity of an artifact in the list. Traffic is counted per account, not per
+ * artifact, so it is in the account usage (`GET /api/v1/usage`), not here.
+ */
+export const ArtifactActivity = z.object({
+  /** Committed versions that can still be read, the current one included. */
+  versions: z.int().min(0),
+  /** Bytes of the current version, published files and sources; `null` without one. */
+  currentBytes: z.int().min(0).nullable(),
+  /** Open threads on the current version. */
+  openThreads: z.int().min(0),
+  /** When a thread on any version last changed: a comment, reply, resolution or moderation. */
+  lastAnnotationAt: z.iso.datetime().nullable(),
+});
+export type ArtifactActivity = z.infer<typeof ArtifactActivity>;
+
+/** An artifact in the list: its summary and its activity. */
+export const ArtifactListItem = ArtifactSummary.extend({ activity: ArtifactActivity });
+export type ArtifactListItem = z.infer<typeof ArtifactListItem>;
+
 export const ArtifactList = z.object({
-  items: z.array(ArtifactSummary),
+  items: z.array(ArtifactListItem),
   /** Pass as `cursor` to get the next page; `null` on the last page. */
   nextCursor: z.string().nullable(),
 });

@@ -40,7 +40,7 @@ import type { Presigner } from "../api/presign.ts";
 import type { Env } from "../env.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
 import { type Outcome, publishInline } from "./inline.ts";
-import { artifactSummary, committedPublish, lifecycleResult } from "./present.ts";
+import { artifactListItem, artifactSummary, committedPublish, lifecycleResult } from "./present.ts";
 import { registerUsageTools, USAGE_TOOL_SCOPES } from "./usage-tools.ts";
 import { registerVersionTools, VERSION_TOOL_SCOPES } from "./version-tools.ts";
 
@@ -119,22 +119,28 @@ export function createPortifactServer(context: ToolContext): McpServer {
     {
       title: "List artifacts",
       description:
-        "List the user's artifacts, most recently updated first, with their ID, name, type, state, access mode, URL and expiry. Deleted artifacts are not listed. Narrow the list with search (a part of the name or ID) and the state, type, access and annotations filters. When nextCursor is not null, call again with it as cursor and the same filters for the next page.",
+        "List the user's artifacts, most recently updated first, with their ID, name, type, state, access mode, URL and expiry, and their activity: retained versions, the current version's size, open threads on the current version and when a thread last changed. Deleted artifacts are not listed. Narrow the list with search (a part of the name or ID) and the state, type, access and annotations filters. When nextCursor is not null, call again with it as cursor and the same filters for the next page.",
       inputSchema: ListArtifactsInput,
       outputSchema: ArtifactList,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args: ListArtifactsInput) => {
       const { cursor, limit, ...filters } = args;
-      const page = await listArtifacts(db, { ownerId: context.userId, cursor, limit, filters });
+      const page = await listArtifacts(db, {
+        ownerId: context.userId,
+        cursor,
+        limit,
+        filters,
+        now: context.now(),
+      });
       if (!page) return failure("invalid_input", "Invalid cursor.");
       const body = ArtifactList.parse({
-        items: page.items.map((row) => artifactSummary(context.env, row)),
+        items: page.items.map((row) => artifactListItem(context.env, row)),
         nextCursor: page.nextCursor,
       });
       const lines = body.items.map(
         (item) =>
-          `- ${item.id} "${item.name}": ${item.type}, ${item.state}, access ${item.accessMode}, ${item.url}`,
+          `- ${item.id} "${item.name}": ${item.type}, ${item.state}, access ${item.accessMode}, ${item.activity.versions} version(s), ${item.activity.openThreads} open thread(s), ${item.url}`,
       );
       const more = body.nextCursor
         ? ` More: call list_artifacts with cursor "${body.nextCursor}".`
