@@ -179,3 +179,107 @@ describe("operator commands", () => {
     expect((await run("suspend-account", "u_missing", "--reason", "spam")).exitCode).toBe(1);
   });
 });
+
+/** An in-memory file system for the backup commands. */
+function memoryFiles(initial: Record<string, string> = {}) {
+  const store = new Map(Object.entries(initial));
+  return {
+    store,
+    read: async (path: string) => {
+      const text = store.get(path);
+      if (text === undefined) throw new Error(`ENOENT: ${path}`);
+      return text;
+    },
+    write: async (path: string, text: string) => {
+      store.set(path, text);
+    },
+  };
+}
+
+describe("operator backup commands", () => {
+  it("lists storage findings, or says there are none", async () => {
+    await db().delete(schema.storageFindings);
+    expect(await run("storage-report")).toEqual({ exitCode: 0, output: "No storage findings." });
+    await db()
+      .insert(schema.storageFindings)
+      .values([
+        { kind: "missing", r2Key: "objects/u_a/1", firstSeenAt: NOW, lastSeenAt: NOW },
+        {
+          kind: "size_mismatch",
+          r2Key: "objects/u_a/2",
+          detail: "row 3 bytes, object 7 bytes",
+          firstSeenAt: NOW,
+          lastSeenAt: NOW,
+        },
+      ]);
+    const report = await run("storage-report", "--limit", "10");
+    expect(report.exitCode).toBe(0);
+    expect(report.output.split("\n")).toEqual([
+      `missing  objects/u_a/1  first ${new Date(NOW).toISOString()}  last ${new Date(NOW).toISOString()}`,
+      `size_mismatch  objects/u_a/2  first ${new Date(NOW).toISOString()}  last ${new Date(NOW).toISOString()}  row 3 bytes, object 7 bytes`,
+    ]);
+    expect((await run("storage-report", "--limit", "0")).exitCode).toBe(2);
+  });
+
+  it("exports tombstones to a file and applies them after a restore, once", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    await db()
+      .insert(schema.tombstones)
+      .values([
+        { kind: "artifact", id, deletedAt: NOW },
+        { kind: "account", id: user.id, deletedAt: NOW },
+      ]);
+    const files = memoryFiles();
+    const exported = await runOperator(db(), ["export-tombstones", "--out", "t.jsonl"], NOW, files);
+    expect(exported.exitCode).toBe(0);
+    const lines = (files.store.get("t.jsonl") ?? "").trim().split("\n");
+    expect(lines).toContain(JSON.stringify({ kind: "artifact", id, deletedAt: NOW }));
+    expect(exported.output).toBe(`Wrote ${lines.length} tombstone marker(s) to t.jsonl.`);
+
+    // The restore lost the tombstones; the resurrected rows are still there.
+    await db().delete(schema.tombstones);
+    const applied = await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files);
+    expect(applied).toEqual({
+      exitCode: 0,
+      output: `Applied tombstones: ${lines.length} restored, 1 artifact(s) claimed for purging, 1 account(s) deleted again. The jobs Worker purges them on its next runs.`,
+    });
+    const [row] = await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
+    expect(row?.state).toBe("purging");
+    expect(await db().select().from(schema.users).where(eq(schema.users.id, user.id))).toEqual([]);
+
+    expect(
+      (await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files)).output,
+    ).toBe(
+      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) deleted again. The jobs Worker purges them on its next runs.",
+    );
+    expect((await run("apply-tombstones")).exitCode).toBe(0);
+  });
+
+  it("refuses a tombstone file with a bad line and applies nothing", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    const files = memoryFiles({
+      "bad.jsonl": `${JSON.stringify({ kind: "artifact", id, deletedAt: NOW })}\n{"kind":"version","id":"x","deletedAt":1}\n`,
+      "broken.jsonl": "not json\n",
+    });
+    expect(
+      await runOperator(db(), ["apply-tombstones", "--file", "bad.jsonl"], NOW, files),
+    ).toEqual({
+      exitCode: 1,
+      output: "Line 2 of bad.jsonl is not a tombstone marker; nothing was applied.",
+    });
+    expect(
+      (await runOperator(db(), ["apply-tombstones", "--file", "broken.jsonl"], NOW, files)).output,
+    ).toBe("Line 1 of broken.jsonl is not a tombstone marker; nothing was applied.");
+    const [row] = await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
+    expect(row?.state).toBe("active");
+  });
+
+  it("needs a path for the tombstone files", async () => {
+    expect((await run("export-tombstones")).exitCode).toBe(2);
+    expect((await run("apply-tombstones", "--file")).exitCode).toBe(2);
+    await expect(run("export-tombstones", "--out", "x.jsonl")).rejects.toThrow("No file access.");
+    await expect(run("apply-tombstones", "--file", "x.jsonl")).rejects.toThrow("No file access.");
+  });
+});

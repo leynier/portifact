@@ -43,7 +43,17 @@ The `release` workflow (`.github/workflows/release.yml`):
 
 ## Deploying portifact.com
 
-Every push to `main` also runs the `deploy` job after `release`: it applies pending D1 migrations to `portifact-control` (`wrangler d1 migrations apply --remote`), deploys the `portifact-content` Worker (artifact origins on `*.portifact.dev`, D1 plus the private R2 bucket `portifact-artifacts`), deploys the `portifact-jobs` Worker (maintenance every 15 minutes, no routes), builds `apps/web` and deploys the `portifact-app` Worker, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect and that `app.portifact.com` serves the authorization server metadata. The Worker owns `portifact.com`, `www.portifact.com` and `app.portifact.com` as custom domains and routes by host: the apex serves the landing and installers, `www` redirects to the apex, and `app` serves identity, OAuth and the auth pages (see [security.md](security.md)). Pull requests validate both bundles with `wrangler deploy --dry-run`. Migrations must stay backward compatible with the code still running during a deploy: add columns and tables first, remove them in a later release.
+Every push to `main` also runs the `deploy` job after `release`: it applies pending D1 migrations to `portifact-control` (`wrangler d1 migrations apply --remote`), deploys the `portifact-content` Worker (artifact origins on `*.portifact.dev`, D1 plus the private R2 bucket `portifact-artifacts`), deploys the `portifact-jobs` Worker (maintenance every 15 minutes and the consumer of the `portifact-jobs` queue, no routes), builds `apps/web` and deploys the `portifact-app` Worker, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect and that `app.portifact.com` serves the authorization server metadata. The Worker owns `portifact.com`, `www.portifact.com` and `app.portifact.com` as custom domains and routes by host: the apex serves the landing and installers, `www` redirects to the apex, and `app` serves identity, OAuth and the auth pages (see [security.md](security.md)). Pull requests validate both bundles with `wrangler deploy --dry-run`. Migrations must stay backward compatible with the code still running during a deploy: add columns and tables first, remove them in a later release.
+
+### Jobs Worker queue
+
+The `portifact-jobs` Worker produces to and consumes from the Cloudflare Queue `portifact-jobs` (`queues` in `apps/jobs/wrangler.jsonc`): its schedule relays pending rows of the transactional outbox to the queue and its consumer runs them (see "Maintenance and the outbox" in [operations.md](operations.md)). Wrangler does not create queues on deploy, and deploying a Worker bound to a missing queue fails, so the maintainer creates it once before the first release that ships the binding, with the deploy credentials:
+
+```bash
+npx wrangler queues create portifact-jobs
+```
+
+It survives deploys. The deploy token already has Queues access. No dead-letter queue is configured: a message whose retries run out is dropped, and the outbox sends its job again an hour later because the row is still there. Pull requests validate the binding with `wrangler deploy --dry-run`, which does not check that the queue exists.
 
 ### App Worker configuration
 

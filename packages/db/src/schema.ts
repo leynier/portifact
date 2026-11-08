@@ -402,19 +402,58 @@ export const operations = sqliteTable(
   (t) => [primaryKey({ columns: [t.actorId, t.idempotencyKey] })],
 );
 
-/** Transactional outbox for queue jobs (archive, purge, cleanup). */
+/** Follow-up jobs of the transactional outbox (packages/services/src/outbox.ts). */
+export const OUTBOX_TOPICS = ["purge_artifact", "account_deletion", "delete_objects"] as const;
+
+/**
+ * Transactional outbox: a job written in the same D1 batch as the state change that needs it.
+ * The scheduled run relays pending rows to the `portifact-jobs` queue and the consumer deletes a
+ * row once its job is done. `subject` is the artifact, account or owner the job is about, and
+ * `generation` the artifact's lifecycle generation a purge was claimed with, so a stale job never
+ * acts on an artifact that changed since. `payload` holds the job's data as JSON.
+ */
 export const outbox = sqliteTable(
   "outbox",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
-    topic: text("topic").notNull(),
+    topic: text("topic", { enum: OUTBOX_TOPICS }).notNull(),
     payload: text("payload", { mode: "json" }).notNull(),
     availableAt: timestamp("available_at").notNull(),
     dispatchedAt: timestamp("dispatched_at"),
     attempts: integer("attempts").notNull().default(0),
     createdAt: createdAt(),
+    subject: text("subject"),
+    generation: integer("generation"),
   },
-  (t) => [index("outbox_pending_idx").on(t.dispatchedAt, t.availableAt)],
+  (t) => [
+    index("outbox_pending_idx").on(t.dispatchedAt, t.availableAt),
+    index("outbox_subject_idx").on(t.topic, t.subject),
+  ],
+);
+
+/** Where each paginated maintenance scan resumes, and when its current pass started. */
+export const maintenanceCursors = sqliteTable("maintenance_cursors", {
+  name: text("name").primaryKey(),
+  cursor: text("cursor").notNull().default(""),
+  passStartedAt: timestamp("pass_started_at").notNull(),
+  updatedAt: timestamp("updated_at").notNull(),
+});
+
+/**
+ * What the storage reconciliation found and nothing deleted: `missing` (a verified object row
+ * whose R2 object is gone), `size_mismatch` (the R2 object has another size) and `orphan` (an R2
+ * object no row references). The operator reviews them with `operator storage-report`.
+ */
+export const storageFindings = sqliteTable(
+  "storage_findings",
+  {
+    kind: text("kind", { enum: ["missing", "size_mismatch", "orphan"] }).notNull(),
+    r2Key: text("r2_key").notNull(),
+    detail: text("detail"),
+    firstSeenAt: timestamp("first_seen_at").notNull(),
+    lastSeenAt: timestamp("last_seen_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.kind, t.r2Key] })],
 );
 
 export const lifecycleEvents = sqliteTable(
