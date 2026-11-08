@@ -1,5 +1,5 @@
-// portifact.com and www.portifact.com: the landing page, the legal pages and the installer
-// redirects.
+// portifact.com and www.portifact.com: the landing page, the legal pages, the MCP
+// compatibility page and the installer redirects.
 import { Hono } from "hono";
 import { AUTH_PAGES, DASHBOARD_PAGE, PAGE_CSP } from "./app-host.ts";
 import type { Env } from "./env.ts";
@@ -21,11 +21,14 @@ const appOnlyPaths = new Set<string>(
 /** The Terms of Service, Privacy Policy and Acceptable Use Policy, built by apps/web. */
 export const LEGAL_PAGES = ["/terms", "/privacy", "/acceptable-use"] as const;
 
+/** Static documents served like the legal pages: the MCP compatibility matrix (plan section 17). */
+export const DOCUMENT_PAGES = [...LEGAL_PAGES, "/mcp-compatibility"] as const;
+
 /**
  * Static documents with no script: the strict page policy, never framed, and revalidated on
  * every visit so a new version shows at once.
  */
-function legalPage(asset: Response): Response {
+function documentPage(asset: Response): Response {
   const response = new Response(asset.body, asset);
   response.headers.set("Content-Security-Policy", PAGE_CSP);
   response.headers.set("Cache-Control", "no-cache");
@@ -56,9 +59,9 @@ export function createSite() {
     });
   }
 
-  for (const page of LEGAL_PAGES) {
+  for (const page of DOCUMENT_PAGES) {
     site.get(page, async (c) =>
-      legalPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
+      documentPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
     );
   }
 

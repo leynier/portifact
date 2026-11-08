@@ -144,6 +144,12 @@ With `--json`, the result is one JSON object on stdout, and a failure is `{"erro
 
 Add `https://app.portifact.com/mcp` as a remote MCP server (Streamable HTTP). The client signs the user in with OAuth in the browser; first it asks only for `artifacts:read`, and it asks the user again for `artifacts:write`, `artifacts:delete`, `annotations:read`, `annotations:write` or `annotations:moderate` the first time a tool needs them.
 
+How a missing scope shows up depends on the client:
+
+- Claude.ai asks the user to allow it in the browser and continues.
+- Claude Code fails the call with a message that it "needs additional permissions" and disconnects the server for that session. Ask the user to run `/mcp`, choose Re-authenticate and allow it, then retry; `claude -p` cannot sign in.
+- Codex CLI fails the call with "Insufficient scope" and never asks by itself. Ask the user to sign in again with every scope the task needs, for example `codex mcp login portifact --scopes artifacts:read,artifacts:write,artifacts:delete,offline_access` (add the `annotations:*` scopes for comments). Codex also asks the user to approve tools that delete.
+
 | Tool | Scope | What it does |
 | --- | --- | --- |
 | `list_artifacts` | `artifacts:read` | The user's artifacts, newest first, 50 per page; pass `nextCursor` back as `cursor` for more. |

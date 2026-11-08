@@ -42,6 +42,28 @@ describe("client metadata fetch transport", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("passes 304 Not Modified through, so a cached document can be revalidated", async () => {
+    // chatgpt.com serves Codex's document with an ETag and answers the plugin's
+    // If-None-Match with 304, which is not a redirect.
+    const notModified = new Response(null, { status: 304, headers: { etag: 'W/"1cd"' } });
+    const fetchMetadata = createClientMetadataFetch(recordingFetch(notModified).fetchImpl);
+    const response = await fetchMetadata(new URL("https://client.example/metadata.json"), {
+      headers: { "if-none-match": 'W/"1cd"' },
+    });
+    expect(response.status).toBe(304);
+  });
+
+  it.each([300, 301, 302, 303, 305, 307, 308])("fails on a %i redirect status", async (status) => {
+    const redirect = new Response(null, {
+      status,
+      headers: { location: "https://elsewhere.example/" },
+    });
+    const fetchMetadata = createClientMetadataFetch(recordingFetch(redirect).fetchImpl);
+    await expect(fetchMetadata(new URL("https://client.example/metadata.json"))).rejects.toThrow(
+      "redirects",
+    );
+  });
+
   it("fails on a redirect instead of trusting another location", async () => {
     const redirect = new Response(null, {
       status: 302,
