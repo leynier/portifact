@@ -27,7 +27,7 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 
 ```text
 apps/app        Worker for portifact.com and app.portifact.com: landing, installers, dashboard, identity, OAuth, the /api/v1 publishing API, the remote MCP server at /mcp and the protected-artifact entry
-apps/content    Worker for <id>.portifact.dev: artifact delivery and read sessions for protected artifacts today; review sessions, bridge and viewers later
+apps/content    Worker for <id>.portifact.dev: artifact delivery (sites, and the rendered page and original of Markdown and TXT documents) and read sessions for protected artifacts today; review sessions, bridge and viewers later
 apps/web        Landing, auth pages and the dashboard SPA (React, TanStack Router and Query, Lingui); review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
 packages/cli    portifact CLI: login, publish, list, info, lifecycle, access, versions, rollback and pull commands; each takes an injected Runtime (packages/cli/src/runtime.ts)
@@ -35,7 +35,7 @@ packages/contracts   Shared schemas, errors and OpenAPI
 packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
 packages/services    Use cases that apply domain rules with D1 and R2: publish, restore and more
 packages/db          Drizzle schema, migrations and queries
-packages/render      Markdown and TXT rendering to safe HTML documents (markdown-it); not wired into delivery yet
+packages/render      Markdown and TXT rendering to safe HTML documents (markdown-it); the publish services render documents at commit
 packages/anchors     Annotation anchor model and resolution
 packages/bridge      Review script injected into artifacts
 packages/ui          Design system: tokens, React components and patterns, and the axe test helper
@@ -83,6 +83,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - Drizzle's `insert(table).select(query)` inserts into every column of the table in schema order, so the select must list all of them in that order. `rollbackArtifact` in `packages/services/src/versions.ts` copies `versions` and `version_files` rows this way: a column added to either table must be added there too, or rollbacks lose it.
 - A rollback is a new publish of retained objects. When annotation threads land, moving the base version's open threads to history must happen in both `commitPublish` and `rollbackArtifact`, conditioned on the switch, like their other writes (`rollbackArtifact` marks the spot).
 - Protected artifacts are opened through a one-use handoff from `app.portifact.com/read/<id>` to `/__portifact/callback` on the artifact origin, which sets the host-only `__Host-pf_read` cookie; the content Worker needs the `READ_SESSION_SECRET` secret. Handoffs and read sessions reference Better Auth's `sessions.id` and end with it, so keep Better Auth sessions in D1 (no secondary storage) and keep sign-out deleting the row. Follow "Entry to protected artifacts" in [docs/security.md](docs/security.md) before touching any of it.
+- `markdown` and `text` artifacts are rendered once, when `commitPublish` commits the version (`packages/services/src/documents.ts`), never per request. The page and the Markdown block map are stored as `rendered` and `block_map` entries of the version at the entrypoint's path, backed by objects counted in the account's storage. Clients only ever send the source. A renderer change that fixes a security flaw raises `SECURE_RENDERER_VERSION` in `packages/render/src/version.ts`, and the maintenance job re-renders older documents; nothing else re-renders.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
 - The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves the dashboard at `/` and its client routes (`DASHBOARD_ROUTES` in `apps/app/src/app-host.ts`, kept in sync with `apps/web/src/dashboard/router.tsx`; without a session they redirect to `/login?next=...`), identity, OAuth, the auth pages and `/read/<id>` (the entry to protected artifacts), anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.

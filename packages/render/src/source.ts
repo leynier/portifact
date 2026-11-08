@@ -43,7 +43,7 @@ export function decodeSource(bytes: Uint8Array): string {
   }
   if (bytes.includes(0)) throw new RenderError("binary", "Documents must be text, not binary");
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
   } catch {
     throw new RenderError("invalid_utf8", "Documents must be valid UTF-8");
   }

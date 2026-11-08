@@ -14,6 +14,7 @@
     "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
     "@portifact/domain": "workspace:*",
+    "@portifact/render": "workspace:*",
     "@portifact/services": "workspace:*"
   },
   "devDependencies": {

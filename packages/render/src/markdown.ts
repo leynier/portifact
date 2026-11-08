@@ -1,5 +1,6 @@
 // Markdown to safe HTML: CommonMark plus the GFM extensions (tables, strikethrough, autolinks,
 // task lists and footnotes). Raw HTML is never interpreted: it is shown as literal text.
+/// <reference path="./markdown-it-footnote.d.ts" />
 import GithubSlugger, { slug } from "github-slugger";
 import MarkdownIt, {
   type Env,

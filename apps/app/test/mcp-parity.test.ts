@@ -113,14 +113,19 @@ describe("API and MCP parity", () => {
     expect(viaApi.ok && viaMcp.ok).toBe(true);
     expect(withoutIds(viaMcp.body)).toEqual(withoutIds(viaApi.body));
 
-    // Both versions point at one stored object with the same manifest entry.
+    // The server renders both the same way: each version has the source, the page and the block
+    // map, backed by the same stored objects, and both record the same renderer version.
     const files = await env.DB.prepare(
-      "select path, kind, sha256, size, content_type from version_files where owner_id = ? order by version_id",
+      "select f.path, f.kind, f.sha256, f.size, f.content_type, v.renderer_version from version_files f join versions v on v.id = f.version_id where f.owner_id = ? order by f.version_id, f.kind",
     )
       .bind(owner)
-      .all();
-    expect(files.results).toHaveLength(2);
-    expect(files.results[0]).toEqual(files.results[1]);
+      .all<{ kind: string; renderer_version: string }>();
+    expect(files.results.map((file) => file.kind)).toEqual([
+      ...["block_map", "published", "rendered"],
+      ...["block_map", "published", "rendered"],
+    ]);
+    expect(files.results.slice(0, 3)).toEqual(files.results.slice(3));
+    expect(files.results[0]?.renderer_version).toBe("1");
   });
 
   it("get and list return the same artifact summaries", async () => {

@@ -74,3 +74,49 @@ Read sessions end with the dashboard session that opened them. Signing out of `a
 - Downloads (`GET /api/v1/artifacts/:id/versions/:versionId/download`, MCP `get_download`) return presigned GET links signed by the same Worker and token (`presignGet` in `apps/app/src/api/presign.ts`): one object key each, `response-content-disposition=attachment`, valid 5 minutes, issued only after `getVersionDownload` in `packages/services/src/versions.ts` checked the caller. The owner may download published files and sources of any retained version. Anyone else gets only the published files of the current version of a `markdown` or `text` artifact that `checkReadAccess` admits right now; sources, previous versions and sites answer 404 exactly like a missing version. Version lists and manifests are owner-only. A link handed out before a revocation stays usable until it expires, so its lifetime is kept short.
 - Manifests refuse any `.git` path segment, in any case and in the forms Windows resolves to it (`.git.`, `.git `, `git~1`; `isGitSegment` in `packages/domain/src/paths.ts`). `portifact pull` writes only into a folder it creates (refusing one that exists or lies inside a `.git` folder), validates every path again with the same rules before writing anything, refuses non-canonical paths and paths that leave the folder, writes with `wx`, checks each file's size and SHA-256, never sends the API token to storage, and removes the folder if the pull fails.
 - A rollback (`POST /api/v1/artifacts/:id/rollback`, MCP `rollback_artifact`) publishes a new version that references the retained version's objects. It changes only the current version and the expiry, never the access mode, readers or policy generation, so it cannot bring back access that was removed. It takes an `Idempotency-Key` (optional `idempotencyKey` on MCP) and the base version the client read.
+
+### Requests and responses
+
+- No credentialed CORS for artifact origins on any `portifact.com` endpoint.
+- Every mutation requires a valid session, CSRF protection and an exact `Origin` check. No mutations over GET.
+- Auth callbacks never accept arbitrary redirect targets and respond with `no-store` and `Referrer-Policy: no-referrer`.
+- Content responses set `X-Content-Type-Options: nosniff`, correct MIME types, `frame-ancestors` and `Cross-Origin-Resource-Policy` defaults, and `X-Robots-Tag: noindex` unless indexing is enabled. User content cannot override these headers.
+- Requests that register service worker scripts are blocked.
+- Dashboard and viewer pages cannot be framed by user content.
+
+### Untrusted content
+
+- Markdown is rendered by `packages/render` with markdown-it and `html: false`: raw HTML is shown as literal text, never parsed, and there is no MDX and no user plugins. Links and images keep only `http`, `https` and `mailto` URLs (plus paths on the artifact), checked with the WHATWG URL parser so `//host`, `/\host` and embedded tabs resolve as a browser resolves them. Links to other origins get `rel="nofollow noopener noreferrer"`. Remote images are off unless the document opts in; when off they become links. TXT is always escaped inside `<pre>`.
+- Rendered documents carry a Content-Security-Policy `<meta>` (`default-src 'none'`, no scripts, frames or forms, `base-uri 'none'`) as defense in depth if markup ever slips through. Review-mode delivery has to account for it when it injects the bridge.
+- Rendering must stay linear in the input, because a 5 MB document is allowed. remark/micromark is quadratic on nested emphasis, links and many footnotes (seconds to minutes on a few hundred KB), which is why the renderer uses markdown-it, and why `packages/render` patches markdown-it-footnote's quadratic token concatenation. Keep the hostile-size tests in `packages/render/src/security.test.ts` passing when changing the parser or adding plugins.
+- The Markdown and TXT viewers run on the artifact origin, never on `portifact.com`.
+- Documents are rendered once, at commit, never per request: hostile input can expand about ten times, and a 5 MB source is allowed. The commit reads the verified source from R2, rejects binary, invalid UTF-8 and oversized sources with `invalid_input`, and stores the page (and the Markdown block map) as content-addressed objects of the version. Their bytes count toward the version's 250 MB and the account's storage: the commit batch adds them before marking them verified, so the account limit's CHECK constraint refuses a rendering that does not fit and the upload is released. Rendering a 5 MB hostile document holds the source, the page string and its UTF-8 bytes in memory at once; watch the commit's memory and CPU in production.
+- A document's root serves only its rendered page, with the document policy as a `Content-Security-Policy` header too (`default-src 'none'`, no scripts, plus the usual `frame-ancestors`). The original is served at its own path as a download (`Content-Disposition: attachment`), and prepare stores it with the document's MIME type (`text/markdown` or `text/plain`, UTF-8) whatever the client declared, so it can never be served as HTML. Both go through the same authorization as any file. Markdown assets are served as files, like a site's. A document without a rendering answers 503 rather than rendering on the fly.
+- Renderer security fixes raise `SECURE_RENDERER_VERSION`; the maintenance job (`rerenderDocuments`) then re-renders every retained document version below it, also on an account at its storage limit (the new bytes are counted up to the limit, never refused), guarded on the version's recorded renderer so concurrent runs apply once. Annotation anchors on re-rendered versions will need to be re-verified when annotations exist.
+- Annotation targets are untrusted input wherever they come from: they are validated with `AnnotationTarget` (strict keys, size caps, a CSS selector grammar without escapes or functions, same-origin routes); see [anchors.md](anchors.md).
+- Messages from the bridge are untrusted data. Validate the exact origin, source window, instance nonce, schema and size. A selection alone never creates a comment; the user confirms it in the trusted viewer.
+- The artifact iframe never receives tokens, email addresses or thread bodies.
+- Comment bodies, artifact content and MCP tool results are user data. They never trigger actions or change permissions.
+
+### Uploads
+
+- Paths are normalized and checked on the server: absolute paths, `..`, symlinks, special entries, collisions, reserved paths, size and entry limits are all rejected.
+- The server verifies the real size and checksum before commit. A client-declared value is never trusted.
+- Quotas are reserved in the same transaction that admits the work.
+- The CLI (`packages/cli/src/manifest.ts`) also refuses links and special files instead of following them, applies the domain's path rules before uploading, and leaves out `.git` (any case), `node_modules`, caches and files that may hold secrets (`.env*` except templates, `.dev.vars`, `.npmrc`, `.netrc`, SSH keys, `*.pem`, `*.key`, Terraform state and similar), also when such a file or folder is named directly. These are conveniences for the user; the server still enforces every rule.
+- The CLI sends each object to the presigned URL with exactly the signed headers and never with the API token. Upload URLs are never printed. If anything fails after prepare, it cancels the upload with `DELETE /api/v1/publishes/:id` so the reservation is released.
+
+### Secrets and logs
+
+- No secrets in the repository. Local secrets live in `.dev.vars`, which is ignored by git.
+- Never log tokens, cookies, OTP codes, presigned URLs, private emails beyond what access logs require, or full comment bodies. The email sender replaces provider errors with a generic one, because a provider error can echo the message that holds the code.
+
+## Review checklist
+
+Before finishing a change that touches the areas above, confirm:
+
+1. Which origin serves this, and does it hold credentials it should not?
+2. Who is the actor, and where does that identity come from?
+3. Is every path authorized before bytes or data are returned?
+4. Can a hostile artifact on a sibling subdomain trigger, read or forge this?
+5. Is there a test that tries to break it?
