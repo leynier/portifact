@@ -16,6 +16,7 @@ import {
   overrideActions,
   type PlatformMetrics,
   PROTECTION_ACTIONS,
+  PROTECTION_TRAFFIC_LIMITS,
   projectionFactor,
   projectSpend,
   protectionBlock,
@@ -301,5 +302,9 @@ describe("enforcement checks", () => {
     expect(trafficLimited(third, false)).toBe(false);
     expect(trafficLimited(PROTECTION_ACTIONS, false)).toBe(true);
     expect(trafficLimited(PROTECTION_ACTIONS.slice(0, 3), true)).toBe(false);
+  });
+
+  it("limits public visitors tighter than protected readers, per minute", () => {
+    expect(PROTECTION_TRAFFIC_LIMITS).toEqual({ periodMs: 60_000, public: 120, protected: 240 });
   });
 });
