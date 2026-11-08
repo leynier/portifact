@@ -39,6 +39,8 @@ D1 tests use the real local D1 inside workerd: `packages/db/test/apply-migration
 
 To control the clock in Workers tests, call the app's `fetch` from the test (it runs in the same isolate) and fake only `Date` with `vi.useFakeTimers({ toFake: ["Date"] })`, so I/O keeps working. Apply D1 migrations in a setup file with `readD1Migrations` and `applyD1Migrations`. `spikes/oauth-server` shows both.
 
+End-to-end tests of review mode must block third-party cookies explicitly and prove it with an unpartitioned control cookie. Chromium needs the full browser (`channel: "chromium"`) with a profile that sets `profile.cookie_controls_mode = 1`; the headless shell ignores profile preferences. Firefox uses `network.cookie.cookieBehavior`. WebKit blocks by default, but only macOS uses Safari's cookie layer: WebKit on Linux has no partitioned cookies. `spikes/review-cookies` shows all three and maps hosts through a local proxy, which works in every engine.
+
 ## Required cases
 
 Every feature covers:

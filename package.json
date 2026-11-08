@@ -21,6 +21,7 @@
     "format": "biome check --write .",
     "test": "turbo run test",
     "build:cli": "bun scripts/build-cli.ts",
+    "spike:review-cookies": "bun run --cwd spikes/review-cookies spike",
     "dev": "turbo run dev",
     "build": "turbo run build"
   },

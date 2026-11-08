@@ -10,15 +10,15 @@ The project is in its initial build. Some commands and paths below are planned a
 
 ## Documents
 
-| Document                                       | Read it when                                                                                                                                                                                                          |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/plan.md`                                 | Always, for product scope and decisions. It is the source of truth, written in Spanish, and kept only in the maintainer's local checkout (not committed). If it is missing, ask the maintainer before assuming scope. |
-| [docs/security.md](docs/security.md)           | Touching auth, sessions, cookies, access control, content delivery, uploads, annotations, MCP or anything served on `portifact.dev`.                                                                                  |
-| [docs/testing.md](docs/testing.md)             | Writing or changing any code. Every change ships with tests.                                                                                                                                                          |
-| [docs/design.md](docs/design.md)               | Touching any UI: dashboard, review viewer, Markdown/TXT viewers or the annotation bridge.                                                                                                                             |
-| [docs/accessibility.md](docs/accessibility.md) | Touching any UI or CLI output. Accessibility is part of done.                                                                                                                                                         |
-| [docs/releasing.md](docs/releasing.md)         | Touching branches, versions, CI, release workflows, build scripts or installers.                                                                                                                                      |
-| [docs/decisions/](docs/decisions)              | Touching something a decision record covers, such as the OAuth server in [0001](docs/decisions/0001-oauth-server.md). Add a numbered record when a phase 0 spike or a hard-to-reverse choice settles a question.      |
+| Document                                       | Read it when                                                                                                                                                                                                                                                              |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docs/plan.md`                                 | Always, for product scope and decisions. It is the source of truth, written in Spanish, and kept only in the maintainer's local checkout (not committed). If it is missing, ask the maintainer before assuming scope.                                                     |
+| [docs/security.md](docs/security.md)           | Touching auth, sessions, cookies, access control, content delivery, uploads, annotations, MCP or anything served on `portifact.dev`.                                                                                                                                      |
+| [docs/testing.md](docs/testing.md)             | Writing or changing any code. Every change ships with tests.                                                                                                                                                                                                              |
+| [docs/design.md](docs/design.md)               | Touching any UI: dashboard, review viewer, Markdown/TXT viewers or the annotation bridge.                                                                                                                                                                                 |
+| [docs/accessibility.md](docs/accessibility.md) | Touching any UI or CLI output. Accessibility is part of done.                                                                                                                                                                                                             |
+| [docs/releasing.md](docs/releasing.md)         | Touching branches, versions, CI, release workflows, build scripts or installers.                                                                                                                                                                                          |
+| [docs/decisions/](docs/decisions)              | Touching something a decision record covers: the OAuth server ([0001](docs/decisions/0001-oauth-server.md)) or review-mode cookies ([0002](docs/decisions/0002-review-mode-cookies.md)). Add a numbered record when a spike or hard-to-reverse choice settles a question. |
 
 If a decision in the plan conflicts with the code, do not silently pick one: fix the code or propose a plan update and say so.
 
@@ -56,6 +56,7 @@ bun run build          # build apps (the landing in apps/web/dist)
 bun run dev            # local dev servers (Vite for apps/web, wrangler for apps/app)
 bun run build:cli      # compile the CLI for this platform into dist/release (--all for every platform)
 bun run --cwd packages/db generate -- --name <change>   # create a D1 migration from schema.ts
+bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
 ```
 
 Planned as the code arrives: `bun run test:e2e` (Playwright on Chromium, Firefox and WebKit) and `bun run test:mutation` (Stryker on critical packages). Add them here when they exist.

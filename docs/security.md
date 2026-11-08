@@ -20,6 +20,8 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 - Portifact cookies use the `__Host-` prefix: `Secure`, `Path=/`, no `Domain` attribute.
 - Each surface has its own session: dashboard, read session per artifact and review session per artifact and version. Artifact code never receives an admin credential.
 - The review cookie is `Partitioned` (CHIPS). It grants reading one version and nothing else.
+- Sibling artifacts in the viewer's partition can send credentialed requests that carry another artifact's review cookie. The content Worker honors the review cookie only for `Sec-Fetch-Site: same-origin`, or `cross-site` with `Sec-Fetch-Mode: navigate`, fails closed without fetch metadata, and sends `Cross-Origin-Resource-Policy: same-origin` on review responses. See [decision 0002](decisions/0002-review-mode-cookies.md).
+- Cookie names are matched exactly and case-sensitively. WebKit lets a sibling set `__host-` (lowercase) cookies with a `Domain` attribute, so case-folding a name would let it shadow a `__Host-` cookie.
 - The content Worker ignores every cookie that is not on its allowlist and clears oversized injected cookies.
 - Read sessions carry signed claims that expire in 60 seconds or less. After that, the Worker rechecks D1. Revocation must take effect within 60 seconds.
 
