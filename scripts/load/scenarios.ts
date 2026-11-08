@@ -10,6 +10,8 @@ import type { Auth, Target } from "./target.ts";
 const MAX_ARTIFACT_BYTES = 250_000_000;
 const ACTIVE_SLOTS = 50;
 const WRITES_PER_MINUTE = 5;
+/** First comments on other people's artifacts that need a human check (ANNOTATION_LIMITS). */
+const HUMAN_CHECKED_COMMENTS = 3;
 const SESSION_COOKIE = "__Host-pf.session_token";
 
 export interface Expectation {
@@ -458,6 +460,20 @@ async function annotations(target: Target, options: LoadOptions): Promise<Scenar
     });
     ({ artifactId, versionId } = published);
     authors = users.map((user) => new Api(target, user?.auth as Auth));
+    // An account's first comments on other people's artifacts need a solved human check, which
+    // a load test cannot do. Earlier comments, written before the rate-limit minute, clear it.
+    const seed = target.seed;
+    for (const user of users) {
+      for (let i = 0; i < HUMAN_CHECKED_COMMENTS; i++) {
+        await seed.thread({
+          userId: user?.userId as string,
+          artifactId,
+          versionId,
+          body: `Earlier note ${i}`,
+          agoMs: 2 * 60_000,
+        });
+      }
+    }
   } else {
     artifactId = options.artifact as string;
     authors = [new Api(target, bearer())];
@@ -503,7 +519,7 @@ async function annotations(target: Target, options: LoadOptions): Promise<Scenar
       "SELECT count(*) AS threads FROM annotation_threads WHERE artifact_id = ?",
       [artifactId],
     );
-    const stored = Number(row?.threads ?? -1);
+    const stored = Number(row?.threads ?? -1) - options.authors * HUMAN_CHECKED_COMMENTS;
     expectations.push({
       label: `each of ${options.authors} authors gets exactly ${expected} writes`,
       ok: perAuthor.every((count) => count === expected),

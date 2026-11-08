@@ -26,6 +26,14 @@ export interface Seeder {
   user(email: string): Promise<SeedUser>;
   publish(input: SeedPublishInput): Promise<{ artifactId: string; versionId: string }>;
   sql(query: string, params?: (string | number | null)[]): Promise<Record<string, unknown>[]>;
+  /** A document-level thread written `agoMs` in the past, past any human check. */
+  thread(input: {
+    userId: string;
+    artifactId: string;
+    versionId: string;
+    body: string;
+    agoMs: number;
+  }): Promise<void>;
 }
 
 export interface RequestInput {

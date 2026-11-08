@@ -85,6 +85,9 @@ export async function startLocalTarget(): Promise<Target> {
       publish: (input) =>
         control<{ artifactId: string; versionId: string }>("/publish", { type: "site", ...input }),
       sql: (query, params = []) => control<Record<string, unknown>[]>("/sql", { query, params }),
+      async thread(input) {
+        await control("/thread", { ...input, path: "index.html" });
+      },
     },
     memoryBytes: () => treeRss(process.pid),
     async close() {

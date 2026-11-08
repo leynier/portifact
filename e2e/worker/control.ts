@@ -61,6 +61,8 @@ interface ThreadInput {
   versionId: string;
   body: string;
   path: string;
+  /** Milliseconds in the past to write it at: the load test seeds earlier comments this way. */
+  agoMs?: number;
 }
 
 interface ReviewCodeInput {
@@ -216,7 +218,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       versionId: thread.versionId,
       target: { schema: 1, path: thread.path, anchor: { kind: "document" } },
       body: thread.body,
-      now,
+      now: now - (thread.agoMs ?? 0),
     });
     return Response.json(result, { status: result.ok ? 200 : 400 });
   }
