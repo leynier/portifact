@@ -119,6 +119,23 @@
         "vitest": "catalog:",
       },
     },
+    "packages/services": {
+      "name": "@portifact/services",
+      "version": "0.0.0",
+      "dependencies": {
+        "@portifact/contracts": "workspace:*",
+        "@portifact/db": "workspace:*",
+        "@portifact/domain": "workspace:*",
+        "drizzle-orm": "^0.45.0",
+      },
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "^1.0.0",
+        "@cloudflare/workers-types": "^5.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/ui": {
       "name": "@portifact/ui",
       "version": "0.0.0",
@@ -394,6 +411,8 @@
     "@portifact/db": ["@portifact/db@workspace:packages/db"],
 
     "@portifact/domain": ["@portifact/domain@workspace:packages/domain"],
+
+    "@portifact/services": ["@portifact/services@workspace:packages/services"],
 
     "@portifact/ui": ["@portifact/ui@workspace:packages/ui"],
 

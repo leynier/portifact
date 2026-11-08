@@ -1,0 +1,28 @@
+{
+  "name": "@portifact/services",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Use cases that combine domain rules with D1 and R2 (publish, restore and more).",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@portifact/contracts": "workspace:*",
+    "@portifact/db": "workspace:*",
+    "@portifact/domain": "workspace:*",
+    "drizzle-orm": "^0.45.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
