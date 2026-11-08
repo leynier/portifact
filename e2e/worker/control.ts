@@ -84,7 +84,9 @@ interface AccessInput {
 }
 
 interface ClockInput {
-  /** How far ahead of real time the content Worker's clock runs; 0 puts it back. */
+  /** The artifact whose delivery runs on the moved clock; every other artifact keeps real time. */
+  artifactId: string;
+  /** How far ahead of real time the content Worker's clock runs for it; 0 puts it back. */
   offsetMs: number;
 }
 
@@ -303,9 +305,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   }
 
   if (path === "/clock") {
-    const { offsetMs } = input as ClockInput;
-    setContentClockOffset(offsetMs);
-    return Response.json({ offsetMs });
+    const { artifactId, offsetMs } = input as ClockInput;
+    setContentClockOffset(artifactId, offsetMs);
+    return Response.json({ artifactId, offsetMs });
   }
 
   if (path === "/sql") {
