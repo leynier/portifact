@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "portifact-content",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  // Every artifact origin: <id>.portifact.dev. Needs a proxied wildcard DNS record.
+  "routes": [{ "pattern": "*.portifact.dev/*", "zone_name": "portifact.dev" }],
+  "vars": {
+    "CONTENT_DOMAIN": "portifact.dev",
+    "APP_ORIGIN": "https://app.portifact.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portifact-control",
+      "database_id": "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
+      "migrations_dir": "../../packages/db/migrations"
+    }
+  ],
+  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" }],
+  "observability": { "enabled": true, "head_sampling_rate": 0.1 }
+}

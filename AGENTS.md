@@ -25,7 +25,7 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 
 ```text
 apps/app        Worker for portifact.com: landing assets and installers today; API, auth, OAuth, MCP and jobs later
-apps/content    Worker content: artifact delivery, session handoffs, bridge, viewers
+apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 packages/cli    portifact CLI
 packages/contracts   Shared schemas, errors and OpenAPI

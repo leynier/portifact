@@ -31,6 +31,22 @@
         "wrangler": "^4.0.0",
       },
     },
+    "apps/content": {
+      "name": "@portifact/content",
+      "version": "0.0.0",
+      "dependencies": {
+        "@portifact/db": "workspace:*",
+        "@portifact/domain": "workspace:*",
+      },
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "^1.0.0",
+        "@cloudflare/workers-types": "^5.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+        "wrangler": "^4.0.0",
+      },
+    },
     "apps/web": {
       "name": "@portifact/web",
       "version": "0.0.0",
@@ -370,6 +386,8 @@
     "@portifact/app": ["@portifact/app@workspace:apps/app"],
 
     "@portifact/cli": ["@portifact/cli@workspace:packages/cli"],
+
+    "@portifact/content": ["@portifact/content@workspace:apps/content"],
 
     "@portifact/contracts": ["@portifact/contracts@workspace:packages/contracts"],
 
