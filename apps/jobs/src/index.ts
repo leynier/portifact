@@ -1,12 +1,15 @@
 // The jobs Worker. Its schedule runs the maintenance scans (the safety net), relays pending
 // outbox rows to the `portifact-jobs` queue, reconciles a slice of storage with D1 and runs the
 // budget run (alerts and automatic protection, plan section 12). Its queue consumer runs the
-// relayed jobs, and the consumer of the `portifact-email-events` queue records the bounces and
+// relayed jobs (including the erasure of access logs in the separate access log database), and the
+// schedule prunes access log entries past retention. The consumer of the `portifact-email-events`
+// queue records the bounces and
 // complaints Cloudflare Email Service reports. Every job is idempotent and guards every
 // transition, so overlapping runs, retries and duplicate deliveries are safe.
 import { EmailSendingEvent, JobMessage } from "@portifact/contracts";
-import { createDb, type Db } from "@portifact/db";
+import { createAccessDb, createDb, type Db } from "@portifact/db";
 import {
+  pruneAccessEvents,
   reconcileStorage,
   recordEmailEvent,
   relayOutbox,
@@ -18,6 +21,8 @@ import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 
 export interface Env extends AnalyticsEnv, NotifierEnv {
   DB: D1Database;
+  /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
+  ACCESS_DB: D1Database;
   ARTIFACTS: R2Bucket;
   JOBS: Queue<JobMessage>;
 }
@@ -44,7 +49,15 @@ export async function runScheduled(env: Env, now: number) {
     console.error(JSON.stringify({ event: "outbox_relay_failed", error: errorName(error) }));
   }
   const storage = await reconcileStorage(db, env.ARTIFACTS, now);
-  const result = { ...maintenance, relayed, storage };
+  // A separate database: its failure must not hide the rest of the run's result.
+  let prunedAccessEvents: number | "failed";
+  try {
+    prunedAccessEvents = await pruneAccessEvents(createAccessDb(env.ACCESS_DB), now);
+  } catch (error) {
+    prunedAccessEvents = "failed";
+    console.error(JSON.stringify({ event: "access_log_prune_failed", error: errorName(error) }));
+  }
+  const result = { ...maintenance, relayed, storage, prunedAccessEvents };
   console.log(JSON.stringify({ event: "maintenance", ...result }));
   return result;
 }
@@ -104,6 +117,7 @@ function safeJson(text: string): unknown {
 
 export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: number) {
   const db = createDb(env.DB);
+  const access = createAccessDb(env.ACCESS_DB);
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   for (const message of batch.messages) {
     const parsed = JobMessage.safeParse(message.body);
@@ -114,7 +128,7 @@ export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: numb
       continue;
     }
     try {
-      const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now);
+      const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, access);
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });
       } else {

@@ -8,6 +8,7 @@ export const OutboxTopic = z.enum([
   "account_deletion",
   "delete_objects",
   "abort_multipart",
+  "erase_access_events",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -22,6 +23,15 @@ export type JobMessage = z.infer<typeof JobMessage>;
 export const DeleteObjectsPayload = z.object({
   keys: z.array(z.string().min(1).max(200)).max(100),
 });
+
+/**
+ * Payload of an `erase_access_events` job: whether its subject is a purged artifact (its whole
+ * access log goes) or a deleted account (its openings of other people's artifacts go).
+ */
+export const EraseAccessEventsPayload = z.strictObject({
+  kind: z.enum(["artifact", "user"]),
+});
+export type EraseAccessEventsPayload = z.infer<typeof EraseAccessEventsPayload>;
 
 /** One purged or deleted artifact or account that a restored backup must not bring back. */
 export const TombstoneMarker = z.strictObject({

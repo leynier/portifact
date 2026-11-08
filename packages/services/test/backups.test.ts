@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { schema } from "@portifact/db";
-import { eq, inArray, like } from "drizzle-orm";
+import { and, eq, inArray, like, ne } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { requestAccountDeletion } from "../src/account-data.ts";
 import {
@@ -253,7 +253,11 @@ describe("tombstones after a restore", () => {
       .select()
       .from(schema.outbox)
       .where(
-        inArray(schema.outbox.subject, [purged.artifactId, leavingSite.artifactId, leaving.id]),
+        and(
+          inArray(schema.outbox.subject, [purged.artifactId, leavingSite.artifactId, leaving.id]),
+          // Access log erasure jobs are covered in access-log.test.ts.
+          ne(schema.outbox.topic, "erase_access_events"),
+        ),
       );
     expect(jobs.map((job) => job.topic).sort()).toEqual([
       "account_deletion",

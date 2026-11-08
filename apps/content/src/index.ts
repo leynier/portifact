@@ -1,9 +1,10 @@
 // Worker for artifact origins (`<id>.portifact.dev`). Serves user content only and holds no
 // admin credentials; its only state changes are redeeming one-use sign-in codes under
-// /__portifact/ and adding served traffic to the owner's counter. See docs/security.md for the
-// invariants enforced here.
+// /__portifact/, adding served traffic to the owner's counter and recording openings by signed-in
+// visitors in the owner's access log. See docs/security.md for the invariants enforced here.
 import { ERROR_STATUS, REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import {
+  createAccessDb,
   createDb,
   type Db,
   type DeliveryArtifact,
@@ -16,13 +17,15 @@ import {
   chargedBytes,
   effectiveState,
   isArtifactId,
+  isLoggedOpening,
   normalizePath,
   type TrafficCycle,
   trafficCycle,
   trafficExhausted,
 } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
-import { recordTraffic } from "@portifact/services";
+import { recordOpenings, recordTraffic } from "@portifact/services";
+import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import {
   BRIDGE_PATH,
@@ -61,6 +64,8 @@ export { TrafficLimiter } from "./traffic-limiter.ts";
 
 export interface Env extends BudgetEnv {
   DB: D1Database;
+  /** The access log database (`portifact-access`); delivery only adds openings to it. */
+  ACCESS_DB: D1Database;
   ARTIFACTS: R2Bucket;
   /** Registrable domain of artifact origins, for example `portifact.dev`. */
   CONTENT_DOMAIN: string;
@@ -116,27 +121,47 @@ export function isolateMeter(env: Env): TrafficMeter {
   return meter;
 }
 
+/** One access log buffer per isolate, like the traffic meter. */
+let openings: OpeningLog | undefined;
+
+/** The isolate's access log buffer, writing through the bindings of the request that creates it. */
+export function isolateOpenings(env: Env): OpeningLog {
+  openings ??= new OpeningLog((batch) =>
+    recordOpenings(createDb(env.DB), createAccessDb(env.ACCESS_DB), batch),
+  );
+  return openings;
+}
+
 export default {
-  fetch: (request, env, ctx) =>
-    handle(request, env, Date.now(), (charge) =>
-      isolateMeter(env).count(charge, (promise) => ctx.waitUntil(promise)),
-    ),
+  fetch: (request, env, ctx) => {
+    const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
+    return handle(
+      request,
+      env,
+      Date.now(),
+      (charge) => isolateMeter(env).count(charge, waitUntil),
+      (opening) => isolateOpenings(env).record(opening, waitUntil),
+    );
+  },
 } satisfies ExportedHandler<Env>;
 
 const NO_TRAFFIC: CountTraffic = () => {};
+const NO_OPENINGS: LogOpening = () => {};
 
 /**
  * Answers one request. `countTraffic` is charged once for every authorized request served for an
  * artifact; requests refused before authorization (sign-in, unknown or unavailable artifacts)
- * and the 429 itself charge nothing.
+ * and the 429 itself charge nothing. `logOpening` gets every page served to a signed-in visitor
+ * who is not the owner (`isLoggedOpening`); anonymous visits and subresources are never logged.
  */
 export async function handle(
   request: Request,
   env: Env,
   now: number,
   countTraffic: CountTraffic = NO_TRAFFIC,
+  logOpening: LogOpening = NO_OPENINGS,
 ): Promise<Response> {
-  const response = await route(request, env, now, countTraffic);
+  const response = await route(request, env, now, countTraffic, logOpening);
   // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
   const stray = strayFrameCookie(request);
   // Cookies siblings set on the shared domain: expired once they grow, on every answer, so the
@@ -158,6 +183,7 @@ async function route(
   env: Env,
   now: number,
   countTraffic: CountTraffic,
+  logOpening: LogOpening,
 ): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
@@ -208,12 +234,12 @@ async function route(
   const cycle = trafficCycle(now);
   const found = await findDeliveryArtifact(db, id, cycle.start);
   const artifact = found && isServable(found, now) ? found : null;
-  const delivery: Delivery = { request, env, db, url, now, cycle, countTraffic };
+  const delivery: Delivery = { request, env, db, url, now, cycle, countTraffic, logOpening };
   // Review mode first: the viewer's iframe reads the pinned version with the bridge, and a
   // review tab reads it with the review banner.
   const review = await authorizeReview(request, env, db, id, artifact, now);
   if (review.kind === "review") {
-    return serve(delivery, review.artifact, review.setCookies, {
+    return serve(delivery, review.artifact, review.setCookies, review.userId, {
       mode: review.mode,
       versionId: review.versionId,
       sessionTag: review.sessionTag,
@@ -222,12 +248,13 @@ async function route(
   if (review.kind === "status") {
     return reviewStatusPage(review.status, review.httpStatus, env.APP_ORIGIN, review.setCookies);
   }
-  if (artifact?.accessMode === "public") return serve(delivery, artifact, []);
+  // Public visits are anonymous: no session names the visitor, so they are never logged.
+  if (artifact?.accessMode === "public") return serve(delivery, artifact, [], null);
   // Protected, unknown or not servable (in any mode): all go through sign-in, so an anonymous
   // visitor cannot tell an archived or expired artifact from one that never existed.
   const decision = await authorizeRead(request, env, db, id, artifact, now);
   if (decision.kind !== "allow") return decisionResponse(decision);
-  return serve(delivery, decision.artifact, decision.setCookies);
+  return serve(delivery, decision.artifact, decision.setCookies, decision.userId);
 }
 
 /** What serving a request needs besides the artifact. */
@@ -239,6 +266,7 @@ interface Delivery {
   now: number;
   cycle: TrafficCycle;
   countTraffic: CountTraffic;
+  logOpening: LogOpening;
 }
 
 /**
@@ -253,12 +281,14 @@ interface ReviewServe {
 
 /**
  * Step 6 of delivery (plan section 11), after authorization: an account whose traffic for the
- * cycle is used up gets 429 on every artifact; otherwise the file is served and charged.
+ * cycle is used up gets 429 on every artifact; otherwise the file is served and charged, and a
+ * page served to `visitorId` is an opening for the owner's access log.
  */
 async function serve(
   delivery: Delivery,
   artifact: ServableArtifact,
   setCookies: string[],
+  visitorId: string | null,
   reviewSession?: ReviewServe,
 ): Promise<Response> {
   const { request, cycle, now } = delivery;
@@ -280,7 +310,28 @@ async function serve(
     cycleStart: cycle.start,
     bytes: chargedBytes(response.status, request.method, bytes),
   });
+  if (
+    response.status < 400 &&
+    isLoggedOpening({ navigation: isPageLoad(request), visitorId, ownerId: artifact.ownerId })
+  ) {
+    delivery.logOpening({ artifactId: artifact.id, userId: visitorId as string, at: now });
+  }
   return response;
+}
+
+/**
+ * A page the visitor sees: a `GET` navigation, top-level or in a frame, except a frame that a
+ * sibling artifact opened. Artifacts share one site, so the Lax read cookie goes along and the
+ * page is served, but `frame-ancestors` keeps it from rendering there; logging it would let a
+ * hostile artifact plant openings the visitor never saw.
+ */
+function isPageLoad(request: Request): boolean {
+  const headers = request.headers;
+  return (
+    request.method === "GET" &&
+    headers.get("Sec-Fetch-Mode") === "navigate" &&
+    (headers.get("Sec-Fetch-Dest") === "document" || headers.get("Sec-Fetch-Site") !== "same-site")
+  );
 }
 
 /** A response and the body bytes it sends, for the traffic counter. */

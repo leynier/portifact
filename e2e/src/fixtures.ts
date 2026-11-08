@@ -83,6 +83,11 @@ export function sql<T>(query: string, params: (string | number | null)[] = []): 
   return control<T[]>("/sql", { query, params });
 }
 
+/** Like `sql`, against the access log database. */
+export function accessSql<T>(query: string, params: (string | number | null)[] = []): Promise<T[]> {
+  return control<T[]>("/sql", { query, params, database: "access" });
+}
+
 /** Requests browsers sent to artifact hosts so far, as the content Worker saw them. */
 export async function contentRequests(): Promise<ContentRequest[]> {
   return (await (await fetch(`${controlUrl()}/requests`)).json()) as ContentRequest[];

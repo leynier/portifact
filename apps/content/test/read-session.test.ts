@@ -6,6 +6,7 @@ import { READ_SESSION } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { issueReadHandoff, suspendArtifact } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { LogOpening, Opening } from "../src/access-log.ts";
 import {
   clearCookie,
   cookieValue,
@@ -164,6 +165,8 @@ interface Send {
   origin?: string;
   method?: string;
   secret?: string | undefined;
+  /** Receives the openings the request records in the owner's access log. */
+  logOpening?: LogOpening;
 }
 
 function send(path: string, options: Send = {}) {
@@ -174,7 +177,7 @@ function send(path: string, options: Send = {}) {
     headers,
   });
   const testEnv = "secret" in options ? { ...env, READ_SESSION_SECRET: options.secret } : env;
-  return handle(request, testEnv, options.now ?? NOW);
+  return handle(request, testEnv, options.now ?? NOW, undefined, options.logOpening);
 }
 
 /** The `name=value` pair a response sets for `name`, or undefined. */
@@ -949,5 +952,76 @@ describe("cookie helpers", () => {
       .replaceAll("/", "_")
       .replace(/=+$/, "");
     expect(await unseal(secret, "p", `${body}.${signature}`)).toBeNull();
+  });
+});
+
+describe("access log openings", () => {
+  beforeEach(() => seed());
+
+  const recorder = () => {
+    const openings: Opening[] = [];
+    return { openings, logOpening: (opening: Opening) => openings.push(opening) };
+  };
+
+  it("records a signed-in reader's page loads, never the page's subresources", async () => {
+    const cookie = await signIn(READER);
+    const { openings, logOpening } = recorder();
+    expect((await send("/", { cookie, logOpening })).status).toBe(200);
+    expect((await send("/app.js", { cookie, headers: SAME_ORIGIN, logOpening })).status).toBe(200);
+    expect(openings).toEqual([{ artifactId: ID, userId: READER, at: NOW }]);
+  });
+
+  it("records nothing for the owner, a missing page, a refusal or the sign-in steps", async () => {
+    const { openings, logOpening } = recorder();
+    const owner = await signIn(OWNER);
+    expect((await send("/", { cookie: owner, logOpening })).status).toBe(200);
+    const reader = await signIn(READER);
+    expect((await send("/missing.html", { cookie: reader, logOpening })).status).toBe(404);
+    expect((await send("/", { method: "HEAD", cookie: reader, logOpening })).status).toBe(200);
+    const stranger = await start("/", ORIGIN, { logOpening });
+    expect(stranger.response.status).toBe(303);
+    expect((await send("/", { cookie: reader, headers: SIBLING, logOpening })).status).toBe(401);
+    expect(openings).toEqual([]);
+  });
+
+  it("records a sibling's link to the artifact but not a frame a sibling opened", async () => {
+    const cookie = await signIn(READER);
+    const { openings, logOpening } = recorder();
+    const fromSibling = { "Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "navigate" };
+    const framed = await send("/", {
+      cookie,
+      headers: { ...fromSibling, "Sec-Fetch-Dest": "iframe" },
+      logOpening,
+    });
+    // Served, but frame-ancestors keeps it from rendering in the sibling.
+    expect(framed.status).toBe(200);
+    expect(framed.headers.get("content-security-policy")).toBe(`frame-ancestors 'self' ${APP}`);
+    expect(openings).toEqual([]);
+    await send("/", {
+      cookie,
+      headers: { ...fromSibling, "Sec-Fetch-Dest": "document" },
+      logOpening,
+    });
+    // A frame inside the artifact itself is the artifact showing its own page.
+    await send("/", {
+      cookie,
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "iframe",
+      },
+      logOpening,
+    });
+    expect(openings).toEqual([
+      { artifactId: ID, userId: READER, at: NOW },
+      { artifactId: ID, userId: READER, at: NOW },
+    ]);
+  });
+
+  it("never identifies visitors of public artifacts", async () => {
+    await seed({ accessMode: "public" });
+    const { openings, logOpening } = recorder();
+    expect((await send("/", { logOpening })).status).toBe(200);
+    expect(openings).toEqual([]);
   });
 });

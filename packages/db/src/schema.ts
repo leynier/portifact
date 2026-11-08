@@ -482,6 +482,7 @@ export const OUTBOX_TOPICS = [
   "account_deletion",
   "delete_objects",
   "abort_multipart",
+  "erase_access_events",
 ] as const;
 
 /**

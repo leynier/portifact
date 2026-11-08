@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import type { JobMessage } from "@portifact/contracts";
 import { schema } from "@portifact/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { requestAccountDeletion } from "../src/account-data.ts";
 import { archiveArtifact, deleteArtifact } from "../src/lifecycle.ts";
@@ -58,8 +58,12 @@ function crashAfterBatches(n: number) {
   }) as ReturnType<typeof db>;
 }
 
+/** The subject's jobs, except access log erasure, which access-log.test.ts covers. */
 async function jobsFor(subject: string) {
-  return db().select().from(schema.outbox).where(eq(schema.outbox.subject, subject));
+  return db()
+    .select()
+    .from(schema.outbox)
+    .where(and(eq(schema.outbox.subject, subject), ne(schema.outbox.topic, "erase_access_events")));
 }
 
 async function r2Has(ownerId: string, body: string) {

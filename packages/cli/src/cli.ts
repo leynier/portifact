@@ -20,6 +20,7 @@ import {
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
 import { pullHistory } from "./history.ts";
+import { logs } from "./logs.ts";
 import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
@@ -425,6 +426,18 @@ export async function run(
     .action(() => {
       io.stdout(THIRD_PARTY_NOTICES);
     });
+
+  program
+    .command("logs")
+    .description("Show who opened one of your artifacts in the last 30 days (signed-in visitors)")
+    .argument("<id>", "artifact ID")
+    .option("--since <time>", "only openings since a duration ago (30m, 12h, 7d) or an ISO date")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { since?: string; json?: boolean }, id: string) =>
+        logs(io, runtime, id, { since: options.since, json: options.json === true }),
+      ),
+    );
 
   program
     .command("usage")

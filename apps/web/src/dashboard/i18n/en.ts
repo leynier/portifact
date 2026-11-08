@@ -245,6 +245,18 @@ export const en = {
   "account.delete.reauth.action": "Sign in again",
   "account.delete.done": "Your account was deleted.",
   "account.actionFailed.title": "The action did not finish",
+  "accessLog.title": "Who opened it",
+  "accessLog.hint":
+    "Signed-in visitors who opened this artifact in the last 30 days, newest first, one entry per visitor every 30 minutes. Only you see this list. Anonymous visits to public artifacts and your own visits are not recorded, and some openings may be missing.",
+  "accessLog.loading": "Loading who opened the artifact",
+  "accessLog.error.title": "The access log could not be loaded",
+  "accessLog.empty.title": "No visitors yet",
+  "accessLog.empty.body": "Nobody signed in has opened this artifact in the last 30 days.",
+  "accessLog.caption": "Openings of this artifact by signed-in visitors",
+  "accessLog.column.opened": "Opened",
+  "accessLog.column.visitor": "Visitor",
+  "accessLog.loadMore": "Show more",
+
   "usage.title": "Usage",
   "usage.hint":
     "Your quotas and what your artifacts served this month. Traffic is counted every few seconds, so it can lag slightly behind.",

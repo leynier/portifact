@@ -5,9 +5,14 @@
 // truth, a job whose row is gone is already done, and a purge carries the lifecycle generation
 // it was claimed with, so it never acts on an artifact that changed since. The scheduled scans
 // stay as a safety net for anything the queue loses.
-import { DeleteObjectsPayload, type JobMessage } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import {
+  DeleteObjectsPayload,
+  EraseAccessEventsPayload,
+  type JobMessage,
+} from "@portifact/contracts";
+import { type AccessDb, type Db, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
+import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
@@ -110,17 +115,21 @@ export async function relayOutbox(
  */
 export type JobOutcome = "done" | "stale" | "pending";
 
-/** Runs one queued job. Safe to run again or concurrently with the same message. */
+/**
+ * Runs one queued job. Safe to run again or concurrently with the same message. `access` is the
+ * access log database, which `erase_access_events` jobs need; the jobs Worker always passes it.
+ */
 export async function runJob(
   db: Db,
   bucket: R2Bucket,
   message: JobMessage,
   now: number,
+  access?: AccessDb,
 ): Promise<JobOutcome> {
   const [row] = await db.select().from(schema.outbox).where(eq(schema.outbox.id, message.id));
   // Done by an earlier delivery, by the request itself or by a scheduled scan.
   if (!row) return "done";
-  const outcome = await runRow(db, bucket, row, now);
+  const outcome = await runRow(db, bucket, row, now, access);
   if (outcome !== "pending") {
     await db.delete(schema.outbox).where(eq(schema.outbox.id, row.id));
   }
@@ -132,6 +141,7 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
+  access: AccessDb | undefined,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -145,6 +155,12 @@ async function runRow(
       return "done";
     case "abort_multipart":
       return abortSessionMultipart(db, bucket, row.subject ?? "");
+    case "erase_access_events": {
+      // Thrown, not reported done: the row stays and the job runs again where the binding is.
+      if (!access) throw new Error("erase_access_events needs the access log database");
+      const { kind } = EraseAccessEventsPayload.parse(row.payload);
+      return eraseAccessEvents(access, kind, row.subject ?? "");
+    }
   }
 }
 

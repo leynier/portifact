@@ -7,10 +7,12 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./schema": "./src/schema.ts"
+    "./schema": "./src/schema.ts",
+    "./access-schema": "./src/access-schema.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",
+    "generate:access": "drizzle-kit generate --config drizzle.access.config.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --coverage"
   },

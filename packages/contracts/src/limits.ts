@@ -35,6 +35,16 @@ export const TRAFFIC_LIMITS = {
 } as const;
 
 /**
+ * Access logs (plan sections 2 and 11): one entry per signed-in visitor, artifact and 30-minute
+ * window, kept 30 days and shown only to the artifact's owner. `pageSize` is a safety cap.
+ */
+export const ACCESS_LOG = {
+  windowMinutes: 30,
+  retentionDays: 30,
+  pageSize: 100,
+} as const;
+
+/**
  * Annotation limits (plan section 2). Bodies count Unicode code points and UTF-8 bytes.
  * `messagesPerThread`, `artifactWritesPer24h` and the page size are safety caps, not product
  * tiers.

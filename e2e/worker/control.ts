@@ -89,6 +89,8 @@ interface ClockInput {
 interface SqlInput {
   query: string;
   params?: (string | number | null)[];
+  /** `access` runs it against the access log database instead of the control database. */
+  database?: "control" | "access";
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -300,8 +302,10 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   }
 
   if (path === "/sql") {
-    const { query, params = [] } = input as SqlInput;
-    const { results } = await env.DB.prepare(query)
+    const { query, params = [], database } = input as SqlInput;
+    const target = database === "access" ? env.ACCESS_DB : env.DB;
+    const { results } = await target
+      .prepare(query)
       .bind(...params)
       .all();
     return Response.json(results);
