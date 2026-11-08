@@ -1,4 +1,10 @@
-import type { PreparedPublish, UploadTarget } from "@portifact/contracts";
+import type {
+  MultipartUploadTarget,
+  PreparedPublish,
+  SingleUploadTarget,
+  UploadedPart,
+  UploadTarget,
+} from "@portifact/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { ApiFailure } from "../api.ts";
 import { canResume, publishFailureMessage } from "./failures.ts";
@@ -16,7 +22,7 @@ import {
 const NOW = Date.parse("2026-11-08T12:00:00.000Z");
 const later = (ms: number) => new Date(NOW + ms).toISOString();
 
-function target(sha: string, size: number, expiresIn = 600_000, sig = "1"): UploadTarget {
+function target(sha: string, size: number, expiresIn = 600_000, sig = "1"): SingleUploadTarget {
   return {
     sha256: sha.padEnd(64, "0"),
     size,
@@ -56,7 +62,7 @@ function scriptedStorage(script: Record<string, number[]> = {}) {
       calls.push(t.url);
       const status = script[t.url]?.shift() ?? 200;
       if (status === 200) onProgress(body.size);
-      return status;
+      return { status, etag: `"etag-${t.url}"` };
     },
     get: () => Promise.reject(new Error("unused")),
   };
@@ -68,7 +74,10 @@ function job(
   transport: StorageTransport,
   extra: Omit<Partial<Parameters<typeof uploadObjects>[0]>, "api"> = {},
 ) {
-  const api = { uploadProgress: vi.fn(async (_id: string) => prepared(targets)) };
+  const api = {
+    uploadProgress: vi.fn(async (_id: string) => prepared(targets)),
+    reportPart: vi.fn(async (_id: string, _part: UploadedPart) => {}),
+  };
   const sleep = vi.fn(async (_ms: number) => {});
   return {
     transport,
@@ -210,6 +219,7 @@ describe("runPublish", () => {
         expiresAt: later(1),
       })),
       abortPublish: vi.fn(async () => {}),
+      reportPart: vi.fn(async () => {}),
     };
   }
 
@@ -229,7 +239,7 @@ describe("runPublish", () => {
       now: () => NOW,
     });
     expect(committed.versionNumber).toBe(1);
-    expect(calls.preparePublish).toHaveBeenCalledWith(request, "key-12345");
+    expect(calls.preparePublish).toHaveBeenCalledWith({ ...request, multipart: true }, "key-12345");
     expect(calls.commitPublish).toHaveBeenCalledWith("up1");
     expect(phases).toEqual(["preparing", "uploading", "committing"]);
     expect(calls.abortPublish).not.toHaveBeenCalled();
@@ -343,5 +353,117 @@ describe("failures", () => {
     expect(canResume(new ApiFailure("version_conflict", 409))).toBe(false);
     expect(canResume(new ApiFailure("quota_exceeded", 429))).toBe(false);
     expect(canResume(new Error("x"))).toBe(false);
+  });
+});
+
+function multipart(
+  sha: string,
+  size: number,
+  partSize: number,
+  doneParts: number[] = [],
+  expiresIn = 600_000,
+  sig = "1",
+): MultipartUploadTarget {
+  const partCount = Math.ceil(size / partSize);
+  const parts = [];
+  for (let partNumber = 1; partNumber <= partCount; partNumber++) {
+    if (doneParts.includes(partNumber)) continue;
+    const offset = (partNumber - 1) * partSize;
+    const partBytes = Math.min(partSize, size - offset);
+    parts.push({
+      partNumber,
+      offset,
+      size: partBytes,
+      method: "PUT" as const,
+      url: `https://storage.test/${sha}/${partNumber}?sig=${sig}`,
+      headers: { "content-length": String(partBytes) },
+      expiresAt: later(expiresIn),
+    });
+  }
+  return {
+    sha256: sha.padEnd(64, "0"),
+    size,
+    method: "MULTIPART",
+    partSize,
+    partCount,
+    doneParts,
+    parts,
+  };
+}
+
+describe("uploadObjects with multipart targets", () => {
+  it("sends each part as a slice of the file, reports its ETag and counts the object once", async () => {
+    const big = multipart("m", 10, 4);
+    const small = target("s", 2);
+    const sizes: number[] = [];
+    const { transport, calls } = scriptedStorage();
+    const put = transport.put;
+    transport.put = (request, body, onProgress, signal) => {
+      sizes.push(body.size);
+      return put(request, body, onProgress, signal);
+    };
+    const progress: UploadProgress[] = [];
+    const run = job([big, small], transport, {
+      onProgress: (p: UploadProgress) => progress.push(p),
+    });
+    await uploadObjects(run);
+    expect(calls.sort()).toEqual([
+      "https://storage.test/m/1?sig=1",
+      "https://storage.test/m/2?sig=1",
+      "https://storage.test/m/3?sig=1",
+      "https://storage.test/s?sig=1",
+    ]);
+    // Parts are slices of at most the part size, never the whole file.
+    expect(sizes.sort()).toEqual([2, 2, 4, 4]);
+    expect(
+      run.api.reportPart.mock.calls
+        .map(([, part]) => part)
+        .sort((a, b) => a.partNumber - b.partNumber),
+    ).toEqual([
+      { sha256: big.sha256, partNumber: 1, etag: '"etag-https://storage.test/m/1?sig=1"' },
+      { sha256: big.sha256, partNumber: 2, etag: '"etag-https://storage.test/m/2?sig=1"' },
+      { sha256: big.sha256, partNumber: 3, etag: '"etag-https://storage.test/m/3?sig=1"' },
+    ]);
+    expect(progress.at(-1)).toEqual({
+      sentBytes: 12,
+      totalBytes: 12,
+      doneObjects: 2,
+      totalObjects: 2,
+    });
+  });
+
+  it("resumes with only the parts not done and counts the done ones as sent", async () => {
+    const big = multipart("m", 10, 4, [1, 2]);
+    const { transport, calls } = scriptedStorage();
+    const progress: UploadProgress[] = [];
+    await uploadObjects(
+      job([big], transport, { onProgress: (p: UploadProgress) => progress.push(p) }),
+    );
+    expect(calls).toEqual(["https://storage.test/m/3?sig=1"]);
+    expect(progress[0]).toMatchObject({ sentBytes: 8, totalBytes: 10 });
+    expect(progress.at(-1)).toMatchObject({ sentBytes: 10, doneObjects: 1 });
+  });
+
+  it("gets fresh part URLs once after storage refuses an expired signature", async () => {
+    const stale = multipart("m", 8, 4);
+    const fresh = multipart("m", 8, 4, [1], 600_000, "2");
+    const { transport, calls } = scriptedStorage({ "https://storage.test/m/2?sig=1": [403] });
+    const run = job([stale], transport);
+    run.api.uploadProgress.mockResolvedValue(prepared([fresh]));
+    await uploadObjects(run);
+    expect(run.api.uploadProgress).toHaveBeenCalledTimes(1);
+    expect(calls).toContain("https://storage.test/m/2?sig=2");
+    expect(run.api.reportPart).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails when storage stores a part but its ETag cannot be read", async () => {
+    const big = multipart("m", 4, 4);
+    const transport: StorageTransport = {
+      put: async () => ({ status: 200, etag: null }),
+      get: () => Promise.reject(new Error("unused")),
+    };
+    const run = job([big], transport);
+    await expect(uploadObjects(run)).rejects.toMatchObject({ reason: "storage" });
+    expect(run.api.reportPart).not.toHaveBeenCalled();
   });
 });

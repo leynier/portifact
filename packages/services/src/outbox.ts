@@ -10,6 +10,7 @@ import { type Db, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { advanceAccountDeletion } from "./account-data.ts";
 import { deleteArtifactData } from "./maintenance.ts";
+import { abortSessionMultipart } from "./multipart.ts";
 
 /** A relayed job that is not done after this long is sent again. */
 export const OUTBOX_REDELIVER_MS = 60 * 60_000;
@@ -142,6 +143,8 @@ async function runRow(
     case "delete_objects":
       await deleteUnreferencedKeys(db, bucket, DeleteObjectsPayload.parse(row.payload).keys);
       return "done";
+    case "abort_multipart":
+      return abortSessionMultipart(db, bucket, row.subject ?? "");
   }
 }
 

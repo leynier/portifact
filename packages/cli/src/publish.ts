@@ -138,6 +138,8 @@ async function publishBuilt(
       })),
     ],
     ...(sources?.origin ? { sourceOrigin: sources.origin } : {}),
+    // Files over the multipart threshold are uploaded in parts that resume after a failure.
+    multipart: true,
   };
   // One key for every attempt: a retry after a lost answer gets the same upload back.
   const idempotencyKey = randomUUID();
@@ -161,17 +163,26 @@ async function publishBuilt(
   try {
     let done = 0;
     let doneBytes = 0;
+    const files = new Map(
+      [...(sources?.files ?? []), ...manifest.files].map((file) => [file.sha256, file]),
+    );
     await uploadAll({
       session: active,
       uploadId: prepared.uploadId,
       targets: prepared.uploads,
-      sources: new Map(
-        [...(sources?.files ?? []), ...manifest.files].map((file) => [file.sha256, file]),
-      ),
+      sources: files,
       onUploaded: (target) => {
         done += 1;
-        doneBytes += target.size;
+        // A multipart object counted its bytes part by part.
+        if (target.method === "PUT") doneBytes += target.size;
         io.stderr(`${messages.uploaded(done, prepared.uploads.length, doneBytes, uploadBytes)}\n`);
+      },
+      onPart: (target, partNumber, bytes) => {
+        doneBytes += bytes;
+        const path = files.get(target.sha256)?.path ?? target.sha256;
+        io.stderr(
+          `${messages.uploadedPart(path, partNumber, target.partCount, doneBytes, uploadBytes)}\n`,
+        );
       },
     });
     io.stderr(`${messages.committing}\n`);

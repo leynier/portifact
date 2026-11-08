@@ -102,6 +102,8 @@ The dashboard uploads to and downloads from the `portifact-artifacts` bucket's S
 }
 ```
 
+`exposeHeaders: ["ETag"]` is required: multipart uploads (files over 64 MiB) read each part's `ETag` and report it to the API, and without it every large browser upload fails while small ones keep working. Part URLs sign only `content-length` and `host`, so the allowed headers need no change. Keep R2's default lifecycle rule that aborts incomplete multipart uploads after seven days; the `abort_multipart` job cleans up normally and that rule catches the rest.
+
 Only the app origin is allowed: never add `*.portifact.dev` or `*`. The URLs are still presigned, so CORS only decides which page may read the answers. `host` and `content-length` are signed too, but the browser sets them and they are not CORS request headers. For local development against a real bucket, add `http://localhost:8787` in a separate rule and remove it afterwards. The dashboard's `connect-src` already allows `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` (`dashboardCsp` in `apps/app/src/app-host.ts`).
 
 ### Content Worker configuration

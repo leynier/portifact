@@ -5,6 +5,7 @@ export * from "./documents.ts";
 export * from "./files.ts";
 export * from "./ids.ts";
 export * from "./lifecycle.ts";
+export * from "./multipart.ts";
 export * from "./paths.ts";
 export * from "./quotas.ts";
 export * from "./result.ts";

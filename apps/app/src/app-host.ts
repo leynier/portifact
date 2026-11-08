@@ -228,6 +228,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       session: sessionUserFor,
       presigner: presignerFor,
       siteverify: (env) => depsFor(env).siteverify,
+      multipart: (env) => depsFor(env).multipart,
       now: () => Date.now(),
     }),
   );

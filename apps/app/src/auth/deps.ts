@@ -1,4 +1,5 @@
 // External boundaries of the authorization server. Tests replace them with fakes.
+import type { MultipartConfig } from "@portifact/domain";
 import type { Env } from "../env.ts";
 import { cloudflareEmailSender, type EmailSender } from "./email.ts";
 
@@ -11,6 +12,8 @@ export interface AuthDeps {
   fetchClientMetadata: FetchLike;
   /** Calls Turnstile's siteverify endpoint (../turnstile.ts). Never log what it sends. */
   siteverify: FetchLike;
+  /** Threshold and part size of multipart uploads; tests make them small. Defaults otherwise. */
+  multipart?: MultipartConfig;
 }
 
 // Fetch transport for Client ID Metadata Documents on Workers. The Worker runs with the

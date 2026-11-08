@@ -40,10 +40,19 @@ export interface Runtime {
    * (stdin is not a terminal, or CI), so commands that need a confirmation ask for a flag instead.
    */
   prompt: ((question: string) => Promise<string>) | undefined;
-  /** A request body that streams a file from disk, so large files are not read into memory. */
-  fileBody: (path: string) => RequestBody;
+  /**
+   * A request body that streams a file from disk, so large files are not read into memory. With
+   * `range`, only bytes `[start, end)`, for one part of a multipart upload.
+   */
+  fileBody: (path: string, range?: ByteRange) => RequestBody;
   /** Runs the `git` binary; `pull --git` and git-aware `publish --source` use it. */
   git: Git;
+}
+
+export interface ByteRange {
+  start: number;
+  /** Exclusive. */
+  end: number;
 }
 
 interface BunFileApi {
@@ -65,18 +74,24 @@ export function defaultRuntime(): Runtime {
     configDir: defaultConfigDir(process.platform, env, homedir()),
     interactive: Boolean(process.stderr.isTTY) && !env.CI,
     prompt: process.stdin.isTTY && process.stderr.isTTY && !env.CI ? promptOnTerminal : undefined,
-    fileBody: (path) => {
-      // Bun sends a file with its length and without copying it through JavaScript.
+    fileBody: (path, range) => {
+      // Bun sends a file (or a lazy slice of it) with its length and without copying it
+      // through JavaScript.
       const bun = (globalThis as { Bun?: BunFileApi }).Bun;
-      return bun ? bun.file(path) : nodeFileBody(path);
+      if (!bun) return nodeFileBody(path, range);
+      const file = bun.file(path);
+      return range ? file.slice(range.start, range.end) : file;
     },
     git: gitRunner(),
   };
 }
 
 /** Streams a file as a request body on Node, where tests run. */
-export function nodeFileBody(path: string): RequestBody {
-  return Readable.toWeb(createReadStream(path)) as RequestBody;
+export function nodeFileBody(path: string, range?: ByteRange): RequestBody {
+  const stream = range
+    ? createReadStream(path, { start: range.start, end: range.end - 1 })
+    : createReadStream(path);
+  return Readable.toWeb(stream) as RequestBody;
 }
 
 async function promptOnTerminal(question: string): Promise<string> {
