@@ -2,7 +2,7 @@
 // viewer's iframe redeems on the artifact origin. apps/content/test/review.test.ts covers the
 // artifact origin's part.
 import { env } from "cloudflare:workers";
-import { ReviewStart } from "@portifact/contracts";
+import { REVIEW_SESSION, ReviewStart, ReviewTabStart } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { hashSecret, redeemReviewHandoff, reviewSessionTag } from "@portifact/services";
 import { eq } from "drizzle-orm";
@@ -13,8 +13,14 @@ import { createHarness, type Harness, ORIGIN } from "./harness.ts";
 
 const db = () => createDb(env.DB);
 
-function start(h: Harness, artifactId: string, cookie: string, extra: Record<string, string> = {}) {
-  return h.request(`/api/v1/artifacts/${artifactId}/review`, {
+function start(
+  h: Harness,
+  artifactId: string,
+  cookie: string,
+  extra: Record<string, string> = {},
+  path = "review",
+) {
+  return h.request(`/api/v1/artifacts/${artifactId}/${path}`, {
     method: "POST",
     headers: { cookie, "sec-fetch-site": "same-origin", origin: ORIGIN, ...extra },
   });
@@ -67,7 +73,19 @@ describe("review codes", () => {
       .where(eq(schema.sessions.userId, owner.userId));
     expect(row?.authSessionId).toBe(session?.id);
 
-    const redeemed = await redeemReviewHandoff(db(), { code, artifactId, now: Date.now() });
+    const asTab = await redeemReviewHandoff(db(), {
+      code,
+      artifactId,
+      kind: "tab",
+      now: Date.now(),
+    });
+    expect(asTab.ok).toBe(false);
+    const redeemed = await redeemReviewHandoff(db(), {
+      code,
+      artifactId,
+      kind: "frame",
+      now: Date.now(),
+    });
     expect(redeemed.ok).toBe(true);
   });
 
@@ -121,6 +139,81 @@ describe("review codes", () => {
     const limited = await start(h, artifactId, owner.cookie);
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
+  });
+
+  it("does not issue tab codes with GET", async () => {
+    const response = await h.request(`/api/v1/artifacts/${artifactId}/review/tab`, {
+      headers: { cookie: owner.cookie, "sec-fetch-site": "same-origin" },
+    });
+    expect(response.status).toBe(404);
+  });
+});
+
+describe("review tab codes", () => {
+  const startTab = (cookie: string, extra: Record<string, string> = {}, id = artifactId) =>
+    start(h, id, cookie, extra, "review/tab");
+
+  it("gives a code that opens only a top-level review tab, with a short session", async () => {
+    const response = await startTab(owner.cookie);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = ReviewTabStart.parse(await response.json());
+    const origin = `https://${artifactId}.portifact.dev`;
+    expect(body).toMatchObject({
+      artifactId,
+      origin,
+      sessionSeconds: REVIEW_SESSION.tabSessionTtlSeconds,
+    });
+    const url = new URL(body.url);
+    expect(`${url.origin}${url.pathname}`).toBe(`${origin}/__portifact/review/tab`);
+    const code = url.searchParams.get("code") ?? "";
+    const [row] = await db()
+      .select()
+      .from(schema.reviewHandoffs)
+      .where(eq(schema.reviewHandoffs.codeHash, await hashSecret(code)));
+    expect(row).toMatchObject({ artifactId, userId: owner.userId, kind: "tab" });
+    const inFrame = await redeemReviewHandoff(db(), {
+      code,
+      artifactId,
+      kind: "frame",
+      now: Date.now(),
+    });
+    expect(inFrame.ok).toBe(false);
+    const inTab = await redeemReviewHandoff(db(), {
+      code,
+      artifactId,
+      kind: "tab",
+      now: Date.now(),
+    });
+    expect(inTab.ok).toBe(true);
+  });
+
+  it("applies the same session, origin, access and limit checks as review codes", async () => {
+    const bearer = await owner.call(`/api/v1/artifacts/${artifactId}/review/tab`, {
+      method: "POST",
+    });
+    expect(bearer.status).toBe(403);
+    expect((await startTab("")).status).toBe(401);
+    const sibling = await startTab(owner.cookie, {
+      "sec-fetch-site": "cross-site",
+      origin: `https://${artifactId}.portifact.dev`,
+    });
+    expect(sibling.status).toBe(403);
+    const stranger = await h.signIn(`review-tab-stranger-${crypto.randomUUID()}@example.test`);
+    const forbidden = await startTab(stranger);
+    const missing = await startTab(stranger, {}, "zzzzzzzzzz");
+    expect(forbidden.status).toBe(404);
+    expect(await forbidden.json()).toEqual(await missing.json());
+    expect(await db().select().from(schema.reviewHandoffs)).toHaveLength(0);
+
+    // Frame and tab codes share one limit per account.
+    for (let i = 0; i < REVIEW_START_LIMIT.max - 1; i++) {
+      expect((await start(h, artifactId, owner.cookie)).status).toBe(200);
+    }
+    expect((await startTab(owner.cookie)).status).toBe(200);
+    const limited = await startTab(owner.cookie);
+    expect(limited.status).toBe(429);
     expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
   });
 });

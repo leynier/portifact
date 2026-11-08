@@ -7,16 +7,24 @@ import { ArtifactId, ArtifactType } from "./core.ts";
 import { OpaqueToken } from "./read.ts";
 
 /**
- * Review sessions grant reading one version of one artifact inside the viewer, nothing else.
- * Claims are trusted without D1 for `claimsTtlSeconds`, like read sessions; the session itself
- * is short because the fallback (a top-level review tab) would keep it in the artifact's own
- * cookie partition.
+ * Review sessions grant reading one version of one artifact, nothing else. Claims are trusted
+ * without D1 for `claimsTtlSeconds`, like read sessions. A session in the viewer's frame lasts
+ * `sessionTtlSeconds`; the fallback, a top-level review tab, keeps its cookie in the artifact's
+ * own partition, where later visits in that browser carry it, so its session is much shorter.
  */
 export const REVIEW_SESSION = {
   handoffTtlSeconds: 60,
   claimsTtlSeconds: 60,
   sessionTtlSeconds: 14_400,
+  tabSessionTtlSeconds: 900,
 } as const;
+
+/**
+ * Where a review code is redeemed: `frame` in the viewer's iframe, or `tab` in a top-level
+ * review tab opened from the viewer when the browser drops the frame's partitioned cookie.
+ */
+export const ReviewKind = z.enum(["frame", "tab"]);
+export type ReviewKind = z.infer<typeof ReviewKind>;
 
 /** Signed claims in the `__Host-pf_review` cookie of one artifact origin. Times in ms. */
 export const ReviewClaims = z
@@ -60,3 +68,20 @@ export const ReviewStart = z.object({
   expiresAt: z.iso.datetime(),
 });
 export type ReviewStart = z.infer<typeof ReviewStart>;
+
+/**
+ * What the viewer gets for `POST /api/v1/artifacts/:id/review/tab`: the URL that opens the
+ * artifact in a top-level review tab (on the artifact origin, with a one-use code) and when the
+ * tab's session would end if it started now.
+ */
+export const ReviewTabStart = z.object({
+  artifactId: ArtifactId,
+  url: z.url(),
+  origin: z.url(),
+  versionId: z.string(),
+  /** The code's expiry: the link must be opened before then. */
+  expiresAt: z.iso.datetime(),
+  /** How long the tab's session lasts once opened, in seconds. */
+  sessionSeconds: z.number().int().positive(),
+});
+export type ReviewTabStart = z.infer<typeof ReviewTabStart>;

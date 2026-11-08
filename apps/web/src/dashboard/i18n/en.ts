@@ -430,6 +430,15 @@ export const en = {
   "review.status.silent.title": "The page does not answer the review tools",
   "review.status.silent.body":
     "Its own security policy may block them. You can still leave general comments on the page.",
+  "review.tab.title": "Review in a separate tab",
+  "review.tab.body":
+    "Open the artifact in its own tab to see it in review mode. The tab has no review tools: write your comments here. Its review session ends after {minutes} minutes, or when you choose End review in the tab.",
+  "review.tab.prepare": "Prepare a review tab",
+  "review.tab.open": "Open the review tab",
+  "review.tab.ready": "The review tab link is ready.",
+  "review.tab.opened":
+    "The review tab opened. Choose End review in the tab when you are done; comments stay here.",
+  "review.tab.expired": "The link expired before it was opened. Prepare a new one.",
   "review.status.ended.title": "This review session ended",
   "review.status.ended.body":
     "The page in the frame says so. Comments here keep working; reload the review to use the review tools in the page again.",

@@ -8,18 +8,30 @@ import {
   type AnnotationMessageView,
   type AnnotationTarget,
   type AnnotationThreadView,
+  REVIEW_SESSION,
   type ReviewStart,
+  type ReviewTabStart,
 } from "@portifact/contracts";
-import { Badge, Button, Callout, ConfirmDialog, LoadingState, PageHeader } from "@portifact/ui";
+import {
+  Badge,
+  Button,
+  buttonClasses,
+  Callout,
+  ConfirmDialog,
+  LoadingState,
+  PageHeader,
+} from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import {
+  AppWindow,
   ArrowLeft,
   CircleAlert,
   CircleCheck,
   CircleDot,
   Crosshair,
+  ExternalLink,
   EyeOff,
   Info,
   LocateFixed,
@@ -275,7 +287,7 @@ function ReviewSession({
           <h2 id="review-frame-heading" className="sr-only">
             {t("review.frame.heading")}
           </h2>
-          <BridgeNotice state={state} onRestart={onRestart} />
+          <BridgeNotice state={state} artifactId={start.artifactId} onRestart={onRestart} />
           {outdated ? (
             <Callout
               title={t("review.newVersion.title")}
@@ -385,16 +397,27 @@ function refusalMessage(t: T, reason: RefusalReason): string {
   return t("review.refused.other");
 }
 
-function BridgeNotice({ state, onRestart }: { state: BridgeState; onRestart(): void }) {
+function BridgeNotice({
+  state,
+  artifactId,
+  onRestart,
+}: {
+  state: BridgeState;
+  artifactId: string;
+  onRestart(): void;
+}) {
   const t = useT();
   if (state === "connecting") {
     return <p className="text-sm text-text-muted">{t("review.frame.connecting")}</p>;
   }
   if (state === "unavailable" || state === "silent") {
     return (
-      <Callout title={t(`review.status.${state}.title`)} icon={<Info className="size-5" />}>
-        {t(`review.status.${state}.body`)}
-      </Callout>
+      <>
+        <Callout title={t(`review.status.${state}.title`)} icon={<Info className="size-5" />}>
+          {t(`review.status.${state}.body`)}
+        </Callout>
+        <ReviewTabOffer artifactId={artifactId} />
+      </>
     );
   }
   if (state === "ended" || state === "failed" || state === "foreign" || state === "lost") {
@@ -413,6 +436,94 @@ function BridgeNotice({ state, onRestart }: { state: BridgeState; onRestart(): v
     );
   }
   return null;
+}
+
+/** A prepared link is withdrawn 10 seconds before its one-use code expires. */
+export const REVIEW_TAB_LINK_MS = (REVIEW_SESSION.handoffTtlSeconds - 10) * 1000;
+
+/**
+ * The fallback where the frame cannot run review mode: a link that opens the artifact in a
+ * top-level review tab with a short session. The link carries a one-use code, so it is prepared
+ * on request and withdrawn before the code expires. It opens without an opener (the artifact
+ * cannot reach or navigate this page) and sends only the app's origin as `Referer`, which the
+ * artifact origin requires before it redeems a tab code. The tab has no review tools: comments
+ * are still written and posted here.
+ */
+function ReviewTabOffer({ artifactId }: { artifactId: string }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const { api } = useDashboard();
+  const [link, setLink] = useState<ReviewTabStart | null>(null);
+  const [note, setNote] = useState<"opened" | "expired" | null>(null);
+  const anchor = useRef<HTMLAnchorElement>(null);
+  const prepare = useMutation({
+    mutationFn: () => api.startReviewTab(artifactId),
+    onSuccess: (start) => {
+      setNote(null);
+      setLink(start);
+      announce(t("review.tab.ready"));
+    },
+  });
+  useEffect(() => {
+    if (!link) return;
+    anchor.current?.focus();
+    const timer = setTimeout(() => {
+      setLink(null);
+      setNote("expired");
+    }, REVIEW_TAB_LINK_MS);
+    return () => clearTimeout(timer);
+  }, [link]);
+  const opened = () => {
+    // After the click's default action: the code is used once, so the link goes away.
+    setTimeout(() => {
+      setLink(null);
+      setNote("opened");
+    }, 0);
+  };
+  return (
+    <section
+      aria-labelledby="review-tab-heading"
+      className="flex flex-col gap-3 rounded-md border border-border-strong p-3"
+    >
+      <h3 id="review-tab-heading" className="text-base font-semibold">
+        {t("review.tab.title")}
+      </h3>
+      <p className="text-sm">
+        {t("review.tab.body", { minutes: REVIEW_SESSION.tabSessionTtlSeconds / 60 })}
+      </p>
+      {prepare.isError ? <ActionError error={prepare.error} /> : null}
+      {note ? (
+        <p role="status" className="text-sm text-text-muted">
+          {t(note === "opened" ? "review.tab.opened" : "review.tab.expired")}
+        </p>
+      ) : null}
+      <div>
+        {link ? (
+          <a
+            ref={anchor}
+            href={link.url}
+            target="_blank"
+            rel="noopener"
+            referrerPolicy="origin"
+            className={buttonClasses({ intent: "primary", size: "sm" })}
+            onClick={opened}
+          >
+            <ExternalLink aria-hidden="true" className="size-4" />
+            {t("review.tab.open")}
+          </a>
+        ) : (
+          <Button
+            size="sm"
+            icon={<AppWindow className="size-4" />}
+            busy={prepare.isPending}
+            onClick={() => prepare.mutate()}
+          >
+            {t("review.tab.prepare")}
+          </Button>
+        )}
+      </div>
+    </section>
+  );
 }
 
 function ModeNotice({ artifactId, state }: { artifactId: string; state: ThreadsState }) {

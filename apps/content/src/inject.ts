@@ -79,6 +79,53 @@ export function injectBridge(response: Response, options: InjectOptions): Respon
   return rewriter.transform(response);
 }
 
+/** Where the review tab's banner links to end review (see `handleReviewEnd`). */
+export const REVIEW_END_HREF = "/__portifact/review/end";
+
+const BANNER_STYLE = [
+  ":host{all:initial;display:block}",
+  ".bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:10px 16px;background:#111;color:#fff;font:15px/1.4 system-ui,sans-serif;border-bottom:2px solid #fff}",
+  "p{margin:0}",
+  "strong{font-weight:700}",
+  "a{color:#111;background:#fff;padding:6px 12px;border-radius:4px;font-weight:700;text-decoration:none}",
+  "a:hover{text-decoration:underline}",
+  "a:focus-visible{outline:3px solid #fff;outline-offset:2px}",
+].join("");
+
+/**
+ * The review tab's banner: says the tab is in review mode, how long it lasts, where comments are
+ * written, and links to end it. It is plain markup in a declarative shadow root, so the page's
+ * styles do not restyle it and it needs no script; a site whose own CSP blocks inline
+ * styles shows it unstyled. The page's scripts run in the same document and can hide it, which
+ * is why the session is short and the viewer says how to end it too.
+ */
+export function reviewBanner(minutes: number): string {
+  return `<div role="region" aria-label="Portifact review" data-portifact-ignore><template shadowrootmode="open"><style>${BANNER_STYLE}</style><div class="bar"><p><strong>Review tab.</strong> You are reviewing the version shown here. Write comments in the review viewer. This review ends by itself within ${minutes} minutes.</p><a href="${REVIEW_END_HREF}">End review</a></div></template></div>`;
+}
+
+/**
+ * Adds the review banner to an HTML response of the review tab, at the start of the body, or at
+ * the end of the document when the markup has no body tag. Nothing else in the page changes.
+ */
+export function injectReviewBanner(response: Response, minutes: number): Response {
+  const banner = reviewBanner(minutes);
+  let placed = false;
+  return new HTMLRewriter()
+    .on("body", {
+      element(element) {
+        if (placed) return;
+        placed = true;
+        element.prepend(banner, { html: true });
+      },
+    })
+    .onDocument({
+      end(end) {
+        if (!placed) end.append(banner, { html: true });
+      },
+    })
+    .transform(response);
+}
+
 /** The bridge bundle. Its URL carries the bundle's version, so a matching URL is immutable. */
 export function bridgeScript(request: Request): Response {
   const version = new URL(request.url).searchParams.get("v");

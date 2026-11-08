@@ -1,6 +1,8 @@
 // Worker for artifact origins (`<id>.portifact.dev`). Serves user content only and holds no
 // admin credentials; its only state change is redeeming one-use sign-in codes under
 // /__portifact/. See docs/security.md for the invariants enforced here.
+
+import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import {
   createDb,
   type Db,
@@ -12,7 +14,14 @@ import {
 } from "@portifact/db";
 import { effectiveState, isArtifactId, normalizePath } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
-import { BRIDGE_PATH, bridgeScript, cspNonce, injectBridge, reviewStatusPage } from "./inject.ts";
+import {
+  BRIDGE_PATH,
+  bridgeScript,
+  cspNonce,
+  injectBridge,
+  injectReviewBanner,
+  reviewStatusPage,
+} from "./inject.ts";
 import {
   authorizeRead,
   CALLBACK_PATH,
@@ -24,9 +33,13 @@ import {
 import {
   authorizeReview,
   handleReviewCheck,
+  handleReviewEnd,
   handleReviewExchange,
   REVIEW_CHECK_PATH,
+  REVIEW_END_PATH,
   REVIEW_PATH,
+  REVIEW_TAB_CHECK_PATH,
+  REVIEW_TAB_PATH,
   type ReviewStep,
 } from "./review.ts";
 
@@ -48,7 +61,10 @@ export interface Env {
 export const REPORT_PATH = "/__portifact/report";
 
 /** User-facing text of the pages this Worker answers itself. */
-const PAGES: Record<Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailable", string> = {
+const PAGES: Record<
+  Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailable" | "reviewEnded" | "endRefused",
+  string
+> = {
   notFound: "This artifact does not exist or is no longer available",
   signIn: "Sign in to open this artifact",
   unavailable: "Signing in to artifacts is temporarily unavailable. Try again later",
@@ -57,6 +73,8 @@ const PAGES: Record<Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailab
   methodNotAllowed: "Method not allowed",
   serviceWorker: "Service workers are not allowed on artifacts",
   fileUnavailable: "This file is temporarily unavailable",
+  reviewEnded: "Review ended. You can close this tab",
+  endRefused: "Use End review in the review tab to end the review",
 };
 
 /** Pages where retrying from the artifact's root is the way forward. */
@@ -104,14 +122,25 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   if (url.pathname === REVIEW_CHECK_PATH) {
     return reviewStepResponse(await handleReviewCheck(request, env, id, now), env);
   }
+  if (url.pathname === REVIEW_TAB_PATH) {
+    return reviewStepResponse(await handleReviewExchange(request, env, db, id, now, "tab"), env);
+  }
+  if (url.pathname === REVIEW_TAB_CHECK_PATH) {
+    return reviewStepResponse(await handleReviewCheck(request, env, id, now, "tab"), env);
+  }
+  if (url.pathname === REVIEW_END_PATH) {
+    return reviewStepResponse(await handleReviewEnd(request, env, db, id), env);
+  }
   if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
 
   const found = await findDeliveryArtifact(db, id);
   const artifact = found && isServable(found, now) ? found : null;
-  // Review mode first: the viewer's iframe reads the pinned version with the bridge.
+  // Review mode first: the viewer's iframe reads the pinned version with the bridge, and a
+  // review tab reads it with the review banner.
   const review = await authorizeReview(request, env, db, id, artifact, now);
   if (review.kind === "review") {
     return serve(request, env, db, review.artifact, url, review.setCookies, {
+      mode: review.mode,
       versionId: review.versionId,
       sessionTag: review.sessionTag,
     });
@@ -127,8 +156,12 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   return serve(request, env, db, decision.artifact, url, decision.setCookies);
 }
 
-/** The pinned version of a review session and the tag the bridge echoes to the viewer. */
+/**
+ * The pinned version of a review session, where it runs (the viewer's frame or a review tab)
+ * and the tag the bridge echoes to the viewer.
+ */
 interface ReviewServe {
+  mode: ReviewKind;
   versionId: string;
   sessionTag: string;
 }
@@ -163,7 +196,9 @@ async function serve(
   for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
   headers.set("Content-Type", file.contentType);
   const inject = review && role !== "original" && file.contentType.startsWith("text/html");
-  const nonce = inject && role === "page" ? cspNonce() : undefined;
+  // Only the bridge is a script; the review tab's banner is markup and keeps the page's policy.
+  const nonce =
+    inject && role === "page" && reviewSession?.mode === "frame" ? cspNonce() : undefined;
   if (role === "page") {
     // The page carries this policy as a <meta> too; the header also covers what a meta cannot.
     // In review mode the meta is dropped and the header allows the bridge by its nonce.
@@ -176,7 +211,7 @@ async function serve(
     headers.set("Content-Disposition", attachment(file.path));
   }
   if (inject && reviewSession) {
-    return serveWithBridge(request, env, file, headers, nonce, reviewSession.sessionTag);
+    return serveWithBridge(request, env, file, headers, nonce, reviewSession);
   }
   headers.set("ETag", `"${file.sha256}"`);
   headers.set("Accept-Ranges", "bytes");
@@ -202,21 +237,32 @@ async function serve(
   return new Response(object.body, { status: 200, headers });
 }
 
-/** Review-mode HTML: rewritten on the way out, so never cached, ranged or validated by ETag. */
+/**
+ * Review-mode HTML: rewritten on the way out (the bridge in the viewer's frame, the banner in a
+ * review tab), so never cached, ranged or validated by ETag.
+ */
 async function serveWithBridge(
   request: Request,
   env: Env,
   file: DeliveryFile,
   headers: Headers,
   nonce: string | undefined,
-  sessionTag: string,
+  session: ReviewServe,
 ): Promise<Response> {
   headers.set("Cache-Control", "private, no-store");
   if (request.method === "HEAD") return new Response(null, { status: 200, headers });
   const object = await env.ARTIFACTS.get(file.r2Key);
   if (!object) return message(503, PAGES.fileUnavailable);
   const response = new Response(object.body, { status: 200, headers });
-  return injectBridge(response, { appOrigin: env.APP_ORIGIN, path: file.path, nonce, sessionTag });
+  if (session.mode === "tab") {
+    return injectReviewBanner(response, REVIEW_SESSION.tabSessionTtlSeconds / 60);
+  }
+  return injectBridge(response, {
+    appOrigin: env.APP_ORIGIN,
+    path: file.path,
+    nonce,
+    sessionTag: session.sessionTag,
+  });
 }
 
 type Resolved = { file: DeliveryFile; role: "file" | "page" | "original" };
@@ -346,6 +392,13 @@ function withCookies(response: Response, setCookies: string[]): Response {
 /** Answers of the reserved review paths: redirects within the origin, or a status page. */
 function reviewStepResponse(step: ReviewStep, env: Env): Response {
   if (step.kind === "unavailable") return message(503, PAGES.unavailable);
+  if (step.kind === "end") {
+    const page = step.done
+      ? message(200, PAGES.reviewEnded, { retry: true })
+      : message(400, PAGES.endRefused);
+    page.headers.set("Referrer-Policy", "no-referrer");
+    return withCookies(page, step.setCookies);
+  }
   if (step.kind === "status") {
     return reviewStatusPage(step.status, step.httpStatus, env.APP_ORIGIN, step.setCookies);
   }

@@ -246,6 +246,8 @@ export interface FakeServer {
   artifacts: ArtifactSummary[];
   /** Answers to POST /review, by artifact ID; missing ones answer 404. */
   reviews: Record<string, ReviewStart>;
+  /** Review tab codes issued so far (POST /review/tab answers with the review's origin). */
+  reviewTabs: number;
   annotations: Record<string, FakeAnnotations>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
@@ -278,6 +280,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const server: FakeServer = {
     artifacts,
     reviews: {},
+    reviewTabs: 0,
     annotations: {},
     versions: {},
     uploads: [],
@@ -728,7 +731,18 @@ function reviewRoute(
 ): Response {
   if (kind === "review") {
     const start = server.reviews[id];
-    return method === "POST" && start ? Response.json(start) : missing();
+    if (method !== "POST" || !start) return missing();
+    if (rest === "") return Response.json(start);
+    if (rest !== "/tab") return missing();
+    server.reviewTabs += 1;
+    return Response.json({
+      artifactId: id,
+      url: `${start.origin}/__portifact/review/tab?code=${String(server.reviewTabs).padStart(43, "t")}`,
+      origin: start.origin,
+      versionId: start.versionId,
+      expiresAt: start.expiresAt,
+      sessionSeconds: 900,
+    });
   }
   const store = server.annotations[id];
   if (!store) return missing();

@@ -14,8 +14,10 @@ export default defineConfig<{ engine: EngineProfile }>({
   fullyParallel: false,
   workers: 1,
   forbidOnly: true,
+  // No retries: a flaky test here usually hides a race in review mode or the stack, so it fails
+  // and keeps its trace (test-results/, uploaded by CI) instead of passing on a second try.
   retries: 0,
-  reporter: [["list"]],
+  reporter: process.env.CI ? [["list"], ["github"]] : [["list"]],
   timeout: 60_000,
   expect: { timeout: 10_000 },
   use: { trace: "retain-on-failure" },

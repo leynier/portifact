@@ -26,6 +26,7 @@ import {
   PreparedPublish,
   type PublishRequest,
   ReviewStart,
+  ReviewTabStart,
   type RollbackRequest,
   RolledBack,
   SignOutOthersResult,
@@ -103,6 +104,8 @@ export interface DashboardApi {
   previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
   /** A one-use review code and the URL the review viewer's iframe opens with it. */
   startReview(artifactId: string): Promise<ReviewStart>;
+  /** A one-use code and the link that opens the artifact in a top-level review tab. */
+  startReviewTab(artifactId: string): Promise<ReviewTabStart>;
   /** A page of the current version's threads; with `cursor`, only what changed since. */
   listAnnotations(artifactId: string, cursor?: string): Promise<AnnotationPage>;
   createThread(
@@ -311,6 +314,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     startReview(artifactId) {
       return call(`${artifactPath(artifactId)}/review`, ReviewStart, "POST");
+    },
+    startReviewTab(artifactId) {
+      return call(`${artifactPath(artifactId)}/review/tab`, ReviewTabStart, "POST");
     },
     listAnnotations(artifactId, cursor) {
       const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";

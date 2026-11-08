@@ -21,7 +21,39 @@ describe("CI scope", () => {
         "apps/web/index.html",
         "packages/services/src/publish.ts",
       ]),
-    ).toEqual({ quality: true, cli: false });
+    ).toEqual({ quality: true, cli: false, e2e: true });
+  });
+
+  it("runs the end-to-end suite for the Workers, the dashboard, their packages and the suite", () => {
+    for (const file of [
+      "apps/app/src/api/review.ts",
+      "apps/content/src/review.ts",
+      "apps/web/src/dashboard/screens/review.tsx",
+      "packages/bridge/src/bridge.ts",
+      "packages/services/src/review-access.ts",
+      "packages/db/migrations/0012_review_tab.sql",
+      "e2e/tests/review.spec.ts",
+      "e2e/playwright.config.ts",
+      "turbo.json",
+      "bun.lock",
+      ".github/workflows/ci.yml",
+    ]) {
+      expect(scopeOf([file]).e2e, file).toBe(true);
+    }
+  });
+
+  it("skips the end-to-end suite for the CLI, the jobs Worker, scripts and skills", () => {
+    for (const file of [
+      "packages/cli/src/main.ts",
+      "apps/jobs/src/index.ts",
+      "scripts/install.sh",
+      "skills/portifact/SKILL.md",
+      "spikes/review-cookies/src/server.ts",
+      ".github/workflows/release.yml",
+      "packages/readme.md",
+    ]) {
+      expect(scopeOf([file]).e2e, file).toBe(false);
+    }
   });
 
   it("runs the CLI jobs for the CLI, its build and installer scripts", () => {
@@ -45,10 +77,14 @@ describe("CI scope", () => {
       "bunfig.toml",
       "tsconfig.base.json",
       ".github/workflows/ci.yml",
-      ".github/workflows/release.yml",
     ]) {
       expect(scopeOf([file]), file).toEqual(FULL_SCOPE);
     }
+    expect(scopeOf([".github/workflows/release.yml"])).toEqual({
+      quality: true,
+      cli: true,
+      e2e: false,
+    });
   });
 
   it("runs the CLI jobs when a workspace package the CLI depends on changes", () => {
@@ -70,6 +106,7 @@ describe("CI scope", () => {
     expect(scopeOf(["docs/security.md", "docs/decisions/0003-x.md", "license"])).toEqual({
       quality: false,
       cli: false,
+      e2e: false,
     });
   });
 
@@ -113,7 +150,9 @@ describe("CI scope", () => {
   });
 
   it("writes GitHub Actions outputs", () => {
-    expect(formatOutput({ quality: true, cli: false })).toBe("quality=true\ncli=false\n");
+    expect(formatOutput({ quality: true, cli: false, e2e: true })).toBe(
+      "quality=true\ncli=false\ne2e=true\n",
+    );
   });
 
   it("runs from the command line, logging and writing the outputs", () => {
