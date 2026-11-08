@@ -1,6 +1,8 @@
 // HTTP surface of Better Auth on the app host. Only the endpoints Portifact uses are reachable;
 // everything else under /api/auth answers 404, including Better Auth's admin, password,
 // first-party device token and client management endpoints.
+import { createDb } from "@portifact/db";
+import { checkSignInEmail } from "@portifact/services";
 import { Hono } from "hono";
 import type { Env } from "../env.ts";
 import { humanCheck } from "../turnstile.ts";
@@ -119,7 +121,11 @@ async function refuseRequest(
       now,
     );
     ctx.waitUntil(pruneOldCounters(env.DB, now));
-    return decision.ok ? undefined : tooManyRequests(decision.retryAfterSeconds);
+    if (!decision.ok) return tooManyRequests(decision.retryAfterSeconds);
+    // After the rate limits, so the answer cannot be used to test many addresses quickly.
+    const check = await checkSignInEmail(createDb(env.DB), email, now);
+    if (check.ok) return undefined;
+    return apiError(check.code === "capacity_unavailable" ? 503 : 403, check.code, check.message);
   }
 
   if (path === "/device/code" && "user_id" in (await readBody(request))) {

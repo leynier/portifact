@@ -29,6 +29,8 @@ No account is created and no session is issued for an account that has not accep
 4. With a session, the endpoint records the acceptance on that account directly, keeping the time of an earlier acceptance of the same version.
 5. Sessions that already exist are checked too: the dashboard routes, the `/api/v1` session lookup and `/read/<id>` treat a session of an account without the current version as no session, so the visitor lands on `/login`, which shows "Review the terms to continue" (accept or sign out) instead of forwarding to `next`.
 
+The Privacy Policy also describes the email suppression list (undeliverable address records with their retention) and the daily email counts; keep them in sync with `SUPPRESSION_TTL_MS` (`packages/domain/src/email.ts`) and "Identity" in [security.md](security.md). They were added on 2026-11-08 without a new `TERMS_VERSION`: they describe processing that protects delivery for everyone and changes no one's rights.
+
 New accounts also need a solved human check (Cloudflare Turnstile, `__Host-pf_human`), enforced next to the acceptance in the same `user.create.before` hook; see "Human check" in [security.md](security.md). The Privacy Policy lists it under what is collected, the cookie table and Cloudflare's processing; keep them in sync if the check changes.
 
 `terms_version` and `terms_accepted_at` are Better Auth `additionalFields` with `input: false`, so no request body can set them; `get-session` returns them to the login page.

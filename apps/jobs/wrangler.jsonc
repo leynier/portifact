@@ -8,12 +8,26 @@
   "preview_urls": false,
   // No routes: this Worker only runs on its schedule and its queue.
   "triggers": { "crons": ["*/15 * * * *"] },
-  // The queue must exist before the first deploy: `wrangler queues create portifact-jobs`
-  // (docs/releasing.md). The schedule relays outbox rows to it and the consumer runs them.
+  // Both queues must exist before the first deploy that binds them (docs/releasing.md):
+  // `wrangler queues create portifact-jobs` and `wrangler queues create portifact-email-events`.
+  // The schedule relays outbox rows to `portifact-jobs` and the consumer runs them; Cloudflare
+  // Email Service publishes bounces and complaints to `portifact-email-events` through an event
+  // subscription the maintainer creates in the dashboard.
   "queues": {
     "producers": [{ "binding": "JOBS", "queue": "portifact-jobs" }],
     "consumers": [
-      { "queue": "portifact-jobs", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 10 }
+      {
+        "queue": "portifact-jobs",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 10
+      },
+      {
+        "queue": "portifact-email-events",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 5
+      }
     ]
   },
   "d1_databases": [

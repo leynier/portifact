@@ -1,11 +1,18 @@
 // The jobs Worker. Its schedule runs the maintenance scans (the safety net), relays pending
 // outbox rows to the `portifact-jobs` queue, reconciles a slice of storage with D1 and runs the
 // budget run (alerts and automatic protection, plan section 12). Its queue consumer runs the
-// relayed jobs. Every job is idempotent and guards every transition, so
-// overlapping runs, retries and duplicate deliveries are safe.
-import { JobMessage } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
-import { reconcileStorage, relayOutbox, runJob, runMaintenance } from "@portifact/services";
+// relayed jobs, and the consumer of the `portifact-email-events` queue records the bounces and
+// complaints Cloudflare Email Service reports. Every job is idempotent and guards every
+// transition, so overlapping runs, retries and duplicate deliveries are safe.
+import { EmailSendingEvent, JobMessage } from "@portifact/contracts";
+import { createDb, type Db } from "@portifact/db";
+import {
+  reconcileStorage,
+  recordEmailEvent,
+  relayOutbox,
+  runJob,
+  runMaintenance,
+} from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 
@@ -19,6 +26,9 @@ export interface Env extends AnalyticsEnv, NotifierEnv {
 export const PENDING_RETRY_SECONDS = 120;
 /** Delay before a job that failed runs again. */
 export const FAILED_RETRY_SECONDS = 60;
+
+/** The queue Cloudflare Email Service publishes `message.bounced` and `message.complained` to. */
+export const EMAIL_EVENTS_QUEUE = "portifact-email-events";
 
 const errorName = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -53,8 +63,48 @@ export async function runScheduledBudget(
   return result;
 }
 
+/**
+ * Records bounces and complaints. The event carries the recipient's address, so only the event
+ * ID and the outcome are logged.
+ */
+export async function runEmailEvents(db: Db, batch: MessageBatch<unknown>, now: number) {
+  for (const message of batch.messages) {
+    const body = typeof message.body === "string" ? safeJson(message.body) : message.body;
+    const parsed = EmailSendingEvent.safeParse(body);
+    if (!parsed.success) {
+      console.error(JSON.stringify({ event: "email_event_malformed", messageId: message.id }));
+      message.ack();
+      continue;
+    }
+    try {
+      const outcome = await recordEmailEvent(db, parsed.data, now);
+      message.ack();
+      console.log(
+        JSON.stringify({
+          event: "email_event",
+          type: parsed.data.type,
+          eventId: parsed.data.payload.eventId ?? null,
+          outcome,
+        }),
+      );
+    } catch (error) {
+      console.error(JSON.stringify({ event: "email_event_failed", error: errorName(error) }));
+      message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
+    }
+  }
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: number) {
   const db = createDb(env.DB);
+  if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   for (const message of batch.messages) {
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {

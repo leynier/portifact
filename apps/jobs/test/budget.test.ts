@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { createDb, schema } from "@portifact/db";
-import { getBudgetState, listBudgetAlerts } from "@portifact/services";
+import { emailsSentInCycle, getBudgetState, listBudgetAlerts } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsCollector } from "../src/analytics.ts";
 import { alertEmail, type BudgetEmail, notifierFromEnv, runBudget } from "../src/budget.ts";
@@ -34,6 +34,7 @@ let errors: ReturnType<typeof vi.spyOn>;
 beforeEach(async () => {
   await db().delete(schema.platformBudget);
   await db().delete(schema.budgetAlerts);
+  await db().delete(schema.emailCounters);
   logs = vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -65,6 +66,8 @@ describe("budget run", () => {
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]?.subject).toBe("Portifact budget: projected US$60.00 this cycle (alert50)");
+    // The alert email counts toward the cycle's emails like any other.
+    expect(await emailsSentInCycle(db(), MID)).toBe(1);
 
     const again = await runBudget(db(), MID + 900_000, { analytics: spending(62), notifier });
     expect(again).toMatchObject({ newAlerts: [], notified: 0 });
