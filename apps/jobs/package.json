@@ -8,7 +8,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
     "test": "vitest run --coverage",
-    "operator": "bun scripts/operator.ts"
+    "operator": "node --experimental-transform-types --no-warnings scripts/operator.ts"
   },
   "dependencies": {
     "@portifact/contracts": "workspace:*",

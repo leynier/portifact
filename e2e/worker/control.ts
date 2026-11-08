@@ -61,6 +61,8 @@ interface ThreadInput {
   versionId: string;
   body: string;
   path: string;
+  /** Milliseconds in the past to write it at: the load test seeds earlier comments this way. */
+  agoMs?: number;
 }
 
 interface ReviewCodeInput {
@@ -85,9 +87,70 @@ const CONTENT_TYPES: Record<string, string> = {
   svg: "image/svg+xml",
 };
 
+/**
+ * Local stand-in for R2's S3 endpoint, which presigned URLs target in production: the load test
+ * (scripts/load-test.ts) sends each presigned upload here with the same signed headers. It refuses
+ * a body whose length differs from the signed `content-length` and lets R2 refuse a wrong
+ * checksum, as R2 does with the signature, and streams the body so a 250 MB publish never sits
+ * in memory.
+ */
+async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Response> {
+  const key = url.searchParams.get("key") ?? "";
+  const size = Number(request.headers.get("content-length"));
+  const uploadId = url.searchParams.get("uploadId");
+  if (uploadId !== null) return partPut(request, env, key, uploadId, url, size);
+  const checksum = request.headers.get("x-amz-checksum-sha256") ?? "";
+  if (request.method !== "PUT" || !key.startsWith("objects/") || !request.body) {
+    return new Response("Bad request", { status: 400 });
+  }
+  if (!Number.isSafeInteger(size) || size < 0 || checksum === "") {
+    return new Response("Missing signed headers", { status: 400 });
+  }
+  const sha256 = [...atob(checksum)]
+    .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join("");
+  try {
+    await env.ARTIFACTS.put(key, request.body.pipeThrough(new FixedLengthStream(size)), {
+      sha256,
+    });
+  } catch {
+    return new Response("Upload refused", { status: 400 });
+  }
+  return new Response(null, { status: 200 });
+}
+
+/** S3 UploadPart into the R2 multipart upload the API opened, answering with the part's ETag. */
+async function partPut(
+  request: Request,
+  env: E2eEnv,
+  key: string,
+  uploadId: string,
+  url: URL,
+  size: number,
+): Promise<Response> {
+  const partNumber = Number(url.searchParams.get("partNumber"));
+  if (request.method !== "PUT" || !key.startsWith("uploads/") || !request.body) {
+    return new Response("Bad request", { status: 400 });
+  }
+  if (!Number.isSafeInteger(size) || size <= 0 || !Number.isSafeInteger(partNumber)) {
+    return new Response("Missing signed headers", { status: 400 });
+  }
+  try {
+    const part = await env.ARTIFACTS.resumeMultipartUpload(key, uploadId).uploadPart(
+      partNumber,
+      request.body.pipeThrough(new FixedLengthStream(size)),
+    );
+    return new Response(null, { status: 200, headers: { etag: part.etag } });
+  } catch {
+    return new Response("Upload refused", { status: 400 });
+  }
+}
+
 export async function control(request: Request, env: E2eEnv): Promise<Response> {
-  const path = new URL(request.url).pathname;
+  const url = new URL(request.url);
+  const path = url.pathname;
   if (path === "/echo") return Response.json(Object.fromEntries(request.headers));
+  if (path === "/storage") return storagePut(request, env, url);
   const input = (await request.json()) as unknown;
   const db = createDb(env.DB);
   const now = Date.now();
@@ -184,7 +247,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       versionId: thread.versionId,
       target: { schema: 1, path: thread.path, anchor: { kind: "document" } },
       body: thread.body,
-      now,
+      now: now - (thread.agoMs ?? 0),
     });
     return Response.json(result, { status: result.ok ? 200 : 400 });
   }

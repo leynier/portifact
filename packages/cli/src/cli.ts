@@ -17,6 +17,7 @@ import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
+import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
 import { usage } from "./usage.ts";
 import { rollback, versions } from "./versions.ts";
 
@@ -38,6 +39,9 @@ Exit codes:
   7  limit reached (quota, traffic, account too new for public access)
 
 With --json, a failure prints {"error":{"code","message"}} on stdout.
+
+Portifact is free software under AGPL-3.0: https://github.com/leynier/portifact
+\`portifact licenses\` prints the notices of the open source software in this binary.
 `;
 
 const PUBLISH_HELP = `
@@ -375,6 +379,13 @@ export async function run(
         },
       ),
     );
+
+  program
+    .command("licenses")
+    .description("Print the licenses of the open source software this binary includes")
+    .action(() => {
+      io.stdout(THIRD_PARTY_NOTICES);
+    });
 
   program
     .command("usage")

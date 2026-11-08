@@ -8,19 +8,22 @@
   "exports": {
     ".": "./src/index.ts",
     "./terms-version": "./src/terms-version.ts",
-    "./human-check": "./src/human-check.ts"
+    "./human-check": "./src/human-check.ts",
+    "./email-delivery": "./src/email-delivery.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "test:mutation": "NODE_OPTIONS=--max-old-space-size=1024 stryker run"
   },
   "dependencies": {
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
-
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

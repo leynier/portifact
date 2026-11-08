@@ -2,22 +2,38 @@
 // then commits (plan section 9, "Carga y commit"). Each upload carries exactly the signed headers,
 // which bind its size and SHA-256, so storage refuses other bytes. URLs that expired, or are
 // about to, are replaced through GET /publishes/:id, and after a failure the same upload can be
-// resumed: the API returns only the objects still missing.
-import type { CommittedPublish, PreparedPublish, UploadTarget } from "@portifact/contracts";
+// resumed: the API returns only the objects, and parts of large objects, still missing.
+import type {
+  CommittedPublish,
+  MultipartUploadTarget,
+  PreparedPublish,
+  SingleUploadTarget,
+  UploadPartTarget,
+  UploadTarget,
+} from "@portifact/contracts";
 import type { DashboardApi } from "../api.ts";
+
+/** One presigned request to storage: a whole object, or one part of a multipart object. */
+export type StorageRequest = SingleUploadTarget | UploadPartTarget;
+
+/** What storage answered: the HTTP status (0 when unreachable) and the ETag of a stored part. */
+export interface StorageAnswer {
+  status: number;
+  etag?: string | null;
+}
 
 /** Talks to storage. The browser version uses XMLHttpRequest for upload progress. */
 export interface StorageTransport {
   /**
-   * Sends `body` to a presigned URL with the target's headers. Resolves with the HTTP status,
-   * or 0 when storage could not be reached; rejects only when `signal` aborts.
+   * Sends `body` to a presigned URL with the request's headers. Resolves with what storage
+   * answered; rejects only when `signal` aborts.
    */
   put(
-    target: UploadTarget,
+    request: StorageRequest,
     body: Blob,
     onProgress: (sentBytes: number) => void,
     signal: AbortSignal,
-  ): Promise<number>;
+  ): Promise<StorageAnswer>;
   /** Reads a presigned download link; rejects when it cannot. */
   get(url: string, signal?: AbortSignal): Promise<Blob>;
 }
@@ -49,11 +65,11 @@ export class UploadCancelled extends Error {
   }
 }
 
-/** Uploads in flight at once. */
+/** Uploads (objects or parts) in flight at once. */
 export const UPLOAD_CONCURRENCY = 3;
 /** URLs this close to expiry are replaced before use. */
 export const URL_EXPIRY_MARGIN_MS = 30_000;
-/** Attempts per object on network errors, 5xx and 429. */
+/** Attempts per object or part on network errors, 5xx and 429. */
 export const UPLOAD_ATTEMPTS = 3;
 const RETRY_BASE_MS = 1_000;
 
@@ -65,7 +81,7 @@ export interface UploadProgress {
 }
 
 export interface UploadJob {
-  api: Pick<DashboardApi, "uploadProgress">;
+  api: Pick<DashboardApi, "uploadProgress" | "reportPart">;
   transport: StorageTransport;
   prepared: PreparedPublish;
   /** The bytes of each object by SHA-256, and the path shown in messages. */
@@ -76,9 +92,33 @@ export interface UploadJob {
   sleep?: (ms: number) => Promise<void>;
 }
 
+/** One request to storage: a whole object, or one part of a multipart object. */
+interface Unit {
+  sha256: string;
+  partNumber?: number;
+  size: number;
+}
+
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Uploads every pending object of `prepared`. The first failure stops new uploads. */
+function unitKey(unit: Unit): string {
+  return unit.partNumber === undefined ? unit.sha256 : `${unit.sha256}:${unit.partNumber}`;
+}
+
+/** Bytes a multipart object already has in storage, from the parts the API says are done. */
+function doneBytesOf(target: MultipartUploadTarget): number {
+  return target.doneParts.reduce(
+    (sum, part) => sum + Math.min(target.partSize, target.size - (part - 1) * target.partSize),
+    0,
+  );
+}
+
+/**
+ * Uploads every pending object of `prepared`. A multipart object goes part by part: each part
+ * is a slice of the file (the browser reads it from disk as it sends), put to its own URL and
+ * reported with its ETag, so a later attempt sends only the parts still missing. The first
+ * failure stops new uploads.
+ */
 export async function uploadObjects(job: UploadJob): Promise<void> {
   const now = job.now ?? Date.now;
   const sleep = job.sleep ?? wait;
@@ -86,11 +126,18 @@ export async function uploadObjects(job: UploadJob): Promise<void> {
   for (const target of targets) {
     if (!job.objects.has(target.sha256)) throw new UploadFailure("missing");
   }
-  const current = new Map(targets.map((target) => [target.sha256, target]));
+  const current = new Map<string, UploadTarget>(targets.map((target) => [target.sha256, target]));
   let renewing: Promise<void> | undefined;
-  const renew = (used: UploadTarget): Promise<void> => {
+  const requestFor = (unit: Unit): StorageRequest | undefined => {
+    const target = current.get(unit.sha256);
+    if (!target) return undefined;
+    if (unit.partNumber === undefined) return target.method === "PUT" ? target : undefined;
+    if (target.method !== "MULTIPART") return undefined;
+    return target.parts.find((part) => part.partNumber === unit.partNumber);
+  };
+  const renew = (unit: Unit, used: StorageRequest): Promise<void> => {
     if (renewing) return renewing;
-    if (current.get(used.sha256) !== used) return Promise.resolve();
+    if (requestFor(unit) !== used) return Promise.resolve();
     renewing = job.api
       .uploadProgress(job.prepared.uploadId)
       .then((fresh) => {
@@ -107,45 +154,80 @@ export async function uploadObjects(job: UploadJob): Promise<void> {
     return renewing;
   };
 
+  const units: Unit[] = targets.flatMap((target) =>
+    target.method === "MULTIPART"
+      ? target.parts.map((part) => ({
+          sha256: target.sha256,
+          partNumber: part.partNumber,
+          size: part.size,
+        }))
+      : [{ sha256: target.sha256, size: target.size }],
+  );
+  const remaining = new Map(
+    targets.map((target) => [
+      target.sha256,
+      target.method === "MULTIPART" ? target.parts.length : 1,
+    ]),
+  );
   const totalBytes = targets.reduce((sum, target) => sum + target.size, 0);
   const inFlight = new Map<string, number>();
-  let doneBytes = 0;
-  let doneObjects = 0;
+  let doneBytes = targets.reduce(
+    (sum, target) => sum + (target.method === "MULTIPART" ? doneBytesOf(target) : 0),
+    0,
+  );
+  let doneObjects = [...remaining.values()].filter((left) => left === 0).length;
   const report = () => {
     let sentBytes = doneBytes;
     for (const sent of inFlight.values()) sentBytes += sent;
     job.onProgress({ sentBytes, totalBytes, doneObjects, totalObjects: targets.length });
   };
 
-  const uploadOne = async (sha256: string): Promise<void> => {
-    const object = job.objects.get(sha256) as { blob: Blob; path: string };
+  const uploadOne = async (unit: Unit): Promise<void> => {
+    const object = job.objects.get(unit.sha256) as { blob: Blob; path: string };
+    const key = unitKey(unit);
     let renewed = false;
     let failures = 0;
     for (;;) {
       if (job.signal.aborted) throw new UploadCancelled();
-      const target = current.get(sha256);
-      if (!target) return;
-      if (!renewed && Date.parse(target.expiresAt) - now() <= URL_EXPIRY_MARGIN_MS) {
+      const request = requestFor(unit);
+      if (!request) return;
+      if (!renewed && Date.parse(request.expiresAt) - now() <= URL_EXPIRY_MARGIN_MS) {
         renewed = true;
-        await renew(target);
+        await renew(unit, request);
         continue;
       }
-      inFlight.set(sha256, 0);
-      const status = await job.transport.put(
-        target,
-        object.blob,
+      const body =
+        "partNumber" in request
+          ? object.blob.slice(request.offset, request.offset + request.size)
+          : object.blob;
+      inFlight.set(key, 0);
+      const answer = await job.transport.put(
+        request,
+        body,
         (sent) => {
-          inFlight.set(sha256, Math.min(sent, target.size));
+          inFlight.set(key, Math.min(sent, request.size));
           report();
         },
         job.signal,
       );
-      inFlight.delete(sha256);
-      if (status >= 200 && status < 300) return;
+      inFlight.delete(key);
+      const { status } = answer;
+      if (status >= 200 && status < 300) {
+        if ("partNumber" in request) {
+          // Without the ETag (the bucket's CORS rule must expose it) the part cannot be used.
+          if (!answer.etag) throw new UploadFailure("storage", object.path);
+          await job.api.reportPart(job.prepared.uploadId, {
+            sha256: unit.sha256,
+            partNumber: request.partNumber,
+            etag: answer.etag,
+          });
+        }
+        return;
+      }
       // Storage answers 403 to an expired signature: get a fresh URL once and try again.
       if (status === 403 && !renewed) {
         renewed = true;
-        await renew(target);
+        await renew(unit, request);
         continue;
       }
       if (status === 400) throw new UploadFailure("integrity", object.path);
@@ -163,20 +245,22 @@ export async function uploadObjects(job: UploadJob): Promise<void> {
   let next = 0;
   let failure: { error: unknown } | undefined;
   const worker = async () => {
-    while (!failure && next < targets.length) {
-      const target = targets[next] as UploadTarget;
+    while (!failure && next < units.length) {
+      const unit = units[next] as Unit;
       next += 1;
       try {
-        await uploadOne(target.sha256);
-        doneBytes += target.size;
-        doneObjects += 1;
+        await uploadOne(unit);
+        doneBytes += unit.size;
+        const left = (remaining.get(unit.sha256) ?? 1) - 1;
+        remaining.set(unit.sha256, left);
+        if (left === 0) doneObjects += 1;
         report();
       } catch (error) {
         failure ??= { error };
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, targets.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(UPLOAD_CONCURRENCY, units.length) }, worker));
   if (job.signal.aborted) throw new UploadCancelled();
   if (failure) throw failure.error;
 }
@@ -184,7 +268,10 @@ export async function uploadObjects(job: UploadJob): Promise<void> {
 export type PublishPhase = "preparing" | "uploading" | "committing";
 
 export interface PublishRun {
-  api: Pick<DashboardApi, "preparePublish" | "uploadProgress" | "commitPublish" | "abortPublish">;
+  api: Pick<
+    DashboardApi,
+    "preparePublish" | "uploadProgress" | "reportPart" | "commitPublish" | "abortPublish"
+  >;
   transport: StorageTransport;
   request: Parameters<DashboardApi["preparePublish"]>[0];
   idempotencyKey: string;
@@ -206,7 +293,8 @@ export async function runPublish(run: PublishRun): Promise<CommittedPublish> {
   run.onPhase("preparing");
   const prepared = run.resume
     ? await run.api.uploadProgress(run.resume.uploadId)
-    : await run.api.preparePublish(run.request, run.idempotencyKey);
+    : // This uploader sends large objects in parts, so it asks for multipart targets.
+      await run.api.preparePublish({ ...run.request, multipart: true }, run.idempotencyKey);
   run.onPhase("uploading", prepared);
   try {
     await uploadObjects({

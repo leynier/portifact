@@ -9,6 +9,7 @@ import { and, eq, inArray, isNotNull, lte, ne, notExists, or, type SQL, sql } fr
 import type { BatchItem } from "drizzle-orm/batch";
 import { processAccountDeletions } from "./account-data.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
+import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { abortPublish } from "./publish.ts";
@@ -457,5 +458,7 @@ export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
+    prunedEmailCounters: await pruneEmailCounters(db, now),
+    prunedEmailSuppressions: await pruneEmailSuppressions(db, now),
   };
 }

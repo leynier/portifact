@@ -94,6 +94,8 @@ export async function buildSourceManifest(
     chosenBy = "git";
     const commit = await resolveCommit(git, root, options.ref);
     if (!commit) throw new CliError("invalid_input", messages.errors.refNotCommit(options.ref));
+    // Read before expanding, so a failure here cannot leave the expanded tree behind.
+    origin = await originOf(git, root, { ref: options.ref, commit });
     const archiveFolder = await mkdtemp(join(tmpdir(), "portifact-git-"));
     try {
       const archive = join(archiveFolder, "tree.zip");
@@ -111,7 +113,6 @@ export async function buildSourceManifest(
     } finally {
       await removeExtracted(archiveFolder);
     }
-    origin = await originOf(git, root, { ref: options.ref, commit });
   } else if (repository) {
     chosenBy = "git";
     const tracked = await trackedFiles(git, root);

@@ -75,10 +75,10 @@ describe("measuring and recording the budget", () => {
         { ownerId: owner.id, sha256: "c".repeat(64), size: 5, r2Key: "k3", createdAt: NOW },
       ]);
     expect(await measurePlatformUsage(db(), NOW)).toEqual(
-      metrics({ storedBytes: 5 * GB + 5, r2ClassA: 2 }),
+      metrics({ storedBytes: 5 * GB + 5, r2ClassA: 2, emails: 0 }),
     );
     await db().delete(schema.objects);
-    expect(await measurePlatformUsage(db(), NOW)).toEqual(metrics({ r2ClassA: 0 }));
+    expect(await measurePlatformUsage(db(), NOW)).toEqual(metrics({ r2ClassA: 0, emails: 0 }));
   });
 
   it("applies no protection before anything was measured", async () => {

@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { LIMITS } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +12,7 @@ import {
   uploadProgress,
   validateManifest,
 } from "../src/publish.ts";
+import { racing } from "./fixtures.ts";
 
 const OWNER = "u_owner";
 const NOW = Date.UTC(2026, 10, 8, 12);
@@ -201,6 +203,75 @@ describe("prepare", () => {
     expect(results.filter((r) => r.ok)).toHaveLength(1);
     expect(results.find((r) => !r.ok)).toMatchObject({ code: "quota_exceeded" });
     expect(await usage()).toMatchObject({ activeArtifacts: 50 });
+  });
+
+  // Promise.all does not interleave D1 queries in the test runtime, so these races let the
+  // competing prepare commit between the checks and the write batch of the other one.
+  it("lets only one of two uploads that both passed the check take the last active slot", async () => {
+    await db()
+      .insert(schema.accountUsage)
+      .values({ ownerId: OWNER, activeArtifacts: 49, monthStartedAt: NOW });
+    const files1 = await site(v1);
+    const files2 = await site(v2);
+    let rival: Awaited<ReturnType<typeof preparePublish>> | undefined;
+    const lost = await preparePublish(
+      racing(async () => {
+        rival = await preparePublish(db(), input(files2));
+      }),
+      input(files1),
+    );
+    expect(rival).toMatchObject({ ok: true });
+    expect(lost).toMatchObject({ ok: false, code: "quota_exceeded" });
+    expect(await usage()).toMatchObject({ activeArtifacts: 50, openUploads: 1 });
+    expect(await db().select().from(schema.artifacts)).toHaveLength(1);
+    expect(await db().select().from(schema.uploadSessions)).toHaveLength(1);
+  });
+
+  it("lets only one of two uploads that both passed the check take the last stored bytes", async () => {
+    const big = { "index.html": "x".repeat(600) };
+    const other = { "index.html": "y".repeat(600) };
+    await db()
+      .insert(schema.accountUsage)
+      .values({
+        ownerId: OWNER,
+        storedBytes: LIMITS.accountBytes - 1_000,
+        monthStartedAt: NOW,
+      });
+    let rival: Awaited<ReturnType<typeof preparePublish>> | undefined;
+    const lost = await preparePublish(
+      racing(async () => {
+        rival = await preparePublish(db(), input(await site(other)));
+      }),
+      input(await site(big)),
+    );
+    expect(rival).toMatchObject({ ok: true });
+    expect(lost).toMatchObject({ ok: false, code: "quota_exceeded" });
+    expect(await usage()).toMatchObject({
+      storedBytes: LIMITS.accountBytes - 1_000,
+      reservedBytes: 600,
+      openUploads: 1,
+    });
+  });
+
+  it("never lets racing prepares open more uploads than the account may have at once", async () => {
+    const first = await prepared(await site(v1));
+    expect(await usage()).toMatchObject({ openUploads: 1 });
+    let rival: Awaited<ReturnType<typeof preparePublish>> | undefined;
+    const lost = await preparePublish(
+      racing(async () => {
+        rival = await preparePublish(db(), input(await site({ "index.html": "<h1>B</h1>" })));
+      }),
+      input(await site({ "index.html": "<h1>C</h1>" })),
+    );
+    expect(rival).toMatchObject({ ok: true });
+    expect(lost).toMatchObject({ ok: false, code: "quota_exceeded" });
+    expect(await usage()).toMatchObject({ openUploads: LIMITS.concurrentUploads });
+    const open = await db()
+      .select()
+      .from(schema.uploadSessions)
+      .where(eq(schema.uploadSessions.state, "uploading"));
+    expect(open.map((row) => row.id)).toContain(first.sessionId);
+    expect(open).toHaveLength(LIMITS.concurrentUploads);
   });
 
   it("refuses a new artifact when all 50 active slots are used", async () => {

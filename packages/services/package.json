@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "test:mutation": "NODE_OPTIONS=--max-old-space-size=1024 stryker run"
   },
   "dependencies": {
     "@portifact/contracts": "workspace:*",
@@ -22,6 +23,8 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.6.0",
     "@cloudflare/workers-types": "^5.0.0",
+    "@stryker-mutator/core": "catalog:",
+    "@stryker-mutator/vitest-runner": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

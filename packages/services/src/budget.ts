@@ -17,6 +17,7 @@ import {
   type ProtectionAction,
 } from "@portifact/domain";
 import { and, count, desc, eq, gte, inArray, isNull, sql, sum } from "drizzle-orm";
+import { emailsSentInCycle } from "./email.ts";
 
 const ROW_ID = "global";
 
@@ -118,7 +119,8 @@ export async function platformProtection(db: Db, now: number): Promise<Protectio
 /**
  * Estimates the cycle's usage from what D1 already knows: the bytes of every stored object (what
  * R2 holds for Portifact) and the objects created this cycle (each one at least one class A
- * upload). Cloudflare's analytics, when configured, replace these with measured values.
+ * upload), and the emails counted as they were sent (`email_counters`). Cloudflare's analytics,
+ * when configured, replace the estimates with measured values.
  */
 export async function measurePlatformUsage(db: Db, now: number): Promise<PlatformMetrics> {
   const { start } = budgetCycle(now);
@@ -132,7 +134,7 @@ export async function measurePlatformUsage(db: Db, now: number): Promise<Platfor
     workerRequests: null,
     d1RowsRead: null,
     d1RowsWritten: null,
-    emails: null,
+    emails: await emailsSentInCycle(db, now),
   };
 }
 

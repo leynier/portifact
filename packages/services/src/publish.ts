@@ -9,11 +9,13 @@ import {
   checkPublishCapacity,
   checkRenderedVersion,
   checkSourceOrigin,
+  DEFAULT_MULTIPART,
   DOCUMENT_CONTENT_TYPES,
   type DocumentType,
   fail,
   generateArtifactId,
   isDocumentType,
+  type MultipartConfig,
   nextExpiry,
   ok,
   type Result,
@@ -29,6 +31,14 @@ import {
   storeRenderings,
 } from "./documents.ts";
 import { accountSuspension } from "./moderation.ts";
+import {
+  abortMultipartJob,
+  abortOpened,
+  assembleObject,
+  type MultipartState,
+  multipartStates,
+  openMultipartUploads,
+} from "./multipart.ts";
 import { hex, objectKey } from "./objects.ts";
 
 export { objectKey } from "./objects.ts";
@@ -69,6 +79,14 @@ export interface PendingUpload {
   sha256: string;
   size: number;
   r2Key: string;
+  /** Set when the object is uploaded in parts; the parts go to its staging key. */
+  multipart?: MultipartState;
+}
+
+/** A client that uploads large objects in parts, and the storage that opens the uploads. */
+export interface MultipartOption {
+  bucket: R2Bucket;
+  config?: MultipartConfig;
 }
 
 export interface PreparedUpload {
@@ -194,7 +212,11 @@ function monthStart(now: number): number {
 }
 
 /** Validates, deduplicates and admits a publish, then reserves its capacity in one transaction. */
-export async function preparePublish(db: Db, input: PrepareInput): Promise<Result<PreparedUpload>> {
+export async function preparePublish(
+  db: Db,
+  input: PrepareInput,
+  multipart?: MultipartOption,
+): Promise<Result<PreparedUpload>> {
   const validated = validateManifest(input);
   if (!validated.ok) return validated;
   const entrypoint = normalizedEntrypoint(input.entrypoint);
@@ -303,6 +325,16 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
     .filter((file) => file.kind === "published")
     .reduce((sum, file) => sum + file.size, 0);
 
+  const multipartRows = multipart
+    ? await openMultipartUploads(multipart.bucket, {
+        ownerId: input.ownerId,
+        sessionId,
+        objects: uploads,
+        config: multipart.config ?? DEFAULT_MULTIPART,
+        now: input.now,
+      })
+    : [];
+
   try {
     await db.batch([
       db
@@ -395,8 +427,12 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
         expiresAt,
         createdAt: input.now,
       }),
+      ...(multipartRows.length > 0
+        ? [db.insert(schema.multipartUploads).values(multipartRows)]
+        : []),
     ]);
   } catch (error) {
+    if (multipart) await abortOpened(multipart.bucket, multipartRows);
     if (constraintFailed(error, "UNIQUE")) {
       return fail("version_conflict", "Another publish to this artifact started first. Try again.");
     }
@@ -404,13 +440,46 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
     if (causeIncludes(error, "artifact_id_tombstoned")) {
       return fail("version_conflict", "Try again.");
     }
-    if (constraintFailed(error, "CHECK")) {
+    // CHECK constraints guard slots and bytes; a trigger guards the open uploads.
+    if (
+      constraintFailed(error, "CHECK") ||
+      causeIncludes(error, "account_usage_open_uploads_limit")
+    ) {
       return fail("quota_exceeded", "Your account reached a limit while preparing this publish.");
     }
     throw error;
   }
 
-  return ok({ artifactId, versionId, versionNumber, sessionId, expiresAt, uploads });
+  const planned = new Map(
+    multipartRows.map((row) => [
+      row.sha256,
+      {
+        uploadId: row.uploadId,
+        key: row.r2Key,
+        partSize: row.partSize,
+        partCount: row.partCount,
+        doneParts: [],
+      } satisfies MultipartState,
+    ]),
+  );
+  return ok({
+    artifactId,
+    versionId,
+    versionNumber,
+    sessionId,
+    expiresAt,
+    uploads: withMultipart(uploads, planned),
+  });
+}
+
+function withMultipart(
+  uploads: PendingUpload[],
+  states: Map<string, MultipartState>,
+): PendingUpload[] {
+  return uploads.map((upload) => {
+    const state = states.get(upload.sha256);
+    return state ? { ...upload, multipart: state } : upload;
+  });
 }
 
 export interface CommitInput {
@@ -501,7 +570,22 @@ export async function commitPublish(
     .groupBy(schema.objects.sha256);
 
   const problems: string[] = [];
+  const multipart = await multipartStates(db, session.id);
   for (const object of pending) {
+    const state = multipart.get(object.sha256);
+    if (state) {
+      const problem = await assembleObject(db, bucket, {
+        sessionId: session.id,
+        sha256: object.sha256,
+        size: object.size,
+        r2Key: object.r2Key,
+        state,
+      });
+      if (problem) {
+        problems.push(problem);
+        continue;
+      }
+    }
     const body = await bucket.get(object.r2Key);
     if (!body) {
       problems.push(`${object.sha256} is missing`);
@@ -663,6 +747,7 @@ export async function commitPublish(
       .select(
         sql`select null, ${session.artifactId}, ${input.ownerId}, 'system', 'published', null, ${input.now} where ${switched}`,
       ),
+    abortMultipartJob(db, session.id, switched, input.now),
     db
       .update(schema.uploadSessions)
       .set({ state: "committed" })
@@ -820,7 +905,7 @@ export async function uploadProgress(
     versionNumber: session.versionNumber,
     sessionId: input.sessionId,
     expiresAt: session.expiresAt,
-    uploads,
+    uploads: withMultipart(uploads, await multipartStates(db, input.sessionId)),
   });
 }
 
@@ -851,6 +936,12 @@ export async function abortPublish(
         updatedAt: input.now,
       })
       .where(eq(schema.accountUsage.ownerId, input.ownerId)),
+    abortMultipartJob(
+      db,
+      session.id,
+      sql`exists (select 1 from ${schema.uploadSessions} where ${open})`,
+      input.now,
+    ),
     db.update(schema.uploadSessions).set({ state: finalState }).where(open),
     // A new artifact that never got a version disappears with its only upload.
     db

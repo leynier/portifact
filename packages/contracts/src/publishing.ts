@@ -57,11 +57,16 @@ export const PublishRequest = z.object({
   files: z.array(ManifestFile).min(1).max(LIMITS.filesPerVersion),
   /** Git origin of the `source` files; only with at least one of them. */
   sourceOrigin: SourceOrigin.optional(),
+  /**
+   * The client can upload large objects in parts (`MultipartUploadTarget`). Without it every
+   * object gets one presigned PUT, as for clients older than multipart uploads.
+   */
+  multipart: z.boolean().optional(),
 });
 export type PublishRequest = z.infer<typeof PublishRequest>;
 
-/** Where and how to upload one object the account does not store yet. */
-export const UploadTarget = z.object({
+/** Where and how to upload one object the account does not store yet, in one request. */
+export const SingleUploadTarget = z.object({
   sha256: Sha256Hex,
   size: z.number().int().min(0),
   method: z.literal("PUT"),
@@ -70,7 +75,51 @@ export const UploadTarget = z.object({
   headers: z.record(z.string(), z.string()),
   expiresAt: z.iso.datetime(),
 });
+export type SingleUploadTarget = z.infer<typeof SingleUploadTarget>;
+
+/** One part of a multipart upload still to send: bytes `[offset, offset + size)` of the file. */
+export const UploadPartTarget = z.object({
+  partNumber: z.number().int().min(1),
+  offset: z.number().int().min(0),
+  size: z.number().int().min(1),
+  method: z.literal("PUT"),
+  url: z.url(),
+  /** Headers the part must send exactly as given; they are part of the signature. */
+  headers: z.record(z.string(), z.string()),
+  expiresAt: z.iso.datetime(),
+});
+export type UploadPartTarget = z.infer<typeof UploadPartTarget>;
+
+/**
+ * A large object uploaded in parts. After each part, the client reports the `ETag` storage
+ * answered with (`POST /publishes/:uploadId/parts`); `parts` lists only the parts not reported
+ * yet, so an interrupted upload resumes where it stopped.
+ */
+export const MultipartUploadTarget = z.object({
+  sha256: Sha256Hex,
+  size: z.number().int().min(0),
+  method: z.literal("MULTIPART"),
+  partSize: z.number().int().min(1),
+  partCount: z.number().int().min(1),
+  /** Parts already reported, which the client must not send again. */
+  doneParts: z.array(z.number().int().min(1)),
+  parts: z.array(UploadPartTarget),
+});
+export type MultipartUploadTarget = z.infer<typeof MultipartUploadTarget>;
+
+export const UploadTarget = z.discriminatedUnion("method", [
+  SingleUploadTarget,
+  MultipartUploadTarget,
+]);
 export type UploadTarget = z.infer<typeof UploadTarget>;
+
+/** A part storage accepted, with the `ETag` header of its answer. Reporting it twice is harmless. */
+export const UploadedPart = z.strictObject({
+  sha256: Sha256Hex,
+  partNumber: z.number().int().min(1),
+  etag: z.string().min(1).max(200),
+});
+export type UploadedPart = z.infer<typeof UploadedPart>;
 
 export const PreparedPublish = z.object({
   artifactId: ArtifactId,

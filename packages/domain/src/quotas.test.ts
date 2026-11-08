@@ -66,6 +66,19 @@ describe("checkPublish", () => {
     );
   });
 
+  it("accepts new files and bytes that land exactly on the rolling and monthly limits", () => {
+    const atLimits = {
+      ...empty,
+      newFilesLast24h: 10_000 - 3,
+      newBytesLast24h: 5_000_000_000 - 1_000,
+      newObjectsThisMonth: 100_000 - 3,
+    };
+    expect(checkPublish(atLimits, small)).toEqual({
+      ok: true,
+      value: { activeSlots: 1, bytes: 1_000, files: 3 },
+    });
+  });
+
   it("never lets reservations push storage past the account limit", () => {
     fc.assert(
       fc.property(

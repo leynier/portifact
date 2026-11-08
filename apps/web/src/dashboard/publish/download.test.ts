@@ -167,6 +167,10 @@ describe("xhrTransport", () => {
     send(body: unknown) {
       this.body = body;
     }
+    responseHeaders: Record<string, string> = {};
+    getResponseHeader(name: string) {
+      return this.responseHeaders[name.toLowerCase()] ?? null;
+    }
     abort() {
       this.onabort?.();
       this.onloadend?.();
@@ -195,8 +199,9 @@ describe("xhrTransport", () => {
     xhr.upload.onprogress?.({ loaded: 2 });
     expect(onProgress).toHaveBeenCalledWith(2);
     xhr.status = 200;
+    xhr.responseHeaders = { etag: '"abc"' };
     xhr.onload?.();
-    expect(await sending).toBe(200);
+    expect(await sending).toEqual({ status: 200, etag: '"abc"' });
   });
 
   it("reports unreachable storage as status 0 and rejects when aborted", async () => {
@@ -208,7 +213,7 @@ describe("xhrTransport", () => {
       new AbortController().signal,
     );
     FakeXhr.last?.onerror?.();
-    expect(await failing).toBe(0);
+    expect(await failing).toEqual({ status: 0 });
     const timing = xhrTransport.put(
       uploadTarget,
       new Blob(["abc"]),
@@ -216,7 +221,7 @@ describe("xhrTransport", () => {
       new AbortController().signal,
     );
     FakeXhr.last?.ontimeout?.();
-    expect(await timing).toBe(0);
+    expect(await timing).toEqual({ status: 0 });
     const controller = new AbortController();
     const aborted = xhrTransport.put(uploadTarget, new Blob(["abc"]), () => {}, controller.signal);
     controller.abort();

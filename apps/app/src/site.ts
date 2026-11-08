@@ -21,6 +21,9 @@ const appOnlyPaths = new Set<string>(
 /** The Terms of Service, Privacy Policy and Acceptable Use Policy, built by apps/web. */
 export const LEGAL_PAGES = ["/terms", "/privacy", "/acceptable-use"] as const;
 
+/** The licenses and notices of the open source software Portifact ships. */
+export const THIRD_PARTY_NOTICES_PATH = "/third-party-notices";
+
 /**
  * Static documents with no script: the strict page policy, never framed, and revalidated on
  * every visit so a new version shows at once.
@@ -61,6 +64,17 @@ export function createSite() {
       legalPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
     );
   }
+
+  // The notices are plain text built from third-party-notices.md (`bun run notices`).
+  site.get(THIRD_PARTY_NOTICES_PATH, async (c) => {
+    const asset = await c.env.ASSETS.fetch(
+      new Request(new URL("/third-party-notices.txt", c.req.url)),
+    );
+    if (!asset.ok) return c.text("Not found", 404);
+    const response = legalPage(asset);
+    response.headers.set("Content-Type", "text/plain; charset=utf-8");
+    return response;
+  });
 
   site.all("*", async (c): Promise<Response> => {
     const path = new URL(c.req.url).pathname.replace(/\/+$/, "");

@@ -31,6 +31,7 @@ import {
   type RollbackRequest,
   RolledBack,
   SignOutOthersResult,
+  type UploadedPart,
   VersionDownload,
   VersionList,
   VersionManifest,
@@ -89,6 +90,8 @@ export interface DashboardApi {
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
   uploadProgress(uploadId: string): Promise<PreparedPublish>;
+  /** A part of a multipart object reached storage, with the ETag storage answered. */
+  reportPart(uploadId: string, part: UploadedPart): Promise<void>;
   commitPublish(uploadId: string): Promise<CommittedPublish>;
   abortPublish(uploadId: string): Promise<void>;
   listVersions(artifactId: string, cursor?: string): Promise<VersionList>;
@@ -276,6 +279,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     uploadProgress(uploadId) {
       return call(`/api/v1/publishes/${encodeURIComponent(uploadId)}`, PreparedPublish);
+    },
+    async reportPart(uploadId, part) {
+      await call(`/api/v1/publishes/${encodeURIComponent(uploadId)}/parts`, z.null(), "POST", part);
     },
     commitPublish(uploadId) {
       return call(

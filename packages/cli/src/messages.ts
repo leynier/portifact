@@ -69,6 +69,8 @@ export const messages = {
       : `Prepared version ${version}. Uploading ${count} of ${total} ${plural(total, "file", "files")} (${formatBytes(bytes)}).`,
   uploaded: (done: number, total: number, bytes: number, totalBytes: number) =>
     `Uploaded ${done} of ${total} (${formatBytes(bytes)} of ${formatBytes(totalBytes)}).`,
+  uploadedPart: (path: string, part: number, parts: number, bytes: number, totalBytes: number) =>
+    `Uploaded part ${part} of ${parts} of ${path} (${formatBytes(bytes)} of ${formatBytes(totalBytes)}).`,
   committing: "Making the new version current.",
   aborted: "Cancelled the upload and released its reservation.",
   abortFailed: "Could not cancel the upload. Its reservation is released within 24 hours.",

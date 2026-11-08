@@ -6,7 +6,14 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!**/dist", "!**/coverage", "!**/.turbo", "!skills/**/SKILL.md"]
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/coverage",
+      "!**/.turbo",
+      "!skills/**/SKILL.md",
+      "!third-party-notices.md"
+    ]
   },
   "formatter": {
     "indentStyle": "space",

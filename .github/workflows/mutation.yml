@@ -1,0 +1,47 @@
+name: mutation
+
+# Mutation testing (StrykerJS) of the critical packages. It takes several minutes per package,
+# so it runs weekly, on demand and on release pull requests instead of on every pull request.
+# Each package fails when its score drops below the break threshold in its stryker.config.mjs.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: mutation (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    # services takes about an hour at concurrency 2; the others take minutes.
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [domain, anchors, contracts, render, services]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run --cwd packages/${{ matrix.package }} test:mutation
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: mutation-${{ matrix.package }}
+          path: |
+            packages/${{ matrix.package }}/reports/mutation/index.html
+            packages/${{ matrix.package }}/reports/mutation/mutation.json
+          retention-days: 14
