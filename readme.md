@@ -8,9 +8,9 @@
 <p align="center"><strong>Your agent built it. Now share it with a link, keep it private, and get feedback on it.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/leynier/portifact/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/leynier/portifact?style=flat-square&label=release&labelColor=000000&color=444444"></a>
-  <a href="license"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/leynier/portifact?style=flat-square&labelColor=000000&color=444444"></a>
-  <a href="https://github.com/leynier/portifact/actions/workflows/ci.yml?query=branch%3Adevelop"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/leynier/portifact/ci.yml?branch=develop&style=flat-square&label=ci&labelColor=000000&color=444444"></a>
+  <a href="https://github.com/leynier/portifact/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/leynier/portifact?style=flat-square&label=release"></a>
+  <a href="license"><img alt="License: AGPL-3.0" src="https://img.shields.io/github/license/leynier/portifact?style=flat-square"></a>
+  <a href="https://github.com/leynier/portifact/actions/workflows/ci.yml?query=branch%3Adevelop"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/leynier/portifact/ci.yml?branch=develop&style=flat-square&label=ci"></a>
   <a href="docs/testing.md"><img alt="Coverage" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fleynier%2Fportifact%2Frefs%2Fheads%2Fbadges%2Fcoverage.json&style=flat-square"></a>
 </p>
 

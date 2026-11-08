@@ -22,7 +22,9 @@ Portifact is monochromatic. The whole product, including the logo, dashboard, re
 - Annotation highlights and selection in the review viewer use neutral tints that keep the underlying text at the required contrast.
 - Content published by users keeps its own colors. The rule applies to everything Portifact draws around it, such as the bridge markers and viewer chrome.
 
-Adding a hue requires changing this section first, in a separate change with a reason.
+Exception: third-party status badges in the readme (release, license, CI, coverage) keep their conventional colors, because their color carries meaning readers already know.
+
+Adding any other hue requires changing this section first, in a separate change with a reason.
 
 ## Brand assets
 
