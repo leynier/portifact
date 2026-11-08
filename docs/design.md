@@ -26,6 +26,14 @@ Exception: third-party status badges in the readme (release, license, CI, covera
 
 Adding any other hue requires changing this section first, in a separate change with a reason.
 
+The `terminal`, `terminal-text`, `terminal-muted` and `terminal-border` tokens draw terminal and agent-session mocks, and dark bands such as the landing page's security section. They stay dark in both themes, so use them only where a dark surface is the point.
+
+## Motion and patterns
+
+Motion tokens and utilities live in `packages/ui/src/tokens/theme.css`: `animate-rise`, `animate-fade`, `animate-type`, `animate-sweep` and `animate-blink`, staggered with `animate-delay-<n>`. Always apply them through the `motion-safe:` variant, so nothing moves under `prefers-reduced-motion` and every element rests in its final state. Motion is decorative only; it never carries information.
+
+Pattern utilities (`bg-dot-grid`, `bg-hatch`, `bg-highlight` for a selection-style text highlight on `mark`, and `marker-none` for custom `summary` disclosures) and the `shadow-sm` and `shadow-float` elevations are defined there too. Tailwind's default shadows are removed.
+
 ## Writing style
 
 - Titles and headings (page titles, headings, buttons, labels, taglines) never end with a period.
