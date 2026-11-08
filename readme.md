@@ -14,7 +14,7 @@ curl -fsSL https://portifact.com/install | bash
 irm https://portifact.com/install.ps1 | iex
 ```
 
-The CLI is a single executable for Linux, macOS and Windows; it does not need Node or Bun.
+The CLI is a single executable for Linux (glibc 2.17+ and Alpine), macOS and Windows, on x64 and arm64; it does not need Node or Bun. On Alpine, install `libstdc++` and `libgcc` first.
 
 To teach your coding agent (Claude Code, Codex, Cursor and others) how to use Portifact:
 

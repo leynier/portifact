@@ -29,6 +29,7 @@ curl -fsSL https://portifact.com/install | bash
 irm https://portifact.com/install.ps1 | iex
 ```
 
+- On Alpine Linux, install the C++ runtime first: `apk add libstdc++ libgcc`.
 - Rerun the same command to update.
 - Set `PORTIFACT_VERSION=0.2.0` to install a specific version.
 - In non-interactive or sandboxed environments, set `PORTIFACT_NO_MODIFY_PATH=1` and call `~/.portifact/bin/portifact` directly instead of editing shell profiles.
