@@ -19,6 +19,16 @@ describe("design-system check", () => {
     ]);
   });
 
+  it("allows inline styles only in email templates, which still get every other rule", () => {
+    expect(rules("packages/emails/src/layout.ts", '<td style="padding: 0">')).toEqual([]);
+    expect(rules("packages/emails/src/layout.ts", "<p>Hi \u2014 there</p>")).toEqual([
+      "em dash in copy",
+    ]);
+    expect(rules("packages/emailsx/src/a.ts", '<td style="padding: 0">')).toEqual([
+      "inline style attribute",
+    ]);
+  });
+
   it("flags em dashes in copy", () => {
     expect(rules("a.html", "<p>Fast \u2014 and private</p>")).toEqual(["em dash in copy"]);
   });

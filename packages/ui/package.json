@@ -10,6 +10,7 @@
     "./document-css": "./src/viewers/document-css.ts",
     "./forms": "./src/forms/index.tsx",
     "./testing": "./src/testing/axe.ts",
+    "./tokens": "./src/tokens/tokens.ts",
     "./theme.css": "./src/tokens/theme.css",
     "./tokens-css": "./src/tokens/tokens-css.ts",
     "./tokens.css": "./src/tokens/tokens.css"
