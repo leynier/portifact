@@ -13,4 +13,5 @@ export * from "./moderation.ts";
 export * from "./publishing.ts";
 export * from "./read.ts";
 export * from "./usage.ts";
+export * from "./review.ts";
 export * from "./versions.ts";

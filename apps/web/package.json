@@ -2,7 +2,7 @@
   "name": "@portifact/web",
   "version": "0.0.0",
   "private": true,
-  "description": "Portifact landing page, auth pages and the dashboard; the review viewer later.",
+  "description": "Portifact landing page, auth pages, the dashboard and the review viewer.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "@lingui/message-utils": "^6.0.0",
     "@lingui/react": "^6.0.0",
     "@noble/hashes": "^2.4.0",
+    "@portifact/bridge": "workspace:*",
     "@portifact/contracts": "workspace:*",
     "@portifact/domain": "workspace:*",
     "@portifact/ui": "workspace:*",

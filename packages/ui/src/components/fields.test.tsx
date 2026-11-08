@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axeViolations } from "../testing/axe.ts";
-import { Checkbox, RadioGroup, TextInput } from "./fields.tsx";
+import { Checkbox, RadioGroup, TextArea, TextInput } from "./fields.tsx";
 
 afterEach(cleanup);
 
@@ -40,6 +40,35 @@ describe("TextInput", () => {
     expect(screen.getByRole("textbox", { name: "Name" }).hasAttribute("aria-describedby")).toBe(
       false,
     );
+  });
+});
+
+describe("TextArea", () => {
+  it("is a labelled multi-line field that reads its hint and error", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <TextArea
+        label="Comment"
+        description="Plain text"
+        error="Write a comment"
+        onChange={onChange}
+      />,
+    );
+    const area = screen.getByRole("textbox", { name: "Comment" });
+    expect(area.tagName).toBe("TEXTAREA");
+    expect(area.getAttribute("rows")).toBe("4");
+    expect(area.getAttribute("aria-invalid")).toBe("true");
+    expect(describedText(area)).toBe("Plain text | Write a comment");
+    fireEvent.change(area, { target: { value: "Looks good" } });
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("has no description without a hint or error", () => {
+    render(<TextArea label="Reply" rows={2} />);
+    const area = screen.getByRole("textbox", { name: "Reply" });
+    expect(area.hasAttribute("aria-describedby")).toBe(false);
+    expect(area.getAttribute("rows")).toBe("2");
   });
 });
 

@@ -78,6 +78,13 @@
       "when": 1794127275069,
       "tag": "0010_moderation_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794128156785,
+      "tag": "0011_review_sessions",
+      "breakpoints": true
     }
   ]
 }

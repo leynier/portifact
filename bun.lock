@@ -48,6 +48,7 @@
       "name": "@portifact/content",
       "version": "0.0.0",
       "dependencies": {
+        "@portifact/bridge": "workspace:*",
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
@@ -90,6 +91,7 @@
         "@lingui/message-utils": "^6.0.0",
         "@lingui/react": "^6.0.0",
         "@noble/hashes": "^2.4.0",
+        "@portifact/bridge": "workspace:*",
         "@portifact/contracts": "workspace:*",
         "@portifact/domain": "workspace:*",
         "@portifact/ui": "workspace:*",
@@ -128,6 +130,23 @@
         "@vitest/coverage-istanbul": "catalog:",
         "fast-check": "^4.0.0",
         "happy-dom": "^21.0.4",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/bridge": {
+      "name": "@portifact/bridge",
+      "version": "0.0.0",
+      "dependencies": {
+        "@portifact/anchors": "workspace:*",
+        "@portifact/contracts": "workspace:*",
+        "@portifact/ui": "workspace:*",
+        "zod": "^4.0.0",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "happy-dom": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -607,6 +626,8 @@
     "@portifact/anchors": ["@portifact/anchors@workspace:packages/anchors"],
 
     "@portifact/app": ["@portifact/app@workspace:apps/app"],
+
+    "@portifact/bridge": ["@portifact/bridge@workspace:packages/bridge"],
 
     "@portifact/cli": ["@portifact/cli@workspace:packages/cli"],
 

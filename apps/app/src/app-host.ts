@@ -8,6 +8,7 @@ import type { SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { r2Presigner } from "./api/presign.ts";
 import { reportRoutes } from "./api/reports.ts";
+import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
@@ -45,6 +46,7 @@ export const DASHBOARD_ROUTES = [
   "/artifacts/:artifactId/edit",
   "/artifacts/:artifactId/history",
   "/account",
+  "/review/:artifactId",
 ] as const;
 
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
@@ -86,15 +88,26 @@ function documentStylesheetSource(): Promise<string> {
  * `sandbox` and `srcdoc`, which inherits this policy, so `style-src` allows exactly the
  * renderer's stylesheet by hash. Frames still load nothing from the network.
  */
-export function dashboardPolicy(storage: string, stylesheetSource: string): string {
-  return PAGE_CSP.replace("style-src 'self'", `style-src 'self' ${stylesheetSource}`).replace(
+export function dashboardPolicy(
+  storage: string,
+  stylesheetSource: string,
+  contentDomain: string,
+): string {
+  const policy = PAGE_CSP.replace("style-src 'self'", `style-src 'self' ${stylesheetSource}`).replace(
     "connect-src 'self'",
     `connect-src 'self' ${storage}`,
   );
+  // The review viewer frames artifact origins. Client-side navigation keeps the policy of the
+  // first page, so every dashboard route sends it. The frames are cross-site and sandboxed.
+  return `${policy}; frame-src https://*.${contentDomain}`;
 }
 
-export async function dashboardCsp(env: Pick<Env, "R2_ACCOUNT_ID">): Promise<string> {
-  return dashboardPolicy(storageOrigin(env.R2_ACCOUNT_ID), await documentStylesheetSource());
+export async function dashboardCsp(env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">): Promise<string> {
+  return dashboardPolicy(
+    storageOrigin(env.R2_ACCOUNT_ID),
+    await documentStylesheetSource(),
+    env.CONTENT_DOMAIN,
+  );
 }
 
 export function createAppHost(depsFor: (env: Env) => AuthDeps) {
@@ -205,6 +218,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   );
   app.route("/", reportRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
+  app.route("/", reviewRoutes({ session: accountSessionFor, now: () => Date.now() }));
 
   // Who the token belongs to. Any valid API token works; no scope is needed.
   app.get("/api/v1/me", async (c) => {

@@ -12,4 +12,5 @@ export * from "./moderation.ts";
 export * from "./publish.ts";
 export * from "./read-access.ts";
 export * from "./usage.ts";
+export * from "./review-access.ts";
 export * from "./versions.ts";

@@ -158,6 +158,72 @@ export const readSessions = sqliteTable(
   ],
 );
 
+/**
+ * One-use codes that open review mode (plan section 4, "Modo revisión"): issued by the viewer's
+ * API call on app.portifact.com and redeemed by the viewer's iframe on the artifact origin. Only
+ * the SHA-256 of the code is stored. The code pins one version.
+ */
+export const reviewHandoffs = sqliteTable(
+  "review_handoffs",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The app.portifact.com session that asked for the code; signing out deletes the code. */
+    authSessionId: text("auth_session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    policyGeneration: integer("policy_generation").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    sessionId: text("session_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("review_handoffs_expires_idx").on(t.expiresAt),
+    index("review_handoffs_auth_session_idx").on(t.authSessionId),
+  ],
+);
+
+/**
+ * Review sessions behind the partitioned `__Host-pf_review` cookie of one artifact origin: one
+ * user reading one pinned version inside the viewer. They end with the app session that opened
+ * them, like read sessions.
+ */
+export const reviewSessions = sqliteTable(
+  "review_sessions",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    authSessionId: text("auth_session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("review_sessions_expires_idx").on(t.expiresAt),
+    index("review_sessions_user_idx").on(t.userId),
+    index("review_sessions_artifact_idx").on(t.artifactId),
+    index("review_sessions_auth_session_idx").on(t.authSessionId),
+  ],
+);
+
 /** Immutable published versions. */
 export const versions = sqliteTable(
   "versions",

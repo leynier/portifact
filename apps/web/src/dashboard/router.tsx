@@ -13,6 +13,7 @@ import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
+import { ReviewScreen } from "./screens/review.tsx";
 import { Shell } from "./screens/shell.tsx";
 
 export function createDashboardRouter(history?: RouterHistory) {
@@ -52,6 +53,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/account",
     component: AccountScreen,
   });
+  const review = createRoute({
+    getParentRoute: () => root,
+    path: "/review/$artifactId",
+    component: ReviewScreen,
+  });
   return createRouter({
     routeTree: root.addChildren([
       list,
@@ -61,6 +67,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       edit,
       versionHistory,
       account,
+      review,
     ]),
     ...(history ? { history } : {}),
     scrollRestoration: true,

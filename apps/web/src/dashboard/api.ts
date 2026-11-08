@@ -5,12 +5,18 @@ import {
   AccessPolicyView,
   type AccessUpdate,
   AccountDeletionResult,
+  AnnotationDeleteResult,
+  AnnotationModeView,
+  AnnotationPage,
+  type AnnotationsState,
+  AnnotationThreadView,
   ApiError,
   ArtifactList,
   ArtifactSummary,
   BrowserSessionList,
   CommittedPublish,
   ConnectedAppList,
+  type CreateThreadRequest,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
@@ -21,6 +27,7 @@ import {
   type PublishRequest,
   type RollbackRequest,
   RolledBack,
+  ReviewStart,
   SignOutOthersResult,
   VersionDownload,
   VersionList,
@@ -94,6 +101,33 @@ export interface DashboardApi {
     idempotencyKey: string,
   ): Promise<RolledBack>;
   previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
+  /** A one-use review code and the URL the review viewer's iframe opens with it. */
+  startReview(artifactId: string): Promise<ReviewStart>;
+  /** A page of the current version's threads; with `cursor`, only what changed since. */
+  listAnnotations(artifactId: string, cursor?: string): Promise<AnnotationPage>;
+  createThread(
+    artifactId: string,
+    request: CreateThreadRequest,
+    idempotencyKey: string,
+  ): Promise<AnnotationThreadView>;
+  reply(
+    artifactId: string,
+    threadId: string,
+    body: string,
+    idempotencyKey: string,
+  ): Promise<AnnotationThreadView>;
+  setThreadState(
+    artifactId: string,
+    threadId: string,
+    state: "open" | "resolved",
+  ): Promise<AnnotationThreadView>;
+  moderateMessage(
+    artifactId: string,
+    messageId: string,
+    action: "hide" | "unhide" | "delete",
+  ): Promise<AnnotationDeleteResult>;
+  deleteThread(artifactId: string, threadId: string): Promise<void>;
+  setAnnotationMode(artifactId: string, mode: AnnotationsState): Promise<AnnotationModeView>;
 }
 
 /** The account's data as a JSON download (a plain link: the browser saves the attachment). */
@@ -116,11 +150,14 @@ export interface DashboardApiOptions {
   onUnauthenticated(): void;
 }
 
+const artifactPath = (artifactId: string) => `/api/v1/artifacts/${encodeURIComponent(artifactId)}`;
+const annotationsPath = (artifactId: string) => `${artifactPath(artifactId)}/annotations`;
+
 export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions): DashboardApi {
   const call = async <T>(
     path: string,
     schema: z.ZodType<T>,
-    method: "GET" | "POST" | "PATCH" | "DELETE" = "GET",
+    method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE" = "GET",
     payload?: unknown,
     extraHeaders: Record<string, string> = {},
   ): Promise<T> => {
@@ -274,6 +311,52 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     previewDocument(request) {
       return call("/api/v1/documents/preview", DocumentPreview, "POST", request);
+    startReview(artifactId) {
+      return call(`${artifactPath(artifactId)}/review`, ReviewStart, "POST");
+    },
+    listAnnotations(artifactId, cursor) {
+      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+      return call(`${annotationsPath(artifactId)}${query}`, AnnotationPage);
+    },
+    createThread(artifactId, request, idempotencyKey) {
+      return call(`${annotationsPath(artifactId)}/threads`, AnnotationThreadView, "POST", request, {
+        "idempotency-key": idempotencyKey,
+      });
+    },
+    reply(artifactId, threadId, body, idempotencyKey) {
+      return call(
+        `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/messages`,
+        AnnotationThreadView,
+        "POST",
+        { body },
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    setThreadState(artifactId, threadId, state) {
+      const action = state === "resolved" ? "resolve" : "reopen";
+      return call(
+        `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/${action}`,
+        AnnotationThreadView,
+        "POST",
+      );
+    },
+    moderateMessage(artifactId, messageId, action) {
+      return call(
+        `${annotationsPath(artifactId)}/messages/${encodeURIComponent(messageId)}/moderation`,
+        AnnotationDeleteResult,
+        "POST",
+        { action },
+      );
+    },
+    async deleteThread(artifactId, threadId) {
+      await call(
+        `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}`,
+        z.unknown(),
+        "DELETE",
+      );
+    },
+    setAnnotationMode(artifactId, mode) {
+      return call(`${annotationsPath(artifactId)}/mode`, AnnotationModeView, "PUT", { mode });
     },
   };
 }

@@ -12,6 +12,7 @@ import {
 } from "@portifact/db";
 import { effectiveState, isArtifactId, normalizePath } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
+import { BRIDGE_PATH, bridgeScript, cspNonce, injectBridge, reviewStatusPage } from "./inject.ts";
 import {
   authorizeRead,
   CALLBACK_PATH,
@@ -20,6 +21,14 @@ import {
   type ServableArtifact,
   type SignInStep,
 } from "./read-session.ts";
+import {
+  authorizeReview,
+  handleReviewCheck,
+  handleReviewExchange,
+  REVIEW_CHECK_PATH,
+  REVIEW_PATH,
+  type ReviewStep,
+} from "./review.ts";
 
 export interface Env {
   DB: D1Database;
@@ -89,9 +98,24 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   if (url.pathname === CALLBACK_PATH) {
     return decisionResponse(await handleCallback(request, env, db, id, now));
   }
+  if (url.pathname === REVIEW_PATH) {
+    return reviewStepResponse(await handleReviewExchange(request, env, db, id, now), env);
+  }
+  if (url.pathname === REVIEW_CHECK_PATH) {
+    return reviewStepResponse(await handleReviewCheck(request, env, id, now), env);
+  }
+  if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
 
   const found = await findDeliveryArtifact(db, id);
   const artifact = found && isServable(found, now) ? found : null;
+  // Review mode first: the viewer's iframe reads the pinned version with the bridge.
+  const review = await authorizeReview(request, env, db, id, artifact, now);
+  if (review.kind === "review") {
+    return serve(request, env, db, review.artifact, url, review.setCookies, review.versionId);
+  }
+  if (review.kind === "status") {
+    return reviewStatusPage(review.status, review.httpStatus, env.APP_ORIGIN, review.setCookies);
+  }
   if (artifact?.accessMode === "public") return serve(request, env, db, artifact, url, []);
   // Protected, unknown or not servable (in any mode): all go through sign-in, so an anonymous
   // visitor cannot tell an archived or expired artifact from one that never existed.
@@ -100,6 +124,10 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   return serve(request, env, db, decision.artifact, url, decision.setCookies);
 }
 
+/**
+ * Serves a file of the artifact's current version, or in review mode (`reviewVersionId`) of the
+ * pinned version, with the bridge appended to its HTML.
+ */
 async function serve(
   request: Request,
   env: Env,
@@ -107,26 +135,38 @@ async function serve(
   artifact: ServableArtifact,
   url: URL,
   setCookies: string[],
+  reviewVersionId?: string,
 ): Promise<Response> {
-  const resolved = await resolveFile(db, artifact, url.pathname);
+  const review = reviewVersionId !== undefined;
+  const resolved = await resolveFile(
+    db,
+    artifact,
+    reviewVersionId ?? artifact.currentVersionId,
+    url.pathname,
+  );
   if (resolved === "unrendered") {
     return withCookies(message(503, PAGES.fileUnavailable), setCookies);
   }
   if (!resolved) return withCookies(notFound(), setCookies);
   const { file, role } = resolved;
 
-  const headers = contentHeaders(artifact, env);
+  const headers = contentHeaders(artifact, env, review);
   for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
   headers.set("Content-Type", file.contentType);
+  const inject = review && role !== "original" && file.contentType.startsWith("text/html");
+  const nonce = inject && role === "page" ? cspNonce() : undefined;
   if (role === "page") {
     // The page carries this policy as a <meta> too; the header also covers what a meta cannot.
+    // In review mode the meta is dropped and the header allows the bridge by its nonce.
+    const scripts = nonce === undefined ? "" : `; script-src 'nonce-${nonce}'`;
     headers.set(
       "Content-Security-Policy",
-      `${documentPolicy(false)}; ${headers.get("Content-Security-Policy")}`,
+      `${documentPolicy(false)}${scripts}; ${headers.get("Content-Security-Policy")}`,
     );
   } else if (role === "original") {
     headers.set("Content-Disposition", attachment(file.path));
   }
+  if (inject) return serveWithBridge(request, env, file, headers, nonce);
   headers.set("ETag", `"${file.sha256}"`);
   headers.set("Accept-Ranges", "bytes");
 
@@ -151,6 +191,22 @@ async function serve(
   return new Response(object.body, { status: 200, headers });
 }
 
+/** Review-mode HTML: rewritten on the way out, so never cached, ranged or validated by ETag. */
+async function serveWithBridge(
+  request: Request,
+  env: Env,
+  file: DeliveryFile,
+  headers: Headers,
+  nonce: string | undefined,
+): Promise<Response> {
+  headers.set("Cache-Control", "private, no-store");
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+  const object = await env.ARTIFACTS.get(file.r2Key);
+  if (!object) return message(503, PAGES.fileUnavailable);
+  const response = new Response(object.body, { status: 200, headers });
+  return injectBridge(response, { appOrigin: env.APP_ORIGIN, path: file.path, nonce });
+}
+
 type Resolved = { file: DeliveryFile; role: "file" | "page" | "original" };
 
 /**
@@ -160,9 +216,9 @@ type Resolved = { file: DeliveryFile; role: "file" | "page" | "original" };
 async function resolveFile(
   db: Db,
   artifact: ServableArtifact,
+  versionId: string,
   pathname: string,
 ): Promise<Resolved | "unrendered" | null> {
-  const versionId = artifact.currentVersionId;
   const isDocument = artifact.type !== "site" && artifact.entrypoint !== null;
   if (isDocument && pathname === "/") {
     const page = await findRenderedPage(db, versionId, artifact.entrypoint as string);
@@ -242,10 +298,12 @@ function hasExtension(path: string): boolean {
 /**
  * Headers every artifact response carries; user content cannot override them. Protected
  * responses are `same-origin` for CORP, so a sibling artifact cannot load them as scripts,
- * images or styles even when the browser sends the read cookie along.
+ * images or styles even when the browser sends the read cookie along. Review responses are
+ * treated as protected whatever the access mode: only the viewer and the artifact itself may
+ * frame them, and no other origin may load them.
  */
-function contentHeaders(artifact: DeliveryArtifact, env: Env): Headers {
-  const isPublic = artifact.accessMode === "public";
+function contentHeaders(artifact: DeliveryArtifact, env: Env, review: boolean): Headers {
+  const isPublic = artifact.accessMode === "public" && !review;
   const embeddable = isPublic && artifact.embeddable;
   const headers = new Headers({
     "X-Content-Type-Options": "nosniff",
@@ -271,6 +329,24 @@ function notFound(): Response {
 function withCookies(response: Response, setCookies: string[]): Response {
   for (const cookie of setCookies) response.headers.append("Set-Cookie", cookie);
   return response;
+}
+
+/** Answers of the reserved review paths: redirects within the origin, or a status page. */
+function reviewStepResponse(step: ReviewStep, env: Env): Response {
+  if (step.kind === "unavailable") return message(503, PAGES.unavailable);
+  if (step.kind === "status") {
+    return reviewStatusPage(step.status, step.httpStatus, env.APP_ORIGIN, step.setCookies);
+  }
+  const response = new Response(null, {
+    status: 303,
+    headers: {
+      Location: step.location,
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+      "Cross-Origin-Resource-Policy": "same-origin",
+    },
+  });
+  return withCookies(response, step.setCookies);
 }
 
 /** Sign-in redirects and pages: never cached and never leaking the URL through Referer. */

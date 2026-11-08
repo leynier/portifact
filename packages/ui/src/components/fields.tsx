@@ -9,6 +9,7 @@ import {
 } from "react";
 
 type NativeInput = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "id" | "type">;
+type NativeTextArea = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className" | "id">;
 
 /** IDs of the hint and error under a control, for `aria-describedby`. */
 function describedBy(...ids: (string | false | undefined)[]): string | undefined {

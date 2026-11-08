@@ -34,7 +34,7 @@ Motion tokens and utilities live in `packages/ui/src/tokens/theme.css`: `animate
 
 The landing hero types its second line with `apps/web/src/typewriter.ts`: one pass through the phrases, then it settles on the first and the caret fades, so nothing keeps moving. The `h1` keeps a visually hidden, complete sentence for assistive technology and marks the animated part `aria-hidden`; invisible copies of every phrase share one grid cell so the line never changes height. Under reduced motion the script does nothing and the caret (`typing-caret`, a block sized in `em` and colored with a token utility such as `bg-text`) is hidden.
 
-The `current:` variant styles the link to the page being shown (`aria-current="page"`), such as the active navigation item; use it instead of an arbitrary `aria-[...]` variant.
+The `current:` variant styles the link to the page being shown (`aria-current="page"`), such as the active navigation item, and `current-item:` the item a list points at (`aria-current="true"`), such as the selected thread in the review viewer; use them instead of an arbitrary `aria-[...]` variant.
 
 Pattern utilities (`bg-dot-grid`, `bg-hatch`, `bg-highlight` for a selection-style text highlight on `mark`, `marker-none` for custom `summary` disclosures, `progress-bar` for the native `progress` element and `typing-caret`) and the `shadow-sm` and `shadow-float` elevations are defined there too. Tailwind's default shadows are removed.
 

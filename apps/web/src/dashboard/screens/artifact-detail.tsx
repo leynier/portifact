@@ -18,6 +18,7 @@ import {
   CircleAlert,
   FilePen,
   History,
+  MessageSquareText,
   RefreshCw,
   Trash2,
   Upload,
@@ -152,6 +153,18 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   return (
     <>
       <PageHeader title={artifact.name} description={<StateBadge state={artifact.state} />} />
+      {artifact.state === "active" ? (
+        <p className="mb-6">
+          <Link
+            to="/review/$artifactId"
+            params={{ artifactId: artifact.id }}
+            className={buttonClasses({ intent: "secondary" })}
+          >
+            <MessageSquareText aria-hidden="true" className="size-4" />
+            {t("review.open")}
+          </Link>
+        </p>
+      ) : null}
 
       {artifact.suspension ? (
         <div className="mb-8">
