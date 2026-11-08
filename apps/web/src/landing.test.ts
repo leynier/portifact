@@ -96,9 +96,10 @@ describe("landing page", () => {
     }
     const names = items.map((item) => item.replace(/<[^>]+>/g, "").trim());
     expect(names).toEqual(expect.arrayContaining(["Claude Code", "Codex", "Cursor", "Gemini CLI"]));
-    expect(strip?.[1]).toMatch(/installer and the agent skill work/);
-    expect(strip?.[1]).toMatch(/MCP is in development/);
+    expect(strip?.[1]).toMatch(/CLI and the agent skill work/);
     expect(strip?.[1]).toMatch(/OAuth/);
+    expect(strip?.[1]).toContain('href="/mcp-compatibility"');
+    expect(strip?.[1]).not.toMatch(/in development/i);
     expect(html).not.toMatch(/\b(?:fill|stroke)="#/);
   });
 
@@ -121,6 +122,62 @@ describe("landing page", () => {
     expect(star).toMatch(/<svg\b[^>]*aria-hidden="true"/);
     expect(star).toMatch(/>Star on GitHub</);
     expect(star).not.toMatch(/class="[^"]*\bhidden\b/);
+  });
+
+  it("describes shipped features as available and keeps only unshipped ones as planned", () => {
+    expect(html).not.toMatch(
+      /in development|upcoming releases|planned interface|arrive in the next/i,
+    );
+    const status = /<div id="status"[\s\S]*?<\/ul>/.exec(html)?.[0] ?? "";
+    const rows = [...status.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/g)].map((match) =>
+      (match[1] ?? "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    const available = rows.filter((row) => row.endsWith("Available"));
+    const planned = rows.filter((row) => row.endsWith("Planned"));
+    expect(available.length + planned.length).toBe(rows.length);
+    for (const feature of [
+      "Publish HTML sites, Markdown and text",
+      "Access control",
+      "Archive and restore",
+      "Annotations and review",
+      "MCP server",
+      "Web dashboard",
+    ]) {
+      expect(available).toContain(`${feature} Available`);
+    }
+    expect(planned).toEqual(["Access logs for your artifacts Planned"]);
+    const pills = [
+      ...html.matchAll(/role="tabpanel"[\s\S]*?<p\b[^>]*rounded-full[^>]*>([\s\S]*?)<\/p>/g),
+    ];
+    expect(pills).toHaveLength(3);
+    for (const pill of pills)
+      expect((pill[1] ?? "").replace(/<[^>]+>/g, "").trim()).toBe("Available");
+  });
+
+  it("explains how to connect the MCP server and links the compatibility page", () => {
+    const connect = /<div id="connect-mcp"[\s\S]*?<\/div>\s*<div\b/.exec(html)?.[0] ?? "";
+    expect(connect).toContain('<code id="mcp-url">https://app.portifact.com/mcp</code>');
+    expect(connect).toContain('data-copy-target="mcp-url"');
+    expect(connect).toMatch(/sign in with your Portifact account/);
+    expect(connect).toContain('href="/mcp-compatibility"');
+    const mcpPanel = /<div role="tabpanel" id="panel-mcp"[\s\S]*?<!-- Dashboard panel -->/.exec(
+      html,
+    )?.[0];
+    expect(mcpPanel).toContain("https://app.portifact.com/mcp");
+    expect(mcpPanel).toContain('href="/mcp-compatibility"');
+  });
+
+  it("points to the dashboard sign-in outside the top bar too", () => {
+    const install = /<section id="install"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    expect(install).toMatch(
+      /<a href="https:\/\/app\.portifact\.com\/"[^>]*>Sign in to the dashboard<\/a>/,
+    );
+    const cta =
+      /<section\b[^>]*aria-labelledby="cta-title"[\s\S]*?<\/section>/.exec(html)?.[0] ?? "";
+    expect(cta).toContain('href="https://app.portifact.com/"');
   });
 
   it("labels every copy button with an existing target", () => {
