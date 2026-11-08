@@ -75,7 +75,7 @@ async function signInAs(h: Harness, email: string, userAgent: string): Promise<s
   const otp = codeFrom(h.outbox.findLast((message) => message.to === email));
   const signedIn = await h.request(
     "/api/auth/sign-in/email-otp",
-    json({ email, otp }, { "user-agent": userAgent, cookie: await h.acceptTerms() }),
+    json({ email, otp }, { "user-agent": userAgent, cookie: await h.beforeSignIn() }),
   );
   return cookieHeader(signedIn);
 }

@@ -1,7 +1,9 @@
 import "../main.css";
+import { HUMAN_CHECK_ACTIONS } from "@portifact/contracts/human-check";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { loginUrl } from "../auth/query.ts";
+import { turnstileWidget } from "../human-check/turnstile.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
 import { createI18n } from "./i18n/i18n.ts";
@@ -22,6 +24,7 @@ const env = {
   manifests: workerBuilder(),
   storage: xhrTransport,
   save: saveFile,
+  humanCheck: turnstileWidget(document, HUMAN_CHECK_ACTIONS.comment),
 };
 
 const root = document.getElementById("root");

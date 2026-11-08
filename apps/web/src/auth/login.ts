@@ -1,8 +1,12 @@
 // The login page: Google, GitHub or an email code. When an OAuth client sent the user here,
 // the signed authorization request goes back with the sign-in, and Better Auth continues to
 // the consent page. Every method first records that the user accepts the terms and is 18 or
-// older; the Worker refuses to create an account or a session without it (docs/legal.md).
+// older; the Worker refuses to create an account or a session without it (docs/legal.md). New
+// accounts also need a solved human check: the page renders it and sends its token before a
+// sign-in; existing accounts sign in without it (docs/security.md, "Human check").
+import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
+import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { type Api, currentUser, field, type PageLocation } from "./api.ts";
 import { announce, byId, hideSummary, setFieldError, showSummary, whileBusy } from "./dom.ts";
 import { messages } from "./messages.ts";
@@ -13,6 +17,8 @@ export interface PageEnv {
   location: PageLocation;
   /** This page's origin, for example https://app.portifact.com. */
   origin: string;
+  /** The human check of new accounts; null or absent when the page has no site key. */
+  humanCheck?: HumanCheckWidget | null;
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -55,6 +61,36 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
 
   const acceptTerms = () => api.post("/accept-terms", ACCEPTANCE);
 
+  // The latest solved challenge. It is sent once, then the widget starts a fresh one.
+  let humanToken: string | undefined;
+  let removeWidget: (() => void) | undefined;
+  const humanBox = byId(doc, "human-check");
+  const renderWidget = () => {
+    removeWidget?.();
+    humanToken = undefined;
+    removeWidget = env.humanCheck?.render(byId(doc, "human-check-widget"), {
+      onToken: (token) => {
+        humanToken = token;
+      },
+      onReset: () => {
+        humanToken = undefined;
+      },
+    });
+  };
+  /**
+   * Accepts the terms, then hands a solved check to the Worker, which keeps it in a cookie for
+   * the sign-in. Existing accounts do not need it, so a missing or refused check never stops a
+   * sign-in here; the Worker refuses only a new account without one.
+   */
+  const beforeSignIn = async () => {
+    const accepted = await acceptTerms();
+    if (accepted.status !== 200 || humanToken === undefined) return accepted;
+    const token = humanToken;
+    renderWidget();
+    await api.post("/verify-human", { token });
+    return accepted;
+  };
+
   const withQuery = (body: Record<string, unknown>) =>
     oauthQuery ? { ...body, oauth_query: oauthQuery } : body;
 
@@ -73,7 +109,7 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
       hideSummary(summary);
       if (!termsChecked(termsBox, termsError)) return;
       const response = await whileBusy(button, async () => {
-        const accepted = await acceptTerms();
+        const accepted = await beforeSignIn();
         if (accepted.status !== 200) return accepted;
         return api.post(
           "/sign-in/social",
@@ -98,7 +134,7 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const sendCode = async (button: HTMLButtonElement): Promise<boolean> => {
     // The acceptance is renewed with every code, so it outlives the code it goes with.
     const response = await whileBusy(button, async () => {
-      const accepted = await acceptTerms();
+      const accepted = await beforeSignIn();
       if (accepted.status !== 200) return accepted;
       return api.post("/email-otp/send-verification-otp", { email, type: "sign-in" });
     });
@@ -149,8 +185,9 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
       location.assign(field(response.body, "url") ?? afterSignIn);
       return;
     }
-    if (field(response.body, "code") === TERMS_NOT_ACCEPTED) {
-      showSummary(summary, messages.providerErrors[TERMS_NOT_ACCEPTED] ?? messages.termsRequired);
+    const refusal = field(response.body, "code");
+    if (refusal === TERMS_NOT_ACCEPTED || refusal === HUMAN_VERIFICATION_REQUIRED) {
+      showSummary(summary, messages.providerErrors[refusal] ?? messages.termsRequired);
       return;
     }
     if (response.status === 400 || response.status === 403) {
@@ -206,6 +243,10 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     return;
   }
   signIn.hidden = false;
+  if (env.humanCheck) {
+    humanBox.hidden = false;
+    renderWidget();
+  }
 }
 
 interface TermsUpdate {

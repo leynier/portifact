@@ -13,6 +13,7 @@ import {
   createAnnotationThread,
   deleteOwnAnnotationMessage,
   eraseAuthorFromThread,
+  type HumanCheck,
   replyToAnnotationThread,
   setAnnotationMode,
 } from "../src/annotations.ts";
@@ -52,6 +53,9 @@ async function shared(ownerId: string, readers: { email: string }[]) {
   return published;
 }
 
+/** A solved human check, so visitors' first comments go through. */
+const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
+
 let clock = NOW;
 /** Distinct times keep message order and the per-minute rate limits apart. */
 const tick = () => {
@@ -61,6 +65,7 @@ const tick = () => {
 
 async function thread(artifactId: string, versionId: string, userId: string, body: string) {
   const result = await createAnnotationThread(db(), {
+    humanCheck: HUMAN,
     userId,
     artifactId,
     versionId,
@@ -74,6 +79,7 @@ async function thread(artifactId: string, versionId: string, userId: string, bod
 
 async function reply(artifactId: string, threadId: string, userId: string, body: string) {
   const result = await replyToAnnotationThread(db(), {
+    humanCheck: HUMAN,
     userId,
     artifactId,
     threadId,

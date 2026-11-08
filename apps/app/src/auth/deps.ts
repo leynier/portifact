@@ -9,6 +9,8 @@ export interface AuthDeps {
   email: EmailSender;
   /** Fetches Client ID Metadata Documents for MCP clients that use a URL as client_id. */
   fetchClientMetadata: FetchLike;
+  /** Calls Turnstile's siteverify endpoint (../turnstile.ts). Never log what it sends. */
+  siteverify: FetchLike;
 }
 
 // Fetch transport for Client ID Metadata Documents on Workers. The Worker runs with the
@@ -33,5 +35,6 @@ export function workerDeps(env: Env): AuthDeps {
   return {
     email: cloudflareEmailSender(env.EMAIL),
     fetchClientMetadata: createClientMetadataFetch((input, init) => fetch(input, init)),
+    siteverify: (input, init) => fetch(input, init),
   };
 }

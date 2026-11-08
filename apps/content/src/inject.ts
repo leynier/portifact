@@ -54,6 +54,13 @@ export function injectBridge(response: Response, options: InjectOptions): Respon
         if (name === "content-security-policy") element.remove();
       },
     });
+    // The page's own report link would navigate the frame away from the review; the viewer
+    // shows its own.
+    rewriter.on("[data-portifact-chrome]", {
+      element(element) {
+        element.remove();
+      },
+    });
     rewriter.on('meta[name="generator"]', {
       element(element) {
         const match = /^portifact-render ([0-9A-Za-z.+-]{1,32})$/.exec(

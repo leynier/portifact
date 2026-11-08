@@ -7,6 +7,7 @@ import type { AnnotationTarget, ReviewStart } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { BRIDGE_TIMEOUT_MS } from "./review/use-bridge.ts";
 import { FRAME_SANDBOX, REVIEW_TAB_LINK_MS } from "./screens/review.tsx";
 import {
@@ -673,5 +674,135 @@ describe("review states", () => {
     renderDashboard(`/artifacts/${ID}`, server);
     const link = await screen.findByRole("link", { name: "Review and comment" });
     expect(link.getAttribute("href")).toBe(PATH);
+  });
+
+  describe("human check of a visitor's first comments", () => {
+    /** A widget that records its instances and lets the test solve them. */
+    function fakeWidget() {
+      const instances: { solve(token: string): void; reset(): void; removed: boolean }[] = [];
+      const widget: HumanCheckWidget = {
+        render(container, callbacks) {
+          const marker = document.createElement("p");
+          marker.textContent = "Turnstile challenge";
+          container.append(marker);
+          const instance = { solve: callbacks.onToken, reset: callbacks.onReset, removed: false };
+          instances.push(instance);
+          return () => {
+            instance.removed = true;
+            marker.remove();
+          };
+        },
+      };
+      return { widget, instances };
+    }
+
+    function asVisitor(checks: number) {
+      const store = server.annotations[ID];
+      if (!store) throw new Error("missing");
+      store.role = "participant";
+      store.humanChecks = checks;
+    }
+
+    async function writeComment(text: string) {
+      fireEvent.click(screen.getByRole("button", { name: "Comment on the page" }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Comment" }), {
+        target: { value: text },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+    }
+
+    const threadKeys = () =>
+      server.idempotencyKeys.filter((k) => k.path.endsWith("/threads")).map((k) => k.key);
+
+    it("shows the check when the API asks for it, then posts with the token and a new key", async () => {
+      asVisitor(1);
+      const fake = fakeWidget();
+      const { container } = renderDashboard(PATH, server, { humanCheck: fake.widget });
+      await screen.findByRole("heading", { name: "Thread 1" });
+      await writeComment("First note");
+      const group = await screen.findByRole("group", { name: "Confirm you are human" });
+      expect(within(group).getByText("Turnstile challenge")).toBeTruthy();
+      expect(screen.getByText(/need a quick check that you are human/)).toBeTruthy();
+      expect(fake.instances).toHaveLength(1);
+
+      // Posting before solving it says what is missing and sends nothing.
+      const sentBefore = server.requests.length;
+      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+      expect(await within(group).findByRole("alert")).toBeTruthy();
+      expect(server.requests.length).toBe(sentBefore);
+
+      act(() => fake.instances[0]?.solve("solved-1"));
+      await waitFor(() => expect(within(group).queryByRole("alert")).toBeNull());
+      Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+      expect(await axeViolations(container)).toEqual([]);
+      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+      await screen.findByText("3 comment threads");
+      expect(server.bodies.at(-1)).toMatchObject({
+        body: "First note",
+        turnstileToken: "solved-1",
+      });
+      const [refused, accepted] = threadKeys();
+      expect(refused).toMatch(/^[0-9a-f-]{36}$/);
+      expect(accepted).toMatch(/^[0-9a-f-]{36}$/);
+      expect(accepted).not.toBe(refused);
+      expect(fake.instances[0]?.removed).toBe(true);
+    });
+
+    it("offers a fresh challenge when a solved token is refused or expires", async () => {
+      asVisitor(1);
+      const fake = fakeWidget();
+      renderDashboard(PATH, server, { humanCheck: fake.widget });
+      await screen.findByRole("heading", { name: "Thread 1" });
+      await writeComment("First note");
+      await screen.findByRole("group", { name: "Confirm you are human" });
+      act(() => fake.instances[0]?.solve("rejected-token"));
+      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+      await waitFor(() => expect(fake.instances).toHaveLength(2));
+      expect(fake.instances[0]?.removed).toBe(true);
+      expect(server.bodies.at(-1)).toMatchObject({ turnstileToken: "rejected-token" });
+
+      act(() => {
+        fake.instances[1]?.solve("solved-2");
+        fake.instances[1]?.reset();
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+      expect(await screen.findByText("Complete the check first, then post again.")).toBeTruthy();
+    });
+
+    it("sends the token with a reply too, and says when the check cannot load", async () => {
+      asVisitor(1);
+      renderDashboard(PATH, server, { humanCheck: null });
+      const thread = await screen.findByRole("article", { name: "Thread 1" });
+      fireEvent.click(within(thread).getByRole("button", { name: "Reply" }));
+      const form = within(thread).getByRole("form", { name: "Reply to thread 1" });
+      fireEvent.change(within(form).getByRole("textbox", { name: "Reply" }), {
+        target: { value: "Agreed" },
+      });
+      fireEvent.click(within(form).getByRole("button", { name: "Post reply" }));
+      const group = await within(form).findByRole("group", { name: "Confirm you are human" });
+      expect(within(group).getByText(/could not load/)).toBeTruthy();
+    });
+
+    it("posts a visitor's later comments without any check", async () => {
+      asVisitor(0);
+      const fake = fakeWidget();
+      renderDashboard(PATH, server, { humanCheck: fake.widget });
+      await screen.findByRole("heading", { name: "Thread 1" });
+      await writeComment("Later note");
+      await screen.findByText("3 comment threads");
+      expect(fake.instances).toEqual([]);
+      expect(server.bodies.at(-1)).not.toHaveProperty("turnstileToken");
+    });
+  });
+
+  it("links a visitor to the report form with the artifact filled in, never the owner", async () => {
+    await open();
+    expect(screen.queryByRole("link", { name: "Report this artifact" })).toBeNull();
+    cleanup();
+    const store = server.annotations[ID];
+    if (store) store.role = "participant";
+    await open();
+    const link = screen.getByRole("link", { name: "Report this artifact" });
+    expect(link.getAttribute("href")).toBe(`/report?artifact=${ID}`);
   });
 });

@@ -175,5 +175,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   traffic_exceeded: 429,
   rate_limited: 429,
   reauthentication_required: 403,
+  human_verification_required: 403,
   capacity_unavailable: 503,
 };

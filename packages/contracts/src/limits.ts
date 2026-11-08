@@ -57,4 +57,9 @@ export const ANNOTATION_LIMITS = {
   artifactWritesPer24h: 1_000,
   pageDefault: 25,
   pageMax: 50,
+  /**
+   * An account's first comments (threads and replies) on artifacts it does not own need a solved
+   * human check (plan section 13), so they can only be posted from the review viewer.
+   */
+  humanCheckedComments: 3,
 } as const;

@@ -1,5 +1,9 @@
 import { env } from "cloudflare:workers";
-import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts";
+import {
+  HUMAN_VERIFICATION_REQUIRED,
+  TERMS_NOT_ACCEPTED,
+  TERMS_VERSION,
+} from "@portifact/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerMcpClient, startAuthorization } from "./flows.ts";
 import {
@@ -93,15 +97,16 @@ async function startSocial(h: Harness, provider: "google" | "github", body: obje
 
 /**
  * The provider sends the browser back to the callback with a code and the state. Like the login
- * page, it accepts the terms first unless `acceptTerms` is false.
+ * page, it accepts the terms and solves the human check first, unless `before` says it only
+ * accepts the terms (`"terms"`) or does neither (`false`).
  */
 async function finishSocial(
   h: Harness,
   provider: "google" | "github",
   body: object = {},
-  acceptTerms = true,
+  before: boolean | "terms" = true,
 ) {
-  const terms = acceptTerms ? await h.acceptTerms() : "";
+  const terms = before === "terms" ? await h.acceptTerms() : before ? await h.beforeSignIn() : "";
   const { providerUrl, cookie } = await startSocial(h, provider, body);
   const state = providerUrl.searchParams.get("state") ?? "";
   // The browser follows the provider's redirect as a top-level navigation.
@@ -358,6 +363,43 @@ describe("sign-in methods of the signed-in account", () => {
   it("requires a session to list providers", async () => {
     const h = createHarness();
     expect((await h.request("/api/auth/list-accounts")).status).toBe(401);
+  });
+});
+
+describe("human check with a provider", () => {
+  it("refuses a Google or GitHub sign-up without a solved check, and creates no account", async () => {
+    const h = createHarness();
+    fakeProviders({ sub: "google-human-1", email: "g-human@example.test", email_verified: true });
+    const google = await finishSocial(h, "google", {}, "terms");
+    expect(errorOf(google)).toBe(HUMAN_VERIFICATION_REQUIRED);
+    expect(new URL(google.headers.get("location") ?? "", ORIGIN).pathname).toBe("/login");
+    expect(google.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(
+      false,
+    );
+    expect(await usersWithEmail("g-human@example.test")).toEqual([]);
+
+    fakeProviders(undefined, {
+      id: 9201,
+      login: "user-9201",
+      email: "gh-human@example.test",
+      emails: [{ email: "gh-human@example.test", primary: true, verified: true }],
+    });
+    expect(errorOf(await finishSocial(h, "github", {}, "terms"))).toBe(HUMAN_VERIFICATION_REQUIRED);
+    expect(await usersWithEmail("gh-human@example.test")).toEqual([]);
+  });
+
+  it("signs an existing provider account in without a check, and clears a spent one", async () => {
+    const h = createHarness();
+    fakeProviders({ sub: "google-human-2", email: "g-back@example.test", email_verified: true });
+    const created = await finishSocial(h, "google");
+    expect(errorOf(created)).toBeNull();
+    // The check was used to create the account: the browser is told to drop it.
+    expect(created.headers.getSetCookie()).toContainEqual(
+      expect.stringMatching(/^__Host-pf_human=;.*Max-Age=0/i),
+    );
+    const again = await finishSocial(h, "google", {}, "terms");
+    expect(errorOf(again)).toBeNull();
+    expect(again.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(true);
   });
 });
 
