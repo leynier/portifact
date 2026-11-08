@@ -3,7 +3,7 @@
 // private sources through short-lived links, and roll back to a retained version.
 import { z } from "zod";
 import { ArtifactId } from "./core.ts";
-import { CommittedPublish, IdempotencyKey, Sha256Hex } from "./publishing.ts";
+import { CommittedPublish, IdempotencyKey, Sha256Hex, SourceOrigin } from "./publishing.ts";
 
 /** A version ID as the API returns it, or `current` for the artifact's current version. */
 export const VersionRef = z
@@ -30,6 +30,8 @@ export const VersionSummary = z.object({
   committedAt: z.iso.datetime(),
   /** When a previous version stops being retained; `null` for the current version. */
   expiresAt: z.iso.datetime().nullable(),
+  /** Git origin of the sources, when the publisher declared one. Only the owner reads versions. */
+  sourceOrigin: SourceOrigin.nullable().default(null),
 });
 export type VersionSummary = z.infer<typeof VersionSummary>;
 

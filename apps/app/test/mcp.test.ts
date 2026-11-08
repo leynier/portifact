@@ -23,6 +23,7 @@ const TOOLS = [
   "delete_artifact",
   "get_artifact",
   "get_download",
+  "get_usage",
   "get_version",
   "list_artifacts",
   "list_versions",
@@ -69,7 +70,7 @@ describe("the MCP endpoint", () => {
     expect(byName.get("get_artifact")?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get("delete_artifact")?.annotations?.destructiveHint).toBe(true);
     expect(byName.get("delete_artifact")?.inputSchema.required).toEqual(["artifactId", "confirm"]);
-    for (const name of ["list_versions", "get_version", "get_download"]) {
+    for (const name of ["list_versions", "get_version", "get_download", "get_usage"]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
     }
     expect(byName.get("rollback_artifact")?.annotations).toMatchObject({

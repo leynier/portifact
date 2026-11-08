@@ -43,8 +43,25 @@ export const messages = {
   manifestLine: (path: string, size: number) => `  ${path}  ${formatBytes(size)}`,
   excludedHeader: (count: number) =>
     `Left out ${count} ${plural(count, "entry", "entries")} by default:`,
-  excludedLine: (path: string, reason: "default" | "secret") =>
-    `  ${path}  (${reason === "secret" ? "may hold secrets" : "not published by default"})`,
+  excludedLine: (path: string, reason: "default" | "secret" | "submodule") =>
+    `  ${path}  (${reason === "secret" ? "may hold secrets" : reason === "submodule" ? "git submodule or nested repository" : "not published by default"})`,
+  sourcesHeader: (count: number, bytes: number, chosenBy: "git" | "folder") =>
+    `${count} private source ${plural(count, "file", "files")} (${formatBytes(bytes)}) to attach${chosenBy === "git" ? ", chosen by git" : ""}. Only you can see or download them:`,
+  sourceOrigin: (origin: {
+    commit: string | null;
+    branch: string | null;
+    remote: string | null;
+    dirty: boolean;
+  }) =>
+    [
+      `Source origin: ${origin.commit === null ? "no commit yet" : `commit ${origin.commit.slice(0, 12)}`}`,
+      origin.branch === null ? "" : ` on ${origin.branch}`,
+      origin.remote === null ? "" : ` from ${origin.remote}`,
+      origin.dirty ? ", with uncommitted changes" : "",
+      ".",
+    ].join(""),
+  lfsPointers: (paths: readonly string[]) =>
+    `Warning: ${paths.length} source ${plural(paths.length, "file is a Git LFS pointer", "files are Git LFS pointers")}, not the content itself: ${paths.slice(0, 5).join(", ")}${paths.length > 5 ? ", ..." : ""}. Run \`git lfs pull\` first to attach the content.`,
   dryRun: "Dry run: nothing was uploaded.",
   prepared: (version: number, count: number, total: number, bytes: number) =>
     count === 0
@@ -89,6 +106,13 @@ export const messages = {
       `Expires: ${formatDate(expiresAt)}`,
     ].join("\n"),
   downloaded: (done: number, total: number) => `Downloaded ${done} of ${total}.`,
+  usage: (lines: readonly [string, string][]) =>
+    lines.map(([label, value]) => `${label.padEnd(30)} ${value}`).join("\n"),
+  usageMeter: (used: string, limit: string) => `${used} of ${limit}`,
+  usageNoBlocks: "Nothing blocks your account.",
+  usageBlocksHeader: "Blocked now:",
+  usageBlock: (message: string, until: string | null) =>
+    `  ${message}${until === null ? "" : ` Lifts ${formatDate(until)}.`}`,
   pulled: (count: number, bytes: number, version: number, id: string, out: string) =>
     `Downloaded ${count} ${plural(count, "file", "files")} (${formatBytes(bytes)}) of version ${version} of ${id} into ${out}.`,
 
@@ -135,6 +159,26 @@ export const messages = {
     missingEntry: (path: string) =>
       `The entry page ${path} is not among the files to publish. Pass --entry with the page to open first.`,
     tooManyFiles: (max: number) => `A version can hold at most ${max} files.`,
+    tooManyFilesWithSources: (max: number) =>
+      `A version can hold at most ${max} files, published and sources together.`,
+    zipNeedsSite: (type: string) =>
+      `A ZIP file can only be published as a site, not as ${type}. Publish the ${type} file itself.`,
+    zipRefused: (path: string, detail: string) =>
+      `${path} cannot be expanded safely: ${detail}. Nothing was published.`,
+    zipTooManyEntries: (path: string, max: number) =>
+      `${path} has more than ${max} entries, more than Portifact expands.`,
+    assetsNeedMarkdown: "--assets works only with Markdown documents.",
+    assetsNotFolder: (path: string) => `${path} is not a folder. Pass the folder of assets.`,
+    assetsOutside: (path: string) =>
+      `${path} must be inside the folder of the Markdown file, so the document's relative links reach it.`,
+    refNeedsSource: "--ref works only with --source.",
+    refNeedsGit: (path: string) =>
+      `--ref needs --source to be a folder inside a git repository, and ${path} is not.`,
+    refNotCommit: (ref: string) =>
+      `${JSON.stringify(ref)} does not name a commit in this repository.`,
+    refMissingFolder: (path: string, ref: string) =>
+      `${path} does not exist in ${ref}, so there are no sources to attach.`,
+    emptySources: (path: string) => `${path} has no source files to attach after the exclusions.`,
     tooLarge: (max: number) => `An artifact can hold at most ${formatBytes(max)}.`,
     uploadFailed: (path: string) =>
       `Could not upload ${path}. If it changed while publishing, run the command again.`,

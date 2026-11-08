@@ -50,13 +50,16 @@ describe("portifact cli", () => {
     expect(result.stderr).toBe("");
   });
 
-  it("documents publishing options and what is not supported yet", async () => {
+  it("documents publishing options, ZIP input, private sources and assets", async () => {
     const result = await invoke("publish", "--help");
     expect(result.code).toBe(0);
     for (const flag of ["--type", "--name", "--entry", "--artifact", "--dry-run", "--json"]) {
       expect(result.stdout).toContain(flag);
     }
-    expect(result.stdout).toContain("ZIP files and --source");
+    expect(result.stdout).toContain("--source <path>");
+    expect(result.stdout).toContain("--ref <commit>");
+    expect(result.stdout).toContain("--assets <dir>");
+    expect(result.stdout).toContain("A ZIP file is expanded");
     expect(result.stdout).toContain("node_modules");
   });
 
