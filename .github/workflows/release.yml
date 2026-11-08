@@ -55,12 +55,15 @@ jobs:
             dist/release/*.tar.gz
             dist/release/*.zip
 
-      - name: Sync the release back into develop
-        if: steps.semantic.outputs.version != ''
-        env:
-          VERSION: ${{ steps.semantic.outputs.version }}
+      # Runs after every push to main, with or without a release, so main is never ahead of develop.
+      # Fast-forward keeps both branches on the same commit; a merge is only needed if develop moved meanwhile.
+      - name: Sync develop with main
         run: |
-          git fetch origin develop
+          git fetch origin main develop
           git checkout -B develop origin/develop
-          git merge --no-ff origin/main -m "chore: sync release v$VERSION into develop [skip ci]"
+          if git merge-base --is-ancestor origin/develop origin/main; then
+            git merge --ff-only origin/main
+          else
+            git merge --no-ff origin/main -m "chore: sync main into develop [skip ci]"
+          fi
           git push origin develop

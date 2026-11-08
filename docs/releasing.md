@@ -39,11 +39,16 @@ The `release` workflow (`.github/workflows/release.yml`):
 5. Commits `chore(release): vX.Y.Z [skip ci]` to `main` and tags it `vX.Y.Z`.
 6. Publishes a GitHub release with notes, the archives, `SHA256SUMS`, `install.sh` and `install.ps1`.
 7. Signs build provenance attestations for the archives through GitHub's OIDC token (Sigstore).
-8. Merges `main` back into `develop` so both branches carry the new version.
+8. Syncs `develop` with `main`. This runs after every push to `main`, even when there is nothing to release, so `main` is never ahead of `develop`. It fast-forwards `develop` to `main`, leaving both on the same commit; only if `develop` received new commits during the run does it create a merge commit instead.
 
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.
+
+- Linux glibc builds need glibc 2.17 or newer, so they run on Debian, Ubuntu, RHEL and its rebuilds (Rocky, Alma, CentOS 7+), Fedora, Amazon Linux and openSUSE.
+- Musl builds are for Alpine and need `libstdc++` and `libgcc` (`apk add libstdc++ libgcc`); the installer checks for them and says so.
+- x64 builds use Bun's baseline targets, so they also run on CPUs without AVX2.
+- `scripts/smoke-linux-distros.sh` installs and runs the CLI in containers of those distributions; CI runs it on every pull request.
 
 ## Installing
 
@@ -65,10 +70,11 @@ gh attestation verify portifact-linux-x64.tar.gz --repo leynier/portifact
 
 ## Checks on pull requests
 
-The `ci` workflow runs lint, typecheck, tests with coverage thresholds and `shellcheck`. It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS and Windows. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
+The `ci` workflow runs lint, typecheck, tests with coverage thresholds, `shellcheck` and a render of sample release notes with the configured preset (`scripts/check-release-notes.mjs`). It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS, and Windows x64 and arm64, checking that each machine gets its native build, and across Linux distributions in containers. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
 
 ## Setup and recovery
 
 - Secret `RELEASE_DEPLOY_KEY`: private half of a write-enabled deploy key. The `develop` and `main` rulesets allow this deploy key to bypass them. If you rotate it, update both the deploy key and the secret.
 - A failed release leaves no tag. Fix the cause on `develop` and merge into `main` again.
-- If the release succeeded but the sync into `develop` failed, merge `main` into `develop` through a pull request.
+- If the sync into `develop` failed, rerun the workflow or merge `main` into `develop` through a pull request.
+- Keep `conventional-changelog-conventionalcommits` on the major version that matches the changelog writer bundled with semantic-release. Version 10 of the preset needs `conventional-changelog-writer` 9, while semantic-release 25 ships writer 8, so the preset stays on 9. `scripts/check-release-notes.mjs` catches a mismatch in CI.

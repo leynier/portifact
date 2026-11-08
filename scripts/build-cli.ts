@@ -15,14 +15,15 @@ interface Target {
   windows: boolean;
 }
 
+// x64 builds use Bun's baseline targets so they run on CPUs without AVX2 (older servers and some VMs).
 const TARGETS: Target[] = [
-  { name: "linux-x64", bunTarget: "bun-linux-x64", windows: false },
+  { name: "linux-x64", bunTarget: "bun-linux-x64-baseline", windows: false },
   { name: "linux-arm64", bunTarget: "bun-linux-arm64", windows: false },
-  { name: "linux-x64-musl", bunTarget: "bun-linux-x64-musl", windows: false },
+  { name: "linux-x64-musl", bunTarget: "bun-linux-x64-musl-baseline", windows: false },
   { name: "linux-arm64-musl", bunTarget: "bun-linux-arm64-musl", windows: false },
-  { name: "darwin-x64", bunTarget: "bun-darwin-x64", windows: false },
+  { name: "darwin-x64", bunTarget: "bun-darwin-x64-baseline", windows: false },
   { name: "darwin-arm64", bunTarget: "bun-darwin-arm64", windows: false },
-  { name: "windows-x64", bunTarget: "bun-windows-x64", windows: true },
+  { name: "windows-x64", bunTarget: "bun-windows-x64-baseline", windows: true },
   { name: "windows-arm64", bunTarget: "bun-windows-arm64", windows: true },
 ];
 

@@ -44,6 +44,18 @@ detect_target() {
   printf '%s' "$target"
 }
 
+# Musl builds link against the C++ runtime, which Alpine does not install by default.
+check_musl_runtime() {
+  local lib dir found
+  for lib in libstdc++.so.6 libgcc_s.so.1; do
+    found=0
+    for dir in /usr/lib /lib /usr/local/lib; do
+      if [ -e "$dir/$lib" ]; then found=1; fi
+    done
+    [ "$found" = 1 ] || fail "$lib is missing. On Alpine, install it first: apk add libstdc++ libgcc"
+  done
+}
+
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | cut -d ' ' -f 1
@@ -83,6 +95,7 @@ main() {
   local target archive base install_dir tmp expected actual
   target="$(detect_target)"
   archive="portifact-$target.tar.gz"
+  case "$target" in *-musl) check_musl_runtime ;; esac
 
   if [ -n "${PORTIFACT_DOWNLOAD_URL:-}" ]; then
     base="$PORTIFACT_DOWNLOAD_URL"
