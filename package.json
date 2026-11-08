@@ -1,0 +1,35 @@
+{
+  "name": "portifact-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "workspaces": {
+    "packages": [
+      "apps/*",
+      "packages/*"
+    ],
+    "catalog": {
+      "@types/node": "^26.0.0",
+      "@vitest/coverage-istanbul": "^5.0.0",
+      "typescript": "^7.0.0",
+      "vitest": "^5.0.0"
+    }
+  },
+  "scripts": {
+    "check": "biome check . && tsc -p tsconfig.json && bun scripts/check-skills.ts && turbo run typecheck",
+    "format": "biome check --write .",
+    "test": "turbo run test",
+    "build:cli": "bun scripts/build-cli.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@semantic-release/exec": "^7.0.0",
+    "@semantic-release/git": "^11.0.0",
+    "@types/bun": "^1.0.0",
+    "@types/node": "catalog:",
+    "conventional-changelog-conventionalcommits": "^10.0.0",
+    "semantic-release": "^25.0.0",
+    "turbo": "^2.0.0",
+    "typescript": "catalog:"
+  }
+}

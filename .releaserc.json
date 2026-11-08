@@ -1,0 +1,43 @@
+{
+  "branches": ["main"],
+  "repositoryUrl": "git@github.com:leynier/portifact.git",
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [{ "breaking": true, "release": "minor" }]
+      }
+    ],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "bun scripts/set-version.ts ${nextRelease.version} && bun scripts/build-cli.ts --all",
+        "successCmd": "echo \"version=${nextRelease.version}\" >> \"$GITHUB_OUTPUT\""
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["packages/cli/package.json", "bun.lock"],
+        "message": "chore(release): v${nextRelease.version} [skip ci]"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "assets": [
+          { "path": "dist/release/*.tar.gz" },
+          { "path": "dist/release/*.zip" },
+          { "path": "dist/release/SHA256SUMS" },
+          { "path": "scripts/install.sh" },
+          { "path": "scripts/install.ps1" }
+        ],
+        "successComment": false,
+        "releasedLabels": false
+      }
+    ]
+  ]
+}
