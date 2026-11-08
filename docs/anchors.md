@@ -36,7 +36,7 @@ A target recorded on another SPA route resolves as `orphaned` with `route_mismat
 
 ## Untrusted input
 
-Targets arrive from the bridge and from API, CLI and MCP clients. `AnnotationTarget` refuses unknown keys, caps every field (1,024-code-point quotes, 32-code-point context, 128-code-point fingerprints, 8 KiB serialized) and requires normalized text. Selectors follow a restricted grammar (`isSafeSelector`): type, `#id`, `.class`, a few stable test attributes with quoted values and `:nth-of-type(n)`, joined by descendant or child combinators, at most 512 characters and 32 compounds. It cannot hold escapes, functions, braces, at-rules or markup. Routes are same-origin paths. Quotes are plain data and are always rendered escaped.
+Targets arrive from the bridge and from API, CLI and MCP clients. `AnnotationTarget` refuses unknown keys, caps every field (1,024-code-point quotes, 32-code-point context, 128-code-point fingerprints, 8 KiB serialized) and requires normalized text. Selectors follow a restricted grammar (`isSafeSelector`): type, `#id`, `.class`, a few stable test attributes with quoted values and `:nth-of-type(n)`, joined by descendant or child combinators, at most 512 characters and 32 compounds. It cannot hold escapes, functions, braces, at-rules or markup. Routes are same-origin paths. Quotes are plain data and are always rendered escaped. When a thread is created, the server also checks that `path` is a published file of the version.
 
 ## Testing
 

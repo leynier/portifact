@@ -22,3 +22,28 @@ export const LIMITS = {
   readersPerArtifact: 500,
   readersPerChange: 100,
 } as const;
+
+/**
+ * Annotation limits (plan section 2). Bodies count Unicode code points and UTF-8 bytes.
+ * `messagesPerThread`, `artifactWritesPer24h` and the page size are safety caps, not product
+ * tiers.
+ */
+export const ANNOTATION_LIMITS = {
+  bodyMaxCodePoints: 4_000,
+  bodyMaxBytes: 8 * 1024,
+  /** Whole JSON body of a request that creates a thread or a message. */
+  createPayloadMaxBytes: 16 * 1024,
+  threadsPerArtifact: 1_000,
+  messagesPerThread: 200,
+  /** Per artifact owner, across all of their artifacts. Deleted messages do not count. */
+  messagesPerOwner: 5_000,
+  /** Message bodies plus thread targets, per artifact owner. */
+  bytesPerOwner: 50_000_000,
+  /** New messages and edits per author. */
+  writesPerMinute: 5,
+  writesPer24h: 100,
+  /** New messages and edits on one artifact, from all authors together. */
+  artifactWritesPer24h: 1_000,
+  pageDefault: 25,
+  pageMax: 50,
+} as const;
