@@ -10,7 +10,7 @@ export default {
   fetch(request, env, ctx) {
     const host = new URL(request.url).hostname;
     if (host === CONTROL_HOST) return control(request, env);
-    if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) return content.fetch(request, env);
+    if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) return content.fetch(request, env, ctx);
     return app.fetch(request, env, ctx);
   },
 } satisfies ExportedHandler<E2eEnv>;

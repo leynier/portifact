@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "67ef6c18-abf9-431c-ad9d-e09fdedea996",
+  "id": "78e3b0f5-bcf0-420b-8a35-79308ba0e61a",
   "prevId": "9e4cc3a2-1d9f-4087-9216-c84d78fc2de3",
   "tables": {
     "abuse_reports": {
@@ -1465,14 +1465,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch() * 1000)"
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'frame'"
         }
       },
       "indexes": {
@@ -1893,6 +1885,69 @@
       },
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "traffic_counters": {
+      "name": "traffic_counters",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cycle_start": {
+          "name": "cycle_start",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "requests": {
+          "name": "requests",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "bytes": {
+          "name": "bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "traffic_counters_cycle_idx": {
+          "name": "traffic_counters_cycle_idx",
+          "columns": ["cycle_start"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "traffic_counters_owner_id_cycle_start_pk": {
+          "columns": ["owner_id", "cycle_start"],
+          "name": "traffic_counters_owner_id_cycle_start_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "traffic_counters_nonnegative": {
+          "name": "traffic_counters_nonnegative",
+          "value": "\"traffic_counters\".\"requests\" >= 0 and \"traffic_counters\".\"bytes\" >= 0"
+        }
+      }
     },
     "upload_sessions": {
       "name": "upload_sessions",

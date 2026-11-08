@@ -40,6 +40,7 @@ async function sha256(text: string): Promise<string> {
 
 async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {}) {
   for (const table of [
+    "traffic_counters",
     "review_sessions",
     "review_handoffs",
     "read_sessions",
@@ -327,6 +328,28 @@ describe("review delivery", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("etag")).toBeNull();
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("answers 429 in review mode too once the owner's traffic is used up, and charges the page", async () => {
+    const cookie = await openReview();
+    const charges: unknown[] = [];
+    const request = new Request(`${ORIGIN}/`, { headers: { ...VIEWER_FRAME, Cookie: cookie } });
+    expect((await handle(request, env, NOW, (charge) => charges.push(charge))).status).toBe(200);
+    expect(charges).toEqual([
+      { ownerId: OWNER, cycleStart: Date.UTC(2026, 10, 1), bytes: PAGE.length },
+    ]);
+    await db()
+      .insert(schema.trafficCounters)
+      .values({
+        ownerId: OWNER,
+        cycleStart: Date.UTC(2026, 10, 1),
+        requests: 1_000_000,
+        bytes: 0,
+        updatedAt: NOW,
+      });
+    const response = await send("/", { cookie });
+    expect(response.status).toBe(429);
+    expect(response.headers.get("portifact-error")).toBe("traffic_exceeded");
   });
 
   it("tags the page with the session it was served in, so the viewer can spot a planted one", async () => {

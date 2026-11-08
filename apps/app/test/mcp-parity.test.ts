@@ -481,6 +481,37 @@ describe("API and MCP parity for usage and source origins", () => {
     });
   });
 
+  it("usage reports the same traffic and traffic block, and only the caller's", async () => {
+    const b = await both("parity-traffic@example.test");
+    const other = await both("parity-traffic-other@example.test");
+    const insert = env.DB.prepare(
+      "insert into traffic_counters (owner_id, cycle_start, requests, bytes, updated_at) values (?, ?, ?, ?, ?)",
+    );
+    const november = Date.UTC(2026, 10, 1);
+    await insert.bind(await ownerId(b), november, 1_000_000, 42, NOW).run();
+    await insert.bind(await ownerId(other), november, 7, 7, NOW).run();
+    const viaMcp = fromTool(await b.tool("get_usage", {}));
+    expect(viaMcp).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(viaMcp.body).toMatchObject({
+      trafficThisMonth: {
+        requests: { used: 1_000_000, limit: 1_000_000 },
+        bytes: { used: 42, limit: 25_000_000_000 },
+        resetsAt: "2026-12-01T00:00:00.000Z",
+      },
+      blocks: expect.arrayContaining([
+        expect.objectContaining({
+          reason: "traffic",
+          stops: "serving",
+          until: "2026-12-01T00:00:00.000Z",
+        }),
+      ]),
+    });
+    const theirs = fromTool(await other.tool("get_usage", {}));
+    expect(theirs.body).toMatchObject({ trafficThisMonth: { requests: { used: 7 } } });
+    const reasons = (theirs.body as { blocks: { reason: string }[] }).blocks.map((x) => x.reason);
+    expect(reasons).not.toContain("traffic");
+  });
+
   it("usage is the caller's own and needs artifacts:read at both", async () => {
     const b = await both("parity-usage-owner@example.test");
     const other = await both("parity-usage-other@example.test");

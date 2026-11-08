@@ -55,6 +55,12 @@ export function useFormatDate(): (iso: string, withTime?: boolean) => string {
   );
 }
 
+/** Formats a count for people, with the locale's grouping. */
+export function useFormatNumber(): (value: number) => string {
+  const { i18n } = useLingui();
+  return useCallback((value: number) => i18n.number(value), [i18n]);
+}
+
 const BYTE_UNITS = [
   { unit: "gigabyte", size: 1e9 },
   { unit: "megabyte", size: 1e6 },

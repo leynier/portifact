@@ -394,6 +394,28 @@ export const usageEvents = sqliteTable(
   (t) => [index("usage_events_owner_kind_at_idx").on(t.ownerId, t.kind, t.at)],
 );
 
+/**
+ * Traffic each account's artifacts served per cycle (plan section 14): requests and body bytes
+ * from the content Worker, added in batches. `cycle_start` is the start of the UTC calendar month.
+ * Rows of past cycles are pruned by the maintenance job and an account's rows go with its
+ * deletion.
+ */
+export const trafficCounters = sqliteTable(
+  "traffic_counters",
+  {
+    ownerId: text("owner_id").notNull(),
+    cycleStart: timestamp("cycle_start").notNull(),
+    requests: integer("requests").notNull().default(0),
+    bytes: integer("bytes").notNull().default(0),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.ownerId, t.cycleStart] }),
+    check("traffic_counters_nonnegative", sql`${t.requests} >= 0 and ${t.bytes} >= 0`),
+    index("traffic_counters_cycle_idx").on(t.cycleStart),
+  ],
+);
+
 /** Idempotency: the stored result of a mutation, returned again when it is retried. */
 export const operations = sqliteTable(
   "operations",

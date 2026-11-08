@@ -213,6 +213,24 @@ export const en = {
   "account.delete.reauth.action": "Sign in again",
   "account.delete.done": "Your account was deleted.",
   "account.actionFailed.title": "The action did not finish",
+  "usage.title": "Usage",
+  "usage.hint":
+    "Your quotas and what your artifacts served this month. Traffic is counted every few seconds, so it can lag slightly behind.",
+  "usage.loading": "Loading your usage",
+  "usage.error": "Usage could not be loaded",
+  "usage.meter": "{used} of {limit}",
+  "usage.activeArtifacts": "Active artifacts",
+  "usage.storage": "Storage",
+  "usage.publishes": "Publishes, last 24 hours",
+  "usage.trafficRequests": "Requests served this month",
+  "usage.trafficBytes": "Data served this month",
+  "usage.trafficResets": "Traffic resets on",
+  "usage.blocks": "Blocked now",
+  "usage.lifts": "{message} Lifts {date}.",
+  "usage.traffic.title": "Your artifacts used this month's traffic",
+  "usage.traffic.body":
+    "Your artifacts served 1 million requests or 25 GB this month, so visitors get an error (HTTP 429) on all of them until {date}. Your other quotas are not affected: you can still publish, change access and manage your artifacts. Other people's artifacts keep working.",
+  "usage.traffic.link": "See your usage",
   "account.cancel": "Cancel",
 
   "scope.artifacts:read": "See your artifacts, their settings and their versions",
@@ -563,7 +581,7 @@ export const en = {
   "error.version_conflict": "The artifact changed meanwhile. Reload and try again.",
   "error.quota_exceeded":
     "You reached the limit of active artifacts. Archive or delete one, then try again.",
-  "error.traffic_exceeded": "The artifact used its traffic for this period.",
+  "error.traffic_exceeded": "Your artifacts used this month's traffic. They work again next month.",
   "error.upload_incomplete": "The upload is not complete yet.",
   "error.artifact_archived": "The artifact is archived. Restore it first.",
   "error.account_too_new_for_public": "New accounts cannot make artifacts public yet.",

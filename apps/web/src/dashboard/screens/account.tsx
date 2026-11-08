@@ -1,4 +1,5 @@
-// The account screen (plan section 6, "Cuenta"): the signed-in email, how the user can sign in,
+// The account screen (plan section 6, "Cuenta"): the signed-in email, the account's usage
+// (quotas and this month's traffic), how the user can sign in,
 // the browsers signed in, the apps (CLI and MCP clients) that hold tokens, the data export and
 // account deletion.
 import type { BrowserSession, ConnectedApp } from "@portifact/contracts";
@@ -42,6 +43,7 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { describeUserAgent } from "../user-agent.ts";
 import { errorMessage } from "./artifact-list.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
+import { UsageDetails, useUsage } from "./usage.tsx";
 
 export const SIGN_IN_METHODS_QUERY = ["account", "sign-in-methods"] as const;
 export const SESSIONS_QUERY = ["account", "sessions"] as const;
@@ -73,6 +75,7 @@ export function AccountScreen() {
           ]}
         />
       </Section>
+      <Usage />
       <SignInMethods email={account?.email ?? ""} />
       <BrowserSessions />
       <ConnectedApps />
@@ -94,7 +97,7 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section aria-labelledby={`${id}-heading`} className="mt-8 first-of-type:mt-0">
+    <section id={id} aria-labelledby={`${id}-heading`} className="mt-8 first-of-type:mt-0">
       <h2 id={`${id}-heading`} className="text-lg font-semibold">
         {title}
       </h2>
@@ -135,6 +138,18 @@ function Loaded<T>({
     );
   }
   return <>{children(query.data as T)}</>;
+}
+
+function Usage() {
+  const t = useT();
+  const usage = useUsage();
+  return (
+    <Section id="usage" title={t("usage.title")} hint={t("usage.hint")}>
+      <Loaded query={usage} loading={t("usage.loading")} error={t("usage.error")}>
+        {(view) => <UsageDetails usage={view} />}
+      </Loaded>
+    </Section>
+  );
 }
 
 function SignInMethods({ email }: { email: string }) {

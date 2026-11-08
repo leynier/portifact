@@ -1,8 +1,8 @@
 // Worker for artifact origins (`<id>.portifact.dev`). Serves user content only and holds no
-// admin credentials; its only state change is redeeming one-use sign-in codes under
-// /__portifact/. See docs/security.md for the invariants enforced here.
-
-import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
+// admin credentials; its only state changes are redeeming one-use sign-in codes under
+// /__portifact/ and adding served traffic to the owner's counter. See docs/security.md for the
+// invariants enforced here.
+import { ERROR_STATUS, REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import {
   createDb,
   type Db,
@@ -12,8 +12,17 @@ import {
   findPublishedFile,
   findRenderedPage,
 } from "@portifact/db";
-import { effectiveState, isArtifactId, normalizePath } from "@portifact/domain";
+import {
+  chargedBytes,
+  effectiveState,
+  isArtifactId,
+  normalizePath,
+  type TrafficCycle,
+  trafficCycle,
+  trafficExhausted,
+} from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
+import { recordTraffic } from "@portifact/services";
 import {
   BRIDGE_PATH,
   bridgeScript,
@@ -43,6 +52,7 @@ import {
   type ReviewStep,
   strayFrameCookie,
 } from "./review.ts";
+import { type CountTraffic, TrafficMeter } from "./traffic.ts";
 
 export interface Env {
   DB: D1Database;
@@ -63,7 +73,13 @@ export const REPORT_PATH = "/__portifact/report";
 
 /** User-facing text of the pages this Worker answers itself. */
 const PAGES: Record<
-  Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailable" | "reviewEnded" | "endRefused",
+  | Page
+  | "methodNotAllowed"
+  | "serviceWorker"
+  | "fileUnavailable"
+  | "trafficExceeded"
+  | "reviewEnded"
+  | "endRefused",
   string
 > = {
   notFound: "This artifact does not exist or is no longer available",
@@ -74,6 +90,7 @@ const PAGES: Record<
   methodNotAllowed: "Method not allowed",
   serviceWorker: "Service workers are not allowed on artifacts",
   fileUnavailable: "This file is temporarily unavailable",
+  trafficExceeded: "This artifact used its traffic for this month. Try again next month",
   reviewEnded: "Review ended. You can close this tab",
   endRefused: "Use End review in the review tab to end the review",
 };
@@ -83,12 +100,36 @@ const RETRY_PAGES = new Set<Page>(["signIn", "linkExpired"]);
 
 const HTML_PAGE = "text/html; charset=utf-8";
 
+/** One meter per isolate; every request of the isolate adds to it. */
+let meter: TrafficMeter | undefined;
+
+/** The isolate's meter, writing to the D1 binding of the request that creates it. */
+export function isolateMeter(env: Env): TrafficMeter {
+  meter ??= new TrafficMeter((deltas) => recordTraffic(createDb(env.DB), deltas, Date.now()));
+  return meter;
+}
+
 export default {
-  fetch: (request, env) => handle(request, env, Date.now()),
+  fetch: (request, env, ctx) =>
+    handle(request, env, Date.now(), (charge) =>
+      isolateMeter(env).count(charge, (promise) => ctx.waitUntil(promise)),
+    ),
 } satisfies ExportedHandler<Env>;
 
-export async function handle(request: Request, env: Env, now: number): Promise<Response> {
-  const response = await route(request, env, now);
+const NO_TRAFFIC: CountTraffic = () => {};
+
+/**
+ * Answers one request. `countTraffic` is charged once for every authorized request served for an
+ * artifact; requests refused before authorization (sign-in, unknown or unavailable artifacts)
+ * and the 429 itself charge nothing.
+ */
+export async function handle(
+  request: Request,
+  env: Env,
+  now: number,
+  countTraffic: CountTraffic = NO_TRAFFIC,
+): Promise<Response> {
+  const response = await route(request, env, now, countTraffic);
   // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
   const stray = strayFrameCookie(request);
   if (!stray) return response;
@@ -97,7 +138,12 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   return cleared;
 }
 
-async function route(request: Request, env: Env, now: number): Promise<Response> {
+async function route(
+  request: Request,
+  env: Env,
+  now: number,
+  countTraffic: CountTraffic,
+): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
   }
@@ -144,13 +190,15 @@ async function route(request: Request, env: Env, now: number): Promise<Response>
   }
   if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
 
-  const found = await findDeliveryArtifact(db, id);
+  const cycle = trafficCycle(now);
+  const found = await findDeliveryArtifact(db, id, cycle.start);
   const artifact = found && isServable(found, now) ? found : null;
+  const delivery: Delivery = { request, env, db, url, now, cycle, countTraffic };
   // Review mode first: the viewer's iframe reads the pinned version with the bridge, and a
   // review tab reads it with the review banner.
   const review = await authorizeReview(request, env, db, id, artifact, now);
   if (review.kind === "review") {
-    return serve(request, env, db, review.artifact, url, review.setCookies, {
+    return serve(delivery, review.artifact, review.setCookies, {
       mode: review.mode,
       versionId: review.versionId,
       sessionTag: review.sessionTag,
@@ -159,12 +207,23 @@ async function route(request: Request, env: Env, now: number): Promise<Response>
   if (review.kind === "status") {
     return reviewStatusPage(review.status, review.httpStatus, env.APP_ORIGIN, review.setCookies);
   }
-  if (artifact?.accessMode === "public") return serve(request, env, db, artifact, url, []);
+  if (artifact?.accessMode === "public") return serve(delivery, artifact, []);
   // Protected, unknown or not servable (in any mode): all go through sign-in, so an anonymous
   // visitor cannot tell an archived or expired artifact from one that never existed.
   const decision = await authorizeRead(request, env, db, id, artifact, now);
   if (decision.kind !== "allow") return decisionResponse(decision);
-  return serve(request, env, db, decision.artifact, url, decision.setCookies);
+  return serve(delivery, decision.artifact, decision.setCookies);
+}
+
+/** What serving a request needs besides the artifact. */
+interface Delivery {
+  request: Request;
+  env: Env;
+  db: Db;
+  url: URL;
+  now: number;
+  cycle: TrafficCycle;
+  countTraffic: CountTraffic;
 }
 
 /**
@@ -178,18 +237,46 @@ interface ReviewServe {
 }
 
 /**
- * Serves a file of the artifact's current version, or in review mode (`reviewSession`) of the
- * pinned version, with the bridge appended to its HTML.
+ * Step 6 of delivery (plan section 11), after authorization: an account whose traffic for the
+ * cycle is used up gets 429 on every artifact; otherwise the file is served and charged.
  */
 async function serve(
-  request: Request,
-  env: Env,
-  db: Db,
+  delivery: Delivery,
   artifact: ServableArtifact,
-  url: URL,
   setCookies: string[],
   reviewSession?: ReviewServe,
 ): Promise<Response> {
+  const { request, cycle, now } = delivery;
+  if (trafficExhausted(artifact.traffic)) {
+    return withCookies(trafficExceeded(cycle.resetsAt, now), setCookies);
+  }
+  const { response, bytes } = await serveFile(delivery, artifact, setCookies, reviewSession);
+  delivery.countTraffic({
+    ownerId: artifact.ownerId,
+    cycleStart: cycle.start,
+    bytes: chargedBytes(response.status, request.method, bytes),
+  });
+  return response;
+}
+
+/** A response and the body bytes it sends, for the traffic counter. */
+interface Served {
+  response: Response;
+  bytes: number;
+}
+
+const served = (response: Response, bytes = 0): Served => ({ response, bytes });
+
+/**
+ * Serves a file of the artifact's current version, or in review mode (`reviewSession`) of the
+ * pinned version, with the bridge appended to its HTML.
+ */
+async function serveFile(
+  { request, env, db, url }: Delivery,
+  artifact: ServableArtifact,
+  setCookies: string[],
+  reviewSession?: ReviewServe,
+): Promise<Served> {
   const review = reviewSession !== undefined;
   const resolved = await resolveFile(
     db,
@@ -198,9 +285,9 @@ async function serve(
     url.pathname,
   );
   if (resolved === "unrendered") {
-    return withCookies(message(503, PAGES.fileUnavailable), setCookies);
+    return served(withCookies(message(503, PAGES.fileUnavailable), setCookies));
   }
-  if (!resolved) return withCookies(notFound(), setCookies);
+  if (!resolved) return served(withCookies(notFound(), setCookies));
   const { file, role } = resolved;
 
   const headers = contentHeaders(artifact, env, review);
@@ -222,30 +309,43 @@ async function serve(
     headers.set("Content-Disposition", attachment(file.path));
   }
   if (inject && reviewSession) {
-    return serveWithBridge(request, env, file, headers, nonce, reviewSession);
+    // The bridge or banner adds a few bytes to the page; the file's size is what is charged.
+    const response = await serveWithBridge(request, env, file, headers, nonce, reviewSession);
+    return served(response, file.size);
   }
   headers.set("ETag", `"${file.sha256}"`);
   headers.set("Accept-Ranges", "bytes");
 
   if (request.headers.get("If-None-Match") === `"${file.sha256}"`) {
-    return new Response(null, { status: 304, headers });
+    return served(new Response(null, { status: 304, headers }));
   }
   if (request.method === "HEAD") {
     headers.set("Content-Length", String(file.size));
-    return new Response(null, { status: 200, headers });
+    return served(new Response(null, { status: 200, headers }));
   }
 
   const object = await env.ARTIFACTS.get(file.r2Key, { range: request.headers });
-  if (!object) return withCookies(message(503, PAGES.fileUnavailable), setCookies);
+  if (!object) return served(withCookies(message(503, PAGES.fileUnavailable), setCookies));
   // R2 reports a range even for whole-object reads; only answer 206 when the client asked for one.
   if (request.headers.has("Range") && object.range) {
     const { start, length } = byteSpan(object.range, file.size);
     headers.set("Content-Range", `bytes ${start}-${start + length - 1}/${file.size}`);
     headers.set("Content-Length", String(length));
-    return new Response(object.body, { status: 206, headers });
+    return served(new Response(object.body, { status: 206, headers }), length);
   }
   headers.set("Content-Length", String(file.size));
-  return new Response(object.body, { status: 200, headers });
+  return served(new Response(object.body, { status: 200, headers }), file.size);
+}
+
+/**
+ * The account's traffic for this cycle is used up: 429 `traffic_exceeded` on all its artifacts
+ * until the next cycle. The page names no account, quota or amount.
+ */
+function trafficExceeded(resetsAt: number, now: number): Response {
+  const response = message(ERROR_STATUS.traffic_exceeded, PAGES.trafficExceeded);
+  response.headers.set("Retry-After", String(Math.max(1, Math.ceil((resetsAt - now) / 1000))));
+  response.headers.set("Portifact-Error", "traffic_exceeded");
+  return response;
 }
 
 /**
