@@ -492,3 +492,75 @@ describe("API edge cases", () => {
     expect(suspended).toMatchObject({ state: "suspended", expiresAt: null });
   });
 });
+
+describe("access control through the API", () => {
+  function patch(body: unknown): RequestInit {
+    return {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    };
+  }
+
+  it("reads the private default, adds readers and switches to signed-in access", async () => {
+    const h = createHarness();
+    const c = await client(h, "sharer@example.test", `${ALL} artifacts:share`);
+    const { prepared } = await publish(c);
+    const path = `/api/v1/artifacts/${prepared.artifactId}/access`;
+    expect(await (await c.call(path)).json()).toEqual({
+      mode: "restricted",
+      readers: [],
+      indexable: false,
+      embeddable: false,
+      policyGeneration: 1,
+    });
+    const added = await c.call(path, patch({ addReaders: ["Ana@Example.test"] }));
+    expect(added.status).toBe(200);
+    expect(await added.json()).toMatchObject({
+      readers: ["ana@example.test"],
+      policyGeneration: 2,
+    });
+    const opened = await c.call(
+      path,
+      patch({ mode: "authenticated", removeReaders: ["ana@example.test"] }),
+    );
+    expect(await opened.json()).toMatchObject({
+      mode: "authenticated",
+      readers: [],
+      policyGeneration: 3,
+    });
+  });
+
+  it("keeps a new account from making an artifact public", async () => {
+    const h = createHarness();
+    const c = await client(h, "newbie@example.test", `${ALL} artifacts:share`);
+    const { prepared } = await publish(c);
+    const response = await c.call(
+      `/api/v1/artifacts/${prepared.artifactId}/access`,
+      patch({ mode: "public" }),
+    );
+    expect(response.status).toBe(403);
+    expect((await response.json<{ error: { code: string } }>()).error.code).toBe(
+      "account_too_new_for_public",
+    );
+  });
+
+  it("requires the share scope to change access and refuses empty or invalid changes", async () => {
+    const h = createHarness();
+    const c = await client(h, "noshare@example.test");
+    const { prepared } = await publish(c);
+    const path = `/api/v1/artifacts/${prepared.artifactId}/access`;
+    expect((await c.call(path)).status).toBe(200);
+    expect((await c.call(path, patch({ mode: "authenticated" }))).status).toBe(403);
+
+    const sharer = await client(h, "sharer2@example.test", `${ALL} artifacts:share`);
+    const own = await publish(sharer);
+    const ownPath = `/api/v1/artifacts/${own.prepared.artifactId}/access`;
+    expect((await sharer.call(ownPath, patch({}))).status).toBe(400);
+    expect((await sharer.call(ownPath, patch({ addReaders: ["not-an-email"] }))).status).toBe(400);
+    expect((await sharer.call(ownPath, patch({ mode: "everyone" }))).status).toBe(400);
+    // Another account's artifact looks missing for reading and for changing.
+    expect((await sharer.call(path)).status).toBe(404);
+    expect((await sharer.call(path, patch({ mode: "authenticated" }))).status).toBe(404);
+  });
+});

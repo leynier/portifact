@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ErrorCode, LIMITS } from "./core.ts";
 import {
+  AccessUpdate,
   ArtifactList,
   ERROR_STATUS,
   IdempotencyKey,
@@ -72,5 +73,18 @@ describe("publishing contracts", () => {
     expect(ERROR_STATUS.version_conflict).toBe(409);
     expect(ERROR_STATUS.quota_exceeded).toBe(429);
     expect(ERROR_STATUS.capacity_unavailable).toBe(503);
+  });
+
+  it("accepts an access change with at least one field and lowercases readers", () => {
+    expect(AccessUpdate.parse({ addReaders: ["Ana@Example.COM"] })).toEqual({
+      addReaders: ["ana@example.com"],
+    });
+    expect(AccessUpdate.safeParse({}).success).toBe(false);
+    expect(AccessUpdate.safeParse({ mode: "everyone" }).success).toBe(false);
+    expect(
+      AccessUpdate.safeParse({
+        addReaders: Array.from({ length: LIMITS.readersPerChange + 1 }, (_, i) => `r${i}@x.test`),
+      }).success,
+    ).toBe(false);
   });
 });
