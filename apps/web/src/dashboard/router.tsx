@@ -1,10 +1,13 @@
 // Client routes of the dashboard. The Worker serves the app for exactly these paths
-// (DASHBOARD_ROUTES in apps/app/src/app-host.ts); keep both lists in sync.
+// (DASHBOARD_ROUTES, and VIEWER_ROUTE for the viewer, in apps/app/src/app-host.ts); keep both
+// lists in sync.
 import {
   createRootRoute,
   createRoute,
   createRouter,
+  Outlet,
   type RouterHistory,
+  useMatch,
 } from "@tanstack/react-router";
 import { AccountScreen } from "./screens/account.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
@@ -13,11 +16,20 @@ import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
-import { ReviewScreen } from "./screens/review.tsx";
 import { Shell } from "./screens/shell.tsx";
+import { parseViewerSearch, ViewerScreen } from "./screens/viewer.tsx";
+
+/**
+ * Every dashboard screen sits in the shell (navigation and account); the viewer draws its own
+ * frame, the Portifact bar, so it fills the screen.
+ */
+function Frame() {
+  const viewer = useMatch({ from: "/view/$artifactId", shouldThrow: false });
+  return viewer ? <Outlet /> : <Shell />;
+}
 
 export function createDashboardRouter(history?: RouterHistory) {
-  const root = createRootRoute({ component: Shell, notFoundComponent: NotFoundScreen });
+  const root = createRootRoute({ component: Frame, notFoundComponent: NotFoundScreen });
   const list = createRoute({
     getParentRoute: () => root,
     path: "/",
@@ -54,10 +66,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/account",
     component: AccountScreen,
   });
-  const review = createRoute({
+  const viewer = createRoute({
     getParentRoute: () => root,
-    path: "/review/$artifactId",
-    component: ReviewScreen,
+    path: "/view/$artifactId",
+    component: ViewerScreen,
+    validateSearch: parseViewerSearch,
   });
   return createRouter({
     routeTree: root.addChildren([
@@ -68,7 +81,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       edit,
       versionHistory,
       account,
-      review,
+      viewer,
     ]),
     ...(history ? { history } : {}),
     scrollRestoration: true,

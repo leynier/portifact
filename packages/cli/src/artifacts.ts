@@ -189,6 +189,7 @@ export async function showAccess(
 
 export type AccessChange =
   | { kind: "mode"; mode: string }
+  | { kind: "bar"; state: string }
   | { kind: "add" | "remove"; emails: readonly string[] };
 
 export async function changeAccess(
@@ -222,6 +223,12 @@ function accessUpdate(change: AccessChange): AccessUpdate {
       throw new CliError("invalid_input", messages.errors.invalidMode(change.mode));
     return { mode: mode.data };
   }
+  if (change.kind === "bar") {
+    if (change.state !== "on" && change.state !== "off") {
+      throw new CliError("invalid_input", messages.errors.invalidBarState(change.state));
+    }
+    return { bar: change.state === "on" };
+  }
   if (change.emails.length > LIMITS.readersPerChange) {
     throw new CliError("invalid_input", messages.errors.tooManyReaders(LIMITS.readersPerChange));
   }
@@ -249,6 +256,7 @@ function writeAccess(
       ["Readers", policy.readers.length > 0 ? policy.readers.join(", ") : "none"],
       ["Indexable", policy.indexable ? "yes" : "no"],
       ["Embeddable", policy.embeddable ? "yes" : "no"],
+      ["Portifact bar", policy.bar ? "on" : "off"],
     ]),
   );
 }

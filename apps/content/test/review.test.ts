@@ -859,8 +859,14 @@ describe("review tab", () => {
       expect(await visit.text()).not.toContain("bridge.js");
       expect(clearsFrameCookie(visit), JSON.stringify(headers)).toBe(true);
     }
-    // A public artifact is served normally, and the planted cookie still goes.
+    // A public artifact opens in the viewer, or itself without the bar, and the planted cookie
+    // still goes.
     await env.DB.exec(`UPDATE artifacts SET access_mode = 'public'`);
+    const viewed = await send("/", { cookie: planted, headers: TOP_LEVEL });
+    expect(viewed.status).toBe(303);
+    expect(viewed.headers.get("location")).toBe(`${APP}/view/${ID}`);
+    expect(clearsFrameCookie(viewed)).toBe(true);
+    await env.DB.exec("UPDATE artifacts SET bar = 0");
     const open = await send("/", { cookie: planted, headers: TOP_LEVEL });
     expect(open.status).toBe(200);
     expect(await open.text()).toBe(PAGE);
@@ -930,5 +936,132 @@ describe("review tab", () => {
     expect(
       (await send("/__portifact/review/end", { headers: IN_TAB_LINK, secret: undefined })).status,
     ).toBe(503);
+  });
+});
+
+describe("the viewer with the Portifact bar", () => {
+  beforeEach(() => seed({ accessMode: "public" }));
+
+  const FROM_APP = {
+    "Sec-Fetch-Site": "cross-site",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Dest": "document",
+    Referer: `${APP}/`,
+  };
+  const EMBED = {
+    "Sec-Fetch-Site": "cross-site",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Dest": "iframe",
+  };
+
+  it("sends a top-level visit to a page to the viewer, keeping its path and query", async () => {
+    for (const headers of [
+      TOP_LEVEL,
+      { ...TOP_LEVEL, "Sec-Fetch-Site": "cross-site" },
+      { ...TOP_LEVEL, "Sec-Fetch-Site": "same-origin" },
+      { ...TOP_LEVEL, "Sec-Fetch-Site": "same-site" },
+    ]) {
+      const root = await send("/", { headers });
+      expect(root.status, JSON.stringify(headers)).toBe(303);
+      expect(root.headers.get("location")).toBe(`${APP}/view/${ID}`);
+    }
+    const page = await send("/index.html?q=a%20b&x=1", { headers: TOP_LEVEL });
+    expect(page.status).toBe(303);
+    const location = new URL(page.headers.get("location") ?? "");
+    expect(location.origin + location.pathname).toBe(`${APP}/view/${ID}`);
+    expect(location.searchParams.get("path")).toBe("/index.html?q=a%20b&x=1");
+    expect(Object.fromEntries(page.headers)).toMatchObject({
+      "cache-control": "no-store",
+      "referrer-policy": "no-referrer",
+      "x-robots-tag": "noindex",
+    });
+    expect(page.headers.getSetCookie()).toEqual([]);
+    expect(await page.text()).toBe("");
+  });
+
+  it("serves the viewer's frame, embeds, subresources and clients without fetch metadata as they are", async () => {
+    for (const headers of [VIEWER_FRAME, IN_FRAME_LINK, SIBLING_NAVIGATION, EMBED, {}]) {
+      const response = await send("/", { headers });
+      expect(response.status, JSON.stringify(headers)).toBe(200);
+      expect(await response.text()).toBe(PAGE);
+    }
+    expect((await send("/app.js", { headers: SAME_ORIGIN })).status).toBe(200);
+    // A top-level visit to a file that is not a page (a script, an image, a download) is served.
+    const script = await send("/app.js", { headers: TOP_LEVEL });
+    expect(script.status).toBe(200);
+    expect(await script.text()).toBe(SCRIPT);
+    // Only GET navigations are redirected; a missing page stays a 404.
+    expect((await send("/", { headers: TOP_LEVEL, method: "HEAD" })).status).toBe(200);
+    expect((await send("/missing.html", { headers: TOP_LEVEL })).status).toBe(404);
+  });
+
+  it("serves the artifact itself to top-level visits when the owner turned the bar off", async () => {
+    await env.DB.exec("UPDATE artifacts SET bar = 0");
+    const response = await send("/", { headers: TOP_LEVEL });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(PAGE);
+  });
+
+  it("keeps an embeddable artifact embeddable: other sites' frames get the artifact", async () => {
+    await env.DB.exec("UPDATE artifacts SET embeddable = 1");
+    const response = await send("/", { headers: EMBED });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-security-policy")).toBe("frame-ancestors *");
+  });
+
+  it("never sends a review tab back to the viewer, which would loop", async () => {
+    const response = await send(`/__portifact/review/tab?code=${await code(READER, ID, "tab")}`, {
+      headers: FROM_APP,
+    });
+    expect(response.status).toBe(303);
+    const tab = (
+      response.headers.getSetCookie().find((c) => c.startsWith(`${REVIEW_TAB_COOKIE}=`)) ?? ""
+    ).split(";")[0];
+    for (const headers of [TOP_LEVEL, { ...TOP_LEVEL, "Sec-Fetch-Site": "same-origin" }]) {
+      const page = await send("/", { cookie: tab, headers });
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain("Review tab.");
+    }
+    // Reserved paths are never redirected either.
+    const end = await send("/__portifact/review/end", {
+      cookie: tab,
+      headers: { ...TOP_LEVEL, "Sec-Fetch-Site": "same-origin" },
+    });
+    expect(end.status).toBe(200);
+  });
+
+  it("serves a page whose path a viewer link cannot carry instead of a different page", async () => {
+    const long = `/index.html?${"q=x&".repeat(600)}`;
+    const response = await send(long, { headers: TOP_LEVEL });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe(PAGE);
+  });
+
+  it("does not log visits of a public artifact, even in the viewer's frame with a session", async () => {
+    const cookie = await openReview();
+    const openings: Opening[] = [];
+    const logOpening = (opening: Opening) => openings.push(opening);
+    expect((await send("/", { cookie, logOpening })).status).toBe(200);
+    expect(openings).toEqual([]);
+  });
+
+  it("starts review on the page the viewer names, and only on a page of this origin", async () => {
+    const exchange = await send(`/__portifact/review?code=${await code()}&to=%2Fapp.js%3Fx%3D1`);
+    expect(exchange.status).toBe(303);
+    const check = new URL(exchange.headers.get("location") ?? "");
+    expect(check.pathname).toBe("/__portifact/review/check");
+    expect(check.searchParams.get("to")).toBe("/app.js?x=1");
+    const cookie = reviewSetCookie(exchange)?.split(";")[0];
+    const landed = await send(`${check.pathname}${check.search}`, { cookie });
+    expect(landed.headers.get("location")).toBe(`${ORIGIN}/app.js?x=1`);
+    for (const to of ["//evil.example/", "/__portifact/review/end", "https://evil.example/"]) {
+      const query = new URLSearchParams({ to });
+      const refused = await send(`/__portifact/review/check?${query}`, { cookie });
+      expect(refused.headers.get("location"), to).toBe(`${ORIGIN}/`);
+    }
+    const twice = await send("/__portifact/review/check?to=%2Fa&to=%2Fb", { cookie });
+    expect(twice.headers.get("location")).toBe(`${ORIGIN}/`);
+    const unsafe = await send(`/__portifact/review?code=${await code()}&to=%2F%2Fevil.example`);
+    expect(new URL(unsafe.headers.get("location") ?? "").search).toBe("");
   });
 });

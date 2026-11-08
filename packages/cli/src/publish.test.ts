@@ -271,7 +271,7 @@ describe("portifact publish", () => {
     h.signIn();
     const existing = server.api.seed({
       name: "Launch plan",
-      access: { mode: "public", readers: [], indexable: false, embeddable: false },
+      access: { mode: "public", readers: [], indexable: false, embeddable: false, bar: true },
     });
     const baseVersionId = existing.currentVersionId;
     const folder = await h.files("v2", { "index.html": "<p>v2</p>" });

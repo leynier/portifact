@@ -47,6 +47,8 @@ async function seed() {
     name: "Neighbour",
     state: "active",
     accessMode: "public",
+    // Top-level visits here test the artifact itself; the viewer redirect has its own tests.
+    bar: false,
     currentVersionId: "v1",
   });
   await db.insert(schema.versions).values({

@@ -333,6 +333,19 @@ export async function run(
         changeAccess(io, runtime, id, { kind: "mode", mode }, { json: options.json === true }),
       ),
     );
+  access
+    .command("bar")
+    .description(
+      "Turn the Portifact bar on (links open in Portifact's viewer with comments) or off (the artifact alone)",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("<state>", "on or off")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, state: string) =>
+        changeAccess(io, runtime, id, { kind: "bar", state }, { json: options.json === true }),
+      ),
+    );
   for (const kind of ["add", "remove"] as const) {
     access
       .command(kind)

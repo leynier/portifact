@@ -1,0 +1,1 @@
+ALTER TABLE `artifacts` ADD `bar` integer DEFAULT true NOT NULL;

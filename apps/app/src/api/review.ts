@@ -1,5 +1,5 @@
 // Review mode, the app's part (plan section 4, "Modo revisión"): the viewer at
-// /review/<id> asks for a one-use review code and points its iframe at the artifact origin,
+// /view/<id> asks for a one-use review code and points its iframe at the artifact origin,
 // which redeems it into a partitioned review session (apps/content/src/review.ts). Where the
 // browser drops that cookie, the viewer asks for a tab code instead and offers a link that opens
 // the artifact in a top-level review tab with a short first-party session.
@@ -16,9 +16,14 @@ import {
   type ReviewKind,
   ReviewStart,
   ReviewTabStart,
+  ViewerInfo,
 } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
-import { type IssuedReviewHandoff, issueReviewHandoff } from "@portifact/services";
+import {
+  getViewerArtifact,
+  type IssuedReviewHandoff,
+  issueReviewHandoff,
+} from "@portifact/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
@@ -29,6 +34,11 @@ import type { AccountSessionLookup } from "./account.ts";
 
 export interface ReviewDeps {
   session(env: Env): AccountSessionLookup;
+  /**
+   * The signed-in user of the viewer, or undefined: a session of an account that has not
+   * accepted the current terms counts as none, like on the dashboard.
+   */
+  viewer(env: Env): (request: Request) => Promise<string | undefined>;
   now(): number;
 }
 
@@ -70,6 +80,41 @@ export function reviewRoutes(deps: ReviewDeps) {
         versionId: value.versionId,
         expiresAt: new Date(value.expiresAt).toISOString(),
         sessionSeconds: REVIEW_SESSION.tabSessionTtlSeconds,
+      }),
+    );
+  });
+
+  // What the viewer with the Portifact bar shows about the artifact. A dashboard helper with no
+  // state, for the app's own pages only: it needs no session (anonymous visitors of a public
+  // artifact see the bar too), so it refuses bearer tokens and anything that is not a
+  // same-origin request, and a protected artifact answers 404 until the visitor signs in.
+  routes.get("/api/v1/artifacts/:artifactId/viewer", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const request = c.req.raw;
+    if (request.headers.has("authorization")) {
+      return error(c, "forbidden", "The viewer is part of the dashboard.");
+    }
+    if (request.headers.get("sec-fetch-site") !== "same-origin") {
+      return error(c, "forbidden", "Cross-origin request refused.");
+    }
+    const artifactId = c.req.param("artifactId") ?? "";
+    if (!ArtifactId.safeParse(artifactId).success) {
+      return error(c, "not_found", "Artifact not found.");
+    }
+    const userId = hasSessionCookie(request.headers.get("cookie"))
+      ? ((await deps.viewer(c.env)(request)) ?? null)
+      : null;
+    const found = await getViewerArtifact(createDb(c.env.DB), {
+      artifactId,
+      userId,
+      now: deps.now(),
+    });
+    if (!found.ok) return error(c, found.code, found.message);
+    return c.json(
+      ViewerInfo.parse({
+        artifactId,
+        origin: `https://${artifactId}.${c.env.CONTENT_DOMAIN}`,
+        ...found.value,
       }),
     );
   });

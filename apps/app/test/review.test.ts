@@ -2,14 +2,14 @@
 // viewer's iframe redeems on the artifact origin. apps/content/test/review.test.ts covers the
 // artifact origin's part.
 import { env } from "cloudflare:workers";
-import { REVIEW_SESSION, ReviewStart, ReviewTabStart } from "@portifact/contracts";
+import { REVIEW_SESSION, ReviewStart, ReviewTabStart, ViewerInfo } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { hashSecret, redeemReviewHandoff, reviewSessionTag } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_START_LIMIT } from "../src/auth/limits.ts";
 import { publishSite, type TokenClient, tokenClient } from "./api-client.ts";
-import { createHarness, type Harness, ORIGIN } from "./harness.ts";
+import { createHarness, type Harness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
 const db = () => createDb(env.DB);
 
@@ -215,5 +215,66 @@ describe("review tab codes", () => {
     const limited = await startTab(owner.cookie);
     expect(limited.status).toBe(429);
     expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
+  });
+});
+
+describe("viewer info", () => {
+  const view = (cookie: string, extra: Record<string, string> = {}, id = artifactId) =>
+    h.request(`/api/v1/artifacts/${id}/viewer`, {
+      headers: { ...(cookie ? { cookie } : {}), "sec-fetch-site": "same-origin", ...extra },
+    });
+
+  it("tells the owner and a signed-in reader what the bar shows, never threads or readers", async () => {
+    const response = await view(owner.cookie);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(ViewerInfo.parse(await response.json())).toEqual({
+      artifactId,
+      name: "Review plan",
+      type: "site",
+      origin: `https://${artifactId}.portifact.dev`,
+      versionNumber: 1,
+      accessMode: "restricted",
+      annotations: "off",
+      role: "owner",
+    });
+    await env.DB.prepare("UPDATE artifacts SET access_mode = 'authenticated' WHERE id = ?")
+      .bind(artifactId)
+      .run();
+    const reader = await h.signIn(`viewer-reader-${crypto.randomUUID()}@example.test`);
+    expect(await (await view(reader)).json()).toMatchObject({ role: "reader" });
+  });
+
+  it("shows anonymous visitors public artifacts only; anything else looks missing", async () => {
+    const hidden = await view("");
+    const missing = await view("", {}, "zzzzzzzzzz");
+    expect(hidden.status).toBe(404);
+    expect(await hidden.json()).toEqual(await missing.json());
+    const stranger = await h.signIn(`viewer-stranger-${crypto.randomUUID()}@example.test`);
+    expect((await view(stranger)).status).toBe(404);
+    await env.DB.prepare("UPDATE artifacts SET access_mode = 'public' WHERE id = ?")
+      .bind(artifactId)
+      .run();
+    expect(await (await view("")).json()).toMatchObject({ role: "anonymous" });
+    expect(await (await view(stranger)).json()).toMatchObject({ role: "reader" });
+    // A forged session cookie is an anonymous visitor, not an error.
+    expect((await view(`${SESSION_COOKIE}=forged.value`)).status).toBe(200);
+  });
+
+  it("answers only the app's own pages: no bearer tokens, no other sites, no bad IDs", async () => {
+    const bearer = await owner.call(`/api/v1/artifacts/${artifactId}/viewer`);
+    expect(bearer.status).toBe(403);
+    for (const site of ["cross-site", "same-site", ""]) {
+      const refused = await view(owner.cookie, site ? { "sec-fetch-site": site } : {});
+      if (!site) {
+        const bare = await h.request(`/api/v1/artifacts/${artifactId}/viewer`, {
+          headers: { cookie: owner.cookie },
+        });
+        expect(bare.status).toBe(403);
+        continue;
+      }
+      expect(refused.status, site).toBe(403);
+    }
+    expect((await view(owner.cookie, {}, "NOT-AN-ID")).status).toBe(404);
   });
 });

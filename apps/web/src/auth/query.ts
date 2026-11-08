@@ -25,8 +25,8 @@ export function singleParam(query: string, name: string): string | undefined {
 }
 
 /**
- * Pages a sign-in may return to: the device page, the dashboard routes and the entry to a
- * protected artifact, which continues to the artifact after signing in.
+ * Pages a sign-in may return to: the device page, the dashboard routes, the entry to a
+ * protected artifact, which continues to the artifact after signing in, and the viewer.
  */
 const NEXT_PATHS = [
   /^\/device$/,
@@ -34,11 +34,12 @@ const NEXT_PATHS = [
   /^\/artifacts\/[A-Za-z0-9_-]+$/,
   /^\/account$/,
   /^\/read\/[a-z2-7]{10}$/,
+  /^\/view\/[a-z2-7]{10}$/,
 ];
 
 /**
  * Where to go after signing in, from the `next` parameter. Only same-origin paths of the
- * device page, the dashboard and the artifact entry are accepted, so the login page cannot be
+ * device page, the dashboard, the artifact entry and the viewer are accepted, so the login page cannot be
  * used to redirect elsewhere.
  */
 export function safeNext(search: string, origin: string): string | undefined {

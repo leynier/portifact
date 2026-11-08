@@ -25,18 +25,21 @@ test("an artifact that injects hundreds of shared-domain cookies breaks no other
   const attacker = await publish({
     ownerId: owner.userId,
     name: "Cookie jar",
+    bar: false,
     files: { "index.html": cookieInjectingPage(INJECTED) },
     accessMode: "public",
   });
   const neighbour = await publish({
     ownerId: owner.userId,
     name: "Neighbour",
+    bar: false,
     files: NEIGHBOUR,
     accessMode: "public",
   });
   const secret = await publish({
     ownerId: owner.userId,
     name: "Secret",
+    bar: false,
     files: { "index.html": "<!doctype html><title>Secret</title><h1>Secret</h1>" },
   });
 

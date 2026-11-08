@@ -35,3 +35,4 @@ export {
   TableRow,
 } from "./components/table.tsx";
 export { AppShell, type AppShellProps, navLinkClasses, PageHeader } from "./patterns/app-shell.tsx";
+export { ViewerShell, type ViewerShellProps } from "./patterns/viewer-shell.tsx";

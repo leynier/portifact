@@ -1,6 +1,11 @@
 // app.portifact.com: the dashboard, identity, the OAuth authorization server, protected
 // resource metadata and the auth pages. Every path not listed here answers 404.
-import { TokenPrincipal, TURNSTILE_ORIGIN, TURNSTILE_SITE_KEY_META } from "@portifact/contracts";
+import {
+  ArtifactId,
+  TokenPrincipal,
+  TURNSTILE_ORIGIN,
+  TURNSTILE_SITE_KEY_META,
+} from "@portifact/contracts";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { Hono } from "hono";
@@ -46,8 +51,14 @@ export const DASHBOARD_ROUTES = [
   "/artifacts/:artifactId/edit",
   "/artifacts/:artifactId/history",
   "/account",
-  "/review/:artifactId",
 ] as const;
+
+/**
+ * The viewer with the Portifact bar (apps/web/src/dashboard/screens/viewer.tsx), where top-level
+ * visits to an artifact's pages land. It is a route of the dashboard SPA but is served with or
+ * without a session: anonymous visitors of a public artifact see it too.
+ */
+export const VIEWER_ROUTE = "/view/:artifactId";
 
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
@@ -244,7 +255,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   );
   app.route("/", reportRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
-  app.route("/", reviewRoutes({ session: accountSessionFor, now: () => Date.now() }));
+  app.route(
+    "/",
+    reviewRoutes({
+      session: accountSessionFor,
+      viewer: sessionUserFor,
+      now: () => Date.now(),
+    }),
+  );
 
   // Who the token belongs to. Any valid API token works; no scope is needed.
   app.get("/api/v1/me", async (c) => {
@@ -289,6 +307,26 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       );
     });
   }
+
+  // The viewer is the dashboard SPA with or without a session; the page itself holds nothing.
+  // Never indexed: crawlers get the artifact itself on its own origin (docs/security.md).
+  app.get(VIEWER_ROUTE, async (c) => {
+    if (!ArtifactId.safeParse(c.req.param("artifactId")).success) return c.notFound();
+    const page = trustedPage(
+      await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
+      await dashboardCsp(c.env),
+    );
+    page.headers.set("X-Robots-Tag", "noindex");
+    return withSiteKey(page, c.env.TURNSTILE_SITE_KEY);
+  });
+
+  // The review viewer became the viewer; old links keep working.
+  app.get("/review/:artifactId", (c) => {
+    const artifactId = c.req.param("artifactId");
+    if (!ArtifactId.safeParse(artifactId).success) return c.notFound();
+    c.header("Cache-Control", "no-store");
+    return c.redirect(`/view/${artifactId}`, 301);
+  });
 
   for (const page of AUTH_PAGES) {
     app.get(page, async (c) => {

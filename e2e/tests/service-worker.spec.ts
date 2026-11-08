@@ -40,6 +40,7 @@ test("an artifact cannot register a service worker", async ({ page }) => {
   const { artifactId } = await publish({
     ownerId: owner.userId,
     name: "Offline app",
+    bar: false,
     accessMode: "public",
     files: { "index.html": PAGE, "register.js": REGISTER, "sw.js": WORKER },
   });

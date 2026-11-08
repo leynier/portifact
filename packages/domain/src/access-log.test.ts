@@ -29,7 +29,7 @@ describe("access log windows", () => {
 });
 
 describe("logged openings", () => {
-  const base = { navigation: true, visitorId: "reader", ownerId: "owner" };
+  const base = { navigation: true, visitorId: "reader", ownerId: "owner", public: false };
 
   it("records a page load by a signed-in visitor", () => {
     expect(isLoggedOpening(base)).toBe(true);
@@ -39,5 +39,9 @@ describe("logged openings", () => {
     expect(isLoggedOpening({ ...base, navigation: false })).toBe(false);
     expect(isLoggedOpening({ ...base, visitorId: null })).toBe(false);
     expect(isLoggedOpening({ ...base, visitorId: "owner" })).toBe(false);
+  });
+
+  it("never records visits of a public artifact, even with a session that names the visitor", () => {
+    expect(isLoggedOpening({ ...base, public: true })).toBe(false);
   });
 });

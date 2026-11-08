@@ -58,6 +58,7 @@ import {
   strayFrameCookie,
 } from "./review.ts";
 import { type CountTraffic, TrafficMeter } from "./traffic.ts";
+import { isTopLevelVisit, viewerLocation, viewerRedirect } from "./viewer.ts";
 
 // The Durable Object class the TRAFFIC_LIMITER binding names (wrangler.jsonc).
 export { TrafficLimiter } from "./traffic-limiter.ts";
@@ -312,7 +313,12 @@ async function serve(
   });
   if (
     response.status < 400 &&
-    isLoggedOpening({ navigation: isPageLoad(request), visitorId, ownerId: artifact.ownerId })
+    isLoggedOpening({
+      navigation: isPageLoad(request),
+      visitorId,
+      ownerId: artifact.ownerId,
+      public: artifact.accessMode === "public",
+    })
   ) {
     delivery.logOpening({ artifactId: artifact.id, userId: visitorId as string, at: now });
   }
@@ -364,6 +370,11 @@ async function serveFile(
   }
   if (!resolved) return served(withCookies(notFound(), setCookies));
   const { file, role } = resolved;
+  if (!review && opensInViewer(request, artifact, file, role)) {
+    const location = viewerLocation(env.APP_ORIGIN, artifact.id, url);
+    // A redirect sends no file, so it charges the request and no bytes.
+    if (location) return served(viewerRedirect(location, setCookies));
+  }
 
   const headers = contentHeaders(artifact, env, review);
   for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
@@ -452,6 +463,21 @@ async function serveWithBridge(
 }
 
 type Resolved = { file: DeliveryFile; role: "file" | "page" | "original" };
+
+/**
+ * A top-level visit to a page (an HTML file of a site or a document's rendered page) of an
+ * artifact with the Portifact bar opens in the viewer. Images, downloads and other files are
+ * served as they are, and so is everything when the owner turned the bar off.
+ */
+function opensInViewer(
+  request: Request,
+  artifact: ServableArtifact,
+  file: DeliveryFile,
+  role: Resolved["role"],
+): boolean {
+  if (!artifact.bar || !isTopLevelVisit(request)) return false;
+  return role === "page" || (role === "file" && file.contentType.startsWith("text/html"));
+}
 
 /**
  * Finds what a path serves. A document's root is its rendered page, rendered once at publish;

@@ -64,6 +64,7 @@ describe("access policy", () => {
         readers: [],
         indexable: false,
         embeddable: false,
+        bar: true,
         policyGeneration: 1,
       },
     });
@@ -87,6 +88,7 @@ describe("access policy", () => {
         mode: "authenticated",
         indexable: true,
         embeddable: true,
+        bar: false,
       },
       now: NOW,
     });
@@ -95,6 +97,7 @@ describe("access policy", () => {
       readers: ["b@example.test"],
       indexable: true,
       embeddable: true,
+      bar: false,
       policyGeneration: 3,
     });
   });

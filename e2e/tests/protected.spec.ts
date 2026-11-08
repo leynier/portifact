@@ -34,6 +34,7 @@ async function restrictedFor(reader: User) {
   const published = await publish({
     ownerId: owner.userId,
     name: "Board pack",
+    bar: false,
     accessMode: "restricted",
     readers: [reader.email],
     files: SITE,

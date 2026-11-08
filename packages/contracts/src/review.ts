@@ -85,3 +85,26 @@ export const ReviewTabStart = z.object({
   sessionSeconds: z.number().int().positive(),
 });
 export type ReviewTabStart = z.infer<typeof ReviewTabStart>;
+
+/** Who is looking at an artifact in the viewer. */
+export const ViewerRole = z.enum(["owner", "reader", "anonymous"]);
+export type ViewerRole = z.infer<typeof ViewerRole>;
+
+/**
+ * What the viewer with the Portifact bar gets for `GET /api/v1/artifacts/:id/viewer`: enough to
+ * draw the bar and decide what the sidebar offers. Anonymous visitors get it only for public
+ * artifacts that are servable; anything else answers 404, so a protected artifact and a missing
+ * one look the same until the visitor signs in. It never carries threads, readers or emails.
+ */
+export const ViewerInfo = z.object({
+  artifactId: ArtifactId,
+  name: z.string(),
+  type: ArtifactType,
+  /** The artifact origin, which the viewer frames and accepts bridge messages from. */
+  origin: z.url(),
+  versionNumber: z.number().int().positive(),
+  accessMode: z.enum(["public", "authenticated", "restricted"]),
+  annotations: z.enum(["off", "open", "locked"]),
+  role: ViewerRole,
+});
+export type ViewerInfo = z.infer<typeof ViewerInfo>;

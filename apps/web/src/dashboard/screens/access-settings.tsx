@@ -151,7 +151,7 @@ function AccessEditor({
         ) : null}
         <SettingsForm
           // Start over from the server's values whenever they change, such as after a conflict.
-          key={`${policy.mode}:${policy.indexable}:${policy.embeddable}`}
+          key={`${policy.mode}:${policy.indexable}:${policy.embeddable}:${policy.bar}`}
           policy={policy}
           disabled={suspended}
           busy={settings.isPending}
@@ -191,6 +191,7 @@ interface SettingsValues {
   mode: AccessMode;
   indexable: boolean;
   embeddable: boolean;
+  bar: boolean;
 }
 
 /** The fields that differ from the current policy, or undefined when nothing changed. */
@@ -202,6 +203,7 @@ export function settingsChange(
     ...(values.mode === policy.mode ? {} : { mode: values.mode }),
     ...(values.indexable === policy.indexable ? {} : { indexable: values.indexable }),
     ...(values.embeddable === policy.embeddable ? {} : { embeddable: values.embeddable }),
+    ...(values.bar === policy.bar ? {} : { bar: values.bar }),
   };
   return Object.keys(update).length > 0 ? update : undefined;
 }
@@ -230,6 +232,7 @@ function SettingsForm({
       mode: policy.mode,
       indexable: policy.indexable,
       embeddable: policy.embeddable,
+      bar: policy.bar,
     } as SettingsValues,
     onSubmit: ({ value }) => onSave(settingsChange(policy, value)),
   });
@@ -282,6 +285,15 @@ function SettingsForm({
                 <field.CheckboxField
                   label={t("accessSettings.embeddable.label")}
                   description={t("accessSettings.embeddable.hint")}
+                  disabled={disabled}
+                />
+              )}
+            </form.AppField>
+            <form.AppField name="bar">
+              {(field) => (
+                <field.CheckboxField
+                  label={t("accessSettings.bar.label")}
+                  description={t("accessSettings.bar.hint")}
                   disabled={disabled}
                 />
               )}

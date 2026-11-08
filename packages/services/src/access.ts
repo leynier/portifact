@@ -1,5 +1,5 @@
 // The owner's access policy of an artifact (plan section 5): read it, and change the mode, the
-// reader list, indexing and embedding in one transaction. Every change bumps the policy
+// reader list, indexing, embedding and the Portifact bar in one transaction. Every change bumps the policy
 // generation, which read sessions carry, so a revocation applies quickly.
 import { type AccessMode, LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
@@ -12,6 +12,7 @@ export interface AccessPolicyState {
   readers: string[];
   indexable: boolean;
   embeddable: boolean;
+  bar: boolean;
   policyGeneration: number;
 }
 
@@ -19,6 +20,7 @@ export interface AccessChange {
   mode?: AccessMode | undefined;
   indexable?: boolean | undefined;
   embeddable?: boolean | undefined;
+  bar?: boolean | undefined;
   /** Lowercased email addresses. */
   addReaders?: readonly string[] | undefined;
   removeReaders?: readonly string[] | undefined;
@@ -56,6 +58,7 @@ export async function getAccess(
     readers: await readers(db, artifact.id),
     indexable: artifact.indexable,
     embeddable: artifact.embeddable,
+    bar: artifact.bar,
     policyGeneration: artifact.policyGeneration,
   });
 }
@@ -132,6 +135,7 @@ export async function updateAccess(
         ...(change.mode ? { accessMode: change.mode } : {}),
         ...(change.indexable === undefined ? {} : { indexable: change.indexable }),
         ...(change.embeddable === undefined ? {} : { embeddable: change.embeddable }),
+        ...(change.bar === undefined ? {} : { bar: change.bar }),
         policyGeneration: artifact.policyGeneration + 1,
         updatedAt: input.now,
       })

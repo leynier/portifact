@@ -305,6 +305,55 @@ describe("API and MCP parity", () => {
     }
   });
 
+  it("the Portifact bar turns off and on with the same policy, errors and scope", async () => {
+    const SHARE = "artifacts:read artifacts:write artifacts:share offline_access";
+    const b = await both("parity-bar@example.test", SHARE);
+    const publish = async (name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type: "text", name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const viaApi = await publish("api");
+    const viaMcp = await publish("mcp");
+    const patch = (id: string, bar: boolean) =>
+      b.apiCall(`/api/v1/artifacts/${id}/access`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bar }),
+      });
+    for (const enabled of [false, true]) {
+      const apiResult = await fromApi(await patch(viaApi, enabled));
+      const mcpResult = fromTool(
+        await b.tool("set_portifact_bar", { artifactId: viaMcp, enabled }),
+      );
+      expect(mcpResult).toEqual(apiResult);
+      expect(apiResult).toMatchObject({ ok: true, body: { bar: enabled, mode: "restricted" } });
+    }
+    const other = await both("parity-bar-other@example.test", SHARE);
+    const missing = fromTool(
+      await other.tool("set_portifact_bar", { artifactId: viaMcp, enabled: false }),
+    );
+    expect(missing).toEqual(
+      await fromApi(
+        await other.apiCall(`/api/v1/artifacts/${viaApi}/access`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ bar: false }),
+        }),
+      ),
+    );
+    expect(missing.body).toMatchObject({ error: { code: "not_found" } });
+
+    const reader = await mcpToken(b.h, "parity-bar@example.test", "artifacts:read");
+    const denied = await rawCall(b.h, reader, "set_portifact_bar", {
+      artifactId: viaMcp,
+      enabled: false,
+    });
+    expect(denied.status).toBe(403);
+    expect(denied.headers.get("www-authenticate")).toContain('scope="artifacts:share"');
+  });
+
   it("draws the same permission boundary for each scope", async () => {
     const b = await both("parity-scope@example.test", "artifacts:read offline_access");
     const apiDenied = await b.apiCall("/api/v1/artifacts/abcdefghij", { method: "DELETE" });

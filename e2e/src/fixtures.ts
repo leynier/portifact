@@ -57,6 +57,12 @@ export function publish(input: {
   files: Record<string, string>;
   accessMode?: "public" | "authenticated" | "restricted";
   readers?: string[];
+  annotations?: "off" | "open" | "locked";
+  /**
+   * The Portifact bar, on by default like in production. Tests of what a top-level visit to the
+   * artifact gets (the artifact itself) turn it off.
+   */
+  bar?: boolean;
   /** Publishes a new version of an existing artifact, keeping its access and comment mode. */
   update?: { artifactId: string; baseVersionId: string };
 }): Promise<Published> {
@@ -130,9 +136,10 @@ export async function artifactFrame(page: Page, artifactId: string): Promise<Fra
   throw new Error(`the frame never showed ${artifactOrigin(artifactId)}`);
 }
 
+/** Opens the viewer with the Portifact bar on the artifact, from the app. */
 export async function openReview(page: Page, artifactId: string, name: string): Promise<void> {
-  await page.goto(`${APP_ORIGIN}/review/${artifactId}`);
-  await page.getByRole("heading", { level: 1, name: `Review ${name}` }).waitFor();
+  await page.goto(`${APP_ORIGIN}/view/${artifactId}`);
+  await page.getByRole("heading", { level: 1, name }).waitFor();
 }
 
 interface Fixtures {

@@ -1,6 +1,6 @@
 // Access log rules (plan sections 2, 11 and 13): which openings are recorded, the 30-minute
 // window that deduplicates them and the 30 days they are kept. Only signed-in visitors are ever
-// identified; anonymous visits of public artifacts are not recorded.
+// identified, and only on protected artifacts; visits of public artifacts are never recorded.
 import { ACCESS_LOG } from "@portifact/contracts";
 
 const MINUTE_MS = 60_000;
@@ -26,12 +26,25 @@ export interface ServedRequest {
   /** The signed-in visitor a read or review session names; null for an anonymous visit. */
   visitorId: string | null;
   ownerId: string;
+  /**
+   * The artifact is public. Anyone may read it without signing in, so a signed-in visitor's
+   * session there (the viewer's frame or a review tab) does not identify them to the owner.
+   */
+  public: boolean;
 }
 
 /**
- * An opening is a page load by a signed-in visitor who is not the owner. Subresources (each
- * asset) and anonymous visits are never recorded, and the owner's own visits are not openings.
+ * An opening is a page load of a protected artifact by a signed-in visitor who is not the
+ * owner. Subresources (each asset), anonymous visits and every visit of a public artifact are
+ * never recorded, and the owner's own visits are not openings. Public artifacts open in the
+ * viewer with a session for anyone who happens to be signed in to Portifact; logging those would
+ * name visitors who never had to identify themselves to read the artifact.
  */
 export function isLoggedOpening(request: ServedRequest): boolean {
-  return request.navigation && request.visitorId !== null && request.visitorId !== request.ownerId;
+  return (
+    request.navigation &&
+    !request.public &&
+    request.visitorId !== null &&
+    request.visitorId !== request.ownerId
+  );
 }

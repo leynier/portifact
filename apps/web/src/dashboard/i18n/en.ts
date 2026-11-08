@@ -142,6 +142,9 @@ export const en = {
   "accessSettings.embeddable.label": "Let other sites embed it",
   "accessSettings.embeddable.hint":
     "Other sites can show it inside a frame. Only applies while the artifact is public.",
+  "accessSettings.bar.label": "Show the Portifact bar",
+  "accessSettings.bar.hint":
+    "Links open in Portifact's viewer, with the bar on top and the comments beside the artifact. Turn it off for apps and pages that need the whole window; the link then opens the artifact alone.",
   "accessSettings.save": "Save access",
   "accessSettings.saved":
     "Access saved. Anyone who can no longer open the artifact loses access within a minute.",
@@ -499,17 +502,28 @@ export const en = {
     "{count, plural, one {# thread} other {# threads}}, {open, plural, =0 {none open} other {# open}}",
   "history.conversations.version": "Version {number}: {counts}",
   "history.conversations.unlisted": "Versions no longer listed: {counts}",
-  "review.open": "Review and comment",
-  "review.documentTitle": "Review {name}",
-  "review.title": "Review {name}",
-  "review.loading": "Opening the review",
-  "review.back": "Artifact details",
-  "review.unavailable.title": "This artifact cannot be reviewed",
-  "review.unavailable.body":
+  "review.open": "Open in the viewer",
+  "viewer.loading": "Opening the artifact",
+  "viewer.unavailable.title": "This artifact cannot be opened",
+  "viewer.unavailable.body":
     "It does not exist, is not available right now, or your account cannot open it.",
-  "review.startFailed.title": "The review could not be opened",
-  "review.frame.heading": "Artifact",
-  "review.frame.title": "{name}, the version under review",
+  "viewer.failed.title": "The artifact could not be opened",
+  "viewer.dashboard": "Your artifacts",
+  "viewer.skipLink": "Skip to the artifact",
+  "viewer.brand": "Portifact",
+  "viewer.version": "Version {number}",
+  "viewer.copyLink": "Copy link",
+  "viewer.copied": "Link copied.",
+  "viewer.copyFailed": "The link could not be copied. The link is {link}",
+  "viewer.manage": "Manage",
+  "viewer.comments": "Comments",
+  "viewer.signIn": "Sign in",
+  "viewer.frame.label": "Artifact",
+  "viewer.frame.title": "{name}, published with Portifact",
+  "viewer.anonymous.body":
+    "Sign in to read the comments on this artifact and add your own. You come back to this page after signing in.",
+  "viewer.anonymous.signIn": "Sign in to comment",
+  "review.startFailed.title": "Comments could not be connected to the artifact",
   "review.frame.connecting": "Connecting to the page",
   "review.frame.isolated":
     "The artifact runs on its own site and cannot see your account, your email or other people's comments. Selecting something in it never posts a comment: you write and confirm each one here.",

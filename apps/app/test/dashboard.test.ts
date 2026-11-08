@@ -33,7 +33,6 @@ describe("dashboard pages", () => {
       ["/", "/"],
       ["/artifacts/k7d2qm4xab?tab=x", "/artifacts/k7d2qm4xab?tab=x"],
       ["/account", "/account"],
-      ["/review/k7d2qm4xab", "/review/k7d2qm4xab"],
     ] as const) {
       const response = await h.request(path, { redirect: "manual" });
       expect(response.status, path).toBe(302);
@@ -58,7 +57,6 @@ describe("dashboard pages", () => {
       "/artifacts/k7d2qm4xab/edit",
       "/artifacts/k7d2qm4xab/history",
       "/account",
-      "/review/k7d2qm4xab",
     ]) {
       const response = await h.request(path, { headers: { cookie } });
       expect(response.status, path).toBe(200);
@@ -89,6 +87,9 @@ describe("dashboard pages", () => {
       "/account/x",
       "/review",
       "/review/a/b",
+      "/view",
+      "/view/a/b",
+      "/view/NOT-AN-ID",
     ]) {
       expect((await h.request(path, { headers: { cookie } })).status, path).toBe(404);
     }
@@ -96,6 +97,37 @@ describe("dashboard pages", () => {
       const response = await SELF.fetch(`https://portifact.com${path}`, { redirect: "manual" });
       expect(response.status, path).toBe(404);
     }
+  });
+});
+
+describe("viewer page", () => {
+  it("serves the viewer with or without a session, with the dashboard's headers, never indexed", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("viewer-page@example.test");
+    for (const headers of [{}, { cookie }, { cookie: `${SESSION_COOKIE}=forged.value` }]) {
+      const response = await h.request("/view/k7d2qm4xab?path=%2Fdocs", {
+        headers,
+        redirect: "manual",
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-security-policy")).toBe(await dashboardCsp(env));
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(response.headers.get("x-frame-options")).toBe("DENY");
+      expect(response.headers.get("x-robots-tag")).toBe("noindex");
+      expect(await response.text()).toContain('<div id="root"></div>');
+    }
+    const elsewhere = await SELF.fetch("https://portifact.com/view/k7d2qm4xab", {
+      redirect: "manual",
+    });
+    expect(elsewhere.status).toBe(404);
+  });
+
+  it("sends old review viewer links to the viewer", async () => {
+    const h = createHarness();
+    const response = await h.request("/review/k7d2qm4xab?x=1", { redirect: "manual" });
+    expect(response.status).toBe(301);
+    expect(response.headers.get("location")).toBe("/view/k7d2qm4xab");
   });
 });
 

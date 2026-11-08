@@ -27,6 +27,7 @@ import {
   type UploadTarget,
   type UsageBlock,
   type VersionSummary,
+  type ViewerInfo,
 } from "@portifact/contracts";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
@@ -290,6 +291,8 @@ export interface FakeServer {
   artifacts: ArtifactSummary[];
   /** What the list says about each artifact's activity; missing ones get `DEFAULT_ACTIVITY`. */
   activity: Record<string, ArtifactActivity>;
+  /** Answers to GET /viewer by artifact ID; missing ones follow `reviews` and `annotations`. */
+  viewers: Record<string, ViewerInfo>;
   /** Answers to POST /review, by artifact ID; missing ones answer 404. */
   reviews: Record<string, ReviewStart>;
   /** Review tab codes issued so far (POST /review/tab answers with the review's origin). */
@@ -332,6 +335,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const server: FakeServer = {
     artifacts,
     activity: {},
+    viewers: {},
     reviews: {},
     reviewTabs: 0,
     annotations: {},
@@ -680,6 +684,8 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   const publishing = publishingRoute(server, method, url, headers);
   if (publishing) return publishing;
   const path = url.pathname;
+  const viewed = /^\/api\/v1\/artifacts\/([^/]+)\/viewer$/.exec(path);
+  if (viewed && method === "GET") return viewerRoute(server, viewed[1] ?? "");
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
@@ -751,6 +757,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       readers: [],
       indexable: false,
       embeddable: false,
+      bar: true,
       policyGeneration: 1,
     };
     server.access[owned.id] = policy;
@@ -814,6 +821,32 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
 
 const missing = () =>
   Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
+
+/**
+ * What the viewer's bar shows, like the Worker: `viewers` when set, else what the review and
+ * annotations fakes imply. Anonymous visitors (no `email`) see only public artifacts.
+ */
+function viewerRoute(server: FakeServer, id: string): Response {
+  const listed = server.artifacts.find((a) => a.id === id);
+  const start = server.reviews[id];
+  const info: ViewerInfo | undefined =
+    server.viewers[id] ??
+    (start && {
+      artifactId: id,
+      name: start.name,
+      type: start.type,
+      origin: start.origin,
+      versionNumber: 1,
+      accessMode: listed?.accessMode ?? "restricted",
+      annotations: server.annotations[id]?.mode ?? "off",
+      role: server.annotations[id]?.role === "participant" ? "reader" : "owner",
+    });
+  if (!info) return missing();
+  if (server.email === null) {
+    return info.accessMode === "public" ? Response.json({ ...info, role: "anonymous" }) : missing();
+  }
+  return Response.json(info);
+}
 
 /** The review code and annotations endpoints, with the rules the viewer depends on. */
 /**
@@ -992,7 +1025,7 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
   if (!change.success) {
     return Response.json({ error: { code: "invalid_input", message: "x" } }, { status: 400 });
   }
-  const { mode, indexable, embeddable, addReaders = [], removeReaders = [] } = change.data;
+  const { mode, indexable, embeddable, bar, addReaders = [], removeReaders = [] } = change.data;
   const readers = new Set(policy.readers.filter((email) => !removeReaders.includes(email)));
   for (const email of addReaders) readers.add(email);
   if (readers.size > LIMITS.readersPerArtifact) {
@@ -1002,6 +1035,7 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
     mode: mode ?? policy.mode,
     indexable: indexable ?? policy.indexable,
     embeddable: embeddable ?? policy.embeddable,
+    bar: bar ?? policy.bar,
     readers: [...readers].sort(),
     policyGeneration: policy.policyGeneration + 1,
   });

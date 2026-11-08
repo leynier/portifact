@@ -108,6 +108,8 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
         accessMode: "restricted",
         currentVersionId: `${id}-v1`,
         expiresAt: NOW + 10 * DAY,
+        // Top-level visits here test the artifact itself; the viewer redirect has its own tests.
+        bar: false,
         ...overrides,
       });
     await db()
@@ -1023,5 +1025,42 @@ describe("access log openings", () => {
     const { openings, logOpening } = recorder();
     expect((await send("/", { logOpening })).status).toBe(200);
     expect(openings).toEqual([]);
+  });
+});
+
+describe("the viewer with the Portifact bar on protected artifacts", () => {
+  beforeEach(() => seed({ bar: true }));
+
+  it("sends anonymous visitors through sign-in first, like an artifact without the bar", async () => {
+    const response = await send("/docs?x=1");
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toContain(`/read/${ID}?state=`);
+  });
+
+  it("opens the viewer only once the read session authorized the visit", async () => {
+    const cookie = await signIn(READER, "/");
+    const openings: Opening[] = [];
+    const viewed = await send("/?tab=2", {
+      cookie,
+      logOpening: (opening) => openings.push(opening),
+    });
+    expect(viewed.status).toBe(303);
+    expect(viewed.headers.get("location")).toBe(
+      `https://app.portifact.com/view/${ID}?path=%2F%3Ftab%3D2`,
+    );
+    expect(viewed.headers.get("cache-control")).toBe("no-store");
+    expect(viewed.headers.get("referrer-policy")).toBe("no-referrer");
+    // The visitor opened it: the owner's access log names them, as for the page itself.
+    expect(openings).toEqual([{ artifactId: ID, userId: READER, at: NOW }]);
+    // The page's own subresources and a sibling's loads are never redirected.
+    expect((await send("/app.js", { cookie, headers: SAME_ORIGIN })).status).toBe(200);
+  });
+
+  it("keeps an account the policy refuses on the sign-in path, never the viewer", async () => {
+    await env.DB.exec("DELETE FROM artifact_readers");
+    const cookie = await sealedClaims({ uid: READER, exp: NOW - 1 });
+    const response = await send("/", { cookie });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).not.toContain("/view/");
   });
 });

@@ -157,7 +157,7 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
       {artifact.state === "active" ? (
         <p className="mb-6">
           <Link
-            to="/review/$artifactId"
+            to="/view/$artifactId"
             params={{ artifactId: artifact.id }}
             className={buttonClasses({ intent: "secondary" })}
           >

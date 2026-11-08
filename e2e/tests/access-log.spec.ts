@@ -29,12 +29,14 @@ test("the owner sees who opened a protected artifact, and only signed-in opening
   const { artifactId } = await publish({
     ownerId: owner.userId,
     name: "Launch plan",
+    bar: false,
     files: SITE,
     readers: [reader.email],
   });
   const open = await publish({
     ownerId: owner.userId,
     name: "Open plan",
+    bar: false,
     files: SITE,
     accessMode: "public",
   });

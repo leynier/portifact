@@ -54,6 +54,11 @@ export const artifacts = sqliteTable(
       .default("off"),
     indexable: integer("indexable", { mode: "boolean" }).notNull().default(false),
     embeddable: integer("embeddable", { mode: "boolean" }).notNull().default(false),
+    /**
+     * The Portifact bar: top-level visits to the artifact's pages open in the viewer on the app
+     * (bar, artifact in a frame, comments sidebar). Off, they get the artifact itself.
+     */
+    bar: integer("bar", { mode: "boolean" }).notNull().default(true),
     currentVersionId: text("current_version_id"),
     /** Bumped on every lifecycle transition so stale maintenance jobs cannot act. */
     lifecycleGeneration: integer("lifecycle_generation").notNull().default(1),

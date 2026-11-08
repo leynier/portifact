@@ -32,6 +32,7 @@ const TOOLS = [
   "renew_artifact",
   "restore_artifact",
   "rollback_artifact",
+  "set_portifact_bar",
   ...[
     "create_annotation",
     "delete_annotation",

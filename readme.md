@@ -81,7 +81,7 @@ portifact annotations set ARTIFACT_ID open
 portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback to your agent
 ```
 
-Reviewers comment in the browser from the review viewer on the dashboard at `https://app.portifact.com`, which also publishes, changes access, rolls back and restores. Agents can also connect the remote MCP server at `https://app.portifact.com/mcp` and sign in with OAuth; it lists, publishes small Markdown, text or single-page HTML documents, manages versions and lifecycle, and reads and writes annotations. Access changes and folder or site publishing go through the CLI or the dashboard. The tested clients are on the [MCP compatibility page](https://portifact.com/mcp-compatibility).
+Opening an artifact's link shows it in Portifact's viewer, with a Portifact bar on top and the comments in a sidebar, where reviewers select text right in the artifact to comment (owners can turn the bar off per artifact). The dashboard at `https://app.portifact.com` publishes, changes access, rolls back and restores. Agents can also connect the remote MCP server at `https://app.portifact.com/mcp` and sign in with OAuth; it lists, publishes small Markdown, text or single-page HTML documents, manages versions and lifecycle, and reads and writes annotations. Access changes and folder or site publishing go through the CLI or the dashboard; MCP only turns the Portifact bar on or off. The tested clients are on the [MCP compatibility page](https://portifact.com/mcp-compatibility).
 
 ## Status
 

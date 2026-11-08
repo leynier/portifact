@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   endReviewSession,
+  getViewerArtifact,
   hashSecret,
   issueReviewHandoff,
   pruneReviewSessions,
@@ -294,5 +295,50 @@ describe("review access", () => {
     await expect(pruneReviewSessions(db(), NOW + 2000 + SESSION_MS)).resolves.toEqual({
       processed: 0,
     });
+  });
+});
+
+describe("viewer artifact", () => {
+  const view = (userId: string | null, now = NOW) =>
+    getViewerArtifact(db(), { artifactId: ID, userId, now });
+
+  it("names who is looking: the owner, a reader the policy admits", async () => {
+    expect(await view(OWNER)).toEqual({
+      ok: true,
+      value: {
+        name: "Plan",
+        type: "site",
+        versionNumber: 1,
+        accessMode: "restricted",
+        annotations: "off",
+        role: "owner",
+      },
+    });
+    const reader = await view(READER);
+    expect(reader.ok && reader.value.role).toBe("reader");
+  });
+
+  it("answers a stranger exactly like a missing artifact", async () => {
+    const stranger = await view(STRANGER);
+    const missing = await getViewerArtifact(db(), {
+      artifactId: "zzzzzzzzzz",
+      userId: STRANGER,
+      now: NOW,
+    });
+    expect(stranger).toEqual(missing);
+    expect(stranger.ok).toBe(false);
+  });
+
+  it("shows anonymous visitors only public artifacts that are servable", async () => {
+    expect((await view(null)).ok).toBe(false);
+    await env.DB.exec("UPDATE artifacts SET access_mode = 'authenticated'");
+    expect((await view(null)).ok).toBe(false);
+    await env.DB.exec("UPDATE artifacts SET access_mode = 'public', annotations = 'open'");
+    const open = await view(null);
+    expect(open.ok && open.value).toMatchObject({ role: "anonymous", annotations: "open" });
+    // Expired, archived or suspended public artifacts look missing too.
+    expect((await view(null, NOW + 11 * DAY)).ok).toBe(false);
+    await env.DB.exec("UPDATE artifacts SET state = 'suspended'");
+    expect(await view(null)).toEqual(await view(STRANGER));
   });
 });
