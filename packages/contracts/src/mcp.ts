@@ -1,7 +1,8 @@
 // Inputs of the remote MCP tools (plan section 6). Outputs are the `/api/v1` shapes, so an
 // agent reads the same fields the CLI and the dashboard read.
 import { z } from "zod";
-import { ArtifactId, ArtifactType, LIMITS } from "./core.ts";
+import { ArtifactId, ArtifactType } from "./core.ts";
+import { LIMITS } from "./limits.ts";
 import { IdempotencyKey } from "./publishing.ts";
 
 const artifactId = ArtifactId.describe(

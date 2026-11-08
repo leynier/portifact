@@ -17,6 +17,7 @@ The project is in its initial build. Some commands and paths below are planned a
 | [docs/testing.md](docs/testing.md)             | Writing or changing any code. Every change ships with tests.                                                                                                                                                                                                              |
 | [docs/design.md](docs/design.md)               | Touching any UI: dashboard, review viewer, Markdown/TXT viewers or the annotation bridge.                                                                                                                                                                                 |
 | [docs/accessibility.md](docs/accessibility.md) | Touching any UI or CLI output. Accessibility is part of done.                                                                                                                                                                                                             |
+| [docs/anchors.md](docs/anchors.md)             | Touching annotation targets, text normalization, the review bridge selection or anything that creates or resolves anchors.                                                                                                                                                |
 | [docs/releasing.md](docs/releasing.md)         | Touching branches, versions, CI, release workflows, build scripts or installers.                                                                                                                                                                                          |
 | [docs/decisions/](docs/decisions)              | Touching something a decision record covers: the OAuth server ([0001](docs/decisions/0001-oauth-server.md)) or review-mode cookies ([0002](docs/decisions/0002-review-mode-cookies.md)). Add a numbered record when a spike or hard-to-reverse choice settles a question. |
 
@@ -29,12 +30,12 @@ apps/app        Worker for portifact.com and app.portifact.com: landing, install
 apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
-packages/cli    portifact CLI
+packages/cli    portifact CLI: login, logout and whoami today; commands take an injected Runtime (packages/cli/src/runtime.ts)
 packages/contracts   Shared schemas, errors and OpenAPI
 packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
 packages/services    Use cases that apply domain rules with D1 and R2: publish, restore and more
 packages/db          Drizzle schema, migrations and queries
-packages/render      Markdown and TXT rendering pipeline
+packages/render      Markdown and TXT rendering to safe HTML documents (markdown-it); not wired into delivery yet
 packages/anchors     Annotation anchor model and resolution
 packages/bridge      Review script injected into artifacts
 packages/ui          Design system: tokens and components
@@ -57,6 +58,7 @@ bun run build          # build apps (the landing in apps/web/dist)
 bun run dev            # local dev servers (Vite for apps/web, wrangler for apps/app)
 bun run build:cli      # compile the CLI for this platform into dist/release (--all for every platform)
 bun run --cwd packages/db generate -- --name <change>   # create a D1 migration from schema.ts
+bun run --cwd packages/ui sync-tokens   # regenerate tokens-css.ts after editing tokens.css
 bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
 ```
 
@@ -69,7 +71,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 ## Architecture rules
 
 - Business rules live only in `packages/domain` (pure functions) and the use cases that apply them with storage live in `packages/services`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over these services; never reimplement a rule in an adapter.
-- In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice.
+- In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice. If two concurrent requests would write the same new state (a counter or generation plus one), `exists(...)` on it is true for both: condition the dependent writes on the old state the request read and run the guarded update last instead (see `packages/services/src/access.ts`).
 - Web, CLI and MCP must behave identically for the same operation: same permission checks, quotas, states and errors. Add a parity test when you add an operation.
 - MCP has no privileged path. It goes through the same authorization as the API. `apps/app/src/mcp` serves `/mcp` with the official SDK (`@modelcontextprotocol/server`, pinned exactly; the 2026-07-28 revision plus the stateless 2025 fallback). Every request passes `authorizeResourceRequest` with the scope of the tool it calls, from `TOOL_SCOPES` in `apps/app/src/mcp/tools.ts`, before the SDK runs; a new tool must be added there with the same scope as its API route, and to `test/mcp-parity.test.ts`. Tool results return the API's body as structured content and errors as `{ error: { code, message } }`.
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.

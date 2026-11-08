@@ -7,9 +7,10 @@ import {
   ArtifactId,
   ArtifactState,
   ArtifactType,
+  Email,
   type ErrorCode,
-  LIMITS,
 } from "./core.ts";
+import { LIMITS } from "./limits.ts";
 
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "Invalid SHA-256");
 
@@ -102,6 +103,32 @@ export const LifecycleResult = z.object({
   purgeAt: z.iso.datetime().nullable(),
 });
 export type LifecycleResult = z.infer<typeof LifecycleResult>;
+
+/** Who can open an artifact, as its owner sees it. */
+export const AccessPolicyView = z.object({
+  mode: AccessMode,
+  /** Lowercased addresses that may read a `restricted` artifact. */
+  readers: z.array(z.string()),
+  indexable: z.boolean(),
+  embeddable: z.boolean(),
+  /** Increases on every change; read sessions issued before it stop working. */
+  policyGeneration: z.number().int().min(1),
+});
+export type AccessPolicyView = z.infer<typeof AccessPolicyView>;
+
+/** A change to the access policy. Applying the same change twice leaves the same policy. */
+export const AccessUpdate = z
+  .object({
+    mode: AccessMode.optional(),
+    indexable: z.boolean().optional(),
+    embeddable: z.boolean().optional(),
+    addReaders: z.array(Email).max(LIMITS.readersPerChange).optional(),
+    removeReaders: z.array(Email).max(LIMITS.readersPerChange).optional(),
+  })
+  .refine((update) => Object.values(update).some((value) => value !== undefined), {
+    message: "Send at least one change.",
+  });
+export type AccessUpdate = z.infer<typeof AccessUpdate>;
 
 /** `Idempotency-Key` header of retryable mutations. */
 export const IdempotencyKey = z

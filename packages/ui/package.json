@@ -7,9 +7,12 @@
   "type": "module",
   "exports": {
     "./tokens.css": "./src/tokens/tokens.css",
-    "./theme.css": "./src/tokens/theme.css"
+    "./theme.css": "./src/tokens/theme.css",
+    "./tokens-css": "./src/tokens/tokens-css.ts",
+    "./document-css": "./src/viewers/document-css.ts"
   },
   "scripts": {
+    "sync-tokens": "bun scripts/sync-tokens-css.ts && biome format --write src/tokens/tokens-css.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --coverage"
   },

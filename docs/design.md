@@ -84,3 +84,5 @@ Components carry the accessible behavior for the whole product. The requirements
 ## Artifact-origin viewers
 
 The Markdown and TXT viewers and the bridge run on `portifact.dev` and ship in their own small bundles. They import tokens and the few components they need from `packages/ui`, so they stay consistent with the dashboard without loading the full dashboard bundle. They must not depend on anything served from `portifact.com`.
+
+The Markdown and TXT documents rendered by `packages/render` load no bundle at all: they inline `TOKENS_CSS` (`@portifact/ui/tokens-css`) and `DOCUMENT_CSS` (`@portifact/ui/document-css`) in one `<style>`. `DOCUMENT_CSS` uses only `var(--pf-*)` tokens, including the type scale, spacing, measure and border widths in `tokens.css` that exist for surfaces styled without Tailwind. `tokens-css.ts` is generated from `tokens.css`: after editing the tokens, run `bun run --cwd packages/ui sync-tokens`, or the drift test fails.

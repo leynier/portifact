@@ -7,7 +7,7 @@ export default defineConfig({
       provider: "istanbul",
       reporter: ["text", "json-summary"],
       include: ["src/**/*.ts"],
-      exclude: ["src/**/*.test.ts", "src/main.ts"],
+      exclude: ["src/**/*.test.ts", "src/testing/**", "src/main.ts"],
       thresholds: {
         lines: 90,
         branches: 85,
