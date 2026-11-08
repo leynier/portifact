@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1c796793-28e1-4a87-9cb5-ccc921dc70d9",
+  "id": "9e4cc3a2-1d9f-4087-9216-c84d78fc2de3",
   "prevId": "4b96b8db-7d86-4d9f-9ebb-694e0ac0cd88",
   "tables": {
     "abuse_reports": {
@@ -910,6 +910,45 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "maintenance_cursors": {
+      "name": "maintenance_cursors",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cursor": {
+          "name": "cursor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "pass_started_at": {
+          "name": "pass_started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "objects": {
       "name": "objects",
       "columns": {
@@ -1098,12 +1137,31 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch() * 1000)"
+        },
+        "subject": {
+          "name": "subject",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
         "outbox_pending_idx": {
           "name": "outbox_pending_idx",
           "columns": ["dispatched_at", "available_at"],
+          "isUnique": false
+        },
+        "outbox_subject_idx": {
+          "name": "outbox_subject_idx",
+          "columns": ["topic", "subject"],
           "isUnique": false
         }
       },
@@ -1407,14 +1465,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch() * 1000)"
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'frame'"
         }
       },
       "indexes": {
@@ -1656,6 +1706,56 @@
           "value": "\"source_origins\".\"remote\" is null or length(\"source_origins\".\"remote\") <= 2048"
         }
       }
+    },
+    "storage_findings": {
+      "name": "storage_findings",
+      "columns": {
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "r2_key": {
+          "name": "r2_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "storage_findings_kind_r2_key_pk": {
+          "columns": ["kind", "r2_key"],
+          "name": "storage_findings_kind_r2_key_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "suspensions": {
       "name": "suspensions",

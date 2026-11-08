@@ -7,9 +7,10 @@
 import { type AccountExport, FRESH_SESSION_MS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
-import { and, asc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { releaseOrphans } from "./maintenance.ts";
+import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 
 const IN_CHUNK = 80;
 
@@ -269,12 +270,15 @@ export async function requestAccountDeletion(
     );
   }
   const email = found.email.toLowerCase();
+  const userExists = sql`exists (select 1 from ${schema.users} where ${schema.users.id} = ${input.userId})`;
   await db.batch([
+    // A concurrent request that already deleted the user writes no second job.
+    accountDeletionJob(db, input.userId, userExists, input.now),
     db
       .insert(schema.accountDeletions)
       .values({ userId: input.userId, requestedAt: input.now })
       .onConflictDoNothing(),
-    claimArtifacts(db, input.userId, input.now),
+    ...claimArtifacts(db, input.userId, input.now),
     db
       .update(schema.abuseReports)
       .set({ reporterEmail: null })
@@ -286,20 +290,28 @@ export async function requestAccountDeletion(
   return ok({ deleted: true });
 }
 
-/** Moves every artifact of the account that is still around to `purging`. */
-function claimArtifacts(db: Db, ownerId: string, now: number) {
+/**
+ * Moves every artifact of the account that is still around to `purging`, with a purge job for
+ * each written first on the same old state.
+ */
+export function claimArtifacts(db: Db, ownerId: string, now: number) {
   const a = schema.artifacts;
-  return db
-    .update(a)
-    .set({
-      state: "purging",
-      suspensionReason: null,
-      lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
-      updatedAt: now,
-    })
-    .where(
-      and(eq(a.ownerId, ownerId), inArray(a.state, ["draft", "active", "archived", "suspended"])),
-    );
+  const claimable = and(
+    eq(a.ownerId, ownerId),
+    inArray(a.state, ["draft", "active", "archived", "suspended"]),
+  ) as SQL;
+  return [
+    purgeJobs(db, claimable, now),
+    db
+      .update(a)
+      .set({
+        state: "purging",
+        suspensionReason: null,
+        lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
+        updatedAt: now,
+      })
+      .where(claimable),
+  ] as const;
 }
 
 /**
@@ -324,11 +336,7 @@ async function threadsToErase(db: Db, userId: string, limit: number): Promise<st
 }
 
 /**
- * Advances pending account deletions. Each run claims artifacts that appeared after the request
- * (an upload already in flight), lets `purgeArchived` purge the claimed ones, erases a batch of
- * the account's comments elsewhere, and finishes an account once neither is left: its storage
- * objects, counters, idempotency records and upload sessions are deleted and an `account`
- * tombstone replaces the deletion row. Every step is idempotent and safe to run concurrently.
+ * Advances pending account deletions, oldest first. See `advanceAccountDeletion`.
  */
 export async function processAccountDeletions(
   db: Db,
@@ -338,67 +346,86 @@ export async function processAccountDeletions(
   threadsPerAccount = 25,
 ): Promise<{ processed: number; finished: number }> {
   const pending = await db
-    .select()
+    .select({ userId: schema.accountDeletions.userId })
     .from(schema.accountDeletions)
     .orderBy(asc(schema.accountDeletions.requestedAt))
     .limit(limit);
   let finished = 0;
   for (const deletion of pending) {
-    const userId = deletion.userId;
-    await claimArtifacts(db, userId, now).run();
-    const threads = await threadsToErase(db, userId, threadsPerAccount);
-    for (const threadId of threads) {
-      await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
-    }
-    if (threads.length > 0) continue;
-    const [left] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.artifacts)
-      .where(eq(schema.artifacts.ownerId, userId));
-    if (Number(left?.count ?? 0) > 0) continue;
-
-    // Objects only aborted uploads referenced; nothing references them any more.
-    const objects = await db
-      .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
-      .from(schema.objects)
-      .where(eq(schema.objects.ownerId, userId));
-    await releaseOrphans(db, bucket, objects, now);
-
-    const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${userId})`;
-    const results = (await db.batch([
-      db
-        .delete(schema.uploadSessions)
-        .where(and(eq(schema.uploadSessions.ownerId, userId), nothingLeft)),
-      db.delete(schema.usageEvents).where(and(eq(schema.usageEvents.ownerId, userId), nothingLeft)),
-      db.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
-      db
-        .delete(schema.annotationUsage)
-        .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
-      db
-        .delete(schema.accountUsage)
-        .where(
-          and(
-            eq(schema.accountUsage.ownerId, userId),
-            nothingLeft,
-            sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${userId})`,
-          ),
-        ),
-      db
-        .insert(schema.tombstones)
-        .select(sql`select 'account', ${userId}, ${now} where ${nothingLeft}`)
-        .onConflictDoNothing(),
-      db
-        .delete(schema.accountDeletions)
-        .where(
-          and(
-            eq(schema.accountDeletions.userId, userId),
-            nothingLeft,
-            sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'account' and ${schema.tombstones.id} = ${userId})`,
-          ),
-        )
-        .returning({ userId: schema.accountDeletions.userId }),
-    ])) as unknown[];
-    if ((results.at(-1) as unknown[]).length === 1) finished += 1;
+    const state = await advanceAccountDeletion(db, bucket, deletion.userId, now, threadsPerAccount);
+    if (state === "finished") finished += 1;
   }
   return { processed: pending.length, finished };
+}
+
+/**
+ * Advances one pending account deletion. Each call claims artifacts that appeared after the
+ * request (an upload already in flight), leaves the claimed ones to their purge jobs and
+ * `purgeArchived`, erases a batch of the account's comments elsewhere, and finishes the account
+ * once neither is left: its storage objects, counters, idempotency records and upload sessions
+ * are deleted and an `account` tombstone replaces the deletion row. Every step is idempotent and
+ * safe to run concurrently. Returns `absent` when no deletion is pending for the account.
+ */
+export async function advanceAccountDeletion(
+  db: Db,
+  bucket: R2Bucket,
+  userId: string,
+  now: number,
+  threadsPerAccount = 25,
+): Promise<"absent" | "pending" | "finished"> {
+  const [deletion] = await db
+    .select({ userId: schema.accountDeletions.userId })
+    .from(schema.accountDeletions)
+    .where(eq(schema.accountDeletions.userId, userId));
+  if (!deletion) return "absent";
+  await db.batch([...claimArtifacts(db, userId, now)]);
+  const threads = await threadsToErase(db, userId, threadsPerAccount);
+  for (const threadId of threads) {
+    await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
+  }
+  if (threads.length > 0) return "pending";
+  const [left] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.ownerId, userId));
+  if (Number(left?.count ?? 0) > 0) return "pending";
+
+  // Objects only aborted uploads referenced; nothing references them any more.
+  const objects = await db
+    .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
+    .from(schema.objects)
+    .where(eq(schema.objects.ownerId, userId));
+  await releaseOrphans(db, bucket, objects, now);
+
+  const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${userId})`;
+  const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'account' and ${schema.tombstones.id} = ${userId})`;
+  const results = (await db.batch([
+    db
+      .delete(schema.uploadSessions)
+      .where(and(eq(schema.uploadSessions.ownerId, userId), nothingLeft)),
+    db.delete(schema.usageEvents).where(and(eq(schema.usageEvents.ownerId, userId), nothingLeft)),
+    db.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
+    db
+      .delete(schema.annotationUsage)
+      .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
+    db
+      .delete(schema.accountUsage)
+      .where(
+        and(
+          eq(schema.accountUsage.ownerId, userId),
+          nothingLeft,
+          sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${userId})`,
+        ),
+      ),
+    db
+      .insert(schema.tombstones)
+      .select(sql`select 'account', ${userId}, ${now} where ${nothingLeft}`)
+      .onConflictDoNothing(),
+    closeJobs(db, "account_deletion", userId, and(nothingLeft, tombstoned) as SQL),
+    db
+      .delete(schema.accountDeletions)
+      .where(and(eq(schema.accountDeletions.userId, userId), nothingLeft, tombstoned))
+      .returning({ userId: schema.accountDeletions.userId }),
+  ])) as unknown[];
+  return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
 }

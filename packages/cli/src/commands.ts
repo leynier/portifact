@@ -100,7 +100,7 @@ async function waitForApproval(runtime: Runtime, server: Server, device: DeviceA
 
 export async function whoami(io: Io, runtime: Runtime, options: OutputOptions): Promise<void> {
   const session = await openSession(io, runtime);
-  const principal = await withAccessToken(session, principalOf(runtime, session.server));
+  const principal = await signedInPrincipal(session);
   const origin = session.server.origin;
   if (options.json) {
     writeJson(io, {
@@ -142,6 +142,11 @@ export async function logout(io: Io, runtime: Runtime, options: OutputOptions): 
   } else {
     io.stdout(`${messages.notSignedInLogout(server.origin)}\n`);
   }
+}
+
+/** The account and client the session's token belongs to. */
+export function signedInPrincipal(session: Session): Promise<TokenPrincipal> {
+  return withAccessToken(session, principalOf(session.runtime, session.server));
 }
 
 function principalOf(

@@ -26,7 +26,12 @@ const proxy = await getPlatformProxy<{ DB: D1Database }>(
     : { configPath: here("../operator.wrangler.jsonc"), persist: false, remoteBindings: true },
 );
 try {
-  const result = await runOperator(createDb(proxy.env.DB), args, Date.now());
+  const result = await runOperator(createDb(proxy.env.DB), args, Date.now(), {
+    read: (path) => Bun.file(path).text(),
+    write: async (path, text) => {
+      await Bun.write(path, text);
+    },
+  });
   console.log(result.output);
   process.exitCode = result.exitCode;
 } finally {

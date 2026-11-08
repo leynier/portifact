@@ -11,8 +11,9 @@ import {
   purgeDate,
   type Result,
 } from "@portifact/domain";
-import { and, eq } from "drizzle-orm";
+import { and, eq, type SQL } from "drizzle-orm";
 import { deleteArtifactData } from "./maintenance.ts";
+import { OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 
 export interface LifecycleInput {
   ownerId: string;
@@ -161,15 +162,21 @@ export async function deleteArtifact(
   if (!artifact) return fail("not_found", "Artifact not found.");
   if (artifact.state === "purging" || artifact.state === "deleted")
     return ok({ state: "deleted", expiresAt: null, purgeAt: null });
-  const claimed = await db
-    .update(schema.artifacts)
-    .set({
-      state: "purging",
-      lifecycleGeneration: artifact.lifecycleGeneration + 1,
-      updatedAt: input.now,
-    })
-    .where(guard(artifact))
-    .returning({ id: schema.artifacts.id });
+  // The purge job is written with the claim, on the same old state, so the queue finishes the
+  // deletion if this request dies before it does.
+  const unchanged = guard(artifact) as SQL;
+  const [, claimed] = await db.batch([
+    purgeJobs(db, unchanged, input.now, input.now + OUTBOX_INLINE_GRACE_MS),
+    db
+      .update(schema.artifacts)
+      .set({
+        state: "purging",
+        lifecycleGeneration: artifact.lifecycleGeneration + 1,
+        updatedAt: input.now,
+      })
+      .where(unchanged)
+      .returning({ id: schema.artifacts.id }),
+  ]);
   if (claimed.length === 0) return conflict();
   await deleteArtifactData(db, bucket, artifact.id, input.now);
   return ok({ state: "deleted", expiresAt: null, purgeAt: null });
