@@ -1,7 +1,8 @@
 // Read use cases for an owner's artifacts: list with a cursor and look one up. Someone else's
 // artifact looks exactly like a missing one.
+import type { ArtifactListFilters } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
-import { and, desc, eq, lt, ne, or } from "drizzle-orm";
+import { and, desc, eq, lt, ne, or, sql } from "drizzle-orm";
 
 export type ArtifactRow = typeof schema.artifacts.$inferSelect;
 
@@ -9,6 +10,8 @@ export interface ListInput {
   ownerId: string;
   cursor?: string | undefined;
   limit: number;
+  /** Only artifacts that match every filter given; a cursor continues the same filters. */
+  filters?: ArtifactListFilters | undefined;
 }
 
 export interface ArtifactPage {
@@ -35,7 +38,31 @@ export function decodeCursor(cursor: string): { updatedAt: number; id: string } 
   }
 }
 
-/** The owner's artifacts, most recently updated first. Deleted artifacts are not listed. */
+/**
+ * The search and filters as conditions. SQLite's `lower` folds only A to Z, so the search
+ * ignores case for those letters and matches any other character exactly; IDs are lowercase.
+ */
+function filterConditions(filters: ArtifactListFilters = {}) {
+  const t = schema.artifacts;
+  const search = filters.search;
+  return [
+    search === undefined
+      ? undefined
+      : or(
+          sql`instr(lower(${t.name}), lower(${search})) > 0`,
+          sql`instr(${t.id}, lower(${search})) > 0`,
+        ),
+    filters.state === undefined ? undefined : eq(t.state, filters.state),
+    filters.type === undefined ? undefined : eq(t.type, filters.type),
+    filters.access === undefined ? undefined : eq(t.accessMode, filters.access),
+    filters.annotations === undefined ? undefined : eq(t.annotations, filters.annotations),
+  ];
+}
+
+/**
+ * The owner's artifacts that match the filters, most recently updated first. Deleted artifacts
+ * are not listed.
+ */
 export async function listArtifacts(db: Db, input: ListInput): Promise<ArtifactPage | undefined> {
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
   if (input.cursor !== undefined && !after) return undefined;
@@ -48,6 +75,7 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<ArtifactP
         eq(t.ownerId, input.ownerId),
         ne(t.state, "deleted"),
         ne(t.state, "draft"),
+        ...filterConditions(input.filters),
         after
           ? or(
               lt(t.updatedAt, after.updatedAt),

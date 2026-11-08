@@ -194,7 +194,7 @@ Account creation and an account's first comments on other people's artifacts nee
 
 ### Secrets and logs
 
-- No secrets in the repository. Local secrets live in `.dev.vars`, which is ignored by git.
+- No secrets in the repository. Local secrets live in `.dev.vars`, which is ignored by git. CI's `secrets` job scans every change's commits and the checked-out tree with gitleaks, and the whole history when its rules change ([releasing.md](releasing.md)); a false positive goes in the `.gitleaks.toml` allowlist with the reason it is safe, as narrow as the finding, never as a path exclusion. Public values (the Turnstile site key, the Google and GitHub client IDs, Cloudflare's documented Turnstile test keys and the e2e Worker's test-only values) are not secrets.
 - Never log tokens, cookies, OTP codes, presigned URLs, private emails beyond what access logs require, or full comment bodies. The email sender replaces provider errors with a generic one (or `RecipientSuppressedError`), because a provider error can echo the message that holds the code and the address. The email events consumer logs only the event type, ID and outcome, never the recipient.
 
 ## Review checklist

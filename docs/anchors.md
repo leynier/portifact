@@ -12,6 +12,8 @@ A thread points at an immutable version, a file path and a target. The target sh
 | `text`     | `quote` (W3C TextQuoteSelector: `exact`, `prefix`, `suffix`), `position` (TextPositionSelector), optional `domHint` selector and optional `source` (Markdown block and source offsets, or TXT offsets). |
 | `element`  | Up to four `selectors` (primary first), `tagName`, a text `fingerprint` and an optional `rect` as a visual hint.                                                                                        |
 
+The bridge polls the route every 500 ms to tell the viewer, and also reads it whenever it creates a target or resolves markers, so a selection made right after a client-side router moves records the route the page is on, not the one the last poll saw.
+
 `contentHash` is `contentHash()` from `packages/anchors`: SHA-256 of the UTF-8 normalized text. The bridge sets it from the page's text when it creates a target, sets `renderer` (`portifact-render@<version>`) only on pages Portifact rendered, and does not fill `source` yet.
 
 ## Normalization and offsets
@@ -40,4 +42,4 @@ Targets arrive from the bridge and from API, CLI and MCP clients. `AnnotationTar
 
 ## Testing
 
-`packages/anchors` runs its DOM tests against happy-dom, and `type-tests/dom.ts` compiles against the browser's DOM types (`tsconfig.dom.json`, part of the package's `typecheck`) to prove real nodes and `Selection` ranges satisfy the structural types without casts. Property-based tests cover normalization (idempotent, NFC, mapping back to raw offsets), create-then-resolve round trips over random text and random HTML, and safe, unique element selectors.
+`packages/anchors` runs its DOM tests against happy-dom, and `type-tests/dom.ts` compiles against the browser's DOM types (`tsconfig.dom.json`, part of the package's `typecheck`) to prove real nodes and `Selection` ranges satisfy the structural types without casts. Property-based tests cover normalization (idempotent, NFC, mapping back to raw offsets), create-then-resolve round trips over random text and random HTML, and safe, unique element selectors. In real browsers, `e2e/tests/spa-selection.spec.ts` reviews a client-rendered app with a hash router and no dependencies: it selects text and picks an element the script created, checks the stored targets and their route, sees both threads become "without location" on another route and found again once the home view is rendered from new nodes with shifted offsets.

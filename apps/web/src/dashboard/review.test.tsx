@@ -17,6 +17,7 @@ import {
   fakeServer,
   fakeThread,
   renderDashboard,
+  seedVersion,
 } from "./test-support.tsx";
 
 const ID = "k7d2qm4xab";
@@ -481,6 +482,164 @@ describe("thread actions", () => {
     fireEvent.click(within(thread).getByRole("button", { name: "Resolve" }));
     const alert = await within(thread).findByRole("alert");
     expect(alert.textContent).toContain("The artifact changed meanwhile");
+  });
+});
+
+describe("comment filters and export", () => {
+  const headings = () =>
+    screen
+      .queryAllByRole("article")
+      .map((article) => article.getAttribute("aria-labelledby"))
+      .map((id) => (id ? document.getElementById(id)?.textContent : null));
+  const choose = (name: string, value: string) =>
+    fireEvent.change(screen.getByRole("combobox", { name }), { target: { value } });
+  const lastMarkers = () =>
+    sent()
+      .map((s) => s.message)
+      .filter((message) => message.type === "markers")
+      .at(-1)
+      ?.markers.map((marker) => marker.id);
+
+  beforeEach(() => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.threads.push(
+      {
+        ...fakeThread("t3", {
+          target: TEXT_TARGET,
+          state: "resolved",
+          author: { id: "u-cy", name: "Cy", image: null },
+          createdAt: "2026-11-08T12:07:00.000Z",
+        }),
+        seq: 3,
+      },
+      {
+        ...fakeThread("t4", {
+          own: true,
+          author: { id: "u-ada", name: "Ada", image: null },
+          createdAt: "2026-11-08T12:08:00.000Z",
+        }),
+        seq: 4,
+      },
+    );
+    store.seq = 4;
+  });
+
+  it("filters by status and author without renumbering, and marks only what it shows", async () => {
+    const { container } = await open();
+    await connect();
+    await waitFor(() => expect(lastMarkers()).toEqual(["t1", "t3"]));
+    const tools = screen.getByRole("region", { name: "Filter and export" });
+    expect(
+      within(tools)
+        .getAllByRole("option")
+        .slice(3, 7)
+        .map((option) => option.textContent),
+    ).toEqual(["Everyone", "You", "Bea", "Cy"]);
+    expect(await axeViolations(container)).toEqual([]);
+
+    choose("Status", "resolved");
+    expect(headings()).toEqual(["Thread 3"]);
+    expect(screen.getByText("Showing 1 of 4 comment threads").getAttribute("role")).toBe("status");
+    await waitFor(() => expect(lastMarkers()).toEqual(["t3"]));
+
+    choose("Status", "all");
+    choose("Author", "own");
+    expect(headings()).toEqual(["Thread 4"]);
+    await waitFor(() => expect(lastMarkers()).toEqual([]));
+
+    choose("Author", "id:u-bea");
+    expect(headings()).toEqual(["Thread 1", "Thread 2"]);
+    choose("Status", "resolved");
+    expect(headings()).toEqual([]);
+    expect(screen.getByText("No comment threads match the filters.")).toBeTruthy();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("lets the owner list another version's threads, which get no place in the page", async () => {
+    await seedVersion(server, ID, [{ path: "index.html", text: "<p>old</p>" }], { id: "v0" });
+    await seedVersion(server, ID, [{ path: "index.html", text: "<p>new</p>" }], { id: "v1" });
+    server.annotations[ID]?.threads.push({
+      ...fakeThread("t0", {
+        versionId: "v0",
+        current: false,
+        target: TEXT_TARGET,
+        createdAt: "2026-11-01T12:00:00.000Z",
+      }),
+      seq: 5,
+    });
+    await open();
+    await connect();
+    expect(headings()).toEqual(["Thread 1", "Thread 2", "Thread 3", "Thread 4"]);
+    const versions = screen.getByRole("combobox", { name: "Version" });
+    await waitFor(() =>
+      expect(
+        within(versions)
+          .getAllByRole("option")
+          .map((o) => o.textContent),
+      ).toEqual(["Current version", "All versions", "Version 1"]),
+    );
+
+    choose("Version", "all");
+    await waitFor(() =>
+      expect(headings()).toEqual(["Thread 1", "Thread 2", "Thread 3", "Thread 4", "Thread 5"]),
+    );
+    expect(server.requests.map((r) => r.path)).toContain(
+      `/api/v1/artifacts/${ID}/annotations?version=all`,
+    );
+    const earlier = screen.getByRole("article", { name: "Thread 1" });
+    expect(within(earlier).getByText("Earlier version")).toBeTruthy();
+    expect(within(earlier).queryByRole("button", { name: "Show in the artifact" })).toBeNull();
+    expect(within(earlier).queryByRole("button", { name: "Reply" })).toBeNull();
+    await waitFor(() => expect(lastMarkers()).toEqual(["t1", "t3"]));
+
+    choose("Version", "v0");
+    await waitFor(() => expect(headings()).toEqual(["Thread 1"]));
+    expect(server.requests.map((r) => r.path)).toContain(
+      `/api/v1/artifacts/${ID}/annotations?version=v0`,
+    );
+  });
+
+  it("offers a visitor no version choice", async () => {
+    const store = server.annotations[ID];
+    if (store) store.role = "participant";
+    await open();
+    expect(screen.getByRole("combobox", { name: "Status" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Version" })).toBeNull();
+    expect(server.requests.some((r) => r.path.endsWith("/versions"))).toBe(false);
+  });
+
+  it("exports the chosen version and status as JSON or Markdown", async () => {
+    const { saved } = await open();
+    fireEvent.click(screen.getByRole("button", { name: "Export as JSON" }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]?.fileName).toBe(`${ID}-annotations.json`);
+    const exported = JSON.parse((await saved[0]?.blob.text()) ?? "");
+    expect(exported.threads.map((t: { id: string }) => t.id)).toEqual(["t1", "t2", "t3", "t4"]);
+
+    choose("Status", "open");
+    fireEvent.click(screen.getByRole("button", { name: "Export as Markdown" }));
+    await waitFor(() => expect(saved).toHaveLength(2));
+    expect(saved[1]?.fileName).toBe(`${ID}-annotations.md`);
+    expect(await saved[1]?.blob.text()).toBe("# Launch plan\n\n3 threads\n");
+    expect(server.requests.filter((r) => r.path.includes("/export")).map((r) => r.path)).toEqual([
+      `/api/v1/artifacts/${ID}/annotations/export?format=json&version=current`,
+      `/api/v1/artifacts/${ID}/annotations/export?format=markdown&version=current&state=open`,
+    ]);
+  });
+
+  it("shows why an export failed", async () => {
+    const { saved } = await open();
+    server.fail("GET", `/api/v1/artifacts/${ID}/annotations/export`, {
+      status: 503,
+      code: "capacity_unavailable",
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Export as JSON" }));
+    const tools = screen.getByRole("region", { name: "Filter and export" });
+    expect((await within(tools).findByRole("alert")).textContent).toContain(
+      "Portifact is at capacity right now",
+    );
+    expect(saved).toHaveLength(0);
   });
 });
 

@@ -1,9 +1,9 @@
 // Inputs of the remote MCP tools (plan section 6). Outputs are the `/api/v1` shapes, so an
 // agent reads the same fields the CLI and the dashboard read.
 import { z } from "zod";
-import { ArtifactId, ArtifactType } from "./core.ts";
+import { AccessMode, AnnotationsState, ArtifactId, ArtifactType } from "./core.ts";
 import { LIMITS } from "./limits.ts";
-import { IdempotencyKey } from "./publishing.ts";
+import { IdempotencyKey, LIST_SEARCH_MAX, ListedArtifactState } from "./publishing.ts";
 
 const artifactId = ArtifactId.describe(
   "The artifact ID, as list_artifacts or get_artifact return it.",
@@ -25,6 +25,23 @@ export const ListArtifactsInput = z.object({
     .max(100)
     .default(50)
     .describe("How many artifacts to return, 1 to 100."),
+  search: z
+    .string()
+    .trim()
+    .min(1)
+    .max(LIST_SEARCH_MAX)
+    .optional()
+    .describe("Only artifacts whose name or ID contains this text (letters in any case)."),
+  state: ListedArtifactState.optional().describe(
+    "Only artifacts in this state: active, archived, suspended or purging.",
+  ),
+  type: ArtifactType.optional().describe("Only artifacts of this type: site, markdown or text."),
+  access: AccessMode.optional().describe(
+    "Only artifacts with this access mode: public, authenticated or restricted.",
+  ),
+  annotations: AnnotationsState.optional().describe(
+    "Only artifacts whose annotations are off, open or locked.",
+  ),
 });
 export type ListArtifactsInput = z.infer<typeof ListArtifactsInput>;
 

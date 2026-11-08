@@ -7,9 +7,11 @@ import {
   createAnnotationThread,
   issueReviewHandoff,
   preparePublish,
+  updateAccess,
 } from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
+import { setContentClockOffset } from "./clock.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
 export type E2eEnv = AppEnv & ContentEnv;
@@ -70,6 +72,18 @@ interface ReviewCodeInput {
   sessionId: string;
   artifactId: string;
   kind?: "frame" | "tab";
+}
+
+interface AccessInput {
+  ownerId: string;
+  artifactId: string;
+  removeReaders?: string[];
+  addReaders?: string[];
+}
+
+interface ClockInput {
+  /** How far ahead of real time the content Worker's clock runs; 0 puts it back. */
+  offsetMs: number;
 }
 
 interface SqlInput {
@@ -265,6 +279,24 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     });
     if (!issued.ok) return Response.json(issued, { status: 400 });
     return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });
+  }
+
+  // The owner's access change, through the same service the API, MCP and dashboard call.
+  if (path === "/access") {
+    const { ownerId, artifactId, removeReaders, addReaders } = input as AccessInput;
+    const result = await updateAccess(db, {
+      ownerId,
+      artifactId,
+      change: { removeReaders, addReaders },
+      now,
+    });
+    return Response.json(result, { status: result.ok ? 200 : 400 });
+  }
+
+  if (path === "/clock") {
+    const { offsetMs } = input as ClockInput;
+    setContentClockOffset(offsetMs);
+    return Response.json({ offsetMs });
   }
 
   if (path === "/sql") {

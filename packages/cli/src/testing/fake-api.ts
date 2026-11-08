@@ -12,6 +12,7 @@ import {
   AccessUpdate,
   type AccountUsageView,
   ARTIFACT_ID_ALPHABET,
+  ArtifactListFilters,
   type ArtifactSummary,
   type ArtifactType,
   ERROR_STATUS,
@@ -773,7 +774,26 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset)) {
       return error("invalid_input", "Invalid cursor or limit.");
     }
-    const all = [...state.artifacts.values()].filter((artifact) => artifact.state !== "deleted");
+    const query = Object.fromEntries(
+      ["search", "state", "type", "access", "annotations"].flatMap((name) => {
+        const value = url.searchParams.get(name);
+        return value ? [[name, value]] : [];
+      }),
+    );
+    const filters = ArtifactListFilters.safeParse(query);
+    if (!filters.success) return error("invalid_input", "Invalid filter.");
+    const search = filters.data.search?.toLowerCase();
+    const matches = (item: ArtifactSummary) =>
+      (search === undefined ||
+        item.name.toLowerCase().includes(search) ||
+        item.id.includes(search)) &&
+      (filters.data.state === undefined || item.state === filters.data.state) &&
+      (filters.data.type === undefined || item.type === filters.data.type) &&
+      (filters.data.access === undefined || item.accessMode === filters.data.access) &&
+      (filters.data.annotations === undefined || item.annotations === filters.data.annotations);
+    const all = [...state.artifacts.values()]
+      .filter((artifact) => artifact.state !== "deleted")
+      .filter((artifact) => matches(summary(artifact)));
     const items = all.slice(offset, offset + limit).map(summary);
     const nextCursor = offset + limit < all.length ? `c${offset + limit}` : null;
     return { status: 200, body: { items, nextCursor } };

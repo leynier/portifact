@@ -95,7 +95,21 @@ export function startBridge(
     return snapshot;
   };
 
+  /**
+   * Catches up with a route change the poll has not seen yet: a client-side router can move
+   * between polls, and a target or marker must use the route the page is on now. Returns whether
+   * the route changed.
+   */
+  const syncRoute = (): boolean => {
+    const next = currentRoute(window.location);
+    if (next === route) return false;
+    route = next;
+    send({ type: "location", page: page() });
+    return true;
+  };
+
   const targetFor = async (doc: AnchorDocument, anchor: Anchor) => {
+    syncRoute();
     const parsed = AnnotationTarget.safeParse({
       schema: ANCHOR_SCHEMA_VERSION,
       ...page(),
@@ -206,6 +220,7 @@ export function startBridge(
   // Markers
 
   const draw = () => {
+    syncRoute();
     overlay.clearMarkers();
     drawn.clear();
     const doc = anchors();
@@ -297,11 +312,7 @@ export function startBridge(
   const observer = new window.MutationObserver(scheduleRedraw);
   observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   const routeTimer = setInterval(() => {
-    const next = currentRoute(window.location);
-    if (next === route) return;
-    route = next;
-    send({ type: "location", page: page() });
-    scheduleRedraw();
+    if (syncRoute()) scheduleRedraw();
   }, ROUTE_POLL_MS);
 
   window.addEventListener("message", onMessage);
