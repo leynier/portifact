@@ -14,7 +14,7 @@ import {
   MCP_BASELINE_SCOPES,
 } from "./config.ts";
 import type { AuthDeps } from "./deps.ts";
-import { signInCodeEmail } from "./email.ts";
+import { deliverSignInCode } from "./email.ts";
 import { humanHooks } from "./human.ts";
 import { inProcessIntrospection } from "./introspection.ts";
 import { termsHooks } from "./terms.ts";
@@ -69,7 +69,8 @@ export function createAuth(env: Env, deps: AuthDeps) {
     }),
     trustedOrigins: [urls.origin],
     telemetry: { enabled: false },
-    // Sends are limited per email, IP and globally in D1 by the auth routes. Better Auth's
+    // Sends are limited per email, IP, globally per day and per month, and never go to a
+    // suppressed address, in D1 by the auth routes. Better Auth's
     // own limiter keeps counters in isolate memory, which Workers do not share.
     rateLimit: { enabled: false },
     advanced: {
@@ -156,7 +157,11 @@ export function createAuth(env: Env, deps: AuthDeps) {
         allowedAttempts: OTP_LIMITS.allowedAttempts,
         storeOTP: "hashed",
         sendVerificationOTP: async ({ email, otp }) => {
-          await deps.email.send(signInCodeEmail(email, otp));
+          await deliverSignInCode(createDb(env.DB), deps.email, {
+            email,
+            code: otp,
+            now: Date.now,
+          });
         },
       }),
       provider,

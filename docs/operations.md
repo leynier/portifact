@@ -1,6 +1,6 @@
 # Operations
 
-How the operator handles abuse reports and suspensions (plan section 13), how storage is verified and a database backup restored (plan section 10), and the budget alerts and protection (plan section 12). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
+How the operator handles abuse reports and suspensions (plan section 13), how storage is verified and a database backup restored (plan section 10), the budget alerts and protection (plan section 12), and the email quota and suppressions (plan section 17). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
 
 ## Why a local tool and not an operator account
 
@@ -27,6 +27,8 @@ bun run --cwd apps/jobs operator reinstate-account <user-id|email>
 bun run --cwd apps/jobs operator storage-report [--limit N]          # what the storage reconciliation found
 bun run --cwd apps/jobs operator export-tombstones --out <file>      # before restoring a backup
 bun run --cwd apps/jobs operator apply-tombstones --file <file>      # after restoring a backup
+bun run --cwd apps/jobs operator email-suppressions                  # addresses that get no sign-in codes
+bun run --cwd apps/jobs operator lift-email-suppression <email>
 ```
 
 `--local` runs against the local D1 state of `wrangler dev` in `apps/app` instead (apply the migrations there first with `wrangler d1 migrations apply portifact-control --local --persist-to apps/app/.wrangler/state`). The remote binding is defined in `apps/jobs/operator.wrangler.jsonc`, which is never deployed. Reasons are the `AbuseReason` values in `packages/contracts/src/moderation.ts`.
@@ -56,7 +58,7 @@ Cloudflare's budget alerts only inform, so Portifact protects its own budget. Ev
 | US$75           | `slow75`     | Alert and `stop_new_artifacts`: publishes that create an artifact answer `capacity_unavailable`; updates still work.                                                                                                                      |
 | US$100          | `protect100` | Alert and the plan's steps in order, each from its own spend: `block_uploads` (US$100, every new upload refused), `pause_annotation_writes` (US$110), `tighten_public_traffic` (US$125), `limit_protected_traffic` (US$150, last resort). |
 
-Reaching a global admission limit (800 GB stored, 2 M class A operations, 20 M Worker requests or 20,000 emails in the cycle) adds `stop_new_artifacts` and `block_uploads` whatever the spend, and records an `admission_<metric>` alert. Reads, exports, deletion, access reduction, renewal, restore and rollback keep working at every level, comment moderation and deletion too, and nothing is ever deleted to contain costs. The traffic steps use the per-IP Workers Rate Limiting bindings in `apps/content/wrangler.jsonc` (120 requests per minute for public traffic, 240 for protected; calibrate with real traffic); the content Worker reads the protection at most once a minute and fails open. While uploads are blocked or new artifacts are braked, every account's usage reports a `capacity` block, which the dashboard shows as a notice and the CLI and MCP report like any other block.
+Reaching a global admission limit (800 GB stored, 2 M class A operations, 20 M Worker requests or 20,000 emails in the cycle) adds `stop_new_artifacts` and `block_uploads` whatever the spend, and records an `admission_<metric>` alert. Reads, exports, deletion, access reduction, renewal, restore and rollback keep working at every level, comment moderation and deletion too, and nothing is ever deleted to contain costs. The traffic steps limit each visitor IP to `PROTECTION_TRAFFIC_LIMITS` (`packages/domain/src/budget.ts`: 120 requests per minute for public traffic, 240 for protected; calibrate with real traffic), counted exactly by the `TrafficLimiter` Durable Object of the content Worker (one object per IP and kind of traffic, a fixed window in memory, reached only while a traffic step applies); an isolate remembers a refused visitor until their window ends, so a flood is refused without a Durable Object request each time. The content Worker reads the protection at most once a minute and fails open, logging `budget_protection_unreadable` when the state cannot be read and `traffic_limiter_failed` when the limiter cannot answer. Workers Rate Limiting is not used for this: its counts are approximate per location, and on 2026-11-08 a deployed 240-a-minute binding refused none of 1,200 protected requests a minute from one IP (see [workers-sdk#16097](https://github.com/cloudflare/workers-sdk/issues/16097)). While uploads are blocked or new artifacts are braked, every account's usage reports a `capacity` block, which the dashboard shows as a notice and the CLI and MCP report like any other block.
 
 Each alert is recorded once per kind and cycle. Without email configured, alerts stay "not emailed" and are visible with the commands below and in the jobs Worker's logs (`budget_alert` events). A failed analytics query never lifts protection: counters it missed keep their last values of the cycle.
 
@@ -72,7 +74,7 @@ An override replaces the automatic decision at once, in both directions, until `
 
 ### Cloudflare analytics
 
-The jobs Worker measures R2 operations and storage, Worker requests and D1 rows through Cloudflare's GraphQL Analytics API (`apps/jobs/src/analytics.ts`). In production the `portifact-jobs` Worker has both settings below, so the collector runs on every budget run; without either of them it stays off and the projection uses only what D1 knows (the bytes of every stored object and the objects created this cycle, one class A upload each).
+The jobs Worker measures R2 operations and storage, Worker requests and D1 rows through Cloudflare's GraphQL Analytics API (`apps/jobs/src/analytics.ts`). In production the `portifact-jobs` Worker has both settings below, so the collector runs on every budget run; without either of them it stays off and the projection uses only what D1 knows (the bytes of every stored object and the objects created this cycle, one class A upload each). Emails always come from D1 (`email_counters`), with or without analytics.
 
 | Name                 | Kind   | Value                                                                                                                           |
 | -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -85,6 +87,19 @@ Rotate or set them with `wrangler secret put <NAME> --name portifact-jobs` from 
 
 Alert emails are a no-op until the `portifact-jobs` Worker has a `send_email` binding named `BUDGET_EMAIL` and the vars `BUDGET_ALERT_TO` (the operator's address) and `BUDGET_ALERT_FROM` (a sender verified in Cloudflare Email Service). With all three, each run emails the cycle's alerts that were not emailed yet and marks them; a failed send is retried on the next run.
 
+## Email quota and suppressions
+
+Sign-in codes stop for the rest of the month once `SIGN_IN_EMAILS_PER_CYCLE` (19,900) emails were sent in the UTC month, below the 20,000-email admission limit so codes alone never stop publishing; the login page then suggests Google or GitHub. The daily budget (600 codes) normally keeps the month far below it. `operator budget` shows the cycle's `emails`, counted as they are sent (`email_counters`).
+
+Addresses whose mail bounced permanently or was reported as spam get no more codes (see "Identity" in [security.md](security.md)). Cloudflare Email Service reports them through the `portifact-email-events` queue (set up in [releasing.md](releasing.md)), and a send it refuses because its own list holds the address is recorded too. The person sees an explanation that points to Google, GitHub and `privacy@portifact.com`.
+
+```bash
+bun run --cwd apps/jobs operator email-suppressions [--limit N]     # suppressions in effect: id, masked hint, reason, dates
+bun run --cwd apps/jobs operator lift-email-suppression <email>     # after checking with the person that the address works now
+```
+
+Only the masked hint is stored, so lifting needs the address from the person who wrote in. Lifting ours does not lift Cloudflare's: if sends still fail (the next request records a `provider` suppression again), remove the address from the sending domain's suppression list in the Cloudflare dashboard (Email Service, Suppressions) or through its API, unless the entry is `read_only` (complaints and missing mailboxes usually are; only Cloudflare Support can review those). A complaint means the person marked our mail as spam: lift it only at their request. The consumer logs `email_event` (type, event ID, outcome), `email_event_malformed` and `email_event_failed`; malformed events are dropped and failed ones retried up to 5 times, after which Cloudflare's own suppression still blocks sends and the next refused send records it.
+
 ## Account deletions
 
 Deletions need no operator action: the request removes the user at once and the scheduled jobs finish the rest (see "Account deletion" in [security.md](security.md)). `select * from account_deletions` lists the ones still in progress.
@@ -95,7 +110,7 @@ An account whose artifacts served 1 million requests or 25 GB in the current UTC
 
 ## Maintenance and the outbox
 
-State changes that need follow-up work write a job to the `outbox` table in the same D1 batch (`packages/services/src/outbox.ts`): `purge_artifact` when an artifact is claimed for purging (deletion by its owner, the six-month purge, account deletion, re-applied tombstones), `account_deletion` with a deletion request, and `delete_objects` with the R2 keys whose rows a release just deleted. Every 15 minutes the jobs Worker runs the maintenance scans, relays due rows to the `portifact-jobs` queue and reconciles a slice of storage. The consumer deletes a row once its job is done; a job whose row is gone is already done, a purge whose artifact is no longer in the `purging` state and generation it was claimed with is stale and dropped, and a `delete_objects` job keeps any key that has a row again. A row still there an hour after it was sent is sent again.
+State changes that need follow-up work write a job to the `outbox` table in the same D1 batch (`packages/services/src/outbox.ts`): `purge_artifact` when an artifact is claimed for purging (deletion by its owner, the six-month purge, account deletion, re-applied tombstones), `account_deletion` with a deletion request, `delete_objects` with the R2 keys whose rows a release just deleted, and `abort_multipart` when an upload session with multipart uploads closes (it aborts the R2 uploads not completed and deletes their staging copies under `uploads/`, which the storage reconciliation does not scan). Every 15 minutes the jobs Worker runs the maintenance scans, relays due rows to the `portifact-jobs` queue and reconciles a slice of storage. The consumer deletes a row once its job is done; a job whose row is gone is already done, a purge whose artifact is no longer in the `purging` state and generation it was claimed with is stale and dropped, and a `delete_objects` job keeps any key that has a row again. A row still there an hour after it was sent is sent again.
 
 `select topic, subject, attempts, dispatched_at from outbox order by id` shows what is pending. Rows with many attempts point at a job that keeps failing; the Worker logs `job_failed` with the topic and the error message. The scans in `runMaintenance` still archive, purge, prune and finish deletions on their own, so a queue outage only delays the work.
 

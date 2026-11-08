@@ -109,6 +109,7 @@ describe("portifact publish", () => {
           contentType: "text/html; charset=utf-8",
         },
       ],
+      multipart: true,
     });
 
     // The stored bytes are exactly the local files, and nothing excluded reached storage.

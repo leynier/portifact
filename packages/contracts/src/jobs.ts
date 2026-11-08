@@ -3,7 +3,12 @@
 // backup and applies after it (docs/operations.md).
 import { z } from "zod";
 
-export const OutboxTopic = z.enum(["purge_artifact", "account_deletion", "delete_objects"]);
+export const OutboxTopic = z.enum([
+  "purge_artifact",
+  "account_deletion",
+  "delete_objects",
+  "abort_multipart",
+]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
 /** A queue message only points at its outbox row; the row is the job's source of truth. */

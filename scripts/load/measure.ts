@@ -82,3 +82,19 @@ export function* patternChunks(
     yield chunk;
   }
 }
+
+/** The bytes `[start, end)` of a chunked stream, without holding more than one chunk. */
+export function* sliceChunks(
+  chunks: Iterable<Uint8Array>,
+  start: number,
+  end: number,
+): Generator<Uint8Array> {
+  let offset = 0;
+  for (const chunk of chunks) {
+    const from = Math.max(start - offset, 0);
+    const to = Math.min(end - offset, chunk.byteLength);
+    if (to > from) yield chunk.subarray(from, to);
+    offset += chunk.byteLength;
+    if (offset >= end) return;
+  }
+}

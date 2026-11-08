@@ -11,17 +11,18 @@ import type { StorageTransport } from "./upload.ts";
 const SET_BY_BROWSER = new Set(["host", "content-length"]);
 
 export const xhrTransport: StorageTransport = {
-  put(target, body, onProgress, signal) {
+  put(request, body, onProgress, signal) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open(target.method, target.url);
-      for (const [name, value] of Object.entries(target.headers)) {
+      xhr.open(request.method, request.url);
+      for (const [name, value] of Object.entries(request.headers)) {
         if (!SET_BY_BROWSER.has(name.toLowerCase())) xhr.setRequestHeader(name, value);
       }
       xhr.upload.onprogress = (event) => onProgress(event.loaded);
-      xhr.onload = () => resolve(xhr.status);
-      xhr.onerror = () => resolve(0);
-      xhr.ontimeout = () => resolve(0);
+      // Reading ETag needs the bucket's CORS rule to expose it (docs/releasing.md).
+      xhr.onload = () => resolve({ status: xhr.status, etag: xhr.getResponseHeader("ETag") });
+      xhr.onerror = () => resolve({ status: 0 });
+      xhr.ontimeout = () => resolve({ status: 0 });
       const abort = () => xhr.abort();
       xhr.onabort = () => reject(new DOMException("Aborted", "AbortError"));
       signal.addEventListener("abort", abort, { once: true });

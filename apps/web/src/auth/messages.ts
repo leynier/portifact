@@ -12,6 +12,10 @@ export const messages = {
   codeSent: (email: string) =>
     `We sent a 6-digit code to ${email}. It expires in 5 minutes and works once.`,
   codeResent: "A new code is on its way.",
+  emailSuppressed:
+    "We cannot send email to this address because earlier messages to it bounced or were reported as spam. Sign in with Google or GitHub, or write to privacy@portifact.com to have it reviewed.",
+  emailCapacity:
+    "Email codes are paused for now because Portifact reached its monthly email limit. Sign in with Google or GitHub, or try again later.",
   signedInAs: (email: string) => `Signed in as ${email}`,
   signedOut: "You are signed out.",
   methodConnected: "Connected",

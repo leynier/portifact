@@ -24,11 +24,14 @@ export const LEGAL_PAGES = ["/terms", "/privacy", "/acceptable-use"] as const;
 /** Static documents served like the legal pages: the MCP compatibility matrix (plan section 17). */
 export const DOCUMENT_PAGES = [...LEGAL_PAGES, "/mcp-compatibility"] as const;
 
+/** The licenses and notices of the open source software Portifact ships. */
+export const THIRD_PARTY_NOTICES_PATH = "/third-party-notices";
+
 /**
  * Static documents with no script: the strict page policy, never framed, and revalidated on
  * every visit so a new version shows at once.
  */
-function documentPage(asset: Response): Response {
+function legalPage(asset: Response): Response {
   const response = new Response(asset.body, asset);
   response.headers.set("Content-Security-Policy", PAGE_CSP);
   response.headers.set("Cache-Control", "no-cache");
@@ -61,9 +64,20 @@ export function createSite() {
 
   for (const page of DOCUMENT_PAGES) {
     site.get(page, async (c) =>
-      documentPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
+      legalPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
     );
   }
+
+  // The notices are plain text built from third-party-notices.md (`bun run notices`).
+  site.get(THIRD_PARTY_NOTICES_PATH, async (c) => {
+    const asset = await c.env.ASSETS.fetch(
+      new Request(new URL("/third-party-notices.txt", c.req.url)),
+    );
+    if (!asset.ok) return c.text("Not found", 404);
+    const response = legalPage(asset);
+    response.headers.set("Content-Type", "text/plain; charset=utf-8");
+    return response;
+  });
 
   site.all("*", async (c): Promise<Response> => {
     const path = new URL(c.req.url).pathname.replace(/\/+$/, "");

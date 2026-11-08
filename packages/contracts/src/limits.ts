@@ -63,3 +63,16 @@ export const ANNOTATION_LIMITS = {
    */
   humanCheckedComments: 3,
 } as const;
+
+/**
+ * Presigned multipart uploads (plan section 9, "Carga y commit"): an object larger than
+ * `thresholdBytes` is uploaded in parts of `partBytes` (the last one smaller), each to its own
+ * presigned URL, so a large upload resumes part by part. R2 needs every part but the last to be
+ * the same size and at least `minPartBytes`, and allows at most `maxParts`.
+ */
+export const MULTIPART = {
+  thresholdBytes: 64 * 1024 * 1024,
+  partBytes: 16 * 1024 * 1024,
+  minPartBytes: 5 * 1024 * 1024,
+  maxParts: 10_000,
+} as const;

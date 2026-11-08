@@ -1,7 +1,9 @@
 // Presigned R2 uploads and downloads (plan section 9). The client sends each new object straight
 // to R2's S3 endpoint, so large files never pass through the Worker. An upload URL signs the exact
-// size and SHA-256, so R2 rejects any other bytes, and the object key is immutable per content. A
-// download URL reads one object for a few minutes, after the API checked who may download it.
+// size and SHA-256, so R2 rejects any other bytes, and the object key is immutable per content.
+// Objects over the multipart threshold get one URL per part, each signing the part's size; the
+// commit rehashes the assembled object. A download URL reads one object for a few minutes, after
+// the API checked who may download it.
 import { AwsClient } from "aws4fetch";
 
 /** Upload URLs are short-lived; the client can ask for fresh ones while the upload is open. */
@@ -23,6 +25,17 @@ export interface PresignedDownload {
 
 export interface Presigner {
   presignPut(key: string, size: number, sha256Hex: string, now: number): Promise<PresignedUpload>;
+  /**
+   * One part of a multipart upload (S3 UploadPart). Only its size is signed: the server does not
+   * know the bytes of a part, so the commit rehashes the assembled object instead.
+   */
+  presignPart(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    size: number,
+    now: number,
+  ): Promise<PresignedUpload>;
   presignGet(key: string, now: number): Promise<PresignedDownload>;
 }
 
@@ -70,6 +83,19 @@ export function r2Presigner(credentials: R2Credentials): Presigner {
           allHeaders: true,
           datetime: amzDate(now),
         },
+      });
+      return { url: signed.url, headers, expiresAt: now + UPLOAD_URL_TTL_SECONDS * 1000 };
+    },
+    async presignPart(key, uploadId, partNumber, size, now) {
+      const url = objectUrl(key);
+      url.searchParams.set("partNumber", String(partNumber));
+      url.searchParams.set("uploadId", uploadId);
+      url.searchParams.set("X-Amz-Expires", String(UPLOAD_URL_TTL_SECONDS));
+      const headers = { "content-length": String(size) };
+      const signed = await client.sign(url.toString(), {
+        method: "PUT",
+        headers,
+        aws: { signQuery: true, allHeaders: true, datetime: amzDate(now) },
       });
       return { url: signed.url, headers, expiresAt: now + UPLOAD_URL_TTL_SECONDS * 1000 };
     },

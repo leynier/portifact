@@ -1,13 +1,19 @@
 // Operator commands for abuse handling (plan section 13): list and resolve reports, suspend and
 // reinstate artifacts and accounts; for backups (plan section 10): review the storage
 // reconciliation's findings, and export and re-apply tombstones around a D1 Time Travel restore;
-// and for the budget (plan section 12): show the state and the alerts, and override the automatic
-// protection. They run only from `scripts/operator.ts` on the operator's machine, with the deploy
+// for the budget (plan section 12): show the state and the alerts, and override the automatic
+// protection; and for email delivery (plan section 17): list and lift suppressed addresses. They run only from `scripts/operator.ts` on the operator's machine, with the deploy
 // credentials, against the D1 binding; no web route reaches them. Each command calls the same
 // services the tests cover, and prints plain text without secrets.
 import { AbuseReason, TombstoneMarker } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
-import { BUDGET_LEVELS, type BudgetLevel, budgetCycle, PROTECTION_STEPS } from "@portifact/domain";
+import {
+  BUDGET_LEVELS,
+  type BudgetLevel,
+  budgetCycle,
+  emailHint,
+  PROTECTION_STEPS,
+} from "@portifact/domain";
 import {
   accountSuspension,
   applyTombstones,
@@ -15,8 +21,10 @@ import {
   clearBudgetOverride,
   exportTombstones,
   getBudgetState,
+  liftEmailSuppression,
   listAbuseReports,
   listBudgetAlerts,
+  listEmailSuppressions,
   listStorageFindings,
   reinstateAccount,
   reinstateArtifact,
@@ -44,6 +52,8 @@ Commands:
   budget-alerts [--limit N]
   budget-override <level> --note <text> [--steps 1-${PROTECTION_STEPS.length}] [--hours N]
   budget-override clear
+  email-suppressions [--limit N]
+  lift-email-suppression <email>
 
 Reasons: ${AbuseReason.options.join(", ")}
 Budget levels: ${BUDGET_LEVELS.join(", ")} (--steps applies to protect100)`;
@@ -401,6 +411,31 @@ export async function runOperator(
     }
     case "budget-override":
       return budgetOverride(db, args, options, now);
+    case "email-suppressions": {
+      const limit = Number(options.get("limit") ?? 50);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        return usage("--limit must be 1 to 500.");
+      }
+      const rows = await listEmailSuppressions(db, { now, limit });
+      if (rows.length === 0) return { exitCode: 0, output: "No email suppressions." };
+      // Addresses are stored only as a hash and a masked hint, so the hint is all there is.
+      const lines = rows.map(
+        (r) =>
+          `${r.id}  ${r.hint}  ${r.reason}  since ${iso(r.createdAt)}  updated ${iso(r.updatedAt)}  until ${iso(r.expiresAt)}`,
+      );
+      return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "lift-email-suppression": {
+      const [email] = args;
+      if (!email?.includes("@")) return usage("lift-email-suppression needs the email address.");
+      const lifted = await liftEmailSuppression(db, email);
+      return {
+        exitCode: lifted ? 0 : 1,
+        output: lifted
+          ? `Lifted the suppression of ${emailHint(email)}. Email Service keeps its own list: remove the address there too if sends still fail (docs/operations.md).`
+          : `No suppression for ${emailHint(email)}.`,
+      };
+    }
     default:
       return usage(command ? `Unknown command: ${command}` : "No command given.");
   }

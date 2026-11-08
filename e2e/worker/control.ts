@@ -97,6 +97,8 @@ const CONTENT_TYPES: Record<string, string> = {
 async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Response> {
   const key = url.searchParams.get("key") ?? "";
   const size = Number(request.headers.get("content-length"));
+  const uploadId = url.searchParams.get("uploadId");
+  if (uploadId !== null) return partPut(request, env, key, uploadId, url, size);
   const checksum = request.headers.get("x-amz-checksum-sha256") ?? "";
   if (request.method !== "PUT" || !key.startsWith("objects/") || !request.body) {
     return new Response("Bad request", { status: 400 });
@@ -115,6 +117,33 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
     return new Response("Upload refused", { status: 400 });
   }
   return new Response(null, { status: 200 });
+}
+
+/** S3 UploadPart into the R2 multipart upload the API opened, answering with the part's ETag. */
+async function partPut(
+  request: Request,
+  env: E2eEnv,
+  key: string,
+  uploadId: string,
+  url: URL,
+  size: number,
+): Promise<Response> {
+  const partNumber = Number(url.searchParams.get("partNumber"));
+  if (request.method !== "PUT" || !key.startsWith("uploads/") || !request.body) {
+    return new Response("Bad request", { status: 400 });
+  }
+  if (!Number.isSafeInteger(size) || size <= 0 || !Number.isSafeInteger(partNumber)) {
+    return new Response("Missing signed headers", { status: 400 });
+  }
+  try {
+    const part = await env.ARTIFACTS.resumeMultipartUpload(key, uploadId).uploadPart(
+      partNumber,
+      request.body.pipeThrough(new FixedLengthStream(size)),
+    );
+    return new Response(null, { status: 200, headers: { etag: part.etag } });
+  } catch {
+    return new Response("Upload refused", { status: 400 });
+  }
 }
 
 export async function control(request: Request, env: E2eEnv): Promise<Response> {

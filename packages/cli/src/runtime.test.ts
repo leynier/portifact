@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { exitCodeFor } from "./errors.ts";
-import { browserCommand, defaultConfigDir, defaultRuntime, launchDetached } from "./runtime.ts";
+import {
+  browserCommand,
+  defaultConfigDir,
+  defaultRuntime,
+  launchDetached,
+  nodeFileBody,
+} from "./runtime.ts";
 
 describe("defaultConfigDir", () => {
   it("follows each platform's convention", () => {
@@ -65,6 +71,10 @@ describe("defaultRuntime", () => {
       await writeFile(join(dir, "a.txt"), "streamed bytes");
       const body = defaultRuntime().fileBody(join(dir, "a.txt"));
       expect(await new Response(body).text()).toBe("streamed bytes");
+      const slice = defaultRuntime().fileBody(join(dir, "a.txt"), { start: 9, end: 14 });
+      expect(await new Response(slice).text()).toBe("bytes");
+      const head = nodeFileBody(join(dir, "a.txt"), { start: 0, end: 8 });
+      expect(await new Response(head).text()).toBe("streamed");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

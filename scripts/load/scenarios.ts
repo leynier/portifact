@@ -3,7 +3,7 @@
 // plus the expectations it checked; a failed expectation fails the run.
 import { createHash, randomUUID } from "node:crypto";
 import type { Body, Sent } from "./http.ts";
-import { patternChunks, splitBytes, summarize, tally } from "./measure.ts";
+import { patternChunks, sliceChunks, summarize, tally } from "./measure.ts";
 import type { LoadOptions, Scenario } from "./options.ts";
 import type { Auth, Target } from "./target.ts";
 
@@ -112,6 +112,18 @@ function errorCode(json: Json): string {
   return typeof error?.code === "string" ? error.code : `http_${json.status}`;
 }
 
+interface Part {
+  partNumber: number;
+  offset: number;
+  size: number;
+  url: string;
+  headers: Record<string, string>;
+}
+
+type UploadTarget =
+  | { method: "PUT"; sha256: string; url: string; headers: Record<string, string> }
+  | { method: "MULTIPART"; sha256: string; parts: Part[] };
+
 interface PublishOutcome {
   ok: boolean;
   stage: "prepare" | "upload" | "commit" | "done";
@@ -127,6 +139,7 @@ async function publish(
   name: string,
   files: SourceFile[],
   uploadsAtOnce = 2,
+  onUploaded?: () => void,
 ): Promise<PublishOutcome> {
   const ms = { prepare: 0, upload: 0, commit: 0 };
   const prepared = await api.call("POST", "/api/v1/publishes", {
@@ -141,32 +154,53 @@ async function publish(
       size,
       contentType,
     })),
+    // Objects over 64 MiB go in presigned parts, as the CLI and the dashboard send them.
+    multipart: true,
   });
   ms.prepare = prepared.ms;
   if (prepared.status !== 201) {
     return { ok: false, stage: "prepare", code: errorCode(prepared), artifactId: null, ms };
   }
   const artifactId = String(prepared.body.artifactId);
-  const uploads = prepared.body.uploads as {
-    sha256: string;
-    url: string;
-    headers: Record<string, string>;
-  }[];
+  const uploads = prepared.body.uploads as UploadTarget[];
   const bySha = new Map(files.map((file) => [file.sha256, file]));
+  const uploadId = String(prepared.body.uploadId);
   const started = performance.now();
-  const queue = [...uploads];
+  // One queue of requests to storage: whole objects, and the parts of multipart objects.
+  const queue: { sha256: string; url: string; headers: Record<string, string>; part?: Part }[] =
+    uploads.flatMap((upload) =>
+      upload.method === "MULTIPART"
+        ? upload.parts.map((part) => ({ sha256: upload.sha256, ...part, part }))
+        : [{ sha256: upload.sha256, url: upload.url, headers: upload.headers }],
+    );
   let failure: string | null = null;
   await Promise.all(
     Array.from({ length: Math.min(uploadsAtOnce, queue.length) }, async () => {
       for (let next = queue.shift(); next && !failure; next = queue.shift()) {
         const file = bySha.get(next.sha256);
         if (!file) throw new Error(`The server asked for an unknown object ${next.sha256}`);
-        const sent = await target.upload(next.url, next.headers, file.chunks() as Body);
-        if (sent.status !== 200) failure = `upload_${sent.status}`;
+        const { part } = next;
+        const body = part
+          ? sliceChunks(file.chunks(), part.offset, part.offset + part.size)
+          : file.chunks();
+        const sent = await target.upload(next.url, next.headers, body as Body);
+        if (sent.status !== 200) {
+          failure = `upload_${sent.status}`;
+          continue;
+        }
+        if (part) {
+          const reported = await api.call("POST", `/api/v1/publishes/${uploadId}/parts`, {
+            sha256: next.sha256,
+            partNumber: part.partNumber,
+            etag: String(sent.headers.etag ?? ""),
+          });
+          if (reported.status !== 204) failure = `part_${errorCode(reported)}`;
+        }
       }
     }),
   );
   ms.upload = performance.now() - started;
+  onUploaded?.();
   if (failure) return { ok: false, stage: "upload", code: failure, artifactId, ms };
   const committed = await api.call(
     "POST",
@@ -284,15 +318,14 @@ async function quotaRace(target: Target, options: LoadOptions): Promise<Scenario
   );
 }
 
-/** A publish of exactly 250 MB through presigned uploads, with memory sampled throughout. */
+/** A publish of exactly 250 MB, one object in presigned parts, with memory sampled throughout. */
 async function maxUpload(target: Target): Promise<ScenarioResult> {
   const { api } = await owner(target, "max");
   const seed = Date.now() >>> 0;
   const index = textFile("index.html", "<!doctype html><title>Maximum size</title>");
-  // Each object stays under 64 MiB, the size above which the plan calls for multipart uploads.
-  const sizes = splitBytes(MAX_ARTIFACT_BYTES - index.size, 4);
+  // One object of almost 250 MB, far over 64 MiB, so it goes as 16 MiB multipart parts.
   const hashStarted = performance.now();
-  const blobs = sizes.map((size, i) => generatedFile(`blob-${i}.bin`, seed + i, size));
+  const blobs = [generatedFile("blob.bin", seed, MAX_ARTIFACT_BYTES - index.size)];
   const hashMs = performance.now() - hashStarted;
   const files = [index, ...blobs];
 
@@ -318,10 +351,13 @@ async function maxUpload(target: Target): Promise<ScenarioResult> {
   const sampler = setInterval(() => {
     peak = Math.max(peak, target.memoryBytes());
   }, 100);
-  const outcome = await publish(target, api, "Maximum size", files).finally(() =>
-    clearInterval(sampler),
-  );
-  peak = Math.max(peak, target.memoryBytes());
+  let uploadPeak = baseline;
+  const outcome = await publish(target, api, "Maximum size", files, 2, () => {
+    uploadPeak = Math.max(peak, target.memoryBytes());
+    peak = baseline;
+  }).finally(() => clearInterval(sampler));
+  const commitPeak = Math.max(peak, target.memoryBytes());
+  peak = Math.max(uploadPeak, commitPeak);
   const after = await usage(api);
   const growth = peak - baseline;
   const mb = (bytes: number) => Math.round(bytes / 1e6);
@@ -339,6 +375,8 @@ async function maxUpload(target: Target): Promise<ScenarioResult> {
       memoryBaselineMB: mb(baseline),
       memoryPeakMB: mb(peak),
       memoryGrowthMB: mb(growth),
+      memoryUploadGrowthMB: mb(uploadPeak - baseline),
+      memoryCommitGrowthMB: mb(commitPeak - baseline),
       outcome: outcome.ok ? "committed" : `${outcome.stage}:${outcome.code}`,
       artifactId: outcome.artifactId,
     },
@@ -353,11 +391,14 @@ async function maxUpload(target: Target): Promise<ScenarioResult> {
         ok: after.storage.used >= MAX_ARTIFACT_BYTES,
       },
       {
-        // The client streams and the server verifies objects in place. Two objects of about
-        // 62.5 MB upload at once, so growth must stay below the payload: nothing may hold the
-        // whole publish in memory.
+        // The client streams parts straight to storage, two 16 MiB parts at once, so growth must
+        // stay below the payload: nothing may hold the whole publish in memory. The commit then
+        // reads the object back to rehash and copy it; locally that read goes through the R2
+        // emulator in the same workerd and raises its resident memory whatever the Worker
+        // holds, so memoryCommitGrowthMB is reported, and a staging run is what proves the
+        // commit fits a Worker (a commit over its memory limit fails, which this scenario sees).
         label: "memory grows by less than the payload while uploading",
-        ok: growth < MAX_ARTIFACT_BYTES,
+        ok: uploadPeak - baseline < MAX_ARTIFACT_BYTES,
       },
     ],
   );

@@ -4,6 +4,7 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  foreignKey,
   index,
   integer,
   primaryKey,
@@ -358,6 +359,50 @@ export const uploadSessions = sqliteTable(
   ],
 );
 
+/**
+ * R2 multipart uploads of an upload session, one per object over the multipart threshold (plan
+ * section 9). `upload_id` is R2's; the client puts each part straight to R2 through presigned
+ * URLs and reports its ETag into `multipart_parts`. A closed session leaves an
+ * `abort_multipart` job that aborts what was not completed and deletes these rows.
+ */
+export const multipartUploads = sqliteTable(
+  "multipart_uploads",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => uploadSessions.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    ownerId: text("owner_id").notNull(),
+    r2Key: text("r2_key").notNull(),
+    uploadId: text("upload_id").notNull(),
+    partSize: integer("part_size").notNull(),
+    partCount: integer("part_count").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sessionId, t.sha256] }),
+    check("multipart_uploads_plan", sql`${t.partSize} > 0 and ${t.partCount} > 0`),
+  ],
+);
+
+/** Parts of a multipart upload the client reported as stored, with the ETag R2 answered. */
+export const multipartParts = sqliteTable(
+  "multipart_parts",
+  {
+    sessionId: text("session_id").notNull(),
+    sha256: text("sha256").notNull(),
+    partNumber: integer("part_number").notNull(),
+    etag: text("etag").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.sessionId, t.sha256, t.partNumber] }),
+    foreignKey({
+      columns: [t.sessionId, t.sha256],
+      foreignColumns: [multipartUploads.sessionId, multipartUploads.sha256],
+    }).onDelete("cascade"),
+  ],
+);
+
 /** Per-account counters kept in the same transactions as the work they admit. */
 export const accountUsage = sqliteTable(
   "account_usage",
@@ -432,7 +477,12 @@ export const operations = sqliteTable(
 );
 
 /** Follow-up jobs of the transactional outbox (packages/services/src/outbox.ts). */
-export const OUTBOX_TOPICS = ["purge_artifact", "account_deletion", "delete_objects"] as const;
+export const OUTBOX_TOPICS = [
+  "purge_artifact",
+  "account_deletion",
+  "delete_objects",
+  "abort_multipart",
+] as const;
 
 /**
  * Transactional outbox: a job written in the same D1 batch as the state change that needs it.
@@ -787,6 +837,43 @@ export const budgetAlerts = sqliteTable(
     notifiedAt: timestamp("notified_at"),
   },
   (t) => [uniqueIndex("budget_alerts_cycle_kind_idx").on(t.cycleStart, t.kind)],
+);
+
+/** Why an address is suppressed (contracts: EmailSuppressionReason). */
+export const EMAIL_SUPPRESSION_REASONS = ["hard_bounce", "complaint", "provider"] as const;
+
+/**
+ * Addresses Portifact does not send sign-in codes to, because their mail bounced permanently or
+ * was reported as spam (packages/services/src/email.ts). Keyed by a SHA-256 of the normalized
+ * address, never the address itself; `hint` is a masked form (`a***@example.com`) for the
+ * operator. Rows end at `expires_at` and the maintenance job prunes them.
+ */
+export const emailSuppressions = sqliteTable(
+  "email_suppressions",
+  {
+    emailHash: text("email_hash").primaryKey(),
+    hint: text("hint").notNull(),
+    reason: text("reason", { enum: EMAIL_SUPPRESSION_REASONS }).notNull(),
+    /** The Email Service event that recorded it, when one did. */
+    eventId: text("event_id"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [index("email_suppressions_expires_idx").on(t.expiresAt)],
+);
+
+/**
+ * Emails sent per UTC day, the platform's email metric for the budget run and the monthly cap of
+ * sign-in codes. Aggregate counts only, nothing about recipients.
+ */
+export const emailCounters = sqliteTable(
+  "email_counters",
+  {
+    day: timestamp("day").primaryKey(),
+    sent: integer("sent").notNull().default(0),
+  },
+  (t) => [check("email_counters_nonnegative", sql`${t.sent} >= 0`)],
 );
 
 export * from "./auth-schema.ts";

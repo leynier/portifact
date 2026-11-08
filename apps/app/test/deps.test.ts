@@ -1,7 +1,12 @@
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createClientMetadataFetch, type FetchLike, workerDeps } from "../src/auth/deps.ts";
-import { cloudflareEmailSender, SENDER, signInCodeEmail } from "../src/auth/email.ts";
+import {
+  cloudflareEmailSender,
+  RecipientSuppressedError,
+  SENDER,
+  signInCodeEmail,
+} from "../src/auth/email.ts";
 import { bearerToken } from "../src/auth/introspection.ts";
 
 function recordingFetch(response: Response) {
@@ -14,10 +19,11 @@ function recordingFetch(response: Response) {
 }
 
 /** A stand-in for the send_email binding that records what it was asked to send. */
-function fakeEmailBinding(fail = false) {
+function fakeEmailBinding(fail: boolean | (() => unknown) = false) {
   const sent: unknown[] = [];
   const binding = {
     send: async (message: unknown) => {
+      if (typeof fail === "function") throw fail();
       if (fail) throw new Error(`rejected: ${JSON.stringify(message)}`);
       sent.push(message);
       return { messageId: "m-1" };
@@ -131,6 +137,29 @@ describe("Cloudflare email sender", () => {
     );
     await expect(failure).rejects.toThrow("email delivery failed");
     await expect(failure).rejects.not.toThrow("987654");
+  });
+});
+
+describe("suppressed recipients", () => {
+  const message = signInCodeEmail("gone@example.test", "246810");
+
+  it("recognizes Email Service's suppression refusal by code or message", async () => {
+    for (const error of [
+      Object.assign(new Error("rejected"), { code: "E_RECIPIENT_SUPPRESSED" }),
+      new Error("E_RECIPIENT_SUPPRESSED: gone@example.test is suppressed"),
+    ]) {
+      const failure = cloudflareEmailSender(fakeEmailBinding(() => error).binding).send(message);
+      await expect(failure).rejects.toBeInstanceOf(RecipientSuppressedError);
+      await expect(failure).rejects.not.toThrow("gone@example.test");
+    }
+  });
+
+  it("treats anything else as a plain delivery failure", async () => {
+    for (const error of [new Error("E_SENDER_NOT_VERIFIED"), "E_RECIPIENT_SUPPRESSED", null]) {
+      const failure = cloudflareEmailSender(fakeEmailBinding(() => error).binding).send(message);
+      await expect(failure).rejects.toThrow("email delivery failed");
+      await expect(failure).rejects.not.toBeInstanceOf(RecipientSuppressedError);
+    }
   });
 });
 

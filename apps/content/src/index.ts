@@ -24,6 +24,7 @@ import {
 import { documentPolicy } from "@portifact/render/policy";
 import { recordTraffic } from "@portifact/services";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
+
 import {
   BRIDGE_PATH,
   bridgeScript,
@@ -54,6 +55,9 @@ import {
   strayFrameCookie,
 } from "./review.ts";
 import { type CountTraffic, TrafficMeter } from "./traffic.ts";
+
+// The Durable Object class the TRAFFIC_LIMITER binding names (wrangler.jsonc).
+export { TrafficLimiter } from "./traffic-limiter.ts";
 
 export interface Env extends BudgetEnv {
   DB: D1Database;
@@ -256,9 +260,10 @@ async function serve(
   // Then budget protection (plan section 12): a tight per-visitor limit, public traffic first.
   // A refused request sends no file, so it charges no traffic.
   const isPublic = artifact.accessMode === "public" && reviewSession === undefined;
-  if (await overTrafficLimit(request, delivery.env, delivery.db, isPublic, now)) {
+  const limitedUntil = await overTrafficLimit(request, delivery.env, delivery.db, isPublic, now);
+  if (limitedUntil !== null) {
     const limited = withCookies(message(429, PAGES.slowDown), setCookies);
-    limited.headers.set("Retry-After", "60");
+    limited.headers.set("Retry-After", String(Math.max(1, Math.ceil((limitedUntil - now) / 1000))));
     return limited;
   }
   const { response, bytes } = await serveFile(delivery, artifact, setCookies, reviewSession);

@@ -107,6 +107,21 @@ describe("portifact.com", () => {
     }
   });
 
+  it("serves the third-party notices as plain text with the strict page headers", async () => {
+    const response = await get("https://portifact.com/third-party-notices");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("content-security-policy")).toBe(PAGE_CSP);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("cache-control")).toBe("no-cache");
+    const text = await response.text();
+    expect(text).toContain("# Third-party notices");
+    expect(text).toContain("| better-auth | MIT | Workers |");
+    const landing = await (await get("https://portifact.com/")).text();
+    expect(landing).toContain('href="/third-party-notices"');
+    expect((await get("https://app.portifact.com/third-party-notices")).status).toBe(404);
+  });
+
   it("serves the favicon", async () => {
     const response = await get("https://portifact.com/favicon.svg");
     expect(response.status).toBe(200);

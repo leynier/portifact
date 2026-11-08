@@ -1,6 +1,7 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { TERMS_VERSION } from "@portifact/contracts";
+import type { MultipartConfig } from "@portifact/domain";
 import { type Auth, createAuth } from "../src/auth/auth.ts";
 import { type AuthDeps, createClientMetadataFetch } from "../src/auth/deps.ts";
 import type { EmailMessage } from "../src/auth/email.ts";
@@ -49,14 +50,22 @@ export interface Harness {
   siteverifyCalls: { secret: string; token: string; remoteIp: string | null }[];
 }
 
-export function createHarness(options: { env?: Partial<Cloudflare.Env> } = {}): Harness {
+export function createHarness(
+  options: {
+    env?: Partial<Cloudflare.Env>;
+    multipart?: MultipartConfig;
+    /** Replaces the fake sender, for example to fail the way Email Service does. */
+    email?: AuthDeps["email"];
+  } = {},
+): Harness {
   const outbox: EmailMessage[] = [];
   const clientMetadata = new Map<string, unknown>();
   const fetchedMetadata: string[] = [];
   const siteverifyCalls: Harness["siteverifyCalls"] = [];
   const workerEnv = { ...env, ...options.env } as Cloudflare.Env;
   const deps: AuthDeps = {
-    email: {
+    ...(options.multipart ? { multipart: options.multipart } : {}),
+    email: options.email ?? {
       send: async (message) => {
         outbox.push(message);
       },
