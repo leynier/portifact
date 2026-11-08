@@ -1,5 +1,7 @@
 import { SELF } from "cloudflare:test";
+import { TERMS_VERSION } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
+import { PAGE_CSP } from "../src/app-host.ts";
 
 async function get(url: string, init?: RequestInit): Promise<Response> {
   return SELF.fetch(url, { redirect: "manual", ...init });
@@ -47,6 +49,39 @@ describe("portifact.com", () => {
     expect(await response.text()).toContain("Share what your agent built");
   });
 
+  it("serves the legal pages with the strict page headers", async () => {
+    for (const [path, title] of [
+      ["/terms", "Terms of Service"],
+      ["/privacy", "Privacy Policy"],
+      ["/acceptable-use", "Acceptable Use Policy"],
+    ] as const) {
+      const response = await get(`https://portifact.com${path}`);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("content-type"), path).toContain("text/html");
+      expect(response.headers.get("content-security-policy"), path).toBe(PAGE_CSP);
+      expect(response.headers.get("cache-control"), path).toBe("no-cache");
+      expect(response.headers.get("x-content-type-options"), path).toBe("nosniff");
+      expect(response.headers.get("x-frame-options"), path).toBe("DENY");
+      expect(response.headers.get("referrer-policy"), path).toBe("strict-origin-when-cross-origin");
+      expect(response.headers.get("strict-transport-security"), path).toContain("max-age=");
+      const html = await response.text();
+      expect(html, path).toContain(`>${title}</h1>`);
+      expect(html, path).toContain("Draft pending legal review");
+      expect(html, path).toContain(`<time datetime="${TERMS_VERSION}">`);
+      // Everything the page loads is on its own origin, as the policy requires.
+      for (const [, url] of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
+        expect((await get(`https://portifact.com${url}`)).status, url).toBe(200);
+      }
+    }
+  });
+
+  it("links the legal pages from the landing page", async () => {
+    const html = await (await get("https://portifact.com/")).text();
+    for (const path of ["/terms", "/privacy", "/acceptable-use"]) {
+      expect(html).toContain(`href="${path}"`);
+    }
+  });
+
   it("serves the favicon", async () => {
     const response = await get("https://portifact.com/favicon.svg");
     expect(response.status).toBe(200);
@@ -84,7 +119,7 @@ describe("host routing", () => {
   });
 
   it("does not serve the landing page or installers on the app host", async () => {
-    for (const path of ["/index.html", "/install", "/install.ps1"]) {
+    for (const path of ["/index.html", "/install", "/install.ps1", "/terms", "/privacy"]) {
       const response = await get(`https://app.portifact.com${path}`);
       expect(response.status, path).toBe(404);
     }

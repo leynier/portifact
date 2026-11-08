@@ -1,6 +1,7 @@
 // app.portifact.com: the dashboard, identity, the OAuth authorization server, protected
 // resource metadata and the auth pages. Every path not listed here answers 404.
 import { TokenPrincipal } from "@portifact/contracts";
+import { needsTermsAcceptance } from "@portifact/domain";
 import { Hono } from "hono";
 import type { SessionLookup } from "./api/access.ts";
 import { r2Presigner } from "./api/presign.ts";
@@ -68,11 +69,17 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
         headers: new Headers({ authorization: `Bearer ${token}` }),
       })) as IntrospectionPayload;
 
-  // The signed-in user behind the dashboard's session cookie, checked against D1.
+  // The signed-in user behind the dashboard's session cookie, checked against D1. A session of
+  // an account that has not accepted the current terms counts as none, so the dashboard sends
+  // it to the login page, which asks for the acceptance.
   const sessionUserFor =
     (env: Env): SessionLookup =>
-    async (request) =>
-      (await authFor(env).api.getSession({ headers: request.headers }))?.user.id;
+    async (request) => {
+      const session = await authFor(env).api.getSession({ headers: request.headers });
+      return session && !needsTermsAcceptance(session.user.termsVersion)
+        ? session.user.id
+        : undefined;
+    };
 
   const resources = (env: Env) => {
     const urls = authUrls(env.APP_ORIGIN);

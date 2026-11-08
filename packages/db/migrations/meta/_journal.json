@@ -36,6 +36,13 @@
       "when": 1794120785869,
       "tag": "0004_read_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794122234011,
+      "tag": "0005_terms_acceptance",
+      "breakpoints": true
     }
   ]
 }

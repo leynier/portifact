@@ -42,7 +42,7 @@ Check first with `portifact whoami --json`. Exit code 0 prints `{"server","userI
 To sign in, run `portifact login` (add `--json` for a parseable result). It uses the OAuth device flow:
 
 1. The CLI prints a page (`https://app.portifact.com/device`) and an 8-character code on stderr, and opens the browser when a person is at the terminal. Pass `--no-browser` to skip opening it.
-2. Show the user the page and the code exactly as printed, and ask them to sign in there, check that the page shows the same code and approve it. Never approve it for them, and never ask them to paste anything from that page back to you.
+2. Show the user the page and the code exactly as printed, and ask them to sign in there, check that the page shows the same code and approve it. Never approve it for them, and never ask them to paste anything from that page back to you. The sign-in page asks the user to confirm they are 18 or older and to accept the terms (`https://portifact.com/terms`); that choice is theirs, so never accept it for them.
 3. The command waits until the user approves or denies, or the code expires (10 minutes), so run it where the user can see its stderr and let it finish.
 
 Credentials go to the operating system's credential store. When there is none (for example a Linux server without a Secret Service), they go to `credentials.json` in the user config directory (`~/.config/portifact` on Linux, `~/Library/Application Support/portifact` on macOS, `%APPDATA%\portifact` on Windows) with permissions for the user only, and the CLI prints a warning. Never read, print, copy or upload that file or the stored tokens; the CLI refreshes them on its own.

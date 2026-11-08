@@ -25,6 +25,10 @@ export const users = sqliteTable("users", {
   image: text("image"),
   createdAt: date("created_at").notNull(),
   updatedAt: date("updated_at").notNull().$onUpdate(touchedAt),
+  // Portifact fields (user.additionalFields in apps/app/src/auth/auth.ts): the version of the
+  // terms the account accepted, with the 18+ confirmation, and when. Null until it accepts.
+  termsVersion: text("terms_version"),
+  termsAcceptedAt: date("terms_accepted_at"),
 });
 
 /** Dashboard sessions on app.portifact.com. */

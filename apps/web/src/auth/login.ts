@@ -1,7 +1,9 @@
 // The login page: Google, GitHub or an email code. When an OAuth client sent the user here,
 // the signed authorization request goes back with the sign-in, and Better Auth continues to
-// the consent page.
-import { type Api, currentUserEmail, field, type PageLocation } from "./api.ts";
+// the consent page. Every method first records that the user accepts the terms and is 18 or
+// older; the Worker refuses to create an account or a session without it (docs/legal.md).
+import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
+import { type Api, currentUser, field, type PageLocation } from "./api.ts";
 import { announce, byId, hideSummary, setFieldError, showSummary, whileBusy } from "./dom.ts";
 import { messages } from "./messages.ts";
 import { safeNext, signedOAuthQuery } from "./query.ts";
@@ -16,6 +18,7 @@ export interface PageEnv {
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_PATTERN = /^\d{6}$/;
 const PROVIDERS = ["google", "github"] as const;
+const ACCEPTANCE = { version: TERMS_VERSION, acceptTerms: true, confirmAdult: true };
 
 export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const { api, location } = env;
@@ -39,6 +42,19 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     showSummary(summary, messages.providerErrors[providerError] ?? messages.providerErrorFallback);
   }
 
+  const termsBox = byId<HTMLInputElement>(doc, "terms-accept");
+  const termsError = byId(doc, "terms-accept-error");
+
+  /** The terms box must be checked; otherwise the error is shown and false returned. */
+  const termsChecked = (box: HTMLInputElement, error: HTMLElement): boolean => {
+    const problem = box.checked ? undefined : messages.termsRequired;
+    setFieldError(box, error, problem);
+    if (problem) showSummary(summary, problem);
+    return !problem;
+  };
+
+  const acceptTerms = () => api.post("/accept-terms", ACCEPTANCE);
+
   const withQuery = (body: Record<string, unknown>) =>
     oauthQuery ? { ...body, oauth_query: oauthQuery } : body;
 
@@ -55,16 +71,19 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   for (const button of doc.querySelectorAll<HTMLButtonElement>("button[data-provider]")) {
     button.addEventListener("click", async () => {
       hideSummary(summary);
-      const response = await whileBusy(button, () =>
-        api.post(
+      if (!termsChecked(termsBox, termsError)) return;
+      const response = await whileBusy(button, async () => {
+        const accepted = await acceptTerms();
+        if (accepted.status !== 200) return accepted;
+        return api.post(
           "/sign-in/social",
           withQuery({
             provider: button.dataset.provider,
             callbackURL: afterSignIn,
             errorCallbackURL: "/login",
           }),
-        ),
-      );
+        );
+      });
       const url = field(response.body, "url");
       if (response.status === 200 && url) {
         announce(status, messages.redirecting);
@@ -77,9 +96,12 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
 
   let email = "";
   const sendCode = async (button: HTMLButtonElement): Promise<boolean> => {
-    const response = await whileBusy(button, () =>
-      api.post("/email-otp/send-verification-otp", { email, type: "sign-in" }),
-    );
+    // The acceptance is renewed with every code, so it outlives the code it goes with.
+    const response = await whileBusy(button, async () => {
+      const accepted = await acceptTerms();
+      if (accepted.status !== 200) return accepted;
+      return api.post("/email-otp/send-verification-otp", { email, type: "sign-in" });
+    });
     if (response.status === 200) return true;
     failed(response.status);
     return false;
@@ -88,6 +110,7 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   emailForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     hideSummary(summary);
+    if (!termsChecked(termsBox, termsError)) return;
     const value = emailInput.value.trim();
     const problem = !value
       ? messages.emailRequired
@@ -126,6 +149,10 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
       location.assign(field(response.body, "url") ?? afterSignIn);
       return;
     }
+    if (field(response.body, "code") === TERMS_NOT_ACCEPTED) {
+      showSummary(summary, messages.providerErrors[TERMS_NOT_ACCEPTED] ?? messages.termsRequired);
+      return;
+    }
     if (response.status === 400 || response.status === 403) {
       setFieldError(codeInput, codeError, messages.codeInvalid);
       showSummary(summary, messages.codeInvalid);
@@ -162,7 +189,12 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   });
 
   // An OAuth client asked for a sign-in: always offer it, even with a session.
-  const sessionEmail = oauthQuery ? undefined : await currentUserEmail(api);
+  const user = oauthQuery ? undefined : await currentUser(api);
+  if (user && user.termsVersion !== TERMS_VERSION) {
+    setupTermsUpdate(doc, env, { email: user.email, afterSignIn, summary, signIn, termsChecked });
+    return;
+  }
+  const sessionEmail = user?.email;
   if (sessionEmail && next) {
     location.assign(next);
     return;
@@ -174,6 +206,61 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     return;
   }
   signIn.hidden = false;
+}
+
+interface TermsUpdate {
+  email: string;
+  afterSignIn: string;
+  summary: HTMLElement;
+  signIn: HTMLElement;
+  termsChecked: (box: HTMLInputElement, error: HTMLElement) => boolean;
+}
+
+/**
+ * A signed-in account that has not accepted the current terms (an account from before they
+ * existed, or after they changed) accepts them here before going on, or signs out.
+ */
+function setupTermsUpdate(doc: Document, env: PageEnv, update: TermsUpdate): void {
+  const { api, location } = env;
+  const { summary } = update;
+  const section = byId(doc, "terms-update");
+  const box = byId<HTMLInputElement>(doc, "terms-update-accept");
+  const error = byId(doc, "terms-update-accept-error");
+  const status = byId(doc, "status");
+  byId(doc, "terms-update-email").textContent = messages.termsUpdateFor(update.email);
+
+  const failed = (statusCode: number) =>
+    showSummary(summary, statusCode === 0 ? messages.network : messages.unexpected);
+
+  byId<HTMLButtonElement>(doc, "terms-update-continue").addEventListener("click", async (event) => {
+    hideSummary(summary);
+    if (!update.termsChecked(box, error)) return;
+    const response = await whileBusy(event.currentTarget as HTMLButtonElement, () =>
+      api.post("/accept-terms", ACCEPTANCE),
+    );
+    if (response.status === 200) {
+      announce(status, messages.redirecting);
+      location.assign(update.afterSignIn);
+    } else {
+      failed(response.status);
+    }
+  });
+
+  byId<HTMLButtonElement>(doc, "terms-update-sign-out").addEventListener("click", async (event) => {
+    hideSummary(summary);
+    const response = await whileBusy(event.currentTarget as HTMLButtonElement, () =>
+      api.post("/sign-out", {}),
+    );
+    if (response.status === 200) {
+      section.hidden = true;
+      update.signIn.hidden = false;
+      announce(status, messages.signedOut);
+    } else {
+      failed(response.status);
+    }
+  });
+
+  section.hidden = false;
 }
 
 /** Shows which providers already sign in to this account. */

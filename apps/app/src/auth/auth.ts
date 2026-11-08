@@ -16,6 +16,7 @@ import {
 import type { AuthDeps } from "./deps.ts";
 import { signInCodeEmail } from "./email.ts";
 import { inProcessIntrospection } from "./introspection.ts";
+import { termsHooks } from "./terms.ts";
 
 /** Session cookies are `__Host-pf.<name>`: Secure, Path=/, no Domain (docs/security.md). */
 export const COOKIE_PREFIX = "__Host-pf";
@@ -25,6 +26,7 @@ export const EMAIL_NOT_VERIFIED = "email_not_verified";
 
 export function createAuth(env: Env, deps: AuthDeps) {
   const urls = authUrls(env.APP_ORIGIN);
+  const terms = termsHooks(env.DB, env.BETTER_AUTH_SECRET);
   const provider = oauthProvider({
     loginPage: "/login",
     consentPage: "/consent",
@@ -90,6 +92,12 @@ export function createAuth(env: Env, deps: AuthDeps) {
       updateAccountOnSignIn: false,
     },
     user: {
+      // The terms version the account accepted, with the 18+ confirmation, and when. Only the
+      // hooks in terms.ts write them; get-session returns them to the login page.
+      additionalFields: {
+        termsVersion: { type: "string", required: false, input: false },
+        termsAcceptedAt: { type: "date", required: false, input: false },
+      },
       // A provider that does not vouch for the email cannot create an account with it, so a
       // later email code for that address never lands in someone else's account.
       validateUserInfo: ({ user, source }) => {
@@ -99,6 +107,9 @@ export function createAuth(env: Env, deps: AuthDeps) {
       },
     },
     databaseHooks: {
+      // No account is created and no session is issued without the current terms accepted.
+      user: terms.user,
+      session: terms.session,
       account: {
         create: {
           // Portifact never calls Google or GitHub APIs for the user, so their tokens are not
