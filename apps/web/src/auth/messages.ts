@@ -17,7 +17,11 @@ export const messages = {
   methodConnected: "Connected",
   methodNotUsed: "Not used yet",
   redirecting: "Signing you in.",
+  termsRequired: "Confirm you are 18 or older and accept the terms to continue.",
+  termsUpdateFor: (email: string) => `Signed in as ${email}`,
   providerErrors: {
+    terms_not_accepted:
+      "Portifact needs you to confirm you are 18 or older and accept the terms before signing in. Check the box and try again.",
     account_not_linked:
       "Your provider has not verified this email address, so it cannot open the Portifact account that uses it. Verify it there, or sign in with an email code.",
     email_not_verified:

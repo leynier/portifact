@@ -2,6 +2,7 @@
 // fakes the same-origin auth API. Only used by tests.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import type { Api, ApiResponse, PageLocation } from "./api.ts";
 import type { PageEnv } from "./login.ts";
 
@@ -69,7 +70,11 @@ export function submit(form: HTMLFormElement): void {
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
-export const session = (email: string): ApiResponse => ({
+/** A session whose account accepted `termsVersion` (the current terms unless given). */
+export const session = (
+  email: string,
+  termsVersion: string | null = TERMS_VERSION,
+): ApiResponse => ({
   status: 200,
-  body: { user: { email }, session: { id: "s" } },
+  body: { user: { email, termsVersion }, session: { id: "s" } },
 });

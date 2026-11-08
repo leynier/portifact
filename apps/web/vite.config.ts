@@ -32,10 +32,19 @@ function brandAssets(): Plugin {
 }
 
 /**
- * HTML entries: the landing on portifact.com, and the dashboard and auth pages on
- * app.portifact.com.
+ * HTML entries: the landing and the legal pages on portifact.com, and the dashboard and auth
+ * pages on app.portifact.com.
  */
-const pages = ["index", "dashboard", "login", "device", "consent"];
+const pages = [
+  "index",
+  "terms",
+  "privacy",
+  "acceptable-use",
+  "dashboard",
+  "login",
+  "device",
+  "consent",
+];
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), brandAssets()],
