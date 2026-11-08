@@ -28,6 +28,7 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 apps/app        Worker for portifact.com: landing assets and installers today; API, auth, OAuth, MCP and jobs later
 apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
+apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
 packages/cli    portifact CLI
 packages/contracts   Shared schemas, errors and OpenAPI
 packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
@@ -74,7 +75,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.
 - Input and output shapes live in `packages/contracts` and are validated at every boundary.
 - Multi-step state changes in D1 use transactional batches with checked results. A read followed by a separate write is not a transaction.
-- The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
+- The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one (`--custom` for triggers and other SQL Drizzle does not model). Active-slot accounting for lifecycle transitions is done by triggers in `0001_lifecycle_triggers.sql`; do not also adjust `active_artifacts` in code for those transitions. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
 - Mutations that may be retried take an idempotency key.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.

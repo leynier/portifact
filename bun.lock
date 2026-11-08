@@ -47,6 +47,22 @@
         "wrangler": "^4.0.0",
       },
     },
+    "apps/jobs": {
+      "name": "@portifact/jobs",
+      "version": "0.0.0",
+      "dependencies": {
+        "@portifact/db": "workspace:*",
+        "@portifact/services": "workspace:*",
+      },
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "^1.0.0",
+        "@cloudflare/workers-types": "^5.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+        "wrangler": "^4.0.0",
+      },
+    },
     "apps/web": {
       "name": "@portifact/web",
       "version": "0.0.0",
@@ -57,7 +73,7 @@
         "@tailwindcss/vite": "^4.0.0",
         "@types/node": "catalog:",
         "@vitest/coverage-istanbul": "catalog:",
-        "happy-dom": "^20.0.0",
+        "happy-dom": "^21.0.4",
         "tailwindcss": "^4.0.0",
         "typescript": "catalog:",
         "vite": "^8.0.0",
@@ -467,6 +483,8 @@
 
     "@portifact/domain": ["@portifact/domain@workspace:packages/domain"],
 
+    "@portifact/jobs": ["@portifact/jobs@workspace:apps/jobs"],
+
     "@portifact/services": ["@portifact/services@workspace:packages/services"],
 
     "@portifact/spike-oauth-server": ["@portifact/spike-oauth-server@workspace:spikes/oauth-server"],
@@ -835,7 +853,7 @@
 
     "handlebars": ["handlebars@4.7.10", "", { "dependencies": { "minimist": "^1.2.8", "neo-async": "^2.6.2", "source-map": "^0.6.1", "wordwrap": "^1.0.0" }, "optionalDependencies": { "uglify-js": "^3.1.4" }, "bin": { "handlebars": "bin/handlebars" } }, "sha512-P5VJMVM7qgBn6vjXMw8WG9uVI+ncf2pi72j4de4yz5ZULLj2RGqLYaKOYGsgyrViQ0tePOVlN1tDCCXXtFqXKg=="],
 
-    "happy-dom": ["happy-dom@20.14.6", "", { "dependencies": { "@types/node": ">=20.0.0", "@types/whatwg-mimetype": "^3.0.2", "@types/ws": "^8.18.1", "buffer-image-size": "^0.6.4", "entities": "^7.0.1", "whatwg-mimetype": "^3.0.0", "ws": "^8.21.0" } }, "sha512-5DDsf4QmEIlRL6NkCv/fxSjYHHkZceL/IaYQdJc2h3G7DRTEai++VTjbfL0LB9geW2VrA3+vrjF3Efx+OTtX0Q=="],
+    "happy-dom": ["happy-dom@21.0.4", "", { "dependencies": { "@types/node": ">=20.0.0", "@types/whatwg-mimetype": "^3.0.2", "@types/ws": "^8.18.1", "buffer-image-size": "^0.6.4", "entities": "^7.0.1", "whatwg-mimetype": "^3.0.0", "ws": "^8.21.0" } }, "sha512-tFm+GaLBgo6o0awHnvHaNoraVo27qJ+2tZEtZ+cIa08hXbeitrxAJajLI05hsUy/2/YTKcUjQYzHe5mCcraLBw=="],
 
     "has-flag": ["has-flag@4.0.0", "", {}, "sha512-EykJT/Q1KjTWctppgIAgfSO0tKVuZUjhgMr17kqTumMl6Afv3EISleU7qZUzoXDFTAHTDC4NOoG/ZxU3EvlMPQ=="],
 
