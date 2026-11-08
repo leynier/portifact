@@ -14,6 +14,7 @@ import {
   Archive,
   ArchiveRestore,
   ArrowLeft,
+  Ban,
   CircleAlert,
   FilePen,
   History,
@@ -151,6 +152,18 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   return (
     <>
       <PageHeader title={artifact.name} description={<StateBadge state={artifact.state} />} />
+
+      {artifact.suspension ? (
+        <div className="mb-8">
+          <Callout
+            tone="error"
+            title={t("detail.suspended.title")}
+            icon={<Ban className="size-5" />}
+          >
+            {t("detail.suspended.body", { reason: t(`reason.${artifact.suspension.reason}`) })}
+          </Callout>
+        </div>
+      ) : null}
 
       <section aria-labelledby="facts-heading">
         <h2 id="facts-heading" className="mb-3 text-lg font-semibold">

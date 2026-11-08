@@ -7,6 +7,7 @@ import { purgeDate } from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
 import { and, eq, inArray, isNotNull, lte, ne, notExists, or, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { processAccountDeletions } from "./account-data.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { abortPublish } from "./publish.ts";
@@ -232,7 +233,7 @@ export async function deleteArtifactData(
  * Deletes objects that no manifest references any more. Only the statement that deletes a row
  * releases its bytes, so concurrent runs never release the same object twice.
  */
-async function releaseOrphans(
+export async function releaseOrphans(
   db: Db,
   bucket: R2Bucket,
   candidates: { ownerId: string; sha256: string }[],
@@ -445,5 +446,6 @@ export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
   };
 }

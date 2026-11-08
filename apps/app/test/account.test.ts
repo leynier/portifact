@@ -252,6 +252,8 @@ describe("account endpoint access", () => {
     ["POST", "/api/v1/account/sessions/sign-out-others"],
     ["GET", "/api/v1/account/apps"],
     ["DELETE", "/api/v1/account/apps/portifact-cli"],
+    ["GET", "/api/v1/account/export"],
+    ["POST", "/api/v1/account/delete"],
   ];
 
   it("refuses session requests that do not come from the app's own pages", async () => {

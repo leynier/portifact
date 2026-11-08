@@ -11,6 +11,7 @@ import {
   type ErrorCode,
 } from "./core.ts";
 import { LIMITS } from "./limits.ts";
+import { SuspensionView } from "./moderation.ts";
 
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "Invalid SHA-256");
 
@@ -103,6 +104,8 @@ export const ArtifactSummary = z.object({
   expiresAt: z.iso.datetime().nullable(),
   archivedAt: z.iso.datetime().nullable(),
   purgeAt: z.iso.datetime().nullable(),
+  /** Why an operator suspended it; present only while `state` is `suspended`. */
+  suspension: SuspensionView.optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -171,5 +174,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   quota_exceeded: 429,
   traffic_exceeded: 429,
   rate_limited: 429,
+  reauthentication_required: 403,
   capacity_unavailable: 503,
 };

@@ -45,6 +45,7 @@ export const ErrorCode = z.enum([
   "account_too_new_for_public",
   "capacity_unavailable",
   "rate_limited",
+  "reauthentication_required",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 

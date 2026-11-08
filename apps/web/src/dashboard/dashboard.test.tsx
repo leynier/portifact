@@ -293,6 +293,18 @@ describe("artifact detail", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Launch plan" })).toBeTruthy();
   });
 
+  it("explains why a suspended artifact is suspended, without the operator's notes", async () => {
+    const server = fakeServer([
+      artifact("k7d2qm4xab", { state: "suspended", suspension: { reason: "phishing" } }),
+    ]);
+    const { container } = renderDashboard("/artifacts/k7d2qm4xab", server);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Suspended for a possible Acceptable Use Policy violation");
+    expect(alert.textContent).toContain("Reason: phishing or a fake sign-in page.");
+    expect(alert.textContent).toContain("abuse@portifact.com");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("offers no actions for an artifact being deleted", async () => {
     server.artifacts.push(artifact("pppppppppp", { state: "purging", expiresAt: null }));
     renderDashboard("/artifacts/pppppppppp", server);

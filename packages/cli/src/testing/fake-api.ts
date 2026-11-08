@@ -6,6 +6,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import {
+  type AbuseReason,
   type AccessMode,
   type AccessPolicyView,
   AccessUpdate,
@@ -41,6 +42,8 @@ export interface FakeArtifact {
   updatedAt: number;
   access: { mode: AccessMode; readers: string[]; indexable: boolean; embeddable: boolean };
   policyGeneration: number;
+  /** Set when the operator suspended it; the summary then says `suspended` with the reason. */
+  suspensionReason?: AbuseReason;
 }
 
 export interface FakeVersionFile {
@@ -722,7 +725,8 @@ function summary(artifact: FakeArtifact): ArtifactSummary {
     id: artifact.id,
     name: artifact.name,
     type: artifact.type,
-    state: artifact.state,
+    state: artifact.suspensionReason ? "suspended" : artifact.state,
+    ...(artifact.suspensionReason ? { suspension: { reason: artifact.suspensionReason } } : {}),
     accessMode: artifact.access.mode,
     annotations: "off",
     currentVersionId: artifact.currentVersionId,

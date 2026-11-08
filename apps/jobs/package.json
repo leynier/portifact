@@ -2,20 +2,24 @@
   "name": "@portifact/jobs",
   "version": "0.0.0",
   "private": true,
-  "description": "Scheduled maintenance Worker: archive, expire uploads, prune versions and purge.",
+  "description": "Scheduled maintenance Worker (archive, expire uploads, prune, purge, account deletions) and the operator tool.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --coverage"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
+    "test": "vitest run --coverage",
+    "operator": "bun scripts/operator.ts"
   },
   "dependencies": {
+    "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
-    "@portifact/services": "workspace:*"
+    "@portifact/services": "workspace:*",
+    "drizzle-orm": "^0.45.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.0.0",
     "@cloudflare/workers-types": "^5.0.0",
+    "@types/bun": "^1.0.0",
     "@vitest/coverage-istanbul": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",

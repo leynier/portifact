@@ -74,6 +74,19 @@ export const en = {
   "accessSettings.republish":
     "Publishing a new version never changes these settings, so republishing never opens an artifact to more people. Only you can widen access, here, from the CLI or from an agent you allowed to share.",
   "accessSettings.suspended": "This artifact is suspended, so its access cannot change.",
+  "detail.suspended.title": "Suspended for a possible Acceptable Use Policy violation",
+  "detail.suspended.body":
+    "Portifact suspended this artifact after a review. It is not served to anyone and cannot be changed or published to. Reason: {reason}. If you think this is a mistake, write to abuse@portifact.com with the artifact's address.",
+  "reason.phishing": "phishing or a fake sign-in page",
+  "reason.malware": "malware, exploits or cryptocurrency mining",
+  "reason.sexual_content": "sexually explicit content",
+  "reason.child_safety": "content that sexualizes minors",
+  "reason.copyright": "copyright or trademark infringement",
+  "reason.impersonation": "impersonation",
+  "reason.harassment": "threats, harassment or violent extremism",
+  "reason.private_information": "someone's private information",
+  "reason.spam": "spam",
+  "reason.other": "another breach of the rules",
   "accessSettings.mode.legend": "Who can open this artifact",
   "accessSettings.mode.restricted":
     "You and the email addresses listed below. Each person signs in with that address before it opens.",
@@ -179,6 +192,26 @@ export const en = {
   "account.apps.confirm.body":
     "It loses access right away and has to ask for your approval again to reconnect.",
   "account.apps.disconnected": "{name} disconnected.",
+  "account.data.title": "Your data",
+  "account.data.hint":
+    "Download everything your account holds as JSON: your profile, artifacts with their access, versions and file lists, and comments. Each version lists a link that downloads its files.",
+  "account.data.download": "Download your data",
+  "account.delete.title": "Delete account",
+  "account.delete.hint":
+    'Deleting your account removes your artifacts, sessions, apps and sign-in methods, and your comments on other people\'s artifacts. A comment someone replied to becomes a "message deleted" marker. Artifact addresses are never given to anyone else. This cannot be undone, so download your data first.',
+  "account.delete.confirmLabel": "Type your email to confirm",
+  "account.delete.confirmHint": "Type {email}",
+  "account.delete.mismatch": "Type your account's email exactly to confirm.",
+  "account.delete.button": "Delete account",
+  "account.delete.dialog.title": "Delete your account for good?",
+  "account.delete.dialog.body":
+    "Your artifacts stop working at once and everything listed above is deleted. You will be signed out.",
+  "account.delete.dialog.confirm": "Delete my account",
+  "account.delete.reauth.title": "Sign in again to delete your account",
+  "account.delete.reauth.body":
+    "For your safety, deleting needs a sign-in from the last 10 minutes. Sign in again, then come back here.",
+  "account.delete.reauth.action": "Sign in again",
+  "account.delete.done": "Your account was deleted.",
   "account.actionFailed.title": "The action did not finish",
   "account.cancel": "Cancel",
 
@@ -413,6 +446,7 @@ export const en = {
   "error.account_too_new_for_public": "New accounts cannot make artifacts public yet.",
   "error.capacity_unavailable": "Portifact is at capacity right now. Try again later.",
   "error.rate_limited": "Too many requests. Wait a moment and try again.",
+  "error.reauthentication_required": "Sign in again to do that.",
 } as const;
 
 export type MessageId = keyof typeof en;

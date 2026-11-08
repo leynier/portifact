@@ -3,6 +3,9 @@
 // app's own pages. Bearer tokens are refused: no OAuth scope covers account and credential
 // management yet, and a token must never list or revoke other credentials.
 import {
+  AccountDeletionInput,
+  AccountDeletionResult,
+  AccountExport,
   type AppResource,
   BrowserSessionList,
   ConnectedAppList,
@@ -12,12 +15,19 @@ import {
   SignOutOthersResult,
 } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
-import { disconnectApp, listBrowserSessions, listConnectedApps } from "@portifact/services";
+import {
+  disconnectApp,
+  exportAccount,
+  listBrowserSessions,
+  listConnectedApps,
+  requestAccountDeletion,
+} from "@portifact/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import type { Env } from "../env.ts";
-import { fromAppOrigin, hasSessionCookie } from "./access.ts";
+import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
+import { readJson } from "./http.ts";
 
 /** The dashboard session behind a request: its user and the session's own ID. */
 export interface AccountSession {
@@ -143,6 +153,41 @@ export function accountRoutes(deps: AccountDeps) {
       return c.json(
         DisconnectResult.parse({ clientId: result.value.clientId, disconnected: true }),
       );
+    }),
+  );
+
+  // The account's data as a JSON download, offered before deletion (plan section 5).
+  routes.get(
+    "/api/v1/account/export",
+    sessionOnly(async (c, session) => {
+      const now = deps.now();
+      const result = await exportAccount(createDb(c.env.DB), { userId: session.userId, now });
+      if (!result.ok) return error(c, result.code, result.message);
+      const day = new Date(now).toISOString().slice(0, 10);
+      c.header("Content-Disposition", `attachment; filename="portifact-export-${day}.json"`);
+      return c.json(AccountExport.parse(result.value));
+    }),
+  );
+
+  // Deletes the account: the email typed again and a session signed in within the last minutes.
+  routes.post(
+    "/api/v1/account/delete",
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, AccountDeletionInput, 1024);
+      if (!body.ok) return body.response;
+      const result = await requestAccountDeletion(createDb(c.env.DB), {
+        userId: session.userId,
+        sessionId: session.sessionId,
+        confirmEmail: body.value.confirmEmail,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      // The session row is gone with the user; the browser forgets the cookie too.
+      c.header(
+        "Set-Cookie",
+        `${SESSION_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`,
+      );
+      return c.json(AccountDeletionResult.parse({ deleted: true }));
     }),
   );
 

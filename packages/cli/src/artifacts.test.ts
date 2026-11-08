@@ -166,6 +166,18 @@ describe("portifact info", () => {
     );
   });
 
+  it("says why a suspended artifact is suspended", async () => {
+    h.signIn();
+    const artifact = seed({ name: "Held", suspensionReason: "phishing" });
+    const result = await h.invoke("info", artifact.id);
+    expect(result.stdout).toContain("State        suspended\n");
+    expect(result.stdout).toContain(
+      "Suspended    phishing; write to abuse@portifact.com to appeal\n",
+    );
+    const asJson = json(await h.invoke("info", artifact.id, "--json"));
+    expect(asJson).toMatchObject({ state: "suspended", suspension: { reason: "phishing" } });
+  });
+
   it("prints the artifact summary with --json", async () => {
     h.signIn();
     const artifact = seed();

@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import type { SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { r2Presigner } from "./api/presign.ts";
+import { reportRoutes } from "./api/reports.ts";
 import { apiRoutes } from "./api/routes.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
@@ -23,8 +24,11 @@ import type { Env } from "./env.ts";
 import { mcpRoutes } from "./mcp/routes.ts";
 import { readRoutes } from "./read.ts";
 
-/** Pages built by apps/web and served from static assets on this host only. */
-export const AUTH_PAGES = ["/login", "/device", "/consent"] as const;
+/**
+ * Pages built by apps/web and served from static assets on this host only: the auth pages and
+ * the public abuse report form.
+ */
+export const AUTH_PAGES = ["/login", "/device", "/consent", "/report"] as const;
 
 /** The dashboard SPA, built by apps/web as dashboard.html and served on this host only. */
 export const DASHBOARD_PAGE = "/dashboard";
@@ -199,6 +203,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       now: () => Date.now(),
     }),
   );
+  app.route("/", reportRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
 
   // Who the token belongs to. Any valid API token works; no scope is needed.

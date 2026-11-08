@@ -324,6 +324,9 @@ function summary(env: Env, row: ArtifactRow) {
     expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
     archivedAt: row.archivedAt === null ? null : iso(row.archivedAt),
     purgeAt: row.purgeAt === null ? null : iso(row.purgeAt),
+    ...(row.state === "suspended" && row.suspensionReason
+      ? { suspension: { reason: row.suspensionReason } }
+      : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });

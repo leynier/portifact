@@ -4,6 +4,7 @@
 import {
   AccessPolicyView,
   type AccessUpdate,
+  AccountDeletionResult,
   ApiError,
   ArtifactList,
   ArtifactSummary,
@@ -71,6 +72,8 @@ export interface DashboardApi {
   signOutOtherSessions(): Promise<SignOutOthersResult>;
   connectedApps(): Promise<ConnectedAppList>;
   disconnectApp(clientId: string): Promise<DisconnectResult>;
+  /** Deletes the account; the email typed again confirms it. */
+  deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -92,6 +95,9 @@ export interface DashboardApi {
   ): Promise<RolledBack>;
   previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
 }
+
+/** The account's data as a JSON download (a plain link: the browser saves the attachment). */
+export const ACCOUNT_EXPORT_PATH = "/api/v1/account/export";
 
 const SessionBody = z.object({
   user: z.object({
@@ -215,6 +221,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         DisconnectResult,
         "DELETE",
       );
+    },
+    deleteAccount(confirmEmail) {
+      return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });
     },
     preparePublish(request, idempotencyKey) {
       return call("/api/v1/publishes", PreparedPublish, "POST", request, {
