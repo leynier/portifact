@@ -34,11 +34,16 @@ let cached: { actions: ProtectionAction[]; readAt: number } | null = null;
  * Durable Object request per refused request, which is what a flood is made of.
  */
 const refusedUntil = new Map<string, number>();
+let maxRefusals = MAX_REMEMBERED_REFUSALS;
 
-/** Forgets the cached protection and the remembered refusals, for tests. */
-export function resetProtectionCache(): void {
+/**
+ * Forgets the cached protection and the remembered refusals, for tests. `maxRefusals` shrinks the
+ * memory so a test can fill it with a few requests instead of ten thousand.
+ */
+export function resetProtectionCache(options: { maxRefusals?: number } = {}): void {
   cached = null;
   refusedUntil.clear();
+  maxRefusals = options.maxRefusals ?? MAX_REMEMBERED_REFUSALS;
 }
 
 const errorName = (error: unknown) => (error instanceof Error ? error.name : typeof error);
@@ -59,9 +64,9 @@ async function protectionActions(db: Db, now: number): Promise<ProtectionAction[
 }
 
 function remember(key: string, resetAt: number, now: number): void {
-  if (refusedUntil.size >= MAX_REMEMBERED_REFUSALS) {
+  if (refusedUntil.size >= maxRefusals) {
     for (const [known, until] of refusedUntil) if (until <= now) refusedUntil.delete(known);
-    if (refusedUntil.size >= MAX_REMEMBERED_REFUSALS) refusedUntil.clear();
+    if (refusedUntil.size >= maxRefusals) refusedUntil.clear();
   }
   refusedUntil.set(key, resetAt);
 }
