@@ -51,7 +51,12 @@ export interface Harness {
 }
 
 export function createHarness(
-  options: { env?: Partial<Cloudflare.Env>; multipart?: MultipartConfig } = {},
+  options: {
+    env?: Partial<Cloudflare.Env>;
+    multipart?: MultipartConfig;
+    /** Replaces the fake sender, for example to fail the way Email Service does. */
+    email?: AuthDeps["email"];
+  } = {},
 ): Harness {
   const outbox: EmailMessage[] = [];
   const clientMetadata = new Map<string, unknown>();
@@ -60,7 +65,7 @@ export function createHarness(
   const workerEnv = { ...env, ...options.env } as Cloudflare.Env;
   const deps: AuthDeps = {
     ...(options.multipart ? { multipart: options.multipart } : {}),
-    email: {
+    email: options.email ?? {
       send: async (message) => {
         outbox.push(message);
       },

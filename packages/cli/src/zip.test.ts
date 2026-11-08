@@ -12,7 +12,7 @@ let folder: string;
 let previousTmp: string | undefined;
 
 beforeEach(async () => {
-  folder = await mkdtemp(join(tmpdir(), "portifact-zip-test-"));
+  folder = await mkdtemp(join(tmpdir(), "pf-zip-test-"));
   // Expansions land here, so a test can check that nothing is left behind.
   previousTmp = process.env.TMPDIR;
   process.env.TMPDIR = await mkdtemp(join(folder, "tmp-"));

@@ -123,6 +123,28 @@ describe("login page", () => {
     expect(element("code-form").hidden).toBe(true);
   });
 
+  it("explains why no code goes to a suppressed address", async () => {
+    api.on("POST", "/email-otp/send-verification-otp", {
+      status: 403,
+      body: { error: { code: "email_suppressed", message: "x" } },
+    });
+    await open();
+    await requestCode("bounced@example.test");
+    expect(element("error-summary").textContent).toBe(messages.emailSuppressed);
+    expect(element("code-form").hidden).toBe(true);
+  });
+
+  it("explains when the monthly email limit is reached", async () => {
+    api.on("POST", "/email-otp/send-verification-otp", {
+      status: 503,
+      body: { error: { code: "capacity_unavailable", message: "x" } },
+    });
+    await open();
+    await requestCode("ada@example.test");
+    expect(element("error-summary").textContent).toBe(messages.emailCapacity);
+    expect(element("code-form").hidden).toBe(true);
+  });
+
   it("explains when Portifact cannot be reached", async () => {
     api.on("POST", "/email-otp/send-verification-otp", { status: 0, body: null });
     await open();

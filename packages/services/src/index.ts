@@ -7,6 +7,7 @@ export * from "./artifacts.ts";
 export * from "./backups.ts";
 export * from "./budget.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
+export * from "./email.ts";
 export * from "./idempotency.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";

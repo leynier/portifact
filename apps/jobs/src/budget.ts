@@ -10,6 +10,7 @@ import {
   measurePlatformUsage,
   pendingBudgetAlerts,
   recordBudgetMeasurement,
+  recordEmailsSent,
 } from "@portifact/services";
 import type { AnalyticsCollector } from "./analytics.ts";
 
@@ -126,6 +127,8 @@ export async function runBudget(db: Db, now: number, deps: BudgetDeps): Promise<
           now,
         );
         result.notified = pending.length;
+        // Counted after the mark, so a failed count never sends the same alerts twice.
+        await recordEmailsSent(db, now);
       } catch {
         // Left pending: the next run tries again. The provider error may echo the message.
         console.error(JSON.stringify({ event: "budget_email_failed", alerts: pending.length }));

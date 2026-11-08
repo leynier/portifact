@@ -421,6 +421,8 @@ describe("purging archives", () => {
       rerendered: 0,
       accountDeletions: 0,
       prunedTrafficCounters: 0,
+      prunedEmailCounters: 0,
+      prunedEmailSuppressions: 0,
     });
   });
 });

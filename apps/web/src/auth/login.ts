@@ -4,6 +4,7 @@
 // older; the Worker refuses to create an account or a session without it (docs/legal.md). New
 // accounts also need a solved human check: the page renders it and sends its token before a
 // sign-in; existing accounts sign in without it (docs/security.md, "Human check").
+import { EMAIL_SUPPRESSED } from "@portifact/contracts/email-delivery";
 import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
@@ -139,7 +140,11 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
       return api.post("/email-otp/send-verification-otp", { email, type: "sign-in" });
     });
     if (response.status === 200) return true;
-    failed(response.status);
+    const body = response.body as { error?: unknown } | null;
+    const refusal = field(body?.error, "code");
+    if (refusal === EMAIL_SUPPRESSED) showSummary(summary, messages.emailSuppressed);
+    else if (refusal === "capacity_unavailable") showSummary(summary, messages.emailCapacity);
+    else failed(response.status);
     return false;
   };
 

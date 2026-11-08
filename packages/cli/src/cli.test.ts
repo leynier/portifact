@@ -50,6 +50,23 @@ describe("portifact cli", () => {
     expect(result.stderr).toBe("");
   });
 
+  it("prints the third-party notices of the binary and points to them from --help", async () => {
+    const help = await invoke("--help");
+    expect(help.stdout).toMatch(/^ {2}licenses /m);
+    expect(help.stdout).toContain("`portifact licenses` prints the notices");
+    expect(help.stdout).toContain("AGPL-3.0");
+
+    const result = await invoke("licenses");
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Third-party notices for the Portifact CLI");
+    // The CLI's runtime dependencies and the runtime the binary embeds.
+    for (const name of ["commander (MIT)", "zod (MIT)", "Bun runtime"]) {
+      expect(result.stdout).toContain(name);
+    }
+    expect(result.stdout).toContain("Permission is hereby granted");
+  });
+
   it("documents publishing options, ZIP input, private sources and assets", async () => {
     const result = await invoke("publish", "--help");
     expect(result.code).toBe(0);

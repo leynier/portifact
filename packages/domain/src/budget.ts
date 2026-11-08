@@ -385,3 +385,13 @@ export function checkAnnotationCapacity(actions: readonly ProtectionAction[]): R
 export function trafficLimited(actions: readonly ProtectionAction[], isPublic: boolean): boolean {
   return actions.includes(isPublic ? "tighten_public_traffic" : "limit_protected_traffic");
 }
+
+/**
+ * The per-visitor limits delivery applies while protection limits traffic: requests per window,
+ * per visitor IP. Values to calibrate with real traffic.
+ */
+export const PROTECTION_TRAFFIC_LIMITS = {
+  periodMs: 60_000,
+  public: 120,
+  protected: 240,
+} as const;

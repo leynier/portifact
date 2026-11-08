@@ -1,6 +1,10 @@
 import { env } from "cloudflare:workers";
 import { OTP_LIMITS } from "@portifact/contracts";
+import { createDb } from "@portifact/db";
+import { SIGN_IN_EMAILS_PER_CYCLE } from "@portifact/domain";
+import { emailsSentInCycle, isEmailSuppressed, suppressEmail } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RecipientSuppressedError } from "../src/auth/email.ts";
 import { codeFrom, createHarness, type Harness, json, SESSION_COOKIE } from "./harness.ts";
 
 let now = Date.parse("2026-11-02T09:00:00Z");
@@ -12,7 +16,9 @@ const advance = (seconds: number) => {
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(now);
-  await env.DB.exec("DELETE FROM rate_limits");
+  await env.DB.exec(
+    "DELETE FROM rate_limits; DELETE FROM email_counters; DELETE FROM email_suppressions",
+  );
 });
 
 afterEach(() => {
@@ -248,5 +254,82 @@ describe("limits on sending codes", () => {
       );
     for (let index = 0; index < 20; index += 1) expect((await register()).status).toBe(201);
     expect((await register()).status).toBe(429);
+  });
+});
+
+describe("email quota and suppression", () => {
+  const db = () => createDb(env.DB);
+
+  it("counts every code it sends for the budget", async () => {
+    const h = createHarness();
+    await sendCode(h, "count-1@example.test");
+    await sendCode(h, "count-2@example.test");
+    expect(await emailsSentInCycle(db(), now)).toBe(2);
+  });
+
+  it("stops sending codes once the month's sign-in emails are spent", async () => {
+    const h = createHarness();
+    await env.DB.prepare("insert into email_counters (day, sent) values (?, ?)")
+      .bind(Date.parse("2026-11-01T00:00:00Z"), SIGN_IN_EMAILS_PER_CYCLE)
+      .run();
+    const response = await sendCode(h, "monthly@example.test");
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: "capacity_unavailable" } });
+    expect(h.outbox).toHaveLength(0);
+  });
+
+  it("refuses a suppressed address with an explanation and sends nothing", async () => {
+    const h = createHarness();
+    await suppressEmail(db(), { email: "bounced@example.test", reason: "hard_bounce", now });
+    const response = await sendCode(h, "Bounced@Example.test");
+    expect(response.status).toBe(403);
+    const body = await response.json<{ error: { code: string; message: string } }>();
+    expect(body.error.code).toBe("email_suppressed");
+    expect(body.error.message).toContain("Google or GitHub");
+    expect(JSON.stringify(body)).not.toContain("bounced@example.test");
+    expect(h.outbox).toHaveLength(0);
+  });
+
+  it("checks the rate limits before the suppression list", async () => {
+    const h = createHarness();
+    await suppressEmail(db(), { email: "limited@example.test", reason: "complaint", now });
+    for (let index = 0; index < OTP_LIMITS.perIp.max; index += 1) {
+      await sendCode(h, `filler-${index}@example.test`, "192.0.2.50");
+    }
+    expect((await sendCode(h, "limited@example.test", "192.0.2.50")).status).toBe(429);
+  });
+
+  it("suppresses an address Email Service refuses, then explains on the next request", async () => {
+    const attempts: string[] = [];
+    const h = createHarness({
+      email: {
+        send: async (message) => {
+          attempts.push(message.to);
+          throw new RecipientSuppressedError();
+        },
+      },
+    });
+    // Better Auth answers the same whatever the delivery, so the first request cannot tell.
+    expect((await sendCode(h, "refused@example.test")).status).toBe(200);
+    expect(await isEmailSuppressed(db(), "refused@example.test", now)).toBe(true);
+    expect(await emailsSentInCycle(db(), now)).toBe(0);
+    advance(61);
+    const next = await sendCode(h, "refused@example.test");
+    expect(next.status).toBe(403);
+    expect(await next.json()).toMatchObject({ error: { code: "email_suppressed" } });
+    expect(attempts).toEqual(["refused@example.test"]);
+  });
+
+  it("does not suppress after other delivery failures", async () => {
+    const h = createHarness({
+      email: {
+        send: async () => {
+          throw new Error("email delivery failed");
+        },
+      },
+    });
+    expect((await sendCode(h, "flaky@example.test")).status).toBe(200);
+    expect(await isEmailSuppressed(db(), "flaky@example.test", now)).toBe(false);
+    expect(await emailsSentInCycle(db(), now)).toBe(0);
   });
 });

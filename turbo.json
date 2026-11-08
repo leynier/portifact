@@ -19,6 +19,15 @@
       "cache": false,
       "persistent": true
     },
+    "@portifact/web#build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/assets/brand/**",
+        "$TURBO_ROOT$/third-party-notices.md"
+      ],
+      "outputs": ["dist/**"]
+    },
     "@portifact/app#test": {
       "dependsOn": ["^typecheck", "@portifact/web#build"],
       "outputs": ["coverage/**"]
