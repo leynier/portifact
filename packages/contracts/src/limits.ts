@@ -1,4 +1,4 @@
-// Kept apart from index.ts so other contract modules can import it without a cycle.
+// Kept apart from core.ts so other contract modules can import it without a cycle.
 /** Product limits from the plan (section 2). Sizes are decimal: 1 MB = 1,000,000 bytes. */
 export const LIMITS = {
   activeArtifacts: 50,
@@ -18,4 +18,7 @@ export const LIMITS = {
   archiveMonths: 6,
   publicAccessMinAccountAgeDays: 7,
   pathMaxLength: 1_024,
+  /** Bounds the reader list of a restricted artifact; not a product tier, a safety cap. */
+  readersPerArtifact: 500,
+  readersPerChange: 100,
 } as const;

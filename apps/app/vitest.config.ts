@@ -17,6 +17,8 @@ export default defineConfig(async () => {
             BETTER_AUTH_SECRET: "test-only-secret-not-used-anywhere-else-0123456789",
             GOOGLE_CLIENT_SECRET: "test-google-secret",
             GITHUB_CLIENT_SECRET: "test-github-secret",
+            R2_ACCESS_KEY_ID: "test-r2-access-key-id",
+            R2_SECRET_ACCESS_KEY: "test-r2-secret-access-key",
             TEST_MIGRATIONS: migrations,
           },
         },
