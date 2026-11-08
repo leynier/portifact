@@ -94,8 +94,8 @@ describe("authorization code with PKCE", () => {
     const tokens = await response.json<TokenResponse>();
     expect(tokens.scope).toBe("artifacts:read offline_access");
 
-    // The token is accepted; the MCP tools themselves arrive in phase 5.
-    expect((await callMcp(h, tokens.access_token)).status).toBe(501);
+    // The token is accepted and the MCP tools answer.
+    expect((await callMcp(h, tokens.access_token)).status).toBe(200);
   });
 
   it("returns access_denied to the client when the user denies consent", async () => {

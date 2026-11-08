@@ -25,7 +25,7 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 ## Repository layout
 
 ```text
-apps/app        Worker for portifact.com and app.portifact.com: landing, installers, identity, OAuth and the /api/v1 publishing API; MCP tools later
+apps/app        Worker for portifact.com and app.portifact.com: landing, installers, identity, OAuth, the /api/v1 publishing API and the remote MCP server at /mcp
 apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
@@ -71,7 +71,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - Business rules live only in `packages/domain` (pure functions) and the use cases that apply them with storage live in `packages/services`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over these services; never reimplement a rule in an adapter.
 - In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice.
 - Web, CLI and MCP must behave identically for the same operation: same permission checks, quotas, states and errors. Add a parity test when you add an operation.
-- MCP has no privileged path. It goes through the same authorization as the API.
+- MCP has no privileged path. It goes through the same authorization as the API. `apps/app/src/mcp` serves `/mcp` with the official SDK (`@modelcontextprotocol/server`, pinned exactly; the 2026-07-28 revision plus the stateless 2025 fallback). Every request passes `authorizeResourceRequest` with the scope of the tool it calls, from `TOOL_SCOPES` in `apps/app/src/mcp/tools.ts`, before the SDK runs; a new tool must be added there with the same scope as its API route, and to `test/mcp-parity.test.ts`. Tool results return the API's body as structured content and errors as `{ error: { code, message } }`.
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.
 - Input and output shapes live in `packages/contracts` and are validated at every boundary.
 - Multi-step state changes in D1 use transactional batches with checked results. A read followed by a separate write is not a transaction.

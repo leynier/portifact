@@ -79,7 +79,7 @@ portifact annotations set ARTIFACT_ID open
 portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback to your agent
 ```
 
-These commands describe the planned interface; the current release does not include them yet. Agents will be able to do the same through the MCP server at `https://app.portifact.com/mcp`.
+These commands describe the planned interface; the current release does not include them yet. Agents without a shell can already list artifacts, publish small Markdown, text or single-page HTML documents and manage their lifecycle through the MCP server at `https://app.portifact.com/mcp`.
 
 ## Status
 
@@ -90,10 +90,11 @@ These commands describe the planned interface; the current release does not incl
 | Agent skill (`npx skills add leynier/portifact`)        | Available      |
 | Sign-in (Google, GitHub, email code) and OAuth          | Available      |
 | Publishing API (`/api/v1`)                              | Available      |
+| MCP server: list, publish small documents, lifecycle    | Available      |
 | Publish HTML, Markdown and text from the CLI            | In development |
 | Access control (private, signed-in, email list, public) | In development |
 | Annotations and review                                  | In development |
-| MCP server and web dashboard                            | In development |
+| Web dashboard                                           | In development |
 
 ## Documentation
 

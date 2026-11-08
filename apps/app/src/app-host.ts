@@ -16,6 +16,7 @@ import {
 } from "./auth/resource.ts";
 import { authRoutes } from "./auth/routes.ts";
 import type { Env } from "./env.ts";
+import { mcpRoutes } from "./mcp/routes.ts";
 
 /** Pages built by apps/web and served from static assets on this host only. */
 export const AUTH_PAGES = ["/login", "/device", "/consent"] as const;
@@ -124,25 +125,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     return c.json(TokenPrincipal.parse(decision.principal));
   });
 
-  // The MCP endpoint authenticates like the final server will, so clients can discover the
-  // authorization server and sign in. The tools arrive in phase 5.
-  app.all("/mcp", async (c) => {
-    const decision = await authorizeResourceRequest(
-      introspectFor(c.env),
-      c.req.raw,
-      resources(c.env).mcp,
-      MCP_BASELINE_SCOPES,
-    );
-    if (!decision.ok) return decision.response;
-    return c.json(
-      {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32601, message: "The Portifact MCP tools are not available yet." },
-      },
-      501,
-    );
-  });
+  app.route(
+    "/",
+    mcpRoutes({
+      introspect: introspectFor,
+      resource: (env) => resources(env).mcp,
+      now: () => Date.now(),
+    }),
+  );
 
   // The landing's "Sign in" link points here. Until the dashboard is served at the root, the
   // login page is the way in; it shows the signed-in account when there is a session.
