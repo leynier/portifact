@@ -726,7 +726,8 @@ describe("read session claims", () => {
       .replaceAll("+", "-")
       .replaceAll("/", "_")
       .replace(/=+$/, "");
-    const flipped = `${signature.slice(0, -2)}${signature.endsWith("A") ? "B" : "A"}${signature.slice(-1)}`;
+    // Replaces the second-to-last character, which always carries signature bits.
+    const flipped = `${signature.slice(0, -2)}${signature.at(-2) === "A" ? "B" : "A"}${signature.slice(-1)}`;
     for (const bad of [
       `${READ_COOKIE}=${forgedBody}.${signature}`,
       `${READ_COOKIE}=${body}.${flipped}`,

@@ -1,6 +1,12 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { createDb, findDeliveryArtifact, findPublishedFile, schema } from "../src/index.ts";
+import {
+  createDb,
+  findDeliveryArtifact,
+  findPublishedFile,
+  findRenderedPage,
+  schema,
+} from "../src/index.ts";
 
 const db = () => createDb(env.DB);
 const sha = (c: string) => c.repeat(64);
@@ -40,6 +46,8 @@ describe("delivery queries", () => {
         { ...file, kind: "published", path: "index.html", sha256: sha("a") },
         { ...file, kind: "published", path: "draft.html", sha256: sha("b") },
         { ...file, kind: "source", path: "src/index.ts", sha256: sha("a") },
+        { ...file, kind: "rendered", path: "index.md", sha256: sha("a") },
+        { ...file, kind: "block_map", path: "index.json", sha256: sha("a") },
       ]);
   });
 
@@ -49,9 +57,30 @@ describe("delivery queries", () => {
       state: "active",
       accessMode: "public",
       currentVersionId: "v1",
+      entrypoint: "index.html",
       indexable: false,
     });
     expect(await findDeliveryArtifact(db(), "zzzzzzzzzz")).toBeNull();
+  });
+
+  it("has no entrypoint before the first version is current", async () => {
+    await env.DB.exec("UPDATE artifacts SET current_version_id = NULL");
+    expect(await findDeliveryArtifact(db(), "k7d2qm4xab")).toMatchObject({
+      currentVersionId: null,
+      entrypoint: null,
+    });
+  });
+
+  it("finds the rendered page of a document by its entrypoint", async () => {
+    expect(await findRenderedPage(db(), "v1", "index.md")).toEqual({
+      path: "index.md",
+      sha256: sha("a"),
+      size: 10,
+      contentType: "text/html",
+      r2Key: "o/a",
+    });
+    expect(await findRenderedPage(db(), "v1", "index.html")).toBeNull();
+    expect(await findPublishedFile(db(), "v1", "index.md")).toBeNull();
   });
 
   it("finds a published file with the R2 key of its verified object", async () => {
@@ -68,5 +97,6 @@ describe("delivery queries", () => {
     expect(await findPublishedFile(db(), "v1", "src/index.ts")).toBeNull();
     expect(await findPublishedFile(db(), "v1", "draft.html")).toBeNull();
     expect(await findPublishedFile(db(), "v2", "index.html")).toBeNull();
+    expect(await findPublishedFile(db(), "v1", "index.json")).toBeNull();
   });
 });

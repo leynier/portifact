@@ -44,6 +44,7 @@ import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import type { Presigner } from "./presign.ts";
+import { versionRoutes } from "./versions.ts";
 
 export interface ApiDeps {
   introspect(env: Env): Introspect;
@@ -54,7 +55,13 @@ export interface ApiDeps {
   now(): number;
 }
 
-type ApiContext = Context<{ Bindings: Env }>;
+export type ApiContext = Context<{ Bindings: Env }>;
+
+/** Wraps a handler with the token or session check for one scope, like `guarded` below. */
+export type Guard = (
+  scope: OAuthScope,
+  handler: (c: ApiContext, userId: string) => Promise<Response>,
+) => (c: ApiContext) => Promise<Response>;
 
 export function apiRoutes(deps: ApiDeps) {
   const api = new Hono<{ Bindings: Env }>();
@@ -273,6 +280,8 @@ export function apiRoutes(deps: ApiDeps) {
   );
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
+  versionRoutes(api, guarded, deps);
+
   return api;
 }
 
@@ -342,24 +351,24 @@ function summary(env: Env, row: ArtifactRow) {
   });
 }
 
-function contentUrl(env: Env, artifactId: string): string {
+export function contentUrl(env: Env, artifactId: string): string {
   return `https://${artifactId}.${env.CONTENT_DOMAIN}/`;
 }
 
-function iso(ms: number): string {
+export function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
 
-function failure(code: ErrorCode, message: string): StoredResponse {
+export function failure(code: ErrorCode, message: string): StoredResponse {
   return { status: ERROR_STATUS[code], body: { error: { code, message } } };
 }
 
-function error(c: ApiContext, code: ErrorCode, message: string) {
+export function error(c: ApiContext, code: ErrorCode, message: string) {
   const { status, body } = failure(code, message);
   return c.json(body, status as 400);
 }
 
-async function readJson<T extends z.ZodType>(
+export async function readJson<T extends z.ZodType>(
   c: ApiContext,
   schema: T,
 ): Promise<{ ok: true; value: z.infer<T> } | { ok: false; response: Response }> {

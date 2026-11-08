@@ -1,6 +1,7 @@
 import { TOKENS_CSS } from "@portifact/ui/tokens-css";
 import { describe, expect, it } from "vitest";
-import { documentPolicy, renderMarkdownDocument, renderTextDocument } from "./document.ts";
+import { renderMarkdownDocument, renderTextDocument } from "./document.ts";
+import { documentPolicy } from "./policy.ts";
 import { attr, byTag, document, text } from "./test-html.ts";
 import { RENDERER_VERSION } from "./version.ts";
 

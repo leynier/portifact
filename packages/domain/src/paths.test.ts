@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { normalizePath, validateManifestPaths } from "./paths.ts";
+import { isGitSegment, normalizePath, validateManifestPaths } from "./paths.ts";
 
 const value = (raw: string) => {
   const result = normalizePath(raw);
@@ -79,6 +79,17 @@ describe("normalizePath", () => {
   });
 });
 
+describe("isGitSegment", () => {
+  it("matches .git and the names Windows resolves to it, nothing else", () => {
+    for (const name of [".git", ".GIT", ".Git", ".git.", ".git ", ".git. .", "git~1", "GIT~1"]) {
+      expect(isGitSegment(name), name).toBe(true);
+    }
+    for (const name of [".gitignore", "git", ".gitx", "x.git", ".git~1", "git~2", ".github"]) {
+      expect(isGitSegment(name), name).toBe(false);
+    }
+  });
+});
+
 describe("validateManifestPaths", () => {
   it("returns the normalized paths of a valid manifest", () => {
     const result = validateManifestPaths(["index.html", "./assets/app.js", "docs/a.md"]);
@@ -105,6 +116,24 @@ describe("validateManifestPaths", () => {
     const result = validateManifestPaths(["ok.txt", "../escape.txt"]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.message).toContain("../escape.txt");
+  });
+
+  it("rejects any .git segment, in any case and as Windows resolves it", () => {
+    for (const path of [
+      ".git/config",
+      "src/.GIT/hooks/pre-commit",
+      "a/.git",
+      ".git./hooks/x",
+      ".git  /config",
+      "GIT~1/config",
+    ]) {
+      const result = validateManifestPaths(["index.html", path]);
+      expect(result, path).toMatchObject({ ok: false, code: "invalid_input" });
+      if (!result.ok) expect(result.message).toContain(".git folder");
+    }
+    expect(validateManifestPaths([".gitignore", "a.git/x", "git/x", ".github/ci.yml"]).ok).toBe(
+      true,
+    );
   });
 
   it("enforces the file count limit", () => {

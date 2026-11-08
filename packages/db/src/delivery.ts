@@ -2,7 +2,7 @@
 // single indexed lookup.
 import { and, eq } from "drizzle-orm";
 import type { Db } from "./index.ts";
-import { artifacts, objects, versionFiles } from "./schema.ts";
+import { artifacts, objects, versionFiles, versions } from "./schema.ts";
 
 export interface DeliveryArtifact {
   id: string;
@@ -14,6 +14,8 @@ export interface DeliveryArtifact {
   indexable: boolean;
   embeddable: boolean;
   currentVersionId: string | null;
+  /** Entrypoint of the current version: the original of a document. */
+  entrypoint: string | null;
   expiresAt: number | null;
   archivedAt: number | null;
 }
@@ -30,10 +32,12 @@ export async function findDeliveryArtifact(db: Db, id: string): Promise<Delivery
       indexable: artifacts.indexable,
       embeddable: artifacts.embeddable,
       currentVersionId: artifacts.currentVersionId,
+      entrypoint: versions.entrypoint,
       expiresAt: artifacts.expiresAt,
       archivedAt: artifacts.archivedAt,
     })
     .from(artifacts)
+    .leftJoin(versions, eq(versions.id, artifacts.currentVersionId))
     .where(eq(artifacts.id, id))
     .limit(1);
   return row ?? null;
@@ -48,9 +52,27 @@ export interface DeliveryFile {
 }
 
 /** A published file of a version together with the R2 key of its verified object. */
-export async function findPublishedFile(
+export function findPublishedFile(
   db: Db,
   versionId: string,
+  path: string,
+): Promise<DeliveryFile | null> {
+  return findVersionFile(db, versionId, "published", path);
+}
+
+/** The rendered page of a document version, if it was rendered. */
+export function findRenderedPage(
+  db: Db,
+  versionId: string,
+  entrypoint: string,
+): Promise<DeliveryFile | null> {
+  return findVersionFile(db, versionId, "rendered", entrypoint);
+}
+
+async function findVersionFile(
+  db: Db,
+  versionId: string,
+  kind: "published" | "rendered",
   path: string,
 ): Promise<DeliveryFile | null> {
   const [row] = await db
@@ -69,7 +91,7 @@ export async function findPublishedFile(
     .where(
       and(
         eq(versionFiles.versionId, versionId),
-        eq(versionFiles.kind, "published"),
+        eq(versionFiles.kind, kind),
         eq(versionFiles.path, path),
         eq(objects.state, "verified"),
       ),

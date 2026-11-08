@@ -39,7 +39,17 @@ export function normalizePath(raw: string): Result<string> {
 }
 
 /**
- * Validates every path of a version's manifest. Rejects invalid paths, duplicates after
+ * Whether a path segment names a Git directory: `.git` in any case, also as Windows resolves it
+ * (trailing dots and spaces dropped, or the 8.3 short name `git~1`). Manifests and downloads
+ * refuse these, so materializing an artifact's files can never install hooks or configuration.
+ */
+export function isGitSegment(segment: string): boolean {
+  const name = segment.toLowerCase().replace(/[. ]+$/, "");
+  return name === ".git" || name === "git~1";
+}
+
+/**
+ * Validates every path of a version's manifest. Rejects invalid paths, `.git` segments, duplicates after
  * normalization, names that differ only by case (they collide on case-insensitive file
  * systems when the artifact is downloaded), a file that is also used as a directory, and more
  * files than a version may hold.
@@ -53,6 +63,9 @@ export function validateManifestPaths(rawPaths: readonly string[]): Result<strin
   for (const raw of rawPaths) {
     const result = normalizePath(raw);
     if (!result.ok) return fail(result.code, `${raw}: ${result.message}`);
+    if (result.value.split("/").some(isGitSegment)) {
+      return fail("invalid_input", `${raw}: paths inside a .git folder are not allowed.`);
+    }
     const key = result.value.toLowerCase();
     if (seen.has(key)) return fail("invalid_input", `${raw}: collides with another file.`);
     seen.add(key);
