@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { AccountScreen } from "./screens/account.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
-import { ArtifactListScreen } from "./screens/artifact-list.tsx";
+import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
@@ -22,6 +22,7 @@ export function createDashboardRouter(history?: RouterHistory) {
     getParentRoute: () => root,
     path: "/",
     component: ArtifactListScreen,
+    validateSearch: parseListSearch,
   });
   const detail = createRoute({
     getParentRoute: () => root,

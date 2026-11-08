@@ -90,3 +90,111 @@ describe("listing an owner's artifacts", () => {
     expect(await getArtifact(db(), { ownerId: owner, artifactId: "zzzzzzzzzz" })).toBeUndefined();
   });
 });
+
+function randomId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  return [...bytes].map((byte) => ALPHABET[byte % 32]).join("");
+}
+
+type Row = typeof schema.artifacts.$inferInsert;
+
+async function insertRows(ownerId: string, rows: Partial<Row>[]) {
+  const ids: string[] = [];
+  for (const [i, row] of rows.entries()) {
+    const id = row.id ?? randomId();
+    ids.push(id);
+    await db()
+      .insert(schema.artifacts)
+      .values({
+        id,
+        ownerId,
+        type: "site",
+        name: `Artifact ${i}`,
+        state: "active",
+        createdAt: 1000,
+        updatedAt: 2000 + i,
+        ...row,
+      });
+  }
+  return ids;
+}
+
+describe("searching and filtering an owner's artifacts", () => {
+  const ids = async (ownerId: string, filters: Parameters<typeof listArtifacts>[1]["filters"]) =>
+    (await listArtifacts(db(), { ownerId, limit: 100, filters }))?.items.map((row) => row.id);
+
+  it("matches a part of the name in any case, or a part of the ID", async () => {
+    const owner = `u_${crypto.randomUUID()}`;
+    const [report, notes, other] = await insertRows(owner, [
+      { name: "Quarterly REPORT" },
+      { name: "Release notes" },
+      { name: "Café menu" },
+    ]);
+    await insertRows(`u_${crypto.randomUUID()}`, [{ name: "Quarterly report too" }]);
+    expect(await ids(owner, { search: "report" })).toEqual([report]);
+    expect(await ids(owner, { search: "RELEASE" })).toEqual([notes]);
+    expect(await ids(owner, { search: "café" })).toEqual([other]);
+    expect(await ids(owner, { search: (notes as string).slice(2, 8).toUpperCase() })).toContain(
+      notes,
+    );
+    expect(await ids(owner, { search: "nothing like this" })).toEqual([]);
+    // Wildcards are text, not patterns.
+    expect(await ids(owner, { search: "%" })).toEqual([]);
+    expect(await ids(owner, { search: "_" })).toEqual([]);
+  });
+
+  it("applies every filter given, and never lists drafts or deleted artifacts", async () => {
+    const owner = `u_${crypto.randomUUID()}`;
+    const [site, doc, archived, suspended, purging] = await insertRows(owner, [
+      { type: "site", accessMode: "public", annotations: "open" },
+      { type: "markdown", accessMode: "authenticated", annotations: "locked" },
+      { type: "text", state: "archived" },
+      { type: "site", state: "suspended", suspensionReason: "phishing" },
+      { type: "site", state: "purging" },
+      { type: "site", state: "draft", accessMode: "public", annotations: "open" },
+      { type: "site", state: "deleted", accessMode: "public", annotations: "open" },
+    ]);
+    expect(await ids(owner, { state: "active" })).toEqual([doc, site]);
+    expect(await ids(owner, { state: "archived" })).toEqual([archived]);
+    expect(await ids(owner, { state: "suspended" })).toEqual([suspended]);
+    expect(await ids(owner, { state: "purging" })).toEqual([purging]);
+    expect(await ids(owner, { type: "site" })).toEqual([purging, suspended, site]);
+    expect(await ids(owner, { type: "markdown" })).toEqual([doc]);
+    expect(await ids(owner, { access: "public" })).toEqual([site]);
+    expect(await ids(owner, { access: "restricted" })).toEqual([purging, suspended, archived]);
+    expect(await ids(owner, { annotations: "open" })).toEqual([site]);
+    expect(await ids(owner, { annotations: "locked" })).toEqual([doc]);
+    expect(await ids(owner, { annotations: "off" })).toEqual([purging, suspended, archived]);
+    expect(await ids(owner, { type: "site", state: "active", access: "public" })).toEqual([site]);
+    expect(await ids(owner, { type: "site", access: "authenticated" })).toEqual([]);
+    expect(await ids(owner, {})).toHaveLength(5);
+  });
+
+  it("pages through the filtered artifacts once", async () => {
+    const owner = `u_${crypto.randomUUID()}`;
+    const rows = await insertRows(
+      owner,
+      Array.from({ length: 7 }, (_, i) => ({
+        name: i % 2 === 0 ? `Even ${i}` : `Odd ${i}`,
+        updatedAt: 3000 + Math.floor(i / 2),
+      })),
+    );
+    const even = rows.filter((_, i) => i % 2 === 0);
+    const seen: string[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 5; page += 1) {
+      const result = await listArtifacts(db(), {
+        ownerId: owner,
+        cursor,
+        limit: 2,
+        filters: { search: "even" },
+      });
+      if (!result) throw new Error("invalid cursor");
+      seen.push(...result.items.map((item) => item.id));
+      if (!result.nextCursor) break;
+      cursor = result.nextCursor;
+    }
+    expect(seen).toHaveLength(even.length);
+    expect(new Set(seen)).toEqual(new Set(even));
+  });
+});

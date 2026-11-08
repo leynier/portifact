@@ -83,7 +83,9 @@ export const messages = {
 
   // Artifacts.
   listEmpty: "No artifacts yet. Publish one with `portifact publish <path>`.",
-  listMore: (cursor: string) => `More artifacts: run \`portifact list --cursor ${cursor}\`.`,
+  listMore: (cursor: string, filterFlags = "") =>
+    `More artifacts: run \`portifact list --cursor ${cursor}${filterFlags}\`.`,
+  listNoMatch: "No artifacts match these filters.",
   renewed: (id: string, expiresAt: string | null) =>
     `Renewed ${id}. It stays published until ${formatDate(expiresAt)}.`,
   archived: (id: string, purgeAt: string | null) =>
@@ -156,6 +158,7 @@ export const messages = {
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,
     invalidSince: (value: string) =>
       `${JSON.stringify(value)} is not a time. Use a duration like 30m, 12h or 7d, or an ISO date like 2026-11-01T00:00:00Z.`,
+    invalidSearch: (max: number) => `Search for 1 to ${max} characters.`,
     invalidRevision: "Use the message revision, a whole number from 1.",
     notFoundPath: (path: string) => `${path} does not exist or cannot be read.`,
     symlink: (path: string) =>

@@ -431,6 +431,43 @@ describe("markers", () => {
     expect(sentOf("location").at(-1)?.page).toEqual({ path: "index.html", route: "/next" });
   });
 
+  it("records the route the page is on when the reader selects or picks, before the route poll", async () => {
+    window.history.replaceState(null, "", "/shop");
+    start('<p>Copper kettle</p><button id="add" type="button">Add</button>');
+    fromViewer({ type: "init" });
+    // A client-side router moves on, and the reader acts before the next route poll.
+    window.history.replaceState(null, "", "/shop#/kettle");
+    select(textOf("p"), 0, textOf("p"), 6);
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection")[0]?.target?.route).toBe("/shop#/kettle");
+    expect(sentOf("location").at(-1)?.page).toEqual({
+      path: "index.html",
+      route: "/shop#/kettle",
+    });
+
+    window.history.replaceState(null, "", "/shop#/cart");
+    fromViewer({ type: "pick", active: true, hint: "Pick" });
+    document
+      .querySelector("#add")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle(0);
+    expect(sentOf("element")[0]?.target.route).toBe("/shop#/cart");
+  });
+
+  it("resolves markers against the route the page is on when they arrive", async () => {
+    window.history.replaceState(null, "", "/shop#/home");
+    start("<p>Hello brave new world</p>");
+    fromViewer({ type: "init" });
+    const text = { ...(await textTarget("brave")), route: "/shop#/about" };
+    window.history.replaceState(null, "", "/shop#/about");
+    fromViewer({
+      type: "markers",
+      active: null,
+      markers: [{ id: "t1", label: "1", name: "Open thread 1", target: text }],
+    });
+    expect(sentOf("resolved")[0]?.results).toEqual([{ id: "t1", confidence: "exact" }]);
+  });
+
   it("focuses a marker the viewer asks for", async () => {
     start("<p>Hello brave new world</p>");
     fromViewer({ type: "init" });

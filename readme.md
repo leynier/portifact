@@ -70,9 +70,10 @@ npx skills add leynier/portifact
 - **Nothing lost.** Artifacts stay online for 30 days and renew whenever you update them. When they expire they are archived for six months, and restoring one takes a single command.
 - **Safe to open.** Every artifact runs on its own origin, isolated from your account, so a published page cannot act on your behalf.
 
-## How it will work
+## How it works
 
 ```bash
+portifact login                          # sign in on this device
 portifact publish ./report.html          # get a private URL
 portifact publish ./dist --source .      # attach the private sources git versions
 portifact access add ARTIFACT_ID ana@example.com
@@ -80,32 +81,31 @@ portifact annotations set ARTIFACT_ID open
 portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback to your agent
 ```
 
-`publish`, `access` and `annotations` arrive in the next release; reviewing in the browser is still in development. Agents without a shell can already list artifacts, publish small Markdown, text or single-page HTML documents and manage their lifecycle through the MCP server at `https://app.portifact.com/mcp`.
+Reviewers comment in the browser from the review viewer on the dashboard at `https://app.portifact.com`, which also publishes, changes access, rolls back and restores. Agents can also connect the remote MCP server at `https://app.portifact.com/mcp` and sign in with OAuth; it lists, publishes small Markdown, text or single-page HTML documents, manages versions and lifecycle, and reads and writes annotations. Access changes and folder or site publishing go through the CLI or the dashboard. The tested clients are on the [MCP compatibility page](https://portifact.com/mcp-compatibility).
 
 ## Status
 
-| Capability                                              | Status         |
-| ------------------------------------------------------- | -------------- |
-| Installer for macOS, Linux and Windows (x64 and arm64)  | Available      |
-| Signed releases with checksums and provenance           | Available      |
-| Agent skill (`npx skills add leynier/portifact`)        | Available      |
-| Sign-in (Google, GitHub, email code) and OAuth          | Available      |
-| Terms, privacy and acceptable use pages (draft)         | Available      |
-| CLI sign-in (`portifact login`, `logout`, `whoami`)     | Next release   |
-| Publishing API (`/api/v1`)                              | Available      |
-| MCP server: list, publish small documents, lifecycle    | Available      |
-| Publish HTML, Markdown and text from the CLI            | Next release   |
-| Manage artifacts and access from the CLI                | Next release   |
-| Versions, rollback and download (CLI, API and MCP)      | Next release   |
-| ZIP input, private sources from git, Markdown assets    | Next release   |
-| Account usage and limits (`portifact usage`, API, MCP)  | Next release   |
-| Access control (private, signed-in, email list, public) | In development |
-| Annotations from the CLI, API and MCP                   | Next release   |
-| Review mode: annotate in the browser                    | In development |
-| Web dashboard: artifact list, renew, archive, restore   | Available      |
-| Web dashboard: access settings and account              | Next release   |
-| Abuse reports, suspension, account export and deletion  | Next release   |
-| Web dashboard: publish, edit documents, version history | Next release   |
+| Capability                                                      | Status    |
+| --------------------------------------------------------------- | --------- |
+| Installer for macOS, Linux and Windows (x64 and arm64)          | Available |
+| Signed releases with checksums and provenance                   | Available |
+| Agent skill (`npx skills add leynier/portifact`)                | Available |
+| Sign-in (Google, GitHub, email code) and OAuth                  | Available |
+| Terms, privacy and acceptable use pages (draft)                 | Available |
+| CLI sign-in (`portifact login`, `logout`, `whoami`)             | Available |
+| Publishing API (`/api/v1`), with multipart uploads              | Available |
+| Publish HTML, Markdown and text from the CLI                    | Available |
+| ZIP input, private sources from git, Markdown assets            | Available |
+| Versions, rollback and download (CLI, API and MCP)              | Available |
+| Access control (private, signed-in, email list, public)         | Available |
+| Archive, restore and renew                                      | Available |
+| Annotations from the CLI, API and MCP                           | Available |
+| Review mode: annotate in the browser                            | Available |
+| Account usage and limits (`portifact usage`, API, MCP)          | Available |
+| MCP server (tested with Claude.ai, Claude Code and Codex CLI)   | Available |
+| Web dashboard: publish, edit documents, access, history, review | Available |
+| Abuse reports, suspension, account export and deletion          | Available |
+| Access logs for artifact owners                                 | Planned   |
 
 ## Documentation
 

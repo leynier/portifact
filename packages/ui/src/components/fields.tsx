@@ -4,6 +4,7 @@ import { CircleAlert } from "lucide-react";
 import {
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useId,
 } from "react";
@@ -95,6 +96,73 @@ export function TextArea({ label, description, error, code = false, ...rest }: T
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
         className={`min-h-48 w-full resize-y rounded-md border border-border-strong bg-canvas p-3 text-sm text-text disabled:opacity-60 aria-invalid:border-2 aria-invalid:border-text ${code ? "font-mono" : ""}`}
       />
+      {error ? <FieldError id={errorId}>{error}</FieldError> : null}
+    </div>
+  );
+}
+
+export interface SelectOption<T extends string = string> {
+  value: T;
+  label: string;
+}
+
+export interface SelectProps<T extends string = string>
+  extends Omit<
+    SelectHTMLAttributes<HTMLSelectElement>,
+    "className" | "id" | "value" | "onChange" | "multiple" | "children"
+  > {
+  label: string;
+  description?: ReactNode;
+  error?: string | undefined;
+  value: T;
+  options: readonly SelectOption<T>[];
+  onChange(value: T): void;
+}
+
+/**
+ * One choice among many in a native select, so the browser and assistive technology provide
+ * the keyboard and the list. Use a radio group instead when every option needs explaining.
+ */
+export function Select<T extends string = string>({
+  label,
+  description,
+  error,
+  value,
+  options,
+  onChange,
+  ...rest
+}: SelectProps<T>) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium">
+        {label}
+      </label>
+      {description ? (
+        <p id={hintId} className="text-sm text-text-muted">
+          {description}
+        </p>
+      ) : null}
+      <select
+        {...rest}
+        id={id}
+        value={value}
+        onChange={(event) => {
+          const chosen = options.find((option) => option.value === event.target.value);
+          if (chosen) onChange(chosen.value);
+        }}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
+        className="h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-sm text-text disabled:opacity-60 aria-invalid:border-2 aria-invalid:border-text"
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
       {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>
   );

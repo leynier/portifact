@@ -121,17 +121,14 @@ export function createPortifactServer(context: ToolContext): McpServer {
     {
       title: "List artifacts",
       description:
-        "List the user's artifacts, most recently updated first, with their ID, name, type, state, access mode, URL and expiry. Deleted artifacts are not listed. When nextCursor is not null, call again with it as cursor for the next page.",
+        "List the user's artifacts, most recently updated first, with their ID, name, type, state, access mode, URL and expiry. Deleted artifacts are not listed. Narrow the list with search (a part of the name or ID) and the state, type, access and annotations filters. When nextCursor is not null, call again with it as cursor and the same filters for the next page.",
       inputSchema: ListArtifactsInput,
       outputSchema: ArtifactList,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args: ListArtifactsInput) => {
-      const page = await listArtifacts(db, {
-        ownerId: context.userId,
-        cursor: args.cursor,
-        limit: args.limit,
-      });
+      const { cursor, limit, ...filters } = args;
+      const page = await listArtifacts(db, { ownerId: context.userId, cursor, limit, filters });
       if (!page) return failure("invalid_input", "Invalid cursor.");
       const body = ArtifactList.parse({
         items: page.items.map((row) => artifactSummary(context.env, row)),

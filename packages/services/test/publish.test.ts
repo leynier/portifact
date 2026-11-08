@@ -146,6 +146,13 @@ describe("prepare", () => {
       "content type",
     ],
     ["an empty name", () => ({ name: "   " }), "Name"],
+    [
+      "a source path inside a .git folder",
+      (f) => ({
+        files: [...f, { ...(f[0] as ManifestEntry), kind: "source", path: "src/.GIT/config" }],
+      }),
+      ".git folder",
+    ],
   ])("rejects %s", async (_, change, message) => {
     const files = await site(v1);
     const result = await preparePublish(db(), input(files, change(files)));
@@ -391,6 +398,34 @@ describe("commit", () => {
       .from(schema.versions)
       .where(eq(schema.versions.id, first.versionId));
     expect(previous?.expiresAt).toBe(NOW + 2 * 3_600_000 + 7 * DAY);
+  });
+
+  it("renews the artifact for 30 days from an update and keeps its URL and access", async () => {
+    const first = await prepared(await site(v1));
+    await upload(v1);
+    await committed(first.sessionId);
+    await db()
+      .update(schema.artifacts)
+      .set({ accessMode: "authenticated" })
+      .where(eq(schema.artifacts.id, first.artifactId));
+    const later = NOW + 10 * DAY;
+    const second = await prepared(await site(v2), {
+      artifactId: first.artifactId,
+      baseVersionId: first.versionId,
+      now: later,
+    });
+    await upload(v2);
+
+    const result = await committed(second.sessionId, later);
+
+    expect(result).toMatchObject({ artifactId: first.artifactId, expiresAt: later + 30 * DAY });
+    const [artifact] = await db().select().from(schema.artifacts);
+    expect(artifact).toMatchObject({
+      id: first.artifactId,
+      accessMode: "authenticated",
+      currentVersionId: second.versionId,
+      expiresAt: later + 30 * DAY,
+    });
   });
 
   it.each<[string, () => Promise<void>, string]>([

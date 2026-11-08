@@ -22,6 +22,7 @@ The project is in its initial build. Some commands and paths below are planned a
 | [docs/legal.md](docs/legal.md)                         | Touching the Terms, Privacy or Acceptable Use pages, the sign-in terms acceptance, `TERMS_VERSION`, or anything those pages describe (data kept, retention, cookies, quotas, processors).                                                                                                             |
 | [docs/operations.md](docs/operations.md)               | Handling abuse reports, suspending or reinstating artifacts and accounts, restoring a backup, reading storage findings, budget alerts and protection, email suppressions, or touching the operator tool (`apps/jobs/src/operator.ts`, `apps/jobs/scripts/operator.ts`), the outbox or the jobs queue. |
 | [docs/mcp-compatibility.md](docs/mcp-compatibility.md) | Touching the MCP server, OAuth or Better Auth, or when an MCP client fails to connect: which clients were verified, how each signs in and asks for more scopes, and how to re-run the checks. Update it and `apps/web/mcp-compatibility.html` after re-running them.                                  |
+| [docs/acceptance.md](docs/acceptance.md)               | Closing or checking a plan section 16 acceptance test or section 17 launch condition: where each is proven, what is partial and the ranked follow-ups. Update its row in the same change that adds evidence.                                                                                          |
 | [docs/decisions/](docs/decisions)                      | Touching something a decision record covers: the OAuth server ([0001](docs/decisions/0001-oauth-server.md)) or review-mode cookies ([0002](docs/decisions/0002-review-mode-cookies.md)). Add a numbered record when a spike or hard-to-reverse choice settles a question.                             |
 
 If a decision in the plan conflicts with the code, do not silently pick one: fix the code or propose a plan update and say so.
@@ -31,7 +32,7 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 ```text
 apps/app        Worker for portifact.com and app.portifact.com: landing, legal pages, installers, dashboard, identity, OAuth, the /api/v1 publishing and annotations API, the remote MCP server at /mcp and the protected-artifact entry
 apps/content    Worker for <id>.portifact.dev: artifact delivery (sites, and the rendered page and original of Markdown and TXT documents), read sessions for protected artifacts, review sessions with the bridge injected (or the review banner in the fallback review tab), and the owner's access log of signed-in openings
-apps/web        Landing, legal pages (/terms, /privacy, /acceptable-use), the MCP compatibility page (/mcp-compatibility), auth pages, the public report page (/report) and the dashboard SPA with the review viewer (React, TanStack Router and Query, Lingui), including browser publishing, the document editor and version history (dashboard/publish holds the Web Worker manifest builder, ZIP reader and uploads); review viewer later (Vite)
+apps/web        Landing, legal pages (/terms, /privacy, /acceptable-use), the MCP compatibility page (/mcp-compatibility), auth pages, the public report page (/report) and the dashboard SPA with the review viewer (React, TanStack Router and Query, Lingui), including the artifact list's search and filters, the review viewer's comment filters and export, browser publishing, the document editor and version history (dashboard/publish holds the Web Worker manifest builder, ZIP reader and uploads); review viewer later (Vite)
 apps/jobs       Jobs Worker: the schedule runs the maintenance scans (archive, expire uploads, prune, purge, account deletions), relays the outbox to the portifact-jobs queue, reconciles storage and runs the budget run (src/budget.ts, Cloudflare analytics collector in src/analytics.ts), and prunes the access log; the queue consumers run outbox jobs and record Email Service bounces and complaints (portifact-email-events). Also the operator tool for reports, suspensions, storage findings, tombstones around a restore, the budget and email suppressions (scripts/operator.ts)
 packages/cli    portifact CLI: login, publish (folders, files, ZIP files via src/zip.ts, git-aware --source via src/git.ts and src/sources.ts, --assets), list, info, lifecycle, access, versions, rollback, pull (--source --git builds a Git history via src/history.ts), annotations, logs (the access log) and usage commands; each takes an injected Runtime (packages/cli/src/runtime.ts), which also runs git
 packages/contracts   Shared schemas, errors and OpenAPI
@@ -69,7 +70,7 @@ bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit w
 bun run test:mutation  # Stryker on domain, anchors, contracts, render and services, one package at a time (slow; see docs/testing.md)
 bun run test:load      # load and concurrency scenarios against the local e2e Worker, or staging with --app-url (never production)
 bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
-bun run --cwd apps/jobs operator <command>   # operator tool: reports, suspensions, storage-report, export-tombstones, apply-tombstones, budget state and override, email-suppressions and lift-email-suppression (deploy credentials; --local for wrangler dev state); docs/operations.md
+bun run --cwd apps/jobs operator <command>   # operator tool: reports, suspensions, storage-report, export-tombstones, apply-tombstones, budget state and override, email-suppressions and lift-email-suppression (deploy credentials; --local for wrangler dev state, --config <file> for a scratch database in a backup drill); docs/operations.md
 ```
 
 A task is not done until `bun run check` and `bun run test` pass. Use `bun run test`, not `bun test`: the latter starts Bun's own test runner instead of Vitest. Run `bun run test:e2e` when the change affects a user flow, a browser behavior or content delivery.
@@ -158,7 +159,7 @@ If any answer is yes, update the right document: rules and pointers go in this f
 - Conventional Commit subjects and PR titles in lowercase English, for example `feat(domain): add quota reservations`. The type decides the release: `fix` is a patch, `feat` a minor, and anything else no release.
 - PR descriptions explain the change, how it was validated and any material risk.
 - Do not add agent co-author, "generated by" or similar attribution.
-- Do not commit secrets, `.dev.vars`, real user data or generated coverage reports.
+- Do not commit secrets, `.dev.vars`, real user data or generated coverage reports. CI's `secrets` job scans with gitleaks (pinned in `ci.yml`, rules in `.gitleaks.toml`); allowlist a false positive there only narrowly and with its reason ([docs/releasing.md](docs/releasing.md)).
 - Commit or push only when the user asks.
 
 ## File names

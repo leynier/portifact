@@ -43,6 +43,22 @@ describe("MCP tool inputs", () => {
     expect(ListArtifactsInput.safeParse({ limit: 2.5 }).success).toBe(false);
   });
 
+  it("takes the same list filters as the API", () => {
+    const filters = {
+      search: "  Report ",
+      state: "archived",
+      type: "markdown",
+      access: "public",
+      annotations: "open",
+    };
+    expect(ListArtifactsInput.parse(filters)).toEqual({ ...filters, search: "Report", limit: 50 });
+    expect(ListArtifactsInput.safeParse({ search: "   " }).success).toBe(false);
+    expect(ListArtifactsInput.safeParse({ search: "x".repeat(201) }).success).toBe(false);
+    expect(ListArtifactsInput.safeParse({ state: "deleted" }).success).toBe(false);
+    expect(ListArtifactsInput.safeParse({ state: "draft" }).success).toBe(false);
+    expect(ListArtifactsInput.safeParse({ access: "private" }).success).toBe(false);
+  });
+
   it("requires a valid artifact id, and a confirmation to delete", () => {
     expect(ArtifactRef.safeParse({ artifactId: "abcdefghij" }).success).toBe(true);
     expect(ArtifactRef.safeParse({ artifactId: "abc" }).success).toBe(false);

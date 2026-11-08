@@ -147,6 +147,58 @@ describe("API and MCP parity", () => {
     );
   });
 
+  it("search and filters list the same artifacts", async () => {
+    const b = await both("parity-filters@example.test");
+    const publish = async (type: string, name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type, name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const notes = await publish("markdown", "Release NOTES");
+    const log = await publish("text", "Build log");
+    await publish("markdown", "Roadmap");
+    await b.apiCall(`/api/v1/artifacts/${log}/archive`, { method: "POST" });
+
+    const cases: [Record<string, unknown>, string, string[]][] = [
+      [{ search: "notes" }, "search=notes", [notes]],
+      [{ search: notes.slice(0, 6) }, `search=${notes.slice(0, 6)}`, [notes]],
+      [{ state: "archived" }, "state=archived", [log]],
+      [{ type: "markdown", search: "release" }, "type=markdown&search=release", [notes]],
+      [{ access: "public" }, "access=public", []],
+      [{ annotations: "off", type: "text" }, "annotations=off&type=text", [log]],
+    ];
+    for (const [args, query, expected] of cases) {
+      const viaMcp = fromTool(await b.tool("list_artifacts", args));
+      expect(viaMcp, query).toEqual(await fromApi(await b.apiCall(`/api/v1/artifacts?${query}`)));
+      expect((viaMcp.body as { items: { id: string }[] }).items.map((item) => item.id)).toEqual(
+        expected,
+      );
+    }
+
+    // The same page boundary with filters: the cursor continues the filtered list.
+    const first = fromTool(await b.tool("list_artifacts", { type: "markdown", limit: 1 }));
+    expect(first).toEqual(
+      await fromApi(await b.apiCall("/api/v1/artifacts?type=markdown&limit=1")),
+    );
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    expect(
+      fromTool(await b.tool("list_artifacts", { type: "markdown", limit: 1, cursor })),
+    ).toEqual(
+      await fromApi(
+        await b.apiCall(
+          `/api/v1/artifacts?type=markdown&limit=1&cursor=${encodeURIComponent(cursor)}`,
+        ),
+      ),
+    );
+
+    // Both refuse a state the list never shows.
+    expect((await b.tool("list_artifacts", { state: "deleted" })).isError).toBe(true);
+    const refused = await b.apiCall("/api/v1/artifacts?state=deleted");
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: { code: "invalid_input" } });
+  });
+
   it("show the same suspension reason, and refuse the same changes, while suspended", async () => {
     const b = await both("parity-suspended@example.test");
     const id = (

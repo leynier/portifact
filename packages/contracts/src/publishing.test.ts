@@ -4,8 +4,10 @@ import { LIMITS } from "./limits.ts";
 import {
   AccessUpdate,
   ArtifactList,
+  ArtifactListQuery,
   ERROR_STATUS,
   IdempotencyKey,
+  LIST_SEARCH_MAX,
   ListQuery,
   ManifestFile,
   PublishRequest,
@@ -65,6 +67,38 @@ describe("publishing contracts", () => {
       items: [],
       nextCursor: null,
     });
+  });
+
+  it("parses the artifact list filters and refuses unknown values", () => {
+    expect(
+      ArtifactListQuery.parse({
+        limit: "5",
+        search: " notes ",
+        state: "active",
+        type: "site",
+        access: "restricted",
+        annotations: "locked",
+      }),
+    ).toEqual({
+      limit: 5,
+      search: "notes",
+      state: "active",
+      type: "site",
+      access: "restricted",
+      annotations: "locked",
+    });
+    expect(ArtifactListQuery.parse({})).toEqual({ limit: 50 });
+    expect(ArtifactListQuery.safeParse({ search: "" }).success).toBe(false);
+    expect(ArtifactListQuery.safeParse({ search: "x".repeat(LIST_SEARCH_MAX) }).success).toBe(true);
+    expect(ArtifactListQuery.safeParse({ search: "x".repeat(LIST_SEARCH_MAX + 1) }).success).toBe(
+      false,
+    );
+    for (const state of ["draft", "deleted", "ACTIVE"]) {
+      expect(ArtifactListQuery.safeParse({ state }).success, state).toBe(false);
+    }
+    expect(ArtifactListQuery.safeParse({ type: "pdf" }).success).toBe(false);
+    expect(ArtifactListQuery.safeParse({ access: "private" }).success).toBe(false);
+    expect(ArtifactListQuery.safeParse({ annotations: "on" }).success).toBe(false);
   });
 
   it("maps every error code to a client or service status", () => {

@@ -10,6 +10,7 @@ import {
   type AnnotationRole,
   type AnnotationsState,
   type AnnotationThreadView,
+  ArtifactListQuery,
   type ArtifactSummary,
   type BrowserSession,
   type ConnectedApp,
@@ -21,6 +22,7 @@ import {
   PublishRequest,
   type ReviewStart,
   RollbackRequest,
+  UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
   type VersionSummary,
@@ -745,12 +747,27 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   if (path === "/api/auth/sign-out" && method === "POST") return Response.json({ success: true });
   if (path === "/api/v1/artifacts" && method === "GET") {
-    const start = Number(url.searchParams.get("cursor") ?? 0);
-    const items = server.artifacts.slice(start, start + server.pageSize);
+    // Validated and filtered like the Worker: empty parameters are no filter.
+    const query = ArtifactListQuery.safeParse(
+      Object.fromEntries([...url.searchParams].filter(([, value]) => value !== "")),
+    );
+    if (!query.success) return apiError("invalid_input", 400);
+    const { cursor, limit: _limit, ...filters } = query.data;
+    const search = filters.search?.toLowerCase();
+    const matching = server.artifacts.filter(
+      (a) =>
+        (search === undefined || a.name.toLowerCase().includes(search) || a.id.includes(search)) &&
+        (filters.state === undefined || a.state === filters.state) &&
+        (filters.type === undefined || a.type === filters.type) &&
+        (filters.access === undefined || a.accessMode === filters.access) &&
+        (filters.annotations === undefined || a.annotations === filters.annotations),
+    );
+    const start = Number(cursor ?? 0);
+    const items = matching.slice(start, start + server.pageSize);
     const next = start + server.pageSize;
     return Response.json({
       items,
-      nextCursor: next < server.artifacts.length ? String(next) : null,
+      nextCursor: next < matching.length ? String(next) : null,
     });
   }
   const match = /^\/api\/v1\/artifacts\/([^/]+)(?:\/(renew|archive|restore))?$/.exec(path);
@@ -785,6 +802,20 @@ const missing = () =>
   Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
 
 /** The review code and annotations endpoints, with the rules the viewer depends on. */
+/**
+ * Which threads a version filter covers, like the Worker: `current`, `all` or one version, and
+ * other versions only for the owner (null when refused).
+ */
+function inVersion(
+  store: FakeAnnotations,
+  version: string,
+): ((thread: AnnotationThreadView) => boolean) | null {
+  if (version === "current" || version === store.currentVersionId) return (t) => t.current;
+  if (store.role !== "owner") return null;
+  if (version === "all") return () => true;
+  return (t) => t.versionId === version;
+}
+
 function reviewRoute(
   server: FakeServer,
   method: string,
@@ -832,16 +863,44 @@ function reviewRoute(
     if (store.mode === "off" && store.role !== "owner") {
       return Response.json({ error: { code: "forbidden", message: "x" } }, { status: 403 });
     }
+    const scoped = inVersion(store, url.searchParams.get("version") ?? "current");
+    if (!scoped) return apiError("forbidden", 403);
     const since = Number(url.searchParams.get("cursor") ?? 0);
     return Response.json({
       artifactId: id,
       annotations: store.mode,
       currentVersionId: store.currentVersionId,
       role: store.role,
-      threads: store.threads.filter((t) => t.seq > since).map(view),
+      threads: store.threads.filter((t) => t.seq > since && scoped(t)).map(view),
       removed: since > 0 ? store.deleted.filter((d) => d.seq > since).map((d) => d.id) : [],
       cursor: String(store.seq),
       hasMore: false,
+    });
+  }
+  if (rest === "/export" && method === "GET") {
+    const scoped = inVersion(store, url.searchParams.get("version") ?? "current");
+    if (!scoped) return apiError("forbidden", 403);
+    const state = url.searchParams.get("state");
+    const threads = store.threads
+      .filter((t) => scoped(t) && (state === null || t.state === state))
+      .map(view);
+    const artifact = server.artifacts.find((a) => a.id === id);
+    if (url.searchParams.get("format") === "markdown") {
+      return new Response(`# ${artifact?.name}\n\n${threads.length} threads\n`, {
+        headers: { "content-type": "text/markdown; charset=utf-8" },
+      });
+    }
+    return Response.json({
+      notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+      exportedAt: NOW,
+      artifact: {
+        id,
+        name: artifact?.name ?? id,
+        type: artifact?.type ?? "site",
+        annotations: store.mode,
+        currentVersionId: store.currentVersionId,
+      },
+      threads,
     });
   }
   if (rest === "/mode" && method === "PUT") {

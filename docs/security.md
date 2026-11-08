@@ -22,7 +22,7 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 - The review cookie is `Partitioned` (CHIPS). It grants reading one version and nothing else. The fallback review tab's cookie (`__Host-pf_review_tab`) is first-party and `SameSite=Lax`, grants the same and lasts 15 minutes (see "Review mode").
 - Sibling artifacts in the viewer's partition can send credentialed requests that carry another artifact's review cookie. The content Worker honors the review cookie only for `Sec-Fetch-Site: same-origin`, or `cross-site` with `Sec-Fetch-Mode: navigate`, fails closed without fetch metadata, and sends `Cross-Origin-Resource-Policy: same-origin` on review responses. See [decision 0002](decisions/0002-review-mode-cookies.md).
 - Cookie names are matched exactly and case-sensitively. WebKit lets a sibling set `__host-` (lowercase) cookies with a `Domain` attribute, so case-folding a name would let it shadow a `__Host-` cookie.
-- The content Worker ignores every cookie that is not on its allowlist and clears oversized injected cookies.
+- The content Worker ignores every cookie that is not on its allowlist. Clearing injected cookies once the `Cookie` header passes a threshold (plan section 4) is not implemented yet; until it is, an artifact that fills a visitor's cookie jar can break every artifact for that visitor. See follow-up 1 in [acceptance.md](acceptance.md#follow-ups).
 - Read sessions carry signed claims that expire in 60 seconds or less. After that, the Worker rechecks D1. Revocation must take effect within 60 seconds.
 
 ### Entry to protected artifacts
@@ -190,7 +190,7 @@ The owner of an artifact sees who opened it (plan sections 11 and 13): the verif
 
 ### Secrets and logs
 
-- No secrets in the repository. Local secrets live in `.dev.vars`, which is ignored by git.
+- No secrets in the repository. Local secrets live in `.dev.vars`, which is ignored by git. CI's `secrets` job scans every change's commits and the checked-out tree with gitleaks, and the whole history when its rules change ([releasing.md](releasing.md)); a false positive goes in the `.gitleaks.toml` allowlist with the reason it is safe, as narrow as the finding, never as a path exclusion. Public values (the Turnstile site key, the Google and GitHub client IDs, Cloudflare's documented Turnstile test keys and the e2e Worker's test-only values) are not secrets.
 - Never log tokens, cookies, OTP codes, presigned URLs, private emails (the access log stores visitors' emails in its own database and never logs them), or full comment bodies. The email sender replaces provider errors with a generic one (or `RecipientSuppressedError`), because a provider error can echo the message that holds the code and the address. The email events consumer logs only the event type, ID and outcome, never the recipient.
 
 ## Review checklist

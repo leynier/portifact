@@ -75,7 +75,7 @@ Only in versions whose `--help` lists `publish`.
 
 Only in versions whose `--help` lists these commands. Every command takes `--json`.
 
-- `portifact list [--limit N] [--cursor C]` returns `{"items":[...],"nextCursor"}`; pass `nextCursor` as `--cursor` for the next page. `portifact info <id>` returns one item: `{"id","name","type","state","accessMode","annotations","currentVersionId","url","expiresAt","archivedAt","purgeAt","createdAt","updatedAt"}`, plus `"suspension":{"reason"}` while the artifact is suspended.
+- `portifact list [--limit N] [--cursor C] [--search TEXT] [--state active|archived|suspended|purging] [--type site|markdown|text] [--access public|authenticated|restricted] [--annotations off|open|locked]` returns `{"items":[...],"nextCursor"}`; pass `nextCursor` as `--cursor`, with the same filters, for the next page. `--search` matches a part of the name (letters in any case) or of the ID, and every filter given must hold, so use them to find an artifact instead of paging through everything. `portifact info <id>` returns one item: `{"id","name","type","state","accessMode","annotations","currentVersionId","url","expiresAt","archivedAt","purgeAt","createdAt","updatedAt"}`, plus `"suspension":{"reason"}` while the artifact is suspended.
 - `portifact renew <id>`, `archive <id>` and `restore <id>` return `{"artifactId","state","expiresAt","purgeAt"}`. Ask before archiving.
 - `portifact delete <id>` deletes permanently. It asks the person at the terminal to type the artifact ID; without a terminal it requires `--yes` and otherwise fails with exit 2. Only pass `--yes` after the user confirmed that exact artifact.
 
@@ -157,7 +157,7 @@ How a missing scope shows up depends on the client:
 
 | Tool | Scope | What it does |
 | --- | --- | --- |
-| `list_artifacts` | `artifacts:read` | The user's artifacts, newest first, 50 per page; pass `nextCursor` back as `cursor` for more. |
+| `list_artifacts` | `artifacts:read` | The user's artifacts, newest first, 50 per page; narrow with `search`, `state`, `type`, `access` and `annotations`, and pass `nextCursor` back as `cursor` with the same filters for more. |
 | `get_artifact` | `artifacts:read` | One artifact: state, access mode, URL, expiry and `currentVersionId`. |
 | `publish_document` | `artifacts:write` | Publishes `markdown`, `text` or a single self-contained HTML page (`site`) sent as `content`, up to 256 KiB of UTF-8. |
 | `renew_artifact` | `artifacts:write` | Restarts the 30 days of an active artifact. |

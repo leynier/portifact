@@ -61,6 +61,24 @@ export function publish(input: {
   return control<Published>("/publish", { type: "site", ...input });
 }
 
+/** The owner's access change, through the access service the API and dashboard use. */
+export function changeAccess(input: {
+  ownerId: string;
+  artifactId: string;
+  addReaders?: string[];
+  removeReaders?: string[];
+}): Promise<{ ok: boolean }> {
+  return control("/access", input);
+}
+
+/**
+ * Runs the content Worker's clock `offsetMs` ahead of real time (0 puts it back), so a test can
+ * pass a delivery time window without waiting. Reset it in a `finally`.
+ */
+export async function setContentClock(offsetMs: number): Promise<void> {
+  await control("/clock", { offsetMs });
+}
+
 export function sql<T>(query: string, params: (string | number | null)[] = []): Promise<T[]> {
   return control<T[]>("/sql", { query, params });
 }
@@ -145,6 +163,9 @@ export const test = base.extend<Fixtures>({
       channel: "chromium",
       ...(proxy ? { proxy } : {}),
       ignoreHTTPSErrors: true,
+      // Without the switch, Chromium sometimes fails a service worker script fetch on the
+      // throwaway certificate before sending it, which ignoreHTTPSErrors does not cover.
+      args: ["--ignore-certificate-errors"],
     });
     try {
       await use(persistent);

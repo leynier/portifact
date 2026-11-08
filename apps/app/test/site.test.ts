@@ -107,6 +107,13 @@ describe("portifact.com", () => {
     }
   });
 
+  it("links the MCP compatibility page and the dashboard from the landing page", async () => {
+    const html = await (await get("https://portifact.com/")).text();
+    expect(html).toContain('href="/mcp-compatibility"');
+    expect(html).toContain('href="https://app.portifact.com/"');
+    expect((await get("https://portifact.com/mcp-compatibility")).status).toBe(200);
+  });
+
   it("serves the third-party notices as plain text with the strict page headers", async () => {
     const response = await get("https://portifact.com/third-party-notices");
     expect(response.status).toBe(200);

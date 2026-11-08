@@ -8,12 +8,16 @@ import {
   AccountDeletionResult,
   AccountUsageView,
   AnnotationDeleteResult,
+  AnnotationExport,
+  type AnnotationExportQuery,
   AnnotationModeView,
   AnnotationPage,
   type AnnotationsState,
   AnnotationThreadView,
+  type AnnotationVersionFilter,
   ApiError,
   ArtifactList,
+  type ArtifactListFilters,
   ArtifactSummary,
   BrowserSessionList,
   CommittedPublish,
@@ -38,6 +42,7 @@ import {
   VersionManifest,
 } from "@portifact/contracts";
 import { z } from "zod";
+import type { SavedFile } from "./publish/download.ts";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -73,7 +78,8 @@ export interface DashboardApi {
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
   signOut(): Promise<void>;
-  listArtifacts(cursor?: string): Promise<ArtifactList>;
+  /** A page of the account's artifacts that match `filters`; the API applies them. */
+  listArtifacts(cursor?: string, filters?: ArtifactListFilters): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
   lifecycle(artifactId: string, action: LifecycleAction): Promise<LifecycleResult>;
   getAccess(artifactId: string): Promise<AccessPolicyView>;
@@ -115,8 +121,21 @@ export interface DashboardApi {
   startReview(artifactId: string): Promise<ReviewStart>;
   /** A one-use code and the link that opens the artifact in a top-level review tab. */
   startReviewTab(artifactId: string): Promise<ReviewTabStart>;
-  /** A page of the current version's threads; with `cursor`, only what changed since. */
-  listAnnotations(artifactId: string, cursor?: string): Promise<AnnotationPage>;
+  /**
+   * A page of the threads of `version` (the current one by default; other versions only for the
+   * owner); with `cursor`, only what changed since.
+   */
+  listAnnotations(
+    artifactId: string,
+    cursor?: string,
+    version?: AnnotationVersionFilter,
+  ): Promise<AnnotationPage>;
+  /** The threads as the file `portifact annotations export` writes, JSON or Markdown. */
+  exportAnnotations(
+    artifactId: string,
+    query: Pick<AnnotationExportQuery, "format" | "version"> &
+      Partial<Pick<AnnotationExportQuery, "state">>,
+  ): Promise<SavedFile>;
   createThread(
     artifactId: string,
     request: CreateThreadRequest,
@@ -186,7 +205,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     } catch {
       throw new ApiFailure("network", 0);
     }
-    const body = await response.json().catch(() => null);
+    // Successful text answers (the Markdown export) are read as text; everything else is JSON.
+    const isText = response.ok && /^text\//.test(response.headers.get("content-type") ?? "");
+    const body = await (isText ? response.text() : response.json()).catch(() => null);
     if (response.ok) {
       const parsed = schema.safeParse(body);
       if (parsed.success) return parsed.data;
@@ -225,8 +246,13 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       }
       if (!response.ok) throw new ApiFailure("unexpected", response.status);
     },
-    listArtifacts(cursor) {
-      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+    listArtifacts(cursor, filters = {}) {
+      const params = new URLSearchParams();
+      if (cursor) params.set("cursor", cursor);
+      for (const [name, value] of Object.entries(filters)) {
+        if (typeof value === "string" && value !== "") params.set(name, value);
+      }
+      const query = params.size > 0 ? `?${params}` : "";
       return call(`/api/v1/artifacts${query}`, ArtifactList);
     },
     getArtifact(artifactId) {
@@ -341,9 +367,31 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     startReviewTab(artifactId) {
       return call(`${artifactPath(artifactId)}/review/tab`, ReviewTabStart, "POST");
     },
-    listAnnotations(artifactId, cursor) {
-      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+    listAnnotations(artifactId, cursor, version = "current") {
+      const params = new URLSearchParams();
+      if (cursor) params.set("cursor", cursor);
+      if (version !== "current") params.set("version", version);
+      const query = params.size > 0 ? `?${params}` : "";
       return call(`${annotationsPath(artifactId)}${query}`, AnnotationPage);
+    },
+    async exportAnnotations(artifactId, { format, version, state }) {
+      const params = new URLSearchParams({ format, version, ...(state ? { state } : {}) });
+      const path = `${annotationsPath(artifactId)}/export?${params}`;
+      if (format === "json") {
+        const data = await call(path, AnnotationExport);
+        return {
+          fileName: `${data.artifact.id}-annotations.json`,
+          blob: new Blob([`${JSON.stringify(data, null, 2)}\n`], { type: "application/json" }),
+        };
+      }
+      // Markdown comes back as text; the dashboard never renders it, only saves it.
+      const text = await call(path, z.string(), "GET", undefined, {
+        accept: "text/markdown",
+      });
+      return {
+        fileName: `${artifactId}-annotations.md`,
+        blob: new Blob([text], { type: "text/markdown;charset=utf-8" }),
+      };
     },
     createThread(artifactId, request, idempotencyKey) {
       return call(`${annotationsPath(artifactId)}/threads`, AnnotationThreadView, "POST", request, {

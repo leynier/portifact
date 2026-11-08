@@ -818,6 +818,72 @@ describe("read session claims", () => {
   });
 });
 
+describe("caching and injected cookies", () => {
+  beforeEach(() => seed());
+
+  const ETAG = `"${"a".repeat(64)}"`;
+
+  it("reauthorizes every revalidation: an ETag a reader got earns nobody else a 304", async () => {
+    const cookie = await signIn(READER);
+    const warm = await send("/", { cookie });
+    expect(warm.status).toBe(200);
+    expect(warm.headers.get("etag")).toBe(ETAG);
+    expect(warm.headers.get("cache-control")).toBe("private, no-cache");
+    const revalidate = { "If-None-Match": ETAG };
+    expect((await send("/", { cookie, headers: { ...NAVIGATE, ...revalidate } })).status).toBe(304);
+    const anonymous = await send("/", { headers: { ...NAVIGATE, ...revalidate } });
+    expect(anonymous.status).toBe(303);
+    const anonymousScript = await send("/app.js", { headers: { ...SAME_ORIGIN, ...revalidate } });
+    expect(anonymousScript.status).toBe(401);
+    expect(anonymousScript.headers.get("etag")).toBeNull();
+    await sql("DELETE FROM artifact_readers WHERE email = ?", "reader@example.com");
+    await bumpPolicy();
+    const revoked = await send("/", {
+      cookie,
+      headers: { ...NAVIGATE, ...revalidate },
+      now: NOW + 1,
+    });
+    expect(revoked.status).toBe(303);
+  });
+
+  it("keeps protected responses private and unembeddable even when embedding is on", async () => {
+    await seed({ embeddable: true });
+    const cookie = await signIn(READER);
+    const response = await send("/", { cookie });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-cache");
+    expect(response.headers.get("content-security-policy")).toBe(
+      `frame-ancestors 'self' ${env.APP_ORIGIN}`,
+    );
+    expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
+  });
+
+  it("grants nothing to hundreds of injected cookies and keeps a reader's session working among them", async () => {
+    // What a sibling artifact can plant with Domain=portifact.dev: filler, unprefixed and
+    // lowercase look-alikes of Portifact's names, and a second copy of the read cookie's name.
+    const injected = [
+      ...Array.from({ length: 300 }, (_, i) => `junk${i}=${"x".repeat(64)}`),
+      "pf_read=forged",
+      "__host-pf_read=forged",
+      `${TRANSACTION_COOKIE_PREFIX}forged=forged`,
+    ].join("; ");
+    const anonymous = await send("/", { cookie: injected });
+    expect(anonymous.status).toBe(303);
+    expect(await anonymous.text()).not.toContain(PAGE);
+    const script = await send("/app.js", { cookie: injected, headers: SAME_ORIGIN });
+    expect(script.status).toBe(401);
+    const cookie = await signIn(READER);
+    const reader = await send("/", { cookie: `${injected}; ${cookie}` });
+    expect(reader.status).toBe(200);
+    expect(await reader.text()).toBe(PAGE);
+    // A planted second value under the real name makes both untrusted.
+    expect((await send("/", { cookie: `${injected}; ${cookie}; ${READ_COOKIE}=x.y` })).status).toBe(
+      303,
+    );
+  });
+});
+
 describe("configuration", () => {
   beforeEach(() => seed());
 
