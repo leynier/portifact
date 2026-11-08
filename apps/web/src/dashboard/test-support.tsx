@@ -10,6 +10,7 @@ import {
   type AnnotationRole,
   type AnnotationsState,
   type AnnotationThreadView,
+  type ArtifactActivity,
   ArtifactListQuery,
   type ArtifactSummary,
   type BrowserSession,
@@ -63,6 +64,13 @@ export function usageView(overrides: Partial<AccountUsageView> = {}): AccountUsa
     ...overrides,
   };
 }
+
+export const DEFAULT_ACTIVITY: ArtifactActivity = {
+  versions: 1,
+  currentBytes: 2048,
+  openThreads: 0,
+  lastAnnotationAt: null,
+};
 
 export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): ArtifactSummary {
   return {
@@ -280,6 +288,8 @@ export function fakeThread(
 
 export interface FakeServer {
   artifacts: ArtifactSummary[];
+  /** What the list says about each artifact's activity; missing ones get `DEFAULT_ACTIVITY`. */
+  activity: Record<string, ArtifactActivity>;
   /** Answers to POST /review, by artifact ID; missing ones answer 404. */
   reviews: Record<string, ReviewStart>;
   /** Review tab codes issued so far (POST /review/tab answers with the review's origin). */
@@ -321,6 +331,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const failures: { key: string; failure: Failure; times: number }[] = [];
   const server: FakeServer = {
     artifacts,
+    activity: {},
     reviews: {},
     reviewTabs: 0,
     annotations: {},
@@ -763,7 +774,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
         (filters.annotations === undefined || a.annotations === filters.annotations),
     );
     const start = Number(cursor ?? 0);
-    const items = matching.slice(start, start + server.pageSize);
+    const items = matching
+      .slice(start, start + server.pageSize)
+      .map((a) => ({ ...a, activity: server.activity[a.id] ?? DEFAULT_ACTIVITY }));
     const next = start + server.pageSize;
     return Response.json({
       items,

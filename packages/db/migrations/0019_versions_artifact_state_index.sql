@@ -1,0 +1,1 @@
+CREATE INDEX `versions_artifact_state_idx` ON `versions` (`artifact_id`,`state`);

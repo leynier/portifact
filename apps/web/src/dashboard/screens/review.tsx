@@ -36,7 +36,6 @@ import {
   Crosshair,
   Download,
   ExternalLink,
-  EyeOff,
   Info,
   LocateFixed,
   MapPinOff,
@@ -47,10 +46,11 @@ import {
   Send,
   Trash2,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiFailure } from "../api.ts";
-import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
+import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
+import { MessageContent, TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
 import {
   applyThread,
@@ -740,36 +740,6 @@ function Composer({
   );
 }
 
-function TargetSummary({ target }: { target: AnnotationTarget }) {
-  const t = useT();
-  const { anchor } = target;
-  if (anchor.kind === "document") {
-    return (
-      <p className="text-sm text-text-muted">{t("review.target.general", { path: target.path })}</p>
-    );
-  }
-  if (anchor.kind === "element") {
-    return (
-      <div className="text-sm">
-        <p className="text-text-muted">{t("review.target.element", { tag: anchor.tagName })}</p>
-        {anchor.fingerprint ? (
-          <blockquote className="mt-1 border-l-2 border-border-strong pl-3 break-words">
-            {anchor.fingerprint}
-          </blockquote>
-        ) : null}
-      </div>
-    );
-  }
-  return (
-    <figure className="text-sm">
-      <figcaption className="sr-only">{t("review.target.quote")}</figcaption>
-      <blockquote className="border-l-2 border-border-strong pl-3 break-words">
-        {anchor.quote.exact}
-      </blockquote>
-    </figure>
-  );
-}
-
 /** "Everyone", then you, each other author once and accounts that are gone, from the threads. */
 function authorOptions(t: T, threads: AnnotationThreadView[]): SelectOption[] {
   const options: SelectOption[] = [{ value: "all", label: t("review.filter.author.all") }];
@@ -1181,7 +1151,6 @@ function MessageItem({
   owner: boolean;
 }) {
   const t = useT();
-  const formatDate = useFormatDate();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
@@ -1194,32 +1163,9 @@ function MessageItem({
       announce(t("review.message.moderated"));
     },
   });
-  const author = message.own
-    ? t("review.message.you")
-    : (message.author?.name ?? t("review.message.formerAccount"));
-  let body: ReactNode;
-  if (message.state === "deleted") {
-    body = <p className="text-sm text-text-muted italic">{t("review.message.deleted")}</p>;
-  } else if (message.body === null) {
-    body = <p className="text-sm text-text-muted italic">{t("review.message.hidden")}</p>;
-  } else {
-    body = <p className="text-sm whitespace-pre-wrap break-words">{message.body}</p>;
-  }
   return (
     <li className="flex flex-col gap-1">
-      <p className="text-sm">
-        <span className="font-medium">{author}</span>{" "}
-        <span className="text-text-muted">
-          <time dateTime={message.createdAt}>{formatDate(message.createdAt, true)}</time>
-          {message.editedAt ? ` · ${t("review.message.edited")}` : ""}
-        </span>
-      </p>
-      {message.state === "hidden" && message.body !== null ? (
-        <Badge emphasis="quiet" icon={<EyeOff className="size-3.5" />}>
-          {t("review.message.hidden")}
-        </Badge>
-      ) : null}
-      {body}
+      <MessageContent message={message} />
       {moderate.isError ? <ActionError error={moderate.error} /> : null}
       {owner && !message.own && message.state !== "deleted" ? (
         <div className="flex flex-wrap gap-3">

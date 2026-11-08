@@ -42,6 +42,7 @@ import type { z } from "zod";
 import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
+import { artifactListItem } from "../mcp/present.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
@@ -204,11 +205,12 @@ export function apiRoutes(deps: ApiDeps) {
         cursor,
         limit,
         filters,
+        now: deps.now(),
       });
       if (!page) return error(c, "invalid_input", "Invalid cursor.");
       return c.json(
         ArtifactList.parse({
-          items: page.items.map((row) => summary(c.env, row)),
+          items: page.items.map((row) => artifactListItem(c.env, row)),
           nextCursor: page.nextCursor,
         }),
       );

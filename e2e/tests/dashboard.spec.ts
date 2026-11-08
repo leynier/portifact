@@ -1,5 +1,6 @@
 // Dashboard flows end to end: the artifact list's search and filters, applied by the API and
-// kept in the URL, and the review viewer's comment filters and export.
+// kept in the URL, each artifact's activity in the list, the conversations on earlier versions in
+// the history, and the review viewer's comment filters and export.
 
 import { readFile } from "node:fs/promises";
 import { control, createUser, expect, openReview, publish, signIn, test } from "../src/fixtures.ts";
@@ -96,4 +97,61 @@ test("the review viewer filters comments by author and exports them as Markdown"
   // The export covers every author of the version: the author filter is the panel's alone.
   expect(text).toContain("Owner note");
   expect(text).toContain("Reviewer note");
+});
+
+test("the list shows each artifact's activity, and the history its earlier conversations", async ({
+  page,
+  context,
+}) => {
+  const owner = await createUser("Historian");
+  const reviewer = await createUser("Critic");
+  const first = await publish({
+    ownerId: owner.userId,
+    name: "Roadmap",
+    files: PAGE,
+    accessMode: "authenticated",
+  });
+  for (const body of ["Move the launch", "Typo in the title"]) {
+    await control("/thread", {
+      userId: reviewer.userId,
+      artifactId: first.artifactId,
+      versionId: first.versionId,
+      path: "index.html",
+      body,
+    });
+  }
+  const second = await publish({
+    ownerId: owner.userId,
+    name: "Roadmap",
+    files: { "index.html": "<!doctype html><title>Page</title><p>Hello again</p>" },
+    update: { artifactId: first.artifactId, baseVersionId: first.versionId },
+  });
+  await control("/thread", {
+    userId: reviewer.userId,
+    artifactId: first.artifactId,
+    versionId: second.versionId,
+    path: "index.html",
+    body: "Better now",
+  });
+  await signIn(context, owner);
+  await page.goto(`${APP_ORIGIN}/`);
+
+  const row = page.getByRole("row", { name: /Roadmap/ });
+  await expect(row).toContainText("2 versions kept");
+  await expect(row).toContainText("1 open thread");
+  await expect(row).toContainText("Comments changed");
+  await expect(page.getByText("Traffic is counted for your whole account")).toBeVisible();
+
+  await page.goto(`${APP_ORIGIN}/artifacts/${first.artifactId}/history`);
+  const section = page.getByRole("region", { name: "Conversations on earlier versions" });
+  const summary = section.locator("summary", { hasText: "Version 1: 2 threads, 2 open" });
+  await expect(summary).toBeVisible();
+  await expect(section.getByText("Better now")).toHaveCount(0);
+  await expect(section.getByText("Move the launch")).toBeHidden();
+  // The disclosure opens from the keyboard and holds read-only threads.
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  await expect(section.getByText("Move the launch")).toBeVisible();
+  await expect(section.getByText("Typo in the title")).toBeVisible();
+  await expect(section.getByRole("button")).toHaveCount(0);
 });

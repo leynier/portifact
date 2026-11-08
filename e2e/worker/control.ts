@@ -55,6 +55,8 @@ interface PublishInput {
   accessMode?: "public" | "authenticated" | "restricted";
   readers?: string[];
   annotations?: "off" | "open" | "locked";
+  /** Publishes a new version of this artifact on `baseVersionId` instead of a new artifact. */
+  update?: { artifactId: string; baseVersionId: string };
 }
 
 interface ThreadInput {
@@ -220,7 +222,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       type: publish.type,
       name: publish.name,
       entrypoint: entries[0]?.[0] ?? "index.html",
-      baseVersionId: null,
+      ...(publish.update
+        ? { artifactId: publish.update.artifactId, baseVersionId: publish.update.baseVersionId }
+        : { baseVersionId: null }),
       files,
       now,
     });
@@ -236,6 +240,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     });
     if (!committed.ok) return Response.json(committed, { status: 400 });
     const artifactId = committed.value.artifactId;
+    if (publish.update) {
+      return Response.json({ artifactId, versionId: committed.value.versionId });
+    }
     await env.DB.prepare(
       "UPDATE artifacts SET access_mode = ?, annotations = ?, policy_generation = policy_generation + 1 WHERE id = ?",
     )

@@ -1,10 +1,16 @@
 // The `/api/v1` response shapes, built from service results. MCP returns exactly what the API
 // returns for the same operation; the parity tests in test/mcp-parity.test.ts hold both to it.
-import { ArtifactSummary, CommittedPublish, LifecycleResult } from "@portifact/contracts";
+import {
+  ArtifactListItem,
+  ArtifactSummary,
+  CommittedPublish,
+  LifecycleResult,
+} from "@portifact/contracts";
 import type {
   ArtifactRow,
   CommittedPublish as CommittedVersion,
   LifecycleOutcome,
+  ListedArtifact,
 } from "@portifact/services";
 import type { Env } from "../env.ts";
 
@@ -26,6 +32,20 @@ export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
       : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
+  });
+}
+
+/** An artifact of the list, with its activity; `GET /api/v1/artifacts` and `list_artifacts`. */
+export function artifactListItem(env: Env, row: ListedArtifact): ArtifactListItem {
+  const { activity } = row;
+  return ArtifactListItem.parse({
+    ...artifactSummary(env, row),
+    activity: {
+      versions: activity.versions,
+      currentBytes: activity.currentBytes,
+      openThreads: activity.openThreads,
+      lastAnnotationAt: isoOrNull(activity.lastAnnotationAt),
+    },
   });
 }
 

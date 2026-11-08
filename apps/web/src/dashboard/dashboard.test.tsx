@@ -126,8 +126,24 @@ describe("artifact list", () => {
           .map((c) => c.textContent),
       ),
     ).toEqual([
-      ["Launch plan", "Site", "Active", "Restricted", "Dec 8, 2026"],
-      ["Old report", "Markdown", "Archived", "Restricted", "Dec 8, 2026"],
+      [
+        "Launch plan",
+        "Site",
+        "Active",
+        "Restricted",
+        "Dec 8, 2026",
+        "2 kB1 version kept",
+        "Updated Nov 8, 2026",
+      ],
+      [
+        "Old report",
+        "Markdown",
+        "Archived",
+        "Restricted",
+        "Dec 8, 2026",
+        "2 kB1 version kept",
+        "Updated Nov 8, 2026",
+      ],
     ]);
     expect(within(table).getByRole("link", { name: "Launch plan" }).getAttribute("href")).toBe(
       "/artifacts/k7d2qm4xab",
@@ -135,6 +151,59 @@ describe("artifact list", () => {
     expect(screen.getByText("Showing 2 artifacts")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
     expect(document.title).toBe("Artifacts · Portifact");
+  });
+
+  it("shows each artifact's size, kept versions, open threads and last comment activity", async () => {
+    server.artifacts = [
+      artifact("k7d2qm4xab", { name: "Launch plan", annotations: "open" }),
+      artifact("m3n4p5q6rs", { name: "Old report", currentVersionId: null }),
+      artifact("p2q3r4s5tu", { name: "Notes", annotations: "locked" }),
+    ];
+    server.activity = {
+      k7d2qm4xab: {
+        versions: 3,
+        currentBytes: 1_500_000,
+        openThreads: 2,
+        lastAnnotationAt: "2026-11-07T09:30:00.000Z",
+      },
+      m3n4p5q6rs: { versions: 0, currentBytes: null, openThreads: 0, lastAnnotationAt: null },
+      p2q3r4s5tu: { versions: 1, currentBytes: 900, openThreads: 0, lastAnnotationAt: null },
+    };
+    const { container } = renderDashboard("/", server);
+    const table = await screen.findByRole("table", { name: "Your artifacts" });
+    expect(within(table).getByRole("columnheader", { name: "Size" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Activity" })).toBeTruthy();
+    const cells = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) =>
+        within(row)
+          .getAllByRole("cell")
+          .slice(5)
+          .map((cell) => [...cell.children].map((line) => line.textContent)),
+      );
+    expect(cells).toEqual([
+      [
+        ["1.5 MB", "3 versions kept"],
+        ["Updated Nov 8, 2026", "2 open threads", "Comments changed Nov 7, 2026"],
+      ],
+      // Without a version there is no size; with comments off, no thread count either.
+      [["No version", "0 versions kept"], ["Updated Nov 8, 2026"]],
+      [
+        ["900 bytes", "1 version kept"],
+        ["Updated Nov 8, 2026", "No open threads"],
+      ],
+    ]);
+    // Traffic is not per artifact: the list says so and points to the account's usage.
+    expect(
+      screen.getByText("Traffic is counted for your whole account, not per artifact.", {
+        exact: false,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: "See usage" }).getAttribute("href")).toBe(
+      "/account#usage",
+    );
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it("shows a loading state in words while the list loads", async () => {

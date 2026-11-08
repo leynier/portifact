@@ -384,6 +384,20 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     return added;
   }
 
+  /** Retained versions and the current one's bytes; the fake keeps no comment threads here. */
+  function activityOf(artifact: FakeArtifact) {
+    const retained = (state.versions.get(artifact.id) ?? []).filter(
+      (version) => retainedVersion(artifact, version.id) !== undefined,
+    );
+    const current = retained.find((version) => version.id === artifact.currentVersionId);
+    return {
+      versions: retained.length,
+      currentBytes: current ? current.files.reduce((sum, file) => sum + file.size, 0) : null,
+      openThreads: 0,
+      lastAnnotationAt: null,
+    };
+  }
+
   function retainedVersion(artifact: FakeArtifact, ref: string): FakeVersion | undefined {
     const id = ref === "current" ? artifact.currentVersionId : ref;
     const version = state.versions.get(artifact.id)?.find((v) => v.id === id);
@@ -826,7 +840,9 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const all = [...state.artifacts.values()]
       .filter((artifact) => artifact.state !== "deleted")
       .filter((artifact) => matches(summary(artifact)));
-    const items = all.slice(offset, offset + limit).map(summary);
+    const items = all
+      .slice(offset, offset + limit)
+      .map((artifact) => ({ ...summary(artifact), activity: activityOf(artifact) }));
     const nextCursor = offset + limit < all.length ? `c${offset + limit}` : null;
     return { status: 200, body: { items, nextCursor } };
   }

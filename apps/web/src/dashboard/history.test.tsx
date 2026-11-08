@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   artifact,
   type FakeServer,
+  fakeMessage,
   fakeServer,
+  fakeThread,
   renderDashboard,
   seedVersion,
 } from "./test-support.tsx";
@@ -15,6 +17,8 @@ afterEach(cleanup);
 
 const ID = "k7d2qm4xab";
 const PATH = `/artifacts/${ID}/history`;
+const V1 = `ver${ID}1`;
+const V2 = `ver${ID}2`;
 
 let server: FakeServer;
 beforeEach(async () => {
@@ -27,6 +31,14 @@ beforeEach(async () => {
     { path: "index.html", text: "<h1>v2</h1>" },
     { path: "app.js", text: "1", contentType: "text/javascript" },
   ]);
+  server.annotations[ID] = {
+    mode: "open",
+    role: "owner",
+    currentVersionId: V2,
+    threads: [],
+    deleted: [],
+    seq: 0,
+  };
 });
 
 const rows = async () => {
@@ -143,6 +155,130 @@ describe("version history", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load older versions" }));
     await waitFor(async () => expect(await rows()).toHaveLength(2));
     expect(screen.queryByRole("button", { name: "Load older versions" })).toBeNull();
+  });
+});
+
+describe("conversations on earlier versions", () => {
+  const conversations = async () =>
+    within(
+      (
+        await screen.findByRole("heading", { level: 2, name: "Conversations on earlier versions" })
+      ).closest("section") as HTMLElement,
+    );
+
+  beforeEach(() => {
+    const threads = [
+      fakeThread("t-now", {
+        versionId: V2,
+        messages: [fakeMessage({ body: "On the current one" })],
+      }),
+      fakeThread("t-quote", {
+        versionId: V1,
+        current: false,
+        target: {
+          schema: 1,
+          path: "index.html",
+          anchor: {
+            kind: "text",
+            quote: { exact: "Ship on Friday", prefix: "", suffix: "" },
+            position: { start: 0, end: 14 },
+          },
+        },
+        messages: [
+          fakeMessage({ body: "Friday is too soon" }),
+          fakeMessage({
+            own: true,
+            author: null,
+            body: "Moved it",
+            createdAt: "2026-11-08T13:00:00.000Z",
+          }),
+          fakeMessage({ state: "hidden", body: "Hidden from others" }),
+          fakeMessage({ state: "deleted", body: null }),
+        ],
+      }),
+      fakeThread("t-done", {
+        versionId: V1,
+        current: false,
+        state: "resolved",
+        createdAt: "2026-11-08T12:10:00.000Z",
+        messages: [fakeMessage({ body: "Typo in the title" })],
+      }),
+      fakeThread("t-gone", {
+        versionId: "ver_pruned",
+        current: false,
+        messages: [fakeMessage({ author: null, body: "From a pruned version" })],
+      }),
+    ];
+    server.annotations[ID] = {
+      mode: "open",
+      role: "owner",
+      currentVersionId: V2,
+      threads: threads.map((thread, i) => ({ ...thread, seq: i + 1 })),
+      deleted: [],
+      seq: threads.length,
+    };
+  });
+
+  it("groups earlier versions' threads by version, read-only and without the current ones", async () => {
+    const { container } = renderDashboard(PATH, server);
+    const section = await conversations();
+    const summaries = await waitFor(() => {
+      const found = [...section.getAllByRole("group")].map(
+        (details) => details.querySelector("summary")?.textContent,
+      );
+      expect(found).toHaveLength(2);
+      return found;
+    });
+    expect(summaries).toEqual([
+      "Version 1: 2 threads, 1 open",
+      "Versions no longer listed: 1 thread, 1 open",
+    ]);
+    expect(
+      server.requests.some((r) => r.path === `/api/v1/artifacts/${ID}/annotations?version=all`),
+    ).toBe(true);
+
+    expect(section.queryByText("On the current one")).toBeNull();
+    const [version1] = section.getAllByRole("group") as HTMLDetailsElement[];
+    const first = within(version1 as HTMLElement).getByRole("article", { name: "Thread 1" });
+    expect(within(first).getByText("Open")).toBeTruthy();
+    expect(within(first).getByText("Ship on Friday").tagName).toBe("BLOCKQUOTE");
+    expect(within(first).getByText("Friday is too soon")).toBeTruthy();
+    expect(within(first).getByText("You")).toBeTruthy();
+    // The owner reads hidden messages, marked as hidden; deleted ones say so.
+    expect(within(first).getByText("Hidden from others")).toBeTruthy();
+    expect(within(first).getByText("Hidden by the owner")).toBeTruthy();
+    expect(within(first).getByText("Message deleted", { exact: false })).toBeTruthy();
+    const second = within(version1 as HTMLElement).getByRole("article", { name: "Thread 2" });
+    expect(within(second).getByText("Resolved")).toBeTruthy();
+    expect(section.getByText("From a pruned version")).toBeTruthy();
+    expect(section.getByText("Former account", { exact: false })).toBeTruthy();
+    // Read-only: nothing to reply to, resolve, moderate or delete.
+    expect(section.queryAllByRole("button")).toEqual([]);
+
+    // Keyboard: the summary is the control, so it opens the content.
+    const summary = (version1 as HTMLDetailsElement).querySelector("summary") as HTMLElement;
+    expect((version1 as HTMLDetailsElement).open).toBe(false);
+    summary.click();
+    await waitFor(() => expect((version1 as HTMLDetailsElement).open).toBe(true));
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("says when no earlier version has threads", async () => {
+    const store = server.annotations[ID];
+    if (store) store.threads = store.threads.filter((thread) => thread.current);
+    renderDashboard(PATH, server);
+    const section = await conversations();
+    expect(await section.findByText("No earlier version has comment threads.")).toBeTruthy();
+  });
+
+  it("explains a failed load and retries it", async () => {
+    server.fail("GET", `/api/v1/artifacts/${ID}/annotations`, { status: 500 }, 2);
+    renderDashboard(PATH, server);
+    const section = await conversations();
+    const alert = await section.findByRole("alert", {}, { timeout: 3000 });
+    expect(alert.textContent).toContain("Conversations could not be loaded");
+    fireEvent.click(section.getByRole("button", { name: "Try again" }));
+    expect(await section.findByText("Version 1: 2 threads, 1 open")).toBeTruthy();
   });
 });
 
