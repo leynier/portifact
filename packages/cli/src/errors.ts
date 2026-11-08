@@ -12,6 +12,8 @@ export type CliErrorCode =
   | "server_error"
   /** Storage refused an upload, or a file changed while it was being published. */
   | "upload_failed"
+  /** A download failed, or its bytes did not match the manifest. */
+  | "download_failed"
   /** The user did not confirm a destructive action. */
   | "cancelled";
 

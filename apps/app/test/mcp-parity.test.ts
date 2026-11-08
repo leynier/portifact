@@ -268,3 +268,163 @@ describe("API and MCP parity", () => {
     expect(mcp.headers.get("www-authenticate")).toContain('error="invalid_token"');
   });
 });
+
+describe("API and MCP parity for versions", () => {
+  /** An artifact with two versions published through MCP, one minute apart. */
+  async function twoVersions(b: Both, name: string) {
+    const v1 = fromTool(
+      await b.tool("publish_document", { type: "markdown", name, content: `# ${name} 1` }),
+    ).body as { artifactId: string; versionId: string };
+    vi.setSystemTime(Date.now() + 60 * 1000);
+    const v2 = fromTool(
+      await b.tool("publish_document", {
+        type: "markdown",
+        name,
+        content: `# ${name} 2`,
+        artifactId: v1.artifactId,
+        baseVersionId: v1.versionId,
+      }),
+    ).body as { versionId: string };
+    return { id: v1.artifactId, v1: v1.versionId, v2: v2.versionId };
+  }
+
+  it("list, manifest and download links are the same", async () => {
+    const b = await both("parity-versions@example.test");
+    const { id, v1 } = await twoVersions(b, "History");
+
+    expect(fromTool(await b.tool("list_versions", { artifactId: id, limit: 1 }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions?limit=1`)),
+    );
+    expect(
+      fromTool(await b.tool("list_versions", { artifactId: id, limit: 1, cursor: "2" })),
+    ).toEqual(await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions?limit=1&cursor=2`)));
+    expect(fromTool(await b.tool("get_version", { artifactId: id, versionId: v1 }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions/${v1}`)),
+    );
+    // At the same time the signed links are identical too.
+    const viaMcp = fromTool(await b.tool("get_download", { artifactId: id }));
+    expect(viaMcp).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions/current/download`)),
+    );
+    expect(viaMcp.body).toMatchObject({ kind: "published", files: [{ path: "index.md" }] });
+    expect(
+      fromTool(await b.tool("get_download", { artifactId: id, versionId: v1, kind: "source" })),
+    ).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions/${v1}/download?kind=source`)),
+    );
+    expect(fromTool(await b.tool("get_download", { artifactId: id, path: "index.md" }))).toEqual(
+      await fromApi(
+        await b.apiCall(`/api/v1/artifacts/${id}/versions/current/download?path=index.md`),
+      ),
+    );
+  });
+
+  it("refuses the same way: missing, another user's, unknown version and bad cursor", async () => {
+    const b = await both("parity-versions-errors@example.test");
+    const stranger = await both("parity-versions-stranger@example.test");
+    const theirs = await twoVersions(stranger, "Theirs");
+    const mine = await twoVersions(b, "Mine");
+
+    for (const id of ["abcdefghij", theirs.id]) {
+      expect(fromTool(await b.tool("list_versions", { artifactId: id }))).toEqual(
+        await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions`)),
+      );
+      expect(fromTool(await b.tool("get_download", { artifactId: id }))).toEqual(
+        await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/versions/current/download`)),
+      );
+    }
+    expect(
+      fromTool(await b.tool("get_version", { artifactId: mine.id, versionId: theirs.v1 })),
+    ).toEqual(await fromApi(await b.apiCall(`/api/v1/artifacts/${mine.id}/versions/${theirs.v1}`)));
+    expect(fromTool(await b.tool("list_versions", { artifactId: mine.id, cursor: "x" }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${mine.id}/versions?cursor=x`)),
+    );
+    expect(
+      fromTool(await b.tool("get_download", { artifactId: mine.id, path: "missing.md" })),
+    ).toEqual(
+      await fromApi(
+        await b.apiCall(`/api/v1/artifacts/${mine.id}/versions/current/download?path=missing.md`),
+      ),
+    );
+  });
+
+  it("rollback gives the same result, conflict and idempotent replay", async () => {
+    const b = await both("parity-rollback@example.test");
+    const viaApi = await twoVersions(b, "Api");
+    const viaMcp = await twoVersions(b, "Mcp");
+    vi.setSystemTime(Date.now() + 60 * 1000);
+
+    const apiResult = await fromApi(
+      await b.apiCall(`/api/v1/artifacts/${viaApi.id}/rollback`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ versionId: viaApi.v1, baseVersionId: viaApi.v2 }),
+      }),
+    );
+    const args = { artifactId: viaMcp.id, versionId: viaMcp.v1, baseVersionId: viaMcp.v2 };
+    const mcpResult = fromTool(
+      await b.tool("rollback_artifact", { ...args, idempotencyKey: "parity-rollback-1" }),
+    );
+    expect(apiResult.ok && mcpResult.ok).toBe(true);
+    const strip = (body: unknown) => {
+      const { fromVersionId, ...rest } = body as Record<string, unknown>;
+      expect(fromVersionId).toMatch(/^ver_/);
+      return withoutIds(rest);
+    };
+    expect(strip(mcpResult.body)).toEqual(strip(apiResult.body));
+    expect(mcpResult.body).toMatchObject({ versionNumber: 3, fromVersionNumber: 1 });
+
+    // A retry with the key replays; without it, the moved base is a conflict at both.
+    expect(
+      fromTool(await b.tool("rollback_artifact", { ...args, idempotencyKey: "parity-rollback-1" })),
+    ).toEqual(mcpResult);
+    expect(
+      fromTool(
+        await b.tool("rollback_artifact", {
+          ...args,
+          versionId: viaMcp.v2,
+          idempotencyKey: "parity-rollback-1",
+        }),
+      ),
+    ).toMatchObject({ ok: false, body: { error: { code: "invalid_input" } } });
+    const staleApi = await fromApi(
+      await b.apiCall(`/api/v1/artifacts/${viaApi.id}/rollback`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ versionId: viaApi.v1, baseVersionId: viaApi.v2 }),
+      }),
+    );
+    const staleMcp = fromTool(await b.tool("rollback_artifact", args));
+    expect(staleMcp).toMatchObject({ ok: false, body: { error: { code: "version_conflict" } } });
+    expect(staleMcp).toEqual(staleApi);
+  });
+
+  it("needs artifacts:write to roll back at both", async () => {
+    const b = await both("parity-rollback-scope@example.test", "artifacts:read offline_access");
+    const body = { versionId: "ver_a", baseVersionId: "ver_b" };
+    const apiDenied = await b.apiCall("/api/v1/artifacts/abcdefghij/rollback", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify(body),
+    });
+    const token = await mcpToken(b.h, "parity-rollback-scope@example.test", "artifacts:read");
+    const mcpDenied = await rawCall(b.h, token, "rollback_artifact", {
+      artifactId: "abcdefghij",
+      ...body,
+    });
+    const challenge = (response: Response) => {
+      const header = response.headers.get("www-authenticate") ?? "";
+      return [
+        response.status,
+        /error="([^"]+)"/.exec(header)?.[1],
+        /scope="([^"]+)"/.exec(header)?.[1],
+      ];
+    };
+    expect(challenge(mcpDenied)).toEqual(challenge(apiDenied));
+    expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:write"');
+    // Reading history needs only artifacts:read, at both.
+    expect((await rawCall(b.h, token, "list_versions", { artifactId: "abcdefghij" })).status).toBe(
+      200,
+    );
+  });
+});
