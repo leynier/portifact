@@ -4,6 +4,7 @@ import { hashRequest } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { checksumHeader, UPLOAD_URL_TTL_SECONDS } from "../src/api/presign.ts";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
+import { publishSite, tokenClient } from "./api-client.ts";
 import { approveDevice, pollDeviceToken, requestDeviceCode } from "./flows.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
@@ -430,6 +431,43 @@ describe("listing artifacts", () => {
     expect((await c.call("/api/v1/artifacts?cursor=forged")).status).toBe(400);
     expect((await c.call("/api/v1/artifacts?limit=0")).status).toBe(400);
     expect((await c.call("/api/v1/artifacts?limit=1000")).status).toBe(400);
+  });
+
+  it("searches and filters only the caller's artifacts", async () => {
+    const h = createHarness();
+    const c = await tokenClient(h, "filters@example.test");
+    const other = await tokenClient(h, "filters-other@example.test");
+    const plan = await publishSite(c, "Launch PLAN");
+    const notes = await publishSite(c, "Notes");
+    await publishSite(other, "Launch plan of someone else");
+    await c.call(`/api/v1/artifacts/${notes}/archive`, { method: "POST" });
+    const ids = async (query: string) => {
+      const response = await c.call(`/api/v1/artifacts?${query}`);
+      expect(response.status, query).toBe(200);
+      return (await response.json<{ items: { id: string }[] }>()).items.map((item) => item.id);
+    };
+
+    expect(await ids("search=launch")).toEqual([plan]);
+    expect(await ids(`search=${plan.slice(3, 9).toUpperCase()}`)).toEqual([plan]);
+    expect(await ids("state=archived")).toEqual([notes]);
+    expect(await ids("state=active&type=site&access=restricted&annotations=off")).toEqual([plan]);
+    expect(await ids("type=markdown")).toEqual([]);
+    // Empty parameters are no filter, as an empty search box sends them.
+    expect(await ids("search=&state=&type=&access=&annotations=")).toEqual([notes, plan]);
+
+    for (const query of [
+      "state=deleted",
+      "state=draft",
+      "type=pdf",
+      "access=private",
+      "annotations=on",
+      `search=${"x".repeat(201)}`,
+      "search=%20%20",
+    ]) {
+      const refused = await c.call(`/api/v1/artifacts?${query}`);
+      expect(refused.status, query).toBe(400);
+      expect(await refused.json(), query).toMatchObject({ error: { code: "invalid_input" } });
+    }
   });
 });
 

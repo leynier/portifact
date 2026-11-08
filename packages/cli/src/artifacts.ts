@@ -6,6 +6,7 @@ import {
   type AccessUpdate,
   ArtifactId,
   ArtifactList,
+  type ArtifactListFilters,
   ArtifactSummary,
   Email,
   LIMITS,
@@ -27,6 +28,20 @@ export function parseArtifactId(value: string): string {
 export interface ListOptions extends OutputOptions {
   limit?: number | undefined;
   cursor?: string | undefined;
+  filters?: ArtifactListFilters | undefined;
+}
+
+/** A value as one shell word, so a printed command can be pasted back. */
+function shellWord(value: string): string {
+  return /^[\w.@:/-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/** The filters as the flags that ask for them again, each with a leading space. */
+function filterFlags(filters: ArtifactListFilters = {}): string {
+  return Object.entries(filters)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .map(([name, value]) => ` --${name} ${shellWord(value)}`)
+    .join("");
 }
 
 export async function list(io: Io, runtime: Runtime, options: ListOptions): Promise<void> {
@@ -34,6 +49,9 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
   const query = new URLSearchParams();
   if (options.limit !== undefined) query.set("limit", String(options.limit));
   if (options.cursor !== undefined) query.set("cursor", options.cursor);
+  for (const [name, value] of Object.entries(options.filters ?? {})) {
+    if (typeof value === "string") query.set(name, value);
+  }
   const search = query.size > 0 ? `?${query}` : "";
   const page = await callApi(session, {
     method: "GET",
@@ -45,8 +63,9 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
     writeJson(io, page);
     return;
   }
+  const flags = filterFlags(options.filters);
   if (page.items.length === 0 && page.nextCursor === null) {
-    io.stdout(`${messages.listEmpty}\n`);
+    io.stdout(`${flags ? messages.listNoMatch : messages.listEmpty}\n`);
     return;
   }
   const rows = [
@@ -61,7 +80,7 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
     ]),
   ];
   io.stdout(table(rows));
-  if (page.nextCursor !== null) io.stderr(`${messages.listMore(page.nextCursor)}\n`);
+  if (page.nextCursor !== null) io.stderr(`${messages.listMore(page.nextCursor, flags)}\n`);
 }
 
 export async function info(

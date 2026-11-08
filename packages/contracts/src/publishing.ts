@@ -172,6 +172,30 @@ export const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
+/** States the artifact list can show: drafts and deleted artifacts are never listed. */
+export const ListedArtifactState = z.enum(["active", "archived", "suspended", "purging"]);
+export type ListedArtifactState = z.infer<typeof ListedArtifactState>;
+
+/** Longest text the artifact list searches for, as long as the longest name. */
+export const LIST_SEARCH_MAX = 200;
+
+/**
+ * Narrows the artifact list. `search` matches a part of the name (letters A to Z in any case)
+ * or of the ID; every filter given must hold. A cursor continues only the same filters.
+ */
+export const ArtifactListFilters = z.object({
+  search: z.string().trim().min(1).max(LIST_SEARCH_MAX).optional(),
+  state: ListedArtifactState.optional(),
+  type: ArtifactType.optional(),
+  access: AccessMode.optional(),
+  annotations: AnnotationsState.optional(),
+});
+export type ArtifactListFilters = z.infer<typeof ArtifactListFilters>;
+
+/** Query of `GET /api/v1/artifacts`: a page and the filters. */
+export const ArtifactListQuery = ListQuery.extend(ArtifactListFilters.shape);
+export type ArtifactListQuery = z.infer<typeof ArtifactListQuery>;
+
 export const LifecycleResult = z.object({
   state: z.enum(["active", "archived", "deleted"]),
   expiresAt: z.iso.datetime().nullable(),
