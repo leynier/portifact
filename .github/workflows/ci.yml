@@ -27,7 +27,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run test
-      - run: shellcheck scripts/install.sh
+      - run: shellcheck scripts/*.sh
       - run: node scripts/check-release-notes.mjs
 
   pr-title:
@@ -70,6 +70,18 @@ jobs:
           name: release-assets
           path: dist/release/
           retention-days: 3
+
+  smoke-linux-distros:
+    name: smoke (linux-distros)
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-assets
+          path: dist/release
+      - run: bash scripts/smoke-linux-distros.sh dist/release
 
   smoke:
     name: smoke (${{ matrix.os }})

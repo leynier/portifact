@@ -45,6 +45,11 @@ The `release` workflow (`.github/workflows/release.yml`):
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.
 
+- Linux glibc builds need glibc 2.17 or newer, so they run on Debian, Ubuntu, RHEL and its rebuilds (Rocky, Alma, CentOS 7+), Fedora, Amazon Linux and openSUSE.
+- Musl builds are for Alpine and need `libstdc++` and `libgcc` (`apk add libstdc++ libgcc`); the installer checks for them and says so.
+- x64 builds use Bun's baseline targets, so they also run on CPUs without AVX2.
+- `scripts/smoke-linux-distros.sh` installs and runs the CLI in containers of those distributions; CI runs it on every pull request.
+
 ## Installing
 
 ```bash
@@ -65,7 +70,7 @@ gh attestation verify portifact-linux-x64.tar.gz --repo leynier/portifact
 
 ## Checks on pull requests
 
-The `ci` workflow runs lint, typecheck, tests with coverage thresholds, `shellcheck` and a render of sample release notes with the configured preset (`scripts/check-release-notes.mjs`). It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS, and Windows x64 and arm64, checking that each machine gets its native build. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
+The `ci` workflow runs lint, typecheck, tests with coverage thresholds, `shellcheck` and a render of sample release notes with the configured preset (`scripts/check-release-notes.mjs`). It also builds every platform and smoke-tests the installers on Linux x64 and arm64, macOS, and Windows x64 and arm64, checking that each machine gets its native build, and across Linux distributions in containers. Pull requests into `develop` also check their title; pull requests into `main` must come from `develop`.
 
 ## Setup and recovery
 
