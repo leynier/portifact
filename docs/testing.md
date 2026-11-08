@@ -92,7 +92,59 @@ Coverage shows what ran, not what was verified, so mutation testing backs it up.
 
 ## Mutation testing
 
-Stryker runs on `packages/domain`, `packages/anchors`, auth and access-control code. It changes the code in small ways and expects a test to fail for each change. The initial minimum mutation score is 80%, and it should rise over time. A surviving mutant means a missing or weak assertion: fix the test, or explain why the mutant is equivalent.
+StrykerJS (`@stryker-mutator/core` with the Vitest runner) runs on the critical packages: `packages/domain`, `packages/anchors`, `packages/contracts`, `packages/render` and `packages/services`. It changes the code in small ways and expects a test to fail for each change. A surviving mutant means a missing or weak assertion: fix the test, or explain why the mutant is equivalent.
+
+- `bun run test:mutation` runs every package one after another (Turborepo with `--concurrency=1`); `bun run --cwd packages/<name> test:mutation` runs one. Reports land in `reports/mutation/` of each package (HTML and JSON, ignored by git).
+- Settings shared by all packages live in `stryker.base.mjs`; each package's `stryker.config.mjs` lists what it mutates and its break threshold.
+- Each run uses 2 test runner processes (`concurrency: 2`), restarts them every 25 mutants and caps every Node heap at 1 GB through `NODE_OPTIONS` in the `test:mutation` scripts, so a run stays within a few GB on a shared machine. Raise the concurrency on a machine of your own with `-- --concurrency 6`. Tests run in forked processes (`vitest.pool: forks`), because worker threads ignore the heap cap. Never run mutation testing next to other heavy suites on a shared machine.
+- Local runs are incremental: unchanged code and tests reuse the last results from `reports/mutation/stryker-incremental.json`. Pass `-- --force` for a full run.
+- TypeScript 7 has no JavaScript API, so Stryker's tsconfig rewrite is skipped (`tsconfigFile` points at a file that does not exist) and every sandbox lives in `<root>/.stryker-tmp/sandbox-*`, at the same depth as the packages, so `"extends": "../../tsconfig.base.json"` still resolves. A Vitest config must not reach other packages by relative path from a sandbox; `packages/services` finds the D1 migrations through `@portifact/db`.
+- `packages/services` runs in workerd through `@cloudflare/vitest-plugin`, like its normal tests, and it works with Stryker's per-test coverage. It is the slowest package (about 1.5 hours at concurrency 2 on a shared machine), so it has no break threshold yet: set it from the first full run of the `mutation` workflow, rounded down.
+- A mutant that loops while allocating crashes its runner, which Stryker restarts. Where such a mutant costs gigabytes before it crashes, disable it with a `// Stryker disable next-line <mutators>: <reason>` comment that explains why, as in `packages/anchors/src/normalize.ts`.
+
+The `mutation` workflow (`.github/workflows/mutation.yml`) runs each package in its own job weekly, on demand and on pull requests into `main`, not on every pull request, and keeps the reports as workflow artifacts. A package fails when its score drops below its break threshold.
+
+Break thresholds are the measured scores rounded down; raise them as tests improve, never lower them to make a change pass. Measured on 2026-11-08 (Node 24, concurrency 2):
+
+| Package              | Mutants | Score                                                                                | Break    | Time (local)                                      | Notable survivors                                                                                  |
+| -------------------- | ------- | ------------------------------------------------------------------------------------ | -------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `packages/domain`    | 977     | 86.59%                                                                               | 86       | 2 min                                             | User-facing messages; `files.ts` exclusion tables; `paths.ts` normalization branches               |
+| `packages/anchors`   | 876     | 86.64%                                                                               | 86       | 6 min                                             | `dom.ts` tag name lists (strings); defensive conditions in `document.ts` and `selectors.ts`        |
+| `packages/contracts` | 715     | 64.41%                                                                               | 64       | 4 min                                             | Schema messages and bounds checked by the services and API tests, not by this package's own tests  |
+| `packages/render`    | 554     | 82.76%                                                                               | 82       | 9 min                                             | Defensive optional chaining around markdown-it tokens; token type guards whose callees check again |
+| `packages/services`  | 2958    | Partial: 1,903 of 2,897 tested, 306 survived, 4 timeouts (about 84% detected so far) | None yet | Stopped after 31 min (about 1.5 h for a full run) | Not analyzed; the weekly workflow produces the first full report                                   |
+
+The domain run also killed the survivors that mattered: every allowed access decision is now asserted exactly, and the rolling 24-hour and monthly upload limits are tested exactly at the boundary.
+
+## Load and concurrency
+
+`bun run test:load` builds `apps/web` and the bridge, then runs `scripts/load-test.ts` on Node. By default it starts the e2e Worker (`e2e/load/local.ts`: the real app and content Workers over one local D1 and R2 in workerd, through wrangler) and runs four scenarios through the public API, as a client would:
+
+| Scenario      | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quota-race`  | Fills 49 active slots, then sends 8 new publishes at once (prepare, presigned uploads, commit). Exactly one may take the last slot; the others fail at prepare with `quota_exceeded` and leave no open upload.                                                                                                                                                                                                                                       |
+| `max-upload`  | Publishes exactly 250,000,000 bytes (an entry page and four objects under 64 MiB) through presigned uploads, after checking that one byte more is refused at prepare. Bytes are generated and hashed in streaming passes, and memory is sampled throughout.                                                                                                                                                                                          |
+| `delivery`    | Serves a published public site to 32 connections for 10 seconds with the fetch metadata a browser sends, and reports throughput, latency percentiles and statuses.                                                                                                                                                                                                                                                                                   |
+| `annotations` | Four readers of an artifact with open annotations each send 8 thread writes at once. Each reader first gets three comments written two minutes earlier through the control host, because an account's first comments on other people's artifacts need a solved human check (Turnstile) that a script cannot do. Each gets exactly 5 (the per-author minute limit), the rest answer `rate_limited`, and the stored threads match the accepted writes. |
+
+Locally, presigned uploads go to the e2e Worker's control host (`/storage` in `e2e/worker/control.ts`), a stand-in for R2's S3 endpoint that refuses a body whose length differs from the signed `content-length`, lets R2 refuse a wrong checksum and streams into the local bucket. The local Worker runs over HTTPS like the e2e stack, because the app refuses session mutations whose `Origin` does not match the scheme it sees.
+
+Options: `--scenario a,b`, `--publishers`, `--concurrency`, `--duration`, `--authors`, `--writes` and `--json`; `--help` lists them. Pass them after `--`, for example `bun run test:load -- --scenario delivery --duration 30`. Run it alone on a shared machine, never next to mutation testing or another suite.
+
+To target staging, pass `--app-url https://<staging app>` and `--content-domain <staging artifact domain>`, list the scenarios with `--scenario`, give `--artifact <id>` for `delivery` (a public artifact) and `annotations` (one with open annotations that the token's account may annotate and has already commented on past the human check), and put a bearer token with `artifacts:write`, `artifacts:read` and `annotations:write` in `PORTIFACT_LOAD_TOKEN` (never on the command line). Remote runs check limits against what the account had before (`quota-race` creates artifacts and leaves them; their IDs are printed). The script refuses `portifact.com`, `portifact.dev` and their subdomains unless `--i-know-this-is-production` is given; nothing in the repository passes it.
+
+Measured locally on 2026-11-08 (16-core machine shared with other test suites, Node 24, wrangler dev with local D1 and R2):
+
+| Scenario      | Result                                                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `quota-race`  | 1 of 8 committed, 7 `quota_exceeded`, 50 active artifacts after; 75 ms for the race                                                                                  |
+| `max-upload`  | 250 MB committed; hashing 0.4 s, uploads 2.8 s (89 MB/s), prepare 27 ms, commit 22 ms; memory of the test and the Worker grew 130 MB (two 62.5 MB objects in flight) |
+| `delivery`    | 415 requests per second over HTTPS, p50 87 ms, p95 107 ms, p99 130 ms, all 200                                                                                       |
+| `annotations` | 20 of 32 writes accepted (5 per author), 12 `rate_limited`; 0.2 s for the burst                                                                                      |
+
+Local numbers measure the code paths, not production capacity: local D1 is SQLite in one process, and in production uploads go straight to R2 without passing through a Worker.
+
+Deterministic races in Vitest complement this run: the `racing` helper (see Layers) proves in `packages/services/test/publish.test.ts` that two prepares which both passed the checks cannot take the last active slot, the last stored bytes or a third open upload. The last of these found a real gap, now closed by the `account_usage_open_uploads_limit` trigger (migration 0016).
 
 ## Fixtures
 

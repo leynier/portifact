@@ -8,6 +8,9 @@
       "dependsOn": ["^typecheck"],
       "outputs": ["coverage/**"]
     },
+    "test:mutation": {
+      "outputs": ["reports/mutation/**"]
+    },
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]

@@ -91,6 +91,9 @@ export function normalizeWithMap(raw: string): NormalizedMap {
   let spaceEnd = 0;
 
   const emit = (codePoint: string, start: number, end: number) => {
+    // Growing on every code point doubles the typed arrays until the test runner runs out of
+    // memory. The tests catch it (the runner crashes), but each such mutant costs gigabytes.
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: memory bomb, see above
     if (count + 1 === capacity) {
       capacity *= 2;
       units = grow(units, capacity);

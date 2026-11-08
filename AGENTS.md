@@ -63,11 +63,11 @@ bun run build:cli      # compile the CLI for this platform into dist/release (--
 bun run --cwd packages/db generate -- --name <change>   # create a D1 migration from schema.ts
 bun run --cwd packages/ui sync-tokens   # regenerate tokens-css.ts after editing tokens.css
 bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit with third-party cookies blocked (see docs/testing.md); CI's e2e job runs it too
+bun run test:mutation  # Stryker on domain, anchors, contracts, render and services, one package at a time (slow; see docs/testing.md)
+bun run test:load      # load and concurrency scenarios against the local e2e Worker, or staging with --app-url (never production)
 bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
 bun run --cwd apps/jobs operator <command>   # operator tool: reports, suspensions, storage-report, export-tombstones, apply-tombstones, budget state and override (deploy credentials; --local for wrangler dev state); docs/operations.md
 ```
-
-Planned as the code arrives: `bun run test:mutation` (Stryker on critical packages). Add it here when it exists.
 
 A task is not done until `bun run check` and `bun run test` pass. Use `bun run test`, not `bun test`: the latter starts Bun's own test runner instead of Vitest. Run `bun run test:e2e` when the change affects a user flow, a browser behavior or content delivery.
 
@@ -83,7 +83,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.
 - Input and output shapes live in `packages/contracts` and are validated at every boundary.
 - Multi-step state changes in D1 use transactional batches with checked results. A read followed by a separate write is not a transaction.
-- The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one (`--custom` for triggers and other SQL Drizzle does not model). Active-slot accounting for lifecycle transitions is done by triggers in `0001_lifecycle_triggers.sql`; do not also adjust `active_artifacts` in code for those transitions. Annotation usage per owner (`annotation_usage`) is kept by triggers in `0007_annotation_usage_triggers.sql`; never adjust it in code. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
+- The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one (`--custom` for triggers and other SQL Drizzle does not model). Active-slot accounting for lifecycle transitions is done by triggers in `0001_lifecycle_triggers.sql`; do not also adjust `active_artifacts` in code for those transitions. Annotation usage per owner (`annotation_usage`) is kept by triggers in `0007_annotation_usage_triggers.sql`; never adjust it in code. At most two open uploads per account are enforced by a trigger in `0016_open_uploads_limit.sql`, which `preparePublish` maps to `quota_exceeded` like the CHECK constraints. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
 - Mutations that may be retried take an idempotency key.
 - Follow-up work goes through the transactional outbox (`packages/services/src/outbox.ts`): write the `outbox` row in the same batch as the state change, before a guarded update and on the same old-state condition, never in a separate write. The jobs Worker relays rows to the `portifact-jobs` queue, which delivers at least once, so every job is idempotent: a missing row means done, a `purge_artifact` acts only on the `purging` state and lifecycle generation it carries, a `delete_objects` job keeps keys that have a row again, and the consumer deletes the row only when the job is done. Keep the scheduled scans as the safety net. A new topic goes in `OUTBOX_TOPICS` (`packages/db`), `OutboxTopic` (`packages/contracts`) and `runJob`. The queue must exist before deploying a binding to it ([docs/releasing.md](docs/releasing.md)).
 - `releaseOrphans` writes the `delete_objects` job, releases the bytes and deletes the object rows in one batch; never delete `objects` rows or R2 objects outside it. The storage reconciliation (`packages/services/src/backups.ts`) only reports into `storage_findings`, it never deletes or repairs.

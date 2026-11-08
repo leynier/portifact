@@ -404,7 +404,11 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
     if (causeIncludes(error, "artifact_id_tombstoned")) {
       return fail("version_conflict", "Try again.");
     }
-    if (constraintFailed(error, "CHECK")) {
+    // CHECK constraints guard slots and bytes; a trigger guards the open uploads.
+    if (
+      constraintFailed(error, "CHECK") ||
+      causeIncludes(error, "account_usage_open_uploads_limit")
+    ) {
       return fail("quota_exceeded", "Your account reached a limit while preparing this publish.");
     }
     throw error;

@@ -1,11 +1,13 @@
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig(async () => {
-  const migrations = await readD1Migrations(
-    fileURLToPath(new URL("../db/migrations", import.meta.url)),
-  );
+  // Resolved through the package rather than a relative path, so the config also works from a
+  // Stryker sandbox, which copies this package elsewhere.
+  const dbSource = dirname(createRequire(import.meta.url).resolve("@portifact/db"));
+  const migrations = await readD1Migrations(join(dbSource, "..", "migrations"));
   return {
     plugins: [
       cloudflareTest({

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { type AccessPolicy, canManage, canRead, checkAccessChange, type Viewer } from "./access.ts";
 
+/** What every allowed decision returns, exactly. */
+const GRANTED = { ok: true, value: true };
 const owner: Viewer = { userId: "u_owner", verifiedEmails: ["owner@example.com"] };
 const reader: Viewer = {
   userId: "u_reader",
@@ -15,8 +17,8 @@ const policy = (mode: AccessPolicy["mode"], readers: string[] = []): AccessPolic
 
 describe("canRead", () => {
   it("lets anyone read public artifacts, signed in or not", () => {
-    expect(canRead(policy("public"), null).ok).toBe(true);
-    expect(canRead(policy("public"), stranger).ok).toBe(true);
+    expect(canRead(policy("public"), null)).toEqual(GRANTED);
+    expect(canRead(policy("public"), stranger)).toEqual(GRANTED);
   });
 
   it("asks anonymous visitors to sign in for protected artifacts", () => {
@@ -31,13 +33,13 @@ describe("canRead", () => {
   });
 
   it("lets any signed-in account read authenticated artifacts", () => {
-    expect(canRead(policy("authenticated"), stranger).ok).toBe(true);
+    expect(canRead(policy("authenticated"), stranger)).toEqual(GRANTED);
   });
 
   it("restricts to the owner and listed verified emails", () => {
     const restricted = policy("restricted", ["ana@work.example"]);
-    expect(canRead(restricted, owner).ok).toBe(true);
-    expect(canRead(restricted, reader).ok).toBe(true);
+    expect(canRead(restricted, owner)).toEqual(GRANTED);
+    expect(canRead(restricted, reader)).toEqual(GRANTED);
     expect(canRead(restricted, stranger)).toMatchObject({ ok: false, code: "forbidden" });
   });
 
@@ -48,7 +50,7 @@ describe("canRead", () => {
 
 describe("canManage", () => {
   it("allows only the owner", () => {
-    expect(canManage(policy("public"), owner).ok).toBe(true);
+    expect(canManage(policy("public"), owner)).toEqual(GRANTED);
     expect(canManage(policy("restricted", ["ana@example.com"]), reader)).toMatchObject({
       ok: false,
       code: "forbidden",
@@ -68,11 +70,11 @@ describe("checkAccessChange", () => {
   });
 
   it("allows public access from day 7", () => {
-    expect(checkAccessChange("public", created, new Date("2026-11-08T00:00:00Z")).ok).toBe(true);
+    expect(checkAccessChange("public", created, new Date("2026-11-08T00:00:00Z"))).toEqual(GRANTED);
   });
 
   it("never blocks private modes", () => {
-    expect(checkAccessChange("restricted", created, created).ok).toBe(true);
-    expect(checkAccessChange("authenticated", created, created).ok).toBe(true);
+    expect(checkAccessChange("restricted", created, created)).toEqual(GRANTED);
+    expect(checkAccessChange("authenticated", created, created)).toEqual(GRANTED);
   });
 });

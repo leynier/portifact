@@ -11,3 +11,5 @@ coverage/
 .claude/worktrees/
 test-results/
 playwright-report/
+.stryker-tmp/
+**/reports/mutation/
