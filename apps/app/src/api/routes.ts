@@ -2,6 +2,8 @@
 // token for the API resource and one scope, validates input with the shared contracts and calls
 // a service; the acting user always comes from the token. Business rules stay in services.
 import {
+  AccessPolicyView,
+  AccessUpdate,
   ArtifactList,
   ArtifactSummary,
   CommittedPublish,
@@ -21,6 +23,7 @@ import {
   archiveArtifact,
   commitPublish,
   deleteArtifact,
+  getAccess,
   getArtifact,
   hashRequest,
   type LifecycleOutcome,
@@ -31,6 +34,7 @@ import {
   restoreArtifact,
   runIdempotent,
   type StoredResponse,
+  updateAccess,
   uploadProgress,
 } from "@portifact/services";
 import type { Context } from "hono";
@@ -194,6 +198,35 @@ export function apiRoutes(deps: ApiDeps) {
       });
       if (!row) return error(c, "not_found", "Artifact not found.");
       return c.json(summary(c.env, row));
+    }),
+  );
+
+  api.get(
+    "/api/v1/artifacts/:artifactId/access",
+    guarded("artifacts:read", async (c, userId) => {
+      const result = await getAccess(createDb(c.env.DB), {
+        ownerId: userId,
+        artifactId: c.req.param("artifactId") as string,
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(AccessPolicyView.parse(result.value));
+    }),
+  );
+
+  // Setting the same change twice leaves the same policy, so no idempotency key is needed.
+  api.patch(
+    "/api/v1/artifacts/:artifactId/access",
+    guarded("artifacts:share", async (c, userId) => {
+      const body = await readJson(c, AccessUpdate);
+      if (!body.ok) return body.response;
+      const result = await updateAccess(createDb(c.env.DB), {
+        ownerId: userId,
+        artifactId: c.req.param("artifactId") as string,
+        change: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(AccessPolicyView.parse(result.value));
     }),
   );
 
