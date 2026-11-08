@@ -31,7 +31,7 @@ apps/app        Worker for portifact.com and app.portifact.com: landing, legal p
 apps/content    Worker for <id>.portifact.dev: artifact delivery (sites, and the rendered page and original of Markdown and TXT documents) and read sessions for protected artifacts today; review sessions, bridge and viewers later
 apps/web        Landing, legal pages (/terms, /privacy, /acceptable-use), auth pages and the dashboard SPA (React, TanStack Router and Query, Lingui); review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
-packages/cli    portifact CLI: login, publish, list, info, lifecycle, access, versions, rollback and pull commands; each takes an injected Runtime (packages/cli/src/runtime.ts)
+packages/cli    portifact CLI: login, publish, list, info, lifecycle, access, versions, rollback, pull and annotations commands; each takes an injected Runtime (packages/cli/src/runtime.ts)
 packages/contracts   Shared schemas, errors and OpenAPI
 packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
 packages/services    Use cases that apply domain rules with D1 and R2: publish, restore, annotations and more
