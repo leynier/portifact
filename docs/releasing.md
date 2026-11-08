@@ -39,7 +39,7 @@ The `release` workflow (`.github/workflows/release.yml`):
 5. Commits `chore(release): vX.Y.Z [skip ci]` to `main` and tags it `vX.Y.Z`.
 6. Publishes a GitHub release with notes, the archives, `SHA256SUMS`, `install.sh` and `install.ps1`.
 7. Signs build provenance attestations for the archives through GitHub's OIDC token (Sigstore).
-8. Merges `main` back into `develop` so both branches carry the new version.
+8. Syncs `develop` with `main`. This runs after every push to `main`, even when there is nothing to release, so `main` is never ahead of `develop`. It fast-forwards `develop` to `main`, leaving both on the same commit; only if `develop` received new commits during the run does it create a merge commit instead.
 
 ## Platforms
 
@@ -71,5 +71,5 @@ The `ci` workflow runs lint, typecheck, tests with coverage thresholds, `shellch
 
 - Secret `RELEASE_DEPLOY_KEY`: private half of a write-enabled deploy key. The `develop` and `main` rulesets allow this deploy key to bypass them. If you rotate it, update both the deploy key and the secret.
 - A failed release leaves no tag. Fix the cause on `develop` and merge into `main` again.
-- If the release succeeded but the sync into `develop` failed, merge `main` into `develop` through a pull request.
+- If the sync into `develop` failed, rerun the workflow or merge `main` into `develop` through a pull request.
 - Keep `conventional-changelog-conventionalcommits` on the major version that matches the changelog writer bundled with semantic-release. Version 10 of the preset needs `conventional-changelog-writer` 9, while semantic-release 25 ships writer 8, so the preset stays on 9. `scripts/check-release-notes.mjs` catches a mismatch in CI.
