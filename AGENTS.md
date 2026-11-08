@@ -29,8 +29,8 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 
 ```text
 apps/app        Worker for portifact.com and app.portifact.com: landing, legal pages, installers, dashboard, identity, OAuth, the /api/v1 publishing and annotations API, the remote MCP server at /mcp and the protected-artifact entry
-apps/content    Worker for <id>.portifact.dev: artifact delivery (sites, and the rendered page and original of Markdown and TXT documents) and read sessions for protected artifacts today; review sessions, bridge and viewers later
-apps/web        Landing, legal pages (/terms, /privacy, /acceptable-use), auth pages, the public report page (/report) and the dashboard SPA (React, TanStack Router and Query, Lingui), including browser publishing, the document editor and version history (dashboard/publish holds the Web Worker manifest builder, ZIP reader and uploads); review viewer later (Vite)
+apps/content    Worker for <id>.portifact.dev: artifact delivery (sites, and the rendered page and original of Markdown and TXT documents), read sessions for protected artifacts, and review sessions with the bridge injected
+apps/web        Landing, legal pages (/terms, /privacy, /acceptable-use), auth pages, the public report page (/report) and the dashboard SPA with the review viewer (React, TanStack Router and Query, Lingui), including browser publishing, the document editor and version history (dashboard/publish holds the Web Worker manifest builder, ZIP reader and uploads); review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge, account deletions), and the operator tool for reports and suspensions (scripts/operator.ts)
 packages/cli    portifact CLI: login, publish (folders, files, ZIP files via src/zip.ts, git-aware --source via src/git.ts and src/sources.ts, --assets), list, info, lifecycle, access, versions, rollback, pull, annotations and usage commands; each takes an injected Runtime (packages/cli/src/runtime.ts)
 packages/contracts   Shared schemas, errors and OpenAPI
@@ -39,11 +39,12 @@ packages/services    Use cases that apply domain rules with D1 and R2: publish, 
 packages/db          Drizzle schema, migrations and queries
 packages/render      Markdown and TXT rendering to safe HTML documents (markdown-it); the publish services render documents at commit
 packages/anchors     Annotation anchor model and resolution
-packages/bridge      Review script injected into artifacts
+packages/bridge      Review bridge injected into artifacts in review mode (built to dist/bundle.ts for the content Worker) and the postMessage protocol the viewer shares
 packages/ui          Design system: tokens, React components and patterns, the form hook (@portifact/ui/forms) and the axe test helper
 skills/              Agent skills for using Portifact, installable with npx skills
 assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer, CI-scope and validation scripts; a workspace whose pure logic is unit tested
+e2e/                 Playwright end-to-end suite and its test-only Worker that serves both Workers over one local D1 and R2
 spikes/              Phase 0 prototypes with their own tests; never deployed or imported by apps and packages
 ```
 
@@ -61,11 +62,12 @@ bun run dev            # local dev servers (Vite for apps/web, wrangler for apps
 bun run build:cli      # compile the CLI for this platform into dist/release (--all for every platform)
 bun run --cwd packages/db generate -- --name <change>   # create a D1 migration from schema.ts
 bun run --cwd packages/ui sync-tokens   # regenerate tokens-css.ts after editing tokens.css
+bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit with third-party cookies blocked (see docs/testing.md)
 bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
 bun run --cwd apps/jobs operator <command>   # operator tool: reports, suspensions (deploy credentials; --local for wrangler dev state); docs/operations.md
 ```
 
-Planned as the code arrives: `bun run test:e2e` (Playwright on Chromium, Firefox and WebKit) and `bun run test:mutation` (Stryker on critical packages). Add them here when they exist.
+Planned as the code arrives: `bun run test:mutation` (Stryker on critical packages). Add it here when it exists.
 
 A task is not done until `bun run check` and `bun run test` pass. Use `bun run test`, not `bun test`: the latter starts Bun's own test runner instead of Vitest. Run `bun run test:e2e` when the change affects a user flow, a browser behavior or content delivery.
 
@@ -91,6 +93,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - Suspensions happen only through the operator tool ([docs/operations.md](docs/operations.md)), never a web route. A suspended artifact is simply not servable, so delivery, read sessions, handoffs, downloads and annotations refuse it through their existing state checks; keep any new content path behind the same servable check. Suspended artifacts hold no active slot: triggers in `0010_moderation_triggers.sql` free it on suspend and retake it on reinstate, so never adjust `active_artifacts` for those transitions either. The same migration refuses inserting an artifact whose ID has a tombstone.
 - Account deletion (`requestAccountDeletion` in `packages/services/src/account-data.ts`) deletes the `users` row directly in one batch with the artifact claim; the foreign keys remove sessions, identities, OAuth tokens and consents, read sessions and handoffs. That is the only exception to ending sessions through Better Auth, safe because the tokens its hooks would revoke go with the same cascade. A new table keyed by user must either cascade from `users` or be cleaned by `processAccountDeletions`, and new user-authored content on other people's artifacts must be erased there too.
 - The CLI and the dashboard build manifests with the same exclusions and content types from `packages/domain/src/files.ts`; change them there, never in one client. The dashboard talks to R2 only through presigned URLs allowed by `dashboardCsp` and the bucket's CORS rule ([docs/releasing.md](docs/releasing.md)), and shows rendered documents only in the sandboxed `PreviewFrame`. `POST /api/v1/documents/preview` is a dashboard helper with no state, so it has no MCP tool or CLI command.
+- Review mode follows "Review mode" in [docs/security.md](docs/security.md): codes come only from the dashboard session (`apps/app/src/api/review.ts`), the partitioned `__Host-pf_review` cookie is honored only for `same-origin` requests and the viewer's cross-site frame navigation, and the bridge's messages are untrusted data that never post anything by themselves: the viewer accepts an element only during a pick, ignores the frame while a comment is open, checks the session tag in `ready` and treats `status`, `resolved` and `activate` as hints, never over the API. The content Worker imports the bridge from `@portifact/bridge/bundle`, generated by `bun run --cwd packages/bridge build`; Turborepo builds it before the content Worker's typecheck, tests and dev server.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
 - The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves the dashboard at `/` and its client routes (`DASHBOARD_ROUTES` in `apps/app/src/app-host.ts`, kept in sync with `apps/web/src/dashboard/router.tsx`; without a session they redirect to `/login?next=...`), identity, OAuth, the auth pages and `/read/<id>` (the entry to protected artifacts), anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.

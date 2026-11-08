@@ -3,6 +3,10 @@
 import {
   type AccessPolicyView,
   AccessUpdate,
+  type AnnotationMessageView,
+  type AnnotationRole,
+  type AnnotationsState,
+  type AnnotationThreadView,
   type ArtifactSummary,
   type BrowserSession,
   type ConnectedApp,
@@ -12,6 +16,7 @@ import {
   type ManifestFile,
   type PreparedPublish,
   PublishRequest,
+  type ReviewStart,
   RollbackRequest,
   type UploadTarget,
   type VersionSummary,
@@ -191,8 +196,57 @@ function fakeStorage(): FakeStorage {
   return storage;
 }
 
+/** Annotations of one artifact in the fake server, with a change counter for cursors. */
+export interface FakeAnnotations {
+  mode: AnnotationsState;
+  role: AnnotationRole;
+  currentVersionId: string;
+  threads: (AnnotationThreadView & { seq: number })[];
+  deleted: { id: string; seq: number }[];
+  seq: number;
+}
+
+export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
+  return {
+    id: `m${Math.random().toString(36).slice(2, 10)}`,
+    author: { id: "u-bea", name: "Bea", image: null },
+    own: false,
+    state: "visible",
+    body: "Looks good",
+    revision: 1,
+    createdAt: NOW,
+    editedAt: null,
+    ...overrides,
+  };
+}
+
+export function fakeThread(
+  id: string,
+  overrides: Partial<AnnotationThreadView> = {},
+): AnnotationThreadView {
+  return {
+    id,
+    versionId: "v1",
+    current: true,
+    path: "index.html",
+    target: { schema: 1, path: "index.html", anchor: { kind: "document" } },
+    state: "open",
+    author: { id: "u-bea", name: "Bea", image: null },
+    own: false,
+    revision: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+    resolvedAt: null,
+    messages: [fakeMessage()],
+    ...overrides,
+  };
+}
+
 export interface FakeServer {
   artifacts: ArtifactSummary[];
+  /** Answers to POST /review, by artifact ID; missing ones answer 404. */
+  reviews: Record<string, ReviewStart>;
+  annotations: Record<string, FakeAnnotations>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
   uploads: FakeUpload[];
@@ -223,6 +277,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const failures: { key: string; failure: Failure; times: number }[] = [];
   const server: FakeServer = {
     artifacts,
+    reviews: {},
+    annotations: {},
     versions: {},
     uploads: [],
     storage: fakeStorage(),
@@ -563,6 +619,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   const publishing = publishingRoute(server, method, url, headers);
   if (publishing) return publishing;
   const path = url.pathname;
+  const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
+  if (reviewed)
+    return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
   if (path === "/api/auth/get-session") {
     return Response.json(
       server.email
@@ -653,6 +712,116 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     });
   }
   return Response.json({ state: found.state, expiresAt: found.expiresAt, purgeAt: found.purgeAt });
+}
+
+const missing = () =>
+  Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
+
+/** The review code and annotations endpoints, with the rules the viewer depends on. */
+function reviewRoute(
+  server: FakeServer,
+  method: string,
+  url: URL,
+  id: string,
+  kind: string | undefined,
+  rest = "",
+): Response {
+  if (kind === "review") {
+    const start = server.reviews[id];
+    return method === "POST" && start ? Response.json(start) : missing();
+  }
+  const store = server.annotations[id];
+  if (!store) return missing();
+  const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
+  const touch = (thread: FakeAnnotations["threads"][number]) => {
+    store.seq += 1;
+    thread.seq = store.seq;
+    thread.revision += 1;
+  };
+  const view = ({ seq: _seq, ...thread }: FakeAnnotations["threads"][number]) => thread;
+  if (rest === "" && method === "GET") {
+    if (store.mode === "off" && store.role !== "owner") {
+      return Response.json({ error: { code: "forbidden", message: "x" } }, { status: 403 });
+    }
+    const since = Number(url.searchParams.get("cursor") ?? 0);
+    return Response.json({
+      artifactId: id,
+      annotations: store.mode,
+      currentVersionId: store.currentVersionId,
+      role: store.role,
+      threads: store.threads.filter((t) => t.seq > since).map(view),
+      removed: since > 0 ? store.deleted.filter((d) => d.seq > since).map((d) => d.id) : [],
+      cursor: String(store.seq),
+      hasMore: false,
+    });
+  }
+  if (rest === "/mode" && method === "PUT") {
+    store.mode = body?.mode as AnnotationsState;
+    store.seq += 1;
+    return Response.json({ annotations: store.mode });
+  }
+  if (rest === "/threads" && method === "POST") {
+    store.seq += 1;
+    const thread = {
+      ...fakeThread(`t${store.seq}`, {
+        own: true,
+        author: { id: "u-ada", name: "Ada", image: null },
+        target: body?.target as AnnotationThreadView["target"],
+        path: (body?.target as { path?: string } | undefined)?.path ?? "",
+        versionId: body?.versionId as string,
+        messages: [
+          fakeMessage({
+            own: true,
+            author: { id: "u-ada", name: "Ada", image: null },
+            body: String(body?.body),
+          }),
+        ],
+      }),
+      seq: store.seq,
+    };
+    store.threads.push(thread);
+    return Response.json(view(thread), { status: 201 });
+  }
+  const threadPath = /^\/threads\/([^/]+)(?:\/(messages|resolve|reopen))?$/.exec(rest);
+  const thread = threadPath && store.threads.find((t) => t.id === threadPath[1]);
+  if (threadPath && thread) {
+    const action = threadPath[2];
+    if (method === "DELETE" && !action) {
+      store.threads = store.threads.filter((t) => t !== thread);
+      store.seq += 1;
+      store.deleted.push({ id: thread.id, seq: store.seq });
+      return new Response(null, { status: 204 });
+    }
+    if (action === "messages") {
+      thread.messages.push(
+        fakeMessage({
+          own: true,
+          author: { id: "u-ada", name: "Ada", image: null },
+          body: String(body?.body),
+        }),
+      );
+      touch(thread);
+      return Response.json(view(thread), { status: 201 });
+    }
+    if (action === "resolve" || action === "reopen") {
+      thread.state = action === "resolve" ? "resolved" : "open";
+      touch(thread);
+      return Response.json(view(thread));
+    }
+  }
+  const moderation = /^\/messages\/([^/]+)\/moderation$/.exec(rest);
+  if (moderation && method === "POST") {
+    for (const t of store.threads) {
+      const message = t.messages.find((m) => m.id === moderation[1]);
+      if (!message) continue;
+      const action = body?.action;
+      message.state = action === "hide" ? "hidden" : action === "unhide" ? "visible" : "deleted";
+      if (action === "delete") message.body = null;
+      touch(t);
+      return Response.json({ threadId: t.id, thread: view(t) });
+    }
+  }
+  return missing();
 }
 
 /** What PATCH /access does in the Worker, minus the account-age rule. */

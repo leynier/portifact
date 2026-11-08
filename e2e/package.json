@@ -1,0 +1,23 @@
+{
+  "name": "@portifact/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End-to-end tests in Chromium, Firefox and WebKit against the real Workers in Miniflare.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p worker/tsconfig.json",
+    "browsers": "playwright install chromium firefox webkit",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "~1.64.1",
+    "@portifact/contracts": "workspace:*",
+    "@portifact/db": "workspace:*",
+    "@portifact/services": "workspace:*",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "^4.0.0"
+  }
+}

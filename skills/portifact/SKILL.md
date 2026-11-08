@@ -189,7 +189,7 @@ Add `https://app.portifact.com/mcp` as a remote MCP server (Streamable HTTP). Th
 
 - An artifact stays published for 30 days. Updating or renewing it restarts the 30 days.
 - When it expires it is archived for six months and only its owner can restore it. After that it is deleted permanently.
-- Annotations are off by default; the owner turns them on per artifact. Only signed-in readers with access can comment.
+- Annotations are off by default; the owner turns them on per artifact. Only signed-in readers with access can comment. Reviewers comment in the review viewer at `https://app.portifact.com/review/<artifact-id>` ("Review and comment" on the artifact's dashboard page): selecting text or an element there only offers a comment, which they write and confirm.
 - Portifact may suspend an artifact that breaks the Acceptable Use Policy. A suspended artifact has `state: "suspended"` and a `suspension.reason` in `portifact info --json` and `get_artifact`; it is not served to anyone and cannot be published to, shared, renewed, restored or rolled back. Agents cannot lift a suspension: tell the user the reason and that they can write to abuse@portifact.com. A suspended account cannot publish (`forbidden`, exit 5).
 - Exporting account data and deleting the account happen only in the dashboard (Account page), never through the CLI or MCP. Point the user there; never try to delete an account for them.
 - Anyone can report an artifact at https://app.portifact.com/report or abuse@portifact.com; every artifact also links to the form at `https://<id>.portifact.dev/__portifact/report`.

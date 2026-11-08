@@ -32,7 +32,7 @@ export interface RedeemedReadSession extends ReadSessionGrant {
  * Whether the app.portifact.com session behind a code or read session still exists and has not
  * expired. Signing out, signing out everywhere and revoking a session all delete the row.
  */
-function liveAppSession(db: Db, authSessionId: SQLiteColumn, now: number) {
+export function liveAppSession(db: Db, authSessionId: SQLiteColumn, now: number) {
   return exists(
     db
       .select({ one: sql`1` })
