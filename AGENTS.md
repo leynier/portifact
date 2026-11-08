@@ -68,7 +68,7 @@ bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit w
 bun run test:mutation  # Stryker on domain, anchors, contracts, render and services, one package at a time (slow; see docs/testing.md)
 bun run test:load      # load and concurrency scenarios against the local e2e Worker, or staging with --app-url (never production)
 bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
-bun run --cwd apps/jobs operator <command>   # operator tool: reports, suspensions, storage-report, export-tombstones, apply-tombstones, budget state and override, email-suppressions and lift-email-suppression (deploy credentials; --local for wrangler dev state); docs/operations.md
+bun run --cwd apps/jobs operator <command>   # operator tool: reports, suspensions, storage-report, export-tombstones, apply-tombstones, budget state and override, email-suppressions and lift-email-suppression (deploy credentials; --local for wrangler dev state, --config <file> for a scratch database in a backup drill); docs/operations.md
 ```
 
 A task is not done until `bun run check` and `bun run test` pass. Use `bun run test`, not `bun test`: the latter starts Bun's own test runner instead of Vitest. Run `bun run test:e2e` when the change affects a user flow, a browser behavior or content delivery.
