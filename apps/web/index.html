@@ -75,8 +75,8 @@
             href="#status"
             class="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-canvas py-1 pr-3 pl-1 text-xs text-text-muted no-underline hover:border-border-strong hover:text-text sm:text-sm"
           >
-            <span class="shrink-0 rounded-full border border-dashed border-border-strong px-2 py-0.5 font-medium whitespace-nowrap text-text">Early development</span>
-            <span class="truncate"><span class="sm:hidden">See what works today</span><span class="hidden sm:inline">Installer, CLI and agent skill available today</span></span>
+            <span class="shrink-0 rounded-full border border-dashed border-border-strong px-2 py-0.5 font-medium whitespace-nowrap text-text">Early release</span>
+            <span class="truncate"><span class="sm:hidden">See what works today</span><span class="hidden sm:inline">Publish, share and review available today</span></span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-3.5 shrink-0"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
           </a>
           <h1 id="hero-title" class="mx-auto mt-7 max-w-4xl text-4xl leading-tight font-semibold tracking-tighter text-balance sm:text-5xl sm:leading-none lg:text-6xl">
@@ -219,7 +219,7 @@
               </div>
             </div>
           </div>
-          <figcaption class="mt-4 text-center text-sm text-text-muted">Preview of the publish and review flow, in development. Open source under AGPL-3.0; the CLI and the agent skill install today.</figcaption>
+          <figcaption class="mt-4 text-center text-sm text-text-muted">Illustration of the publish and review flow. Open source under AGPL-3.0.</figcaption>
         </figure>
 
         <div id="agents" class="mx-auto max-w-6xl px-4 pt-16 pb-20 sm:px-6 sm:pb-24">
@@ -238,7 +238,7 @@
             <li class="flex min-w-0 items-center justify-center gap-2 px-2 py-2"><svg viewBox="48 46 333 333" fill="currentColor" aria-hidden="true" class="size-4.5 shrink-0"><path d="M70 159.333V91.3471C70 88.3592 71.594 85.5983 74.1816 84.1044L133.043 50.1205C135.631 48.6265 138.819 48.6265 141.407 50.1205L200.269 84.1044C202.856 85.5983 204.45 88.3592 204.45 91.3471V126.068C204.708 137.606 210.806 148.734 221.531 154.926C232.256 161.117 244.942 160.834 255.063 155.289L285.132 137.929C287.719 136.435 290.907 136.435 293.495 137.929L352.357 171.913C354.944 173.406 356.538 176.167 356.538 179.155V247.123C356.538 250.111 354.944 252.872 352.357 254.366L293.495 288.35C290.907 289.844 287.719 289.844 285.132 288.35L255.306 271.13C245.146 265.456 232.344 265.117 221.534 271.358C210.809 277.55 204.711 288.678 204.453 300.215V334.926C204.453 337.914 202.859 340.675 200.271 342.169L141.41 376.153C138.822 377.647 135.634 377.647 133.046 376.153L74.1845 342.169C71.5969 340.675 70.0028 337.914 70.0028 334.926V266.959C70.0029 263.971 71.5969 261.21 74.1845 259.716L133.046 225.732C135.634 224.238 138.822 224.238 141.41 225.732L171.547 243.132C181.656 248.638 194.306 248.906 205.005 242.729C215.815 236.488 221.922 225.231 222.088 213.595C221.83 202.057 215.732 189.737 205.008 183.545C194.283 177.353 181.597 177.636 171.476 183.181L141.269 200.72C138.67 202.229 135.461 202.228 132.864 200.716L74.1576 166.562C71.5835 165.065 70 162.311 70 159.333Z" /></svg><span class="truncate">Devin</span></li>
             <li class="flex min-w-0 items-center justify-center gap-2 px-2 py-2"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="size-4.5 shrink-0"><path d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z" /></svg><span class="truncate">Antigravity</span></li>
           </ul>
-          <p class="mt-5 text-center text-sm text-text-muted text-pretty">The installer and the agent skill work in all of them today. Remote MCP is in development, and connecting it will depend on each client's OAuth support. <a href="#install" class="text-text hover:no-underline">Set it up</a></p>
+          <p class="mt-5 text-center text-sm text-text-muted text-pretty">The CLI and the agent skill work in all of them. The remote MCP server works in clients that support OAuth sign-in and is tested with Claude.ai, Claude Code and Codex CLI. <a href="/mcp-compatibility" class="text-text hover:no-underline">See MCP compatibility</a></p>
         </div>
       </section>
 
@@ -248,7 +248,7 @@
           <div class="max-w-2xl">
             <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Three ways in</p>
             <h2 id="interfaces-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">One set of rules, wherever you work</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">The CLI, the remote MCP server and the web dashboard sit on the same domain layer. Permissions, quotas, states and errors are identical, so your agent and your team always see the same thing.</p>
+            <p class="mt-4 text-lg text-text-muted text-pretty">The CLI, the remote MCP server and the web dashboard sit on the same domain layer. An operation runs the same permission checks, quotas, states and errors wherever you start it, so your agent and your team always see the same thing.</p>
           </div>
 
           <div class="mt-10 grid w-full grid-cols-3 gap-1 rounded-md border border-border bg-canvas p-1 sm:inline-grid sm:w-auto" role="tablist" aria-label="Ways to use Portifact">
@@ -270,13 +270,14 @@
           <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs make a panel without focusable content focusable -->
           <div role="tabpanel" id="panel-cli" aria-labelledby="tab-cli" tabindex="0" class="mt-8 grid grid-cols-1 items-center gap-10 rounded-md lg:grid-cols-12">
             <div class="lg:col-span-5">
-              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span>Binary available, publishing in development</p>
+              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span>Available</p>
               <h3 class="mt-4 text-2xl font-semibold tracking-tight">For you and your scripts</h3>
-              <p class="mt-3 text-text-muted text-pretty">One self-contained binary for macOS, Linux and Windows. Publish a file, a folder or a ZIP, share it and pull the feedback back, from your shell or from any agent with a terminal.</p>
+              <p class="mt-3 text-text-muted text-pretty">One self-contained binary for macOS, Linux and Windows. Publish a file, a folder or a ZIP, share it and pull the feedback back, from your shell or from any agent with a terminal. Run <code class="font-mono text-text">portifact login</code> to sign in.</p>
               <ul class="mt-6 space-y-3 text-sm">
                 <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Stable <code class="font-mono">--json</code> output and non-interactive flags</span></li>
                 <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Shows the file list before uploading and skips secrets, <code class="font-mono">.git</code> and <code class="font-mono">node_modules</code></span></li>
                 <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Signs in with a device code and keeps credentials in the system keychain</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Versions, rollback and private sources only you can pull back</span></li>
               </ul>
             </div>
             <div class="lg:col-span-7" role="img" aria-label="A terminal session that publishes a prototype folder, shares it with one email address and exports the reviewer comments as Markdown.">
@@ -308,16 +309,17 @@
           <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs make a panel without focusable content focusable -->
           <div role="tabpanel" id="panel-mcp" aria-labelledby="tab-mcp" tabindex="0" hidden class="mt-8 grid grid-cols-1 items-center gap-10 rounded-md lg:grid-cols-12">
             <div class="lg:col-span-5">
-              <p class="inline-flex items-center gap-2 rounded-full border border-dashed border-border-strong bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full border border-text-muted"></span>In development</p>
+              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span>Available</p>
               <h3 class="mt-4 text-2xl font-semibold tracking-tight">For your agent, directly</h3>
-              <p class="mt-3 text-text-muted text-pretty">A remote MCP server at <code class="font-mono text-text">app.portifact.com/mcp</code>. Your agent publishes, shares and reads feedback as tools, signed in with OAuth, with no extra install on your machine.</p>
+              <p class="mt-3 text-text-muted text-pretty">A remote MCP server at <code class="font-mono text-text">https://app.portifact.com/mcp</code>. Add it to your client and sign in with your Portifact account in the browser. Your agent publishes documents, manages versions and reads feedback as tools, with no extra install on your machine.</p>
               <ul class="mt-6 space-y-3 text-sm">
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Built for Claude Code, Codex and other MCP clients</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Tested with Claude.ai, Claude Code and Codex CLI. <a href="/mcp-compatibility" class="text-text hover:no-underline">See MCP compatibility</a></span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Small documents go inline; folders, sites and access changes go through the CLI or the dashboard</span></li>
                 <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>No privileged path: the same permission checks and quotas as the CLI</span></li>
                 <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Reviewer comments reach the agent as data, never as instructions</span></li>
               </ul>
             </div>
-            <div class="lg:col-span-7" role="img" aria-label="An agent session. The user asks the agent to publish three checkout alternatives and share them with two people; the agent calls the Portifact publish and share tools and replies with the link, then reads the open review threads.">
+            <div class="lg:col-span-7" role="img" aria-label="An agent session. The user asks the agent to publish the API design plan; the agent calls the Portifact publish document tool and replies with the private link. Then the user asks it to read the feedback, and the agent lists the open review threads.">
               <div class="overflow-hidden rounded-md border border-terminal-border bg-terminal text-terminal-text shadow-float">
                 <div class="flex items-center gap-1.5 border-b border-terminal-border px-4 py-3">
                   <span class="size-2.5 rounded-full bg-terminal-border"></span>
@@ -326,20 +328,16 @@
                   <span class="ml-auto font-mono text-xs text-terminal-muted">agent session</span>
                 </div>
                 <div class="space-y-3 p-5 font-mono text-xs leading-6 sm:text-sm sm:leading-7">
-                  <p class="rounded-sm border border-terminal-border px-3 py-2"><span class="text-terminal-muted">&gt;</span> Publish the three checkout alternatives and share them with ana@example.com and marco@example.com</p>
+                  <p class="rounded-sm border border-terminal-border px-3 py-2"><span class="text-terminal-muted">&gt;</span> Publish the API design plan so the team can review it</p>
                   <div>
-                    <p>● portifact · publish <span class="text-terminal-muted">./alternatives, 3 files</span></p>
+                    <p>● portifact · publish_document <span class="text-terminal-muted">plan.md, Markdown</span></p>
                     <p class="pl-4 text-terminal-muted">└ Published version 1, private</p>
                   </div>
+                  <p>Done. It is private at <span class="break-words underline underline-offset-4">p2n9wd6v.portifact.dev</span>; share it from the dashboard when you are ready.</p>
+                  <p class="rounded-sm border border-terminal-border px-3 py-2"><span class="text-terminal-muted">&gt;</span> Read the feedback and revise the auth section</p>
                   <div>
-                    <p>● portifact · share <span class="text-terminal-muted">email list, 2 people</span></p>
-                    <p class="pl-4 text-terminal-muted">└ Access updated</p>
-                  </div>
-                  <p>Done. Ana and Marco can open <span class="break-words underline underline-offset-4">p2n9wd6v.portifact.dev</span> after confirming their email.</p>
-                  <p class="rounded-sm border border-terminal-border px-3 py-2"><span class="text-terminal-muted">&gt;</span> Read their feedback and revise option B</p>
-                  <div>
-                    <p>● portifact · read annotations</p>
-                    <p class="pl-4 text-terminal-muted">└ 4 open threads, 2 on option B</p>
+                    <p>● portifact · list_annotations</p>
+                    <p class="pl-4 text-terminal-muted">└ 4 open threads, 2 on the auth section</p>
                   </div>
                 </div>
               </div>
@@ -350,13 +348,13 @@
           <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs make a panel without focusable content focusable -->
           <div role="tabpanel" id="panel-dashboard" aria-labelledby="tab-dashboard" tabindex="0" hidden class="mt-8 grid grid-cols-1 items-center gap-10 rounded-md lg:grid-cols-12">
             <div class="lg:col-span-5">
-              <p class="inline-flex items-center gap-2 rounded-full border border-dashed border-border-strong bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full border border-text-muted"></span>In development</p>
+              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span>Available</p>
               <h3 class="mt-4 text-2xl font-semibold tracking-tight">For everyone on the team</h3>
-              <p class="mt-3 text-text-muted text-pretty">A web dashboard at <code class="font-mono text-text">app.portifact.com</code> to upload, share, review and restore without a terminal.</p>
+              <p class="mt-3 text-text-muted text-pretty">A web dashboard at <code class="font-mono text-text">app.portifact.com</code> to publish, share, review and restore without a terminal. <a href="https://app.portifact.com/" class="text-text hover:no-underline">Sign in to the dashboard</a></p>
               <ul class="mt-6 space-y-3 text-sm">
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Upload a file, a folder or a ZIP from the browser</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Change access, follow threads and restore archived artifacts</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>See and revoke tokens and connected MCP clients</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Publish files, a folder or a ZIP from the browser, or edit Markdown and text in place</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Change access, comment in the review viewer, roll back versions and restore archived artifacts</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>See your browser sessions and disconnect apps, including the CLI and MCP clients</span></li>
               </ul>
             </div>
             <div class="lg:col-span-7" role="img" aria-label="The dashboard lists four artifacts with their type, access mode, open threads and days until they expire.">
@@ -367,20 +365,18 @@
                     <span class="size-2.5 rounded-full bg-selection"></span>
                     <span class="size-2.5 rounded-full bg-selection"></span>
                   </div>
-                  <div class="min-w-0 flex-1 truncate rounded-sm bg-surface px-3 py-1 font-mono text-xs text-text-muted">app.portifact.com/artifacts</div>
+                  <div class="min-w-0 flex-1 truncate rounded-sm bg-surface px-3 py-1 font-mono text-xs text-text-muted">app.portifact.com</div>
                 </div>
                 <div class="flex">
                   <div class="hidden w-40 shrink-0 space-y-1 border-r border-border p-3 text-xs sm:block">
                     <p class="rounded-sm bg-surface px-2 py-1.5 font-semibold">Artifacts</p>
-                    <p class="px-2 py-1.5 text-text-muted">Archive</p>
-                    <p class="px-2 py-1.5 text-text-muted">Tokens</p>
-                    <p class="px-2 py-1.5 text-text-muted">MCP clients</p>
-                    <p class="px-2 py-1.5 text-text-muted">Settings</p>
+                    <p class="px-2 py-1.5 text-text-muted">Publish</p>
+                    <p class="px-2 py-1.5 text-text-muted">Account</p>
                   </div>
                   <div class="min-w-0 flex-1 p-4 text-xs">
                     <div class="flex items-center justify-between">
                       <p class="text-sm font-semibold">Artifacts</p>
-                      <span class="rounded-sm bg-surface-inverse px-2.5 py-1 font-medium text-text-inverse">Upload</span>
+                      <span class="rounded-sm bg-surface-inverse px-2.5 py-1 font-medium text-text-inverse">Publish</span>
                     </div>
                     <div class="mt-4 grid grid-cols-12 gap-2 border-b border-border pb-2 text-text-muted">
                       <span class="col-span-6 sm:col-span-5">Name</span>
@@ -460,7 +456,7 @@
               <code class="mt-auto block truncate pt-5 font-mono text-xs opacity-80">annotations export</code>
             </li>
           </ol>
-          <p class="mt-6 text-sm text-text-muted">These commands are the planned interface. The current release ships the installer and the CLI binary; publishing arrives in upcoming releases.</p>
+          <p class="mt-6 text-sm text-text-muted">The steps show CLI commands, and the dashboard does each of them too. Through MCP your agent publishes documents and reads the threads; changing access stays with the CLI and the dashboard.</p>
         </div>
       </section>
 
@@ -809,7 +805,7 @@
           <div class="max-w-2xl">
             <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Install</p>
             <h2 id="install-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Set it up in a minute</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">The installer, the CLI binary and the agent skill are available now. Install them today and get each new capability as it ships.</p>
+            <p class="mt-4 text-lg text-text-muted text-pretty">Install the CLI and the agent skill, then sign in with <code class="font-mono text-text">portifact login</code>. You can also connect the MCP server to your agent or use the dashboard in the browser.</p>
           </div>
 
           <div class="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -888,19 +884,45 @@
               <p class="text-xs text-text-muted">One executable for Linux (glibc and Alpine), macOS and Windows on x64 and arm64. No Node, no Bun, no runtime to manage.</p>
             </div>
           </div>
+
+          <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div id="connect-mcp" class="flex flex-col gap-4 rounded-lg border border-border bg-surface-raised p-5 sm:p-6">
+              <h3 class="text-lg font-semibold">Connect the MCP server</h3>
+              <p class="text-sm text-text-muted">Add this server address to any MCP client that supports remote servers with OAuth. Your client opens the browser so you can sign in with your Portifact account and choose what it may do.</p>
+              <div class="rounded-md border border-border bg-surface">
+                <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-2 text-xs text-text-muted">
+                  <span>Server address</span>
+                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="mcp-url" data-copy-status="copy-status">Copy</button>
+                </div>
+                <pre class="px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap sm:text-sm"><code id="mcp-url">https://app.portifact.com/mcp</code></pre>
+              </div>
+              <p class="text-sm text-text-muted">The first sign-in only lets your agent see your artifacts; the client asks again when a tool needs more, such as publishing. Setup steps for Claude.ai, Claude Code and Codex CLI are on the <a href="/mcp-compatibility" class="text-text hover:no-underline">MCP compatibility page</a>.</p>
+            </div>
+
+            <div class="flex flex-col gap-4 rounded-lg border border-border bg-surface-raised p-5 sm:p-6">
+              <h3 class="text-lg font-semibold">Or use the dashboard</h3>
+              <p class="text-sm text-text-muted">Sign in at <code class="font-mono text-text">app.portifact.com</code> with Google, GitHub or a code sent to your email. Publish, change access, review threads, roll back versions and restore archived artifacts without a terminal.</p>
+              <div class="mt-auto">
+                <a href="https://app.portifact.com/" class="inline-flex h-10 items-center rounded-sm bg-surface-inverse px-4 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85">Sign in to the dashboard</a>
+              </div>
+            </div>
+          </div>
           <p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>
 
           <div id="status" class="mt-16">
-            <h3 class="text-lg font-semibold">What works today</h3>
+            <h3 class="text-lg font-semibold">What works today, and what is next</h3>
             <ul class="mt-5 grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2">
               <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Installer for macOS, Linux and Windows</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
               <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Signed releases with checksums</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
               <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Agent skill</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Publish HTML, Markdown and text</span><span class="inline-flex shrink-0 items-center gap-1.5 text-text-muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-dasharray="3 3" aria-hidden="true" class="size-4"><circle cx="12" cy="12" r="8" /></svg>In development</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Access control</span><span class="inline-flex shrink-0 items-center gap-1.5 text-text-muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-dasharray="3 3" aria-hidden="true" class="size-4"><circle cx="12" cy="12" r="8" /></svg>In development</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Annotations and review</span><span class="inline-flex shrink-0 items-center gap-1.5 text-text-muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-dasharray="3 3" aria-hidden="true" class="size-4"><circle cx="12" cy="12" r="8" /></svg>In development</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>MCP server</span><span class="inline-flex shrink-0 items-center gap-1.5 text-text-muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-dasharray="3 3" aria-hidden="true" class="size-4"><circle cx="12" cy="12" r="8" /></svg>In development</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Web dashboard</span><span class="inline-flex shrink-0 items-center gap-1.5 text-text-muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-dasharray="3 3" aria-hidden="true" class="size-4"><circle cx="12" cy="12" r="8" /></svg>In development</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Publish HTML sites, Markdown and text</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Versions, rollback and private sources</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Access control</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Archive and restore</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Annotations and review</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span><a href="/mcp-compatibility" class="text-text hover:no-underline">MCP server</a></span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Web dashboard</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Access logs for your artifacts</span><span class="inline-flex shrink-0 items-center gap-1.5 text-text-muted"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-dasharray="3 3" aria-hidden="true" class="size-4"><circle cx="12" cy="12" r="8" /></svg>Planned</span></li>
             </ul>
           </div>
         </div>
@@ -911,7 +933,7 @@
         <section id="free" class="rounded-lg border border-border p-6 sm:p-8" aria-labelledby="free-title">
           <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Free tier</p>
           <h2 id="free-title" class="mt-3 text-3xl font-semibold tracking-tight">Room for real work</h2>
-          <p class="mt-3 text-text-muted">The free tier planned for launch. Limits may be tuned before release.</p>
+          <p class="mt-3 text-text-muted">The limits every account has today. They may be tuned as Portifact grows.</p>
           <dl class="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
               <dt class="text-sm text-text-muted">active artifacts</dt>
@@ -960,15 +982,15 @@
           <div class="divide-y divide-border border-y border-border lg:col-span-8">
             <details class="group">
               <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Can I use Portifact today?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Partly. The installer, the CLI binary and the agent skill are available now. Publishing, sharing, annotations, the MCP server and the dashboard are in development and will arrive in upcoming releases.</p>
+              <p class="pb-5 text-text-muted">Yes. Publishing, access control, versions, archive and restore, annotations with the review viewer, the MCP server and the dashboard all work today. Sign in with <code class="font-mono">portifact login</code>, connect the MCP server or sign in at <a href="https://app.portifact.com/" class="text-text">app.portifact.com</a>. Portifact is early, so expect rough edges and limits that may change.</p>
             </details>
             <details class="group">
               <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Which agents does it work with?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Any coding agent with a terminal can run the CLI. The skill installs into Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode and other agents. The remote MCP server is being built for Claude Code, Codex and other MCP clients.</p>
+              <p class="pb-5 text-text-muted">Any coding agent with a terminal can run the CLI. The skill installs into Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode and other agents. The remote MCP server works in clients that support OAuth sign-in and is tested with Claude.ai, Claude Code and Codex CLI; see <a href="/mcp-compatibility" class="text-text">MCP compatibility</a>.</p>
             </details>
             <details class="group">
               <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">What can I publish?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Static content: HTML sites with their CSS and JavaScript, Markdown rendered cleanly and plain text shown exactly as written. A single file, a folder or a ZIP. Portifact does not run builds or servers.</p>
+              <p class="pb-5 text-text-muted">Static content: HTML sites with their CSS and JavaScript, Markdown rendered cleanly and plain text shown exactly as written. A single file, a folder or a ZIP, with private sources only you can download if you want them kept alongside. Portifact does not run builds or servers.</p>
             </details>
             <details class="group">
               <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Who can see what I publish?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
@@ -994,10 +1016,10 @@
       <section class="relative overflow-hidden bg-terminal text-terminal-text" aria-labelledby="cta-title">
         <div class="mx-auto max-w-6xl px-4 py-24 text-center sm:px-6 sm:py-32">
           <h2 id="cta-title" class="mx-auto max-w-3xl text-4xl font-semibold tracking-tighter text-balance sm:text-5xl">Give your agent's work a home</h2>
-          <p class="mx-auto mt-5 max-w-xl text-lg text-terminal-muted text-pretty">Install the CLI and the skill today. Publishing, sharing and review arrive in the next releases.</p>
+          <p class="mx-auto mt-5 max-w-xl text-lg text-terminal-muted text-pretty">Install the CLI and the skill, connect the MCP server or sign in to the dashboard.</p>
           <div class="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <a href="#install" class="inline-flex h-11 w-full items-center justify-center rounded-md bg-terminal-text px-6 text-sm font-medium text-terminal no-underline transition-opacity hover:opacity-85 sm:w-auto">Install Portifact</a>
-            <a href="https://github.com/leynier/portifact" class="inline-flex h-11 w-full items-center justify-center rounded-md border border-terminal-border px-6 text-sm font-medium text-terminal-text no-underline transition-colors hover:border-terminal-muted sm:w-auto">Follow on GitHub</a>
+            <a href="https://app.portifact.com/" class="inline-flex h-11 w-full items-center justify-center rounded-md border border-terminal-border px-6 text-sm font-medium text-terminal-text no-underline transition-colors hover:border-terminal-muted sm:w-auto">Sign in to the dashboard</a>
           </div>
         </div>
       </section>
