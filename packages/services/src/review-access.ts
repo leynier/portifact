@@ -21,6 +21,11 @@ export interface ReviewGrant {
   expiresAt: number;
 }
 
+/** A redeemed code: the grant and the tag of the new session (see `reviewSessionTag`). */
+export interface RedeemedReview extends ReviewGrant {
+  sessionTag: string;
+}
+
 export interface IssuedReviewHandoff {
   code: string;
   name: string;
@@ -28,10 +33,29 @@ export interface IssuedReviewHandoff {
   expiresAt: number;
   versionId: string;
   entrypoint: string;
+  sessionTag: string;
 }
 
 const unavailable = () =>
   fail<never>("not_found", "This artifact does not exist or your account cannot open it.");
+
+/**
+ * A public tag of the review session a code turns into: the first 16 bytes of a domain-separated
+ * SHA-256 of the code, in base64url. The viewer gets it with the code and the bridge echoes the
+ * tag of the session its page was served in, so the viewer notices a frame that runs a review
+ * session it did not start (one planted through a cross-site redirect). It reveals neither the
+ * code, which is used by then, nor the session ID, and differs from the stored code hash.
+ */
+export async function reviewSessionTag(code: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`portifact-review-session-tag\0${code}`),
+  );
+  return btoa(String.fromCharCode(...new Uint8Array(digest).slice(0, 16)))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
 
 /**
  * Checks that the user may read the artifact now and stores a one-use code for its current
@@ -67,7 +91,7 @@ export async function issueReviewHandoff(
     expiresAt,
     createdAt: input.now,
   });
-  return ok({ code, expiresAt, ...current });
+  return ok({ code, expiresAt, sessionTag: await reviewSessionTag(code), ...current });
 }
 
 /**
@@ -79,7 +103,7 @@ export async function issueReviewHandoff(
 export async function redeemReviewHandoff(
   db: Db,
   input: { code: string; artifactId: string; now: number },
-): Promise<Result<ReviewGrant>> {
+): Promise<Result<RedeemedReview>> {
   const codeHash = await hashSecret(input.code);
   const sessionId = randomToken();
   const expiresAt = input.now + REVIEW_SESSION.sessionTtlSeconds * SECOND_MS;
@@ -120,7 +144,7 @@ export async function redeemReviewHandoff(
   ]);
   const row = claimed[0];
   if (!row) return fail("invalid_input", "This review link has expired or was already used.");
-  return ok({ ...row, sessionId, expiresAt });
+  return ok({ ...row, sessionId, expiresAt, sessionTag: await reviewSessionTag(input.code) });
 }
 
 /**

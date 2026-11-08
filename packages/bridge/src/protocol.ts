@@ -25,6 +25,13 @@ export const BRIDGE_LIMITS = {
 /** A random per-instance value the viewer hands to one bridge instance (one page load). */
 export const InstanceNonce = z.string().regex(/^[A-Za-z0-9_-]{22,64}$/, "Invalid nonce");
 
+/**
+ * Identifies the review session the page runs in, without revealing it: the review API gives it
+ * to the viewer and the content Worker gives it to the bridge, which echoes it in `ready`. A
+ * mismatch means the frame runs a review session this viewer did not start (fixation).
+ */
+export const SessionTag = z.string().regex(/^[A-Za-z0-9_-]{22}$/, "Invalid session tag");
+
 /** Thread IDs used as marker IDs. */
 export const MarkerId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "Invalid marker id");
 
@@ -60,8 +67,16 @@ const bound = { ...envelope, nonce: InstanceNonce };
 
 /** Bridge to viewer. Everything here is untrusted. */
 export const BridgeMessage = z.discriminatedUnion("type", [
-  /** A bridge instance started on a page; the viewer answers with `init` and a nonce. */
-  z.strictObject({ ...envelope, type: z.literal("ready"), page: BridgePage }),
+  /**
+   * A bridge instance started on a page; the viewer answers with `init` and a nonce, but only
+   * when `sessionTag` is the one of the review session it started.
+   */
+  z.strictObject({
+    ...envelope,
+    type: z.literal("ready"),
+    page: BridgePage,
+    sessionTag: SessionTag,
+  }),
   /**
    * Sent by the artifact origin's own pages, not the bridge: review mode could not start in
    * this browser (`unavailable`, the review cookie was not stored), the review session ended
@@ -89,6 +104,8 @@ export const BridgeMessage = z.discriminatedUnion("type", [
   }),
   /** The reader activated a marker in the page. */
   z.strictObject({ ...bound, type: z.literal("activate"), id: MarkerId }),
+  /** The answer to `ping`: this bridge instance still runs in the frame. */
+  z.strictObject({ ...bound, type: z.literal("pong") }),
 ]);
 export type BridgeMessage = z.infer<typeof BridgeMessage>;
 
@@ -117,6 +134,8 @@ export const ViewerMessage = z.discriminatedUnion("type", [
   z.strictObject({ ...bound, type: z.literal("pick"), active: z.boolean(), hint: Label }),
   z.strictObject({ ...bound, type: z.literal("focus"), id: MarkerId }),
   z.strictObject({ ...bound, type: z.literal("clear-selection") }),
+  /** Sent after each load of the frame: a page of the artifact answers with `pong`. */
+  z.strictObject({ ...bound, type: z.literal("ping") }),
 ]);
 export type ViewerMessage = z.infer<typeof ViewerMessage>;
 

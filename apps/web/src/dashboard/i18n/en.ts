@@ -431,9 +431,17 @@ export const en = {
   "review.status.silent.body":
     "Its own security policy may block them. You can still leave general comments on the page.",
   "review.status.ended.title": "This review session ended",
-  "review.status.ended.body": "Reload the review to keep commenting.",
+  "review.status.ended.body":
+    "The page in the frame says so. Comments here keep working; reload the review to use the review tools in the page again.",
   "review.status.failed.title": "The review link expired",
-  "review.status.failed.body": "Reload the review to open it again.",
+  "review.status.failed.body":
+    "The page in the frame says so. Comments here keep working; reload the review to open the page again.",
+  "review.status.foreign.title": "The frame is not running your review session",
+  "review.status.foreign.body":
+    "Something, possibly another artifact, opened a different review session in the frame, so the review tools are off for it. Reload the review to start yours again. Comments here are not affected.",
+  "review.status.lost.title": "The frame stopped answering from the artifact",
+  "review.status.lost.body":
+    "It may now show another site, another artifact or a file without the review tools, so do not trust what it shows as this artifact. Reload the review to show the artifact again. Comments here are not affected.",
   "review.reload": "Reload the review",
   "review.newVersion.title": "A newer version was published",
   "review.newVersion.body":

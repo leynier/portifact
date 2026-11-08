@@ -43,8 +43,17 @@ const viewerExpects = (nonce: string | null = NONCE) => ({
 
 describe("bridge messages, as the viewer reads them", () => {
   it("accepts a ready message without a nonce, only from the frame's exact origin and window", () => {
-    const ready = { channel: REVIEW_CHANNEL, v: 1, type: "ready", page: { path: "index.html" } };
+    const ready = {
+      channel: REVIEW_CHANNEL,
+      v: 1,
+      type: "ready",
+      page: { path: "index.html" },
+      sessionTag: "Ses5ionTag_0123456789-",
+    };
     expect(readBridgeMessage(fromFrame(ready), viewerExpects(null))).toEqual(ready);
+    // Without the tag of the review session it runs in, a ready message is not one.
+    const { sessionTag: _, ...untagged } = ready;
+    expect(readBridgeMessage(fromFrame(untagged), viewerExpects(null))).toBeNull();
     expect(
       readBridgeMessage(
         fromFrame(ready, { origin: "https://p3n5wq7yzc.portifact.dev" }),

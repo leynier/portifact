@@ -22,6 +22,7 @@ const ID = "k7d2qm4xab";
 const ORIGIN = `https://${ID}.portifact.dev`;
 const PATH = `/review/${ID}`;
 const CODE_URL = `${ORIGIN}/__portifact/review?code=${"c".repeat(43)}`;
+const SESSION_TAG = "s".repeat(22);
 
 const START: ReviewStart = {
   artifactId: ID,
@@ -31,6 +32,7 @@ const START: ReviewStart = {
   origin: ORIGIN,
   versionId: "v1",
   entrypoint: "index.html",
+  sessionTag: SESSION_TAG,
   expiresAt: "2026-11-08T12:01:00.000Z",
 };
 
@@ -106,7 +108,7 @@ const sent = () =>
 
 /** Starts the handshake and returns the nonce the viewer gave the page. */
 async function connect(page: { path: string; route?: string } = { path: "index.html" }) {
-  deliver({ channel: REVIEW_CHANNEL, v: 1, type: "ready", page });
+  deliver({ channel: REVIEW_CHANNEL, v: 1, type: "ready", page, sessionTag: SESSION_TAG });
   await waitFor(() => expect(sent().some((s) => s.message.type === "init")).toBe(true));
   const init = sent().find((s) => s.message.type === "init");
   return init?.message.nonce as string;
@@ -183,7 +185,13 @@ describe("review viewer", () => {
     deliver({ channel: REVIEW_CHANNEL, v: 1, nonce, type: "post", body: "spam" });
     // A forged "ready" from another window cannot take over the handshake either.
     deliver(
-      { channel: REVIEW_CHANNEL, v: 1, type: "ready", page: { path: "index.html" } },
+      {
+        channel: REVIEW_CHANNEL,
+        v: 1,
+        type: "ready",
+        page: { path: "index.html" },
+        sessionTag: SESSION_TAG,
+      },
       ORIGIN,
       window,
     );
@@ -257,12 +265,73 @@ describe("review viewer", () => {
     fireEvent.click(pick);
     expect(pick.getAttribute("aria-pressed")).toBe("true");
     expect(sent().at(-1)?.message).toMatchObject({ type: "pick", active: true });
-    fromBridge(nonce, { type: "pick-ended" });
     fromBridge(nonce, { type: "element", target: ELEMENT_TARGET });
+    fromBridge(nonce, { type: "pick-ended" });
     await screen.findByRole("form", { name: "New comment" });
     expect(screen.getByText("Element button")).toBeTruthy();
     expect(screen.getByText("Buy now")).toBeTruthy();
     expect(pick.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("ignores an element the reader did not pick", async () => {
+    await open();
+    const nonce = await connect();
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET });
+    // A pick that ended without an element does not leave the door open either.
+    fireEvent.click(screen.getByRole("button", { name: "Select an element" }));
+    fromBridge(nonce, { type: "pick-ended" });
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("form", { name: "New comment" })).toBeNull();
+    expect(screen.queryByText("Element button")).toBeNull();
+    expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
+  });
+
+  it("keeps the target of an open comment when the page sends another one", async () => {
+    await open();
+    const nonce = await connect();
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET });
+    fireEvent.click(await screen.findByRole("button", { name: "Comment on the selection" }));
+    const form = screen.getByRole("form", { name: "New comment" });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Comment" }), {
+      target: { value: "Rename this" },
+    });
+    // The page cannot swap the target under the reader's text, whatever it sends.
+    fireEvent.click(screen.getByRole("button", { name: "Select an element" }));
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET });
+    fromBridge(nonce, { type: "selection", target: { ...TEXT_TARGET, path: "other.html" } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByText("Element button")).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "Post comment" }));
+    await screen.findByText("3 comment threads");
+    expect(server.bodies.at(-1)).toEqual({
+      versionId: "v1",
+      target: TEXT_TARGET,
+      body: "Rename this",
+    });
+  });
+
+  it("sends the frame only the threads of the page it shows", async () => {
+    server.annotations[ID]?.threads.push({
+      ...fakeThread("t3", {
+        target: { ...TEXT_TARGET, path: "other.html" },
+        createdAt: "2026-11-08T12:09:00.000Z",
+      }),
+      seq: 3,
+    });
+    await open();
+    const nonce = await connect();
+    await waitFor(() => expect(sent().some((s) => s.message.type === "markers")).toBe(true));
+    const ids = () => {
+      const last = sent()
+        .map((s) => s.message)
+        .filter((message) => message.type === "markers")
+        .at(-1);
+      return last?.markers.map((marker) => marker.id);
+    };
+    expect(ids()).toEqual(["t1"]);
+    fromBridge(nonce, { type: "location", page: { path: "other.html" } });
+    await waitFor(() => expect(ids()).toEqual(["t3"]));
   });
 
   it("shows threads the page cannot locate as without location, and others as on another page", async () => {
@@ -290,6 +359,26 @@ describe("review viewer", () => {
     expect(sent().map((s) => s.message)).toContainEqual(
       expect.objectContaining({ type: "focus", id: "t1" }),
     );
+  });
+
+  it("ignores results and activations for threads it did not send to the page", async () => {
+    server.annotations[ID]?.threads.push({
+      ...fakeThread("t3", {
+        target: { ...TEXT_TARGET, path: "other.html" },
+        createdAt: "2026-11-08T12:09:00.000Z",
+      }),
+      seq: 3,
+    });
+    await open();
+    const nonce = await connect();
+    fromBridge(nonce, { type: "location", page: { path: "other.html" } });
+    fromBridge(nonce, { type: "location", page: { path: "index.html" } });
+    fromBridge(nonce, { type: "resolved", results: [{ id: "t3", confidence: "orphaned" }] });
+    fromBridge(nonce, { type: "activate", id: "t2" });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const second = screen.getByRole("article", { name: "Thread 2" });
+    expect(second.getAttribute("aria-current")).toBeNull();
+    expect(document.activeElement).not.toBe(second);
   });
 
   it("moves focus to the thread a reader activates in the page", async () => {
@@ -411,6 +500,60 @@ describe("review states", () => {
       expect(server.requests.filter((r) => r.path.endsWith("/review"))).toHaveLength(2),
     );
     await screen.findByText("Connecting to the page");
+  });
+
+  it("refuses a frame that runs a review session it did not start", async () => {
+    await open();
+    deliver({
+      channel: REVIEW_CHANNEL,
+      v: 1,
+      type: "ready",
+      page: { path: "index.html" },
+      sessionTag: "a".repeat(22),
+    });
+    await screen.findByText("The frame is not running your review session");
+    expect(sent().some((s) => s.message.type === "init")).toBe(false);
+    expect(screen.queryByRole("button", { name: "Select an element" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Comment on the page" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reload the review" }));
+    await waitFor(() =>
+      expect(server.requests.filter((r) => r.path.endsWith("/review"))).toHaveLength(2),
+    );
+  });
+
+  it("warns when the frame stops answering from the artifact's origin", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await open();
+    const nonce = await connect();
+    const frame = screen.getByTitle("Launch plan, the version under review");
+    // A new page of the artifact answers the viewer's check: still connected.
+    fireEvent.load(frame);
+    const ping = sent().at(-1)?.message;
+    expect(ping).toMatchObject({ type: "ping", nonce });
+    fromBridge(nonce, { type: "pong" });
+    await act(() => vi.advanceTimersByTimeAsync(BRIDGE_TIMEOUT_MS));
+    expect(screen.getByRole("button", { name: "Select an element" })).toBeTruthy();
+    // Then the frame shows something that never answers from this origin.
+    fireEvent.load(frame);
+    await act(() => vi.advanceTimersByTimeAsync(BRIDGE_TIMEOUT_MS));
+    await screen.findByText("The frame stopped answering from the artifact");
+    expect(screen.queryByRole("button", { name: "Select an element" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Comment on the page" })).toBeTruthy();
+  });
+
+  it("keeps comments working when the page claims the session ended", async () => {
+    await open();
+    await connect();
+    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "ended" });
+    await screen.findByText("This review session ended");
+    expect(screen.getByRole("button", { name: "Comment on the page" })).toBeTruthy();
+    expect(screen.getByRole("article", { name: "Thread 1" })).toBeTruthy();
+    // The viewer asks the API for the real state instead of trusting the page.
+    await waitFor(() =>
+      expect(server.requests.filter((r) => r.path.includes("/annotations")).length).toBeGreaterThan(
+        1,
+      ),
+    );
   });
 
   it("stops waiting for a page that never answers", async () => {

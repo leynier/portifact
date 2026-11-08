@@ -36,8 +36,14 @@ export type ReviewStatus = "unavailable" | "ended" | "failed";
 export type ReviewDecision =
   /** No usable review session: serve as usual. */
   | { kind: "none" }
-  /** Serve the pinned version in review mode. */
-  | { kind: "review"; artifact: ServableArtifact; versionId: string; setCookies: string[] }
+  /** Serve the pinned version in review mode; `sessionTag` goes to the bridge. */
+  | {
+      kind: "review";
+      artifact: ServableArtifact;
+      versionId: string;
+      sessionTag: string;
+      setCookies: string[];
+    }
   /** The session is over: tell the viewer, and drop the cookie. */
   | { kind: "status"; status: ReviewStatus; httpStatus: number; setCookies: string[] };
 
@@ -120,7 +126,13 @@ export async function authorizeReview(
   if (!claims) return { kind: "none" };
   if (!artifact || artifact.currentVersionId !== claims.vid) return ended();
   if (claims.exp > now && claims.gen === artifact.policyGeneration) {
-    return { kind: "review", artifact, versionId: claims.vid, setCookies: [] };
+    return {
+      kind: "review",
+      artifact,
+      versionId: claims.vid,
+      sessionTag: claims.tag,
+      setCookies: [],
+    };
   }
   const renewed = await refreshReviewSession(db, { sessionId: claims.sid, artifactId, now });
   if (
@@ -138,11 +150,18 @@ export async function authorizeReview(
       vid: claims.vid,
       uid: claims.uid,
       gen: renewed.value.policyGeneration,
+      tag: claims.tag,
       sexp: renewed.value.expiresAt,
     },
     now,
   );
-  return { kind: "review", artifact, versionId: claims.vid, setCookies: [cookie] };
+  return {
+    kind: "review",
+    artifact,
+    versionId: claims.vid,
+    sessionTag: claims.tag,
+    setCookies: [cookie],
+  };
 }
 
 /** A redirect or a status page answered on the reserved review paths. */
@@ -152,9 +171,13 @@ export type ReviewStep =
   | { kind: "unavailable" };
 
 /**
- * `/__portifact/review?code=…`: redeems the viewer's code. Only the viewer's own iframe
- * navigation qualifies (`cross-site`, `navigate`, `iframe`), so a top-level visit or a sibling
- * artifact cannot plant a review session.
+ * `/__portifact/review?code=…`: redeems the viewer's code. Only a cross-site iframe navigation
+ * qualifies (`cross-site`, `navigate`, `iframe`), which stops a top-level visit or a sibling
+ * artifact's direct request. It does not prove the viewer started it: an artifact framed in the
+ * viewer can open an iframe to a redirector on another site that lands here with a code of its
+ * own, and that arrives with the same metadata, planting its review session in the viewer's
+ * partition. The session's tag, which the bridge echoes and the viewer compares with the one it
+ * got with its code, is what exposes such a session.
  */
 export async function handleReviewExchange(
   request: Request,
@@ -192,6 +215,7 @@ export async function handleReviewExchange(
           vid: session.versionId,
           uid: session.userId,
           gen: session.policyGeneration,
+          tag: session.sessionTag,
           sexp: session.expiresAt,
         },
         now,

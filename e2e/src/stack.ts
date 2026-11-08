@@ -14,7 +14,14 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unstable_startWorker } from "wrangler";
-import { CONTENT_SITE, CONTROL_COOKIE, CONTROL_HOST, REVIEW_COOKIE } from "./hosts.ts";
+import {
+  CONTENT_SITE,
+  CONTROL_COOKIE,
+  CONTROL_HOST,
+  isStackHost,
+  REDIRECT_HOST,
+  REVIEW_COOKIE,
+} from "./hosts.ts";
 import { startProxy } from "./proxy.ts";
 import { selfSignedCertificate } from "./tls.ts";
 
@@ -136,6 +143,16 @@ export async function startStack(): Promise<Stack> {
     try {
       const host = request.headers.host ?? "";
       const url = `https://${host}${request.url ?? "/"}`;
+      if (host === REDIRECT_HOST) {
+        const to = new URL(url).searchParams.get("to") ?? "";
+        const target = URL.canParse(to) ? new URL(to) : null;
+        if (target?.protocol !== "https:" || !isStackHost(target.hostname)) {
+          response.writeHead(400).end();
+          return;
+        }
+        response.writeHead(302, { location: target.href, "cache-control": "no-store" }).end();
+        return;
+      }
       const result = await forward(url, request);
       const extra: string[] = [];
       if (host.endsWith(`.${CONTENT_SITE}`)) {

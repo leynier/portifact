@@ -3,6 +3,11 @@
 // carrying the nonce this viewer gave that page load. Everything in them is untrusted: a
 // selection or a picked element only fills in a comment the reader still has to write and
 // confirm here. The frame receives targets and short labels, never bodies, emails or tokens.
+//
+// The page's own scripts share the bridge's window, so they can send whatever the bridge can.
+// Its messages are hints for the frame's part of the screen: results and activations count
+// only for markers this viewer sent, a `status` makes the screen ask the API instead of
+// trusting it, and the threads, their state and the ability to comment always come from the API.
 import {
   type BridgePage,
   type MarkerResolution,
@@ -21,6 +26,10 @@ export const BRIDGE_TIMEOUT_MS = 5_000;
 export type BridgeState =
   | "connecting"
   | "connected"
+  /** The frame runs a review session this viewer did not start, for example a planted one. */
+  | "foreign"
+  /** The frame stopped answering from the artifact's origin after a page load. */
+  | "lost"
   /** The page loaded but the bridge never answered, for example blocked by the page's CSP. */
   | "silent"
   /** The browser did not keep the review cookie in the frame. */
@@ -34,6 +43,8 @@ export interface BridgeEvents {
   onRefused(reason: RefusalReason): void;
   onPickEnded(): void;
   onActivate(id: string): void;
+  /** The frame's page reported a status; the screen should check the API's state. */
+  onStatus(): void;
 }
 
 export interface BridgeConnection {
@@ -49,6 +60,7 @@ export interface BridgeConnection {
 export function useBridge(
   frame: RefObject<HTMLIFrameElement | null>,
   origin: string | null,
+  sessionTag: string,
   events: BridgeEvents,
 ): BridgeConnection {
   const [state, setState] = useState<BridgeState>("connecting");
@@ -60,11 +72,16 @@ export function useBridge(
   const handlers = useRef(events);
   handlers.current = events;
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /** Whether the frame answered (`ready` or `pong`) since its last load. */
+  const answered = useRef(false);
+  /** IDs of the markers last sent: results and activations for others are ignored. */
+  const marked = useRef(new Set<string>());
 
   const send = useCallback(
     (body: ViewerBody) => {
       const target = frame.current?.contentWindow;
       if (!origin || !target || nonce.current === null) return;
+      if (body.type === "markers") marked.current = new Set(body.markers.map((m) => m.id));
       target.postMessage(viewerEnvelope(nonce.current, body), origin);
     },
     [frame, origin],
@@ -78,9 +95,16 @@ export function useBridge(
       if (!message) return;
       switch (message.type) {
         case "ready": {
+          clearTimeout(timer.current);
+          if (message.sessionTag !== sessionTag) {
+            nonce.current = null;
+            setState("foreign");
+            return;
+          }
+          answered.current = true;
           const fresh = newInstanceNonce();
           nonce.current = fresh;
-          clearTimeout(timer.current);
+          marked.current = new Set();
           source?.postMessage(viewerEnvelope(fresh, { type: "init" }), origin);
           setPage(message.page);
           setResolutions(new Map());
@@ -91,6 +115,7 @@ export function useBridge(
           nonce.current = null;
           clearTimeout(timer.current);
           setState(message.status);
+          handlers.current.onStatus();
           return;
         case "location":
           setPage(message.page);
@@ -108,10 +133,19 @@ export function useBridge(
           handlers.current.onPickEnded();
           return;
         case "resolved":
-          setResolutions(new Map(message.results.map((result) => [result.id, result])));
+          setResolutions(
+            new Map(
+              message.results
+                .filter((result) => marked.current.has(result.id))
+                .map((result) => [result.id, result]),
+            ),
+          );
           return;
         case "activate":
-          handlers.current.onActivate(message.id);
+          if (marked.current.has(message.id)) handlers.current.onActivate(message.id);
+          return;
+        case "pong":
+          answered.current = true;
           return;
       }
     };
@@ -121,15 +155,29 @@ export function useBridge(
       clearTimeout(timer.current);
       nonce.current = null;
     };
-  }, [frame, origin]);
+  }, [frame, origin, sessionTag]);
 
   const onFrameLoad = useCallback(() => {
-    // A page that sent `ready` before its load event finished keeps its handshake.
+    // Every load must be answered from the artifact's origin: by a `ready` of the new page, or,
+    // when that came before the load event, by a `pong` to this check. A frame that navigated
+    // elsewhere (another site, or another artifact) never answers, because the check goes only
+    // to the artifact's origin and answers from other origins are dropped.
     clearTimeout(timer.current);
+    answered.current = false;
+    const target = frame.current?.contentWindow;
+    if (origin && target && nonce.current !== null) {
+      target.postMessage(viewerEnvelope(nonce.current, { type: "ping" }), origin);
+    }
     timer.current = setTimeout(() => {
-      setState((current) => (current === "connecting" ? "silent" : current));
+      if (answered.current) return;
+      nonce.current = null;
+      setState((current) => {
+        if (current === "connecting") return "silent";
+        if (current === "connected") return "lost";
+        return current;
+      });
     }, BRIDGE_TIMEOUT_MS);
-  }, []);
+  }, [frame, origin]);
 
   return { state, page, resolutions, send, onFrameLoad };
 }

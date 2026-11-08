@@ -2,7 +2,12 @@
 // Workers use. Only the e2e Worker has these routes, on a host the browsers cannot reach.
 import { TERMS_VERSION } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
-import { commitPublish, createAnnotationThread, preparePublish } from "@portifact/services";
+import {
+  commitPublish,
+  createAnnotationThread,
+  issueReviewHandoff,
+  preparePublish,
+} from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
 
@@ -50,6 +55,12 @@ interface ThreadInput {
   versionId: string;
   body: string;
   path: string;
+}
+
+interface ReviewCodeInput {
+  userId: string;
+  sessionId: string;
+  artifactId: string;
 }
 
 interface SqlInput {
@@ -168,6 +179,20 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       now,
     });
     return Response.json(result, { status: result.ok ? 200 : 400 });
+  }
+
+  // A review code of another account, as the app's review route issues it: what an attacker
+  // gets for an artifact they can read, to plant in someone else's viewer.
+  if (path === "/review-code") {
+    const { userId, sessionId, artifactId } = input as ReviewCodeInput;
+    const issued = await issueReviewHandoff(db, {
+      artifactId,
+      userId,
+      authSessionId: sessionId,
+      now,
+    });
+    if (!issued.ok) return Response.json(issued, { status: 400 });
+    return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });
   }
 
   if (path === "/sql") {

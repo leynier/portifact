@@ -14,8 +14,14 @@ import {
   sql,
   test,
 } from "../src/fixtures.ts";
-import { type HostileResults, hostilePage } from "../src/hostile.ts";
-import { APP_ORIGIN, artifactOrigin, CONTROL_COOKIE, REVIEW_COOKIE } from "../src/hosts.ts";
+import { bouncingPage, type HostileResults, hostilePage, plantingPage } from "../src/hostile.ts";
+import {
+  APP_ORIGIN,
+  artifactOrigin,
+  bounced,
+  CONTROL_COOKIE,
+  REVIEW_COOKIE,
+} from "../src/hosts.ts";
 
 const SITE = {
   "index.html":
@@ -188,10 +194,12 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
     expect(received).not.toContain(leak);
   }
 
-  // Its forged selection and element only offered comments in the viewer; nothing was posted,
-  // and its requests could not act as the visitor or sign them out.
+  // Its forged selection only offered a comment in the viewer, its forged element (with no pick
+  // in progress) did nothing, nothing was posted, and its requests could not act as the visitor
+  // or sign them out.
   expect(results.forged).toBeGreaterThan(0);
-  await expect(page.getByRole("form", { name: "New comment" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Comment on the selection" })).toBeVisible();
+  await expect(page.getByRole("form", { name: "New comment" })).toBeHidden();
   expect(await threadsBy(victim.userId)).toHaveLength(0);
   expect(await sql("SELECT id FROM sessions WHERE id = ?", [victim.sessionId])).toHaveLength(1);
   await page.reload();
@@ -208,6 +216,141 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
     expect(request.status).not.toBe(200);
   }
   expect(sibling.some((r) => r.cookieNames.includes(REVIEW_COOKIE))).toBe(true);
+});
+
+test("the viewer refuses a review session another artifact planted in its frame", async ({
+  page,
+  context,
+  engine,
+}) => {
+  test.skip(!engine.reviewWorks, "no review cookie is stored in this configuration");
+  const victim = await createUser("Victim");
+  const attacker = await createUser("Attacker");
+  const reviewed = await publish({
+    ownerId: victim.userId,
+    name: "Launch plan",
+    accessMode: "public",
+    files: SITE,
+  });
+  const { code } = await control<{ code: string }>("/review-code", {
+    userId: attacker.userId,
+    sessionId: attacker.sessionId,
+    artifactId: reviewed.artifactId,
+  });
+  const exchange = `${artifactOrigin(reviewed.artifactId)}/__portifact/review?code=${code}`;
+  const planter = await publish({
+    ownerId: attacker.userId,
+    name: "Cute cats",
+    accessMode: "public",
+    files: { "index.html": plantingPage(bounced(exchange)) },
+  });
+
+  await signIn(context, victim);
+  await openReview(page, reviewed.artifactId, "Launch plan");
+  await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
+
+  // In another tab of the same viewer, the attacker's artifact plants its session. The bounced
+  // navigation reaches the exchange as a cross-site iframe navigation and is redeemed.
+  const before = (await contentRequests()).length;
+  const other = await context.newPage();
+  await openReview(other, planter.artifactId, "Cute cats");
+  await expect
+    .poll(async () =>
+      (await contentRequests())
+        .slice(before)
+        .some(
+          (r) =>
+            r.host.startsWith(reviewed.artifactId) &&
+            r.path === "/__portifact/review" &&
+            r.status === 303,
+        ),
+    )
+    .toBe(true);
+  await other.close();
+
+  // The next page load in the first viewer runs the planted session; the viewer notices.
+  // (A link, not a reload: Firefox sends `Sec-Fetch-Site: none` for a frame's reload, which the
+  // review cookie is not honored for.)
+  const frame = await artifactFrame(page, reviewed.artifactId);
+  await frame.evaluate(() => {
+    window.location.href = "/index.html";
+  });
+  await expect(page.getByText("The frame is not running your review session")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Select an element" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Comment on the page" })).toBeVisible();
+
+  // Reloading the review starts the visitor's own session again.
+  await page.getByRole("button", { name: "Reload the review" }).click();
+  await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
+});
+
+test("the viewer warns when the frame leaves the artifact for another one", async ({
+  page,
+  context,
+  engine,
+}) => {
+  test.skip(!engine.reviewWorks, "the bridge never runs in this configuration");
+  const victim = await createUser("Victim");
+  const attacker = await createUser("Attacker");
+  const elsewhere = await publish({
+    ownerId: attacker.userId,
+    name: "Look alike",
+    accessMode: "public",
+    files: { "index.html": "<!doctype html><title>Look alike</title><p>Not the artifact</p>" },
+  });
+  const trampoline = await publish({
+    ownerId: attacker.userId,
+    name: "Trampoline",
+    accessMode: "public",
+    files: { "index.html": bouncingPage(`${artifactOrigin(elsewhere.artifactId)}/`) },
+  });
+
+  await signIn(context, victim);
+  await openReview(page, trampoline.artifactId, "Trampoline");
+  await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
+  // The frame now shows another artifact, which cannot answer this viewer from its origin.
+  await artifactFrame(page, elsewhere.artifactId);
+  await expect(page.getByText("The frame stopped answering from the artifact")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Select an element" })).toBeHidden();
+  await expect(page.getByRole("button", { name: "Comment on the page" })).toBeVisible();
+});
+
+test("a frame bounced through another site never reaches another artifact in review mode", async ({
+  page,
+  context,
+  engine,
+}) => {
+  test.skip(!engine.reviewWorks, "no review cookie is stored in this configuration");
+  const victim = await createUser("Victim");
+  const attacker = await createUser("Attacker");
+  const secret = await publish({
+    ownerId: victim.userId,
+    name: "Private numbers",
+    files: { "index.html": "<!doctype html><title>Private</title><p>Private launch numbers</p>" },
+  });
+  const trampoline = await publish({
+    ownerId: attacker.userId,
+    name: "Trampoline",
+    accessMode: "public",
+    files: { "index.html": bouncingPage(bounced(`${artifactOrigin(secret.artifactId)}/`)) },
+  });
+
+  await signIn(context, victim);
+  // The visitor holds a live review cookie of the private artifact in the viewer's partition.
+  await openReview(page, secret.artifactId, "Private numbers");
+  await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
+  const before = (await contentRequests()).length;
+  await openReview(page, trampoline.artifactId, "Trampoline");
+  await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
+  // The trampoline navigates 1.5 seconds after connecting. The viewer's `frame-src` allows only
+  // artifact hosts, so the redirector on the other site is refused (Chromium shows an error page,
+  // Firefox keeps the page) and the cross-site navigation the review cookie honors never happens.
+  await page.waitForTimeout(4_000);
+  const reached = (await contentRequests())
+    .slice(before)
+    .filter((r) => r.host.startsWith(secret.artifactId));
+  expect(reached).toEqual([]);
+  await expect(page.getByText("Private launch numbers")).toBeHidden();
 });
 
 test("a Markdown document is reviewed with the bridge allowed only by nonce", async ({

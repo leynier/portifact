@@ -5,7 +5,12 @@ import { env } from "cloudflare:test";
 import { BRIDGE_VERSION } from "@portifact/bridge/bundle";
 import { REVIEW_SESSION } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
-import { commitPublish, issueReviewHandoff, preparePublish } from "@portifact/services";
+import {
+  commitPublish,
+  issueReviewHandoff,
+  preparePublish,
+  reviewSessionTag,
+} from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handle } from "../src/index.ts";
 import { REVIEW_COOKIE } from "../src/review.ts";
@@ -198,11 +203,12 @@ async function code(userId = READER, artifactId = ID): Promise<string> {
 }
 
 /** Opens review in the viewer's iframe and returns the review cookie as `name=value`. */
-async function openReview(userId = READER, artifactId = ID): Promise<string> {
+async function openReview(userId = READER, artifactId = ID, issued?: string): Promise<string> {
   const origin = `https://${artifactId}.portifact.dev`;
-  const response = await send(`/__portifact/review?code=${await code(userId, artifactId)}`, {
-    origin,
-  });
+  const response = await send(
+    `/__portifact/review?code=${issued ?? (await code(userId, artifactId))}`,
+    { origin },
+  );
   expect(response.status).toBe(303);
   const cookie = reviewSetCookie(response);
   if (!cookie) throw new Error("no review cookie");
@@ -309,14 +315,35 @@ describe("review delivery", () => {
     expect(response.status).toBe(200);
     const html = await response.text();
     expect(html.startsWith(PAGE)).toBe(true);
-    expect(html).toContain(
-      `<script src="/__portifact/bridge.js?v=${BRIDGE_VERSION}" data-app-origin="${APP}" data-path="index.html"></script>`,
+    expect(html).toMatch(
+      new RegExp(
+        `<script src="/__portifact/bridge\\.js\\?v=${BRIDGE_VERSION}" data-app-origin="${APP}" data-path="index\\.html" data-session-tag="[A-Za-z0-9_-]{22}"></script>$`,
+      ),
     );
     expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
     expect(response.headers.get("content-security-policy")).toBe(`frame-ancestors 'self' ${APP}`);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("etag")).toBeNull();
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("tags the page with the session it was served in, so the viewer can spot a planted one", async () => {
+    const mine = await code();
+    const planted = await code();
+    const tagOf = async (cookie: string) =>
+      /data-session-tag="([^"]+)"/.exec(await (await send("/", { cookie })).text())?.[1];
+    const cookie = await openReview(READER, ID, mine);
+    expect(await tagOf(cookie)).toBe(await reviewSessionTag(mine));
+    // Another code redeemed in the same partition, for example through a cross-site redirect
+    // that a framed artifact started, replaces the cookie; the tag tells the viewer.
+    const replaced = await openReview(READER, ID, planted);
+    expect(await tagOf(replaced)).toBe(await reviewSessionTag(planted));
+    expect(await tagOf(replaced)).not.toBe(await reviewSessionTag(mine));
+    // Renewed claims keep the tag.
+    const renewed = await send("/", { cookie: replaced, now: NOW + CLAIMS_MS + 1 });
+    expect(/data-session-tag="([^"]+)"/.exec(await renewed.text())?.[1]).toBe(
+      await reviewSessionTag(planted),
+    );
   });
 
   it("serves the artifact's own subresources and in-frame links in review mode", async () => {
@@ -512,8 +539,10 @@ describe("review of rendered documents", () => {
     expect(nonce).toBeDefined();
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain(`frame-ancestors 'self' ${APP}`);
-    expect(html).toContain(
-      `data-path="notes.md" data-renderer="portifact-render@1" nonce="${nonce}"`,
+    expect(html).toMatch(
+      new RegExp(
+        `data-path="notes\\.md" data-session-tag="[A-Za-z0-9_-]{22}" data-renderer="portifact-render@1" nonce="${nonce?.replace(/[+/=]/g, "\\$&")}"`,
+      ),
     );
     expect(html.match(/<script/g)).toHaveLength(1);
 

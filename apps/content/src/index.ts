@@ -111,7 +111,10 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   // Review mode first: the viewer's iframe reads the pinned version with the bridge.
   const review = await authorizeReview(request, env, db, id, artifact, now);
   if (review.kind === "review") {
-    return serve(request, env, db, review.artifact, url, review.setCookies, review.versionId);
+    return serve(request, env, db, review.artifact, url, review.setCookies, {
+      versionId: review.versionId,
+      sessionTag: review.sessionTag,
+    });
   }
   if (review.kind === "status") {
     return reviewStatusPage(review.status, review.httpStatus, env.APP_ORIGIN, review.setCookies);
@@ -124,8 +127,14 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   return serve(request, env, db, decision.artifact, url, decision.setCookies);
 }
 
+/** The pinned version of a review session and the tag the bridge echoes to the viewer. */
+interface ReviewServe {
+  versionId: string;
+  sessionTag: string;
+}
+
 /**
- * Serves a file of the artifact's current version, or in review mode (`reviewVersionId`) of the
+ * Serves a file of the artifact's current version, or in review mode (`reviewSession`) of the
  * pinned version, with the bridge appended to its HTML.
  */
 async function serve(
@@ -135,13 +144,13 @@ async function serve(
   artifact: ServableArtifact,
   url: URL,
   setCookies: string[],
-  reviewVersionId?: string,
+  reviewSession?: ReviewServe,
 ): Promise<Response> {
-  const review = reviewVersionId !== undefined;
+  const review = reviewSession !== undefined;
   const resolved = await resolveFile(
     db,
     artifact,
-    reviewVersionId ?? artifact.currentVersionId,
+    reviewSession?.versionId ?? artifact.currentVersionId,
     url.pathname,
   );
   if (resolved === "unrendered") {
@@ -166,7 +175,9 @@ async function serve(
   } else if (role === "original") {
     headers.set("Content-Disposition", attachment(file.path));
   }
-  if (inject) return serveWithBridge(request, env, file, headers, nonce);
+  if (inject && reviewSession) {
+    return serveWithBridge(request, env, file, headers, nonce, reviewSession.sessionTag);
+  }
   headers.set("ETag", `"${file.sha256}"`);
   headers.set("Accept-Ranges", "bytes");
 
@@ -198,13 +209,14 @@ async function serveWithBridge(
   file: DeliveryFile,
   headers: Headers,
   nonce: string | undefined,
+  sessionTag: string,
 ): Promise<Response> {
   headers.set("Cache-Control", "private, no-store");
   if (request.method === "HEAD") return new Response(null, { status: 200, headers });
   const object = await env.ARTIFACTS.get(file.r2Key);
   if (!object) return message(503, PAGES.fileUnavailable);
   const response = new Response(object.body, { status: 200, headers });
-  return injectBridge(response, { appOrigin: env.APP_ORIGIN, path: file.path, nonce });
+  return injectBridge(response, { appOrigin: env.APP_ORIGIN, path: file.path, nonce, sessionTag });
 }
 
 type Resolved = { file: DeliveryFile; role: "file" | "page" | "original" };

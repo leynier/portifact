@@ -75,6 +75,7 @@ export function reviewRoutes(deps: ReviewDeps) {
         origin,
         versionId: issued.value.versionId,
         entrypoint: issued.value.entrypoint,
+        sessionTag: issued.value.sessionTag,
         expiresAt: new Date(issued.value.expiresAt).toISOString(),
       }),
     );

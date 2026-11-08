@@ -30,6 +30,8 @@ export interface InjectOptions {
   appOrigin: string;
   /** The served file of the version, which targets refer to. */
   path: string;
+  /** Tag of the review session the page is served in; the bridge echoes it to the viewer. */
+  sessionTag: string;
   /**
    * For a page rendered by Portifact: the nonce the response's CSP allows the bridge with. The
    * page's own CSP `<meta>` is dropped, because the header carries the same policy plus the nonce.
@@ -67,6 +69,7 @@ export function injectBridge(response: Response, options: InjectOptions): Respon
         `src="${BRIDGE_PATH}?v=${BRIDGE_VERSION}"`,
         `data-app-origin="${escapeAttribute(options.appOrigin)}"`,
         `data-path="${escapeAttribute(options.path)}"`,
+        `data-session-tag="${escapeAttribute(options.sessionTag)}"`,
         ...(renderer ? [`data-renderer="${escapeAttribute(renderer)}"`] : []),
         ...(options.nonce !== undefined ? [`nonce="${escapeAttribute(options.nonce)}"`] : []),
       ];

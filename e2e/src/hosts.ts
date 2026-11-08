@@ -4,6 +4,11 @@ export const APP_HOST = "app.portifact.test";
 export const APP_ORIGIN = `https://${APP_HOST}`;
 export const CONTENT_SITE = "portifact-content.test";
 export const CONTROL_HOST = "control.e2e.test";
+/**
+ * A redirector on a third site, answered by the test front end: `/?to=<url>` redirects to a URL
+ * on a stack host. It plays any site an artifact could bounce a navigation through.
+ */
+export const REDIRECT_HOST = "redirect.elsewhere.test";
 export const SESSION_COOKIE = "__Host-pf.session_token";
 export const REVIEW_COOKIE = "__Host-pf_review";
 /**
@@ -18,5 +23,10 @@ export function artifactOrigin(id: string): string {
 }
 
 export function isStackHost(host: string): boolean {
-  return host === APP_HOST || host.endsWith(`.${CONTENT_SITE}`);
+  return host === APP_HOST || host === REDIRECT_HOST || host.endsWith(`.${CONTENT_SITE}`);
+}
+
+/** A URL that reaches `to` through the redirector on another site. */
+export function bounced(to: string): string {
+  return `https://${REDIRECT_HOST}/?to=${encodeURIComponent(to)}`;
 }

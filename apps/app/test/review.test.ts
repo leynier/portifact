@@ -4,7 +4,7 @@
 import { env } from "cloudflare:workers";
 import { ReviewStart } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
-import { hashSecret, redeemReviewHandoff } from "@portifact/services";
+import { hashSecret, redeemReviewHandoff, reviewSessionTag } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { REVIEW_START_LIMIT } from "../src/auth/limits.ts";
@@ -49,6 +49,7 @@ describe("review codes", () => {
     const url = new URL(body.url);
     expect(`${url.origin}${url.pathname}`).toBe(`${origin}/__portifact/review`);
     const code = url.searchParams.get("code") ?? "";
+    expect(body.sessionTag).toBe(await reviewSessionTag(code));
 
     const [artifact] = await db()
       .select()

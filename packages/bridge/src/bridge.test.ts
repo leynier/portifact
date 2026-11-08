@@ -15,6 +15,7 @@ import type { BridgeMessage, ViewerBody } from "./protocol.ts";
 
 const VIEWER = "https://app.portifact.com";
 const NONCE = "abcdefghijklmnopqrstuv";
+const SESSION_TAG = "Ses5ionTag_0123456789-";
 
 interface Parent {
   sent: { message: BridgeMessage; origin: string }[];
@@ -45,7 +46,11 @@ const fromViewer = (body: ViewerBody, nonce = NONCE) => deliver(viewerEnvelope(n
 
 function start(html: string, path = "index.html") {
   document.body.innerHTML = html;
-  bridge = startBridge(window as unknown as BridgeWindow, parent, { appOrigin: VIEWER, path });
+  bridge = startBridge(window as unknown as BridgeWindow, parent, {
+    appOrigin: VIEWER,
+    path,
+    sessionTag: SESSION_TAG,
+  });
   return bridge;
 }
 
@@ -112,8 +117,21 @@ describe("handshake", () => {
           v: 1,
           type: "ready",
           page: { path: "index.html", route: "/" },
+          sessionTag: SESSION_TAG,
         },
       },
+    ]);
+  });
+
+  it("answers the viewer's check once bound, and only with its nonce", () => {
+    start("<p>Hello</p>");
+    fromViewer({ type: "ping" });
+    expect(sentOf("pong")).toHaveLength(0);
+    fromViewer({ type: "init" });
+    fromViewer({ type: "ping" }, "x".repeat(22));
+    fromViewer({ type: "ping" });
+    expect(sentOf("pong")).toEqual([
+      { channel: "portifact-review", v: 1, nonce: NONCE, type: "pong" },
     ]);
   });
 
@@ -228,6 +246,9 @@ describe("element mode", () => {
     await settle(0);
     expect(pageClick).not.toHaveBeenCalled();
     expect(sentOf("pick-ended")).toHaveLength(1);
+    // The element comes before the end of the pick, so the viewer is still waiting for it.
+    const order = parent.sent.map((entry) => entry.message.type);
+    expect(order.indexOf("element")).toBeLessThan(order.indexOf("pick-ended"));
     expect(sentOf("element")[0]?.target).toMatchObject({
       path: "index.html",
       anchor: { kind: "element", tagName: "button", fingerprint: "Buy now" },

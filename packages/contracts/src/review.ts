@@ -29,6 +29,8 @@ export const ReviewClaims = z
     vid: z.string().min(1).max(64),
     uid: z.string().min(1).max(64),
     gen: z.number().int().positive(),
+    /** Tag of the session, injected for the bridge to echo (see `ReviewStart.sessionTag`). */
+    tag: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
     exp: z.number().int().nonnegative(),
     sexp: z.number().int().nonnegative(),
   })
@@ -50,6 +52,11 @@ export const ReviewStart = z.object({
   versionId: z.string(),
   /** The file the review opens on: the entrypoint of the pinned version. */
   entrypoint: z.string(),
+  /**
+   * Tag of the review session the code turns into. The bridge echoes the tag of the session its
+   * page was served in; the viewer refuses a frame whose tag differs (a planted session).
+   */
+  sessionTag: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
   expiresAt: z.iso.datetime(),
 });
 export type ReviewStart = z.infer<typeof ReviewStart>;

@@ -32,6 +32,8 @@ export interface BridgeConfig {
   path: string;
   /** Renderer of a Portifact document page, for example `portifact-render@1`. */
   renderer?: string | undefined;
+  /** Tag of the review session this page was served in, echoed in `ready`. */
+  sessionTag: string;
 }
 
 export interface BridgeTarget {
@@ -159,11 +161,15 @@ export function startBridge(
       height: box.height,
     });
     endPick();
+    // The element (or the refusal) goes first: the viewer accepts an element only while it
+    // waits for a pick, and `pick-ended` ends that wait.
+    if (!created.ok) refuse(created.reason);
+    else {
+      const target = await targetFor(doc, created.value);
+      if (target) send({ type: "element", target });
+      else refuse("too_large");
+    }
     send({ type: "pick-ended" });
-    if (!created.ok) return refuse(created.reason);
-    const target = await targetFor(doc, created.value);
-    if (!target) return refuse("too_large");
-    send({ type: "element", target });
   };
 
   const onPointerMove = (event: Event) => {
@@ -282,6 +288,9 @@ export function startBridge(
         window.getSelection()?.removeAllRanges();
         reportedSelection = false;
         return;
+      case "ping":
+        send({ type: "pong" });
+        return;
     }
   };
 
@@ -303,7 +312,13 @@ export function startBridge(
   window.addEventListener("resize", scheduleRedraw);
 
   parent.postMessage(
-    { channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "ready", page: page() },
+    {
+      channel: REVIEW_CHANNEL,
+      v: REVIEW_PROTOCOL,
+      type: "ready",
+      page: page(),
+      sessionTag: config.sessionTag,
+    },
     config.appOrigin,
   );
 

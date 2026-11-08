@@ -9,6 +9,7 @@ import {
   pruneReviewSessions,
   redeemReviewHandoff,
   refreshReviewSession,
+  reviewSessionTag,
 } from "../src/index.ts";
 
 const ID = "r7d2qm4xab";
@@ -115,6 +116,7 @@ describe("review access", () => {
       entrypoint: "index.html",
       expiresAt: NOW + HANDOFF_MS,
     });
+    expect(issued.sessionTag).toBe(await reviewSessionTag(issued.code));
     const [row] = await db().select().from(schema.reviewHandoffs);
     expect(row?.codeHash).toBe(await hashSecret(issued.code));
     expect(JSON.stringify(row)).not.toContain(issued.code);
@@ -175,6 +177,13 @@ describe("review access", () => {
     const replay = await redeem(code);
     expect(replay).toMatchObject({ ok: false, code: "invalid_input" });
     expect(await sessionCount()).toBe(1);
+    // The viewer and the session share a tag that reveals neither the code nor the session.
+    const tag = await reviewSessionTag(code);
+    expect(first.ok && first.value.sessionTag).toBe(tag);
+    expect(tag).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(code).not.toContain(tag);
+    expect(first.ok && first.value.sessionId).not.toContain(tag);
+    expect(await reviewSessionTag((await issue()).code)).not.toBe(tag);
     const [session] = await db().select().from(schema.reviewSessions);
     expect(session).toMatchObject({ artifactId: ID, versionId: `${ID}_v1`, userId: READER });
   });

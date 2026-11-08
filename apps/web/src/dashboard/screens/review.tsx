@@ -136,8 +136,11 @@ export function ReviewScreen() {
 
 type ThreadsQuery = ReturnType<typeof useThreads>;
 
-/** What a new comment points at, chosen in the frame or here. */
-type Draft = { target: AnnotationTarget } | null;
+/**
+ * What a new comment points at, chosen in the frame or here. Each draft has its own `id`, so its
+ * composer starts fresh and keeps the target it opened with.
+ */
+type Draft = { id: number; target: AnnotationTarget } | null;
 
 function ReviewSession({
   start,
@@ -152,27 +155,47 @@ function ReviewSession({
   const announce = useAnnounce();
   const frame = useRef<HTMLIFrameElement>(null);
   const [selection, setSelection] = useState<AnnotationTarget | null>(null);
-  const [draft, setDraft] = useState<Draft>(null);
+  const [draft, setDraftState] = useState<Draft>(null);
   const [picking, setPicking] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const items = useRef(new Map<string, HTMLElement>());
+  // The page shares the bridge's window and can post what the bridge posts, so these refs, not
+  // the page, decide when its selection or element may fill in a comment: an element only
+  // while the reader is picking, and nothing while a comment is open.
+  const drafting = useRef(false);
+  const awaitingPick = useRef(false);
+  const draftIds = useRef(0);
+  const setDraft = (target: AnnotationTarget | null) => {
+    drafting.current = target !== null;
+    setDraftState(target ? { id: ++draftIds.current, target } : null);
+  };
+  const stopPicking = () => {
+    awaitingPick.current = false;
+    setPicking(false);
+  };
 
   const numbers = new Map((threads.data?.threads ?? []).map((thread, i) => [thread.id, i + 1]));
 
-  const bridge = useBridge(frame, start.origin, {
+  const bridge = useBridge(frame, start.origin, start.sessionTag, {
     onSelection(target) {
+      if (drafting.current) return;
       setSelection(target);
       if (target) announce(t("review.selection.received"));
     },
     onElement(target) {
-      setPicking(false);
-      setDraft({ target });
+      if (!awaitingPick.current || drafting.current) return;
+      stopPicking();
+      setDraft(target);
     },
     onRefused(reason: RefusalReason) {
       announce(refusalMessage(t, reason));
     },
     onPickEnded() {
-      setPicking(false);
+      stopPicking();
+    },
+    onStatus() {
+      // The page can forge a status: the API says what really holds for comments.
+      void threads.refetch();
     },
     onActivate(id) {
       setActive(id);
@@ -193,9 +216,10 @@ function ReviewSession({
   ]);
   // markerKey summarizes what the effect sends, so it runs only when that changes.
   useEffect(() => {
-    if (state !== "connected" || !data) return;
+    if (state !== "connected" || !data || !page) return;
     const markers = data.threads
       .filter((thread) => thread.target.anchor.kind !== "document")
+      .filter((thread) => thread.target.path === page.path)
       .slice(0, 200)
       .map((thread) => {
         const number = String(numbers.get(thread.id) ?? 0);
@@ -214,10 +238,15 @@ function ReviewSession({
   const canComment = mode === "open" && !outdated;
   const path = page?.path ?? start.entrypoint;
 
-  const startGeneral = () =>
-    setDraft({ target: { schema: 1, path, anchor: { kind: "document" } } });
+  // Element mode ends wherever the frame stops being a connected bridge.
+  useEffect(() => {
+    if (state !== "connected") stopPicking();
+  }, [state]);
+
+  const startGeneral = () => setDraft({ schema: 1, path, anchor: { kind: "document" } });
   const togglePick = () => {
     const next = !picking;
+    awaitingPick.current = next;
     setPicking(next);
     send({ type: "pick", active: next, hint: t("review.pick.hint") });
     if (next) announce(t("review.pick.started"));
@@ -312,7 +341,7 @@ function ReviewSession({
                   size="sm"
                   intent="primary"
                   icon={<MessageSquarePlus className="size-4" />}
-                  onClick={() => setDraft({ target: selection })}
+                  onClick={() => setDraft(selection)}
                 >
                   {t("review.selection.comment")}
                 </Button>
@@ -321,6 +350,7 @@ function ReviewSession({
           ) : null}
           {canComment && draft ? (
             <Composer
+              key={draft.id}
               start={start}
               target={draft.target}
               onDone={(thread) => {
@@ -367,7 +397,7 @@ function BridgeNotice({ state, onRestart }: { state: BridgeState; onRestart(): v
       </Callout>
     );
   }
-  if (state === "ended" || state === "failed") {
+  if (state === "ended" || state === "failed" || state === "foreign" || state === "lost") {
     return (
       <Callout
         title={t(`review.status.${state}.title`)}
@@ -457,7 +487,7 @@ function bodyError(t: T, value: string) {
 
 function Composer({
   start,
-  target,
+  target: initialTarget,
   onDone,
 }: {
   start: ReviewStart;
@@ -465,6 +495,8 @@ function Composer({
   onDone(thread: AnnotationThreadView | null): void;
 }) {
   const t = useT();
+  // Frozen when the composer opens: nothing the frame sends later can retarget the comment.
+  const [target] = useState(initialTarget);
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();

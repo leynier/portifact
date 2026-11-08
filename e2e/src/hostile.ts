@@ -76,3 +76,31 @@ attack();
 `;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Free prizes</title></head><body><main><h1>Free prizes</h1><p id="bait">Bait</p><pre id="results">{}</pre></main><script>${script}</script></body></html>`;
 }
+
+/**
+ * An artifact that plants another review session of the victim artifact in the viewer's
+ * partition: a nested frame bounces through a site of its own to the victim's review exchange
+ * with the attacker's code, which arrives as a cross-site iframe navigation like the viewer's.
+ */
+export function plantingPage(plantUrl: string): string {
+  const script = `
+const frame = document.createElement("iframe");
+frame.src = ${JSON.stringify(plantUrl)};
+frame.addEventListener("load", () => { document.getElementById("state").textContent = "planted"; });
+document.body.append(frame);
+`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cute cats</title></head><body><main><h1>Cute cats</h1><p id="state">planting</p></main><script>${script}</script></body></html>`;
+}
+
+/**
+ * An artifact that, once the viewer has connected to it, navigates its own frame to `url`: another
+ * artifact, or a redirector on another site that leads to one.
+ */
+export function bouncingPage(url: string): string {
+  const script = `
+window.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "init") setTimeout(() => { location.href = ${JSON.stringify(url)}; }, 1500);
+});
+`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Trampoline</title></head><body><main><h1>Trampoline</h1></main><script>${script}</script></body></html>`;
+}
