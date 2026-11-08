@@ -4,7 +4,7 @@
 import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
-import { issueReadHandoff } from "@portifact/services";
+import { issueReadHandoff, suspendArtifact } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   clearCookie,
@@ -708,6 +708,36 @@ describe("read session claims", () => {
     const response = await send("/", { cookie, now: NOW + 1 });
     expect(response.status).toBe(404);
     expect(setCookieFor(response, READ_COOKIE)).toBe(clearCookie(READ_COOKIE));
+  });
+
+  it("answers 404 at once, with fresh claims, when the operator suspends the artifact", async () => {
+    const cookie = await signIn(READER);
+    const suspended = await suspendArtifact(db(), { artifactId: ID, reason: "phishing", now: NOW });
+    expect(suspended.ok).toBe(true);
+    for (const headers of [NAVIGATE, SAME_ORIGIN]) {
+      const response = await send("/app.js", { cookie, headers, now: NOW + 1 });
+      expect(response.status).toBe(404);
+      expect(await response.text()).not.toContain(PAGE);
+      expect(setCookieFor(response, READ_COOKIE)).toBe(clearCookie(READ_COOKIE));
+    }
+    // Signing in again is refused too: the app issues no handoff for a suspended artifact.
+    const handoff = await issueReadHandoff(db(), {
+      artifactId: ID,
+      userId: READER,
+      authSessionId: appSession(READER),
+      state: "state-nonce",
+      now: NOW + 2,
+    });
+    expect(handoff.ok).toBe(false);
+    // The owner too.
+    const owner = await issueReadHandoff(db(), {
+      artifactId: ID,
+      userId: OWNER,
+      authSessionId: appSession(OWNER),
+      state: "state-nonce",
+      now: NOW + 2,
+    });
+    expect(owner.ok).toBe(false);
   });
 
   it("does not accept one artifact's read cookie on another", async () => {

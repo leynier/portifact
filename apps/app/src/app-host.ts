@@ -2,10 +2,12 @@
 // resource metadata and the auth pages. Every path not listed here answers 404.
 import { TokenPrincipal } from "@portifact/contracts";
 import { needsTermsAcceptance } from "@portifact/domain";
+import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { Hono } from "hono";
 import type { SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { r2Presigner } from "./api/presign.ts";
+import { reportRoutes } from "./api/reports.ts";
 import { apiRoutes } from "./api/routes.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
@@ -22,8 +24,11 @@ import type { Env } from "./env.ts";
 import { mcpRoutes } from "./mcp/routes.ts";
 import { readRoutes } from "./read.ts";
 
-/** Pages built by apps/web and served from static assets on this host only. */
-export const AUTH_PAGES = ["/login", "/device", "/consent"] as const;
+/**
+ * Pages built by apps/web and served from static assets on this host only: the auth pages and
+ * the public abuse report form.
+ */
+export const AUTH_PAGES = ["/login", "/device", "/consent", "/report"] as const;
 
 /** The dashboard SPA, built by apps/web as dashboard.html and served on this host only. */
 export const DASHBOARD_PAGE = "/dashboard";
@@ -32,7 +37,15 @@ export const DASHBOARD_PAGE = "/dashboard";
  * Client routes of the dashboard (apps/web/src/dashboard/router.tsx). Each one serves the SPA;
  * any other path keeps answering 404, so a typo never looks like an empty dashboard.
  */
-export const DASHBOARD_ROUTES = ["/", "/artifacts/:artifactId", "/account"] as const;
+export const DASHBOARD_ROUTES = [
+  "/",
+  "/publish",
+  "/artifacts/:artifactId",
+  "/artifacts/:artifactId/publish",
+  "/artifacts/:artifactId/edit",
+  "/artifacts/:artifactId/history",
+  "/account",
+] as const;
 
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
@@ -50,6 +63,39 @@ export const PAGE_CSP = [
   "frame-ancestors 'none'",
   "base-uri 'none'",
 ].join("; ");
+
+/** The S3 endpoint of the artifacts bucket, which the dashboard uploads to and downloads from. */
+export function storageOrigin(r2AccountId: string): string {
+  return `https://${r2AccountId}.r2.cloudflarestorage.com`;
+}
+
+let stylesheetHash: Promise<string> | undefined;
+
+/** CSP source for the one stylesheet of rendered documents, computed once per isolate. */
+function documentStylesheetSource(): Promise<string> {
+  stylesheetHash ??= crypto.subtle
+    .digest("SHA-256", new TextEncoder().encode(DOCUMENT_STYLESHEET))
+    .then((digest) => `'sha256-${btoa(String.fromCharCode(...new Uint8Array(digest)))}'`);
+  return stylesheetHash;
+}
+
+/**
+ * The dashboard's policy: the strict page policy plus two narrow additions. Uploads go straight
+ * to the bucket's S3 endpoint and downloads are read from it, so `connect-src` names that one
+ * origin. The document editor shows the server's rendering in an `iframe` with an empty
+ * `sandbox` and `srcdoc`, which inherits this policy, so `style-src` allows exactly the
+ * renderer's stylesheet by hash. Frames still load nothing from the network.
+ */
+export function dashboardPolicy(storage: string, stylesheetSource: string): string {
+  return PAGE_CSP.replace("style-src 'self'", `style-src 'self' ${stylesheetSource}`).replace(
+    "connect-src 'self'",
+    `connect-src 'self' ${storage}`,
+  );
+}
+
+export async function dashboardCsp(env: Pick<Env, "R2_ACCOUNT_ID">): Promise<string> {
+  return dashboardPolicy(storageOrigin(env.R2_ACCOUNT_ID), await documentStylesheetSource());
+}
 
 export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   // One Better Auth instance per environment object, which is stable per isolate.
@@ -157,6 +203,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       now: () => Date.now(),
     }),
   );
+  app.route("/", reportRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
 
   // Who the token belongs to. Any valid API token works; no scope is needed.
@@ -192,7 +239,10 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
         const next = `${url.pathname}${url.search}`;
         return c.redirect(`/login?${new URLSearchParams({ next })}`, 302);
       }
-      return trustedPage(await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))));
+      return trustedPage(
+        await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
+        await dashboardCsp(c.env),
+      );
     });
   }
 
@@ -213,9 +263,9 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
 }
 
 /** Headers of every page on the app host: strict CSP, never cached, no referrer. */
-function trustedPage(asset: Response): Response {
+function trustedPage(asset: Response, policy = PAGE_CSP): Response {
   const response = new Response(asset.body, asset);
-  response.headers.set("Content-Security-Policy", PAGE_CSP);
+  response.headers.set("Content-Security-Policy", policy);
   response.headers.set("Cache-Control", "no-store");
   response.headers.set("Referrer-Policy", "no-referrer");
   return response;

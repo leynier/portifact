@@ -1098,3 +1098,78 @@ async function threadViews(
 function iso(ms: number): string {
   return new Date(ms).toISOString();
 }
+
+/**
+ * Removes a deleted account's words from one thread on someone else's artifact (plan section 5,
+ * "Borrado de cuenta"): a message that others replied to after it becomes the "message deleted"
+ * marker, any other message of the account disappears, and a thread left without visible
+ * messages is removed. The batch is claimed under the thread revision this run read, so a reply
+ * that lands meanwhile makes the claim fail and the next run looks again. Returns whether the
+ * thread changed.
+ */
+export async function eraseAuthorFromThread(
+  db: Db,
+  input: { authorId: string; threadId: string; now: number },
+): Promise<boolean> {
+  const th = schema.annotationThreads;
+  const m = schema.annotationMessages;
+  const [thread] = await db
+    .select({ id: th.id, artifactId: th.artifactId, revision: th.revision })
+    .from(th)
+    .where(eq(th.id, input.threadId))
+    .limit(1);
+  if (!thread) return false;
+  const messages = await db
+    .select({ id: m.id, authorId: m.authorId, state: m.state })
+    .from(m)
+    .where(eq(m.threadId, thread.id))
+    .orderBy(asc(m.createdAt), sql`${m}.rowid`);
+  const repliedTo = (index: number) =>
+    messages
+      .slice(index + 1)
+      .some((later) => later.authorId !== input.authorId && later.state !== "deleted");
+  const remove: string[] = [];
+  const mark: string[] = [];
+  messages.forEach((message, index) => {
+    if (message.authorId !== input.authorId) return;
+    if (!repliedTo(index)) remove.push(message.id);
+    else if (message.state !== "deleted") mark.push(message.id);
+  });
+  if (remove.length === 0 && mark.length === 0) return false;
+  const visibleLeft = messages.some(
+    (message) => message.authorId !== input.authorId && message.state !== "deleted",
+  );
+
+  const writeId = crypto.randomUUID();
+  const guard = sql`exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.revision} = ${thread.revision})`;
+  const event: Claim = {
+    artifactId: thread.artifactId,
+    threadId: thread.id,
+    messageId: null,
+    actorId: input.authorId,
+    kind: visibleLeft ? "message_deleted" : "thread_deleted",
+    now: input.now,
+  };
+  const statements: Batch = visibleLeft
+    ? [
+        claim(db, writeId, event, guard),
+        ...chunks(remove).map((ids) =>
+          db.delete(m).where(and(inArray(m.id, ids), claimed(writeId))),
+        ),
+        ...chunks(mark).map((ids) =>
+          db
+            .update(m)
+            .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
+            .where(and(inArray(m.id, ids), claimed(writeId))),
+        ),
+        touchThread(db, thread.id, writeId, input.now, {
+          messageCount: sql`(select count(*) from ${m} where ${m.threadId} = ${thread.id})`,
+        }),
+      ]
+    : [
+        claim(db, writeId, event, guard),
+        db.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
+      ];
+  const [first] = (await db.batch(statements)) as [{ id: number }[]];
+  return first.length === 1;
+}

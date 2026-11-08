@@ -39,6 +39,7 @@ import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { annotationRoutes } from "./annotations.ts";
+import { documentRoutes } from "./documents.ts";
 import {
   type ApiContext,
   error,
@@ -49,6 +50,7 @@ import {
   readJson,
 } from "./http.ts";
 import type { Presigner } from "./presign.ts";
+import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
 
 export interface ApiDeps {
@@ -254,6 +256,8 @@ export function apiRoutes(deps: ApiDeps) {
 
   api.route("/", annotationRoutes(guarded, deps.now));
   versionRoutes(api, guarded, deps);
+  documentRoutes(api, guarded, deps.now);
+  usageRoutes(api, guarded, deps.now);
 
   return api;
 }
@@ -273,6 +277,7 @@ async function prepare(
     entrypoint: body.entrypoint,
     baseVersionId: body.baseVersionId,
     files: body.files,
+    sourceOrigin: body.sourceOrigin,
     now,
   });
   if (!result.ok) return failure(result.code, result.message);
@@ -319,6 +324,9 @@ function summary(env: Env, row: ArtifactRow) {
     expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
     archivedAt: row.archivedAt === null ? null : iso(row.archivedAt),
     purgeAt: row.purgeAt === null ? null : iso(row.purgeAt),
+    ...(row.state === "suspended" && row.suspensionReason
+      ? { suspension: { reason: row.suspensionReason } }
+      : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });

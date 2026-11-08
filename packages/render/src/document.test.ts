@@ -1,6 +1,6 @@
 import { TOKENS_CSS } from "@portifact/ui/tokens-css";
 import { describe, expect, it } from "vitest";
-import { renderMarkdownDocument, renderTextDocument } from "./document.ts";
+import { DOCUMENT_STYLESHEET, renderMarkdownDocument, renderTextDocument } from "./document.ts";
 import { documentPolicy } from "./policy.ts";
 import { attr, byTag, document, text } from "./test-html.ts";
 import { RENDERER_VERSION } from "./version.ts";
@@ -54,6 +54,16 @@ describe("document wrapper", () => {
     expect(css).toContain("@media (prefers-color-scheme: dark)");
     expect(byTag(root, "link")).toHaveLength(0);
     expect(byTag(root, "script")).toHaveLength(0);
+  });
+
+  it("uses the same stylesheet text in every document, so a hash can allow it", () => {
+    for (const { html } of [
+      renderTextDocument("x", { title: "t" }),
+      renderMarkdownDocument("# y", { title: "other" }),
+    ]) {
+      const styles = byTag(head(html).root, "style");
+      expect(text(styles[0] ?? head(html).root)).toBe(DOCUMENT_STYLESHEET);
+    }
   });
 
   it("forbids scripts, frames, forms and base changes through a policy in the document", () => {

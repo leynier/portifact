@@ -195,6 +195,25 @@ describe("artifact delivery", () => {
     }
   });
 
+  it("sends visitors to the report form from a reserved path, for any artifact ID", async () => {
+    for (const origin of [ORIGIN, "https://zzzzzzzzzz.portifact.dev"]) {
+      const response = await get(
+        "/__portifact/report",
+        { headers: { "Sec-Fetch-Mode": "navigate" } },
+        origin,
+      );
+      const id = new URL(origin).hostname.split(".")[0];
+      expect(response.status).toBe(303);
+      expect(response.headers.get("location")).toBe(`${env.APP_ORIGIN}/report?artifact=${id}`);
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+    // An uploaded file cannot shadow it.
+    await seed({ state: "suspended" });
+    const suspended = await get("/__portifact/report", {}, ORIGIN);
+    expect(suspended.status).toBe(303);
+  });
+
   it("lets owners opt into indexing and embedding", async () => {
     await seed({ indexable: true, embeddable: true });
     const response = await get("/");

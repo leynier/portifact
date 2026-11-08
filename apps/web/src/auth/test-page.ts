@@ -8,7 +8,7 @@ import type { PageEnv } from "./login.ts";
 
 export const ORIGIN = "https://app.portifact.com";
 
-export function loadPage(name: "login" | "device" | "consent"): void {
+export function loadPage(name: "login" | "device" | "consent" | "report"): void {
   // Vitest runs from apps/web; happy-dom replaces URL, so build the path from the root.
   const html = readFileSync(join(process.cwd(), `${name}.html`), "utf8");
   const body = /<body[^>]*>([\s\S]*)<\/body>/.exec(html)?.[1] ?? "";

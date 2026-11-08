@@ -12,11 +12,16 @@ export {
   RadioGroup,
   type RadioGroupProps,
   type RadioOption,
+  TextArea,
+  type TextAreaProps,
   TextInput,
   type TextInputProps,
 } from "./components/fields.tsx";
+export { canPickFolders, FilePicker, type FilePickerProps } from "./components/file-picker.tsx";
 export { LiveRegion } from "./components/live-region.tsx";
 export { LoadingState } from "./components/loading-state.tsx";
+export { PreviewFrame, type PreviewFrameProps } from "./components/preview-frame.tsx";
+export { ProgressBar, type ProgressBarProps } from "./components/progress.tsx";
 export {
   Table,
   TableBody,

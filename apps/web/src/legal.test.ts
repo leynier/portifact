@@ -127,18 +127,19 @@ describe("legal pages", () => {
 });
 
 describe("legal links", () => {
-  it("are in the landing page footer with the abuse address", () => {
+  it("are in the landing page footer with the report form and the abuse address", () => {
     const html = read("index");
     expect(legalLinks(html)).toEqual([
       "/terms",
       "/privacy",
       "/acceptable-use",
+      "https://app.portifact.com/report",
       "mailto:abuse@portifact.com",
     ]);
   });
 
   it("are in the footer of every auth page, on the site's origin", () => {
-    for (const page of ["login", "device", "consent"]) {
+    for (const page of ["login", "device", "consent", "report"]) {
       expect(legalLinks(read(page)), page).toEqual([
         "https://portifact.com/",
         "https://portifact.com/terms",

@@ -1,7 +1,9 @@
 import { SELF } from "cloudflare:test";
+import { env } from "cloudflare:workers";
+import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { describe, expect, it } from "vitest";
 import { SESSION_SCOPES } from "../src/api/access.ts";
-import { PAGE_CSP } from "../src/app-host.ts";
+import { dashboardCsp, PAGE_CSP } from "../src/app-host.ts";
 import { publishSite, tokenClient } from "./api-client.ts";
 import { createHarness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
@@ -47,11 +49,19 @@ describe("dashboard pages", () => {
   it("serves the dashboard to a signed-in user with the strict page headers", async () => {
     const h = createHarness();
     const cookie = await h.signIn("dashboard-page@example.test");
-    for (const path of ["/", "/artifacts/k7d2qm4xab", "/account"]) {
+    for (const path of [
+      "/",
+      "/publish",
+      "/artifacts/k7d2qm4xab",
+      "/artifacts/k7d2qm4xab/publish",
+      "/artifacts/k7d2qm4xab/edit",
+      "/artifacts/k7d2qm4xab/history",
+      "/account",
+    ]) {
       const response = await h.request(path, { headers: { cookie } });
       expect(response.status, path).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
-      expect(response.headers.get("content-security-policy")).toBe(PAGE_CSP);
+      expect(response.headers.get("content-security-policy")).toBe(await dashboardCsp(env));
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response.headers.get("x-frame-options")).toBe("DENY");
@@ -82,6 +92,31 @@ describe("dashboard pages", () => {
       const response = await SELF.fetch(`https://portifact.com${path}`, { redirect: "manual" });
       expect(response.status, path).toBe(404);
     }
+  });
+});
+
+describe("dashboard policy", () => {
+  it("adds only the storage endpoint and the document stylesheet to the page policy", async () => {
+    const policy = await dashboardCsp(env);
+    const digest = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(DOCUMENT_STYLESHEET),
+    );
+    const hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+    const storage = `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+    expect(policy).toBe(
+      PAGE_CSP.replace("style-src 'self'", `style-src 'self' 'sha256-${hash}'`).replace(
+        "connect-src 'self'",
+        `connect-src 'self' ${storage}`,
+      ),
+    );
+    // Frames, scripts and images stay as strict as the page policy: no other origin anywhere.
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).toContain("script-src 'self';");
+    expect(policy).toContain("img-src 'self';");
+    expect(policy).not.toContain("frame-src");
+    expect(policy).not.toContain("unsafe");
+    expect(policy.match(/https:\/\/[^\s;]+/g)).toEqual([storage]);
   });
 });
 

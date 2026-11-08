@@ -1,7 +1,12 @@
 // Form controls with their label, description and error wired for assistive technology. Screens
 // use them through the form hook in ../forms, which binds them to TanStack Form fields.
 import { CircleAlert } from "lucide-react";
-import { type InputHTMLAttributes, type ReactNode, useId } from "react";
+import {
+  type InputHTMLAttributes,
+  type ReactNode,
+  type TextareaHTMLAttributes,
+  useId,
+} from "react";
 
 type NativeInput = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "id" | "type">;
 
@@ -51,6 +56,44 @@ export function TextInput({ label, description, error, type = "text", ...rest }:
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
         className="h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-sm text-text disabled:opacity-60 aria-invalid:border-2 aria-invalid:border-text"
+      />
+      {error ? <FieldError id={errorId}>{error}</FieldError> : null}
+    </div>
+  );
+}
+
+export interface TextAreaProps
+  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className" | "id"> {
+  label: string;
+  description?: ReactNode;
+  error?: string | undefined;
+  /** Monospaced text with no wrapping changes, for source code and plain text. */
+  code?: boolean;
+}
+
+/** A labelled multi-line text input, tall enough to edit a document. */
+export function TextArea({ label, description, error, code = false, ...rest }: TextAreaProps) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium">
+        {label}
+      </label>
+      {description ? (
+        <p id={hintId} className="text-sm text-text-muted">
+          {description}
+        </p>
+      ) : null}
+      <textarea
+        rows={16}
+        spellCheck={!code}
+        {...rest}
+        id={id}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
+        className={`min-h-48 w-full resize-y rounded-md border border-border-strong bg-canvas p-3 text-sm text-text disabled:opacity-60 aria-invalid:border-2 aria-invalid:border-text ${code ? "font-mono" : ""}`}
       />
       {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>

@@ -57,6 +57,27 @@
       "when": 1794124290105,
       "tag": "0007_annotation_usage_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794125497602,
+      "tag": "0008_source_origins",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794127274767,
+      "tag": "0009_moderation_and_account_deletion",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794127275069,
+      "tag": "0010_moderation_triggers",
+      "breakpoints": true
     }
   ]
 }

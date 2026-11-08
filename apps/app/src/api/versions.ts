@@ -47,6 +47,7 @@ export function versionSummary(version: VersionInfo): VersionSummary {
     rendererVersion: version.rendererVersion,
     committedAt: iso(version.committedAt),
     expiresAt: version.expiresAt === null ? null : iso(version.expiresAt),
+    sourceOrigin: version.sourceOrigin,
   });
 }
 

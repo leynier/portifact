@@ -4,15 +4,27 @@
 import {
   AccessPolicyView,
   type AccessUpdate,
+  AccountDeletionResult,
   ApiError,
   ArtifactList,
   ArtifactSummary,
   BrowserSessionList,
+  CommittedPublish,
   ConnectedAppList,
   DisconnectResult,
+  DocumentPreview,
+  type DocumentPreviewRequest,
+  type DownloadKind,
   type ErrorCode,
   LifecycleResult,
+  PreparedPublish,
+  type PublishRequest,
+  type RollbackRequest,
+  RolledBack,
   SignOutOthersResult,
+  VersionDownload,
+  VersionList,
+  VersionManifest,
 } from "@portifact/contracts";
 import { z } from "zod";
 
@@ -60,7 +72,32 @@ export interface DashboardApi {
   signOutOtherSessions(): Promise<SignOutOthersResult>;
   connectedApps(): Promise<ConnectedAppList>;
   disconnectApp(clientId: string): Promise<DisconnectResult>;
+  /** Deletes the account; the email typed again confirms it. */
+  deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
+  /** Starts a publish; retrying with the same key returns the same upload. */
+  preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
+  /** An open upload with fresh URLs for the objects still to send. */
+  uploadProgress(uploadId: string): Promise<PreparedPublish>;
+  commitPublish(uploadId: string): Promise<CommittedPublish>;
+  abortPublish(uploadId: string): Promise<void>;
+  listVersions(artifactId: string, cursor?: string): Promise<VersionList>;
+  versionManifest(artifactId: string, versionId: string): Promise<VersionManifest>;
+  versionDownload(
+    artifactId: string,
+    versionId: string,
+    kind: DownloadKind,
+    path?: string,
+  ): Promise<VersionDownload>;
+  rollback(
+    artifactId: string,
+    request: RollbackRequest,
+    idempotencyKey: string,
+  ): Promise<RolledBack>;
+  previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
 }
+
+/** The account's data as a JSON download (a plain link: the browser saves the attachment). */
+export const ACCOUNT_EXPORT_PATH = "/api/v1/account/export";
 
 const SessionBody = z.object({
   user: z.object({
@@ -85,16 +122,18 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     schema: z.ZodType<T>,
     method: "GET" | "POST" | "PATCH" | "DELETE" = "GET",
     payload?: unknown,
+    extraHeaders: Record<string, string> = {},
   ): Promise<T> => {
     let response: Response;
     try {
       response = await fetch(path, {
         method,
         credentials: "same-origin",
-        headers:
-          payload === undefined
-            ? { accept: "application/json" }
-            : { accept: "application/json", "content-type": "application/json" },
+        headers: {
+          accept: "application/json",
+          ...(payload === undefined ? {} : { "content-type": "application/json" }),
+          ...extraHeaders,
+        },
         ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
       });
     } catch {
@@ -182,6 +221,59 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         DisconnectResult,
         "DELETE",
       );
+    },
+    deleteAccount(confirmEmail) {
+      return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });
+    },
+    preparePublish(request, idempotencyKey) {
+      return call("/api/v1/publishes", PreparedPublish, "POST", request, {
+        "idempotency-key": idempotencyKey,
+      });
+    },
+    uploadProgress(uploadId) {
+      return call(`/api/v1/publishes/${encodeURIComponent(uploadId)}`, PreparedPublish);
+    },
+    commitPublish(uploadId) {
+      return call(
+        `/api/v1/publishes/${encodeURIComponent(uploadId)}/commit`,
+        CommittedPublish,
+        "POST",
+      );
+    },
+    async abortPublish(uploadId) {
+      await call(`/api/v1/publishes/${encodeURIComponent(uploadId)}`, z.null(), "DELETE");
+    },
+    listVersions(artifactId, cursor) {
+      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/versions${query}`,
+        VersionList,
+      );
+    },
+    versionManifest(artifactId, versionId) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}`,
+        VersionManifest,
+      );
+    },
+    versionDownload(artifactId, versionId, kind, path) {
+      const query = new URLSearchParams({ kind, ...(path ? { path } : {}) });
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(versionId)}/download?${query}`,
+        VersionDownload,
+      );
+    },
+    rollback(artifactId, request, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/rollback`,
+        RolledBack,
+        "POST",
+        request,
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    previewDocument(request) {
+      return call("/api/v1/documents/preview", DocumentPreview, "POST", request);
     },
   };
 }

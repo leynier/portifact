@@ -11,6 +11,7 @@ import {
   type ErrorCode,
 } from "./core.ts";
 import { LIMITS } from "./limits.ts";
+import { SuspensionView } from "./moderation.ts";
 
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "Invalid SHA-256");
 
@@ -24,6 +25,27 @@ export const ManifestFile = z.object({
 });
 export type ManifestFile = z.infer<typeof ManifestFile>;
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching control characters is the point
+const NO_CONTROL = /^[^\u0000-\u001f\u007f]*$/;
+
+/**
+ * Where a version's private sources came from in git (plan section 6, "Fuentes desde git"). The
+ * client declares it and the server only checks its form; only the owner sees it, like the
+ * sources. `commit` is null in a repository without commits, `branch` on a detached HEAD and
+ * `remote` without one. The remote never carries credentials (see `checkSourceOrigin`).
+ */
+export const SourceOrigin = z.strictObject({
+  commit: z
+    .string()
+    .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/, "Invalid commit")
+    .nullable(),
+  branch: z.string().min(1).max(255).regex(NO_CONTROL, "Invalid branch").nullable(),
+  remote: z.string().min(1).max(2_048).regex(NO_CONTROL, "Invalid remote").nullable(),
+  /** The sources had changes that were not committed. */
+  dirty: z.boolean(),
+});
+export type SourceOrigin = z.infer<typeof SourceOrigin>;
+
 /** Starts a publish: a new artifact without `artifactId`, a new version with it. */
 export const PublishRequest = z.object({
   artifactId: ArtifactId.optional(),
@@ -33,6 +55,8 @@ export const PublishRequest = z.object({
   /** The version the client based its changes on; `null` for a new artifact. */
   baseVersionId: z.string().min(1).max(64).nullable().default(null),
   files: z.array(ManifestFile).min(1).max(LIMITS.filesPerVersion),
+  /** Git origin of the `source` files; only with at least one of them. */
+  sourceOrigin: SourceOrigin.optional(),
 });
 export type PublishRequest = z.infer<typeof PublishRequest>;
 
@@ -80,6 +104,8 @@ export const ArtifactSummary = z.object({
   expiresAt: z.iso.datetime().nullable(),
   archivedAt: z.iso.datetime().nullable(),
   purgeAt: z.iso.datetime().nullable(),
+  /** Why an operator suspended it; present only while `state` is `suspended`. */
+  suspension: SuspensionView.optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -148,5 +174,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   quota_exceeded: 429,
   traffic_exceeded: 429,
   rate_limited: 429,
+  reauthentication_required: 403,
   capacity_unavailable: 503,
 };

@@ -7,6 +7,7 @@ import {
   checkDocumentManifest,
   checkPublish,
   checkRenderedVersion,
+  checkSourceOrigin,
   DOCUMENT_CONTENT_TYPES,
   type DocumentType,
   fail,
@@ -15,6 +16,7 @@ import {
   nextExpiry,
   ok,
   type Result,
+  type SourceOriginInput,
   validateManifestPaths,
 } from "@portifact/domain";
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
@@ -24,6 +26,7 @@ import {
   renderingStatements,
   storeRenderings,
 } from "./documents.ts";
+import { accountSuspension } from "./moderation.ts";
 import { hex, objectKey } from "./objects.ts";
 
 export { objectKey } from "./objects.ts";
@@ -55,6 +58,8 @@ export interface PrepareInput {
   /** The version the client based its changes on (`null` for a new artifact). */
   baseVersionId: string | null;
   files: ManifestEntry[];
+  /** Declared git origin of the source files; owner-only metadata of the version. */
+  sourceOrigin?: SourceOriginInput | undefined;
   now: number;
 }
 
@@ -195,9 +200,20 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
     ? documentManifest(input.type, entrypoint, validated.value)
     : validated;
   if (!manifest.ok) return manifest;
+  if (input.sourceOrigin) {
+    const sources = manifest.value.filter((file) => file.kind === "source").length;
+    const origin = checkSourceOrigin(input.sourceOrigin, sources);
+    if (!origin.ok) return origin;
+  }
   const name = input.name.trim();
   if (name.length === 0 || name.length > 200)
     return fail("invalid_input", "Name must be 1 to 200 characters.");
+  if (await accountSuspension(db, input.ownerId)) {
+    return fail(
+      "forbidden",
+      "Your account is suspended, so it cannot publish. Contact abuse@portifact.com.",
+    );
+  }
 
   let artifactId = input.artifactId;
   let versionNumber = 1;
@@ -332,6 +348,17 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
           contentType: file.contentType,
         })),
       ),
+      ...(input.sourceOrigin
+        ? [
+            db.insert(schema.sourceOrigins).values({
+              versionId,
+              commit: input.sourceOrigin.commit,
+              branch: input.sourceOrigin.branch,
+              remote: input.sourceOrigin.remote,
+              dirty: input.sourceOrigin.dirty,
+            }),
+          ]
+        : []),
       ...(uploads.length > 0
         ? [
             db
@@ -364,6 +391,10 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
   } catch (error) {
     if (constraintFailed(error, "UNIQUE")) {
       return fail("version_conflict", "Another publish to this artifact started first. Try again.");
+    }
+    // The random ID belonged to a purged artifact (tombstoned IDs are refused by a trigger).
+    if (causeIncludes(error, "artifact_id_tombstoned")) {
+      return fail("version_conflict", "Try again.");
     }
     if (constraintFailed(error, "CHECK")) {
       return fail("quota_exceeded", "Your account reached a limit while preparing this publish.");
@@ -834,8 +865,12 @@ function changes(result: unknown): number {
 }
 
 function constraintFailed(error: unknown, kind: "UNIQUE" | "CHECK"): boolean {
+  return causeIncludes(error, `${kind} constraint failed`);
+}
+
+function causeIncludes(error: unknown, text: string): boolean {
   for (let e: unknown = error; e instanceof Error; e = e.cause) {
-    if (e.message.includes(`${kind} constraint failed`)) return true;
+    if (e.message.includes(text)) return true;
   }
   return false;
 }

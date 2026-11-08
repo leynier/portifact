@@ -13,6 +13,20 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { sessions, users } from "./auth-schema.ts";
 
+/** Categories of the Acceptable Use Policy, for reports and suspensions (contracts: AbuseReason). */
+export const ABUSE_REASONS = [
+  "phishing",
+  "malware",
+  "sexual_content",
+  "child_safety",
+  "copyright",
+  "impersonation",
+  "harassment",
+  "private_information",
+  "spam",
+  "other",
+] as const;
+
 const timestamp = (name: string) => integer(name, { mode: "number" });
 const createdAt = () => timestamp("created_at").notNull().default(sql`(unixepoch() * 1000)`);
 
@@ -45,6 +59,11 @@ export const artifacts = sqliteTable(
     expiresAt: timestamp("expires_at"),
     archivedAt: timestamp("archived_at"),
     purgeAt: timestamp("purge_at"),
+    /**
+     * Why an operator suspended the artifact, shown to its owner; null unless `suspended`. The
+     * history, the state to go back to and the operator's notes are in `suspensions`.
+     */
+    suspensionReason: text("suspension_reason", { enum: ABUSE_REASONS }),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull().default(sql`(unixepoch() * 1000)`),
   },
@@ -166,6 +185,32 @@ export const versions = sqliteTable(
     uniqueIndex("versions_artifact_number_idx").on(t.artifactId, t.number),
     index("versions_state_expires_idx").on(t.state, t.expiresAt),
     check("versions_bytes_nonnegative", sql`${t.publishedBytes} >= 0 and ${t.sourceBytes} >= 0`),
+  ],
+);
+
+/**
+ * Declared git origin of a version's private sources (plan section 6, "Fuentes desde git"): the
+ * commit, branch and credential-free remote, and whether the sources had uncommitted changes.
+ * Owner-only, like the sources. A rollback copies the row to its new version.
+ */
+export const sourceOrigins = sqliteTable(
+  "source_origins",
+  {
+    versionId: text("version_id")
+      .primaryKey()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    commit: text("commit"),
+    branch: text("branch"),
+    remote: text("remote"),
+    dirty: integer("dirty", { mode: "boolean" }).notNull(),
+  },
+  (t) => [
+    check(
+      "source_origins_commit_format",
+      sql`${t.commit} is null or length(${t.commit}) in (40, 64)`,
+    ),
+    check("source_origins_branch_length", sql`${t.branch} is null or length(${t.branch}) <= 255`),
+    check("source_origins_remote_length", sql`${t.remote} is null or length(${t.remote}) <= 2048`),
   ],
 );
 
@@ -331,6 +376,11 @@ export const tombstones = sqliteTable(
   (t) => [primaryKey({ columns: [t.kind, t.id] })],
 );
 
+/**
+ * Reports sent through the public report form (`POST /api/v1/reports`). Untrusted text; the
+ * operator reads them with the operator tool (docs/operations.md). The reporter's email is
+ * optional and erased when that address's account is deleted.
+ */
 export const abuseReports = sqliteTable(
   "abuse_reports",
   {
@@ -342,10 +392,57 @@ export const abuseReports = sqliteTable(
     status: text("status", { enum: ["open", "actioned", "dismissed"] })
       .notNull()
       .default("open"),
+    resolvedAt: timestamp("resolved_at"),
     createdAt: createdAt(),
   },
-  (t) => [index("abuse_reports_status_idx").on(t.status, t.createdAt)],
+  (t) => [
+    index("abuse_reports_status_idx").on(t.status, t.createdAt),
+    index("abuse_reports_artifact_idx").on(t.artifactId),
+  ],
 );
+
+/**
+ * Operator suspensions of an artifact or a whole account (plan section 13). At most one is open
+ * per target; lifting it sets `lifted_at`. An account suspension also suspends each of the
+ * account's artifacts with its own row that points at it, so lifting the account reinstates
+ * exactly those.
+ */
+export const suspensions = sqliteTable(
+  "suspensions",
+  {
+    id: text("id").primaryKey(),
+    kind: text("kind", { enum: ["artifact", "account"] }).notNull(),
+    /** Artifact ID or user ID. No foreign key: the history outlives what it points at. */
+    targetId: text("target_id").notNull(),
+    reason: text("reason", { enum: ABUSE_REASONS }).notNull(),
+    /** For an artifact, the state it goes back to when reinstated: `active` or `archived`. */
+    previousState: text("previous_state", { enum: ["active", "archived"] }),
+    reportId: text("report_id"),
+    /** The account suspension this artifact suspension belongs to, if any. */
+    parentId: text("parent_id"),
+    /** The operator's private note. Never shown to the owner. */
+    note: text("note"),
+    createdAt: createdAt(),
+    liftedAt: timestamp("lifted_at"),
+  },
+  (t) => [
+    uniqueIndex("suspensions_open_target_idx")
+      .on(t.kind, t.targetId)
+      .where(sql`${t.liftedAt} is null`),
+    index("suspensions_parent_idx").on(t.parentId),
+  ],
+);
+
+/**
+ * Accounts being deleted. The request deletes the user (and with it every session, token and
+ * identity) and claims the artifacts for purging at once; the maintenance job then purges the
+ * artifacts, erases the account's comments on other people's artifacts in small batches and,
+ * when nothing is left, replaces this row with an `account` tombstone.
+ */
+export const accountDeletions = sqliteTable("account_deletions", {
+  userId: text("user_id").primaryKey(),
+  requestedAt: timestamp("requested_at").notNull(),
+});
 
 /**
  * Annotation threads (plan section 8). A thread points at one immutable version and a target;

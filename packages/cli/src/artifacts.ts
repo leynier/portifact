@@ -87,6 +87,9 @@ export async function info(
       ["Name", artifact.name],
       ["Type", artifact.type],
       ["State", artifact.state],
+      ...(artifact.suspension
+        ? [["Suspended", `${artifact.suspension.reason}; write to abuse@portifact.com to appeal`]]
+        : []),
       ["Access", artifact.accessMode],
       ["Annotations", artifact.annotations],
       ["URL", artifact.url],
