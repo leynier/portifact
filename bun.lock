@@ -18,7 +18,7 @@
     },
     "packages/cli": {
       "name": "@portifact/cli",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "commander": "^15.0.0",
       },
