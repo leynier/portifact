@@ -57,19 +57,30 @@ It survives deploys. The deploy token already has Queues access. No dead-letter 
 
 ### App Worker configuration
 
-Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN` (artifact origins, used for public URLs and to send signed-in visitors back from `/read/<id>`), and `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target. The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
+Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN` (artifact origins, used for public URLs and to send signed-in visitors back from `/read/<id>`), `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target, and `TURNSTILE_SITE_KEY`, the public site key of the human check (see below). The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
 
 Secrets are set once on the `portifact-app` Worker and survive deploys:
 
-| Secret                 | Value                                                                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `BETTER_AUTH_SECRET`   | 32 random bytes, base64 (`openssl rand -base64 32`). Rotating it signs out every session and voids pending authorization and consent requests.   |
-| `GOOGLE_CLIENT_SECRET` | Secret of the Google OAuth client whose ID is `GOOGLE_CLIENT_ID`.                                                                                |
-| `GITHUB_CLIENT_SECRET` | Secret of the GitHub OAuth app whose ID is `GITHUB_CLIENT_ID`.                                                                                   |
-| `R2_ACCESS_KEY_ID`     | Access key ID of the R2 API token `portifact-app-uploads`, limited to Object Read and Write on `portifact-artifacts`. It only signs upload URLs. |
-| `R2_SECRET_ACCESS_KEY` | Secret access key of that token. Rotating it voids upload URLs already issued; clients ask for fresh ones with `GET /api/v1/publishes/:id`.      |
+| Secret                 | Value                                                                                                                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`   | 32 random bytes, base64 (`openssl rand -base64 32`). Rotating it signs out every session and voids pending authorization and consent requests.                                           |
+| `GOOGLE_CLIENT_SECRET` | Secret of the Google OAuth client whose ID is `GOOGLE_CLIENT_ID`.                                                                                                                        |
+| `GITHUB_CLIENT_SECRET` | Secret of the GitHub OAuth app whose ID is `GITHUB_CLIENT_ID`.                                                                                                                           |
+| `R2_ACCESS_KEY_ID`     | Access key ID of the R2 API token `portifact-app-uploads`, limited to Object Read and Write on `portifact-artifacts`. It only signs upload URLs.                                         |
+| `R2_SECRET_ACCESS_KEY` | Secret access key of that token. Rotating it voids upload URLs already issued; clients ask for fresh ones with `GET /api/v1/publishes/:id`.                                              |
+| `TURNSTILE_SECRET_KEY` | Secret key of the Turnstile widget whose site key is `TURNSTILE_SITE_KEY`. Without it every human check fails closed: no new accounts and no first comments on other people's artifacts. |
 
 Set or rotate one by piping it to `wrangler secret put <NAME> --name portifact-app` from `apps/app`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment, so the value never appears in the shell history or the output. The Google client must allow the redirect URI `https://app.portifact.com/api/auth/callback/google` and the GitHub app the callback URL `https://app.portifact.com/api/auth/callback/github`.
+
+### Human check (Turnstile)
+
+Account creation and a visitor's first comments need a Cloudflare Turnstile widget ([security.md](security.md), "Human check"). The code fails closed, so until both values exist the deployed app refuses new accounts (existing accounts keep signing in) and visitors' first comments. Both exist since 2026-11-08 (widget `portifact-app`, secret set on the Worker). To recreate them:
+
+1. In the Cloudflare dashboard, Turnstile, add a widget named `portifact-app` in Managed mode with the hostname `app.portifact.com` only, and pre-clearance off.
+2. Put its site key in `TURNSTILE_SITE_KEY` in `apps/app/wrangler.jsonc` (public; it ships with the next deploy).
+3. Pipe its secret key to `wrangler secret put TURNSTILE_SECRET_KEY --name portifact-app` like the other secrets. Rotating it in the dashboard and here takes effect at once; tokens issued before stay valid only for the old key.
+
+Local development uses Cloudflare's documented test keys in `apps/app/.dev.vars`: `TURNSTILE_SITE_KEY=1x00000000000000000000AA` and `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA` always pass (`2x...` keys always fail). Never put a test key in the deployed configuration. The app tests set the same test keys in `vitest.config.ts` and fake siteverify; the e2e Worker leaves `TURNSTILE_SITE_KEY` empty and seeds comments without the check.
 
 ### Storage CORS for the dashboard
 

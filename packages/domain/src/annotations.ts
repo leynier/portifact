@@ -229,3 +229,42 @@ export function checkAnnotationWrite(
   }
   return ok(true);
 }
+
+/**
+ * Whether a new comment (thread or reply) needs a solved human check: the account's first
+ * comments on artifacts it does not own do (plan section 13). Owners never need one on their
+ * own artifacts, so they can answer with any client, agents included.
+ */
+export function needsHumanCheck(role: AnnotationRole, commentsOnOthersArtifacts: number): boolean {
+  return (
+    role === "participant" && commentsOnOthersArtifacts < ANNOTATION_LIMITS.humanCheckedComments
+  );
+}
+
+/** Outcome of verifying a human check token with the provider. */
+export type HumanVerdict = "passed" | "failed" | "unavailable";
+
+/**
+ * The decision for a comment that needs a human check, from the token the client sent (if any)
+ * and the provider's verdict on it. Without a token the comment must come from the review
+ * viewer, which shows the challenge.
+ */
+export function checkHumanVerdict(verdict: HumanVerdict | "missing"): Result<true> {
+  if (verdict === "passed") return ok(true);
+  if (verdict === "unavailable") {
+    return fail(
+      "capacity_unavailable",
+      "The human check is unavailable right now. Try again in a few minutes.",
+    );
+  }
+  if (verdict === "failed") {
+    return fail(
+      "human_verification_required",
+      "The human check failed or expired. Complete it again and resend the comment.",
+    );
+  }
+  return fail(
+    "human_verification_required",
+    `Your first ${ANNOTATION_LIMITS.humanCheckedComments} comments on other people's artifacts need a human check. Post them from the review viewer at app.portifact.com.`,
+  );
+}

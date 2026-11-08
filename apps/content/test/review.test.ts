@@ -564,10 +564,13 @@ describe("review of rendered documents", () => {
     expect(csp).toContain(`frame-ancestors 'self' ${APP}`);
     expect(html).toMatch(
       new RegExp(
-        `data-path="notes\\.md" data-session-tag="[A-Za-z0-9_-]{22}" data-renderer="portifact-render@1" nonce="${nonce?.replace(/[+/=]/g, "\\$&")}"`,
+        `data-path="notes\\.md" data-session-tag="[A-Za-z0-9_-]{22}" data-renderer="portifact-render@2" nonce="${nonce?.replace(/[+/=]/g, "\\$&")}"`,
       ),
     );
     expect(html.match(/<script/g)).toHaveLength(1);
+    // The page's report link would navigate the frame away; the viewer shows its own.
+    expect(html).not.toContain("data-portifact-chrome");
+    expect(html).not.toContain("/__portifact/report");
 
     const original = await send("/notes.md", { cookie, origin, headers: SAME_ORIGIN });
     expect(original.headers.get("content-disposition")).toContain("attachment");

@@ -100,7 +100,7 @@ describe("dashboard pages", () => {
 });
 
 describe("dashboard policy", () => {
-  it("adds only the storage endpoint, the document stylesheet and artifact frames to the page policy", async () => {
+  it("adds only the storage endpoint, the document stylesheet, artifact frames and the human check to the page policy", async () => {
     const policy = await dashboardCsp(env);
     const digest = await crypto.subtle.digest(
       "SHA-256",
@@ -108,20 +108,28 @@ describe("dashboard policy", () => {
     );
     const hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
     const storage = `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+    const challenges = "https://challenges.cloudflare.com";
     expect(policy).toBe(
-      `${PAGE_CSP.replace("style-src 'self'", `style-src 'self' 'sha256-${hash}'`).replace(
-        "connect-src 'self'",
-        `connect-src 'self' ${storage}`,
-      )}; frame-src https://*.portifact.dev`,
+      `${PAGE_CSP.replace("style-src 'self'", `style-src 'self' 'sha256-${hash}'`)
+        .replace("connect-src 'self'", `connect-src 'self' ${storage}`)
+        .replace(
+          "script-src 'self'",
+          `script-src 'self' ${challenges}`,
+        )}; frame-src https://*.portifact.dev ${challenges}`,
     );
-    // Scripts and images stay as strict as the page policy; frames only from artifact origins,
-    // for the review viewer.
+    // Images stay as strict as the page policy; scripts only add Turnstile, and frames only
+    // artifact origins (the review viewer) and Turnstile's challenge.
     expect(policy).toContain("default-src 'none'");
-    expect(policy).toContain("script-src 'self';");
+    expect(policy).toContain(`script-src 'self' ${challenges};`);
     expect(policy).toContain("img-src 'self';");
     expect(policy).toContain("frame-ancestors 'none'");
     expect(policy).not.toContain("unsafe");
-    expect(policy.match(/https:\/\/[^\s;]+/g)).toEqual([storage, "https://*.portifact.dev"]);
+    expect(policy.match(/https:\/\/[^\s;]+/g)).toEqual([
+      challenges,
+      storage,
+      "https://*.portifact.dev",
+      challenges,
+    ]);
   });
 });
 

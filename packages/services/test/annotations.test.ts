@@ -13,6 +13,7 @@ import {
   encodeAnnotationCursor,
   exportAnnotations,
   getAnnotationThread,
+  type HumanCheck,
   listAnnotations,
   moderateAnnotationMessage,
   replyToAnnotationThread,
@@ -25,6 +26,8 @@ const NOW = Date.UTC(2026, 10, 8, 12);
 const MINUTE = 60_000;
 const DAY = 86_400_000;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+/** A solved human check, as the review viewer sends it; the human-check tests use others. */
+const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
 const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "document" } };
 const QUOTE: AnnotationTarget = {
   schema: 1,
@@ -124,6 +127,7 @@ async function world(
 
 function start(w: World, userId: string, body = "Looks good", now = NOW, target = DOC) {
   return createAnnotationThread(db(), {
+    humanCheck: HUMAN,
     userId,
     artifactId: w.id,
     versionId: w.version,
@@ -181,6 +185,155 @@ async function seedWrites(actorId: string, artifact: string, count: number, at: 
       .values(rows.slice(i, i + 10));
   }
 }
+
+describe("human check on first comments", () => {
+  /** A human check that records the tokens it was asked to verify. */
+  function recording(verdict: "passed" | "failed" | "unavailable" | Error, token?: string) {
+    const verified: string[] = [];
+    const check: HumanCheck = {
+      token,
+      verify: async (value) => {
+        verified.push(value);
+        if (verdict instanceof Error) throw verdict;
+        return verdict;
+      },
+    };
+    return { check, verified };
+  }
+
+  function thread(w: World, userId: string, humanCheck: HumanCheck, now = NOW) {
+    return createAnnotationThread(db(), {
+      humanCheck,
+      userId,
+      artifactId: w.id,
+      versionId: w.version,
+      target: DOC,
+      body: "Hello",
+      now,
+    });
+  }
+
+  it("refuses a visitor's first comment without a token, as the CLI and MCP send it", async () => {
+    const w = await world();
+    const { check, verified } = recording("passed");
+    const result = await thread(w, w.reader, check);
+    expect(result).toMatchObject({ ok: false, code: "human_verification_required" });
+    expect(verified).toEqual([]);
+    const events = await db()
+      .select()
+      .from(schema.annotationEvents)
+      .where(eq(schema.annotationEvents.artifactId, w.id));
+    expect(events).toHaveLength(0);
+  });
+
+  it("refuses a failed token and fails closed when the provider is unavailable", async () => {
+    const w = await world();
+    const failed = recording("failed", "bad");
+    expect(await thread(w, w.reader, failed.check)).toMatchObject({
+      code: "human_verification_required",
+    });
+    expect(failed.verified).toEqual(["bad"]);
+    expect(await thread(w, w.reader, recording("unavailable", "t").check)).toMatchObject({
+      code: "capacity_unavailable",
+    });
+    expect(await thread(w, w.reader, recording(new Error("network"), "t").check)).toMatchObject({
+      code: "capacity_unavailable",
+    });
+  });
+
+  it("needs a token for the first comments only, counting threads and replies", async () => {
+    const w = await world();
+    const first = await thread(w, w.reader, HUMAN, NOW - 30 * MINUTE);
+    if (!first.ok) throw new Error(first.code);
+    for (let i = 1; i < ANNOTATION_LIMITS.humanCheckedComments; i++) {
+      const reply = await replyToAnnotationThread(db(), {
+        humanCheck: recording("failed").check,
+        userId: w.reader,
+        artifactId: w.id,
+        threadId: first.value.id,
+        body: `Reply ${i}`,
+        now: NOW - 20 * MINUTE + i * MINUTE,
+      });
+      expect(reply).toMatchObject({ ok: false, code: "human_verification_required" });
+      expect(
+        code(
+          await replyToAnnotationThread(db(), {
+            humanCheck: HUMAN,
+            userId: w.reader,
+            artifactId: w.id,
+            threadId: first.value.id,
+            body: `Reply ${i}`,
+            now: NOW - 20 * MINUTE + i * MINUTE,
+          }),
+        ),
+      ).toBe("ok");
+    }
+    // Past the first comments, no token is needed and none is verified.
+    const later = recording("failed");
+    expect(code(await thread(w, w.reader, later.check))).toBe("ok");
+    expect(later.verified).toEqual([]);
+  });
+
+  it("counts only comments on artifacts the author does not own", async () => {
+    const w = await world();
+    const own = await world();
+    // The reader owns nothing here, but comments made by an owner on their own artifact do not
+    // count toward its first comments elsewhere.
+    for (let i = 0; i < ANNOTATION_LIMITS.humanCheckedComments; i++) {
+      expect(
+        code(await thread(own, own.owner, recording("failed").check, NOW - (i + 2) * MINUTE)),
+      ).toBe("ok");
+    }
+    const ownerOfOwn = own.owner;
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: w.id, email: `${ownerOfOwn}@example.test` });
+    expect(await thread(w, ownerOfOwn, recording("passed").check)).toMatchObject({
+      code: "human_verification_required",
+    });
+  });
+
+  it("never asks the owner, whatever client they use", async () => {
+    const w = await world();
+    const { check, verified } = recording("failed");
+    expect(code(await thread(w, w.owner, check))).toBe("ok");
+    expect(verified).toEqual([]);
+  });
+
+  it("checks permissions and limits before spending the token", async () => {
+    const w = await world();
+    const stranger = recording("passed", "t");
+    expect(await thread(w, w.stranger, stranger.check)).toMatchObject({ code: "not_found" });
+    await seedWrites(w.reader, w.id, ANNOTATION_LIMITS.writesPerMinute, NOW - 1_000);
+    const limited = recording("passed", "t");
+    expect(await thread(w, w.reader, limited.check)).toMatchObject({ code: "rate_limited" });
+    expect([...stranger.verified, ...limited.verified]).toEqual([]);
+  });
+
+  it("verifies a token once even when the write loses its claim and checks again", async () => {
+    const w = await world();
+    const { check, verified } = recording("passed", "once");
+    const lost = await createAnnotationThread(
+      racing(() =>
+        db()
+          .update(schema.artifacts)
+          .set({ annotations: "locked" })
+          .where(eq(schema.artifacts.id, w.id)),
+      ),
+      {
+        humanCheck: check,
+        userId: w.reader,
+        artifactId: w.id,
+        versionId: w.version,
+        target: DOC,
+        body: "Hello",
+        now: NOW,
+      },
+    );
+    expect(lost.ok).toBe(false);
+    expect(verified).toEqual(["once"]);
+  });
+});
 
 describe("starting threads", () => {
   it("stores a thread with the session's author, its first message, an event and the usage", async () => {
@@ -243,6 +396,7 @@ describe("starting threads", () => {
   it("accepts comments only on the current version and on files of that version", async () => {
     const w = await world();
     const stale = await createAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.reader,
       artifactId: w.id,
       versionId: "other_version",
@@ -326,6 +480,7 @@ describe("versions and history", () => {
 
     // History takes no new messages, from anyone.
     const reply = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: old.id,
@@ -334,6 +489,7 @@ describe("versions and history", () => {
     });
     expect(code(reply)).toBe("version_conflict");
     const visitorReply = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.reader,
       artifactId: w.id,
       threadId: old.id,
@@ -369,6 +525,7 @@ describe("replies, edits and deletion", () => {
     const w = await world();
     const thread = await started(w, w.reader);
     const reply = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -383,6 +540,7 @@ describe("replies, edits and deletion", () => {
     expect(
       code(
         await replyToAnnotationThread(db(), {
+          humanCheck: HUMAN,
           userId: w.stranger,
           artifactId: w.id,
           threadId: thread.id,
@@ -394,6 +552,7 @@ describe("replies, edits and deletion", () => {
     expect(
       code(
         await replyToAnnotationThread(db(), {
+          humanCheck: HUMAN,
           userId: w.reader,
           artifactId: w.id,
           threadId: "nope",
@@ -421,6 +580,7 @@ describe("replies, edits and deletion", () => {
     expect(
       code(
         await replyToAnnotationThread(db(), {
+          humanCheck: HUMAN,
           userId: b.owner,
           artifactId: b.id,
           threadId: thread.id,
@@ -474,6 +634,7 @@ describe("replies, edits and deletion", () => {
     const thread = await started(w, w.reader);
     const first = thread.messages[0]?.id ?? "";
     const reply = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -540,6 +701,7 @@ describe("replies, edits and deletion", () => {
     const w = await world();
     const thread = await started(w, w.reader);
     await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -551,6 +713,7 @@ describe("replies, edits and deletion", () => {
     expect(
       code(
         await replyToAnnotationThread(db(), {
+          humanCheck: HUMAN,
           userId: w.reader,
           artifactId: w.id,
           threadId: thread.id,
@@ -658,6 +821,7 @@ describe("moderation and resolution", () => {
     const w = await world();
     const thread = await started(w, w.reader);
     await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -758,6 +922,7 @@ describe("moderation and resolution", () => {
     expect(
       code(
         await replyToAnnotationThread(db(), {
+          humanCheck: HUMAN,
           userId: w.reader,
           artifactId: w.id,
           threadId: thread.id,
@@ -809,6 +974,7 @@ describe("edge cases", () => {
     const w = await world();
     const thread = await started(w, w.reader);
     await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -943,6 +1109,7 @@ describe("incremental refresh", () => {
     });
 
     await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: a.id,
@@ -991,6 +1158,7 @@ describe("limits", () => {
     const thread = await started(w, w.reader);
     for (let i = 0; i < 4; i++) {
       const reply = await replyToAnnotationThread(db(), {
+        humanCheck: HUMAN,
         userId: w.reader,
         artifactId: w.id,
         threadId: thread.id,
@@ -1040,6 +1208,7 @@ describe("limits", () => {
       .where(eq(schema.annotationThreads.id, thread.id));
     expect(
       await replyToAnnotationThread(db(), {
+        humanCheck: HUMAN,
         userId: w.owner,
         artifactId: w.id,
         threadId: thread.id,
@@ -1084,6 +1253,7 @@ describe("limits", () => {
       .where(eq(schema.annotationUsage.ownerId, w.owner));
     expect(
       await replyToAnnotationThread(db(), {
+        humanCheck: HUMAN,
         userId: w.owner,
         artifactId: w.id,
         threadId: thread.id,
@@ -1160,6 +1330,7 @@ describe("concurrency", () => {
     const lost = await createAnnotationThread(
       racing(() => start(w, w.reader, "a")),
       {
+        humanCheck: HUMAN,
         userId: w.reader,
         artifactId: w.id,
         versionId: w.version,
@@ -1188,6 +1359,7 @@ describe("concurrency", () => {
     const lost = await createAnnotationThread(
       racing(() => start(w, w.owner, "a")),
       {
+        humanCheck: HUMAN,
         userId: w.reader,
         artifactId: w.id,
         versionId: w.version,
@@ -1211,6 +1383,7 @@ describe("concurrency", () => {
         now: NOW,
       });
     const lost = await replyToAnnotationThread(racing(revoke), {
+      humanCheck: HUMAN,
       userId: w.reader,
       artifactId: w.id,
       threadId: thread.id,
@@ -1236,6 +1409,7 @@ describe("concurrency", () => {
         now: NOW,
       });
     const lost = await replyToAnnotationThread(racing(toggle), {
+      humanCheck: HUMAN,
       userId: w.reader,
       artifactId: w.id,
       threadId: thread.id,
@@ -1258,6 +1432,7 @@ describe("concurrency", () => {
         .where(eq(schema.artifacts.id, w.id));
     };
     const lost = await createAnnotationThread(racing(publish), {
+      humanCheck: HUMAN,
       userId: w.reader,
       artifactId: w.id,
       versionId: w.version,
@@ -1280,6 +1455,7 @@ describe("concurrency", () => {
     const lock = () =>
       setAnnotationMode(db(), { userId: w.owner, artifactId: w.id, mode: "locked", now: NOW });
     const lost = await replyToAnnotationThread(racing(lock), {
+      humanCheck: HUMAN,
       userId: w.reader,
       artifactId: w.id,
       threadId: thread.id,
@@ -1298,6 +1474,7 @@ describe("concurrency", () => {
         .set({ messageCount: ANNOTATION_LIMITS.messagesPerThread })
         .where(eq(schema.annotationThreads.id, thread.id));
     const lost = await replyToAnnotationThread(racing(fill), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -1325,6 +1502,7 @@ describe("concurrency", () => {
         .set({ messages: ANNOTATION_LIMITS.messagesPerOwner })
         .where(eq(schema.annotationUsage.ownerId, w.owner));
     const lost = await createAnnotationThread(racing(fill), {
+      humanCheck: HUMAN,
       userId: w.reader,
       artifactId: w.id,
       versionId: w.version,
@@ -1355,6 +1533,7 @@ describe("concurrency", () => {
         now: NOW,
       });
     const lost = await replyToAnnotationThread(racing(remove), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -1375,6 +1554,7 @@ describe("concurrency", () => {
     const thread = await started(w, w.reader);
     const reply = () =>
       replyToAnnotationThread(db(), {
+        humanCheck: HUMAN,
         userId: w.owner,
         artifactId: w.id,
         threadId: thread.id,
@@ -1433,6 +1613,7 @@ describe("concurrency", () => {
     const w = await world();
     const thread = await started(w, w.reader);
     await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: thread.id,
@@ -1455,6 +1636,7 @@ describe("concurrency", () => {
 
     const other = await started(w, w.reader, "Two");
     await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
       userId: w.owner,
       artifactId: w.id,
       threadId: other.id,

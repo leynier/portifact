@@ -206,6 +206,7 @@ export function registerAnnotationTools(
             userId: context.userId,
             artifactId,
             ...request,
+            humanCheck: context.humanCheck,
             now: at,
           }),
       );
@@ -238,6 +239,7 @@ export function registerAnnotationTools(
             artifactId,
             threadId,
             body,
+            humanCheck: context.humanCheck,
             now: at,
           }),
       );

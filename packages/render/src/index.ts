@@ -2,6 +2,7 @@
 export {
   DOCUMENT_STYLESHEET,
   type DocumentOptions,
+  REPORT_PATH,
   type RenderedDocument,
   renderMarkdownDocument,
   renderTextDocument,

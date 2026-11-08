@@ -24,6 +24,7 @@ import {
 } from "@portifact/contracts";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
+import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
 import { createI18n } from "./i18n/i18n.ts";
@@ -227,6 +228,11 @@ export interface FakeAnnotations {
   threads: (AnnotationThreadView & { seq: number })[];
   deleted: { id: string; seq: number }[];
   seq: number;
+  /**
+   * Comments that still need a solved human check: each one must carry a `turnstileToken`
+   * starting with `solved`, or the post answers `human_verification_required`.
+   */
+  humanChecks?: number;
 }
 
 export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
@@ -291,6 +297,8 @@ export interface FakeServer {
   bodies: unknown[];
   pageSize: number;
   requests: { method: string; path: string }[];
+  /** Idempotency keys sent, with the path they were sent to, in order. */
+  idempotencyKeys: { path: string; key: string }[];
   /** The next `times` requests matching `method path` (path without query) fail. */
   fail(method: string, path: string, failure: Failure, times?: number): void;
   fetch(input: string, init?: RequestInit): Promise<Response>;
@@ -318,6 +326,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     bodies: [],
     pageSize: 50,
     requests: [],
+    idempotencyKeys: [],
     fail(method, path, failure, times = 1) {
       failures.push({ key: `${method} ${path}`, failure, times });
     },
@@ -329,6 +338,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       const method = init.method ?? "GET";
       const url = new URL(input, "https://app.portifact.com");
       server.requests.push({ method, path: `${url.pathname}${url.search}` });
+      const idempotencyKey = new Headers(init.headers).get("idempotency-key");
+      if (idempotencyKey) server.idempotencyKeys.push({ path: url.pathname, key: idempotencyKey });
       if (typeof init.body === "string") server.bodies.push(JSON.parse(init.body));
       const failure = failures.find((f) => f.key === `${method} ${url.pathname}` && f.times > 0);
       if (failure) {
@@ -768,6 +779,17 @@ function reviewRoute(
     thread.revision += 1;
   };
   const view = ({ seq: _seq, ...thread }: FakeAnnotations["threads"][number]) => thread;
+  const posting =
+    method === "POST" && (rest === "/threads" || /^\/threads\/[^/]+\/messages$/.test(rest));
+  if (posting && (store.humanChecks ?? 0) > 0) {
+    if (!String(body?.turnstileToken ?? "").startsWith("solved")) {
+      return Response.json(
+        { error: { code: "human_verification_required", message: "x" } },
+        { status: 403 },
+      );
+    }
+    store.humanChecks = (store.humanChecks ?? 0) - 1;
+  }
   if (rest === "" && method === "GET") {
     if (store.mode === "off" && store.role !== "owner") {
       return Response.json({ error: { code: "forbidden", message: "x" } }, { status: 403 });
@@ -876,7 +898,11 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
   return Response.json(policy);
 }
 
-export function renderDashboard(path: string, server: FakeServer) {
+export function renderDashboard(
+  path: string,
+  server: FakeServer,
+  options: { humanCheck?: HumanCheckWidget | null } = {},
+) {
   const left: string[] = [];
   const saved: SavedFile[] = [];
   const leave = (url: string) => {
@@ -897,6 +923,7 @@ export function renderDashboard(path: string, server: FakeServer) {
         save: (file) => {
           saved.push(file);
         },
+        humanCheck: options.humanCheck ?? null,
       }}
       i18n={createI18n()}
       queryClient={queryClient}

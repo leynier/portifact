@@ -1,5 +1,6 @@
 import { useLingui } from "@lingui/react";
 import { createContext, useCallback, useContext } from "react";
+import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import type { DashboardApi } from "./api.ts";
 import type { MessageId } from "./i18n/en.ts";
 import type { ManifestBuilder } from "./publish/builder.ts";
@@ -17,6 +18,11 @@ export interface DashboardEnv {
   storage: StorageTransport;
   /** Hands a file to the user, as a download. */
   save(file: SavedFile): void;
+  /**
+   * The human check widget (Turnstile) for a visitor's first comments; null when the page has no
+   * site key, and absent in tests that never meet the check.
+   */
+  humanCheck?: HumanCheckWidget | null;
 }
 
 export const DashboardContext = createContext<DashboardEnv | null>(null);

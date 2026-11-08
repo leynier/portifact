@@ -30,14 +30,14 @@ async function key(secret: string): Promise<CryptoKey> {
   );
 }
 
-function toBase64Url(bytes: ArrayBuffer): string {
+export function toBase64Url(bytes: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(bytes)))
     .replaceAll("+", "-")
     .replaceAll("/", "_")
     .replace(/=+$/, "");
 }
 
-function fromBase64Url(value: string): Uint8Array<ArrayBuffer> | undefined {
+export function fromBase64Url(value: string): Uint8Array<ArrayBuffer> | undefined {
   try {
     const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/"));
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
