@@ -168,7 +168,7 @@
     },
     "packages/cli": {
       "name": "@portifact/cli",
-      "version": "0.10.0",
+      "version": "0.11.0",
       "dependencies": {
         "@portifact/contracts": "workspace:*",
         "@portifact/domain": "workspace:*",
