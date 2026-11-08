@@ -500,6 +500,10 @@ describe("review states", () => {
       await screen.findByRole("heading", { name: "Review in a separate tab" })
     ).closest("section") as HTMLElement;
     expect(within(offer).getByText(/ends after 15 minutes/)).toBeTruthy();
+    // The frame can force this offer, so the tab is presented as the artifact, not Portifact.
+    expect(
+      within(offer).getByText(/shows the artifact itself, written by its author/),
+    ).toBeTruthy();
     fireEvent.click(within(offer).getByRole("button", { name: "Prepare a review tab" }));
     const link = await within(offer).findByRole("link", { name: "Open the review tab" });
     expect(server.requests.filter((r) => r.path.endsWith("/review/tab"))).toHaveLength(1);

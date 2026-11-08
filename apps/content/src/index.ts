@@ -41,6 +41,7 @@ import {
   REVIEW_TAB_CHECK_PATH,
   REVIEW_TAB_PATH,
   type ReviewStep,
+  strayFrameCookie,
 } from "./review.ts";
 
 export interface Env {
@@ -87,6 +88,16 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 export async function handle(request: Request, env: Env, now: number): Promise<Response> {
+  const response = await route(request, env, now);
+  // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
+  const stray = strayFrameCookie(request);
+  if (!stray) return response;
+  const cleared = new Response(response.body, response);
+  cleared.headers.append("Set-Cookie", stray);
+  return cleared;
+}
+
+async function route(request: Request, env: Env, now: number): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
   }

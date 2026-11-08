@@ -13,8 +13,8 @@ import {
   sql,
   test,
 } from "../src/fixtures.ts";
-import { navigatingPage } from "../src/hostile.ts";
-import { artifactOrigin, bounced, REVIEW_TAB_COOKIE } from "../src/hosts.ts";
+import { navigatingPage, plantingPage } from "../src/hostile.ts";
+import { artifactOrigin, bounced, REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/hosts.ts";
 
 // The page's own policy blocks every script, the bridge included, so engines where the frame
 // keeps the review cookie reach the fallback too.
@@ -168,4 +168,104 @@ test("an artifact cannot open a review tab session in a visitor's browser", asyn
   expect(await sql("SELECT id FROM review_sessions WHERE user_id = ?", [attacker.userId])).toEqual(
     [],
   );
+});
+
+test("a frame session a sibling plants in the artifact's own partition is never honored at top level", async ({
+  page,
+  context,
+}, testInfo) => {
+  const victim = await createUser("Victim");
+  const attacker = await createUser("Attacker");
+  // Any artifact the attacker can read: here a public one of the victim's.
+  const reviewed = await publish({
+    ownerId: victim.userId,
+    name: "Launch plan",
+    accessMode: "public",
+    files: SITE,
+  });
+  const origin = artifactOrigin(reviewed.artifactId);
+  const exchangeHit = async (since: number) =>
+    (await contentRequests())
+      .slice(since)
+      .some(
+        (r) =>
+          r.host.startsWith(reviewed.artifactId) &&
+          r.path === "/__portifact/review" &&
+          r.status === 303,
+      );
+  /** A sibling frames a redirector on another site that lands on the exchange with its code. */
+  const plant = async () => {
+    const { code } = await control<{ code: string }>("/review-code", {
+      userId: attacker.userId,
+      sessionId: attacker.sessionId,
+      artifactId: reviewed.artifactId,
+    });
+    const sibling = await publish({
+      ownerId: attacker.userId,
+      name: "Cute cats",
+      accessMode: "public",
+      files: {
+        "index.html": plantingPage(bounced(`${origin}/__portifact/review?code=${code}`)),
+      },
+    });
+    const since = (await contentRequests()).length;
+    await page.goto(`${artifactOrigin(sibling.artifactId)}/`);
+    await expect.poll(() => exchangeHit(since)).toBe(true);
+  };
+  /** Whether this engine stores a partitioned cookie set in a same-site frame at all. */
+  const keepsPartitioned =
+    !testInfo.project.name.startsWith("webkit") || process.platform === "darwin";
+  const requestsSince = async (since: number) =>
+    (await contentRequests()).slice(since).filter((r) => r.host.startsWith(reviewed.artifactId));
+  const bridge = (target: typeof page) => target.locator('script[src*="/__portifact/bridge.js"]');
+
+  await signIn(context, victim);
+  await plant();
+
+  // A top-level visit carries the planted cookie, is served normally and clears it.
+  let since = (await contentRequests()).length;
+  await page.goto(`${origin}/`);
+  await expect(page.getByRole("heading", { name: "Launch plan" })).toBeVisible();
+  expect(await bridge(page).count()).toBe(0);
+  const first = await requestsSince(since);
+  if (keepsPartitioned) {
+    expect(first.find((r) => r.path === "/")?.cookieNames).toContain(REVIEW_COOKIE);
+  }
+  since = (await contentRequests()).length;
+  await page.goto(`${origin}/details.html`);
+  await expect(page.getByRole("heading", { name: "Details" })).toBeVisible();
+  const second = await requestsSince(since);
+  expect(second.length).toBeGreaterThan(0);
+  expect(second.some((r) => r.cookieNames.includes(REVIEW_COOKIE))).toBe(false);
+
+  // Planted again, it does not outrank the visitor's own review tab either.
+  await plant();
+  await openReview(page, reviewed.artifactId, "Launch plan");
+  await page.getByRole("button", { name: "Prepare a review tab" }).click();
+  const [tab] = await Promise.all([
+    context.waitForEvent("page"),
+    page.getByRole("link", { name: "Open the review tab" }).click(),
+  ]);
+  await tab.waitForLoadState("load");
+  await expect(tab.getByRole("region", { name: "Portifact review" })).toBeVisible();
+  expect(await bridge(tab).count()).toBe(0);
+  await tab.getByRole("link", { name: "Details" }).click();
+  await expect(tab.getByRole("heading", { name: "Details" })).toBeVisible();
+  await expect(tab.getByRole("region", { name: "Portifact review" })).toBeVisible();
+  expect(await bridge(tab).count()).toBe(0);
+
+  // End review leaves no review cookie of either kind behind.
+  await tab.getByRole("link", { name: "End review" }).click();
+  await expect(tab.getByRole("heading", { name: /Review ended/ })).toBeVisible();
+  since = (await contentRequests()).length;
+  await tab.goto(`${origin}/details.html`);
+  await expect(tab.getByRole("heading", { name: "Details" })).toBeVisible();
+  await expect(tab.getByRole("region", { name: "Portifact review" })).toBeHidden();
+  expect(await bridge(tab).count()).toBe(0);
+  const after = await requestsSince(since);
+  expect(after.length).toBeGreaterThan(0);
+  for (const request of after) {
+    expect(request.cookieNames).not.toContain(REVIEW_COOKIE);
+    expect(request.cookieNames).not.toContain(REVIEW_TAB_COOKIE);
+  }
 });

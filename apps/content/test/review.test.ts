@@ -781,6 +781,77 @@ describe("review tab", () => {
     expect(await late.text()).not.toContain("End review");
   });
 
+  const clearsFrameCookie = (response: Response) =>
+    response.headers
+      .getSetCookie()
+      .includes(
+        `${REVIEW_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=None; Partitioned`,
+      );
+
+  it("never honors a frame cookie on a top-level page, and clears it there", async () => {
+    // A frame session planted in the artifact's own partition: a sibling framed a redirector to
+    // the exchange, which arrived as the cross-site iframe navigation the viewer's does.
+    const planted = await openReview();
+    for (const headers of [
+      TOP_LEVEL,
+      FROM_VIEWER,
+      IN_TAB_LINK,
+      { ...TOP_LEVEL, "Sec-Fetch-Site": "same-site" },
+    ]) {
+      const visit = await send("/", { cookie: planted, headers });
+      expect(visit.status, JSON.stringify(headers)).not.toBe(200);
+      expect(await visit.text()).not.toContain("bridge.js");
+      expect(clearsFrameCookie(visit), JSON.stringify(headers)).toBe(true);
+    }
+    // A public artifact is served normally, and the planted cookie still goes.
+    await env.DB.exec(`UPDATE artifacts SET access_mode = 'public'`);
+    const open = await send("/", { cookie: planted, headers: TOP_LEVEL });
+    expect(open.status).toBe(200);
+    expect(await open.text()).toBe(PAGE);
+    expect(clearsFrameCookie(open)).toBe(true);
+    // The viewer's own frame keeps its cookie and review mode.
+    const framed = await send("/", { cookie: planted });
+    expect(await framed.text()).toContain("bridge.js");
+    expect(clearsFrameCookie(framed)).toBe(false);
+    const subresource = await send("/app.js", { cookie: planted, headers: SAME_ORIGIN });
+    expect(subresource.status).toBe(200);
+    expect(clearsFrameCookie(subresource)).toBe(false);
+    // Only that exact name is cleared.
+    const other = await send("/", { cookie: "__host-pf_review=x", headers: TOP_LEVEL });
+    expect(clearsFrameCookie(other)).toBe(false);
+  });
+
+  it("serves the visitor's tab over a planted frame session and clears the planted one", async () => {
+    const planted = await openReview(OWNER);
+    const tab = await openTab();
+    for (const headers of [FROM_VIEWER, IN_TAB_LINK, TOP_LEVEL]) {
+      const page = await send("/", { cookie: `${planted}; ${tab}`, headers });
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain("End review");
+      expect(html).not.toContain("bridge.js");
+      expect(clearsFrameCookie(page)).toBe(true);
+    }
+    // Both valid on a subresource: the tab wins there too.
+    const both = await send("/", {
+      cookie: `${planted}; ${tab}`,
+      headers: { ...SAME_ORIGIN, "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate" },
+    });
+    expect(await both.text()).toContain("End review");
+  });
+
+  it("clears a planted frame cookie along with the tab's on End review", async () => {
+    const planted = await openReview(OWNER);
+    const tab = await openTab();
+    const end = await send("/__portifact/review/end", {
+      cookie: `${planted}; ${tab}`,
+      headers: IN_TAB_LINK,
+    });
+    expect(end.status).toBe(200);
+    expect(clearsFrameCookie(end)).toBe(true);
+    expect(tabSetCookie(end)).toMatch(/^__Host-pf_review_tab=; Max-Age=0;/);
+  });
+
   it("adds the banner at the end of a page without a body tag", async () => {
     const page = injectReviewBanner(new Response("<p>Bare page</p>"), 15);
     const html = await page.text();

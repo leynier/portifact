@@ -182,6 +182,10 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     c.res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     c.res.headers.set("X-Content-Type-Options", "nosniff");
     c.res.headers.set("X-Frame-Options", "DENY");
+    // No app URL (codes, states, artifact IDs) ever leaves as Referer, from JSON, assets or
+    // pages alike. The one link that must send the app's origin, the review tab link, says so
+    // itself with `referrerpolicy="origin"`.
+    c.res.headers.set("Referrer-Policy", "no-referrer");
   });
 
   // RFC 9728 protected resource metadata, with the path of each resource inserted.

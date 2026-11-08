@@ -95,15 +95,43 @@ export function reviewTabCookie(value: string, maxAgeSeconds: number): string {
 
 /**
  * Whether a request may use the review cookie: the artifact's own requests (`same-origin`) and
- * the viewer's navigation of its iframe (`cross-site` and `navigate`). Siblings are always
- * `same-site`. Without fetch metadata the cookie is not used at all.
+ * the viewer's navigation of its iframe (`cross-site` and `navigate`), never a top-level
+ * document. Siblings are always `same-site`. Without fetch metadata the cookie is not used at
+ * all.
+ *
+ * The viewer's frame navigations are always `Sec-Fetch-Dest: iframe`. A frame cookie that comes
+ * with a top-level document was planted: a sibling framed a redirector to this artifact's
+ * exchange, so the code was redeemed in a frame under the `portifact.dev` top-level site and the
+ * partitioned cookie landed in the partition of this artifact's own top-level visits (Firefox
+ * keeps it even with all third-party cookies blocked, because that frame is first-party). See
+ * `strayFrameCookie`, which clears it.
  */
 export function reviewCookieUsable(request: Request): boolean {
-  const site = request.headers.get("Sec-Fetch-Site");
+  const headers = request.headers;
+  if (headers.get("Sec-Fetch-Dest") === "document") return false;
+  const site = headers.get("Sec-Fetch-Site");
   return (
     site === "same-origin" ||
-    (site === "cross-site" && request.headers.get("Sec-Fetch-Mode") === "navigate")
+    (site === "cross-site" && headers.get("Sec-Fetch-Mode") === "navigate")
   );
+}
+
+/**
+ * The `Set-Cookie` that clears a frame review cookie a top-level document navigation carries,
+ * or null. A genuine frame cookie lives in the viewer's partition (keyed by the app's site) and
+ * never reaches a top-level visit of the artifact, so one seen here sits in the artifact's own
+ * partition and was planted by a sibling. It is cleared with the partition attributes, which in
+ * a top-level response address exactly that partition, before the page's subresources (which
+ * would be `same-origin`) can carry it. The name is matched exactly, whatever its values.
+ */
+export function strayFrameCookie(request: Request): string | null {
+  const headers = request.headers;
+  if (headers.get("Sec-Fetch-Mode") !== "navigate") return null;
+  if (headers.get("Sec-Fetch-Dest") !== "document") return null;
+  const carried = (headers.get("Cookie") ?? "")
+    .split(";")
+    .some((part) => part.slice(0, part.indexOf("=")).trim() === REVIEW_COOKIE);
+  return carried ? clearReviewCookie() : null;
 }
 
 /**
@@ -116,6 +144,9 @@ export function reviewCookieUsable(request: Request): boolean {
  */
 export function reviewTabCookieUsable(request: Request): boolean {
   const headers = request.headers;
+  // Keep any top-level document navigation, whatever its `Sec-Fetch-Site`: Firefox sends `none`
+  // for the tab's first `/` after the exchange's same-origin 303 chain, so narrowing this to
+  // `cross-site` or `same-origin` would drop the tab's first page out of review mode.
   return (
     headers.get("Sec-Fetch-Site") === "same-origin" ||
     (headers.get("Sec-Fetch-Mode") === "navigate" && headers.get("Sec-Fetch-Dest") === "document")
@@ -185,8 +216,8 @@ const ended = (channel: Channel): ReviewDecision => ({
 });
 
 /**
- * Decides whether a request is served in review mode, through the viewer's frame cookie first
- * and then the review tab's. Claims are trusted without D1 while they are unexpired and the
+ * Decides whether a request is served in review mode, through the review tab's cookie first and
+ * then the viewer's frame cookie. Claims are trusted without D1 while they are unexpired and the
  * artifact's policy generation is unchanged; after that the session, the app session it came
  * from and the access policy are checked again. The pinned version must still be the artifact's
  * current version.
@@ -201,7 +232,9 @@ export async function authorizeReview(
 ): Promise<ReviewDecision> {
   const secret = env.READ_SESSION_SECRET;
   if (!usableSecret(secret)) return { kind: "none" };
-  for (const channel of [FRAME, TAB]) {
+  // The tab first: a top-level visit that also carries a frame cookie can only carry a planted
+  // one, which never outranks the visitor's own tab session.
+  for (const channel of [TAB, FRAME]) {
     if (!channel.usable(request)) continue;
     const decision = await authorizeChannel(
       channel,

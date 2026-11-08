@@ -432,7 +432,7 @@ export const en = {
     "Its own security policy may block them. You can still leave general comments on the page.",
   "review.tab.title": "Review in a separate tab",
   "review.tab.body":
-    "Open the artifact in its own tab to see it in review mode. The tab has no review tools: write your comments here. Its review session ends after {minutes} minutes, or when you choose End review in the tab.",
+    "Open the artifact in its own tab to see it in review mode. The tab shows the artifact itself, written by its author, not Portifact: do not sign in or enter anything there, even if it looks like Portifact. It has no review tools, so write your comments here. Its review session ends after {minutes} minutes, or when you choose End review in the tab.",
   "review.tab.prepare": "Prepare a review tab",
   "review.tab.open": "Open the review tab",
   "review.tab.ready": "The review tab link is ready.",
