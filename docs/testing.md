@@ -108,7 +108,7 @@ StrykerJS (`@stryker-mutator/core` with the Vitest runner) runs on the critical 
 - `packages/services` runs in workerd through `@cloudflare/vitest-plugin`, like its normal tests, and it works with Stryker's per-test coverage. It is the slowest package (about 1.5 hours on the workflow's runner). Its break threshold, 83, comes from the first full run of the `mutation` workflow on 2026-11-08.
 - A mutant that loops while allocating crashes its runner, which Stryker restarts. Where such a mutant costs gigabytes before it crashes, disable it with a `// Stryker disable next-line <mutators>: <reason>` comment that explains why, as in `packages/anchors/src/normalize.ts`.
 
-The `mutation` workflow (`.github/workflows/mutation.yml`) runs each package in its own job weekly, on demand and on pull requests into `main`, not on every pull request, and keeps the reports as workflow artifacts. A package fails when its score drops below its break threshold.
+The `mutation` workflow (`.github/workflows/mutation.yml`) runs each package in its own job only when started by hand (Actions, `mutation`, Run workflow), never on pushes or pull requests, because `packages/services` alone takes about 1.5 hours, and keeps the reports as workflow artifacts. A package fails when its score drops below its break threshold.
 
 Break thresholds are the measured scores rounded down; raise them as tests improve, never lower them to make a change pass. Measured on 2026-11-08 (Node 24, concurrency 2):
 
