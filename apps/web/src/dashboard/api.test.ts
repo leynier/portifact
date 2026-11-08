@@ -1,7 +1,7 @@
 import { UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiFailure, dashboardApi, type FetchLike } from "./api.ts";
-import { artifact } from "./test-support.tsx";
+import { artifact, DEFAULT_ACTIVITY } from "./test-support.tsx";
 
 function client(answer: (path: string, init: RequestInit) => Response | Promise<Response>) {
   const calls: { path: string; init: RequestInit }[] = [];
@@ -26,12 +26,18 @@ async function failure(promise: Promise<unknown>): Promise<ApiFailure> {
 
 describe("dashboard API client", () => {
   it("lists artifacts with the cursor, same-origin credentials and validated output", async () => {
-    const page = { items: [artifact("k7d2qm4xab")], nextCursor: "c2" };
+    const page = {
+      items: [{ ...artifact("k7d2qm4xab"), activity: DEFAULT_ACTIVITY }],
+      nextCursor: "c2",
+    };
     const { api, calls } = client(() => Response.json(page));
     expect(await api.listArtifacts()).toEqual(page);
     await api.listArtifacts("c2");
     expect(calls.map((c) => c.path)).toEqual(["/api/v1/artifacts", "/api/v1/artifacts?cursor=c2"]);
     expect(calls[0]?.init).toMatchObject({ method: "GET", credentials: "same-origin" });
+    // An item without its activity is not the documented shape.
+    const old = client(() => Response.json({ items: [artifact("k7d2qm4xab")], nextCursor: null }));
+    expect((await failure(old.api.listArtifacts())).code).toBe("unexpected");
   });
 
   it("sends only the filters given, so the API applies them", async () => {
