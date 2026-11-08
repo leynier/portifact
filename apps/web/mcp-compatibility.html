@@ -29,7 +29,7 @@
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">MCP compatibility</h1>
-      <p class="mt-3 text-sm text-text-muted">Last tested <time datetime="2026-11-08">November 8, 2026</time>, against Portifact 0.11.0.</p>
+      <p class="mt-3 text-sm text-text-muted">Last tested <time datetime="2026-11-08">November 8, 2026</time>, against Portifact 0.11.0. Codex CLI token refresh and the comment tools were checked again the same day against Portifact 0.13.0.</p>
       <p class="mt-6 leading-7">Portifact runs a remote MCP server at <code>https://app.portifact.com/mcp</code> (Streamable HTTP). Add it to your client and sign in with your Portifact account in the browser. The first sign-in asks only to see your artifacts; your client asks again when a tool needs more, such as publishing or deleting.</p>
 
       <nav aria-labelledby="toc-heading" class="mt-10 rounded-md border border-border p-5">
@@ -71,7 +71,7 @@
         <h2 id="codex-heading" class="text-xl font-semibold tracking-tight">Codex CLI</h2>
         <p class="mt-4 leading-7">Add the server with <code>codex mcp add portifact --url https://app.portifact.com/mcp</code>; Codex starts the sign-in right away. Codex does not ask for more access on its own, so sign in with everything your agent will need, for example:</p>
         <pre class="mt-4 overflow-x-auto rounded-md border border-border p-4 text-sm"><code>codex mcp login portifact --scopes artifacts:read,artifacts:write,artifacts:delete,offline_access</code></pre>
-        <p class="mt-4 leading-7">Add <code>annotations:read</code>, <code>annotations:write</code> or <code>annotations:moderate</code> for the comment tools. Codex asks you to approve tools that delete before it runs them.</p>
+        <p class="mt-4 leading-7">Add <code>annotations:read</code>, <code>annotations:write</code> or <code>annotations:moderate</code> for the comment tools; with all three, Codex turned comments on, commented, replied, resolved and exported the comments of a document. Codex asks you to approve tools that delete before it runs them. It renews its access on its own when the hour-long token expires.</p>
       </section>
 
       <section id="other" aria-labelledby="other-heading" class="mt-12 scroll-mt-8">
