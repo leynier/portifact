@@ -12,6 +12,7 @@ import {
 } from "./artifacts.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
+import { pullHistory } from "./history.ts";
 import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
@@ -60,6 +61,11 @@ const PULL_HELP = `
 Without --published or --source, pull downloads the published files. Files go into a new
 folder: published files under <out>/published and sources under <out>/source. The folder must
 not exist yet. Every file is checked against its SHA-256; paths inside a .git folder are refused.
+--source --git builds a local Git repository of the private sources instead: one commit per
+retained version, oldest first, dated when it was published, with Portifact-Version and
+Source-Commit trailers and a tag vN. Versions without sources get an empty commit that says so.
+Run it again on the same folder to add only the newer versions; it refuses a folder it did not
+make, with uncommitted changes or whose branch moved. It needs git installed.
 Readers an artifact is shared with can pull the published files of a Markdown or text artifact.
 `;
 
@@ -316,7 +322,7 @@ export async function run(
     .command("rollback")
     .description("Make a previous version current again, as a new version with its files")
     .argument("<id>", "artifact ID")
-    .argument("<version>", "version ID, from `portifact versions`")
+    .argument("<version>", "version ID or number (3 or v3), from `portifact versions`")
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string, version: string) =>
@@ -328,10 +334,17 @@ export async function run(
     .command("pull")
     .description("Download a version's published files or private sources into a new folder")
     .argument("<id>", "artifact ID")
-    .requiredOption("--out <dir>", "new folder to download into; it must not exist")
-    .option("--version <id>", "version ID to download (default: the current version)")
+    .requiredOption(
+      "--out <dir>",
+      "new folder to download into; it must not exist (with --git, an earlier history)",
+    )
+    .option(
+      "--version <version>",
+      "version ID or number to download (default: the current version)",
+    )
     .option("--published", "download the published files (the default)")
     .option("--source", "download the private sources (owner only)")
+    .option("--git", "with --source: build or update a Git history of every version in <dir>")
     .option("--json", "Print the result as JSON")
     .addHelpText("after", PULL_HELP)
     .action(
@@ -344,17 +357,22 @@ export async function run(
             version?: string;
             published?: boolean;
             source?: boolean;
+            git?: boolean;
             json?: boolean;
           },
           id: string,
-        ) =>
-          pull(io, runtime, id, {
+        ) => {
+          const pullOptions = {
             out: options.out,
             version: options.version,
             published: options.published === true,
             source: options.source === true,
             json: options.json === true,
-          }),
+          };
+          return options.git === true
+            ? pullHistory(io, runtime, id, pullOptions)
+            : pull(io, runtime, id, pullOptions);
+        },
       ),
     );
 

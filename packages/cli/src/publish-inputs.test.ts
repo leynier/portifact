@@ -1,7 +1,8 @@
 // portifact publish with ZIP input, private sources (--source, --ref) and Markdown assets, and
 // portifact usage, against the fake server.
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { sha256Of } from "./testing/fake-api.ts";
@@ -17,7 +18,15 @@ beforeAll(() => {
   process.env.GIT_CONFIG_NOSYSTEM = "1";
 });
 
+let scratchTmp: string;
+let previousTmp: string | undefined;
+
 beforeEach(async () => {
+  // Expansions land in a folder of this file alone, so tests that run in parallel and use the
+  // same prefixes in the shared temporary folder cannot look like leftovers.
+  previousTmp = process.env.TMPDIR;
+  scratchTmp = await mkdtemp(join(tmpdir(), "pf-inputs-tmp-"));
+  process.env.TMPDIR = scratchTmp;
   server = await startFakeServer();
   h = await createHarness({ server });
 });
@@ -25,6 +34,9 @@ beforeEach(async () => {
 afterEach(async () => {
   await h.cleanup();
   await server.close();
+  if (previousTmp === undefined) delete process.env.TMPDIR;
+  else process.env.TMPDIR = previousTmp;
+  await rm(scratchTmp, { recursive: true, force: true });
 });
 
 function prepareBody() {
@@ -50,7 +62,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 async function tmpLeftovers(): Promise<string[]> {
-  const entries = await readdir(process.env.TMPDIR ?? "/tmp");
+  const entries = await readdir(scratchTmp);
   return entries.filter(
     (name) => name.startsWith("portifact-zip-") || name.startsWith("portifact-git-"),
   );
@@ -282,12 +294,17 @@ describe("portifact usage", () => {
     h.signIn();
     server.api.usage.activeArtifacts.used = 3;
     server.api.usage.storage = { used: 1_500_000, reserved: 2_000, limit: 2_500_000_000 };
+    server.api.usage.trafficThisMonth.requests.used = 12_345;
+    server.api.usage.trafficThisMonth.bytes.used = 3_200_000_000;
     const result = await h.invoke("usage");
     expect(result.code, result.stderr).toBe(0);
     expect(result.stdout).toContain("Active artifacts");
     expect(result.stdout).toMatch(/Active artifacts\s+3 of 50/);
     expect(result.stdout).toContain("1.5 MB of 2.5 GB (+2.0 kB reserved by uploads)");
     expect(result.stdout).toContain("resets 2026-12-01 00:00 UTC");
+    expect(result.stdout).toMatch(
+      /Traffic this month\s+12345 of 1000000 requests, 3\.2 GB of 25\.0 GB \(resets 2026-12-01 00:00 UTC\)/,
+    );
     expect(result.stdout).toContain("Nothing blocks your account.");
   });
 
@@ -306,6 +323,12 @@ describe("portifact usage", () => {
         message: "Your 2.5 GB of storage is full.",
         until: null,
       },
+      {
+        reason: "traffic",
+        stops: "serving",
+        message: "Your artifacts served this month's traffic.",
+        until: "2026-12-01T00:00:00.000Z",
+      },
     ];
     const text = await h.invoke("usage");
     expect(text.stdout).toContain("Blocked now:");
@@ -313,6 +336,9 @@ describe("portifact usage", () => {
       "  You published 100 times in the last 24 hours. Lifts 2026-11-09 08:30 UTC.",
     );
     expect(text.stdout).toContain("  Your 2.5 GB of storage is full.\n");
+    expect(text.stdout).toContain(
+      "  Your artifacts served this month's traffic. Lifts 2026-12-01 00:00 UTC.",
+    );
 
     const json = await h.invoke("usage", "--json");
     expect(JSON.parse(json.stdout)).toEqual(server.api.usage);

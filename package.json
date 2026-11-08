@@ -18,14 +18,14 @@
       "@types/node": "^26.0.0",
       "@types/react": "^19.0.0",
       "@types/react-dom": "^19.0.0",
-      "@vitest/coverage-istanbul": "^4.1.0",
+      "@vitest/coverage-istanbul": "^5.1.0",
       "axe-core": "^4.10.0",
       "happy-dom": "^21.0.4",
-      "lucide-react": "^1.0.0",
+      "lucide-react": "^1.69.0",
       "react": "^19.0.0",
       "react-dom": "^19.0.0",
       "typescript": "^7.0.0",
-      "vitest": "^4.1.0"
+      "vitest": "^5.1.0"
     }
   },
   "scripts": {
@@ -46,7 +46,7 @@
     "@semantic-release/git": "^11.0.0",
     "@types/bun": "^1.0.0",
     "@types/node": "catalog:",
-    "conventional-changelog-conventionalcommits": "^9.0.0",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
     "semantic-release": "^25.0.0",
     "turbo": "^2.0.0",
     "typescript": "catalog:"

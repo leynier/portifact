@@ -1,7 +1,14 @@
 import { ANNOTATION_LIMITS, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
-import { describe, expect, it } from "vitest";
-import { publishSite, type TokenClient, tokenClient } from "./api-client.ts";
-import { createHarness, type Harness, ORIGIN } from "./harness.ts";
+import { describe, expect, it, vi } from "vitest";
+import { pastHumanCheck, publishSite, type TokenClient, tokenClient } from "./api-client.ts";
+import {
+  createHarness,
+  FAILED_HUMAN_TOKEN,
+  type Harness,
+  HUMAN_TOKEN,
+  ORIGIN,
+  OUTAGE_HUMAN_TOKEN,
+} from "./harness.ts";
 
 const EVERY =
   "artifacts:read artifacts:write artifacts:share annotations:read annotations:write annotations:moderate offline_access";
@@ -40,8 +47,11 @@ interface Setup {
 
 let emails = 0;
 
-/** An owner with a published site, annotations open and one reader on the list. */
-async function setup(): Promise<Setup> {
+/**
+ * An owner with a published site, annotations open and one reader on the list. The reader and
+ * the stranger are past the human check of their first comments unless `fresh` is set.
+ */
+async function setup(fresh = false): Promise<Setup> {
   const h = createHarness();
   emails += 1;
   const owner = await tokenClient(h, `ann-owner-${emails}@example.test`, EVERY);
@@ -49,6 +59,12 @@ async function setup(): Promise<Setup> {
   const stranger = await tokenClient(h, `ann-stranger-${emails}@example.test`, EVERY);
   const id = await publishSite(owner);
   const base = `/api/v1/artifacts/${id}/annotations`;
+  if (!fresh) {
+    await pastHumanCheck(
+      [`ann-reader-${emails}@example.test`, `ann-stranger-${emails}@example.test`],
+      await publishSite(owner, "Other"),
+    );
+  }
   const share = await owner.call(
     `/api/v1/artifacts/${id}/access`,
     json("PATCH", { addReaders: [`ann-reader-${emails}@example.test`] }),
@@ -391,5 +407,121 @@ describe("annotations API", () => {
       body: JSON.stringify({ versionId: s.versionId, target: DOC, body: "Forged" }),
     });
     expect(forged.status).toBe(403);
+  });
+});
+
+describe("human check on a visitor's first comments", () => {
+  it("refuses them without a token, accepts them with a solved check and stops asking after", async () => {
+    const s = await setup(true);
+    const thread = { versionId: s.versionId, target: DOC, body: "First" };
+    const refused = await s.reader.call(`${s.base}/threads`, keyed(thread));
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      error: { code: "human_verification_required", message: expect.stringContaining("viewer") },
+    });
+
+    const failed = await s.reader.call(
+      `${s.base}/threads`,
+      keyed({ ...thread, turnstileToken: FAILED_HUMAN_TOKEN }),
+    );
+    expect(failed.status).toBe(403);
+    const down = await s.reader.call(
+      `${s.base}/threads`,
+      keyed({ ...thread, turnstileToken: OUTAGE_HUMAN_TOKEN }),
+    );
+    expect(down.status).toBe(503);
+    expect(await down.json()).toMatchObject({ error: { code: "capacity_unavailable" } });
+
+    // The token travels with the comment and is verified for the sender's IP.
+    const created = await s.reader.call(
+      `${s.base}/threads`,
+      json(
+        "POST",
+        { ...thread, turnstileToken: `${HUMAN_TOKEN}-1` },
+        { "idempotency-key": crypto.randomUUID(), "cf-connecting-ip": "203.0.113.9" },
+      ),
+    );
+    expect(created.status).toBe(201);
+    expect(s.h.siteverifyCalls.at(-1)).toMatchObject({
+      token: `${HUMAN_TOKEN}-1`,
+      remoteIp: "203.0.113.9",
+    });
+    const { id } = await created.json<Thread>();
+
+    const unsolvedReply = await s.reader.call(
+      `${s.base}/threads/${id}/messages`,
+      keyed({ body: "Second" }),
+    );
+    expect(unsolvedReply.status).toBe(403);
+    for (let i = 2; i <= ANNOTATION_LIMITS.humanCheckedComments; i++) {
+      const reply = await s.reader.call(
+        `${s.base}/threads/${id}/messages`,
+        keyed({ body: `Reply ${i}`, turnstileToken: `${HUMAN_TOKEN}-${i}` }),
+      );
+      expect(reply.status, `comment ${i}`).toBe(201);
+    }
+    const verified = s.h.siteverifyCalls.length;
+    const later = await s.reader.call(`${s.base}/threads/${id}/messages`, keyed({ body: "Later" }));
+    expect(later.status).toBe(201);
+    expect(s.h.siteverifyCalls).toHaveLength(verified);
+  });
+
+  it("replays a refused comment for its key, so a solved retry needs a new key", async () => {
+    const s = await setup(true);
+    const thread = { versionId: s.versionId, target: DOC, body: "First" };
+    const key = crypto.randomUUID();
+    expect((await s.reader.call(`${s.base}/threads`, keyed(thread, key))).status).toBe(403);
+    const sameKey = await s.reader.call(
+      `${s.base}/threads`,
+      keyed({ ...thread, turnstileToken: `${HUMAN_TOKEN}-retry` }, key),
+    );
+    expect(sameKey.status).toBe(403);
+    const newKey = await s.reader.call(
+      `${s.base}/threads`,
+      keyed({ ...thread, turnstileToken: `${HUMAN_TOKEN}-retry-2` }),
+    );
+    expect(newKey.status).toBe(201);
+  });
+
+  it("never asks the owner, and refuses visitors the same way with the dashboard session", async () => {
+    const s = await setup(true);
+    await startThread(s, s.owner, "Owner note");
+    const session = await s.h.request(`${s.base}/threads`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: s.reader.cookie,
+        origin: ORIGIN,
+        "sec-fetch-site": "same-origin",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({ versionId: s.versionId, target: DOC, body: "From the viewer" }),
+    });
+    expect(session.status).toBe(403);
+    expect(await session.json()).toMatchObject({ error: { code: "human_verification_required" } });
+  });
+
+  it("fails closed when the deployment has no Turnstile secret", async () => {
+    const s = await setup(true);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const unconfigured = createHarness({ env: { TURNSTILE_SECRET_KEY: undefined } });
+    const response = await unconfigured.request(`${s.base}/threads`, {
+      ...keyed({
+        versionId: s.versionId,
+        target: DOC,
+        body: "First",
+        turnstileToken: `${HUMAN_TOKEN}-no-secret`,
+      }),
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+        cookie: s.reader.cookie,
+        origin: ORIGIN,
+        "sec-fetch-site": "same-origin",
+      },
+    });
+    expect(response.status).toBe(503);
+    expect(unconfigured.siteverifyCalls).toEqual([]);
+    error.mockRestore();
   });
 });

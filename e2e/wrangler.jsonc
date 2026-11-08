@@ -27,7 +27,10 @@
     "R2_ACCESS_KEY_ID": "e2e",
     "R2_SECRET_ACCESS_KEY": "e2e",
     "BETTER_AUTH_SECRET": "e2e-only-better-auth-secret-0123456789abcdef",
-    "READ_SESSION_SECRET": "e2e-only-read-session-secret-0123456789abcdef"
+    "READ_SESSION_SECRET": "e2e-only-read-session-secret-0123456789abcdef",
+    // No human check widget: seeded accounts and owners' comments never need one, and the suite
+    // loads nothing from challenges.cloudflare.com.
+    "TURNSTILE_SITE_KEY": ""
   },
   "d1_databases": [
     {

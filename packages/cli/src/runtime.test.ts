@@ -91,5 +91,6 @@ describe("exitCodeFor", () => {
     expect(exitCodeFor("quota_exceeded")).toBe(7);
     expect(exitCodeFor("traffic_exceeded")).toBe(7);
     expect(exitCodeFor("account_too_new_for_public")).toBe(7);
+    expect(exitCodeFor("human_verification_required")).toBe(7);
   });
 });

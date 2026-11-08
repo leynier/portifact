@@ -24,6 +24,7 @@ import {
   PublishDocumentInput,
 } from "@portifact/contracts";
 import { createDb, type Db } from "@portifact/db";
+import type { HumanCheck } from "@portifact/services";
 import {
   archiveArtifact,
   deleteArtifact,
@@ -72,6 +73,12 @@ export interface ToolContext {
   now: () => number;
   /** Signs download links, like the API's download route. */
   presigner: Presigner;
+  /**
+   * The human check of new comments. MCP clients cannot show the challenge, so it carries no
+   * token: a visitor's first comments on other people's artifacts answer
+   * `human_verification_required`, exactly like the API without a token.
+   */
+  humanCheck: HumanCheck;
 }
 
 export type RegisterTool = <Input extends StandardSchemaWithJSON>(

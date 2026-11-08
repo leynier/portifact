@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Readable } from "node:stream";
+import { type Git, gitRunner } from "./git.ts";
 
 /** Output sinks, injected so the CLI can be tested without touching the process streams. */
 export interface Io {
@@ -41,6 +42,8 @@ export interface Runtime {
   prompt: ((question: string) => Promise<string>) | undefined;
   /** A request body that streams a file from disk, so large files are not read into memory. */
   fileBody: (path: string) => RequestBody;
+  /** Runs the `git` binary; `pull --git` and git-aware `publish --source` use it. */
+  git: Git;
 }
 
 interface BunFileApi {
@@ -67,6 +70,7 @@ export function defaultRuntime(): Runtime {
       const bun = (globalThis as { Bun?: BunFileApi }).Bun;
       return bun ? bun.file(path) : nodeFileBody(path);
     },
+    git: gitRunner(),
   };
 }
 

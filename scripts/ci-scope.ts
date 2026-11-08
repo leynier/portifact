@@ -8,9 +8,11 @@ export interface Scope {
   quality: boolean;
   /** CLI binaries for every platform and the installer smoke tests. */
   cli: boolean;
+  /** The Playwright suite in e2e/ against the app and content Workers, in every engine. */
+  e2e: boolean;
 }
 
-export const FULL_SCOPE: Scope = { quality: true, cli: true };
+export const FULL_SCOPE: Scope = { quality: true, cli: true, e2e: true };
 
 /** Files that change how the CLI binary or its installers are built, shipped or tested. */
 const CLI_FILES = [
@@ -19,6 +21,19 @@ const CLI_FILES = [
   /^scripts\/(?:install\.sh|install\.ps1|smoke-linux-distros\.sh)$/,
   /^(?:package\.json|bun\.lock|bunfig\.toml|tsconfig(?:\.base)?\.json)$/,
   /^\.github\/workflows\/(?:ci|release)\.yml$/,
+];
+
+/**
+ * Files that change what the end-to-end suite runs: the Workers and the dashboard it drives,
+ * every workspace package they are built from (all but the CLI), the suite itself and the
+ * shared tooling that builds them.
+ */
+const E2E_FILES = [
+  /^apps\/(?:app|content|web)\//,
+  /^packages\/(?!cli\/)[^/]+\//,
+  /^e2e\//,
+  /^(?:package\.json|bun\.lock|bunfig\.toml|turbo\.json|tsconfig(?:\.base)?\.json)$/,
+  /^\.github\/workflows\/ci\.yml$/,
 ];
 
 /** Files no check reads. Everything else, including readme.md and skills/, needs quality. */
@@ -44,6 +59,7 @@ export function scopeOf(files: readonly string[], cliDeps: readonly string[] = [
   return {
     quality: files.some((file) => !INERT_FILES.some((pattern) => pattern.test(file))),
     cli: files.some((file) => cliPatterns.some((pattern) => pattern.test(file))),
+    e2e: files.some((file) => E2E_FILES.some((pattern) => pattern.test(file))),
   };
 }
 
@@ -67,7 +83,7 @@ export function changedFiles(base: string, head: string, cwd?: string): string[]
 }
 
 export function formatOutput(scope: Scope): string {
-  return `quality=${scope.quality}\ncli=${scope.cli}\n`;
+  return `quality=${scope.quality}\ncli=${scope.cli}\ne2e=${scope.e2e}\n`;
 }
 
 export interface RunIo {

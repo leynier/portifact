@@ -10,9 +10,9 @@ export const UsageMeter = z.object({ used: count, limit: count });
 export type UsageMeter = z.infer<typeof UsageMeter>;
 
 /**
- * Why the account cannot do something right now. `traffic` and `capacity` are reported once
- * traffic metering and the service's budget protection exist (plan section 12); clients should
- * show any reason they do not know with its message.
+ * Why the account cannot do something right now. `traffic` means its artifacts answer 429 until
+ * the next month. `capacity` is the service's budget protection (plan section 12), the same for
+ * every account. Clients should show any reason they do not know with its message.
  */
 export const UsageBlockReason = z.enum([
   "active_artifacts",
@@ -53,6 +53,15 @@ export const AccountUsageView = z.object({
   /** New stored objects this calendar month (UTC), reset at `resetsAt`. */
   newObjectsThisMonth: UsageMeter.extend({ resetsAt: z.iso.datetime() }),
   openUploads: UsageMeter,
+  /**
+   * Requests and bytes the account's artifacts served this calendar month (UTC), reset at
+   * `resetsAt`. Counted in batches, so they may lag a few seconds behind.
+   */
+  trafficThisMonth: z.object({
+    requests: UsageMeter,
+    bytes: UsageMeter,
+    resetsAt: z.iso.datetime(),
+  }),
   /** Per-version limits, the same for every artifact. */
   versionLimits: z.object({
     publishedBytes: count,

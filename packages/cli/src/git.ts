@@ -11,29 +11,46 @@ export interface GitResult {
   stdout: Buffer;
 }
 
+export interface GitCallOptions {
+  /** Bytes written to git's standard input. */
+  input?: Buffer | undefined;
+  /** Extra environment variables, such as the author of a commit or a separate index file. */
+  env?: Readonly<Record<string, string>> | undefined;
+}
+
 /** Runs git with `args` in `cwd`; rejects only when git cannot start (for example, not installed). */
-export type Git = (args: readonly string[], cwd: string) => Promise<GitResult>;
+export type Git = (
+  args: readonly string[],
+  cwd: string,
+  options?: GitCallOptions,
+) => Promise<GitResult>;
 
 /** Settings that keep git from running repository-configured programs or asking for input. */
 const SAFE_CONFIG = ["-c", "core.fsmonitor=false", "-c", "core.quotepath=off"];
 
 export function gitRunner(binary = "git"): Git {
-  return (args, cwd) =>
+  return (args, cwd, options = {}) =>
     new Promise((resolve, reject) => {
       const child = spawn(binary, ["--no-pager", ...SAFE_CONFIG, ...args], {
         cwd,
-        stdio: ["ignore", "pipe", "ignore"],
+        stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "ignore"],
         env: {
           ...process.env,
+          ...options.env,
           GIT_TERMINAL_PROMPT: "0",
           GIT_OPTIONAL_LOCKS: "0",
           LC_ALL: "C",
         },
       });
       const chunks: Buffer[] = [];
-      child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+      child.stdout?.on("data", (chunk: Buffer) => chunks.push(chunk));
       child.once("error", reject);
       child.once("close", (code) => resolve({ code: code ?? 1, stdout: Buffer.concat(chunks) }));
+      if (child.stdin) {
+        // git may exit before reading everything (a refused command); its exit code reports it.
+        child.stdin.on("error", () => {});
+        child.stdin.end(options.input);
+      }
     });
 }
 

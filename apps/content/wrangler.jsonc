@@ -23,5 +23,20 @@
     }
   ],
   "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" }],
+  // Per-visitor limits that apply only while budget protection tightens traffic (src/budget.ts,
+  // docs/operations.md): public traffic from the third protection step, protected traffic from
+  // the fourth. Values to calibrate with real traffic; the namespace IDs are unique per account.
+  "ratelimits": [
+    {
+      "name": "PUBLIC_TRAFFIC_LIMIT",
+      "namespace_id": "7301",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    {
+      "name": "PROTECTED_TRAFFIC_LIMIT",
+      "namespace_id": "7302",
+      "simple": { "limit": 240, "period": 60 }
+    }
+  ],
   "observability": { "enabled": true, "head_sampling_rate": 0.1 }
 }

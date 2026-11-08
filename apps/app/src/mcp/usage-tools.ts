@@ -14,7 +14,7 @@ export function registerUsageTools(register: RegisterTool, context: ToolContext,
     {
       title: "Get account usage",
       description:
-        "Get the user's account usage: active artifacts, storage (with bytes reserved by uploads in progress), publishes, new files and new bytes in the last 24 hours, new files this month and open uploads, each with its limit; the per-version limits; when the account may make artifacts public; and blocks, the reasons the account cannot do something right now, each with when it lifts by itself (null when the user must free capacity). Call it before a large publish, or to explain a quota_exceeded error.",
+        "Get the user's account usage: active artifacts, storage (with bytes reserved by uploads in progress), publishes, new files and new bytes in the last 24 hours, new files this month, open uploads, and the requests and bytes the user's artifacts served this month (traffic), each with its limit; the per-version limits; when the account may make artifacts public; and blocks, the reasons the account cannot do something right now, each with when it lifts by itself (null when the user must free capacity). A traffic block (stops serving) means every artifact of the user answers 429 traffic_exceeded until it lifts at the next month. Call it before a large publish, or to explain a quota_exceeded or traffic_exceeded error.",
       inputSchema: GetUsageInput,
       outputSchema: AccountUsageView,
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -27,6 +27,7 @@ export function registerUsageTools(register: RegisterTool, context: ToolContext,
         `Active artifacts: ${body.activeArtifacts.used} of ${body.activeArtifacts.limit}.`,
         `Storage: ${body.storage.used + body.storage.reserved} of ${body.storage.limit} bytes.`,
         `Publishes in the last 24 hours: ${body.publishesLast24h.used} of ${body.publishesLast24h.limit}.`,
+        `Traffic this month: ${body.trafficThisMonth.requests.used} of ${body.trafficThisMonth.requests.limit} requests, ${body.trafficThisMonth.bytes.used} of ${body.trafficThisMonth.bytes.limit} bytes, resets ${body.trafficThisMonth.resetsAt}.`,
         ...(body.blocks.length === 0
           ? ["Nothing blocks the account."]
           : body.blocks.map(

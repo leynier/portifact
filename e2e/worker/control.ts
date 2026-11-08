@@ -16,6 +16,12 @@ export type E2eEnv = AppEnv & ContentEnv;
 
 const DAY = 86_400_000;
 
+/**
+ * Seeded comments skip the human check on purpose: this Worker only runs in the e2e suite, and
+ * the check itself is covered by the services and app tests.
+ */
+const HUMAN = { token: "e2e-seed", verify: async () => "passed" as const };
+
 async function sha256(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -61,6 +67,7 @@ interface ReviewCodeInput {
   userId: string;
   sessionId: string;
   artifactId: string;
+  kind?: "frame" | "tab";
 }
 
 interface SqlInput {
@@ -203,6 +210,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   if (path === "/thread") {
     const thread = input as ThreadInput;
     const result = await createAnnotationThread(db, {
+      humanCheck: HUMAN,
       userId: thread.userId,
       artifactId: thread.artifactId,
       versionId: thread.versionId,
@@ -216,12 +224,13 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   // A review code of another account, as the app's review route issues it: what an attacker
   // gets for an artifact they can read, to plant in someone else's viewer.
   if (path === "/review-code") {
-    const { userId, sessionId, artifactId } = input as ReviewCodeInput;
+    const { userId, sessionId, artifactId, kind } = input as ReviewCodeInput;
     const issued = await issueReviewHandoff(db, {
       artifactId,
       userId,
       authSessionId: sessionId,
       now,
+      ...(kind ? { kind } : {}),
     });
     if (!issued.ok) return Response.json(issued, { status: 400 });
     return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });

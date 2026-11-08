@@ -453,3 +453,55 @@ describe("portifact pull", () => {
     expect(result.stderr).toContain("--out");
   });
 });
+
+describe("version numbers", () => {
+  it("rolls back to a version given by its number, with or without the v", async () => {
+    h.signIn();
+    const { artifact, v1 } = history();
+
+    const plain = await h.invoke("rollback", artifact.id, "1", "--json");
+    expect(plain.code).toBe(0);
+    expect(json(plain)).toMatchObject({ versionNumber: 3, fromVersionNumber: 1 });
+    const prefixed = await h.invoke("rollback", artifact.id, "V2", "--json");
+    expect(prefixed.code).toBe(0);
+    expect(json(prefixed)).toMatchObject({ versionNumber: 4, fromVersionNumber: 2 });
+
+    const bodies = requests("POST", /\/rollback$/).map((request) =>
+      JSON.parse(request.body ?? "{}"),
+    );
+    expect(bodies[0]).toMatchObject({ versionId: v1.id });
+  });
+
+  it("explains a number that is not retained without calling the rollback", async () => {
+    h.signIn();
+    const { artifact } = history();
+
+    const result = await h.invoke("rollback", artifact.id, "v9", "--json");
+
+    expect(result.code).toBe(5);
+    expect(json(result).error).toEqual({
+      code: "not_found",
+      message: `${artifact.id} has no retained version 9. Run \`portifact versions ${artifact.id}\` to list them.`,
+    });
+    expect(requests("POST", /\/rollback$/)).toHaveLength(0);
+  });
+
+  it("refuses version 0 as an invalid ID before signing in", async () => {
+    const result = await h.invoke("rollback", "abcdefghij", "v0");
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("is not a version ID or number");
+  });
+
+  it("pulls a version given by its number", async () => {
+    h.signIn();
+    const { artifact, v1 } = history();
+    const out = join(h.workspace, "by-number");
+
+    const result = await h.invoke("pull", artifact.id, "--version", "1", "--out", out);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("of version 1 of");
+    expect(await readFile(join(out, "published", "index.md"), "utf8")).toBe("# One");
+    expect(requests("GET", new RegExp(`/versions/${v1.id}/download$`))).toHaveLength(1);
+  });
+});

@@ -12,6 +12,11 @@ export const API_RESOURCE = `${ORIGIN}/api/v1`;
 export const MCP_RESOURCE = `${ORIGIN}/mcp`;
 export const SESSION_COOKIE = "__Host-pf.session_token";
 
+/** Tokens the fake siteverify knows: a solved challenge, a failed one and a provider outage. */
+export const HUMAN_TOKEN = "turnstile-solved";
+export const FAILED_HUMAN_TOKEN = "turnstile-failed";
+export const OUTAGE_HUMAN_TOKEN = "turnstile-outage";
+
 /** What the login page sends when the box is checked. */
 export const TERMS_ACCEPTANCE = { version: TERMS_VERSION, acceptTerms: true, confirmAdult: true };
 
@@ -25,6 +30,13 @@ export interface Harness {
    * acceptance cookie (`name=value`) to send with the sign-in.
    */
   acceptTerms: () => Promise<string>;
+  /**
+   * Solves the login page's human check (`/api/auth/verify-human`) and returns its cookie
+   * (`name=value`). Each call stands for a fresh challenge.
+   */
+  verifyHuman: () => Promise<string>;
+  /** Everything the login page sends before a sign-in that may create an account. */
+  beforeSignIn: () => Promise<string>;
   /** A server-side Better Auth instance over the same D1 database, for seeding and checks. */
   auth: Auth;
   /** Every email the fake sender accepted. */
@@ -33,12 +45,16 @@ export interface Harness {
   clientMetadata: Map<string, unknown>;
   /** URLs the fake network was asked for. */
   fetchedMetadata: string[];
+  /** Tokens and remote IPs the fake siteverify was asked about, in order. */
+  siteverifyCalls: { secret: string; token: string; remoteIp: string | null }[];
 }
 
-export function createHarness(): Harness {
+export function createHarness(options: { env?: Partial<Cloudflare.Env> } = {}): Harness {
   const outbox: EmailMessage[] = [];
   const clientMetadata = new Map<string, unknown>();
   const fetchedMetadata: string[] = [];
+  const siteverifyCalls: Harness["siteverifyCalls"] = [];
+  const workerEnv = { ...env, ...options.env } as Cloudflare.Env;
   const deps: AuthDeps = {
     email: {
       send: async (message) => {
@@ -52,13 +68,32 @@ export function createHarness(): Harness {
       if (!document) return new Response("not found", { status: 404 });
       return Response.json(document, { headers: { "cache-control": "max-age=300" } });
     },
+    // Siteverify as Cloudflare documents it; each token passes once, like the real one.
+    siteverify: async (input, init) => {
+      const url = input instanceof Request ? input.url : input.toString();
+      if (url !== "https://challenges.cloudflare.com/turnstile/v0/siteverify") {
+        throw new Error(`unexpected siteverify URL ${url}`);
+      }
+      const form = init?.body as FormData;
+      const token = String(form.get("response"));
+      const secret = String(form.get("secret"));
+      const remoteIp = form.get("remoteip") === null ? null : String(form.get("remoteip"));
+      siteverifyCalls.push({ secret, token, remoteIp });
+      if (token === OUTAGE_HUMAN_TOKEN) return new Response("unavailable", { status: 500 });
+      const spent = siteverifyCalls.filter((call) => call.token === token).length > 1;
+      const success = token.startsWith(HUMAN_TOKEN) && !spent;
+      return Response.json({
+        success,
+        "error-codes": success ? [] : [spent ? "timeout-or-duplicate" : "invalid-input-response"],
+      });
+    },
   };
   const worker = createWorker(() => deps);
 
   const request = async (path: string, init?: RequestInit): Promise<Response> => {
     const ctx = createExecutionContext();
     const url = path.startsWith("https://") ? path : `${ORIGIN}${path}`;
-    const response = await worker.fetch(new Request(url, init), env, ctx);
+    const response = await worker.fetch(new Request(url, init), workerEnv, ctx);
     await waitOnExecutionContext(ctx);
     return response;
   };
@@ -69,10 +104,23 @@ export function createHarness(): Harness {
     return cookieHeader(response);
   };
 
+  let challenges = 0;
+  const verifyHuman = async (): Promise<string> => {
+    const response = await request(
+      "/api/auth/verify-human",
+      json({ token: `${HUMAN_TOKEN}-${++challenges}-${crypto.randomUUID()}` }),
+    );
+    if (!response.ok) throw new Error(`the human check failed with ${response.status}`);
+    return cookieHeader(response);
+  };
+
+  const beforeSignIn = async (): Promise<string> =>
+    `${await acceptTerms()}; ${await verifyHuman()}`;
+
   const signIn = async (email: string): Promise<string> => {
     // This helper is not about limits: start every sign-in with fresh counters.
     await env.DB.exec("DELETE FROM rate_limits");
-    const terms = await acceptTerms();
+    const terms = await beforeSignIn();
     const sent = await request(
       "/api/auth/email-otp/send-verification-otp",
       json({ email, type: "sign-in" }),
@@ -91,10 +139,13 @@ export function createHarness(): Harness {
     request,
     signIn,
     acceptTerms,
-    auth: createAuth(env, deps),
+    verifyHuman,
+    beforeSignIn,
+    auth: createAuth(workerEnv, deps),
     outbox,
     clientMetadata,
     fetchedMetadata,
+    siteverifyCalls,
   };
 }
 

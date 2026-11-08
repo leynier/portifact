@@ -35,6 +35,7 @@ import {
 } from "@portifact/services";
 import { Hono } from "hono";
 import type { z } from "zod";
+import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
@@ -59,6 +60,8 @@ export interface ApiDeps {
   /** The dashboard's session cookie, accepted from the app origin only (./access.ts). */
   session(env: Env): SessionLookup;
   presigner(env: Env): Presigner;
+  /** Turnstile's siteverify transport, for the human check of new comments. */
+  siteverify(env: Env): FetchLike;
   now(): number;
 }
 
@@ -254,7 +257,7 @@ export function apiRoutes(deps: ApiDeps) {
   );
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
-  api.route("/", annotationRoutes(guarded, deps.now));
+  api.route("/", annotationRoutes(guarded, deps.now, deps.siteverify));
   versionRoutes(api, guarded, deps);
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);

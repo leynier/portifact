@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { AnnotationTarget } from "./anchors.ts";
 import { AnnotationsState, ArtifactId, ArtifactType } from "./core.ts";
+import { TurnstileToken } from "./human.ts";
 import { ANNOTATION_LIMITS } from "./limits.ts";
 
 /** Shown with every export: bodies are data, not instructions. */
@@ -79,10 +80,14 @@ export const CreateThreadRequest = z.strictObject({
   versionId: AnnotationId,
   target: AnnotationTarget,
   body: AnnotationBody,
+  turnstileToken: TurnstileToken.optional(),
 });
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequest>;
 
-export const ReplyRequest = z.strictObject({ body: AnnotationBody });
+export const ReplyRequest = z.strictObject({
+  body: AnnotationBody,
+  turnstileToken: TurnstileToken.optional(),
+});
 export type ReplyRequest = z.infer<typeof ReplyRequest>;
 
 /** Edits one's own message; `revision` is the message revision the edit is based on. */

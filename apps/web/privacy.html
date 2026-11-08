@@ -28,12 +28,7 @@
     </header>
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
-      <aside aria-labelledby="draft-heading" class="rounded-md border-2 border-dashed border-border-strong bg-surface p-4 text-sm">
-        <p id="draft-heading" class="font-semibold">Draft pending legal review</p>
-        <p class="mt-1 text-text-muted">This is a draft. A lawyer will review it before Portifact opens registration to the public, and it may change before then. The version you accept at sign-up is recorded with your account.</p>
-      </aside>
-
-      <h1 class="mt-8 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Privacy Policy</h1>
+      <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Privacy Policy</h1>
       <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-08</span>. Effective <time datetime="2026-11-08">November 8, 2026</time>.</p>
       <p class="mt-6 leading-7">This policy explains what personal data Portifact collects, why, how long we keep it and what you can do about it. It covers the hosted service at portifact.com and portifact.dev. Words such as "artifact" and "comment" mean the same as in the <a href="/terms">Terms of Service</a>.</p>
 
@@ -75,6 +70,7 @@
         <h2 id="collect-heading" class="text-xl font-semibold tracking-tight">What we collect</h2>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
           <li><strong>Account.</strong> Your email address and whether it is verified, and the name and profile picture that Google or GitHub share when you sign in with them. For Google and GitHub we keep the stable ID of your account there. We do not keep their access tokens.</li>
+          <li><strong>Human check.</strong> When you create an account, and for your first comments on other people's artifacts, Cloudflare Turnstile checks that you are a person and not an automated program. It looks at signals from your browser and your IP address, and tells us only whether the check passed. We keep a short-lived cookie saying it passed, and nothing else.</li>
           <li><strong>Terms acceptance.</strong> The version of the terms you accepted, including your confirmation that you are 18 or older, and when you accepted it.</li>
           <li><strong>Sign-in codes.</strong> Codes sent to your email are stored only as hashes. To limit abuse, we count requests per email address (using a keyed hash, never the address itself) and per IP address.</li>
           <li><strong>Sessions and tokens.</strong> Your sessions on app.portifact.com, with the IP address and browser that created them, and the clients, scopes and tokens you approve for the CLI and MCP clients.</li>
@@ -107,6 +103,7 @@
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">__Host-pf.session_token</th><td class="border-b border-border py-2 pr-4 align-top">app.portifact.com</td><td class="border-b border-border py-2 pr-4 align-top">Keeps you signed in</td><td class="border-b border-border py-2 pr-4 align-top">7 days, renewed while you use it</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">__Host-pf.state, __Host-pf.oauth_state</th><td class="border-b border-border py-2 pr-4 align-top">app.portifact.com</td><td class="border-b border-border py-2 pr-4 align-top">Protect a Google or GitHub sign-in in progress</td><td class="border-b border-border py-2 pr-4 align-top">Up to 10 minutes</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">__Host-pf_terms</th><td class="border-b border-border py-2 pr-4 align-top">app.portifact.com</td><td class="border-b border-border py-2 pr-4 align-top">Carries your acceptance of the terms into the sign-in</td><td class="border-b border-border py-2 pr-4 align-top">30 minutes, cleared at sign-in</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">__Host-pf_human</th><td class="border-b border-border py-2 pr-4 align-top">app.portifact.com</td><td class="border-b border-border py-2 pr-4 align-top">Carries a passed human check into the sign-in that creates your account</td><td class="border-b border-border py-2 pr-4 align-top">30 minutes, cleared at sign-in</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">__Host-pf_read</th><td class="border-b border-border py-2 pr-4 align-top">The artifact's own address on portifact.dev</td><td class="border-b border-border py-2 pr-4 align-top">Lets you open a protected artifact you have access to</td><td class="border-b border-border py-2 pr-4 align-top">12 hours, ends when you sign out</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">__Host-pf_read_tx_...</th><td class="border-b border-border py-2 pr-4 align-top">The artifact's own address on portifact.dev</td><td class="border-b border-border py-2 pr-4 align-top">Protects the step from the artifact to sign-in and back</td><td class="border-b border-border py-2 pr-4 align-top">10 minutes</td></tr>
           </tbody>
@@ -117,7 +114,7 @@
       <section id="sharing" aria-labelledby="sharing-heading" class="mt-12 scroll-mt-8">
         <h2 id="sharing-heading" class="text-xl font-semibold tracking-tight">Who we share it with</h2>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-          <li><strong>Cloudflare</strong> hosts Portifact (Workers, D1 databases, R2 storage) and sends our emails through Cloudflare Email Service. It processes data for us under its <a href="https://www.cloudflare.com/cloudflare-customer-dpa/">data processing terms</a>.</li>
+          <li><strong>Cloudflare</strong> hosts Portifact (Workers, D1 databases, R2 storage), sends our emails through Cloudflare Email Service and runs the human check (Cloudflare Turnstile). It processes data for us under its <a href="https://www.cloudflare.com/cloudflare-customer-dpa/">data processing terms</a>.</li>
           <li><strong>Google and GitHub</strong>, only when you choose to sign in with them. They tell us your email, name and picture.</li>
           <li><strong>The people you share with.</strong> Readers see the artifacts you open to them. If you comment on an artifact, its creator and everyone with access see your comment and the name or email shown with it.</li>
           <li><strong>Authorities</strong>, when the law requires it or to protect people from serious harm.</li>
@@ -147,6 +144,7 @@
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Sessions</th><td class="border-b border-border py-2 pr-4 align-top">Until they expire, 7 days after last use, or until you sign out</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Sign-in codes</th><td class="border-b border-border py-2 pr-4 align-top">5 minutes, and used once</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Rate-limit counters</th><td class="border-b border-border py-2 pr-4 align-top">Up to 2 days</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Traffic counters (requests and bytes your artifacts served each month, with no data about visitors)</th><td class="border-b border-border py-2 pr-4 align-top">The current and previous month, or until your account is deleted</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Access logs (planned)</th><td class="border-b border-border py-2 pr-4 align-top">30 days</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Database backups</th><td class="border-b border-border py-2 pr-4 align-top">Up to 30 days; restoring one never brings back deleted content</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Technical logs</th><td class="border-b border-border py-2 pr-4 align-top">A short period set by Cloudflare's logging service</td></tr>

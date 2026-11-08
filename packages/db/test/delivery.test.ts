@@ -10,10 +10,11 @@ import {
 
 const db = () => createDb(env.DB);
 const sha = (c: string) => c.repeat(64);
+const CYCLE = Date.UTC(2026, 10, 1);
 
 describe("delivery queries", () => {
   beforeEach(async () => {
-    for (const table of ["version_files", "versions", "objects", "artifacts"]) {
+    for (const table of ["version_files", "versions", "objects", "artifacts", "traffic_counters"]) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
     await db().insert(schema.artifacts).values({
@@ -52,7 +53,7 @@ describe("delivery queries", () => {
   });
 
   it("finds the artifact with what delivery needs", async () => {
-    expect(await findDeliveryArtifact(db(), "k7d2qm4xab")).toMatchObject({
+    expect(await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE)).toMatchObject({
       id: "k7d2qm4xab",
       state: "active",
       accessMode: "public",
@@ -60,12 +61,36 @@ describe("delivery queries", () => {
       entrypoint: "index.html",
       indexable: false,
     });
-    expect(await findDeliveryArtifact(db(), "zzzzzzzzzz")).toBeNull();
+    expect(await findDeliveryArtifact(db(), "zzzzzzzzzz", CYCLE)).toBeNull();
+  });
+
+  it("joins the owner's traffic of the asked cycle only, zero without a counter", async () => {
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.traffic).toEqual({
+      requests: 0,
+      bytes: 0,
+    });
+    const counter = { ownerId: "u_owner", updatedAt: CYCLE };
+    await db()
+      .insert(schema.trafficCounters)
+      .values([
+        { ...counter, cycleStart: CYCLE, requests: 7, bytes: 25_000_000_001 },
+        { ...counter, cycleStart: Date.UTC(2026, 9, 1), requests: 99, bytes: 99 },
+        { ...counter, ownerId: "u_other", cycleStart: CYCLE, requests: 5, bytes: 5 },
+      ]);
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.traffic).toEqual({
+      requests: 7,
+      bytes: 25_000_000_001,
+    });
+    const next = Date.UTC(2026, 11, 1);
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", next))?.traffic).toEqual({
+      requests: 0,
+      bytes: 0,
+    });
   });
 
   it("has no entrypoint before the first version is current", async () => {
     await env.DB.exec("UPDATE artifacts SET current_version_id = NULL");
-    expect(await findDeliveryArtifact(db(), "k7d2qm4xab")).toMatchObject({
+    expect(await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE)).toMatchObject({
       currentVersionId: null,
       entrypoint: null,
     });

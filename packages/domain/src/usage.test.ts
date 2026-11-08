@@ -1,4 +1,4 @@
-import { LIMITS } from "@portifact/contracts";
+import { LIMITS, TRAFFIC_LIMITS } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
@@ -25,6 +25,7 @@ const quiet: UsageSnapshot = {
   publishes: [{ at: NOW - 1_000, amount: 1 }],
   newFiles: [{ at: NOW - 1_000, amount: 3 }],
   newBytes: [{ at: NOW - 1_000, amount: 1_000 }],
+  traffic: { requests: 10, bytes: 1_000 },
 };
 
 describe("windowReleaseAt", () => {
@@ -133,6 +134,29 @@ describe("usageBlocks", () => {
       },
     ]);
     expect(usageBlocks({ ...quiet, accountCreatedAt: NOW - 7 * DAY })).toEqual([]);
+  });
+});
+
+describe("traffic block", () => {
+  it("stops serving until the next month once requests or bytes are used up", () => {
+    const block = {
+      reason: "traffic",
+      stops: "serving",
+      message: expect.stringContaining("429"),
+      until: Date.parse("2026-12-01T00:00:00Z"),
+    };
+    const requests = { requests: TRAFFIC_LIMITS.requestsPerMonth, bytes: 0 };
+    expect(usageBlocks({ ...quiet, traffic: requests })).toEqual([block]);
+    const bytes = { requests: 1, bytes: TRAFFIC_LIMITS.bytesPerMonth };
+    expect(usageBlocks({ ...quiet, traffic: bytes })).toEqual([block]);
+  });
+
+  it("does not block one request or one byte below the limits", () => {
+    const traffic = {
+      requests: TRAFFIC_LIMITS.requestsPerMonth - 1,
+      bytes: TRAFFIC_LIMITS.bytesPerMonth - 1,
+    };
+    expect(usageBlocks({ ...quiet, traffic })).toEqual([]);
   });
 });
 

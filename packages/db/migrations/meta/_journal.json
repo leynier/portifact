@@ -89,8 +89,36 @@
     {
       "idx": 12,
       "version": "6",
-      "when": 1794157072491,
-      "tag": "0012_open_uploads_limit",
+      "when": 1794156464816,
+      "tag": "0012_outbox",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1794157817365,
+      "tag": "0013_traffic_counters",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1794158647882,
+      "tag": "0014_review_tab",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1794159252691,
+      "tag": "0015_platform_budget",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1794160790850,
+      "tag": "0016_open_uploads_limit",
       "breakpoints": true
     }
   ]

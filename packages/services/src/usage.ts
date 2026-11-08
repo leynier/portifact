@@ -1,18 +1,22 @@
 // Account usage (plan section 6, "Uso"): the counters the publish admission reads, the events of
 // the 24-hour windows and the blocks the domain derives from them. Read-only; every query is
 // keyed by the account from the session or token.
-import { LIMITS } from "@portifact/contracts";
+import { LIMITS, TRAFFIC_LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import {
   type Block,
   nextMonthStart,
+  protectionBlock,
   publicAccessFrom,
+  trafficCycle,
   USAGE_WINDOW_MS,
   usageBlocks,
   type WindowEvent,
   windowTotal,
 } from "@portifact/domain";
 import { and, asc, eq, gt, gte, inArray, sql } from "drizzle-orm";
+import { platformProtection } from "./budget.ts";
+import { getTraffic } from "./traffic.ts";
 
 export interface Meter {
   used: number;
@@ -27,6 +31,7 @@ export interface AccountUsageReport {
   newBytesLast24h: Meter;
   newObjectsThisMonth: Meter & { resetsAt: number };
   openUploads: Meter;
+  trafficThisMonth: { requests: Meter; bytes: Meter; resetsAt: number };
   versionLimits: { publishedBytes: number; files: number; documentBytes: number };
   publicAccessFrom: number;
   blocks: Block[];
@@ -90,6 +95,8 @@ export async function getAccountUsage(
       ),
     );
   const events = await windowEvents(db, input.ownerId, input.now - USAGE_WINDOW_MS);
+  const traffic = await getTraffic(db, input.ownerId, input.now);
+  const capacity = protectionBlock((await platformProtection(db, input.now)).actions);
 
   // The monthly counter belongs to the month it was last written in, as preparePublish reads it.
   const resetsAt = nextMonthStart(input.now);
@@ -107,6 +114,7 @@ export async function getAccountUsage(
     publishes: events.publish,
     newFiles: events.new_files,
     newBytes: events.new_bytes,
+    traffic,
   };
 
   return {
@@ -125,12 +133,18 @@ export async function getAccountUsage(
       resetsAt,
     },
     openUploads: { used: snapshot.openUploads, limit: LIMITS.concurrentUploads },
+    trafficThisMonth: {
+      requests: { used: traffic.requests, limit: TRAFFIC_LIMITS.requestsPerMonth },
+      bytes: { used: traffic.bytes, limit: TRAFFIC_LIMITS.bytesPerMonth },
+      resetsAt: trafficCycle(input.now).resetsAt,
+    },
     versionLimits: {
       publishedBytes: LIMITS.artifactBytes,
       files: LIMITS.filesPerVersion,
       documentBytes: LIMITS.documentBytes,
     },
     publicAccessFrom: publicAccessFrom(snapshot.accountCreatedAt),
-    blocks: usageBlocks(snapshot),
+    // The platform's budget protection comes first: it is why the dashboard shows its notice.
+    blocks: capacity ? [capacity, ...usageBlocks(snapshot)] : usageBlocks(snapshot),
   };
 }

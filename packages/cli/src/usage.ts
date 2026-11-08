@@ -1,4 +1,5 @@
-// portifact usage: the account's quotas, counters, 24-hour windows and what blocks it now, as
+// portifact usage: the account's quotas, counters, 24-hour windows, this month's traffic and what
+// blocks it now, as
 // GET /api/v1/usage reports them. The server computes everything; this only presents it.
 import { AccountUsageView, type UsageMeter } from "@portifact/contracts";
 import { callApi } from "./api.ts";
@@ -30,6 +31,10 @@ export async function usage(io: Io, runtime: Runtime, options: OutputOptions): P
       `${count(view.newObjectsThisMonth)} (resets ${formatDate(view.newObjectsThisMonth.resetsAt)})`,
     ],
     ["Open uploads", count(view.openUploads)],
+    [
+      "Traffic this month",
+      `${count(view.trafficThisMonth.requests)} requests, ${bytes(view.trafficThisMonth.bytes)} (resets ${formatDate(view.trafficThisMonth.resetsAt)})`,
+    ],
     [
       "Per version",
       `${formatBytes(view.versionLimits.publishedBytes)} published, ${view.versionLimits.files} files, ${formatBytes(view.versionLimits.documentBytes)} per document`,
