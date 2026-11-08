@@ -2,6 +2,8 @@
 // the auth pages. Every path not listed here answers 404.
 import { TokenPrincipal } from "@portifact/contracts";
 import { Hono } from "hono";
+import { r2Presigner } from "./api/presign.ts";
+import { apiRoutes } from "./api/routes.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
 import type { AuthDeps } from "./auth/deps.ts";
@@ -93,6 +95,21 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   );
 
   app.route("/", authRoutes(authFor));
+  app.route(
+    "/",
+    apiRoutes({
+      introspect: introspectFor,
+      resource: (env) => resources(env).api,
+      presigner: (env) =>
+        r2Presigner({
+          accountId: env.R2_ACCOUNT_ID,
+          bucket: env.R2_BUCKET,
+          accessKeyId: env.R2_ACCESS_KEY_ID,
+          secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+        }),
+      now: () => Date.now(),
+    }),
+  );
 
   // Who the token belongs to. Any valid API token works; no scope is needed.
   app.get("/api/v1/me", async (c) => {
