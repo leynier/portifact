@@ -35,6 +35,8 @@ Mock only true external boundaries: identity providers, the email provider and t
 
 Workers tests run inside workerd through `@cloudflare/vitest-plugin`, which supports Vitest 4, so the workspace catalog stays on Vitest 4. Keep `compatibility_date` in each `wrangler.jsonc` no newer than the date the installed workerd supports, or the test runtime refuses to start.
 
+To control the clock in Workers tests, call the app's `fetch` from the test (it runs in the same isolate) and fake only `Date` with `vi.useFakeTimers({ toFake: ["Date"] })`, so I/O keeps working. Apply D1 migrations in a setup file with `readD1Migrations` and `applyD1Migrations`. `spikes/oauth-server` shows both.
+
 ## Required cases
 
 Every feature covers:
