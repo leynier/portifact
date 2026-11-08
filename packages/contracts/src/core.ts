@@ -50,6 +50,9 @@ export const LIMITS = {
   archiveMonths: 6,
   publicAccessMinAccountAgeDays: 7,
   pathMaxLength: 1_024,
+  /** Bounds the reader list of a restricted artifact; not a product tier, a safety cap. */
+  readersPerArtifact: 500,
+  readersPerChange: 100,
 } as const;
 
 /** Error codes shared by every interface. Adapters map them to HTTP statuses and messages. */

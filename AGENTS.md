@@ -29,7 +29,7 @@ apps/app        Worker for portifact.com and app.portifact.com: landing, install
 apps/content    Worker for <id>.portifact.dev: artifact delivery and read sessions for protected artifacts today; review sessions, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
-packages/cli    portifact CLI
+packages/cli    portifact CLI: login, logout and whoami today; commands take an injected Runtime (packages/cli/src/runtime.ts)
 packages/contracts   Shared schemas, errors and OpenAPI
 packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
 packages/services    Use cases that apply domain rules with D1 and R2: publish, restore and more
@@ -69,7 +69,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 ## Architecture rules
 
 - Business rules live only in `packages/domain` (pure functions) and the use cases that apply them with storage live in `packages/services`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over these services; never reimplement a rule in an adapter.
-- In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice.
+- In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice. If two concurrent requests would write the same new state (a counter or generation plus one), `exists(...)` on it is true for both: condition the dependent writes on the old state the request read and run the guarded update last instead (see `packages/services/src/access.ts`).
 - Web, CLI and MCP must behave identically for the same operation: same permission checks, quotas, states and errors. Add a parity test when you add an operation.
 - MCP has no privileged path. It goes through the same authorization as the API.
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.
