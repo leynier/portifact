@@ -322,7 +322,7 @@ export async function run(
     .command("rollback")
     .description("Make a previous version current again, as a new version with its files")
     .argument("<id>", "artifact ID")
-    .argument("<version>", "version ID, from `portifact versions`")
+    .argument("<version>", "version ID or number (3 or v3), from `portifact versions`")
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string, version: string) =>
@@ -338,7 +338,10 @@ export async function run(
       "--out <dir>",
       "new folder to download into; it must not exist (with --git, an earlier history)",
     )
-    .option("--version <id>", "version ID to download (default: the current version)")
+    .option(
+      "--version <version>",
+      "version ID or number to download (default: the current version)",
+    )
     .option("--published", "download the published files (the default)")
     .option("--source", "download the private sources (owner only)")
     .option("--git", "with --source: build or update a Git history of every version in <dir>")
