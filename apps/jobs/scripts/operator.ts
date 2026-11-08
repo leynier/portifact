@@ -2,6 +2,9 @@
 // through a Wrangler remote binding, authenticated with the deploy credentials (a Cloudflare API
 // token with D1 edit access in CLOUDFLARE_API_TOKEN, or `wrangler login`). `--local` uses the
 // local D1 state of `wrangler dev` in apps/app instead. See docs/operations.md.
+// It runs on Node, not Bun: Wrangler refuses remote bindings under Bun, whose fetch ignores the
+// dispatcher Miniflare routes them through.
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createDb } from "@portifact/db";
 import { getPlatformProxy } from "wrangler";
@@ -15,7 +18,7 @@ if (args.length === 0 || args.includes("--help")) {
   process.exit(args.length === 0 ? 2 : 0);
 }
 
-const here = (path: string) => resolve(import.meta.dir, path);
+const here = (path: string) => resolve(import.meta.dirname, path);
 const proxy = await getPlatformProxy<{ DB: D1Database }>(
   local
     ? {
@@ -27,10 +30,8 @@ const proxy = await getPlatformProxy<{ DB: D1Database }>(
 );
 try {
   const result = await runOperator(createDb(proxy.env.DB), args, Date.now(), {
-    read: (path) => Bun.file(path).text(),
-    write: async (path, text) => {
-      await Bun.write(path, text);
-    },
+    read: (path) => readFile(path, "utf8"),
+    write: (path, text) => writeFile(path, text),
   });
   console.log(result.output);
   process.exitCode = result.exitCode;
