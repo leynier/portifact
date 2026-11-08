@@ -93,12 +93,19 @@ export async function runIdempotent(
   return { kind: "fresh", response };
 }
 
-/** Deletes stored responses older than the retention window. */
-export async function pruneOperations(db: Db, now: number): Promise<number> {
+/**
+ * Deletes up to `limit` stored responses older than the retention window. The maintenance job
+ * picks up the rest on its next runs.
+ */
+export async function pruneOperations(db: Db, now: number, limit = 500): Promise<number> {
+  const operations = schema.operations;
+  // The table has a composite key, so the bounded set is chosen by rowid.
   const removed = await db
-    .delete(schema.operations)
-    .where(lt(schema.operations.createdAt, now - IDEMPOTENCY_TTL_MS))
-    .returning({ key: schema.operations.idempotencyKey });
+    .delete(operations)
+    .where(
+      sql`rowid in (select rowid from ${operations} where ${lt(operations.createdAt, now - IDEMPOTENCY_TTL_MS)} limit ${limit})`,
+    )
+    .returning({ key: operations.idempotencyKey });
   return removed.length;
 }
 

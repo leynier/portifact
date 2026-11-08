@@ -24,13 +24,21 @@ export function singleParam(query: string, name: string): string | undefined {
   return values.length === 1 ? values[0] : undefined;
 }
 
-/** Pages a sign-in may return to: the device page and the dashboard routes. */
-const NEXT_PATHS = [/^\/device$/, /^\/$/, /^\/artifacts\/[A-Za-z0-9_-]+$/];
+/**
+ * Pages a sign-in may return to: the device page, the dashboard routes and the entry to a
+ * protected artifact, which continues to the artifact after signing in.
+ */
+const NEXT_PATHS = [
+  /^\/device$/,
+  /^\/$/,
+  /^\/artifacts\/[A-Za-z0-9_-]+$/,
+  /^\/read\/[a-z2-7]{10}$/,
+];
 
 /**
  * Where to go after signing in, from the `next` parameter. Only same-origin paths of the
- * device page and the dashboard are accepted, so the login page cannot be used to redirect
- * elsewhere.
+ * device page, the dashboard and the artifact entry are accepted, so the login page cannot be
+ * used to redirect elsewhere.
  */
 export function safeNext(search: string, origin: string): string | undefined {
   const raw = new URLSearchParams(search).get("next");
