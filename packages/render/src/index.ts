@@ -1,7 +1,6 @@
 // Markdown and plain-text rendering for artifact viewers. Pure: no I/O, deterministic output.
 export {
   type DocumentOptions,
-  documentPolicy,
   type RenderedDocument,
   renderMarkdownDocument,
   renderTextDocument,
@@ -16,7 +15,8 @@ export {
   renderMarkdown,
   type SourceBlock,
 } from "./markdown.ts";
+export { documentPolicy } from "./policy.ts";
 export { assertSourceSize, decodeSource, MAX_SOURCE_BYTES, utf8ByteLength } from "./source.ts";
 export { escapeText, type RenderedText, renderText } from "./text.ts";
 export { classifyUrl, type UrlTarget } from "./urls.ts";
-export { RENDERER_VERSION } from "./version.ts";
+export { RENDERER_VERSION, SECURE_RENDERER_VERSION } from "./version.ts";

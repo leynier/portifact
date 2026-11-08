@@ -2,6 +2,7 @@
 import { DOCUMENT_CSS } from "@portifact/ui/document-css";
 import { TOKENS_CSS } from "@portifact/ui/tokens-css";
 import { type MarkdownOptions, type RenderedMarkdown, renderMarkdown } from "./markdown.ts";
+import { documentPolicy } from "./policy.ts";
 import { type RenderedText, renderText } from "./text.ts";
 import { RENDERER_VERSION } from "./version.ts";
 
@@ -23,21 +24,6 @@ const ATTRIBUTE_ESCAPES: Record<string, string> = {
 
 function escapeAttribute(text: string): string {
   return text.replace(/[&<>"']/g, (char) => ATTRIBUTE_ESCAPES[char] ?? char);
-}
-
-/**
- * Defense in depth if the renderer ever lets markup through: no scripts, frames, plugins, forms
- * or base URL changes. Styles are the inline stylesheet below, and images load only from the
- * artifact unless remote images are enabled.
- */
-export function documentPolicy(remoteImages: boolean): string {
-  return [
-    "default-src 'none'",
-    `img-src 'self'${remoteImages ? " https:" : ""}`,
-    "style-src 'unsafe-inline'",
-    "base-uri 'none'",
-    "form-action 'none'",
-  ].join("; ");
 }
 
 interface Shell extends DocumentOptions {

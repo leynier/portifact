@@ -1,0 +1,51 @@
+// Shapes of the account endpoints under `/api/v1/account` (plan sections 5 and 6, "Cuenta").
+// They answer only the dashboard's session cookie, never a bearer token, and show the signed-in
+// user's own browser sessions and connected apps. Secrets (session tokens, OAuth tokens, IP
+// addresses) never appear in them.
+import { z } from "zod";
+
+/** A signed-in browser on app.portifact.com. */
+export const BrowserSession = z.object({
+  /** True for the browser that made the request. */
+  current: z.boolean(),
+  /** The browser's own description, shown summarized; null when it sent none. */
+  userAgent: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  lastActiveAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+});
+export type BrowserSession = z.infer<typeof BrowserSession>;
+
+export const BrowserSessionList = z.object({ items: z.array(BrowserSession) });
+export type BrowserSessionList = z.infer<typeof BrowserSessionList>;
+
+export const SignOutOthersResult = z.object({ signedOut: z.number().int().min(0) });
+export type SignOutOthersResult = z.infer<typeof SignOutOthersResult>;
+
+/** Which Portifact resource an app's tokens open: the publishing API or the MCP endpoint. */
+export const AppResource = z.enum(["api", "mcp"]);
+export type AppResource = z.infer<typeof AppResource>;
+
+/** An OAuth client (the CLI or an MCP client) holding live tokens for the user. */
+export const ConnectedApp = z.object({
+  clientId: z.string(),
+  /** The client's registered name. Untrusted text from the client: shown escaped, never as HTML. */
+  name: z.string().nullable(),
+  /** True for Portifact's own CLI. */
+  firstParty: z.boolean(),
+  resources: z.array(AppResource),
+  scopes: z.array(z.string()),
+  /** When the user approved the connection that the live tokens come from. */
+  approvedAt: z.iso.datetime(),
+  /** When the app last received a token, which it does while it is in use. */
+  lastIssuedAt: z.iso.datetime(),
+  /** When its last token expires unless the app renews it; null when a token never expires. */
+  expiresAt: z.iso.datetime().nullable(),
+});
+export type ConnectedApp = z.infer<typeof ConnectedApp>;
+
+export const ConnectedAppList = z.object({ items: z.array(ConnectedApp) });
+export type ConnectedAppList = z.infer<typeof ConnectedAppList>;
+
+export const DisconnectResult = z.object({ clientId: z.string(), disconnected: z.literal(true) });
+export type DisconnectResult = z.infer<typeof DisconnectResult>;

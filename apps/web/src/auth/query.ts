@@ -32,6 +32,7 @@ const NEXT_PATHS = [
   /^\/device$/,
   /^\/$/,
   /^\/artifacts\/[A-Za-z0-9_-]+$/,
+  /^\/account$/,
   /^\/read\/[a-z2-7]{10}$/,
 ];
 

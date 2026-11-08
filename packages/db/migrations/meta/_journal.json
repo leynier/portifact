@@ -36,6 +36,27 @@
       "when": 1794120785869,
       "tag": "0004_read_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794122234011,
+      "tag": "0005_terms_acceptance",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794124289816,
+      "tag": "0006_annotations",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1794124290105,
+      "tag": "0007_annotation_usage_triggers",
+      "breakpoints": true
     }
   ]
 }

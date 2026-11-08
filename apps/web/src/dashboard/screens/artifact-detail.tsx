@@ -16,6 +16,7 @@ import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { offeredActions, StateBadge } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
+import { AccessSettings } from "./access-settings.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
 
@@ -169,6 +170,8 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
           ]}
         />
       </section>
+
+      <AccessSettings artifact={artifact} />
 
       <section aria-labelledby="actions-heading" className="mt-8">
         <h2 id="actions-heading" className="mb-3 text-lg font-semibold">

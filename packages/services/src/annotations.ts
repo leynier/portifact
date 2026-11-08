@@ -1,0 +1,1100 @@
+// Annotations (plan section 8): threads and messages on an artifact's versions, moderation, the
+// annotations mode, incremental refresh and export. Every operation loads the artifact, decides
+// with the rules in `@portifact/domain`, and then writes in one batch whose first statement
+// claims the change by inserting an `annotation_events` row under the same conditions, checked
+// against the live data: artifact state and mode, current version, access policy generation,
+// rate limits and the row's previous state. Every other write of the batch runs only if that
+// event (found by its per-request `write_id`) exists. If the claim does not happen the checks
+// run again to explain why, falling back to `version_conflict`. Owner quotas are also CHECK
+// constraints kept by triggers (`0007_annotation_usage_triggers.sql`).
+//
+// Threads point at one version and never move. Visitors see only the current version's
+// threads, so a new version or a rollback needs no hook here: what is current follows
+// `artifacts.current_version_id`.
+//
+// Bodies are untrusted plain text and are never logged.
+import {
+  ANNOTATION_LIMITS,
+  type AnnotationAuthor,
+  type AnnotationDeleteResult,
+  type AnnotationExport,
+  type AnnotationMessageView,
+  type AnnotationPage,
+  type AnnotationsState,
+  type AnnotationTarget,
+  type AnnotationThreadState,
+  type AnnotationThreadView,
+  type AnnotationVersionFilter,
+  type ArtifactState,
+  UNTRUSTED_ANNOTATIONS_NOTICE,
+  utf8Length,
+} from "@portifact/contracts";
+import { type Db, schema } from "@portifact/db";
+import {
+  type AnnotationAction,
+  type AnnotationRole,
+  type AnnotationUsageSnapshot,
+  type AnnotationWrite,
+  canRead,
+  checkAnnotationAction,
+  checkAnnotationModeChange,
+  checkAnnotationWrite,
+  checkDeleteOwnMessage,
+  checkEditMessage,
+  checkResolve,
+  checkThreadWritable,
+  effectiveState,
+  fail,
+  type ModerationAction,
+  messageBodyVisible,
+  moderationTransition,
+  ok,
+  type Result,
+  threadVisible,
+} from "@portifact/domain";
+import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+/** D1 binds at most 100 parameters per statement. */
+const IN_CHUNK = 90;
+const MODES: readonly AnnotationsState[] = ["open", "locked", "off"];
+/** Events that write a body and count toward the rate limits. */
+const WRITE_KINDS = sql.raw("('thread_created', 'message_created', 'message_edited')");
+
+type ArtifactRow = typeof schema.artifacts.$inferSelect;
+type ThreadRow = typeof schema.annotationThreads.$inferSelect;
+type MessageRow = typeof schema.annotationMessages.$inferSelect;
+type EventKind = (typeof schema.annotationEvents.$inferInsert)["kind"];
+
+interface Loaded {
+  artifact: ArtifactRow;
+  role: AnnotationRole | null;
+  state: ArtifactState;
+}
+
+interface Authorized extends Loaded {
+  role: AnnotationRole;
+}
+
+export interface AnnotationActor {
+  userId: string;
+  artifactId: string;
+  now: number;
+}
+
+export interface AnnotationListInput extends AnnotationActor {
+  cursor?: string | undefined;
+  limit: number;
+  version: AnnotationVersionFilter;
+  state?: AnnotationThreadState | undefined;
+}
+
+const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
+const missingThread = () => fail<never>("not_found", "Thread not found.");
+const missingMessage = () => fail<never>("not_found", "Message not found.");
+const changed = () =>
+  fail<never>("version_conflict", "The annotations changed meanwhile. Reload and try again.");
+
+// Loading and authorization
+
+async function load(db: Db, input: AnnotationActor): Promise<Loaded | undefined> {
+  const [artifact] = await db
+    .select()
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, input.artifactId))
+    .limit(1);
+  if (!artifact) return undefined;
+  const state = effectiveState(
+    {
+      state: artifact.state,
+      expiresAt: artifact.expiresAt === null ? null : new Date(artifact.expiresAt),
+      archivedAt: artifact.archivedAt === null ? null : new Date(artifact.archivedAt),
+    },
+    new Date(input.now),
+  );
+  return { artifact, state, role: await roleOf(db, artifact, input.userId) };
+}
+
+/** The owner, a reader admitted by the access policy, or nobody. */
+async function roleOf(
+  db: Db,
+  artifact: ArtifactRow,
+  userId: string,
+): Promise<AnnotationRole | null> {
+  if (artifact.ownerId === userId) return "owner";
+  const [user] = await db
+    .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+    .limit(1);
+  if (!user) return null;
+  const readers =
+    artifact.accessMode === "restricted"
+      ? (
+          await db
+            .select({ email: schema.artifactReaders.email })
+            .from(schema.artifactReaders)
+            .where(eq(schema.artifactReaders.artifactId, artifact.id))
+        ).map((row) => row.email)
+      : [];
+  const decision = canRead(
+    { mode: artifact.accessMode, ownerId: artifact.ownerId, readers },
+    { userId, verifiedEmails: user.emailVerified ? [user.email.toLowerCase()] : [] },
+  );
+  return decision.ok ? "participant" : null;
+}
+
+async function authorize(
+  db: Db,
+  input: AnnotationActor,
+  action: AnnotationAction,
+): Promise<Result<Authorized>> {
+  const loaded = await load(db, input);
+  if (!loaded) return missingArtifact();
+  const decision = checkAnnotationAction(
+    { role: loaded.role, state: loaded.state, mode: loaded.artifact.annotations },
+    action,
+  );
+  if (!decision.ok) return decision;
+  return ok(loaded as Authorized);
+}
+
+async function findThread(db: Db, loaded: Authorized, threadId: string) {
+  const [thread] = await db
+    .select()
+    .from(schema.annotationThreads)
+    .where(
+      and(
+        eq(schema.annotationThreads.id, threadId),
+        eq(schema.annotationThreads.artifactId, loaded.artifact.id),
+      ),
+    )
+    .limit(1);
+  // Another artifact's thread, or an older version's thread for a visitor, looks missing.
+  if (!thread || !threadVisible(loaded.role, thread.versionId, loaded.artifact.currentVersionId)) {
+    return undefined;
+  }
+  return thread;
+}
+
+async function findMessage(db: Db, loaded: Authorized, messageId: string) {
+  const [message] = await db
+    .select()
+    .from(schema.annotationMessages)
+    .where(
+      and(
+        eq(schema.annotationMessages.id, messageId),
+        eq(schema.annotationMessages.artifactId, loaded.artifact.id),
+      ),
+    )
+    .limit(1);
+  if (!message) return undefined;
+  const thread = await findThread(db, loaded, message.threadId);
+  return thread ? { message, thread } : undefined;
+}
+
+// Guards evaluated inside the write batch
+
+/** Modes in which the caller's role may perform `action`, from the domain rules. */
+function allowedModes(role: AnnotationRole, action: AnnotationAction): AnnotationsState[] {
+  return MODES.filter((mode) => checkAnnotationAction({ role, state: "active", mode }, action).ok);
+}
+
+/**
+ * The artifact is still active and unexpired, in a mode that allows `action` for the role and,
+ * for visitors, under the same access policy generation, so a revocation in between wins.
+ */
+function artifactGuard(loaded: Authorized, action: AnnotationAction, now: number): SQL {
+  const t = schema.artifacts;
+  const a = loaded.artifact;
+  return sql`exists (select 1 from ${t} where ${t.id} = ${a.id} and ${t.state} = 'active' and (${t.expiresAt} is null or ${t.expiresAt} > ${now}) and ${inArray(t.annotations, allowedModes(loaded.role, action))}${
+    loaded.role === "participant" ? sql` and ${t.policyGeneration} = ${a.policyGeneration}` : sql``
+  })`;
+}
+
+/** The thread still belongs to the artifact's current version. */
+function currentThreadGuard(threadId: string): SQL {
+  const th = schema.annotationThreads;
+  const t = schema.artifacts;
+  return sql`exists (select 1 from ${th} join ${t} on ${t.id} = ${th.artifactId} where ${th.id} = ${threadId} and ${th.versionId} = ${t.currentVersionId})`;
+}
+
+/** The author and the artifact are under their write limits. */
+function rateGuard(actorId: string, artifactId: string, now: number): SQL {
+  const e = schema.annotationEvents;
+  return sql`(select count(*) from ${e} where ${e.actorId} = ${actorId} and ${e.kind} in ${WRITE_KINDS} and ${e.at} > ${now - MINUTE_MS}) < ${ANNOTATION_LIMITS.writesPerMinute}
+    and (select count(*) from ${e} where ${e.actorId} = ${actorId} and ${e.kind} in ${WRITE_KINDS} and ${e.at} > ${now - DAY_MS}) < ${ANNOTATION_LIMITS.writesPer24h}
+    and (select count(*) from ${e} where ${e.artifactId} = ${artifactId} and ${e.kind} in ${WRITE_KINDS} and ${e.at} > ${now - DAY_MS}) < ${ANNOTATION_LIMITS.artifactWritesPer24h}`;
+}
+
+function claimed(writeId: string): SQL {
+  const e = schema.annotationEvents;
+  return sql`exists (select 1 from ${e} where ${e.writeId} = ${writeId})`;
+}
+
+function claimedEventId(writeId: string): SQL {
+  const e = schema.annotationEvents;
+  return sql`(select ${e.id} from ${e} where ${e.writeId} = ${writeId})`;
+}
+
+interface Claim {
+  artifactId: string;
+  threadId: string;
+  messageId: string | null;
+  actorId: string;
+  kind: EventKind;
+  now: number;
+}
+
+/** Inserts the event that claims a change, only when `guard` holds. Returns its ID if it did. */
+function claim(db: Db, writeId: string, event: Claim, guard: SQL) {
+  // Drizzle lists every column in schema order for an insert from raw SQL; `null` is the ID.
+  return db
+    .insert(schema.annotationEvents)
+    .select(
+      sql`select null, ${event.artifactId}, ${event.threadId}, ${event.messageId}, ${event.actorId}, ${writeId}, ${event.kind}, ${event.now} where ${guard}`,
+    )
+    .returning({ id: schema.annotationEvents.id });
+}
+
+/** Bumps the thread's revision and points its refresh cursor at the claiming event. */
+function touchThread(db: Db, threadId: string, writeId: string, now: number, extra = {}) {
+  const th = schema.annotationThreads;
+  return db
+    .update(th)
+    .set({
+      ...extra,
+      revision: sql`${th.revision} + 1`,
+      changeSeq: claimedEventId(writeId),
+      updatedAt: now,
+    })
+    .where(and(eq(th.id, threadId), claimed(writeId)));
+}
+
+type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
+
+/**
+ * Runs a claimed batch. Returns whether the claim happened; a CHECK constraint failure (the
+ * owner's quota or a full thread, after a race) becomes `quota_exceeded`.
+ */
+async function runClaimed(db: Db, statements: Batch): Promise<Result<boolean>> {
+  try {
+    const [first] = (await db.batch(statements)) as [{ id: number }[]];
+    return ok(first.length === 1);
+  } catch (error) {
+    if (causeMatches(error, /CHECK constraint failed: annotation_threads_counters/)) {
+      return fail(
+        "quota_exceeded",
+        `A thread can hold at most ${ANNOTATION_LIMITS.messagesPerThread} messages.`,
+      );
+    }
+    if (causeMatches(error, /CHECK constraint failed: annotation_usage/)) {
+      return fail("quota_exceeded", "The owner of this artifact has no room for more comments.");
+    }
+    throw error;
+  }
+}
+
+function causeMatches(error: unknown, pattern: RegExp): boolean {
+  for (let e: unknown = error; e instanceof Error; e = e.cause) {
+    if (pattern.test(e.message)) return true;
+  }
+  return false;
+}
+
+/** Runs `precheck`, writes, and on a lost claim runs `precheck` again to explain why. */
+async function guardedWrite<T, P>(
+  precheck: () => Promise<Result<P>>,
+  write: (prepared: P) => Promise<Result<boolean>>,
+  after: (prepared: P) => Promise<Result<T>>,
+): Promise<Result<T>> {
+  const prepared = await precheck();
+  if (!prepared.ok) return prepared;
+  const written = await write(prepared.value);
+  if (!written.ok) return written;
+  if (!written.value) {
+    const again = await precheck();
+    return again.ok ? changed() : again;
+  }
+  return after(prepared.value);
+}
+
+async function usage(
+  db: Db,
+  loaded: Authorized,
+  actorId: string,
+  now: number,
+  threadMessages: number,
+): Promise<AnnotationUsageSnapshot> {
+  const e = schema.annotationEvents;
+  const th = schema.annotationThreads;
+  const u = schema.annotationUsage;
+  const [row] = await db.all<Record<string, number>>(
+    sql`select
+      (select count(*) from ${e} where ${e.actorId} = ${actorId} and ${e.kind} in ${WRITE_KINDS} and ${e.at} > ${now - MINUTE_MS}) as author_minute,
+      (select count(*) from ${e} where ${e.actorId} = ${actorId} and ${e.kind} in ${WRITE_KINDS} and ${e.at} > ${now - DAY_MS}) as author_day,
+      (select count(*) from ${e} where ${e.artifactId} = ${loaded.artifact.id} and ${e.kind} in ${WRITE_KINDS} and ${e.at} > ${now - DAY_MS}) as artifact_day,
+      (select count(*) from ${th} where ${th.artifactId} = ${loaded.artifact.id}) as threads,
+      coalesce((select ${u.messages} from ${u} where ${u.ownerId} = ${loaded.artifact.ownerId}), 0) as owner_messages,
+      coalesce((select ${u.bytes} from ${u} where ${u.ownerId} = ${loaded.artifact.ownerId}), 0) as owner_bytes`,
+  );
+  // A select without FROM always returns one row.
+  const values = row as Record<string, number>;
+  const value = (key: string) => Number(values[key]);
+  return {
+    authorWritesLastMinute: value("author_minute"),
+    authorWritesLast24h: value("author_day"),
+    artifactWritesLast24h: value("artifact_day"),
+    artifactThreads: value("threads"),
+    threadMessages,
+    ownerMessages: value("owner_messages"),
+    ownerBytes: value("owner_bytes"),
+  };
+}
+
+async function checkLimits(
+  db: Db,
+  loaded: Authorized,
+  actorId: string,
+  now: number,
+  write: AnnotationWrite,
+  threadMessages = 0,
+): Promise<Result<true>> {
+  return checkAnnotationWrite(await usage(db, loaded, actorId, now, threadMessages), write);
+}
+
+// Mode
+
+/** Turns annotations off, opens them or locks them. Owner only; threads are never deleted. */
+export async function setAnnotationMode(
+  db: Db,
+  input: AnnotationActor & { mode: AnnotationsState },
+): Promise<Result<{ annotations: AnnotationsState }>> {
+  const loaded = await load(db, input);
+  if (!loaded) return missingArtifact();
+  const allowed = checkAnnotationModeChange({ role: loaded.role, state: loaded.state });
+  if (!allowed.ok) return allowed;
+  if (loaded.artifact.annotations === input.mode) return ok({ annotations: input.mode });
+  const t = schema.artifacts;
+  const updated = await db
+    .update(t)
+    .set({ annotations: input.mode, updatedAt: input.now })
+    .where(
+      and(
+        eq(t.id, loaded.artifact.id),
+        eq(t.ownerId, input.userId),
+        inArray(t.state, ["active", "archived"]),
+      ),
+    )
+    .returning({ id: t.id });
+  if (updated.length === 0) return changed();
+  await db.insert(schema.lifecycleEvents).values({
+    artifactId: loaded.artifact.id,
+    actorId: input.userId,
+    channel: "system",
+    event: "annotations_changed",
+    details: { mode: input.mode },
+    at: input.now,
+  });
+  return ok({ annotations: input.mode });
+}
+
+// Threads and messages
+
+/** Starts a thread with its first message on the artifact's current version. */
+export async function createAnnotationThread(
+  db: Db,
+  input: AnnotationActor & { versionId: string; target: AnnotationTarget; body: string },
+): Promise<Result<AnnotationThreadView>> {
+  const targetJson = JSON.stringify(input.target);
+  const targetBytes = utf8Length(targetJson);
+  const bodyBytes = utf8Length(input.body);
+  const threadId = crypto.randomUUID();
+  const messageId = crypto.randomUUID();
+  const writeId = crypto.randomUUID();
+
+  return guardedWrite(
+    async () => {
+      const loaded = await authorize(db, input, "participate");
+      if (!loaded.ok) return loaded;
+      const writable = checkThreadWritable(input.versionId, loaded.value.artifact.currentVersionId);
+      if (!writable.ok) return writable;
+      const [file] = await db
+        .select({ path: schema.versionFiles.path })
+        .from(schema.versionFiles)
+        .where(
+          and(
+            eq(schema.versionFiles.versionId, input.versionId),
+            eq(schema.versionFiles.kind, "published"),
+            eq(schema.versionFiles.path, input.target.path),
+          ),
+        )
+        .limit(1);
+      if (!file) return fail("invalid_input", "target.path: No such file in this version.");
+      const limits = await checkLimits(db, loaded.value, input.userId, input.now, {
+        kind: "thread",
+        addedBytes: bodyBytes + targetBytes,
+      });
+      return limits.ok ? loaded : limits;
+    },
+    async (loaded) => {
+      const a = loaded.artifact;
+      const th = schema.annotationThreads;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${a.id} and ${schema.artifacts.currentVersionId} = ${input.versionId}) and ${rateGuard(input.userId, a.id, input.now)} and (select count(*) from ${th} where ${th.artifactId} = ${a.id}) < ${ANNOTATION_LIMITS.threadsPerArtifact}`;
+      return runClaimed(db, [
+        claim(
+          db,
+          writeId,
+          {
+            artifactId: a.id,
+            threadId,
+            messageId,
+            actorId: input.userId,
+            kind: "thread_created",
+            now: input.now,
+          },
+          guard,
+        ),
+        // Columns in schema order: id, artifact, version, owner, author, target, target bytes,
+        // path, state, messages, revision, change_seq, resolved_at, resolved_by, created, updated.
+        db
+          .insert(th)
+          .select(
+            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${input.target.path}, 'open', 1, 1, ${claimedEventId(writeId)}, null, null, ${input.now}, ${input.now} where ${claimed(writeId)}`,
+          ),
+        insertMessage(db, {
+          id: messageId,
+          threadId,
+          artifact: a,
+          authorId: input.userId,
+          body: input.body,
+          bodyBytes,
+          now: input.now,
+          writeId,
+        }),
+      ]);
+    },
+    (loaded) => threadResult(db, loaded, input.userId, threadId),
+  );
+}
+
+function insertMessage(
+  db: Db,
+  m: {
+    id: string;
+    threadId: string;
+    artifact: ArtifactRow;
+    authorId: string;
+    body: string;
+    bodyBytes: number;
+    now: number;
+    writeId: string;
+  },
+) {
+  // Columns in schema order: id, thread, artifact, owner, author, body, bytes, state, revision,
+  // edited_at, created_at.
+  return db
+    .insert(schema.annotationMessages)
+    .select(
+      sql`select ${m.id}, ${m.threadId}, ${m.artifact.id}, ${m.artifact.ownerId}, ${m.authorId}, ${m.body}, ${m.bodyBytes}, 'visible', 1, null, ${m.now} where ${claimed(m.writeId)}`,
+    );
+}
+
+/** Adds a reply to a thread of the current version. */
+export async function replyToAnnotationThread(
+  db: Db,
+  input: AnnotationActor & { threadId: string; body: string },
+): Promise<Result<AnnotationThreadView>> {
+  const bodyBytes = utf8Length(input.body);
+  const messageId = crypto.randomUUID();
+  const writeId = crypto.randomUUID();
+  return guardedWrite(
+    async () => {
+      const loaded = await authorize(db, input, "participate");
+      if (!loaded.ok) return loaded;
+      const thread = await findThread(db, loaded.value, input.threadId);
+      if (!thread) return missingThread();
+      const writable = checkThreadWritable(
+        thread.versionId,
+        loaded.value.artifact.currentVersionId,
+      );
+      if (!writable.ok) return writable;
+      const limits = await checkLimits(
+        db,
+        loaded.value,
+        input.userId,
+        input.now,
+        { kind: "reply", addedBytes: bodyBytes },
+        thread.messageCount,
+      );
+      return limits.ok ? loaded : limits;
+    },
+    (loaded) => {
+      const a = loaded.artifact;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(input.threadId)} and ${rateGuard(input.userId, a.id, input.now)}`;
+      return runClaimed(db, [
+        claim(
+          db,
+          writeId,
+          {
+            artifactId: a.id,
+            threadId: input.threadId,
+            messageId,
+            actorId: input.userId,
+            kind: "message_created",
+            now: input.now,
+          },
+          guard,
+        ),
+        insertMessage(db, {
+          id: messageId,
+          threadId: input.threadId,
+          artifact: a,
+          authorId: input.userId,
+          body: input.body,
+          bodyBytes,
+          now: input.now,
+          writeId,
+        }),
+        touchThread(db, input.threadId, writeId, input.now, {
+          messageCount: sql`${schema.annotationThreads.messageCount} + 1`,
+        }),
+      ]);
+    },
+    (loaded) => threadResult(db, loaded, input.userId, input.threadId),
+  );
+}
+
+/** Edits one's own message, based on the message revision the client holds. */
+export async function editAnnotationMessage(
+  db: Db,
+  input: AnnotationActor & { messageId: string; body: string; revision: number },
+): Promise<Result<AnnotationThreadView>> {
+  const bodyBytes = utf8Length(input.body);
+  const writeId = crypto.randomUUID();
+  return guardedWrite(
+    async () => {
+      const loaded = await authorize(db, input, "participate");
+      if (!loaded.ok) return loaded;
+      const found = await findMessage(db, loaded.value, input.messageId);
+      if (!found) return missingMessage();
+      const editable = checkEditMessage(input.userId, found.message);
+      if (!editable.ok) return editable;
+      const writable = checkThreadWritable(
+        found.thread.versionId,
+        loaded.value.artifact.currentVersionId,
+      );
+      if (!writable.ok) return writable;
+      if (found.message.revision !== input.revision) {
+        return fail("version_conflict", "The message changed meanwhile. Reload and try again.");
+      }
+      const limits = await checkLimits(db, loaded.value, input.userId, input.now, {
+        kind: "edit",
+        addedBytes: bodyBytes - found.message.bodyBytes,
+      });
+      return limits.ok ? ok({ loaded: loaded.value, threadId: found.thread.id }) : limits;
+    },
+    ({ loaded, threadId }) => {
+      const m = schema.annotationMessages;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(threadId)} and ${rateGuard(input.userId, loaded.artifact.id, input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.authorId} = ${input.userId} and ${m.state} = 'visible' and ${m.revision} = ${input.revision})`;
+      return runClaimed(db, [
+        claim(
+          db,
+          writeId,
+          {
+            artifactId: loaded.artifact.id,
+            threadId,
+            messageId: input.messageId,
+            actorId: input.userId,
+            kind: "message_edited",
+            now: input.now,
+          },
+          guard,
+        ),
+        db
+          .update(m)
+          .set({
+            body: input.body,
+            bodyBytes,
+            revision: sql`${m.revision} + 1`,
+            editedAt: input.now,
+          })
+          .where(and(eq(m.id, input.messageId), claimed(writeId))),
+        touchThread(db, threadId, writeId, input.now),
+      ]);
+    },
+    ({ loaded, threadId }) => threadResult(db, loaded, input.userId, threadId),
+  );
+}
+
+/** Deletes one's own message. A thread left without live messages is removed. */
+export async function deleteOwnAnnotationMessage(
+  db: Db,
+  input: AnnotationActor & { messageId: string },
+): Promise<Result<AnnotationDeleteResult>> {
+  return removeMessage(db, input, "delete_own");
+}
+
+/** Owner moderation: hide, unhide or delete another person's message. */
+export async function moderateAnnotationMessage(
+  db: Db,
+  input: AnnotationActor & { messageId: string; action: ModerationAction },
+): Promise<Result<AnnotationDeleteResult>> {
+  if (input.action === "delete") return removeMessage(db, input, "moderate");
+  const writeId = crypto.randomUUID();
+  return guardedWrite(
+    async () => {
+      const loaded = await authorize(db, input, "moderate");
+      if (!loaded.ok) return loaded;
+      const found = await findMessage(db, loaded.value, input.messageId);
+      if (!found) return missingMessage();
+      const next = moderationTransition(found.message, input.action);
+      if (!next.ok) return next;
+      return ok({ loaded: loaded.value, found, next: next.value });
+    },
+    async ({ loaded, found, next }) => {
+      if (next === null) return ok(true);
+      const m = schema.annotationMessages;
+      const guard = sql`${artifactGuard(loaded, "moderate", input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.state} = ${found.message.state})`;
+      return runClaimed(db, [
+        claim(
+          db,
+          writeId,
+          {
+            artifactId: loaded.artifact.id,
+            threadId: found.thread.id,
+            messageId: input.messageId,
+            actorId: input.userId,
+            kind: next === "hidden" ? "message_hidden" : "message_unhidden",
+            now: input.now,
+          },
+          guard,
+        ),
+        db
+          .update(m)
+          .set({ state: next, revision: sql`${m.revision} + 1` })
+          .where(and(eq(m.id, input.messageId), claimed(writeId))),
+        touchThread(db, found.thread.id, writeId, input.now),
+      ]);
+    },
+    async ({ loaded, found }) => {
+      const view = await threadResult(db, loaded, input.userId, found.thread.id);
+      if (!view.ok) return view;
+      return ok({ threadId: found.thread.id, thread: view.value });
+    },
+  );
+}
+
+/**
+ * Deletes a message, keeping a marker so replies keep their place. When no other message of
+ * the thread is left, the thread is removed. Deleting a deleted message changes nothing.
+ */
+async function removeMessage(
+  db: Db,
+  input: AnnotationActor & { messageId: string },
+  action: "delete_own" | "moderate",
+): Promise<Result<AnnotationDeleteResult>> {
+  const writeId = crypto.randomUUID();
+  const m = schema.annotationMessages;
+  return guardedWrite(
+    async () => {
+      const loaded = await authorize(db, input, action);
+      if (!loaded.ok) return loaded;
+      const found = await findMessage(db, loaded.value, input.messageId);
+      if (!found) return missingMessage();
+      if (action === "delete_own") {
+        const allowed = checkDeleteOwnMessage(input.userId, found.message);
+        if (!allowed.ok) return allowed;
+      }
+      const [others] = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(m)
+        .where(
+          and(
+            eq(m.threadId, found.thread.id),
+            sql`${m.id} <> ${input.messageId}`,
+            sql`${m.state} <> 'deleted'`,
+          ),
+        );
+      const remaining = Number((others as { count: number }).count);
+      return ok({ loaded: loaded.value, found, removesThread: remaining === 0 });
+    },
+    async ({ loaded, found, removesThread }) => {
+      if (found.message.state === "deleted") return ok(true);
+      const th = schema.annotationThreads;
+      const others = sql`exists (select 1 from ${m} where ${m.threadId} = ${found.thread.id} and ${m.id} <> ${input.messageId} and ${m.state} <> 'deleted')`;
+      const guard = sql`${artifactGuard(loaded, action, input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.state} <> 'deleted') and ${removesThread ? sql`not ${others}` : others}${
+        loaded.role === "participant" ? sql` and ${currentThreadGuard(found.thread.id)}` : sql``
+      }`;
+      const event: Claim = {
+        artifactId: loaded.artifact.id,
+        threadId: found.thread.id,
+        messageId: input.messageId,
+        actorId: input.userId,
+        kind: removesThread
+          ? "thread_deleted"
+          : action === "moderate"
+            ? "message_removed"
+            : "message_deleted",
+        now: input.now,
+      };
+      if (removesThread) {
+        return runClaimed(db, [
+          claim(db, writeId, event, guard),
+          db.delete(th).where(and(eq(th.id, found.thread.id), claimed(writeId))),
+        ]);
+      }
+      return runClaimed(db, [
+        claim(db, writeId, event, guard),
+        db
+          .update(m)
+          .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
+          .where(and(eq(m.id, input.messageId), claimed(writeId))),
+        touchThread(db, found.thread.id, writeId, input.now),
+      ]);
+    },
+    async ({ loaded, found, removesThread }): Promise<Result<AnnotationDeleteResult>> => {
+      if (removesThread && found.message.state !== "deleted") {
+        return ok({ threadId: found.thread.id, thread: null });
+      }
+      const view = await threadResult(db, loaded, input.userId, found.thread.id);
+      if (!view.ok) return view;
+      return ok({ threadId: found.thread.id, thread: view.value });
+    },
+  );
+}
+
+/** Resolves or reopens a thread: the owner any thread, a participant the threads they started. */
+export async function setAnnotationThreadState(
+  db: Db,
+  input: AnnotationActor & { threadId: string; state: AnnotationThreadState },
+): Promise<Result<AnnotationThreadView>> {
+  const writeId = crypto.randomUUID();
+  return guardedWrite(
+    async () => {
+      const loaded = await authorize(db, input, "resolve");
+      if (!loaded.ok) return loaded;
+      const thread = await findThread(db, loaded.value, input.threadId);
+      if (!thread) return missingThread();
+      const allowed = checkResolve(loaded.value.role, input.userId, thread.authorId);
+      if (!allowed.ok) return allowed;
+      return ok({ loaded: loaded.value, thread });
+    },
+    async ({ loaded, thread }) => {
+      if (thread.state === input.state) return ok(true);
+      const th = schema.annotationThreads;
+      const guard = sql`${artifactGuard(loaded, "resolve", input.now)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.state} = ${thread.state})${
+        loaded.role === "participant" ? sql` and ${currentThreadGuard(thread.id)}` : sql``
+      }`;
+      const resolved = input.state === "resolved";
+      return runClaimed(db, [
+        claim(
+          db,
+          writeId,
+          {
+            artifactId: loaded.artifact.id,
+            threadId: thread.id,
+            messageId: null,
+            actorId: input.userId,
+            kind: resolved ? "thread_resolved" : "thread_reopened",
+            now: input.now,
+          },
+          guard,
+        ),
+        touchThread(db, thread.id, writeId, input.now, {
+          state: input.state,
+          resolvedAt: resolved ? input.now : null,
+          resolvedBy: resolved ? input.userId : null,
+        }),
+      ]);
+    },
+    ({ loaded, thread }) => threadResult(db, loaded, input.userId, thread.id),
+  );
+}
+
+/** Owner moderation: removes a whole thread and its messages. */
+export async function deleteAnnotationThread(
+  db: Db,
+  input: AnnotationActor & { threadId: string },
+): Promise<Result<{ threadId: string }>> {
+  const writeId = crypto.randomUUID();
+  const th = schema.annotationThreads;
+  return guardedWrite(
+    async () => {
+      const loaded = await authorize(db, input, "moderate");
+      if (!loaded.ok) return loaded;
+      const thread = await findThread(db, loaded.value, input.threadId);
+      return thread ? ok(loaded.value) : missingThread();
+    },
+    (loaded) =>
+      runClaimed(db, [
+        claim(
+          db,
+          writeId,
+          {
+            artifactId: loaded.artifact.id,
+            threadId: input.threadId,
+            messageId: null,
+            actorId: input.userId,
+            kind: "thread_deleted",
+            now: input.now,
+          },
+          sql`${artifactGuard(loaded, "moderate", input.now)} and exists (select 1 from ${th} where ${th.id} = ${input.threadId})`,
+        ),
+        db.delete(th).where(and(eq(th.id, input.threadId), claimed(writeId))),
+      ]),
+    async () => ok({ threadId: input.threadId }),
+  );
+}
+
+// Reading
+
+/** One thread with its messages, if the caller can see it. */
+export async function getAnnotationThread(
+  db: Db,
+  input: AnnotationActor & { threadId: string },
+): Promise<Result<AnnotationThreadView>> {
+  const loaded = await authorize(db, input, "read");
+  if (!loaded.ok) return loaded;
+  return threadResult(db, loaded.value, input.userId, input.threadId);
+}
+
+async function threadResult(
+  db: Db,
+  loaded: Authorized,
+  viewerId: string,
+  threadId: string,
+): Promise<Result<AnnotationThreadView>> {
+  const thread = await findThread(db, loaded, threadId);
+  if (!thread) return missingThread();
+  const [view] = await threadViews(db, loaded, viewerId, [thread]);
+  return ok(view as AnnotationThreadView);
+}
+
+/** Opaque refresh cursor: the last annotation event the page covers. */
+export function encodeAnnotationCursor(seq: number): string {
+  return btoa(`a${seq}`).replace(/=+$/, "");
+}
+
+export function decodeAnnotationCursor(cursor: string): number | undefined {
+  try {
+    const match = /^a(\d{1,15})$/.exec(atob(cursor));
+    return match ? Number(match[1]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Which version's threads to return, or `undefined` for all of them. */
+function versionScope(
+  loaded: Authorized,
+  version: AnnotationVersionFilter,
+): Result<string | null | undefined> {
+  const current = loaded.artifact.currentVersionId;
+  if (version === "current" || version === current) return ok(current);
+  if (loaded.role !== "owner") {
+    return fail("forbidden", "Only the owner can see threads of other versions.");
+  }
+  return ok(version === "all" ? undefined : version);
+}
+
+function threadFilter(
+  loaded: Authorized,
+  scope: string | null | undefined,
+  state: AnnotationThreadState | undefined,
+): SQL | undefined {
+  const th = schema.annotationThreads;
+  return and(
+    eq(th.artifactId, loaded.artifact.id),
+    scope === undefined ? undefined : scope === null ? sql`0` : eq(th.versionId, scope),
+    state ? eq(th.state, state) : undefined,
+  );
+}
+
+/**
+ * A page of threads in change order. Without a cursor it starts from the beginning; with one it
+ * returns the threads changed since, and lists in `removed` the threads that were deleted or no
+ * longer match the filter, so a client can refresh incrementally.
+ */
+export async function listAnnotations(
+  db: Db,
+  input: AnnotationListInput,
+): Promise<Result<AnnotationPage>> {
+  const authorized = await authorize(db, input, "read");
+  if (!authorized.ok) return authorized;
+  const loaded = authorized.value;
+  const since = input.cursor === undefined ? 0 : decodeAnnotationCursor(input.cursor);
+  if (since === undefined) return fail("invalid_input", "Invalid cursor.");
+  const scope = versionScope(loaded, input.version);
+  if (!scope.ok) return scope;
+
+  const th = schema.annotationThreads;
+  const rows = await db
+    .select()
+    .from(th)
+    .where(
+      and(
+        since === 0
+          ? threadFilter(loaded, scope.value, input.state)
+          : eq(th.artifactId, loaded.artifact.id),
+        gt(th.changeSeq, since),
+      ),
+    )
+    .orderBy(asc(th.changeSeq))
+    .limit(input.limit + 1);
+  const hasMore = rows.length > input.limit;
+  const page = rows.slice(0, input.limit);
+  const matches = (thread: ThreadRow) =>
+    (scope.value === undefined || thread.versionId === scope.value) &&
+    (!input.state || thread.state === input.state);
+
+  const e = schema.annotationEvents;
+  let upper = since;
+  const last = page.at(-1);
+  if (hasMore && last) {
+    upper = last.changeSeq;
+  } else {
+    const [latest] = await db
+      .select({ id: sql<number | null>`max(${e.id})` })
+      .from(e)
+      .where(eq(e.artifactId, loaded.artifact.id));
+    upper = Math.max(since, Number(latest?.id ?? 0));
+  }
+
+  const removed = new Set<string>();
+  if (since > 0) {
+    for (const thread of page) if (!matches(thread)) removed.add(thread.id);
+    const deleted = await db
+      .select({ threadId: e.threadId })
+      .from(e)
+      .where(
+        and(
+          eq(e.artifactId, loaded.artifact.id),
+          eq(e.kind, "thread_deleted"),
+          gt(e.id, since),
+          sql`${e.id} <= ${upper}`,
+        ),
+      );
+    for (const row of deleted) removed.add(row.threadId);
+  }
+
+  return ok({
+    artifactId: loaded.artifact.id,
+    annotations: loaded.artifact.annotations,
+    currentVersionId: loaded.artifact.currentVersionId,
+    role: loaded.role,
+    threads: await threadViews(db, loaded, input.userId, page.filter(matches)),
+    removed: [...removed],
+    cursor: encodeAnnotationCursor(upper),
+    hasMore,
+  });
+}
+
+/** Every thread the caller can see, oldest first, for JSON or Markdown export. */
+export async function exportAnnotations(
+  db: Db,
+  input: AnnotationActor & {
+    version: AnnotationVersionFilter;
+    state?: AnnotationThreadState | undefined;
+  },
+): Promise<Result<AnnotationExport>> {
+  const authorized = await authorize(db, input, "read");
+  if (!authorized.ok) return authorized;
+  const loaded = authorized.value;
+  const scope = versionScope(loaded, input.version);
+  if (!scope.ok) return scope;
+  const th = schema.annotationThreads;
+  const rows = await db
+    .select()
+    .from(th)
+    .where(threadFilter(loaded, scope.value, input.state))
+    .orderBy(asc(th.createdAt), asc(th.id));
+  const a = loaded.artifact;
+  return ok({
+    notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+    exportedAt: new Date(input.now).toISOString(),
+    artifact: {
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      annotations: a.annotations,
+      currentVersionId: a.currentVersionId,
+    },
+    threads: await threadViews(db, loaded, input.userId, rows),
+  });
+}
+
+// Views
+
+function chunks<T>(items: readonly T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += IN_CHUNK) out.push(items.slice(i, i + IN_CHUNK));
+  return out;
+}
+
+async function threadViews(
+  db: Db,
+  loaded: Authorized,
+  viewerId: string,
+  threads: readonly ThreadRow[],
+): Promise<AnnotationThreadView[]> {
+  if (threads.length === 0) return [];
+  const m = schema.annotationMessages;
+  const messages: MessageRow[] = [];
+  for (const ids of chunks(threads.map((thread) => thread.id))) {
+    messages.push(
+      ...(await db
+        .select()
+        .from(m)
+        .where(inArray(m.threadId, ids))
+        .orderBy(asc(m.createdAt), sql`${m}.rowid`)),
+    );
+  }
+  const authorIds = [
+    ...new Set([...threads.map((t) => t.authorId), ...messages.map((x) => x.authorId)]),
+  ];
+  const authors = new Map<string, AnnotationAuthor>();
+  for (const ids of chunks(authorIds)) {
+    const users = await db
+      .select({ id: schema.users.id, name: schema.users.name, image: schema.users.image })
+      .from(schema.users)
+      .where(inArray(schema.users.id, ids));
+    for (const user of users) authors.set(user.id, user);
+  }
+  const byThread = new Map<string, AnnotationMessageView[]>(
+    threads.map((thread) => [thread.id, []]),
+  );
+  for (const message of messages) {
+    byThread.get(message.threadId)?.push({
+      id: message.id,
+      author: authors.get(message.authorId) ?? null,
+      own: message.authorId === viewerId,
+      state: message.state,
+      body: messageBodyVisible(loaded.role, viewerId, message) ? message.body : null,
+      revision: message.revision,
+      createdAt: iso(message.createdAt),
+      editedAt: message.editedAt === null ? null : iso(message.editedAt),
+    });
+  }
+  return threads.map((thread) => ({
+    id: thread.id,
+    versionId: thread.versionId,
+    current: thread.versionId === loaded.artifact.currentVersionId,
+    path: thread.path,
+    target: JSON.parse(thread.target) as AnnotationTarget,
+    state: thread.state,
+    author: authors.get(thread.authorId) ?? null,
+    own: thread.authorId === viewerId,
+    revision: thread.revision,
+    createdAt: iso(thread.createdAt),
+    updatedAt: iso(thread.updatedAt),
+    resolvedAt: thread.resolvedAt === null ? null : iso(thread.resolvedAt),
+    messages: byThread.get(thread.id) as AnnotationMessageView[],
+  }));
+}
+
+function iso(ms: number): string {
+  return new Date(ms).toISOString();
+}

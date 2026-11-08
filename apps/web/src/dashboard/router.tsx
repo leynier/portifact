@@ -6,6 +6,7 @@ import {
   createRouter,
   type RouterHistory,
 } from "@tanstack/react-router";
+import { AccountScreen } from "./screens/account.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen } from "./screens/artifact-list.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
@@ -23,8 +24,13 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/artifacts/$artifactId",
     component: ArtifactDetailScreen,
   });
+  const account = createRoute({
+    getParentRoute: () => root,
+    path: "/account",
+    component: AccountScreen,
+  });
   return createRouter({
-    routeTree: root.addChildren([list, detail]),
+    routeTree: root.addChildren([list, detail, account]),
     ...(history ? { history } : {}),
     scrollRestoration: true,
   });

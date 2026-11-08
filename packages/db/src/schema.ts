@@ -155,6 +155,7 @@ export const versions = sqliteTable(
     entrypoint: text("entrypoint").notNull(),
     publishedBytes: integer("published_bytes").notNull(),
     sourceBytes: integer("source_bytes").notNull().default(0),
+    /** `RENDERER_VERSION` of the stored rendering of a document; null for sites. */
     rendererVersion: text("renderer_version"),
     committedAt: timestamp("committed_at"),
     /** Previous versions expire seven days after they stop being current. */
@@ -188,14 +189,19 @@ export const objects = sqliteTable(
   ],
 );
 
-/** Manifest entries: which object backs each path of a version. */
+/**
+ * Manifest entries: which object backs each path of a version. `published` and `source` come
+ * from the client. A document version also gets `rendered` (the HTML page served at the root)
+ * and, for Markdown, `block_map` (the block ids and source positions anchors refer to), both at
+ * the entrypoint's path and written by the server when it renders the version.
+ */
 export const versionFiles = sqliteTable(
   "version_files",
   {
     versionId: text("version_id")
       .notNull()
       .references(() => versions.id, { onDelete: "cascade" }),
-    kind: text("kind", { enum: ["published", "source"] }).notNull(),
+    kind: text("kind", { enum: ["published", "source", "rendered", "block_map"] }).notNull(),
     path: text("path").notNull(),
     ownerId: text("owner_id").notNull(),
     sha256: text("sha256").notNull(),
@@ -339,6 +345,155 @@ export const abuseReports = sqliteTable(
     createdAt: createdAt(),
   },
   (t) => [index("abuse_reports_status_idx").on(t.status, t.createdAt)],
+);
+
+/**
+ * Annotation threads (plan section 8). A thread points at one immutable version and a target;
+ * it never moves when a new version is published. Visitors see only the threads of the
+ * artifact's current version; the others are the owner's history. The author always comes
+ * from the session or token.
+ */
+export const annotationThreads = sqliteTable(
+  "annotation_threads",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** No foreign key: an expired version is deleted, and its threads keep their quotes. */
+    versionId: text("version_id").notNull(),
+    /** The artifact's owner, whose annotation quota this thread uses. */
+    ownerId: text("owner_id").notNull(),
+    /** No foreign key, so deleting an account is never blocked by its comments. */
+    authorId: text("author_id").notNull(),
+    /** `AnnotationTarget` JSON, validated at the boundary. Untrusted data. */
+    target: text("target").notNull(),
+    targetBytes: integer("target_bytes").notNull(),
+    path: text("path").notNull(),
+    state: text("state", { enum: ["open", "resolved"] })
+      .notNull()
+      .default("open"),
+    /** Messages in the thread, deleted markers included. */
+    messageCount: integer("message_count").notNull().default(0),
+    /** Bumped on every change to the thread or its messages, for optimistic concurrency. */
+    revision: integer("revision").notNull().default(1),
+    /** ID of the last `annotation_events` row that changed the thread: the refresh cursor. */
+    changeSeq: integer("change_seq").notNull().default(0),
+    resolvedAt: timestamp("resolved_at"),
+    resolvedBy: text("resolved_by"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    index("annotation_threads_artifact_version_state_idx").on(
+      t.artifactId,
+      t.versionId,
+      t.state,
+      t.createdAt,
+    ),
+    index("annotation_threads_artifact_change_idx").on(t.artifactId, t.changeSeq),
+    index("annotation_threads_author_idx").on(t.authorId),
+    check("annotation_threads_target_bytes", sql`${t.targetBytes} between 1 and 8192`),
+    check(
+      "annotation_threads_counters",
+      sql`${t.messageCount} >= 0 and ${t.messageCount} <= 200 and ${t.revision} >= 1`,
+    ),
+  ],
+);
+
+/** Messages of a thread. Deleting one keeps a marker so replies keep their place. */
+export const annotationMessages = sqliteTable(
+  "annotation_messages",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => annotationThreads.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    authorId: text("author_id").notNull(),
+    /** Plain text, untrusted. Null once the message is deleted. */
+    body: text("body"),
+    bodyBytes: integer("body_bytes").notNull(),
+    state: text("state", { enum: ["visible", "hidden", "deleted"] })
+      .notNull()
+      .default("visible"),
+    revision: integer("revision").notNull().default(1),
+    editedAt: timestamp("edited_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("annotation_messages_thread_created_idx").on(t.threadId, t.createdAt),
+    index("annotation_messages_author_idx").on(t.authorId),
+    check("annotation_messages_body_bytes", sql`${t.bodyBytes} between 0 and 8192`),
+    check("annotation_messages_deleted_body", sql`(${t.state} = 'deleted') = (${t.body} is null)`),
+  ],
+);
+
+/**
+ * Every annotation write and moderation action, without bodies. The autoincrement ID orders
+ * changes for incremental refresh, deleted threads are reported from here, and recent writes
+ * per author and per artifact are counted from here for the rate limits.
+ */
+export const annotationEvents = sqliteTable(
+  "annotation_events",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** No foreign key: a deleted thread's event stays as its tombstone. */
+    threadId: text("thread_id").notNull(),
+    messageId: text("message_id"),
+    actorId: text("actor_id").notNull(),
+    /**
+     * Unique per request. A write claims its change by inserting this event under every guard,
+     * and the rest of the batch runs only if the event with its `write_id` exists, so a retried
+     * or concurrent request cannot apply the same effects twice.
+     */
+    writeId: text("write_id").notNull(),
+    kind: text("kind", {
+      enum: [
+        "thread_created",
+        "message_created",
+        "message_edited",
+        "message_deleted",
+        "message_hidden",
+        "message_unhidden",
+        "message_removed",
+        "thread_resolved",
+        "thread_reopened",
+        "thread_deleted",
+      ],
+    }).notNull(),
+    at: timestamp("at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("annotation_events_write_idx").on(t.writeId),
+    index("annotation_events_artifact_id_idx").on(t.artifactId, t.id),
+    index("annotation_events_actor_at_idx").on(t.actorId, t.at),
+    index("annotation_events_artifact_at_idx").on(t.artifactId, t.at),
+  ],
+);
+
+/**
+ * Annotation usage per artifact owner: live messages and logical bytes (message bodies plus
+ * thread targets). Triggers in `0007_annotation_usage_triggers.sql` keep it exact on every
+ * insert, update and delete, cascades included, and the CHECK constraints refuse a write past
+ * the limits even when the application misses a race.
+ */
+export const annotationUsage = sqliteTable(
+  "annotation_usage",
+  {
+    ownerId: text("owner_id").primaryKey(),
+    messages: integer("messages").notNull().default(0),
+    bytes: integer("bytes").notNull().default(0),
+  },
+  (t) => [
+    check("annotation_usage_nonnegative", sql`${t.messages} >= 0 and ${t.bytes} >= 0`),
+    check("annotation_usage_messages_limit", sql`${t.messages} <= 5000`),
+    check("annotation_usage_bytes_limit", sql`${t.bytes} <= 50000000`),
+  ],
 );
 
 export * from "./auth-schema.ts";

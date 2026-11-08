@@ -1,8 +1,10 @@
 // app.portifact.com: the dashboard, identity, the OAuth authorization server, protected
 // resource metadata and the auth pages. Every path not listed here answers 404.
 import { TokenPrincipal } from "@portifact/contracts";
+import { needsTermsAcceptance } from "@portifact/domain";
 import { Hono } from "hono";
 import type { SessionLookup } from "./api/access.ts";
+import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { r2Presigner } from "./api/presign.ts";
 import { apiRoutes } from "./api/routes.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
@@ -30,7 +32,7 @@ export const DASHBOARD_PAGE = "/dashboard";
  * Client routes of the dashboard (apps/web/src/dashboard/router.tsx). Each one serves the SPA;
  * any other path keeps answering 404, so a typo never looks like an empty dashboard.
  */
-export const DASHBOARD_ROUTES = ["/", "/artifacts/:artifactId"] as const;
+export const DASHBOARD_ROUTES = ["/", "/artifacts/:artifactId", "/account"] as const;
 
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
@@ -68,11 +70,33 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
         headers: new Headers({ authorization: `Bearer ${token}` }),
       })) as IntrospectionPayload;
 
-  // The signed-in user behind the dashboard's session cookie, checked against D1.
+  // The signed-in user behind the dashboard's session cookie, checked against D1. A session of
+  // an account that has not accepted the current terms counts as none, so the dashboard sends
+  // it to the login page, which asks for the acceptance.
   const sessionUserFor =
     (env: Env): SessionLookup =>
-    async (request) =>
-      (await authFor(env).api.getSession({ headers: request.headers }))?.user.id;
+    async (request) => {
+      const session = await authFor(env).api.getSession({ headers: request.headers });
+      return session && !needsTermsAcceptance(session.user.termsVersion)
+        ? session.user.id
+        : undefined;
+    };
+
+  // The same session with its own ID, for the account endpoints that tell it from the others.
+  const accountSessionFor =
+    (env: Env): AccountSessionLookup =>
+    async (request) => {
+      const found = await authFor(env).api.getSession({ headers: request.headers });
+      return found ? { userId: found.user.id, sessionId: found.session.id } : undefined;
+    };
+
+  const presignerFor = (env: Env) =>
+    r2Presigner({
+      accountId: env.R2_ACCOUNT_ID,
+      bucket: env.R2_BUCKET,
+      accessKeyId: env.R2_ACCESS_KEY_ID,
+      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+    });
 
   const resources = (env: Env) => {
     const urls = authUrls(env.APP_ORIGIN);
@@ -119,13 +143,17 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       introspect: introspectFor,
       resource: (env) => resources(env).api,
       session: sessionUserFor,
-      presigner: (env) =>
-        r2Presigner({
-          accountId: env.R2_ACCOUNT_ID,
-          bucket: env.R2_BUCKET,
-          accessKeyId: env.R2_ACCESS_KEY_ID,
-          secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-        }),
+      presigner: presignerFor,
+      now: () => Date.now(),
+    }),
+  );
+  app.route(
+    "/",
+    accountRoutes({
+      session: accountSessionFor,
+      signOutOthers: (env) => async (request) => {
+        await authFor(env).api.revokeOtherSessions({ headers: request.headers });
+      },
       now: () => Date.now(),
     }),
   );
@@ -149,6 +177,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     mcpRoutes({
       introspect: introspectFor,
       resource: (env) => resources(env).mcp,
+      presigner: presignerFor,
       now: () => Date.now(),
     }),
   );
