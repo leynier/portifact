@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { LIMITS } from "./core.ts";
+import { LIMITS } from "./limits.ts";
 import {
   ArtifactRef,
   DeleteArtifactInput,
