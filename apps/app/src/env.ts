@@ -18,7 +18,7 @@ export interface Env {
   BETTER_AUTH_SECRET: string;
   GOOGLE_CLIENT_SECRET: string;
   GITHUB_CLIENT_SECRET: string;
-  /** R2 API token limited to Object Read and Write on R2_BUCKET; signs upload URLs only. */
+  /** R2 API token limited to Object Read and Write on R2_BUCKET; signs upload and download URLs only. */
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
 }

@@ -6,3 +6,4 @@ export * from "./limits.ts";
 export * from "./mcp.ts";
 export * from "./publishing.ts";
 export * from "./read.ts";
+export * from "./versions.ts";

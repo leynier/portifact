@@ -329,6 +329,10 @@ function reply(response: ServerResponse, answer: Reply) {
     response.writeHead(answer.status, { "cache-control": "no-store" });
     return response.end();
   }
+  if (Buffer.isBuffer(answer.body)) {
+    response.writeHead(answer.status, { "content-type": "application/octet-stream" });
+    return response.end(answer.body);
+  }
   if (typeof answer.body === "string") {
     response.writeHead(answer.status, { "content-type": "application/xml" });
     return response.end(answer.body);

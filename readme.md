@@ -94,6 +94,7 @@ portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback
 | MCP server: list, publish small documents, lifecycle    | Available      |
 | Publish HTML, Markdown and text from the CLI            | Next release   |
 | Manage artifacts and access from the CLI                | Next release   |
+| Versions, rollback and download (CLI, API and MCP)      | Next release   |
 | Access control (private, signed-in, email list, public) | In development |
 | Annotations and review                                  | In development |
 | Web dashboard: artifact list, renew, archive, restore   | Available      |

@@ -1,7 +1,8 @@
-// The /api/v1 publishing and artifact routes of the fake server, and a fake presigned storage
-// target. They follow apps/app's contract: the same shapes (validated with packages/contracts),
-// error codes, idempotency replay, deduplication by SHA-256 and lifecycle states. Storage checks
-// the signed size and checksum headers, the bytes and the URL's expiry like R2 does.
+// The /api/v1 publishing, artifact and version routes of the fake server, and a fake presigned
+// storage target. They follow apps/app's contract: the same shapes (validated with
+// packages/contracts), error codes, idempotency replay, deduplication by SHA-256, lifecycle
+// states and version history. Storage checks the signed size and checksum headers, the bytes and
+// the URL's expiry like R2 does, and serves downloads only through unexpired signed links.
 import { createHash, randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import {
@@ -14,7 +15,9 @@ import {
   ERROR_STATUS,
   type ErrorCode,
   IdempotencyKey,
+  type ManifestFile,
   PublishRequest,
+  RollbackRequest,
 } from "@portifact/contracts";
 
 export interface Reply {
@@ -38,6 +41,24 @@ export interface FakeArtifact {
   policyGeneration: number;
 }
 
+export interface FakeVersionFile {
+  kind: "published" | "source";
+  path: string;
+  sha256: string;
+  size: number;
+  contentType: string;
+}
+
+export interface FakeVersion {
+  id: string;
+  number: number;
+  entrypoint: string;
+  files: FakeVersionFile[];
+  committedAt: number;
+  /** End of retention once it is no longer current. */
+  expiresAt: number | null;
+}
+
 interface UploadSession {
   id: string;
   ownerId: string;
@@ -47,6 +68,8 @@ interface UploadSession {
   type: ArtifactType;
   versionId: string;
   versionNumber: number;
+  entrypoint: string;
+  files: ManifestFile[];
   /** Objects this upload must send; they stay pending until the commit verifies them. */
   needed: Map<string, number>;
   state: "uploading" | "committed" | "aborted";
@@ -70,6 +93,23 @@ export interface FakeApiState {
   puts: PutRecord[];
   /** Upload URLs the server handed out, by token. */
   urls: Map<string, { sha256: string; size: number; expiresAt: number }>;
+  /** Versions of each artifact, oldest first. */
+  versions: Map<string, FakeVersion[]>;
+  /** Download links the server handed out, by token. */
+  downloadUrls: Map<string, { sha256: string; expiresAt: number }>;
+  /** Storage downloads: which object, with which headers, and the answer. */
+  gets: { sha256: string; headers: IncomingHttpHeaders; status: number }[];
+  /** How long download links stay valid. */
+  downloadTtlMs: number;
+  /**
+   * Adds a committed version with these files (their bytes are stored) and makes it current.
+   * Paths are taken as given, so tests can seed what a hostile server would send.
+   */
+  seedVersion(
+    artifact: FakeArtifact,
+    files: { published: Record<string, string | Buffer>; source?: Record<string, string | Buffer> },
+    options?: { entrypoint?: string },
+  ): FakeVersion;
   /** The account is in its first days, so it cannot make an artifact public. */
   tooNewForPublic: boolean;
   /** How long upload URLs stay valid. */
@@ -90,6 +130,32 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     sessions: new Map(),
     puts: [],
     urls: new Map(),
+    versions: new Map(),
+    downloadUrls: new Map(),
+    gets: [],
+    downloadTtlMs: 5 * 60 * 1000,
+    seedVersion(artifact, files, options = {}) {
+      const entries: FakeVersionFile[] = [];
+      for (const kind of ["published", "source"] as const) {
+        for (const [path, content] of Object.entries(files[kind] ?? {})) {
+          const bytes = Buffer.from(content);
+          const sha256 = sha256Of(bytes);
+          state.stored.set(sha256, bytes);
+          entries.push({
+            kind,
+            path,
+            sha256,
+            size: bytes.length,
+            contentType: contentTypeOf(path),
+          });
+        }
+      }
+      return addVersion(artifact, {
+        id: `ver_${randomUUID().replaceAll("-", "")}`,
+        entrypoint: options.entrypoint ?? Object.keys(files.published)[0] ?? "index.html",
+        files: entries,
+      });
+    },
     tooNewForPublic: false,
     urlTtlMs: 15 * 60 * 1000,
     seed(overrides = {}) {
@@ -118,6 +184,12 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   /** Answers a storage upload, or undefined when the path is not a storage URL. */
   function storage(method: string, url: URL, headers: IncomingHttpHeaders, body: Buffer) {
     const match = /^\/r2\/objects\/([0-9a-f]{64})$/.exec(url.pathname);
+    if (match && method === "GET") {
+      const sha256 = match[1] as string;
+      const reply = checkDownload(sha256, url.searchParams.get("token") ?? "", headers);
+      state.gets.push({ sha256, headers, status: reply.status });
+      return reply;
+    }
     if (!match || method !== "PUT") return undefined;
     const sha256 = match[1] as string;
     const reply = checkUpload(sha256, url.searchParams.get("token") ?? "", headers, body);
@@ -147,6 +219,15 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     return { status: 200 };
   }
 
+  function checkDownload(sha256: string, token: string, headers: IncomingHttpHeaders): Reply {
+    const signed = state.downloadUrls.get(token);
+    if (!signed || signed.sha256 !== sha256) return { status: 403, body: "SignatureDoesNotMatch" };
+    if (clock() >= signed.expiresAt) return { status: 403, body: "Request has expired" };
+    if (headers.authorization !== undefined) return { status: 400, body: "Unexpected header" };
+    const bytes = state.stored.get(sha256);
+    return bytes ? { status: 200, body: bytes } : { status: 404, body: "NoSuchKey" };
+  }
+
   function uploadTarget(sha256: string, size: number) {
     const token = randomUUID();
     const expiresAt = clock() + state.urlTtlMs;
@@ -159,6 +240,201 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       headers: { "content-length": String(size), "x-amz-checksum-sha256": checksum(sha256) },
       expiresAt: iso(expiresAt),
     };
+  }
+
+  /** Appends a committed version, makes it current and starts the previous one's retention. */
+  function addVersion(
+    artifact: FakeArtifact,
+    version: Pick<FakeVersion, "id" | "entrypoint" | "files">,
+  ): FakeVersion {
+    const now = clock();
+    const list = state.versions.get(artifact.id) ?? [];
+    const previous = list.find((v) => v.id === artifact.currentVersionId);
+    if (previous) previous.expiresAt = now + 7 * DAY_MS;
+    const added: FakeVersion = {
+      ...version,
+      number: Math.max(artifact.versions, ...list.map((v) => v.number)) + 1,
+      committedAt: now,
+      expiresAt: null,
+    };
+    list.push(added);
+    state.versions.set(artifact.id, list);
+    artifact.currentVersionId = added.id;
+    artifact.versions = added.number;
+    artifact.expiresAt = now + 30 * DAY_MS;
+    artifact.updatedAt = now;
+    return added;
+  }
+
+  function retainedVersion(artifact: FakeArtifact, ref: string): FakeVersion | undefined {
+    const id = ref === "current" ? artifact.currentVersionId : ref;
+    const version = state.versions.get(artifact.id)?.find((v) => v.id === id);
+    if (!version) return undefined;
+    const current = version.id === artifact.currentVersionId;
+    return current || version.expiresAt === null || version.expiresAt > clock()
+      ? version
+      : undefined;
+  }
+
+  function versionSummary(artifact: FakeArtifact, version: FakeVersion) {
+    const of = (kind: string) => version.files.filter((file) => file.kind === kind);
+    const bytes = (kind: string) => of(kind).reduce((sum, file) => sum + file.size, 0);
+    const current = version.id === artifact.currentVersionId;
+    return {
+      id: version.id,
+      number: version.number,
+      current,
+      entrypoint: version.entrypoint,
+      publishedBytes: bytes("published"),
+      sourceBytes: bytes("source"),
+      publishedFiles: of("published").length,
+      sourceFiles: of("source").length,
+      rendererVersion: null,
+      committedAt: iso(version.committedAt),
+      expiresAt: current || version.expiresAt === null ? null : iso(version.expiresAt),
+    };
+  }
+
+  const missingVersion = () =>
+    error(
+      "not_found",
+      "This version does not exist, is no longer retained or your account cannot download it.",
+    );
+
+  function listVersions(artifact: FakeArtifact, url: URL): Reply {
+    const limit = Number(url.searchParams.get("limit") ?? "50");
+    const cursor = url.searchParams.get("cursor");
+    const before = cursor === null ? Number.POSITIVE_INFINITY : Number(cursor);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || Number.isNaN(before)) {
+      return error("invalid_input", "Invalid cursor or limit.");
+    }
+    const all = [...(state.versions.get(artifact.id) ?? [])]
+      .filter((v) => retainedVersion(artifact, v.id) && v.number < before)
+      .sort((a, b) => b.number - a.number);
+    const items = all.slice(0, limit).map((v) => versionSummary(artifact, v));
+    const last = items.at(-1);
+    const nextCursor = all.length > limit && last ? String(last.number) : null;
+    return { status: 200, body: { artifactId: artifact.id, items, nextCursor } };
+  }
+
+  function versionManifest(artifact: FakeArtifact, ref: string): Reply {
+    const version = retainedVersion(artifact, ref);
+    if (!version) return missingVersion();
+    const files = [...version.files].sort((a, b) =>
+      a.kind === b.kind ? a.path.localeCompare(b.path) : a.kind.localeCompare(b.kind),
+    );
+    return {
+      status: 200,
+      body: { ...versionSummary(artifact, version), artifactId: artifact.id, files },
+    };
+  }
+
+  function download(artifact: FakeArtifact, ref: string, url: URL): Reply {
+    const kind = url.searchParams.get("kind") ?? "published";
+    const path = url.searchParams.get("path");
+    if (kind !== "published" && kind !== "source") {
+      return error("invalid_input", "kind must be published or source.");
+    }
+    const version = retainedVersion(artifact, ref);
+    if (!version) return missingVersion();
+    const files = version.files
+      .filter((file) => file.kind === kind && (path === null || file.path === path))
+      .sort((a, b) => a.path.localeCompare(b.path));
+    if (path !== null && files.length === 0)
+      return error("not_found", "This version has no such file.");
+    return {
+      status: 200,
+      body: {
+        artifactId: artifact.id,
+        versionId: version.id,
+        versionNumber: version.number,
+        kind,
+        entrypoint: version.entrypoint,
+        files: files.map((file) => {
+          const token = randomUUID();
+          const expiresAt = clock() + state.downloadTtlMs;
+          state.downloadUrls.set(token, { sha256: file.sha256, expiresAt });
+          return {
+            path: file.path,
+            sha256: file.sha256,
+            size: file.size,
+            contentType: file.contentType,
+            method: "GET",
+            url: `${origin()}/r2/objects/${file.sha256}?token=${token}`,
+            expiresAt: iso(expiresAt),
+          };
+        }),
+      },
+    };
+  }
+
+  function rollback(artifact: FakeArtifact, key: string | undefined, raw: string): Reply {
+    const parsedKey = IdempotencyKey.safeParse(key);
+    if (!parsedKey.success) return error("invalid_input", "Send an Idempotency-Key header.");
+    const hash = `rollback ${artifact.id} ${raw}`;
+    const previous = idempotency.get(parsedKey.data);
+    if (previous) {
+      if (previous.hash !== hash) return error("invalid_input", "Key used for another request.");
+      return previous.reply;
+    }
+    const reply = rollbackOnce(artifact, raw);
+    idempotency.set(parsedKey.data, { hash, reply });
+    return reply;
+  }
+
+  function rollbackOnce(artifact: FakeArtifact, raw: string): Reply {
+    const parsed = RollbackRequest.safeParse(parseJson(raw));
+    if (!parsed.success) return error("invalid_input", "Invalid rollback request.");
+    if (artifact.state === "archived") {
+      return error("artifact_archived", "Restore the artifact before rolling it back.");
+    }
+    if (artifact.currentVersionId !== parsed.data.baseVersionId) {
+      return error("version_conflict", "The artifact changed since your last read.");
+    }
+    const target = retainedVersion(artifact, parsed.data.versionId);
+    if (!target) return missingVersion();
+    if (target.id === artifact.currentVersionId) {
+      return error("invalid_input", "That version is already the current one.");
+    }
+    const added = addVersion(artifact, {
+      id: `ver_${randomUUID().replaceAll("-", "")}`,
+      entrypoint: target.entrypoint,
+      files: target.files.map((file) => ({ ...file })),
+    });
+    return {
+      status: 200,
+      body: {
+        artifactId: artifact.id,
+        versionId: added.id,
+        versionNumber: added.number,
+        url: contentUrl(artifact.id),
+        expiresAt: iso(artifact.expiresAt ?? clock()),
+        fromVersionId: target.id,
+        fromVersionNumber: target.number,
+      },
+    };
+  }
+
+  /** Answers a version route of an artifact, or undefined when the path is not one. */
+  function versionRoute(
+    method: string,
+    path: string,
+    url: URL,
+    key: string | undefined,
+    raw: string,
+  ) {
+    const match = /^\/artifacts\/([^/]+)\/(versions|rollback)(?:\/([^/]+)(\/download)?)?$/.exec(
+      path,
+    );
+    if (!match) return undefined;
+    const artifact = state.artifacts.get(match[1] as string);
+    if (!artifact || artifact.state === "deleted") return error("not_found", "Artifact not found.");
+    const [, , group, ref, isDownload] = match;
+    if (group === "rollback" && !ref && method === "POST") return rollback(artifact, key, raw);
+    if (group !== "versions" || method !== "GET") return undefined;
+    if (!ref) return listVersions(artifact, url);
+    const versionRef = decodeURIComponent(ref);
+    return isDownload ? download(artifact, versionRef, url) : versionManifest(artifact, versionRef);
   }
 
   function prepared(session: UploadSession) {
@@ -220,6 +496,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       type: request.type,
       versionId: `ver_${randomUUID().replaceAll("-", "")}`,
       versionNumber,
+      entrypoint: request.entrypoint,
+      files: request.files,
       needed,
       state: "uploading",
     };
@@ -266,10 +544,12 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       policyGeneration: 1,
     };
     artifact.name = session.name;
-    artifact.currentVersionId = session.versionId;
-    artifact.versions = session.versionNumber;
-    artifact.expiresAt = now + 30 * DAY_MS;
-    artifact.updatedAt = now;
+    artifact.versions = session.versionNumber - 1;
+    addVersion(artifact, {
+      id: session.versionId,
+      entrypoint: session.entrypoint,
+      files: session.files.map((file) => ({ ...file })),
+    });
     state.artifacts.set(artifact.id, artifact);
     session.state = "committed";
     session.committed = {
@@ -277,7 +557,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       versionId: session.versionId,
       versionNumber: session.versionNumber,
       url: contentUrl(artifact.id),
-      expiresAt: iso(artifact.expiresAt),
+      expiresAt: iso(artifact.expiresAt ?? now),
     };
     return { status: 200, body: session.committed };
   }
@@ -380,6 +660,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       if (method === "DELETE" && !match[2]) return abort(ownerId, id);
     }
     if (route === "GET /artifacts") return listArtifacts(url);
+    const versions = versionRoute(method, path, url, key, raw);
+    if (versions) return versions;
     match = /^\/artifacts\/([^/]+)(?:\/(renew|archive|restore|access))?$/.exec(path);
     if (match) {
       const id = match[1] as string;
@@ -440,6 +722,12 @@ function newArtifactId(): string {
     id += ARTIFACT_ID_ALPHABET[Math.floor(Math.random() * ARTIFACT_ID_ALPHABET.length)];
   }
   return id;
+}
+
+function contentTypeOf(path: string): string {
+  if (path.endsWith(".md")) return "text/markdown; charset=utf-8";
+  if (path.endsWith(".html")) return "text/html; charset=utf-8";
+  return "text/plain; charset=utf-8";
 }
 
 function contentUrl(id: string): string {
