@@ -169,6 +169,15 @@
         "vitest": "catalog:",
       },
     },
+    "scripts": {
+      "name": "@portifact/scripts",
+      "version": "0.5.0",
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@vitest/coverage-istanbul": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "spikes/oauth-server": {
       "name": "@portifact/spike-oauth-server",
       "version": "0.0.0",
@@ -491,6 +500,8 @@
     "@portifact/domain": ["@portifact/domain@workspace:packages/domain"],
 
     "@portifact/jobs": ["@portifact/jobs@workspace:apps/jobs"],
+
+    "@portifact/scripts": ["@portifact/scripts@workspace:scripts"],
 
     "@portifact/services": ["@portifact/services@workspace:packages/services"],
 
