@@ -36,6 +36,7 @@ packages/anchors     Annotation anchor model and resolution
 packages/bridge      Review script injected into artifacts
 packages/ui          Design system: tokens and components
 skills/              Agent skills for using Portifact, installable with npx skills
+assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer and validation scripts
 ```
 

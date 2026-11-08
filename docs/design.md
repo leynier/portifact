@@ -6,10 +6,33 @@ All Portifact UI comes from one design system in `packages/ui`. This covers the 
 
 1. **Tokens.** Every visual value lives here: color, typography, spacing, sizing, radii, borders, shadows, z-index, motion and breakpoints. Tokens are CSS custom properties exposed through the Tailwind CSS v4 theme in `packages/ui/src/tokens`. Two levels:
    - Primitive tokens hold raw values, for example the color scale.
-   - Semantic tokens describe intent, for example `--color-surface`, `--color-text-muted`, `--color-danger` and `--space-4`. Components and apps use semantic tokens only.
+   - Semantic tokens describe intent, for example `--color-surface`, `--color-text-muted`, `--color-danger` and `--space-4`. Components and apps use semantic tokens only. Color tokens resolve to the neutral palette described below.
 2. **Components.** Accessible building blocks built on Radix UI primitives, owned in `packages/ui/src/components`: button, input, dialog, menu, table, tabs, toast, badge, empty state and so on. Variants such as size, tone and state are part of the component API, defined with `class-variance-authority`.
 3. **Patterns.** Compositions reused across screens, such as page layout, data table with filters, upload progress and annotation thread, in `packages/ui/src/patterns`.
 4. **Apps.** Screens compose components and patterns. They only arrange layout using tokens.
+
+## Palette
+
+Portifact is monochromatic. The whole product, including the logo, dashboard, review viewer, Markdown and TXT viewers, CLI output, documentation and emails, uses only black, white and a neutral gray scale with zero saturation. No hue appears anywhere, including accents, links, focus rings, charts and status states.
+
+- The primitive scale is a single neutral ramp from white to black, defined once in `packages/ui/src/tokens`. Semantic tokens map onto it for light and dark themes.
+- Hierarchy comes from contrast, weight, size and spacing, not from color.
+- Links are distinguished by an underline, not by color.
+- States (danger, warning, success, info) are semantic tokens like any other, but they map to neutral values. They are always conveyed by an icon, a text label and, where useful, weight or border style. A state is never shown through tone alone; see [accessibility.md](accessibility.md).
+- Annotation highlights and selection in the review viewer use neutral tints that keep the underlying text at the required contrast.
+- Content published by users keeps its own colors. The rule applies to everything Portifact draws around it, such as the bridge markers and viewer chrome.
+
+Adding a hue requires changing this section first, in a separate change with a reason.
+
+## Brand assets
+
+The logo is the "selection" wordmark: the name `portifact` held between two text-selection handles over a light band. Source files live in `assets/brand/`:
+
+- `wordmark.svg` for light backgrounds and `wordmark-dark.svg` for dark ones, with PNG renders.
+- `symbol.svg` and `symbol-dark.svg`: the lowercase p between the handles, for app icons and avatars.
+- `favicon-16.svg` and `favicon-32.svg` are redrawn by hand for those sizes and switch to dark colors with `prefers-color-scheme`. Serve the SVG favicon first and `favicon.ico` (16, 32 and 48 px) as the fallback.
+
+Use the files as they are: do not recolor, stretch, add effects or rebuild the logo from a font. Pick the light or dark variant by background, and keep clear space around the logo of at least the height of the band. The only colors are `#000000`, `#FFFFFF`, `#DEDEDE` (band on light) and `#3A3A3A` (band on dark).
 
 ## Rules
 
