@@ -415,6 +415,7 @@ describe("purging archives", () => {
       prunedVersions: 0,
       purged: 0,
       orphanObjects: 0,
+      prunedOperations: 0,
     });
   });
 });

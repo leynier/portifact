@@ -15,7 +15,7 @@ Portifact is in early development and gains commands release by release. Before 
 2. Run `portifact --help` to see the commands this version supports.
 3. Use only commands and flags that `--help` lists. Never guess a command. If the user asks for something the installed version cannot do, say so and suggest updating.
 
-At the moment the CLI only reports its version; publishing commands are not available yet. The MCP server at `https://app.portifact.com/mcp` is not available yet either.
+Versions whose `--help` lists `login` can sign in, sign out and show the signed-in account. Publishing commands are not available yet, and neither is the MCP server at `https://app.portifact.com/mcp`.
 
 ## Install or update the CLI
 
@@ -34,6 +34,34 @@ irm https://portifact.com/install.ps1 | iex
 - Set `PORTIFACT_VERSION=0.2.0` to install a specific version.
 - In non-interactive or sandboxed environments, set `PORTIFACT_NO_MODIFY_PATH=1` and call `~/.portifact/bin/portifact` directly instead of editing shell profiles.
 - The installer verifies the download against the release checksums and stops on a mismatch. Do not work around a failed verification.
+
+## Sign in
+
+Check first with `portifact whoami --json`. Exit code 0 prints `{"server","userId","clientId","scopes"}`; exit code 3 means this device is not signed in or the session ended.
+
+To sign in, run `portifact login` (add `--json` for a parseable result). It uses the OAuth device flow:
+
+1. The CLI prints a page (`https://app.portifact.com/device`) and an 8-character code on stderr, and opens the browser when a person is at the terminal. Pass `--no-browser` to skip opening it.
+2. Show the user the page and the code exactly as printed, and ask them to sign in there, check that the page shows the same code and approve it. Never approve it for them, and never ask them to paste anything from that page back to you.
+3. The command waits until the user approves or denies, or the code expires (10 minutes), so run it where the user can see its stderr and let it finish.
+
+Credentials go to the operating system's credential store. When there is none (for example a Linux server without a Secret Service), they go to `credentials.json` in the user config directory (`~/.config/portifact` on Linux, `~/Library/Application Support/portifact` on macOS, `%APPDATA%\portifact` on Windows) with permissions for the user only, and the CLI prints a warning. Never read, print, copy or upload that file or the stored tokens; the CLI refreshes them on its own.
+
+`portifact logout` revokes this device's tokens on the server and then removes them. It revokes tokens, so confirm with the user first. If the server cannot be reached, it keeps the credentials and exits 1; run it again later.
+
+`PORTIFACT_APP_ORIGIN` points the CLI at another server and exists for tests and staging. Do not set it unless the user asks.
+
+### Output and exit codes
+
+With `--json`, the result is one JSON object on stdout, and a failure is `{"error":{"code","message"}}` on stdout. Instructions, progress and warnings always go to stderr. No output ever contains a token.
+
+| Exit code | Meaning                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| 0         | Success                                                                                          |
+| 1         | Failure: network (`network_error`), unexpected server answer (`server_error`) or `rate_limited` |
+| 2         | Invalid usage or invalid `PORTIFACT_APP_ORIGIN` (`invalid_input`)                                |
+| 3         | Not signed in, or the session expired or was revoked (`unauthenticated`); run `portifact login`  |
+| 4         | The login was denied (`authorization_denied`) or its code expired (`authorization_expired`)      |
 
 ## Choosing the CLI or MCP
 

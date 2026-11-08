@@ -24,9 +24,12 @@
         "@better-auth/oauth-provider": "1.7.17",
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
+        "@portifact/services": "workspace:*",
+        "aws4fetch": "^1.0.20",
         "better-auth": "1.7.17",
         "drizzle-orm": "^0.45.0",
         "hono": "^4.0.0",
+        "zod": "^4.0.0",
       },
       "devDependencies": {
         "@cloudflare/vitest-plugin": "^1.0.0",
@@ -91,7 +94,9 @@
       "name": "@portifact/cli",
       "version": "0.6.0",
       "dependencies": {
+        "@portifact/contracts": "workspace:*",
         "commander": "^15.0.0",
+        "zod": "^4.0.0",
       },
       "devDependencies": {
         "@types/node": "catalog:",
@@ -725,6 +730,8 @@
     "array-ify": ["array-ify@1.0.0", "", {}, "sha512-c5AMf34bKdvPhQ7tBGhqkgKNUzMr4WUs+WDtC2ZUGOUncbxKMTvqxYctiseW3+L4bA8ec+GcZ6/A/FW4m8ukng=="],
 
     "assertion-error": ["assertion-error@2.0.1", "", {}, "sha512-Izi8RQcffqCeNVgFigKli1ssklIbpHnCYc6AknXGYoB6grJqyeby7jv12JUQgmTAnIDnbck1uxksT4dzN3PWBA=="],
+
+    "aws4fetch": ["aws4fetch@1.0.20", "", {}, "sha512-/djoAN709iY65ETD6LKCtyyEI04XIBP5xVvfmNxsEP0uJB5tyaGBztSryRr4HqMStr9R06PisQE7m9zDTXKu6g=="],
 
     "baseline-browser-mapping": ["baseline-browser-mapping@2.11.35", "", { "bin": { "baseline-browser-mapping": "dist/cli.cjs" } }, "sha512-GNk8KX52CHqeNKGk8+7tZnQab/2k1t/BgrUHPKNdijzpEhF1saPQZHVKb6m5loSAxB39gyrTYw34Qf9CQ3u1qQ=="],
 
