@@ -24,14 +24,16 @@ Mock only true external boundaries: identity providers, the email provider and t
 
 ## Layers
 
-| Layer                 | Tool                                          | Covers                                                                                                                                             |
-| --------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit                  | Vitest                                        | Pure logic: quota math, path normalization, anchors, lifecycle dates, manifest validation, policy decisions.                                       |
-| Property-based        | fast-check with Vitest                        | Inputs with large spaces: path and ZIP normalization, Unicode anchors and offsets, date arithmetic, quota reservations under random interleavings. |
-| Integration (Workers) | Vitest with `@cloudflare/vitest-pool-workers` | API routes, MCP tools, content delivery, auth flows and jobs running in the Workers runtime against real local D1, R2 and Queues.                  |
-| Contract and parity   | Vitest                                        | The same operation through API, MCP and CLI yields the same result, error and side effects.                                                        |
-| End to end            | Playwright on Chromium, Firefox and WebKit    | Login, publish, protected access, review mode with third-party cookies blocked, annotations, archive and restore.                                  |
-| Security              | Vitest and Playwright with hostile fixtures   | The invariants in [security.md](security.md), each with at least one test that tries to break it.                                                  |
+| Layer                 | Tool                                                                     | Covers                                                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit                  | Vitest                                                                   | Pure logic: quota math, path normalization, anchors, lifecycle dates, manifest validation, policy decisions.                                       |
+| Property-based        | fast-check with Vitest                                                   | Inputs with large spaces: path and ZIP normalization, Unicode anchors and offsets, date arithmetic, quota reservations under random interleavings. |
+| Integration (Workers) | Vitest with `@cloudflare/vitest-plugin` (formerly `vitest-pool-workers`) | API routes, MCP tools, content delivery, auth flows and jobs running in the Workers runtime against real local D1, R2 and Queues.                  |
+| Contract and parity   | Vitest                                                                   | The same operation through API, MCP and CLI yields the same result, error and side effects.                                                        |
+| End to end            | Playwright on Chromium, Firefox and WebKit                               | Login, publish, protected access, review mode with third-party cookies blocked, annotations, archive and restore.                                  |
+| Security              | Vitest and Playwright with hostile fixtures                              | The invariants in [security.md](security.md), each with at least one test that tries to break it.                                                  |
+
+Workers tests run inside workerd through `@cloudflare/vitest-plugin`, which supports Vitest 4, so the workspace catalog stays on Vitest 4. Keep `compatibility_date` in each `wrangler.jsonc` no newer than the date the installed workerd supports, or the test runtime refuses to start.
 
 ## Required cases
 
@@ -48,7 +50,7 @@ Every bug fix starts with a failing test that reproduces the bug.
 
 ## Coverage
 
-Coverage uses the Istanbul provider, which works inside the Workers pool. Thresholds are enforced in CI and in `bun run test`.
+Coverage uses the Istanbul provider, which works inside the Workers pool. Thresholds are enforced in CI and in `bun run test`. Each package writes a `json-summary` report; after every merge into `develop`, CI aggregates them with `scripts/coverage-badge.ts` and publishes the result to the `badges` branch, which feeds the coverage badge in the readme.
 
 | Scope                                                                                     | Lines | Branches |
 | ----------------------------------------------------------------------------------------- | ----- | -------- |

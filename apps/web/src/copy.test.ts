@@ -1,0 +1,109 @@
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { type Clipboard, setupCopyButtons } from "./copy.ts";
+
+function render(html: string): void {
+  document.body.innerHTML = html;
+}
+
+const markup = `
+  <code id="cmd">  curl -fsSL https://portifact.com/install | bash  </code>
+  <button type="button" data-copy-target="cmd" data-copy-status="status">Copy</button>
+  <p id="status"></p>
+`;
+
+function button(): HTMLButtonElement {
+  const element = document.querySelector("button");
+  if (!element) throw new Error("button not rendered");
+  return element;
+}
+
+async function click(): Promise<void> {
+  button().click();
+  await vi.waitFor(() => expect(document.getElementById("status")?.textContent).not.toBe(""));
+}
+
+describe("copy buttons", () => {
+  beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
+  afterEach(() => vi.useRealTimers());
+
+  it("copies the trimmed target text, confirms it and restores the label", async () => {
+    render(markup);
+    const clipboard: Clipboard = { writeText: vi.fn(async () => {}) };
+
+    expect(setupCopyButtons(document, clipboard)).toBe(1);
+    await click();
+
+    expect(clipboard.writeText).toHaveBeenCalledWith(
+      "curl -fsSL https://portifact.com/install | bash",
+    );
+    expect(button().textContent).toBe("Copied");
+    expect(document.getElementById("status")?.textContent).toBe("Copied to the clipboard.");
+
+    vi.advanceTimersByTime(2000);
+    expect(button().textContent).toBe("Copy");
+  });
+
+  it("tells the user to copy manually when the clipboard rejects", async () => {
+    render(markup);
+    setupCopyButtons(document, { writeText: () => Promise.reject(new Error("denied")) });
+
+    await click();
+
+    expect(button().textContent).toBe("Copy");
+    expect(document.getElementById("status")?.textContent).toContain("Copy failed");
+  });
+
+  it("explains that copying is unavailable without a clipboard", async () => {
+    render(markup);
+    setupCopyButtons(document, undefined);
+
+    await click();
+
+    expect(document.getElementById("status")?.textContent).toContain("not available");
+  });
+
+  it("does nothing harmful when the target element is missing", async () => {
+    render(
+      `<button type="button" data-copy-target="missing" data-copy-status="status">Copy</button><p id="status"></p>`,
+    );
+    const clipboard: Clipboard = { writeText: vi.fn(async () => {}) };
+    setupCopyButtons(document, clipboard);
+
+    await click();
+
+    expect(clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it("works without a status element and restores an empty label", async () => {
+    render(
+      `<code id="cmd">npx skills add leynier/portifact</code><button type="button" data-copy-target="cmd"></button>`,
+    );
+    const clipboard: Clipboard = { writeText: vi.fn(async () => {}) };
+    setupCopyButtons(document, clipboard);
+
+    button().click();
+    await vi.waitFor(() => expect(button().textContent).toBe("Copied"));
+    vi.advanceTimersByTime(2000);
+
+    expect(clipboard.writeText).toHaveBeenCalledWith("npx skills add leynier/portifact");
+    expect(button().textContent).toBe("");
+  });
+
+  it("does not copy an empty target", async () => {
+    render(
+      `<code id="cmd">   </code><button type="button" data-copy-target="cmd" data-copy-status="status">Copy</button><p id="status"></p>`,
+    );
+    const clipboard: Clipboard = { writeText: vi.fn(async () => {}) };
+    setupCopyButtons(document, clipboard);
+
+    await click();
+
+    expect(clipboard.writeText).not.toHaveBeenCalled();
+  });
+
+  it("ignores buttons without a copy target", () => {
+    render(`<button type="button">Other</button>`);
+    expect(setupCopyButtons(document, undefined)).toBe(0);
+  });
+});

@@ -10,16 +10,18 @@
     ],
     "catalog": {
       "@types/node": "^26.0.0",
-      "@vitest/coverage-istanbul": "^5.0.0",
+      "@vitest/coverage-istanbul": "^4.1.0",
       "typescript": "^7.0.0",
-      "vitest": "^5.0.0"
+      "vitest": "^4.1.0"
     }
   },
   "scripts": {
-    "check": "biome check . && tsc -p tsconfig.json && bun scripts/check-skills.ts && turbo run typecheck",
+    "check": "biome check . && tsc -p tsconfig.json && bun scripts/check-skills.ts && bun scripts/check-design-system.ts && turbo run typecheck",
     "format": "biome check --write .",
     "test": "turbo run test",
-    "build:cli": "bun scripts/build-cli.ts"
+    "build:cli": "bun scripts/build-cli.ts",
+    "dev": "turbo run dev",
+    "build": "turbo run build"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
