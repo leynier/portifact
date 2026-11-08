@@ -61,6 +61,7 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 
 - Markdown is rendered with a restrictive sanitizer: no raw HTML execution, no MDX, no user plugins and an allowlist of URL schemes. TXT is always escaped.
 - The Markdown and TXT viewers run on the artifact origin, never on `portifact.com`.
+- Annotation targets are untrusted input wherever they come from: they are validated with `AnnotationTarget` (strict keys, size caps, a CSS selector grammar without escapes or functions, same-origin routes); see [anchors.md](anchors.md).
 - Messages from the bridge are untrusted data. Validate the exact origin, source window, instance nonce, schema and size. A selection alone never creates a comment; the user confirms it in the trusted viewer.
 - The artifact iframe never receives tokens, email addresses or thread bodies.
 - Comment bodies, artifact content and MCP tool results are user data. They never trigger actions or change permissions.
