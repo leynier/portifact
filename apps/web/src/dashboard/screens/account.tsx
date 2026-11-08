@@ -1,10 +1,11 @@
 // The account screen (plan section 6, "Cuenta"): the signed-in email, how the user can sign in,
-// the browsers signed in and the apps (CLI and MCP clients) that hold tokens. Account deletion
-// and export come later.
+// the browsers signed in, the apps (CLI and MCP clients) that hold tokens, the data export and
+// account deletion.
 import type { BrowserSession, ConnectedApp } from "@portifact/contracts";
 import {
   Badge,
   Button,
+  buttonClasses,
   Callout,
   ConfirmDialog,
   DetailList,
@@ -17,11 +18,24 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  TextInput,
 } from "@portifact/ui";
 import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Cable, CircleAlert, LogOut, Monitor, Plug, RefreshCw, Unplug } from "lucide-react";
+import {
+  Cable,
+  CircleAlert,
+  Download,
+  LogIn,
+  LogOut,
+  Monitor,
+  Plug,
+  RefreshCw,
+  Trash2,
+  Unplug,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
-import type { Account } from "../api.ts";
+import { loginUrl } from "../../auth/query.ts";
+import { ACCOUNT_EXPORT_PATH, type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
@@ -62,6 +76,8 @@ export function AccountScreen() {
       <SignInMethods email={account?.email ?? ""} />
       <BrowserSessions />
       <ConnectedApps />
+      <AccountData />
+      <DeleteAccount email={account?.email ?? ""} />
     </>
   );
 }
@@ -402,6 +418,114 @@ function ConnectedApps() {
         onCancel={() => setConfirming(null)}
       >
         {t("account.apps.confirm.body")}
+      </ConfirmDialog>
+    </Section>
+  );
+}
+
+function AccountData() {
+  const t = useT();
+  return (
+    <Section id="data" title={t("account.data.title")} hint={t("account.data.hint")}>
+      <a href={ACCOUNT_EXPORT_PATH} download className={buttonClasses({ intent: "secondary" })}>
+        <Download aria-hidden="true" className="size-4" />
+        {t("account.data.download")}
+      </a>
+    </Section>
+  );
+}
+
+function DeleteAccount({ email }: { email: string }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const { api, leave } = useDashboard();
+  const [typed, setTyped] = useState("");
+  const [mismatch, setMismatch] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const remove = useMutation({
+    mutationFn: () => api.deleteAccount(typed),
+    onSuccess: () => {
+      setConfirming(false);
+      announce(t("account.delete.done"));
+      leave("/login");
+    },
+    onError: () => setConfirming(false),
+  });
+  const reauth = useMutation({
+    mutationFn: () => api.signOut(),
+    onSettled: () => leave(loginUrl("/account")),
+  });
+  const needsSignIn =
+    remove.error instanceof ApiFailure && remove.error.code === "reauthentication_required";
+
+  return (
+    <Section id="delete" title={t("account.delete.title")} hint={t("account.delete.hint")}>
+      {needsSignIn ? (
+        <div className="mb-4">
+          <Callout
+            tone="error"
+            title={t("account.delete.reauth.title")}
+            icon={<CircleAlert className="size-5" />}
+            action={
+              <Button
+                icon={<LogIn className="size-4" />}
+                busy={reauth.isPending}
+                onClick={() => reauth.mutate()}
+              >
+                {t("account.delete.reauth.action")}
+              </Button>
+            }
+          >
+            {t("account.delete.reauth.body")}
+          </Callout>
+        </div>
+      ) : remove.isError ? (
+        <div className="mb-4">
+          <Callout
+            tone="error"
+            title={t("account.actionFailed.title")}
+            icon={<CircleAlert className="size-5" />}
+          >
+            {errorMessage(t, remove.error)}
+          </Callout>
+        </div>
+      ) : null}
+      <form
+        noValidate
+        className="flex max-w-md flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const matches = typed.trim().toLowerCase() === email.toLowerCase();
+          setMismatch(!matches);
+          if (matches) setConfirming(true);
+        }}
+      >
+        <TextInput
+          label={t("account.delete.confirmLabel")}
+          description={t("account.delete.confirmHint", { email })}
+          type="email"
+          autoComplete="off"
+          value={typed}
+          error={mismatch ? t("account.delete.mismatch") : undefined}
+          onChange={(event) => setTyped(event.target.value)}
+        />
+        <div>
+          <Button type="submit" icon={<Trash2 className="size-4" />} busy={remove.isPending}>
+            {t("account.delete.button")}
+          </Button>
+        </div>
+      </form>
+      <ConfirmDialog
+        open={confirming}
+        title={t("account.delete.dialog.title")}
+        confirmLabel={t("account.delete.dialog.confirm")}
+        cancelLabel={t("account.cancel")}
+        confirmIcon={<Trash2 className="size-4" />}
+        busy={remove.isPending}
+        onConfirm={() => remove.mutate()}
+        onCancel={() => setConfirming(false)}
+      >
+        {t("account.delete.dialog.body")}
       </ConfirmDialog>
     </Section>
   );

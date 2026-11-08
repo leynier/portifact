@@ -21,6 +21,9 @@ export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
     expiresAt: isoOrNull(row.expiresAt),
     archivedAt: isoOrNull(row.archivedAt),
     purgeAt: isoOrNull(row.purgeAt),
+    ...(row.state === "suspended" && row.suspensionReason
+      ? { suspension: { reason: row.suspensionReason } }
+      : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });

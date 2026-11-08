@@ -2,6 +2,8 @@
 // One user holds an API token and an MCP token; every operation runs through both, at the same
 // controlled time, and must give the same body, the same error and the same permission boundary.
 import { env } from "cloudflare:workers";
+import { createDb } from "@portifact/db";
+import { suspendArtifact } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
 import { createHarness, type Harness } from "./harness.ts";
@@ -140,6 +142,27 @@ describe("API and MCP parity", () => {
     );
     expect(fromTool(await b.tool("list_artifacts", { limit: 10 }))).toEqual(
       await fromApi(await b.apiCall("/api/v1/artifacts?limit=10")),
+    );
+  });
+
+  it("show the same suspension reason, and refuse the same changes, while suspended", async () => {
+    const b = await both("parity-suspended@example.test");
+    const id = (
+      fromTool(await b.tool("publish_document", { type: "text", name: "Held", content: "h" }))
+        .body as { artifactId: string }
+    ).artifactId;
+    await suspendArtifact(createDb(env.DB), {
+      artifactId: id,
+      reason: "phishing",
+      note: "operator only",
+      now: NOW,
+    });
+    const viaApi = await fromApi(await b.apiCall(`/api/v1/artifacts/${id}`));
+    expect(viaApi.body).toMatchObject({ state: "suspended", suspension: { reason: "phishing" } });
+    expect(JSON.stringify(viaApi.body)).not.toContain("operator only");
+    expect(fromTool(await b.tool("get_artifact", { artifactId: id }))).toEqual(viaApi);
+    expect(fromTool(await b.tool("renew_artifact", { artifactId: id }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/renew`, { method: "POST" })),
     );
   });
 

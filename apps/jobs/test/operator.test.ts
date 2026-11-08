@@ -1,0 +1,181 @@
+import { env } from "cloudflare:test";
+import { createDb, schema } from "@portifact/db";
+import { eq } from "drizzle-orm";
+import { describe, expect, it } from "vitest";
+import { OPERATOR_USAGE, parseArgs, runOperator } from "../src/operator.ts";
+
+const NOW = Date.UTC(2026, 10, 8, 12);
+const db = () => createDb(env.DB);
+const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+
+function artifactId(): string {
+  let id = "";
+  for (const byte of crypto.getRandomValues(new Uint8Array(10))) id += ALPHABET[byte % 32];
+  return id;
+}
+
+async function owner(): Promise<{ id: string; email: string }> {
+  const id = `u_${crypto.randomUUID()}`;
+  const email = `${id}@example.test`;
+  await db()
+    .insert(schema.users)
+    .values({
+      id,
+      name: "Owner",
+      email,
+      emailVerified: true,
+      createdAt: new Date(NOW),
+      updatedAt: new Date(NOW),
+    });
+  await db()
+    .insert(schema.accountUsage)
+    .values({ ownerId: id, activeArtifacts: 1, monthStartedAt: NOW });
+  return { id, email };
+}
+
+async function artifact(ownerId: string, accessMode: "public" | "restricted" = "public") {
+  const id = artifactId();
+  await db()
+    .insert(schema.artifacts)
+    .values({
+      id,
+      ownerId,
+      type: "site",
+      name: "Plan",
+      state: "active",
+      accessMode,
+      expiresAt: NOW + 86_400_000,
+    });
+  return id;
+}
+
+const run = (...argv: string[]) => runOperator(db(), argv, NOW);
+
+describe("operator arguments", () => {
+  it("splits options from positional arguments", () => {
+    const parsed = parseArgs([
+      "suspend-artifact",
+      "abc",
+      "--reason",
+      "spam",
+      "--flag",
+      "--note",
+      "x y",
+    ]);
+    expect(parsed.positional).toEqual(["suspend-artifact", "abc"]);
+    expect([...parsed.options]).toEqual([
+      ["reason", "spam"],
+      ["flag", ""],
+      ["note", "x y"],
+    ]);
+  });
+
+  it("explains usage for missing or unknown commands and bad options", async () => {
+    for (const argv of [
+      [],
+      ["launch"],
+      ["reports", "--status", "weird"],
+      ["reports", "--limit", "0"],
+      ["resolve-report", "rep_1", "maybe"],
+      ["show-artifact"],
+      ["suspend-artifact", "abc"],
+      ["suspend-artifact", "abc", "--reason", "boredom"],
+      ["reinstate-artifact"],
+      ["suspend-account", "someone"],
+      ["reinstate-account"],
+    ]) {
+      const result = await run(...argv);
+      expect(result.exitCode, argv.join(" ")).toBe(2);
+      expect(result.output).toContain(OPERATOR_USAGE);
+    }
+  });
+});
+
+describe("operator commands", () => {
+  it("lists reports as plain lines and resolves them", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    await db().insert(schema.abuseReports).values({
+      id: "rep_operator",
+      artifactId: id,
+      reporterEmail: "reporter@example.test",
+      reason: "phishing",
+      details: "line one\nline two\u001b[31m",
+      createdAt: NOW,
+    });
+    const listed = await run("reports");
+    expect(listed.exitCode).toBe(0);
+    const line = listed.output.split("\n").find((l) => l.startsWith("rep_operator"));
+    expect(line).toContain(`open  ${id}  phishing  has-email  line one line two`);
+    // The reporter's address is not printed.
+    expect(listed.output).not.toContain("reporter@example.test");
+
+    expect(await run("resolve-report", "rep_operator", "actioned")).toEqual({
+      exitCode: 0,
+      output: "Report rep_operator marked actioned.",
+    });
+    expect((await run("reports", "--status", "actioned", "--limit", "500")).output).toContain(
+      "rep_operator",
+    );
+    expect(await run("resolve-report", "rep_missing", "dismissed")).toMatchObject({
+      exitCode: 1,
+    });
+    expect((await run("reports", "--status", "dismissed")).output).toBe("No reports.");
+  });
+
+  it("suspends and reinstates an artifact, and shows it", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect(
+      await run("suspend-artifact", id, "--reason", "malware", "--note", "seen it"),
+    ).toMatchObject({
+      exitCode: 0,
+      output: expect.stringMatching(new RegExp(`^Suspended ${id} \\(sus_`)),
+    });
+    expect((await run("suspend-artifact", id, "--reason", "malware")).output).toContain(
+      "was already suspended",
+    );
+    expect((await run("show-artifact", id)).output).toContain("state     suspended (malware)");
+    expect(await run("reinstate-artifact", id)).toEqual({
+      exitCode: 0,
+      output: `Reinstated ${id} as active.`,
+    });
+    expect((await run("reinstate-artifact", id)).output).toBe(
+      `${id} was not suspended; it is active.`,
+    );
+    expect(await run("show-artifact", "zzzzzzzzzz")).toEqual({
+      exitCode: 1,
+      output: "Artifact not found.",
+    });
+    expect((await run("suspend-artifact", "zzzzzzzzzz", "--reason", "spam")).exitCode).toBe(1);
+    expect((await run("reinstate-artifact", "zzzzzzzzzz")).exitCode).toBe(1);
+  });
+
+  it("suspends and reinstates an account by email or ID", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect(await run("suspend-account", user.email.toUpperCase(), "--reason", "spam")).toEqual({
+      exitCode: 0,
+      output: `Suspended account ${user.id} and 1 artifact(s).`,
+    });
+    expect((await run("suspend-account", user.id, "--reason", "spam")).output).toBe(
+      `Account ${user.id} was already suspended.`,
+    );
+    expect((await run("show-artifact", id)).output).toContain("(account suspended: spam)");
+    expect(await run("reinstate-account", user.email)).toEqual({
+      exitCode: 0,
+      output: `Reinstated account ${user.id} and 1 artifact(s).`,
+    });
+    expect((await run("reinstate-account", user.id)).output).toBe(
+      `Account ${user.id} was not suspended.`,
+    );
+    const [row] = await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
+    expect(row?.state).toBe("active");
+    for (const command of ["suspend-account", "reinstate-account"]) {
+      expect((await run(command, "nobody@example.test", "--reason", "spam")).output).toBe(
+        "Account not found.",
+      );
+    }
+    expect((await run("suspend-account", "u_missing", "--reason", "spam")).exitCode).toBe(1);
+  });
+});

@@ -258,3 +258,77 @@ describe("connected apps", () => {
     );
   });
 });
+
+describe("your data", () => {
+  it("offers the export as a download link", async () => {
+    renderDashboard("/account", server);
+    const data = await region("Your data");
+    const link = within(data).getByRole("link", { name: "Download your data" });
+    expect(link.getAttribute("href")).toBe("/api/v1/account/export");
+    expect(link.hasAttribute("download")).toBe(true);
+  });
+});
+
+describe("account deletion", () => {
+  const typeEmail = async (value: string) => {
+    const section = await region("Delete account");
+    fireEvent.change(within(section).getByLabelText(/Type your email to confirm/), {
+      target: { value },
+    });
+    return section;
+  };
+
+  it("deletes only after the email is typed and the dialog confirmed, then leaves", async () => {
+    const { container, left } = renderDashboard("/account", server);
+    let section = await typeEmail("someone@example.test");
+    fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
+    expect(
+      await within(section).findByText("Type your account's email exactly to confirm."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    section = await typeEmail(" ADA@example.test ");
+    fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete your account for good?" });
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(server.requests.some((r) => r.path === "/api/v1/account/delete")).toBe(false);
+
+    fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Delete my account" }),
+    );
+    await waitFor(() => expect(left).toContain("/login"));
+    expect(server.bodies.at(-1)).toEqual({ confirmEmail: "ADA@example.test" });
+  });
+
+  it("asks to sign in again when the session is too old", async () => {
+    server.fail("POST", "/api/v1/account/delete", {
+      status: 403,
+      code: "reauthentication_required",
+    });
+    const { left } = renderDashboard("/account", server);
+    const section = await typeEmail("ada@example.test");
+    fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Delete my account" }),
+    );
+    const alert = await within(section).findByRole("alert");
+    expect(alert.textContent).toContain("Sign in again to delete your account");
+    fireEvent.click(within(alert).getByRole("button", { name: "Sign in again" }));
+    await waitFor(() => expect(left).toContain("/login?next=%2Faccount"));
+    expect(server.requests).toContainEqual({ method: "POST", path: "/api/auth/sign-out" });
+  });
+
+  it("shows why the deletion failed otherwise", async () => {
+    server.fail("POST", "/api/v1/account/delete", { status: 429, code: "rate_limited" });
+    renderDashboard("/account", server);
+    const section = await typeEmail("ada@example.test");
+    fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Delete my account" }),
+    );
+    const alert = await within(section).findByRole("alert");
+    expect(alert.textContent).toContain("Too many requests");
+  });
+});

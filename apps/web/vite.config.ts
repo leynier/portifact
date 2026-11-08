@@ -33,7 +33,7 @@ function brandAssets(): Plugin {
 
 /**
  * HTML entries: the landing and the legal pages on portifact.com, and the dashboard and auth
- * pages on app.portifact.com.
+ * pages and the public report page on app.portifact.com.
  */
 const pages = [
   "index",
@@ -44,6 +44,7 @@ const pages = [
   "login",
   "device",
   "consent",
+  "report",
 ];
 
 export default defineConfig({

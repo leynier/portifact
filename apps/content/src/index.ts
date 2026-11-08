@@ -35,6 +35,9 @@ export interface Env {
   READ_SESSION_SECRET?: string | undefined;
 }
 
+/** Reserved path that sends a visitor to the report form for this artifact. */
+export const REPORT_PATH = "/__portifact/report";
+
 /** User-facing text of the pages this Worker answers itself. */
 const PAGES: Record<Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailable", string> = {
   notFound: "This artifact does not exist or is no longer available",
@@ -68,6 +71,19 @@ export async function handle(request: Request, env: Env, now: number): Promise<R
   const url = new URL(request.url);
   const id = artifactIdFromHost(url.hostname, env.CONTENT_DOMAIN);
   if (!id) return notFound();
+
+  if (url.pathname === REPORT_PATH) {
+    // Every artifact has a predictable report link; the form lives on the app, where reports are
+    // stored. It answers the same for any ID, so it reveals nothing about the artifact.
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: `${env.APP_ORIGIN}/report?${new URLSearchParams({ artifact: id })}`,
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
 
   const db = createDb(env.DB);
   if (url.pathname === CALLBACK_PATH) {

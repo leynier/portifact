@@ -66,12 +66,15 @@
       "name": "@portifact/jobs",
       "version": "0.0.0",
       "dependencies": {
+        "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/services": "workspace:*",
+        "drizzle-orm": "^0.45.0",
       },
       "devDependencies": {
         "@cloudflare/vitest-plugin": "^1.0.0",
         "@cloudflare/workers-types": "^5.0.0",
+        "@types/bun": "^1.0.0",
         "@vitest/coverage-istanbul": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",

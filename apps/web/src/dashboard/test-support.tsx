@@ -155,6 +155,14 @@ function route(server: FakeServer, method: string, url: URL): Response {
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
   }
+  if (path === "/api/v1/account/delete" && method === "POST") {
+    const body = server.bodies.at(-1) as { confirmEmail?: string } | undefined;
+    if (body?.confirmEmail?.trim().toLowerCase() !== server.email) {
+      return Response.json({ error: { code: "invalid_input", message: "x" } }, { status: 400 });
+    }
+    server.email = null;
+    return Response.json({ deleted: true });
+  }
   if (path === "/api/v1/account/apps" && method === "GET") {
     return Response.json({ items: server.apps });
   }

@@ -81,7 +81,7 @@
           <li><strong>Content.</strong> The files you publish and any sources you upload, with their names, sizes, checksums and versions, and each artifact's settings, including the email addresses you allow to open it.</li>
           <li><strong>Comments.</strong> When comments are available, what you write, who wrote it, when, and the part of the artifact it refers to.</li>
           <li><strong>Access logs (planned).</strong> When a signed-in person opens an artifact that is not public, its creator will see that person's email and the time. Anonymous visitors of public artifacts are not identified.</li>
-          <li><strong>Reports.</strong> What you tell us when you report abuse, and your email if you give it.</li>
+          <li><strong>Reports.</strong> What you tell us when you report abuse, and your email if you give it. To limit abuse of the report form we count reports per IP address.</li>
           <li><strong>Technical logs.</strong> A sample of requests to our servers, used to fix problems and stop abuse. They never include tokens, cookies, sign-in codes, signed URLs or the full text of comments.</li>
         </ul>
       </section>
@@ -142,6 +142,8 @@
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Archived artifacts</th><td class="border-b border-border py-2 pr-4 align-top">Six months from archiving, then deleted</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Previous versions of an artifact</th><td class="border-b border-border py-2 pr-4 align-top">Up to two, for 7 days after a newer one is published</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Deleted artifacts</th><td class="border-b border-border py-2 pr-4 align-top">Deleted from storage, keeping only a marker of the ID so it is never reused</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Deleted accounts</th><td class="border-b border-border py-2 pr-4 align-top">Sessions, tokens and sign-in identities at once; artifacts, files and comments within hours; only a marker of the internal ID and artifact IDs is kept</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Abuse reports</th><td class="border-b border-border py-2 pr-4 align-top">As long as needed to handle the report and prevent repeated abuse; the reporter's email is erased when that account is deleted</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Sessions</th><td class="border-b border-border py-2 pr-4 align-top">Until they expire, 7 days after last use, or until you sign out</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Sign-in codes</th><td class="border-b border-border py-2 pr-4 align-top">5 minutes, and used once</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium break-all">Rate-limit counters</th><td class="border-b border-border py-2 pr-4 align-top">Up to 2 days</td></tr>
@@ -159,9 +161,9 @@
           <li>see and change your artifacts and their access in the dashboard or the CLI;</li>
           <li>delete any artifact at any time;</li>
           <li>sign out of the CLI with <code>portifact logout</code>, which revokes its token;</li>
-          <li>ask for a copy of your data or for your account to be deleted by writing to <a href="mailto:privacy@portifact.com">privacy@portifact.com</a>. Self-service export and account deletion are planned for the dashboard.</li>
+          <li>download a copy of your data (as JSON, with links to your files) and delete your account from the Account page of the dashboard, or ask us by writing to <a href="mailto:privacy@portifact.com">privacy@portifact.com</a>.</li>
         </ul>
-        <p class="mt-4 leading-7">When an account is deleted, we delete its artifacts, sessions, tokens and sign-in identities, and its comments on other people's artifacts. A comment that others replied to is replaced by a "message deleted" marker. We answer requests within 30 days and do not charge for them. You can also complain to your local data protection authority.</p>
+        <p class="mt-4 leading-7">When an account is deleted, its sessions, tokens and sign-in identities end at once and its artifacts stop being served; within hours we delete its artifacts and files, and its comments on other people's artifacts. A comment that others replied to is replaced by a "message deleted" marker. We keep only a minimal record of the account's internal ID and of its artifact IDs, so those addresses are never given to anyone else, and we erase your email from any abuse report you sent. We answer requests within 30 days and do not charge for them. You can also complain to your local data protection authority.</p>
       </section>
 
       <section id="security" aria-labelledby="security-heading" class="mt-12 scroll-mt-8">

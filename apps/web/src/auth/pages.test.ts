@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const pages = ["login", "device", "consent"].map((name) => ({
+const pages = ["login", "device", "consent", "report"].map((name) => ({
   name,
   html: readFileSync(new URL(`../../${name}.html`, import.meta.url), "utf8"),
 }));

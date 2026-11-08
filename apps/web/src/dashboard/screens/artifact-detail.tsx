@@ -9,7 +9,15 @@ import {
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { Archive, ArchiveRestore, ArrowLeft, CircleAlert, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowLeft,
+  Ban,
+  CircleAlert,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { ApiFailure, type LifecycleAction } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
@@ -140,6 +148,18 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   return (
     <>
       <PageHeader title={artifact.name} description={<StateBadge state={artifact.state} />} />
+
+      {artifact.suspension ? (
+        <div className="mb-8">
+          <Callout
+            tone="error"
+            title={t("detail.suspended.title")}
+            icon={<Ban className="size-5" />}
+          >
+            {t("detail.suspended.body", { reason: t(`reason.${artifact.suspension.reason}`) })}
+          </Callout>
+        </div>
+      ) : null}
 
       <section aria-labelledby="facts-heading">
         <h2 id="facts-heading" className="mb-3 text-lg font-semibold">
