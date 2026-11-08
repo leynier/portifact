@@ -12,8 +12,8 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
-    "@better-auth/cimd": "1.7.17",
-    "@better-auth/oauth-provider": "1.7.17",
+    "@better-auth/cimd": "1.7.18",
+    "@better-auth/oauth-provider": "1.7.18",
     "@modelcontextprotocol/server": "2.4.0",
     "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
@@ -21,7 +21,7 @@
     "@portifact/render": "workspace:*",
     "@portifact/services": "workspace:*",
     "aws4fetch": "^1.0.20",
-    "better-auth": "1.7.17",
+    "better-auth": "1.7.18",
     "drizzle-orm": "^0.45.0",
     "hono": "^4.0.0",
     "zod": "^4.6.7"
