@@ -24,7 +24,6 @@ import {
 import { documentPolicy } from "@portifact/render/policy";
 import { recordTraffic } from "@portifact/services";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
-
 import {
   BRIDGE_PATH,
   bridgeScript,
@@ -33,6 +32,7 @@ import {
   injectReviewBanner,
   reviewStatusPage,
 } from "./inject.ts";
+import { injectedCookieCleanup } from "./injected.ts";
 import {
   authorizeRead,
   CALLBACK_PATH,
@@ -139,9 +139,17 @@ export async function handle(
   const response = await route(request, env, now, countTraffic);
   // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
   const stray = strayFrameCookie(request);
-  if (!stray) return response;
+  // Cookies siblings set on the shared domain: expired once they grow, on every answer, so the
+  // visitor recovers on the first request that still reaches the Worker.
+  const injected = injectedCookieCleanup(
+    request.headers.get("Cookie"),
+    new URL(request.url).pathname,
+    env.CONTENT_DOMAIN,
+  );
+  const clearing = stray ? [stray, ...injected] : injected;
+  if (clearing.length === 0) return response;
   const cleared = new Response(response.body, response);
-  cleared.headers.append("Set-Cookie", stray);
+  for (const cookie of clearing) cleared.headers.append("Set-Cookie", cookie);
   return cleared;
 }
 
@@ -485,7 +493,7 @@ function hasExtension(path: string): boolean {
  * responses are `same-origin` for CORP, so a sibling artifact cannot load them as scripts,
  * images or styles even when the browser sends the read cookie along. Review responses are
  * treated as protected whatever the access mode: only the viewer and the artifact itself may
- * frame them, and no other origin may load them.
+ * frame them, no other origin may load them, and they are never indexed.
  */
 function contentHeaders(artifact: DeliveryArtifact, env: Env, review: boolean): Headers {
   const isPublic = artifact.accessMode === "public" && !review;
@@ -503,7 +511,8 @@ function contentHeaders(artifact: DeliveryArtifact, env: Env, review: boolean): 
         ? "same-site"
         : "same-origin",
   });
-  if (!artifact.indexable) headers.set("X-Robots-Tag", "noindex");
+  // Like embedding, indexing is an option of public artifacts only (plan section 4).
+  if (!(isPublic && artifact.indexable)) headers.set("X-Robots-Tag", "noindex");
   return headers;
 }
 

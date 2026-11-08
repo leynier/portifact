@@ -843,8 +843,8 @@ describe("caching and injected cookies", () => {
     expect(revoked.status).toBe(303);
   });
 
-  it("keeps protected responses private and unembeddable even when embedding is on", async () => {
-    await seed({ embeddable: true });
+  it("keeps protected responses private, unembeddable and noindex even when embedding and indexing are on", async () => {
+    await seed({ embeddable: true, indexable: true });
     const cookie = await signIn(READER);
     const response = await send("/", { cookie });
     expect(response.status).toBe(200);
@@ -874,6 +874,19 @@ describe("caching and injected cookies", () => {
     const reader = await send("/", { cookie: `${injected}; ${cookie}` });
     expect(reader.status).toBe(200);
     expect(await reader.text()).toBe(PAGE);
+    // The answer expires the injected cookies on the shared domain, never the read session.
+    const cleared = reader.headers.getSetCookie();
+    expect(cleared.length).toBeGreaterThan(0);
+    for (const set of cleared) {
+      expect(set).toMatch(
+        /^[^=]+=; Max-Age=0; Domain=portifact\.dev; Path=\/; Secure; SameSite=None/,
+      );
+      expect(set.startsWith(`${READ_COOKIE}=`)).toBe(false);
+    }
+    // Look-alikes of Portifact's names go first.
+    expect(cleared[0]?.startsWith("pf_read=") || cleared[0]?.startsWith("__host-pf_read=")).toBe(
+      true,
+    );
     // A planted second value under the real name makes both untrusted.
     expect((await send("/", { cookie: `${injected}; ${cookie}; ${READ_COOKIE}=x.y` })).status).toBe(
       303,

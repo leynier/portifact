@@ -22,8 +22,23 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 - The review cookie is `Partitioned` (CHIPS). It grants reading one version and nothing else. The fallback review tab's cookie (`__Host-pf_review_tab`) is first-party and `SameSite=Lax`, grants the same and lasts 15 minutes (see "Review mode").
 - Sibling artifacts in the viewer's partition can send credentialed requests that carry another artifact's review cookie. The content Worker honors the review cookie only for `Sec-Fetch-Site: same-origin`, or `cross-site` with `Sec-Fetch-Mode: navigate`, fails closed without fetch metadata, and sends `Cross-Origin-Resource-Policy: same-origin` on review responses. See [decision 0002](decisions/0002-review-mode-cookies.md).
 - Cookie names are matched exactly and case-sensitively. WebKit lets a sibling set `__host-` (lowercase) cookies with a `Domain` attribute, so case-folding a name would let it shadow a `__Host-` cookie.
-- The content Worker ignores every cookie that is not on its allowlist. Clearing injected cookies once the `Cookie` header passes a threshold (plan section 4) is not implemented yet; until it is, an artifact that fills a visitor's cookie jar can break every artifact for that visitor. See follow-up 1 in [acceptance.md](acceptance.md#follow-ups).
+- The content Worker reads only its own cookies by exact name and ignores every other one; it expires injected cookies once they grow (see "Injected cookies").
 - Read sessions carry signed claims that expire in 60 seconds or less. After that, the Worker rechecks D1. Revocation must take effect within 60 seconds.
+
+### Injected cookies
+
+Any artifact can set cookies with `Domain=portifact.dev`, for `/` or any other path, and every other artifact origin then receives them. The content Worker handles them in `apps/content/src/injected.ts`, for every response it gives, whatever its status:
+
+- **They grant nothing.** Authorization reads only Portifact's names on artifact origins, exactly and case-sensitively and with one value each: `__Host-pf_read`, `__Host-pf_read_tx_<tag>`, `__Host-pf_review` and `__Host-pf_review_tab` (`isPortifactCookie`). Browsers refuse a `__Host-` cookie with a `Domain`, so a sibling can only add look-alikes (`pf_read`, `__host-pf_read` in WebKit), which are foreign. A new cookie on artifact origins must be added to `isPortifactCookie`, or it counts as foreign.
+- **They are expired once they grow.** When the foreign cookies of a request pass 8 KiB of `name=value` (`FOREIGN_COOKIE_LIMIT`), the response carries `<name>=; Max-Age=0; Domain=portifact.dev; Path=<path>; Secure; SameSite=None`, and the same with `Partitioned`, for each foreign name. The Cookie header does not say which path a cookie was set for, so each name is expired at every path the request matches: `/` and each prefix of the requested path, at most 8 (`cookiePaths`). Names that imitate ours are cleared first and at any size, then the largest; whole names at a time, up to 16 KiB of `Set-Cookie` per response (`CLEANUP_BUDGET`), so the next requests, usually the page's own subresources, clear the rest. The visitor recovers on the first request that still reaches the Worker, with no extra round trip.
+- **Nothing else is touched.** Portifact's cookies are never cleared and never counted. The artifact's own host-only cookies survive, because a `Domain` cookie is a different cookie from a host-only one with the same name. Under the limit only imitations are cleared: analytics scripts set their cookies on the widest domain they can, which is `portifact.dev` while it is not on the Public Suffix List, and clearing those on every response would break them.
+- **No `Clear-Site-Data`.** Its `cookies` type clears every cookie of the registrable domain, so on an artifact origin it would end the visitor's read sessions on every artifact and wipe every artifact's own cookies.
+
+Limits:
+
+- A request whose headers pass the platform's limit (128 KB in total on Cloudflare; local workerd answered `431` at 500 KiB and accepted 200 KiB) is refused before the Worker runs, so no `portifact.dev` response can clear its cookies, and `Clear-Site-Data` could not either. Browsers keep about 180 cookies of up to 4 KiB per registrable domain, so one artifact can push a visitor past that limit on every artifact. Until `portifact.dev` is on the Public Suffix List, that visitor has to clear the site data of `portifact.dev` in the browser; reporting and suspending the artifact stops it from injecting more.
+- Cookies a response cannot name (without a name, or with control or non-ASCII characters in it) count toward the limit but are not cleared.
+- Browsers evict a registrable domain's least recently used cookies past their per-domain limit, so an injecting artifact can push out a visitor's read sessions of other artifacts; the visitor signs in again.
 
 ### Entry to protected artifacts
 
@@ -147,7 +162,7 @@ Account creation and an account's first comments on other people's artifacts nee
 - No credentialed CORS for artifact origins on any `portifact.com` endpoint.
 - Every mutation requires a valid session, CSRF protection and an exact `Origin` check. No mutations over GET.
 - Auth callbacks never accept arbitrary redirect targets and respond with `no-store` and `Referrer-Policy: no-referrer`.
-- Content responses set `X-Content-Type-Options: nosniff`, correct MIME types, `frame-ancestors` and `Cross-Origin-Resource-Policy` defaults, and `X-Robots-Tag: noindex` unless indexing is enabled. User content cannot override these headers.
+- Content responses set `X-Content-Type-Options: nosniff`, correct MIME types, `frame-ancestors` and `Cross-Origin-Resource-Policy` defaults, and `X-Robots-Tag: noindex`. User content cannot override these headers. The owner's options change them only while the artifact is public and never in review mode: `indexable` drops `noindex`, and `embeddable` allows any `frame-ancestors` and `cross-origin` CORP. A protected artifact stays `noindex` and unembeddable whatever its options say.
 - Requests that register service worker scripts are blocked.
 - Dashboard and viewer pages cannot be framed by user content.
 

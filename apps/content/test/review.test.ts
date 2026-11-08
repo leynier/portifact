@@ -407,12 +407,26 @@ describe("review delivery", () => {
     expect(await bare.text()).not.toContain("bridge.js");
   });
 
-  it("keeps review responses unembeddable elsewhere even when the artifact allows embedding", async () => {
-    await env.DB.exec(`UPDATE artifacts SET access_mode = 'public', embeddable = 1`);
+  it("keeps review responses unembeddable and noindex even when the artifact allows both", async () => {
+    await env.DB.exec(`UPDATE artifacts SET access_mode = 'public', embeddable = 1, indexable = 1`);
     const cookie = await openReview();
     const response = await send("/", { cookie });
+    expect(response.headers.get("x-robots-tag")).toBe("noindex");
     expect(response.headers.get("content-security-policy")).toBe(`frame-ancestors 'self' ${APP}`);
     expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+  });
+
+  it("keeps the review session through hundreds of injected cookies and never clears it", async () => {
+    const cookie = await openReview();
+    const injected = Array.from({ length: 300 }, (_, index) => `inj${index}=${"x".repeat(60)}`);
+    const response = await send("/", { cookie: [...injected, cookie].join("; ") });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("bridge");
+    const setCookies = response.headers.getSetCookie();
+    expect(setCookies.length).toBeGreaterThan(0);
+    expect(setCookies.some((set) => set.startsWith(REVIEW_COOKIE))).toBe(false);
+    for (const set of setCookies)
+      expect(set).toMatch(/^inj\d+=; Max-Age=0; Domain=portifact\.dev;/);
   });
 
   it("matches the cookie name exactly and ignores a duplicated or foreign cookie", async () => {
