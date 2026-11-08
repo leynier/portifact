@@ -3,6 +3,7 @@
 import {
   type AccessPolicyView,
   AccessUpdate,
+  type AccountUsageView,
   type AnnotationMessageView,
   type AnnotationRole,
   type AnnotationsState,
@@ -19,6 +20,7 @@ import {
   type ReviewStart,
   RollbackRequest,
   type UploadTarget,
+  type UsageBlock,
   type VersionSummary,
 } from "@portifact/contracts";
 import { createMemoryHistory } from "@tanstack/react-router";
@@ -262,6 +264,8 @@ export interface FakeServer {
   providers: { providerId: string; createdAt: string }[];
   sessions: BrowserSession[];
   apps: ConnectedApp[];
+  /** Blocks GET /api/v1/usage reports, such as the platform's `capacity` block. */
+  usageBlocks: UsageBlock[];
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -289,6 +293,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     providers: [],
     sessions: [browserSession({ current: true })],
     apps: [],
+    usageBlocks: [],
     bodies: [],
     pageSize: 50,
     requests: [],
@@ -317,6 +322,29 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     },
   };
   return server;
+}
+
+function usageOf(server: FakeServer): AccountUsageView {
+  const meter = (limit: number) => ({ used: 0, limit });
+  return {
+    activeArtifacts: meter(LIMITS.activeArtifacts),
+    storage: { ...meter(LIMITS.accountBytes), reserved: 0 },
+    publishesLast24h: meter(LIMITS.publishesPer24h),
+    newFilesLast24h: meter(LIMITS.newFilesPer24h),
+    newBytesLast24h: meter(LIMITS.newBytesPer24h),
+    newObjectsThisMonth: {
+      ...meter(LIMITS.newObjectsPerMonth),
+      resetsAt: "2026-12-01T00:00:00.000Z",
+    },
+    openUploads: meter(LIMITS.concurrentUploads),
+    versionLimits: {
+      publishedBytes: LIMITS.artifactBytes,
+      files: LIMITS.filesPerVersion,
+      documentBytes: LIMITS.documentBytes,
+    },
+    publicAccessFrom: "2026-09-08T12:00:00.000Z",
+    blocks: server.usageBlocks,
+  };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -622,6 +650,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
+  if (path === "/api/v1/usage" && method === "GET") return json(usageOf(server));
   if (path === "/api/auth/get-session") {
     return Response.json(
       server.email

@@ -35,7 +35,9 @@ export type BlockReason =
   | "new_files_per_24h"
   | "new_bytes_per_24h"
   | "new_objects_per_month"
-  | "account_too_new_for_public";
+  | "account_too_new_for_public"
+  /** The platform's budget protection (budget.ts), not the account's own use. */
+  | "capacity";
 
 export interface Block {
   reason: BlockReason;

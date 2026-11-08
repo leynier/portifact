@@ -43,6 +43,37 @@ describe("app shell", () => {
     expect(screen.getByRole("link", { name: "Portifact dashboard" })).toBeTruthy();
   });
 
+  it("shows a notice while the platform's budget protection limits publishing", async () => {
+    server.usageBlocks = [
+      { reason: "capacity", stops: "publishing", message: "server text", until: null },
+    ];
+    const { container } = renderDashboard("/", server);
+    const title = await screen.findByText("Portifact is protecting its capacity");
+    // Announced politely as a status, not as an error.
+    expect(title.closest('[role="status"]')).toBeTruthy();
+    expect(screen.getByText(/New uploads are paused for now/)).toBeTruthy();
+    // The notice uses the dashboard's own text, never the server's message.
+    expect(screen.queryByText("server text")).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("explains a brake on new artifacts, and shows nothing without protection", async () => {
+    server.usageBlocks = [
+      { reason: "capacity", stops: "new_artifacts", message: "x", until: null },
+    ];
+    renderDashboard("/", server);
+    expect(await screen.findByText(/Creating new artifacts is paused for now/)).toBeTruthy();
+    cleanup();
+
+    server.usageBlocks = [
+      { reason: "storage", stops: "publishing", message: "Your storage is full", until: null },
+    ];
+    renderDashboard("/", server);
+    expect(await screen.findByText("Launch plan")).toBeTruthy();
+    await waitFor(() => expect(server.requests.some((r) => r.path === "/api/v1/usage")).toBe(true));
+    expect(screen.queryByText("Portifact is protecting its capacity")).toBeNull();
+  });
+
   it("sends visitors without a session to sign in and come back here", async () => {
     server.email = null;
     const { left } = renderDashboard("/artifacts/k7d2qm4xab", server);

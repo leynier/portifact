@@ -10,9 +10,9 @@ export const UsageMeter = z.object({ used: count, limit: count });
 export type UsageMeter = z.infer<typeof UsageMeter>;
 
 /**
- * Why the account cannot do something right now. `traffic` and `capacity` are reported once
- * traffic metering and the service's budget protection exist (plan section 12); clients should
- * show any reason they do not know with its message.
+ * Why the account cannot do something right now. `capacity` is the service's budget protection
+ * (plan section 12), the same for every account; `traffic` is reported once traffic metering
+ * exists. Clients should show any reason they do not know with its message.
  */
 export const UsageBlockReason = z.enum([
   "active_artifacts",

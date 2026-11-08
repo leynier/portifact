@@ -6,6 +6,7 @@ import { type Db, schema } from "@portifact/db";
 import {
   checkDocumentManifest,
   checkPublish,
+  checkPublishCapacity,
   checkRenderedVersion,
   checkSourceOrigin,
   DOCUMENT_CONTENT_TYPES,
@@ -20,6 +21,7 @@ import {
   validateManifestPaths,
 } from "@portifact/domain";
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
+import { platformProtection } from "./budget.ts";
 import {
   type DocumentRendering,
   renderDocument,
@@ -248,6 +250,12 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
     versionNumber = Number(last?.number ?? 0) + 1;
   }
   const createsArtifact = !artifactId;
+  // Budget protection (plan section 12): the brake stops new artifacts, the first step every upload.
+  const capacity = checkPublishCapacity(
+    (await platformProtection(db, input.now)).actions,
+    createsArtifact,
+  );
+  if (!capacity.ok) return capacity;
 
   const unique = new Map<string, number>();
   for (const file of manifest.value) unique.set(file.sha256, file.size);

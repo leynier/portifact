@@ -1,7 +1,7 @@
-import { AppShell, Button, LiveRegion, LoadingState, navLinkClasses } from "@portifact/ui";
+import { AppShell, Button, Callout, LiveRegion, LoadingState, navLinkClasses } from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { LogOut } from "lucide-react";
+import { Gauge, LogOut } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
@@ -9,6 +9,30 @@ import { loginUrl } from "../../auth/query.ts";
 import { AnnounceContext, useDashboard, useT } from "../context.tsx";
 
 export const ACCOUNT_QUERY = ["account"] as const;
+export const USAGE_QUERY = ["usage"] as const;
+
+/**
+ * The visible notice while the platform's budget protection limits publishing (plan section 12).
+ * It comes from the account's usage blocks, so the API, the CLI and MCP report the same thing.
+ */
+function CapacityNotice() {
+  const t = useT();
+  const { api } = useDashboard();
+  const usage = useQuery({ queryKey: USAGE_QUERY, queryFn: () => api.usage() });
+  const block = usage.data?.blocks.find((b) => b.reason === "capacity");
+  if (!block) return null;
+  return (
+    <div className="mb-6">
+      <Callout title={t("shell.capacity.title")} icon={<Gauge className="size-5" />}>
+        {t(
+          block.stops === "new_artifacts"
+            ? "shell.capacity.new_artifacts"
+            : "shell.capacity.publishing",
+        )}
+      </Callout>
+    </div>
+  );
+}
 
 /** Frame of every dashboard screen: navigation, the signed-in account and announcements. */
 export function Shell() {
@@ -82,7 +106,14 @@ export function Shell() {
       }
     >
       <AnnounceContext.Provider value={announce}>
-        {account.data ? <Outlet /> : <LoadingState label={t("shell.loadingAccount")} />}
+        {account.data ? (
+          <>
+            <CapacityNotice />
+            <Outlet />
+          </>
+        ) : (
+          <LoadingState label={t("shell.loadingAccount")} />
+        )}
       </AnnounceContext.Provider>
       <LiveRegion message={announcement} />
     </AppShell>

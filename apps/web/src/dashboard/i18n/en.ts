@@ -13,6 +13,11 @@ export const en = {
   "shell.signingOut": "Signing you out.",
   "shell.signOutFailed": "Sign out did not finish. Try again.",
   "shell.loadingAccount": "Loading your account",
+  "shell.capacity.title": "Portifact is protecting its capacity",
+  "shell.capacity.new_artifacts":
+    "Creating new artifacts is paused for now. Updates to your artifacts still work, and your artifacts stay online.",
+  "shell.capacity.publishing":
+    "New uploads are paused for now, and new comments may be too. Your artifacts stay online, and you can still read, export, delete, renew and reduce access.",
 
   "list.title": "Artifacts",
   "list.description": "Everything you published. The list refreshes while this tab is open.",

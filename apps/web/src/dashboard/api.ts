@@ -5,6 +5,7 @@ import {
   AccessPolicyView,
   type AccessUpdate,
   AccountDeletionResult,
+  AccountUsageView,
   AnnotationDeleteResult,
   AnnotationModeView,
   AnnotationPage,
@@ -68,6 +69,8 @@ export interface SignInMethod {
 export interface DashboardApi {
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
+  /** The account's quotas and blocks, including the platform's budget protection. */
+  usage(): Promise<AccountUsageView>;
   signOut(): Promise<void>;
   listArtifacts(cursor?: string): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
@@ -211,6 +214,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         throw new ApiFailure("network", 0);
       }
       if (!response.ok) throw new ApiFailure("unexpected", response.status);
+    },
+    usage() {
+      return call("/api/v1/usage", AccountUsageView);
     },
     listArtifacts(cursor) {
       const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";

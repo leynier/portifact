@@ -659,4 +659,66 @@ export const annotationUsage = sqliteTable(
   ],
 );
 
+/** Budget levels and protection actions; the rules that use them live in packages/domain/src/budget.ts. */
+export const BUDGET_LEVELS = ["none", "alert25", "alert50", "slow75", "protect100"] as const;
+
+/**
+ * The platform's budget state (plan section 12): one row, written by the jobs Worker every run with
+ * the cycle's metrics, projected spend and automatic protection, and by the operator tool for an
+ * override. Services read it to enforce protection; nothing else writes it.
+ */
+export const platformBudget = sqliteTable(
+  "platform_budget",
+  {
+    id: text("id").primaryKey().default("global"),
+    /** Start of the cycle the metrics belong to (calendar month in UTC). */
+    cycleStart: timestamp("cycle_start").notNull(),
+    /** Automatic level and actions (a JSON array of protection actions) from the last run. */
+    level: text("level", { enum: BUDGET_LEVELS }).notNull().default("none"),
+    actions: text("actions").notNull().default("[]"),
+    projectedCents: integer("projected_cents").notNull().default(0),
+    /** The last measured metrics (JSON) and whether Cloudflare's analytics contributed to them. */
+    metrics: text("metrics").notNull(),
+    analytics: text("analytics", { enum: ["off", "ok", "failed"] })
+      .notNull()
+      .default("off"),
+    measuredAt: timestamp("measured_at").notNull(),
+    /** When the automatic level or actions last changed. */
+    levelChangedAt: timestamp("level_changed_at").notNull(),
+    /** Operator override: replaces the automatic decision until `override_until` (null: cleared by hand). */
+    overrideLevel: text("override_level", { enum: BUDGET_LEVELS }),
+    overrideSteps: integer("override_steps"),
+    overrideUntil: timestamp("override_until"),
+    overrideNote: text("override_note"),
+    overrideSetAt: timestamp("override_set_at"),
+  },
+  (t) => [
+    check("platform_budget_single_row", sql`${t.id} = 'global'`),
+    check(
+      "platform_budget_override_steps",
+      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 4`,
+    ),
+  ],
+);
+
+/**
+ * Budget alerts for the operator, at most one per kind and cycle: a spend threshold crossed
+ * (`spend_25` ... `spend_100`) or a global admission limit reached (`admission_<metric>`).
+ * `notified_at` is set once the alert email went out; without email configured it stays null and
+ * the operator tool shows the alert.
+ */
+export const budgetAlerts = sqliteTable(
+  "budget_alerts",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    cycleStart: timestamp("cycle_start").notNull(),
+    kind: text("kind").notNull(),
+    level: text("level", { enum: BUDGET_LEVELS }).notNull(),
+    projectedCents: integer("projected_cents").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    notifiedAt: timestamp("notified_at"),
+  },
+  (t) => [uniqueIndex("budget_alerts_cycle_kind_idx").on(t.cycleStart, t.kind)],
+);
+
 export * from "./auth-schema.ts";

@@ -12,6 +12,7 @@ import {
 } from "@portifact/db";
 import { effectiveState, isArtifactId, normalizePath } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
+import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import { BRIDGE_PATH, bridgeScript, cspNonce, injectBridge, reviewStatusPage } from "./inject.ts";
 import {
   authorizeRead,
@@ -30,7 +31,7 @@ import {
   type ReviewStep,
 } from "./review.ts";
 
-export interface Env {
+export interface Env extends BudgetEnv {
   DB: D1Database;
   ARTIFACTS: R2Bucket;
   /** Registrable domain of artifact origins, for example `portifact.dev`. */
@@ -48,7 +49,10 @@ export interface Env {
 export const REPORT_PATH = "/__portifact/report";
 
 /** User-facing text of the pages this Worker answers itself. */
-const PAGES: Record<Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailable", string> = {
+const PAGES: Record<
+  Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailable" | "slowDown",
+  string
+> = {
   notFound: "This artifact does not exist or is no longer available",
   signIn: "Sign in to open this artifact",
   unavailable: "Signing in to artifacts is temporarily unavailable. Try again later",
@@ -57,6 +61,7 @@ const PAGES: Record<Page | "methodNotAllowed" | "serviceWorker" | "fileUnavailab
   methodNotAllowed: "Method not allowed",
   serviceWorker: "Service workers are not allowed on artifacts",
   fileUnavailable: "This file is temporarily unavailable",
+  slowDown: "Too many requests right now. Try again in a minute",
 };
 
 /** Pages where retrying from the artifact's root is the way forward. */
@@ -147,6 +152,13 @@ async function serve(
   reviewSession?: ReviewServe,
 ): Promise<Response> {
   const review = reviewSession !== undefined;
+  // Budget protection (plan section 12): a tight per-visitor limit, public traffic first.
+  const isPublic = artifact.accessMode === "public" && !review;
+  if (await overTrafficLimit(request, env, db, isPublic, Date.now())) {
+    const limited = withCookies(message(429, PAGES.slowDown), setCookies);
+    limited.headers.set("Retry-After", "60");
+    return limited;
+  }
   const resolved = await resolveFile(
     db,
     artifact,
