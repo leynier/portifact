@@ -8,6 +8,7 @@ import {
   type ManifestEntry,
   type PrepareInput,
   preparePublish,
+  uploadProgress,
   validateManifest,
 } from "../src/publish.ts";
 
@@ -291,6 +292,17 @@ describe("commit", () => {
     expect(second.uploads[0]?.sha256).toBe(await sha256(v2["index.html"]));
   });
 
+  it("asks for content another open upload declared but never sent, and commits once it arrives", async () => {
+    const abandoned = await prepared(await site(v1));
+    const second = await prepared(await site(v1), { name: "Other" });
+    expect(second.uploads.map((u) => u.sha256).sort()).toEqual(
+      abandoned.uploads.map((u) => u.sha256).sort(),
+    );
+    await abortPublish(db(), { ownerId: OWNER, sessionId: abandoned.sessionId, now: NOW });
+    await upload(v1);
+    expect((await committed(second.sessionId)).versionNumber).toBe(1);
+  });
+
   it("keeps the previous version for seven days after an update", async () => {
     const first = await prepared(await site(v1));
     await upload(v1);
@@ -455,5 +467,45 @@ describe("abort", () => {
       ok: false,
       code: "not_found",
     });
+  });
+});
+
+describe("upload progress", () => {
+  it("lists the objects still pending of an open upload, and nothing once committed", async () => {
+    const first = await prepared(await site(v1));
+    const progress = await uploadProgress(db(), {
+      ownerId: OWNER,
+      sessionId: first.sessionId,
+      now: NOW,
+    });
+    expect(progress.ok && progress.value.uploads.map((u) => u.sha256).sort()).toEqual(
+      first.uploads.map((u) => u.sha256).sort(),
+    );
+    expect(progress.ok && progress.value.versionNumber).toBe(1);
+    await upload(v1);
+    await committed(first.sessionId);
+    const after = await uploadProgress(db(), {
+      ownerId: OWNER,
+      sessionId: first.sessionId,
+      now: NOW,
+    });
+    expect(after).toMatchObject({ ok: false, code: "upload_incomplete" });
+  });
+
+  it("hides another account's upload and refuses an expired one", async () => {
+    const open = await prepared(await site(v1));
+    expect(
+      await uploadProgress(db(), { ownerId: "u_else", sessionId: open.sessionId, now: NOW }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(
+      await uploadProgress(db(), { ownerId: OWNER, sessionId: "upl_missing", now: NOW }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(
+      await uploadProgress(db(), {
+        ownerId: OWNER,
+        sessionId: open.sessionId,
+        now: open.expiresAt,
+      }),
+    ).toMatchObject({ ok: false, code: "upload_incomplete" });
   });
 });

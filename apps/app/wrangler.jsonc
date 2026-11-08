@@ -27,7 +27,10 @@
   "vars": {
     "APP_ORIGIN": "https://app.portifact.com",
     "GOOGLE_CLIENT_ID": "929390487848-4aapfnvndu3g70ihbg8k0g4ad0fa86pv.apps.googleusercontent.com",
-    "GITHUB_CLIENT_ID": "Ov23liDZT9UwEKl6rZoY"
+    "GITHUB_CLIENT_ID": "Ov23liDZT9UwEKl6rZoY",
+    "CONTENT_DOMAIN": "portifact.dev",
+    "R2_ACCOUNT_ID": "6df65be91ad130fd6aa8cb64ac017f22",
+    "R2_BUCKET": "portifact-artifacts"
   },
   "d1_databases": [
     {
@@ -38,6 +41,7 @@
     }
   ],
   // Cloudflare Email Service, onboarded for portifact.com. Sends sign-in codes.
+  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" }],
   "send_email": [{ "name": "EMAIL" }],
   "observability": {
     "enabled": true,

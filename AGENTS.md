@@ -25,7 +25,7 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 ## Repository layout
 
 ```text
-apps/app        Worker for portifact.com: landing assets and installers today; API, auth, OAuth, MCP and jobs later
+apps/app        Worker for portifact.com and app.portifact.com: landing, installers, identity, OAuth and the /api/v1 publishing API; MCP tools later
 apps/content    Worker for <id>.portifact.dev: public artifact delivery today; session handoffs, bridge and viewers later
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)

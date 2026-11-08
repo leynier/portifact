@@ -47,15 +47,17 @@ Every push to `main` also runs the `deploy` job after `release`: it applies pend
 
 ### App Worker configuration
 
-Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID` and `GITHUB_CLIENT_ID`. The Worker also binds the `portifact-control` D1 database and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
+Non-secret values live in `vars` in `apps/app/wrangler.jsonc`: `APP_ORIGIN`, `GOOGLE_CLIENT_ID`, `GITHUB_CLIENT_ID`, `CONTENT_DOMAIN`, and `R2_ACCOUNT_ID` with `R2_BUCKET` for the S3 endpoint that presigned uploads target. The Worker also binds the `portifact-control` D1 database, the `portifact-artifacts` bucket as `ARTIFACTS` (to verify uploads at commit) and Cloudflare Email Service as `EMAIL` (`send_email`, sending from `noreply@portifact.com`).
 
 Secrets are set once on the `portifact-app` Worker and survive deploys:
 
-| Secret                 | Value                                                                                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`   | 32 random bytes, base64 (`openssl rand -base64 32`). Rotating it signs out every session and voids pending authorization and consent requests. |
-| `GOOGLE_CLIENT_SECRET` | Secret of the Google OAuth client whose ID is `GOOGLE_CLIENT_ID`.                                                                              |
-| `GITHUB_CLIENT_SECRET` | Secret of the GitHub OAuth app whose ID is `GITHUB_CLIENT_ID`.                                                                                 |
+| Secret                 | Value                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BETTER_AUTH_SECRET`   | 32 random bytes, base64 (`openssl rand -base64 32`). Rotating it signs out every session and voids pending authorization and consent requests.   |
+| `GOOGLE_CLIENT_SECRET` | Secret of the Google OAuth client whose ID is `GOOGLE_CLIENT_ID`.                                                                                |
+| `GITHUB_CLIENT_SECRET` | Secret of the GitHub OAuth app whose ID is `GITHUB_CLIENT_ID`.                                                                                   |
+| `R2_ACCESS_KEY_ID`     | Access key ID of the R2 API token `portifact-app-uploads`, limited to Object Read and Write on `portifact-artifacts`. It only signs upload URLs. |
+| `R2_SECRET_ACCESS_KEY` | Secret access key of that token. Rotating it voids upload URLs already issued; clients ask for fresh ones with `GET /api/v1/publishes/:id`.      |
 
 Set or rotate one by piping it to `wrangler secret put <NAME> --name portifact-app` from `apps/app`, with `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` in the environment, so the value never appears in the shell history or the output. The Google client must allow the redirect URI `https://app.portifact.com/api/auth/callback/google` and the GitHub app the callback URL `https://app.portifact.com/api/auth/callback/github`.
 
