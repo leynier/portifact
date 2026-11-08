@@ -19,7 +19,7 @@
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
-    "happy-dom": "^20.0.0",
+    "happy-dom": "^21.0.4",
     "tailwindcss": "^4.0.0",
     "typescript": "catalog:",
     "vite": "^8.0.0",

@@ -32,7 +32,13 @@ The `terminal`, `terminal-text`, `terminal-muted` and `terminal-border` tokens d
 
 Motion tokens and utilities live in `packages/ui/src/tokens/theme.css`: `animate-rise`, `animate-fade`, `animate-type`, `animate-sweep` and `animate-blink`, staggered with `animate-delay-<n>`. Always apply them through the `motion-safe:` variant, so nothing moves under `prefers-reduced-motion` and every element rests in its final state. Motion is decorative only; it never carries information.
 
-Pattern utilities (`bg-dot-grid`, `bg-hatch`, `bg-highlight` for a selection-style text highlight on `mark`, and `marker-none` for custom `summary` disclosures) and the `shadow-sm` and `shadow-float` elevations are defined there too. Tailwind's default shadows are removed.
+The landing hero types its second line with `apps/web/src/typewriter.ts`: one pass through the phrases, then it settles on the first and the caret fades, so nothing keeps moving. The `h1` keeps a visually hidden, complete sentence for assistive technology and marks the animated part `aria-hidden`; invisible copies of every phrase share one grid cell so the line never changes height. Under reduced motion the script does nothing and the caret (`typing-caret`, a block sized in `em` and colored with a token utility such as `bg-text`) is hidden.
+
+Pattern utilities (`bg-dot-grid`, `bg-hatch`, `bg-highlight` for a selection-style text highlight on `mark`, `marker-none` for custom `summary` disclosures and `typing-caret`) and the `shadow-sm` and `shadow-float` elevations are defined there too. Tailwind's default shadows are removed.
+
+The base layer gives every enabled `button`, `[role="button"]`, `[role="tab"]`, `summary` and `label[for]` the pointer cursor, which Tailwind v4 preflight no longer sets. Do not add `cursor-pointer` to those elements in apps.
+
+Brand and client icons, such as the supported-agents strip on the landing page, are inline SVG with `fill="currentColor"`, so they take a token text color and never show brand colors.
 
 ## Writing style
 

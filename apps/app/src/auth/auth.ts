@@ -49,7 +49,7 @@ export function createAuth(env: Env, deps: AuthDeps) {
     // clients; web clients keep the https-only redirect policy.
     clientRegistrationDefaultApplicationType: "infer",
     // A client may only request resources it is linked to (RFC 8707). Every new client is
-    // linked to the MCP resource; the CLI client is linked to the API by migration 0002.
+    // linked to the MCP resource; the CLI client is linked to the API by migration 0003.
     clientRegistrationDefaultResources: [urls.mcpResource],
   });
 

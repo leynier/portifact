@@ -10,7 +10,7 @@ export const ALL_SCOPES: readonly string[] = [...PORTIFACT_SCOPES, OFFLINE_ACCES
 // The minimal set an MCP client requests first; more scopes come through step-up.
 export const MCP_BASELINE_SCOPES: readonly string[] = ["artifacts:read"];
 
-/** The first-party CLI client, seeded by migration 0002. */
+/** The first-party CLI client, seeded by migration 0003. */
 export const CLI_CLIENT_ID = "portifact-cli";
 
 export interface AuthUrls {

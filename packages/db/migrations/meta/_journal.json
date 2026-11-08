@@ -12,15 +12,22 @@
     {
       "idx": 1,
       "version": "6",
-      "when": 1794113522062,
-      "tag": "0001_identity",
+      "when": 1794112958858,
+      "tag": "0001_lifecycle_triggers",
       "breakpoints": true
     },
     {
       "idx": 2,
       "version": "6",
+      "when": 1794113522062,
+      "tag": "0002_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
       "when": 1794113532422,
-      "tag": "0002_seed_oauth_clients",
+      "tag": "0003_seed_oauth_clients",
       "breakpoints": true
     }
   ]

@@ -35,7 +35,7 @@ let deviceClients = 0;
 
 /**
  * Another public device-grant client shaped like the seeded CLI, for tests that need two
- * clients. Inserted directly, the way migration 0002 seeds the CLI.
+ * clients. Inserted directly, the way migration 0003 seeds the CLI.
  */
 export async function insertDeviceClient(): Promise<string> {
   deviceClients += 1;
