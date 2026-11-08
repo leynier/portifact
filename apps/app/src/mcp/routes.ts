@@ -5,6 +5,7 @@
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { LIMITS } from "@portifact/contracts";
 import { Hono } from "hono";
+import type { Presigner } from "../api/presign.ts";
 import { MCP_BASELINE_SCOPES } from "../auth/config.ts";
 import {
   authorizeResourceRequest,
@@ -18,6 +19,7 @@ import { createPortifactServer, TOOL_SCOPES } from "./tools.ts";
 export interface McpDeps {
   introspect(env: Env): Introspect;
   resource(env: Env): ProtectedResource;
+  presigner(env: Env): Presigner;
   now(): number;
 }
 
@@ -43,7 +45,13 @@ export function mcpRoutes(deps: McpDeps) {
 
     const { principal } = decision;
     const handler = createMcpHandler(
-      () => createPortifactServer({ env: c.env, userId: principal.userId, now: deps.now }),
+      () =>
+        createPortifactServer({
+          env: c.env,
+          userId: principal.userId,
+          now: deps.now,
+          presigner: deps.presigner(c.env),
+        }),
       { legacy: "stateless", maxRequestBodySize: MAX_REQUEST_BYTES },
     );
     const request = new Request(c.req.raw.url, {

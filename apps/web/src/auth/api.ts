@@ -55,13 +55,25 @@ export function field(body: unknown, name: string): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
-/** The signed-in user's email, or undefined when there is no session. */
-export async function currentUserEmail(api: Api): Promise<string | undefined> {
+export interface CurrentUser {
+  email: string;
+  /** The version of the terms the account accepted, if any. */
+  termsVersion: string | undefined;
+}
+
+/** The signed-in user, or undefined when there is no session. */
+export async function currentUser(api: Api): Promise<CurrentUser | undefined> {
   const response = await api.get("/get-session");
   if (response.status !== 200) return undefined;
   const user =
     typeof response.body === "object" && response.body !== null
       ? (response.body as Record<string, unknown>).user
       : undefined;
-  return field(user, "email");
+  const email = field(user, "email");
+  return email ? { email, termsVersion: field(user, "termsVersion") } : undefined;
+}
+
+/** The signed-in user's email, or undefined when there is no session. */
+export async function currentUserEmail(api: Api): Promise<string | undefined> {
+  return (await currentUser(api))?.email;
 }

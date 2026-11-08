@@ -4,15 +4,29 @@
 import { type ArtifactType, LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import {
+  checkDocumentManifest,
   checkPublish,
+  checkRenderedVersion,
+  DOCUMENT_CONTENT_TYPES,
+  type DocumentType,
   fail,
   generateArtifactId,
+  isDocumentType,
   nextExpiry,
   ok,
   type Result,
   validateManifestPaths,
 } from "@portifact/domain";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
+import {
+  type DocumentRendering,
+  renderDocument,
+  renderingStatements,
+  storeRenderings,
+} from "./documents.ts";
+import { hex, objectKey } from "./objects.ts";
+
+export { objectKey } from "./objects.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -20,6 +34,8 @@ const UPLOAD_TTL_MS = 24 * HOUR_MS;
 const SHA256 = /^[0-9a-f]{64}$/;
 /** D1 allows at most 100 bound parameters per statement. */
 const LOOKUP_CHUNK = 90;
+/** Manifest kinds the client uploads; the server writes the others when it renders. */
+const UPLOADED_KINDS: ("published" | "source")[] = ["published", "source"];
 
 export interface ManifestEntry {
   path: string;
@@ -56,10 +72,6 @@ export interface PreparedUpload {
   expiresAt: number;
   /** Objects the client must upload; the rest are already stored for this account. */
   uploads: PendingUpload[];
-}
-
-export function objectKey(ownerId: string, sha256: string): string {
-  return `objects/${ownerId}/${sha256}`;
 }
 
 function newId(prefix: string): string {
@@ -102,6 +114,32 @@ export function validateManifest(
   return ok(normalized);
 }
 
+/** The entrypoint's normalized path; `validateManifest` has already accepted it. */
+function normalizedEntrypoint(raw: string): string {
+  const result = validateManifestPaths([raw]);
+  return result.ok ? (result.value[0] ?? raw) : raw;
+}
+
+/**
+ * Checks a document manifest and stores its original with the document's MIME type, whatever
+ * the client sent, so the download can never be served as HTML.
+ */
+function documentManifest(
+  type: DocumentType,
+  entrypoint: string,
+  files: ManifestEntry[],
+): Result<ManifestEntry[]> {
+  const checked = checkDocumentManifest(type, entrypoint, files);
+  if (!checked.ok) return checked;
+  return ok(
+    files.map((file) =>
+      file.kind === "published" && file.path === entrypoint
+        ? { ...file, contentType: DOCUMENT_CONTENT_TYPES[type] }
+        : file,
+    ),
+  );
+}
+
 async function existingObjects(db: Db, ownerId: string, hashes: string[]): Promise<Set<string>> {
   const found = new Set<string>();
   for (let i = 0; i < hashes.length; i += LOOKUP_CHUNK) {
@@ -123,7 +161,8 @@ async function existingObjects(db: Db, ownerId: string, hashes: string[]): Promi
   return found;
 }
 
-async function windowSum(
+/** Sum of an account's usage events of one kind since `since`, for the 24-hour limits. */
+export async function windowSum(
   db: Db,
   ownerId: string,
   kind: "publish" | "new_files" | "new_bytes",
@@ -149,7 +188,12 @@ function monthStart(now: number): number {
 
 /** Validates, deduplicates and admits a publish, then reserves its capacity in one transaction. */
 export async function preparePublish(db: Db, input: PrepareInput): Promise<Result<PreparedUpload>> {
-  const manifest = validateManifest(input);
+  const validated = validateManifest(input);
+  if (!validated.ok) return validated;
+  const entrypoint = normalizedEntrypoint(input.entrypoint);
+  const manifest = isDocumentType(input.type)
+    ? documentManifest(input.type, entrypoint, validated.value)
+    : validated;
   if (!manifest.ok) return manifest;
   const name = input.name.trim();
   if (name.length === 0 || name.length > 200)
@@ -270,7 +314,7 @@ export async function preparePublish(db: Db, input: PrepareInput): Promise<Resul
         artifactId,
         number: versionNumber,
         authorId: input.ownerId,
-        entrypoint: input.entrypoint.replace(/^\.\//, ""),
+        entrypoint,
         publishedBytes,
         sourceBytes: manifest.value
           .filter((file) => file.kind === "source")
@@ -352,10 +396,6 @@ async function objectSha256(object: R2ObjectBody): Promise<string> {
   return hex(await digest.digest);
 }
 
-function hex(buffer: ArrayBuffer): string {
-  return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
 /**
  * Verifies the uploaded objects and makes the version current. The switch is conditional on
  * the base version, and every other write is conditioned on that switch having happened, so a
@@ -414,6 +454,7 @@ export async function commitPublish(
     .where(
       and(
         eq(schema.versionFiles.versionId, session.versionId),
+        inArray(schema.versionFiles.kind, UPLOADED_KINDS),
         eq(schema.objects.ownerId, input.ownerId),
         eq(schema.objects.state, "pending"),
       ),
@@ -440,18 +481,48 @@ export async function commitPublish(
   }
 
   const [version] = await db
-    .select({ number: schema.versions.number })
+    .select({
+      number: schema.versions.number,
+      entrypoint: schema.versions.entrypoint,
+      publishedBytes: schema.versions.publishedBytes,
+    })
     .from(schema.versions)
     .where(eq(schema.versions.id, session.versionId))
     .limit(1);
+  const [artifact] = await db
+    .select({ type: schema.artifacts.type, name: schema.artifacts.name })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, session.artifactId))
+    .limit(1);
+  const sessionOpen = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.id} = ${session.id} and ${schema.uploadSessions.state} in ('uploading', 'ready'))`;
+  let rendering: DocumentRendering | null = null;
+  if (version && artifact && isDocumentType(artifact.type)) {
+    const rendered = await renderVersion(db, bucket, {
+      ownerId: input.ownerId,
+      versionId: session.versionId,
+      type: artifact.type,
+      name: artifact.name,
+      entrypoint: version.entrypoint,
+      publishedBytes: version.publishedBytes,
+      guard: sessionOpen,
+      now: input.now,
+    });
+    if (!rendered.ok) {
+      // The same bytes would fail again, so the upload cannot succeed; release it now.
+      await abortPublish(db, { ...input, sessionId: session.id }, "failed");
+      return rendered;
+    }
+    rendering = rendered.value;
+  }
+  const renderedHashes = rendering?.files.map((file) => file.sha256) ?? [];
   const expiresAt = nextExpiry(new Date(input.now)).getTime();
   // Every write after the switch applies only if this commit performed it: the artifact now
   // points at this version and the session is still open. The session is closed last, so a
   // concurrent or repeated commit of the same session cannot apply the effects twice.
-  const switched = sql`(exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${session.artifactId} and ${schema.artifacts.currentVersionId} = ${session.versionId}) and exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.id} = ${session.id} and ${schema.uploadSessions.state} in ('uploading', 'ready')))`;
+  const switched = sql`(exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${session.artifactId} and ${schema.artifacts.currentVersionId} = ${session.versionId}) and ${sessionOpen})`;
   const verified = pending.map((object) => object.sha256);
 
-  const [switchResult] = await db.batch([
+  const batch = db.batch([
     db
       .update(schema.artifacts)
       .set({
@@ -475,7 +546,11 @@ export async function commitPublish(
       ),
     db
       .update(schema.versions)
-      .set({ state: "committed", committedAt: input.now })
+      .set({
+        state: "committed",
+        committedAt: input.now,
+        rendererVersion: rendering?.rendererVersion ?? null,
+      })
       .where(and(eq(schema.versions.id, session.versionId), switched)),
     ...(session.baseVersionId
       ? [
@@ -494,6 +569,28 @@ export async function commitPublish(
               and(
                 eq(schema.objects.ownerId, input.ownerId),
                 inArray(schema.objects.sha256, verified),
+                switched,
+              ),
+            ),
+        ]
+      : []),
+    // Renderings are new bytes the reservation could not know about. They count once, when
+    // their object becomes verified; the CHECK constraint refuses them past the account limit.
+    ...(renderedHashes.length > 0
+      ? [
+          db
+            .update(schema.accountUsage)
+            .set({
+              storedBytes: sql`${schema.accountUsage.storedBytes} + (select coalesce(sum(${schema.objects.size}), 0) from ${schema.objects} where ${schema.objects.ownerId} = ${input.ownerId} and ${inArray(schema.objects.sha256, renderedHashes)} and ${schema.objects.state} = 'pending')`,
+            })
+            .where(and(eq(schema.accountUsage.ownerId, input.ownerId), switched)),
+          db
+            .update(schema.objects)
+            .set({ state: "verified" })
+            .where(
+              and(
+                eq(schema.objects.ownerId, input.ownerId),
+                inArray(schema.objects.sha256, renderedHashes),
                 switched,
               ),
             ),
@@ -532,6 +629,16 @@ export async function commitPublish(
       .set({ state: "committed" })
       .where(and(eq(schema.uploadSessions.id, session.id), switched)),
   ]);
+  // A CHECK failure means the renderings do not fit the account; anything else is unexpected.
+  const outcome = await batch.catch((error: unknown) => {
+    if (constraintFailed(error, "CHECK")) return null;
+    throw error;
+  });
+  if (outcome === null) {
+    await abortPublish(db, { ...input, sessionId: session.id }, "failed");
+    return fail("quota_exceeded", "With its rendered page, this publish exceeds your storage.");
+  }
+  const [switchResult] = outcome;
 
   if (changes(switchResult) === 0) {
     await abortPublish(
@@ -550,6 +657,71 @@ export async function commitPublish(
     versionNumber: version?.number ?? 0,
     expiresAt,
   });
+}
+
+interface RenderVersionInput {
+  ownerId: string;
+  versionId: string;
+  type: DocumentType;
+  name: string;
+  entrypoint: string;
+  publishedBytes: number;
+  guard: SQL;
+  now: number;
+}
+
+/**
+ * Renders the document of a version being committed and stores the rendering as pending
+ * objects of that version. The commit batch verifies them and counts their bytes.
+ */
+async function renderVersion(
+  db: Db,
+  bucket: R2Bucket,
+  input: RenderVersionInput,
+): Promise<Result<DocumentRendering>> {
+  const [source] = await db
+    .select({ sha256: schema.objects.sha256, r2Key: schema.objects.r2Key })
+    .from(schema.versionFiles)
+    .innerJoin(
+      schema.objects,
+      and(
+        eq(schema.objects.ownerId, schema.versionFiles.ownerId),
+        eq(schema.objects.sha256, schema.versionFiles.sha256),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.versionFiles.versionId, input.versionId),
+        eq(schema.versionFiles.kind, "published"),
+        eq(schema.versionFiles.path, input.entrypoint),
+      ),
+    )
+    .limit(1);
+  if (!source) return fail("upload_incomplete", "The document's source is missing.");
+  const rendered = await renderDocument(bucket, {
+    type: input.type,
+    name: input.name,
+    sourceKey: source.r2Key,
+    sourceSha256: source.sha256,
+  });
+  if (!rendered.ok) return rendered;
+  const fits = checkRenderedVersion(input.publishedBytes, rendered.value.bytes);
+  if (!fits.ok) return fits;
+  // Rows first: the version references the objects before their bytes exist, so the orphan
+  // sweep never deletes them, and a failed commit leaves them to the abandoned-version cleanup.
+  const [first, ...rest] = renderingStatements(db, {
+    ownerId: input.ownerId,
+    versionId: input.versionId,
+    entrypoint: input.entrypoint,
+    files: rendered.value.files,
+    state: "pending",
+    guard: input.guard,
+    now: input.now,
+  });
+  // A rendering always has its page, so there is a first statement.
+  if (first) await db.batch([first, ...rest]);
+  await storeRenderings(bucket, input.ownerId, rendered.value.files);
+  return rendered;
 }
 
 /**
@@ -597,6 +769,7 @@ export async function uploadProgress(
     .where(
       and(
         eq(schema.versionFiles.versionId, session.versionId),
+        inArray(schema.versionFiles.kind, UPLOADED_KINDS),
         eq(schema.objects.ownerId, input.ownerId),
         eq(schema.objects.state, "pending"),
       ),

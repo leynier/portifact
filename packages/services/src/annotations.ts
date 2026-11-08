@@ -6,7 +6,7 @@
 // rate limits and the row's previous state. Every other write of the batch runs only if that
 // event (found by its per-request `write_id`) exists. If the claim does not happen the checks
 // run again to explain why, falling back to `version_conflict`. Owner quotas are also CHECK
-// constraints kept by triggers (`0006_annotation_usage_triggers.sql`).
+// constraints kept by triggers (`0007_annotation_usage_triggers.sql`).
 //
 // Threads point at one version and never move. Visitors see only the current version's
 // threads, so a new version or a rollback needs no hook here: what is current follows

@@ -6,6 +6,7 @@ import type { Env } from "../env.ts";
 import type { Auth } from "./auth.ts";
 import { AUTH_BASE_PATH, authUrls } from "./config.ts";
 import { checkLimits, ENDPOINT_LIMITS, otpSendChecks, pruneOldCounters } from "./limits.ts";
+import { ACCEPT_TERMS_PATH, acceptTerms } from "./terms.ts";
 
 /**
  * `browser` endpoints use the dashboard session cookie, so their mutations need the exact app
@@ -30,6 +31,8 @@ const ENDPOINTS: Record<string, { method: "GET" | "POST"; kind: EndpointKind }> 
   "/device": { method: "GET", kind: "browser" },
   "/device/approve": { method: "POST", kind: "browser" },
   "/device/deny": { method: "POST", kind: "browser" },
+  // Portifact's own endpoint (terms.ts), answered by the Worker instead of Better Auth.
+  [ACCEPT_TERMS_PATH]: { method: "POST", kind: "browser" },
   "/oauth2/token": { method: "POST", kind: "client" },
   "/oauth2/revoke": { method: "POST", kind: "client" },
   "/oauth2/register": { method: "POST", kind: "client" },
@@ -58,6 +61,18 @@ export function authRoutes(authFor: (env: Env) => Auth) {
 
     const refused = await refuseRequest(path, request, c.env, c.executionCtx);
     if (refused) return authHeaders(refused);
+
+    if (path === ACCEPT_TERMS_PATH) {
+      return authHeaders(
+        await acceptTerms(request, {
+          db: c.env.DB,
+          secret: c.env.BETTER_AUTH_SECRET,
+          sessionUserId: async (req) =>
+            (await authFor(c.env).api.getSession({ headers: req.headers }))?.user.id,
+          now: Date.now(),
+        }),
+      );
+    }
 
     return authHeaders(await authFor(c.env).handler(request));
   });

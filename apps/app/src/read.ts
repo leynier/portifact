@@ -8,6 +8,7 @@
 // opened.
 import { ArtifactId, OpaqueToken } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
+import { needsTermsAcceptance } from "@portifact/domain";
 import { issueReadHandoff } from "@portifact/services";
 import { Hono } from "hono";
 import type { Auth } from "./auth/auth.ts";
@@ -31,8 +32,9 @@ export function readRoutes(authFor: (env: Env) => Auth) {
     const state = parsed.data;
 
     // The account always comes from the session cookie, never from the request.
+    // An account that has not accepted the current terms accepts them on the login page first.
     const session = await authFor(c.env).api.getSession({ headers: c.req.raw.headers });
-    if (!session) {
+    if (!session || needsTermsAcceptance(session.user.termsVersion)) {
       const back = `/read/${id}?${new URLSearchParams({ state })}`;
       return redirect(`/login?${new URLSearchParams({ next: back })}`);
     }

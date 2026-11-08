@@ -5,10 +5,13 @@ import {
   createDb,
   type Db,
   type DeliveryArtifact,
+  type DeliveryFile,
   findDeliveryArtifact,
   findPublishedFile,
+  findRenderedPage,
 } from "@portifact/db";
 import { effectiveState, isArtifactId, normalizePath } from "@portifact/domain";
+import { documentPolicy } from "@portifact/render/policy";
 import {
   authorizeRead,
   CALLBACK_PATH,
@@ -89,19 +92,25 @@ async function serve(
   url: URL,
   setCookies: string[],
 ): Promise<Response> {
-  const path = requestedPath(url.pathname);
-  if (path === null) return withCookies(notFound(), setCookies);
-
-  const file =
-    (await findPublishedFile(db, artifact.currentVersionId, path)) ??
-    (hasExtension(path)
-      ? null
-      : await findPublishedFile(db, artifact.currentVersionId, `${path}/index.html`));
-  if (!file) return withCookies(notFound(), setCookies);
+  const resolved = await resolveFile(db, artifact, url.pathname);
+  if (resolved === "unrendered") {
+    return withCookies(message(503, PAGES.fileUnavailable), setCookies);
+  }
+  if (!resolved) return withCookies(notFound(), setCookies);
+  const { file, role } = resolved;
 
   const headers = contentHeaders(artifact, env);
   for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
   headers.set("Content-Type", file.contentType);
+  if (role === "page") {
+    // The page carries this policy as a <meta> too; the header also covers what a meta cannot.
+    headers.set(
+      "Content-Security-Policy",
+      `${documentPolicy(false)}; ${headers.get("Content-Security-Policy")}`,
+    );
+  } else if (role === "original") {
+    headers.set("Content-Disposition", attachment(file.path));
+  }
   headers.set("ETag", `"${file.sha256}"`);
   headers.set("Accept-Ranges", "bytes");
 
@@ -124,6 +133,46 @@ async function serve(
   }
   headers.set("Content-Length", String(file.size));
   return new Response(object.body, { status: 200, headers });
+}
+
+type Resolved = { file: DeliveryFile; role: "file" | "page" | "original" };
+
+/**
+ * Finds what a path serves. A document's root is its rendered page, rendered once at publish;
+ * its original is a download at its own path, and Markdown assets are files like a site's.
+ */
+async function resolveFile(
+  db: Db,
+  artifact: ServableArtifact,
+  pathname: string,
+): Promise<Resolved | "unrendered" | null> {
+  const versionId = artifact.currentVersionId;
+  const isDocument = artifact.type !== "site" && artifact.entrypoint !== null;
+  if (isDocument && pathname === "/") {
+    const page = await findRenderedPage(db, versionId, artifact.entrypoint as string);
+    return page ? { file: page, role: "page" } : "unrendered";
+  }
+  const path = requestedPath(pathname);
+  if (path === null) return null;
+  const file =
+    (await findPublishedFile(db, versionId, path)) ??
+    (hasExtension(path) ? null : await findPublishedFile(db, versionId, `${path}/index.html`));
+  if (!file) return null;
+  return { file, role: isDocument && file.path === artifact.entrypoint ? "original" : "file" };
+}
+
+/** Download disposition with an ASCII fallback and the exact UTF-8 name (RFC 6266). */
+export function attachment(path: string): string {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const fallback = name.replace(/[^\x20-\x7e]|["\\]/g, "_");
+  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(name)}`;
+}
+
+function encodeRfc5987(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 /** `<id>.portifact.dev` to `<id>`; anything else (apex, nested labels, bad IDs) is not an artifact. */

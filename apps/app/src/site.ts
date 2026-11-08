@@ -1,6 +1,7 @@
-// portifact.com and www.portifact.com: the landing page and the installer redirects.
+// portifact.com and www.portifact.com: the landing page, the legal pages and the installer
+// redirects.
 import { Hono } from "hono";
-import { AUTH_PAGES, DASHBOARD_PAGE } from "./app-host.ts";
+import { AUTH_PAGES, DASHBOARD_PAGE, PAGE_CSP } from "./app-host.ts";
 import type { Env } from "./env.ts";
 
 const REPO = "leynier/portifact";
@@ -16,6 +17,24 @@ const installers: Record<string, string> = {
 const appOnlyPaths = new Set<string>(
   [...AUTH_PAGES, DASHBOARD_PAGE].flatMap((page) => [page, `${page}.html`]),
 );
+
+/** The Terms of Service, Privacy Policy and Acceptable Use Policy, built by apps/web. */
+export const LEGAL_PAGES = ["/terms", "/privacy", "/acceptable-use"] as const;
+
+/**
+ * Static documents with no script: the strict page policy, never framed, and revalidated on
+ * every visit so a new version shows at once.
+ */
+function legalPage(asset: Response): Response {
+  const response = new Response(asset.body, asset);
+  response.headers.set("Content-Security-Policy", PAGE_CSP);
+  response.headers.set("Cache-Control", "no-cache");
+  response.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  response.headers.set("X-Content-Type-Options", "nosniff");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  return response;
+}
 
 export function createSite() {
   const site = new Hono<{ Bindings: Env }>();
@@ -35,6 +54,12 @@ export function createSite() {
       c.header("Cache-Control", "no-store");
       return c.redirect(`https://github.com/${REPO}/releases/latest/download/${asset}`, 302);
     });
+  }
+
+  for (const page of LEGAL_PAGES) {
+    site.get(page, async (c) =>
+      legalPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
+    );
   }
 
   site.all("*", async (c): Promise<Response> => {

@@ -49,6 +49,7 @@ import {
   readJson,
 } from "./http.ts";
 import type { Presigner } from "./presign.ts";
+import { versionRoutes } from "./versions.ts";
 
 export interface ApiDeps {
   introspect(env: Env): Introspect;
@@ -252,6 +253,7 @@ export function apiRoutes(deps: ApiDeps) {
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
   api.route("/", annotationRoutes(guarded, deps.now));
+  versionRoutes(api, guarded, deps);
 
   return api;
 }
@@ -322,6 +324,6 @@ function summary(env: Env, row: ArtifactRow) {
   });
 }
 
-function contentUrl(env: Env, artifactId: string): string {
+export function contentUrl(env: Env, artifactId: string): string {
   return `https://${artifactId}.${env.CONTENT_DOMAIN}/`;
 }

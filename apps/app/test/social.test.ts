@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerMcpClient, startAuthorization } from "./flows.ts";
 import {
@@ -90,13 +91,26 @@ async function startSocial(h: Harness, provider: "google" | "github", body: obje
   return { providerUrl: new URL(url), cookie: cookieHeader(response) };
 }
 
-/** The provider sends the browser back to the callback with a code and the state. */
-async function finishSocial(h: Harness, provider: "google" | "github", body: object = {}) {
+/**
+ * The provider sends the browser back to the callback with a code and the state. Like the login
+ * page, it accepts the terms first unless `acceptTerms` is false.
+ */
+async function finishSocial(
+  h: Harness,
+  provider: "google" | "github",
+  body: object = {},
+  acceptTerms = true,
+) {
+  const terms = acceptTerms ? await h.acceptTerms() : "";
   const { providerUrl, cookie } = await startSocial(h, provider, body);
   const state = providerUrl.searchParams.get("state") ?? "";
   // The browser follows the provider's redirect as a top-level navigation.
   return h.request(`/api/auth/callback/${provider}?code=provider-code&state=${state}`, {
-    headers: { cookie, accept: "text/html", "sec-fetch-mode": "navigate" },
+    headers: {
+      cookie: [cookie, terms].filter(Boolean).join("; "),
+      accept: "text/html",
+      "sec-fetch-mode": "navigate",
+    },
     redirect: "manual",
   });
 }
@@ -344,5 +358,66 @@ describe("sign-in methods of the signed-in account", () => {
   it("requires a session to list providers", async () => {
     const h = createHarness();
     expect((await h.request("/api/auth/list-accounts")).status).toBe(401);
+  });
+});
+
+describe("terms acceptance with a provider", () => {
+  const github = (id: number, email: string): GitHubProfile => ({
+    id,
+    login: `user-${id}`,
+    email,
+    emails: [{ email, primary: true, verified: true }],
+  });
+
+  it("refuses a Google sign-up without the acceptance, and creates no account", async () => {
+    const h = createHarness();
+    fakeProviders({ sub: "google-terms-1", email: "g-terms@example.test", email_verified: true });
+    const callback = await finishSocial(h, "google", {}, false);
+    expect(errorOf(callback)).toBe(TERMS_NOT_ACCEPTED);
+    expect(new URL(callback.headers.get("location") ?? "", ORIGIN).pathname).toBe("/login");
+    expect(callback.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(
+      false,
+    );
+    expect(await usersWithEmail("g-terms@example.test")).toEqual([]);
+  });
+
+  it("refuses a GitHub sign-up without the acceptance, and creates no account", async () => {
+    const h = createHarness();
+    fakeProviders(undefined, github(9101, "gh-terms@example.test"));
+    const callback = await finishSocial(h, "github", {}, false);
+    expect(errorOf(callback)).toBe(TERMS_NOT_ACCEPTED);
+    expect(await usersWithEmail("gh-terms@example.test")).toEqual([]);
+  });
+
+  it("records the acceptance on accounts created with Google and GitHub", async () => {
+    const h = createHarness();
+    fakeProviders({ sub: "google-terms-2", email: "g-ok@example.test", email_verified: true });
+    await finishSocial(h, "google");
+    fakeProviders(undefined, github(9102, "gh-ok@example.test"));
+    await finishSocial(h, "github");
+    for (const email of ["g-ok@example.test", "gh-ok@example.test"]) {
+      const row = await env.DB.prepare(
+        "select terms_version, terms_accepted_at from users where email = ?",
+      )
+        .bind(email)
+        .first<{ terms_version: string; terms_accepted_at: number }>();
+      expect(row?.terms_version, email).toBe(TERMS_VERSION);
+      expect(row?.terms_accepted_at, email).toEqual(expect.any(Number));
+    }
+  });
+
+  it("asks an existing account again at its next provider sign-in", async () => {
+    const h = createHarness();
+    fakeProviders(undefined, github(9103, "gh-returning@example.test"));
+    await finishSocial(h, "github");
+    await env.DB.prepare("update users set terms_version = null where email = ?")
+      .bind("gh-returning@example.test")
+      .run();
+    expect(errorOf(await finishSocial(h, "github", {}, false))).toBe(TERMS_NOT_ACCEPTED);
+    const accepted = await finishSocial(h, "github");
+    expect(errorOf(accepted)).toBeNull();
+    expect(accepted.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(
+      true,
+    );
   });
 });
