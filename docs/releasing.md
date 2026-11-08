@@ -54,7 +54,7 @@ The token is an account API token named `portifact-ci-deploy`, limited to Worker
 - Linux glibc builds need glibc 2.17 or newer, so they run on Debian, Ubuntu, RHEL and its rebuilds (Rocky, Alma, CentOS 7+), Fedora, Amazon Linux and openSUSE.
 - Musl builds are for Alpine and need `libstdc++` and `libgcc` (`apk add libstdc++ libgcc`); the installer checks for them and says so.
 - x64 builds use Bun's baseline targets, so they also run on CPUs without AVX2.
-- `scripts/smoke-linux-distros.sh` installs and runs the CLI in containers of those distributions; CI runs it on every pull request.
+- `scripts/smoke-linux-distros.sh` installs and runs the CLI in containers of those distributions, all in parallel; CI runs it on every pull request.
 
 ## Installing
 
