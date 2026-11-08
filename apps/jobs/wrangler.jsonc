@@ -42,7 +42,7 @@
     {
       "binding": "ACCESS_DB",
       "database_name": "portifact-access",
-      "database_id": "00000000-0000-4000-8000-000000000000",
+      "database_id": "b5285aa9-aa8d-4c2c-9828-22e31c1aec9e",
       "migrations_dir": "../../packages/db/access-migrations"
     }
   ],

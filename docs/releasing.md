@@ -67,11 +67,7 @@ No dead-letter queue is configured: an event whose 5 retries fail is dropped, an
 
 ### Access log database
 
-The owner's access log (see "Access logs" in [security.md](security.md)) lives in a D1 database of its own, `portifact-access`, bound as `ACCESS_DB` in `apps/content`, `apps/app` and `apps/jobs` (`wrangler.jsonc`) with migrations in `packages/db/access-migrations` (generated from `packages/db/src/access-schema.ts` with `bun run --cwd packages/db generate:access -- --name <change>`). The configurations ship with the placeholder ID `00000000-0000-4000-8000-000000000000`, so the deploy fails until the database exists. Before the first release that ships it, the maintainer, with the deploy credentials (the deploy token already has D1 access):
-
-1. Creates it: `npx wrangler d1 create portifact-access` (pick the same location as `portifact-control`).
-2. Replaces the placeholder `database_id` of the `ACCESS_DB` binding in the three `wrangler.jsonc` files with the ID it prints, in a pull request to `develop`.
-3. Nothing else: the deploy job applies its migrations before deploying the Workers, and they are backward compatible like the control database's.
+The owner's access log (see "Access logs" in [security.md](security.md)) lives in a D1 database of its own, `portifact-access`, bound as `ACCESS_DB` in `apps/content`, `apps/app` and `apps/jobs` (`wrangler.jsonc`) with migrations in `packages/db/access-migrations` (generated from `packages/db/src/access-schema.ts` with `bun run --cwd packages/db generate:access -- --name <change>`). The database exists since 2026-11-08 (ID `b5285aa9-aa8d-4c2c-9828-22e31c1aec9e`, in the three `wrangler.jsonc` files); the deploy job applies its migrations before deploying the Workers, and they are backward compatible like the control database's. To recreate it, run `npx wrangler d1 create portifact-access` with the deploy credentials and put the new ID in the three configurations.
 
 Locally, `npx wrangler d1 migrations apply portifact-access --local` from `apps/app` or `apps/content` creates it next to the control database; the tests and the e2e stack create their own.
 
