@@ -194,8 +194,10 @@ export const messages = {
       `Deleting is permanent. Run \`portifact delete ${id} --yes\` to confirm without a prompt.`,
     deleteCancelled: "Nothing was deleted: the confirmation did not match the artifact ID.",
     invalidVersionId: (value: string) =>
-      `${JSON.stringify(value)} is not a version ID. Run \`portifact versions <id>\` to list them.`,
+      `${JSON.stringify(value)} is not a version ID or number. Run \`portifact versions <id>\` to list them.`,
     noCurrentVersion: (id: string) => `${id} has no published version to roll back.`,
+    versionNumberNotFound: (id: string, number: number) =>
+      `${id} has no retained version ${number}. Run \`portifact versions ${id}\` to list them.`,
     outExists: (path: string) =>
       `${path} already exists. pull writes into a new folder; choose a path that does not exist.`,
     outInsideGit: (path: string) => `${path} is inside a .git folder. Choose another folder.`,

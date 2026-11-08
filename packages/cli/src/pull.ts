@@ -21,7 +21,7 @@ import { messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
 import type { Session } from "./session.ts";
 import { URL_EXPIRY_MARGIN_MS } from "./upload.ts";
-import { parseVersionId } from "./versions.ts";
+import { parseVersionArg, resolveVersionArg } from "./versions.ts";
 
 /** Downloads in flight at once. */
 export const DOWNLOAD_CONCURRENCY = 4;
@@ -42,8 +42,7 @@ interface Job {
 
 export async function pull(io: Io, runtime: Runtime, id: string, options: PullOptions) {
   const artifactId = parseArtifactId(id);
-  const versionRef =
-    options.version === undefined ? CURRENT_VERSION : parseVersionId(options.version);
+  const target = options.version === undefined ? undefined : parseVersionArg(options.version);
   const kinds: DownloadKind[] = [];
   if (options.published || !options.source) kinds.push("published");
   if (options.source) kinds.push("source");
@@ -54,6 +53,8 @@ export async function pull(io: Io, runtime: Runtime, id: string, options: PullOp
   if (await exists(out)) throw new CliError("invalid_input", messages.errors.outExists(out));
 
   const session = await openSession(io, runtime);
+  const versionRef =
+    target === undefined ? CURRENT_VERSION : await resolveVersionArg(session, artifactId, target);
   // Every kind comes from the same version, even if a new one is published meanwhile.
   const first = await fetchLinks(session, artifactId, versionRef, kinds[0] as DownloadKind);
   const downloads = [first];
