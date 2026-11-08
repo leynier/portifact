@@ -25,9 +25,9 @@ import {
   LifecycleResult,
   PreparedPublish,
   type PublishRequest,
+  ReviewStart,
   type RollbackRequest,
   RolledBack,
-  ReviewStart,
   SignOutOthersResult,
   VersionDownload,
   VersionList,
@@ -149,9 +149,6 @@ export interface DashboardApiOptions {
   /** Called when the session is gone, so the page can send the user to sign in. */
   onUnauthenticated(): void;
 }
-
-const artifactPath = (artifactId: string) => `/api/v1/artifacts/${encodeURIComponent(artifactId)}`;
-const annotationsPath = (artifactId: string) => `${artifactPath(artifactId)}/annotations`;
 
 export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions): DashboardApi {
   const call = async <T>(
@@ -311,6 +308,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     previewDocument(request) {
       return call("/api/v1/documents/preview", DocumentPreview, "POST", request);
+    },
     startReview(artifactId) {
       return call(`${artifactPath(artifactId)}/review`, ReviewStart, "POST");
     },
@@ -360,3 +358,6 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
   };
 }
+
+const artifactPath = (artifactId: string) => `/api/v1/artifacts/${encodeURIComponent(artifactId)}`;
+const annotationsPath = (artifactId: string) => `${artifactPath(artifactId)}/annotations`;

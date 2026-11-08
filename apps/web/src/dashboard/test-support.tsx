@@ -16,10 +16,10 @@ import {
   type ManifestFile,
   type PreparedPublish,
   PublishRequest,
+  type ReviewStart,
   RollbackRequest,
   type UploadTarget,
   type VersionSummary,
-  type ReviewStart,
 } from "@portifact/contracts";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
@@ -194,6 +194,8 @@ function fakeStorage(): FakeStorage {
     },
   };
   return storage;
+}
+
 /** Annotations of one artifact in the fake server, with a change counter for cursors. */
 export interface FakeAnnotations {
   mode: AnnotationsState;
@@ -242,15 +244,15 @@ export function fakeThread(
 
 export interface FakeServer {
   artifacts: ArtifactSummary[];
+  /** Answers to POST /review, by artifact ID; missing ones answer 404. */
+  reviews: Record<string, ReviewStart>;
+  annotations: Record<string, FakeAnnotations>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
   uploads: FakeUpload[];
   storage: FakeStorage;
   /** How long upload URLs the fake API issues stay valid. */
   uploadUrlTtlMs: number;
-  /** Answers to POST /review, by artifact ID; missing ones answer 404. */
-  reviews: Record<string, ReviewStart>;
-  annotations: Record<string, FakeAnnotations>;
   email: string | null;
   /** When the account was created; null leaves it out of the session. */
   createdAt: string | null;
@@ -275,12 +277,12 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const failures: { key: string; failure: Failure; times: number }[] = [];
   const server: FakeServer = {
     artifacts,
+    reviews: {},
+    annotations: {},
     versions: {},
     uploads: [],
     storage: fakeStorage(),
     uploadUrlTtlMs: 15 * 60 * 1000,
-    reviews: {},
-    annotations: {},
     email: "ada@example.test",
     createdAt: "2026-09-01T12:00:00.000Z",
     access: {},

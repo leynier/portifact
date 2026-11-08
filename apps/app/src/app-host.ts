@@ -93,16 +93,18 @@ export function dashboardPolicy(
   stylesheetSource: string,
   contentDomain: string,
 ): string {
-  const policy = PAGE_CSP.replace("style-src 'self'", `style-src 'self' ${stylesheetSource}`).replace(
-    "connect-src 'self'",
-    `connect-src 'self' ${storage}`,
-  );
+  const policy = PAGE_CSP.replace(
+    "style-src 'self'",
+    `style-src 'self' ${stylesheetSource}`,
+  ).replace("connect-src 'self'", `connect-src 'self' ${storage}`);
   // The review viewer frames artifact origins. Client-side navigation keeps the policy of the
   // first page, so every dashboard route sends it. The frames are cross-site and sandboxed.
   return `${policy}; frame-src https://*.${contentDomain}`;
 }
 
-export async function dashboardCsp(env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">): Promise<string> {
+export async function dashboardCsp(
+  env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">,
+): Promise<string> {
   return dashboardPolicy(
     storageOrigin(env.R2_ACCOUNT_ID),
     await documentStylesheetSource(),
