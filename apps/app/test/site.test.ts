@@ -84,9 +84,13 @@ describe("host routing", () => {
   });
 
   it("does not serve the landing page or installers on the app host", async () => {
-    for (const path of ["/", "/index.html", "/install", "/install.ps1"]) {
+    for (const path of ["/index.html", "/install", "/install.ps1"]) {
       const response = await get(`https://app.portifact.com${path}`);
       expect(response.status, path).toBe(404);
     }
+    // The app root sends visitors to sign in instead of showing the landing.
+    const root = await get("https://app.portifact.com/");
+    expect(root.status).toBe(302);
+    expect(await root.text()).not.toMatch(/<html/i);
   });
 });

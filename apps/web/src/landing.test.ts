@@ -102,6 +102,15 @@ describe("landing page", () => {
     expect(html).not.toMatch(/\b(?:fill|stroke)="#/);
   });
 
+  it("offers a visible sign-in link to the app in the top bar, on every screen size", () => {
+    const header = /<header\b[\s\S]*?<\/header>/.exec(html)?.[0] ?? "";
+    const signIn = /<a\s+href="https:\/\/app\.portifact\.com\/"[\s\S]*?<\/a\s*>/.exec(header)?.[0];
+    expect(signIn).toBeDefined();
+    expect(signIn?.replace(/<[^>]+>/g, "").trim()).toBe("Sign in");
+    expect(signIn).not.toMatch(/class="[^"]*\b(?:hidden|sr-only)\b/);
+    expect(header.indexOf("app.portifact.com/")).toBeLessThan(header.indexOf('href="#install"'));
+  });
+
   it("links the star button in the top bar to the repository stargazers", () => {
     const header = /<header\b[\s\S]*?<\/header>/.exec(html)?.[0] ?? "";
     const star =
