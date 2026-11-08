@@ -26,6 +26,11 @@ Exception: third-party status badges in the readme (release, license, CI, covera
 
 Adding any other hue requires changing this section first, in a separate change with a reason.
 
+## Writing style
+
+- Titles and headings (page titles, headings, buttons, labels, taglines) never end with a period.
+- Never use em dashes (the long dash). Use a comma, a colon, parentheses or two sentences instead. The design-system check rejects em dashes in UI code.
+
 ## Brand assets
 
 The logo is the "selection" wordmark: the name `portifact` held between two text-selection handles over a light band. Source files live in `assets/brand/`:

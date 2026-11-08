@@ -41,7 +41,7 @@ describe("portifact.com worker", () => {
     const response = await get("https://portifact.com/");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
-    expect(await response.text()).toContain("Share what your agent built.");
+    expect(await response.text()).toContain("Share what your agent built");
   });
 
   it("returns 404 for unknown paths", async () => {

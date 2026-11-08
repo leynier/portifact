@@ -5,7 +5,7 @@
   </picture>
 </p>
 
-<p align="center"><strong>Your agent built it. Now share it with a link, keep it private, and get feedback on it.</strong></p>
+<p align="center"><strong>Your agent built it. Now share it with a link, keep it private, and get feedback on it</strong></p>
 
 <p align="center">
   <a href="https://github.com/leynier/portifact/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/leynier/portifact?style=flat-square&label=release"></a>

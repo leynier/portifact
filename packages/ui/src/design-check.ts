@@ -13,6 +13,7 @@ const TAILWIND_PALETTE =
 const MARKUP_RULES: { rule: string; pattern: RegExp }[] = [
   { rule: "arbitrary Tailwind value", pattern: /(?<![\w-])[a-z][\w-]*-\[[^\]\s]+\]/ },
   { rule: "inline style attribute", pattern: /\sstyle\s*=/ },
+  { rule: "em dash in copy", pattern: /\u2014/ },
   {
     rule: "Tailwind default palette color",
     pattern: new RegExp(

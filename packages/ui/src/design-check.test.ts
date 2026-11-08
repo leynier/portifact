@@ -19,6 +19,10 @@ describe("design-system check", () => {
     ]);
   });
 
+  it("flags em dashes in copy", () => {
+    expect(rules("a.html", "<p>Fast \u2014 and private</p>")).toEqual(["em dash in copy"]);
+  });
+
   it("flags Tailwind default palette colors", () => {
     expect(rules("a.html", '<p class="bg-blue-500">')).toEqual(["Tailwind default palette color"]);
     expect(rules("a.html", '<p class="text-white">')).toEqual(["Tailwind default palette color"]);

@@ -128,4 +128,6 @@ If any answer is yes, update the right document: rules and pointers go in this f
 
 ## Markdown style
 
+Titles and headings never end with a period, and no em dashes anywhere; see the writing style in [docs/design.md](docs/design.md).
+
 Keep each paragraph on one source line. Add line breaks only at structural boundaries: lists, tables, code fences and headings.
