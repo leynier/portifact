@@ -1,4 +1,7 @@
 import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   changedFiles,
@@ -84,12 +87,29 @@ describe("CI scope", () => {
   });
 
   it("lists the files changed between two commits", () => {
-    const head = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    expect(changedFiles(head, head)).toEqual([]);
-    const parent = execFileSync("git", ["rev-parse", "HEAD~1"], { encoding: "utf8" }).trim();
-    const files = changedFiles(parent, head);
-    expect(Array.isArray(files)).toBe(true);
-    expect(files?.length).toBeGreaterThan(0);
+    // A throwaway repository, so the test does not depend on the checkout's history depth.
+    const repo = mkdtempSync(join(tmpdir(), "ci-scope-"));
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.test", ...args], {
+        cwd: repo,
+        encoding: "utf8",
+      }).trim();
+    try {
+      git("init", "-q");
+      writeFileSync(join(repo, "a.txt"), "a");
+      git("add", ".");
+      git("commit", "-qm", "first");
+      const first = git("rev-parse", "HEAD");
+      mkdirSync(join(repo, "packages", "cli"), { recursive: true });
+      writeFileSync(join(repo, "packages", "cli", "main.ts"), "b");
+      git("add", ".");
+      git("commit", "-qm", "second");
+      const second = git("rev-parse", "HEAD");
+      expect(changedFiles(first, second, repo)).toEqual(["packages/cli/main.ts"]);
+      expect(changedFiles(second, second, repo)).toEqual([]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 
   it("writes GitHub Actions outputs", () => {

@@ -52,11 +52,13 @@ function escapeRegExp(value: string): string {
 }
 
 /** Files changed between two commits; undefined when the range cannot be computed. */
-export function changedFiles(base: string, head: string): string[] | undefined {
+export function changedFiles(base: string, head: string, cwd?: string): string[] | undefined {
   if (!base || /^0+$/.test(base)) return undefined;
   try {
     const output = execFileSync("git", ["diff", "--name-only", `${base}...${head}`], {
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      ...(cwd ? { cwd } : {}),
     });
     return output.split("\n").filter(Boolean);
   } catch {
