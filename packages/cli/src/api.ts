@@ -9,13 +9,15 @@ import { readJson, send } from "./oauth.ts";
 import { type Session, withAccessToken } from "./session.ts";
 
 export interface ApiRequest<T> {
-  method: "GET" | "POST" | "PATCH" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   /** Path under /api/v1, starting with a slash. */
   path: string;
   body?: unknown;
   headers?: Record<string, string>;
   /** Validates the answer; omitted when the answer has no body. */
   schema?: z.ZodType<T>;
+  /** Reads the answer as text instead of JSON, for downloads such as a Markdown export. */
+  text?: boolean;
 }
 
 export function callApi<T>(session: Session, request: ApiRequest<T>): Promise<T> {
@@ -41,7 +43,8 @@ export function callApi<T>(session: Session, request: ApiRequest<T>): Promise<T>
       await response.body?.cancel();
       return { kind: "ok", value: undefined as T };
     }
-    const parsed = request.schema.safeParse(await readJson(response));
+    const body = request.text ? await response.text() : await readJson(response);
+    const parsed = request.schema.safeParse(body);
     if (!parsed.success) throw new CliError("server_error", messages.errors.server(server.origin));
     return { kind: "ok", value: parsed.data };
   });

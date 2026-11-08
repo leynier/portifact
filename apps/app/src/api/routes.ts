@@ -50,6 +50,7 @@ import {
   readJson,
 } from "./http.ts";
 import type { Presigner } from "./presign.ts";
+import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
 
 export interface ApiDeps {
@@ -256,6 +257,7 @@ export function apiRoutes(deps: ApiDeps) {
   api.route("/", annotationRoutes(guarded, deps.now));
   versionRoutes(api, guarded, deps);
   documentRoutes(api, guarded, deps.now);
+  usageRoutes(api, guarded, deps.now);
 
   return api;
 }
@@ -275,6 +277,7 @@ async function prepare(
     entrypoint: body.entrypoint,
     baseVersionId: body.baseVersionId,
     files: body.files,
+    sourceOrigin: body.sourceOrigin,
     now,
   });
   if (!result.ok) return failure(result.code, result.message);
