@@ -543,6 +543,8 @@ describe("API and MCP parity for usage and source origins", () => {
       sourceOrigin: { ...origin, remote: "https://ghp_secret@github.com/o/r.git" },
     });
     expect(refused).toMatchObject({ ok: false, body: { error: { code: "invalid_input" } } });
+  });
+});
 
 describe("API and MCP parity for annotations", () => {
   const EVERY =
