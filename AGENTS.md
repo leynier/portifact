@@ -30,7 +30,8 @@ apps/content    Worker for <id>.portifact.dev: public artifact delivery today; s
 apps/web        Landing page today; dashboard and review viewer later (Vite)
 packages/cli    portifact CLI
 packages/contracts   Shared schemas, errors and OpenAPI
-packages/domain      Business rules: quotas, access, lifecycle, annotations
+packages/domain      Business rules: quotas, access, lifecycle, annotations (pure, no I/O)
+packages/services    Use cases that apply domain rules with D1 and R2: publish, restore and more
 packages/db          Drizzle schema, migrations and queries
 packages/render      Markdown and TXT rendering pipeline
 packages/anchors     Annotation anchor model and resolution
@@ -65,7 +66,8 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 
 ## Architecture rules
 
-- Business rules live only in `packages/domain`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over the same services; never reimplement a rule in an adapter.
+- Business rules live only in `packages/domain` (pure functions) and the use cases that apply them with storage live in `packages/services`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over these services; never reimplement a rule in an adapter.
+- In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice.
 - Web, CLI and MCP must behave identically for the same operation: same permission checks, quotas, states and errors. Add a parity test when you add an operation.
 - MCP has no privileged path. It goes through the same authorization as the API.
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.

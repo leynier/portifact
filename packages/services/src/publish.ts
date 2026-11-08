@@ -1,0 +1,600 @@
+// Publishing use cases: prepare an upload (validate, deduplicate, admit and reserve) and commit
+// it (verify the uploaded bytes, then switch the current version atomically). Adapters (API,
+// MCP, CLI flows) call these; they never reimplement the rules.
+import { type ArtifactType, LIMITS } from "@portifact/contracts";
+import { type Db, schema } from "@portifact/db";
+import {
+  checkPublish,
+  fail,
+  generateArtifactId,
+  nextExpiry,
+  ok,
+  type Result,
+  validateManifestPaths,
+} from "@portifact/domain";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
+
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+const UPLOAD_TTL_MS = 24 * HOUR_MS;
+const SHA256 = /^[0-9a-f]{64}$/;
+/** D1 allows at most 100 bound parameters per statement. */
+const LOOKUP_CHUNK = 90;
+
+export interface ManifestEntry {
+  path: string;
+  kind: "published" | "source";
+  sha256: string;
+  size: number;
+  contentType: string;
+}
+
+export interface PrepareInput {
+  ownerId: string;
+  /** Existing artifact to update; omitted to create a new one. */
+  artifactId?: string;
+  type: ArtifactType;
+  name: string;
+  entrypoint: string;
+  /** The version the client based its changes on (`null` for a new artifact). */
+  baseVersionId: string | null;
+  files: ManifestEntry[];
+  now: number;
+}
+
+export interface PendingUpload {
+  sha256: string;
+  size: number;
+  r2Key: string;
+}
+
+export interface PreparedUpload {
+  artifactId: string;
+  versionId: string;
+  versionNumber: number;
+  sessionId: string;
+  expiresAt: number;
+  /** Objects the client must upload; the rest are already stored for this account. */
+  uploads: PendingUpload[];
+}
+
+export function objectKey(ownerId: string, sha256: string): string {
+  return `objects/${ownerId}/${sha256}`;
+}
+
+function newId(prefix: string): string {
+  return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
+/** Validates the manifest and normalizes its paths, separately for published files and sources. */
+export function validateManifest(
+  input: Pick<PrepareInput, "files" | "entrypoint">,
+): Result<ManifestEntry[]> {
+  if (input.files.length === 0) return fail("invalid_input", "The manifest has no files.");
+  if (input.files.length > LIMITS.filesPerVersion) {
+    return fail("quota_exceeded", `A version can hold at most ${LIMITS.filesPerVersion} files.`);
+  }
+  const normalized: ManifestEntry[] = [];
+  for (const kind of ["published", "source"] as const) {
+    const entries = input.files.filter((file) => file.kind === kind);
+    const paths = validateManifestPaths(entries.map((file) => file.path));
+    if (!paths.ok) return paths;
+    entries.forEach((entry, index) => {
+      normalized.push({ ...entry, path: paths.value[index] as string });
+    });
+  }
+  for (const file of normalized) {
+    if (!SHA256.test(file.sha256)) return fail("invalid_input", `${file.path}: invalid SHA-256.`);
+    if (!Number.isSafeInteger(file.size) || file.size < 0) {
+      return fail("invalid_input", `${file.path}: invalid size.`);
+    }
+    if (file.contentType.length === 0 || file.contentType.length > 255) {
+      return fail("invalid_input", `${file.path}: invalid content type.`);
+    }
+  }
+  const entrypoint = validateManifestPaths([input.entrypoint]);
+  if (
+    !entrypoint.ok ||
+    !normalized.some((file) => file.kind === "published" && file.path === entrypoint.value[0])
+  ) {
+    return fail("invalid_input", "The entrypoint must be one of the published files.");
+  }
+  return ok(normalized);
+}
+
+async function existingObjects(db: Db, ownerId: string, hashes: string[]): Promise<Set<string>> {
+  const found = new Set<string>();
+  for (let i = 0; i < hashes.length; i += LOOKUP_CHUNK) {
+    const chunk = hashes.slice(i, i + LOOKUP_CHUNK);
+    const rows = await db
+      .select({ sha256: schema.objects.sha256 })
+      .from(schema.objects)
+      .where(and(eq(schema.objects.ownerId, ownerId), inArray(schema.objects.sha256, chunk)));
+    for (const row of rows) found.add(row.sha256);
+  }
+  return found;
+}
+
+async function windowSum(
+  db: Db,
+  ownerId: string,
+  kind: "publish" | "new_files" | "new_bytes",
+  since: number,
+) {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(sum(${schema.usageEvents.amount}), 0)` })
+    .from(schema.usageEvents)
+    .where(
+      and(
+        eq(schema.usageEvents.ownerId, ownerId),
+        eq(schema.usageEvents.kind, kind),
+        gte(schema.usageEvents.at, since),
+      ),
+    );
+  return Number(row?.total ?? 0);
+}
+
+function monthStart(now: number): number {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+}
+
+/** Validates, deduplicates and admits a publish, then reserves its capacity in one transaction. */
+export async function preparePublish(db: Db, input: PrepareInput): Promise<Result<PreparedUpload>> {
+  const manifest = validateManifest(input);
+  if (!manifest.ok) return manifest;
+  const name = input.name.trim();
+  if (name.length === 0 || name.length > 200)
+    return fail("invalid_input", "Name must be 1 to 200 characters.");
+
+  let artifactId = input.artifactId;
+  let versionNumber = 1;
+  if (artifactId) {
+    const [artifact] = await db
+      .select()
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, artifactId))
+      .limit(1);
+    // Someone else's artifact looks the same as a missing one.
+    if (!artifact || artifact.ownerId !== input.ownerId)
+      return fail("not_found", "Artifact not found.");
+    if (artifact.type !== input.type) {
+      return fail(
+        "invalid_input",
+        "The artifact type cannot change; publish a new artifact instead.",
+      );
+    }
+    if (artifact.state !== "active" && artifact.state !== "draft") {
+      return fail("artifact_archived", "Restore the artifact before publishing to it.");
+    }
+    if (artifact.currentVersionId !== input.baseVersionId) {
+      return fail(
+        "version_conflict",
+        "The artifact changed since your last read. Fetch it and try again.",
+      );
+    }
+    const [last] = await db
+      .select({ number: sql<number>`coalesce(max(${schema.versions.number}), 0)` })
+      .from(schema.versions)
+      .where(eq(schema.versions.artifactId, artifactId));
+    versionNumber = Number(last?.number ?? 0) + 1;
+  }
+  const createsArtifact = !artifactId;
+
+  const unique = new Map<string, number>();
+  for (const file of manifest.value) unique.set(file.sha256, file.size);
+  const stored = await existingObjects(db, input.ownerId, [...unique.keys()]);
+  const uploads: PendingUpload[] = [...unique]
+    .filter(([sha256]) => !stored.has(sha256))
+    .map(([sha256, size]) => ({ sha256, size, r2Key: objectKey(input.ownerId, sha256) }));
+
+  const [usageRow] = await db
+    .select()
+    .from(schema.accountUsage)
+    .where(eq(schema.accountUsage.ownerId, input.ownerId))
+    .limit(1);
+  const since = input.now - DAY_MS;
+  const sameMonth = usageRow && usageRow.monthStartedAt === monthStart(input.now);
+  const newBytes = uploads.reduce((sum, upload) => sum + upload.size, 0);
+  const admission = checkPublish(
+    {
+      activeArtifacts: usageRow?.activeArtifacts ?? 0,
+      storedBytes: (usageRow?.storedBytes ?? 0) + (usageRow?.reservedBytes ?? 0),
+      publishesLast24h: await windowSum(db, input.ownerId, "publish", since),
+      openUploads: usageRow?.openUploads ?? 0,
+      newFilesLast24h: await windowSum(db, input.ownerId, "new_files", since),
+      newBytesLast24h: await windowSum(db, input.ownerId, "new_bytes", since),
+      newObjectsThisMonth: sameMonth ? usageRow.newObjectsThisMonth : 0,
+    },
+    {
+      createsArtifact,
+      versionBytes: manifest.value
+        .filter((file) => file.kind === "published")
+        .reduce((sum, file) => sum + file.size, 0),
+      files: manifest.value.length,
+      newBytes,
+      newFiles: uploads.length,
+    },
+  );
+  if (!admission.ok) return admission;
+
+  artifactId ??= generateArtifactId();
+  const versionId = newId("ver");
+  const sessionId = newId("upl");
+  const expiresAt = input.now + UPLOAD_TTL_MS;
+  const reservation = admission.value;
+  const publishedBytes = manifest.value
+    .filter((file) => file.kind === "published")
+    .reduce((sum, file) => sum + file.size, 0);
+
+  try {
+    await db.batch([
+      db
+        .insert(schema.accountUsage)
+        .values({ ownerId: input.ownerId, monthStartedAt: monthStart(input.now) })
+        .onConflictDoNothing(),
+      db
+        .update(schema.accountUsage)
+        .set({
+          // CHECK constraints reject this update if a concurrent admission took the capacity.
+          activeArtifacts: sql`${schema.accountUsage.activeArtifacts} + ${reservation.activeSlots}`,
+          reservedBytes: sql`${schema.accountUsage.reservedBytes} + ${reservation.bytes}`,
+          openUploads: sql`${schema.accountUsage.openUploads} + 1`,
+          newObjectsThisMonth: sameMonth ? sql`${schema.accountUsage.newObjectsThisMonth}` : sql`0`,
+          monthStartedAt: monthStart(input.now),
+          updatedAt: input.now,
+        })
+        .where(eq(schema.accountUsage.ownerId, input.ownerId)),
+      ...(createsArtifact
+        ? [
+            db.insert(schema.artifacts).values({
+              id: artifactId,
+              ownerId: input.ownerId,
+              type: input.type,
+              name,
+              createdAt: input.now,
+              updatedAt: input.now,
+            }),
+          ]
+        : []),
+      db.insert(schema.versions).values({
+        id: versionId,
+        artifactId,
+        number: versionNumber,
+        authorId: input.ownerId,
+        entrypoint: input.entrypoint.replace(/^\.\//, ""),
+        publishedBytes,
+        sourceBytes: manifest.value
+          .filter((file) => file.kind === "source")
+          .reduce((sum, file) => sum + file.size, 0),
+        createdAt: input.now,
+      }),
+      db.insert(schema.versionFiles).values(
+        manifest.value.map((file) => ({
+          versionId,
+          kind: file.kind,
+          path: file.path,
+          ownerId: input.ownerId,
+          sha256: file.sha256,
+          size: file.size,
+          contentType: file.contentType,
+        })),
+      ),
+      ...(uploads.length > 0
+        ? [
+            db
+              .insert(schema.objects)
+              .values(
+                uploads.map((upload) => ({
+                  ownerId: input.ownerId,
+                  sha256: upload.sha256,
+                  size: upload.size,
+                  r2Key: upload.r2Key,
+                  createdAt: input.now,
+                })),
+              )
+              .onConflictDoNothing(),
+          ]
+        : []),
+      db.insert(schema.uploadSessions).values({
+        id: sessionId,
+        ownerId: input.ownerId,
+        artifactId,
+        versionId,
+        baseVersionId: input.baseVersionId,
+        reservedSlots: reservation.activeSlots,
+        reservedBytes: reservation.bytes,
+        reservedFiles: reservation.files,
+        expiresAt,
+        createdAt: input.now,
+      }),
+    ]);
+  } catch (error) {
+    if (constraintFailed(error, "UNIQUE")) {
+      return fail("version_conflict", "Another publish to this artifact started first. Try again.");
+    }
+    if (constraintFailed(error, "CHECK")) {
+      return fail("quota_exceeded", "Your account reached a limit while preparing this publish.");
+    }
+    throw error;
+  }
+
+  return ok({ artifactId, versionId, versionNumber, sessionId, expiresAt, uploads });
+}
+
+export interface CommitInput {
+  ownerId: string;
+  sessionId: string;
+  now: number;
+}
+
+export interface CommittedPublish {
+  artifactId: string;
+  versionId: string;
+  versionNumber: number;
+  expiresAt: number;
+}
+
+/** SHA-256 of an R2 object: the checksum R2 verified at upload, or a streamed recomputation. */
+async function objectSha256(object: R2ObjectBody): Promise<string> {
+  const stored = object.checksums.sha256;
+  if (stored) return hex(stored);
+  const digest = new crypto.DigestStream("SHA-256");
+  await object.body.pipeTo(digest);
+  return hex(await digest.digest);
+}
+
+function hex(buffer: ArrayBuffer): string {
+  return [...new Uint8Array(buffer)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Verifies the uploaded objects and makes the version current. The switch is conditional on
+ * the base version, and every other write is conditioned on that switch having happened, so a
+ * concurrent publish produces a clean `version_conflict` with nothing half-applied.
+ */
+export async function commitPublish(
+  db: Db,
+  bucket: R2Bucket,
+  input: CommitInput,
+): Promise<Result<CommittedPublish>> {
+  const [session] = await db
+    .select()
+    .from(schema.uploadSessions)
+    .where(eq(schema.uploadSessions.id, input.sessionId))
+    .limit(1);
+  if (!session || session.ownerId !== input.ownerId) return fail("not_found", "Upload not found.");
+  if (session.state === "committed") {
+    const [version] = await db
+      .select()
+      .from(schema.versions)
+      .where(eq(schema.versions.id, session.versionId))
+      .limit(1);
+    const [artifact] = await db
+      .select({ expiresAt: schema.artifacts.expiresAt })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, session.artifactId))
+      .limit(1);
+    // Retrying a successful commit returns the same result instead of failing.
+    return ok({
+      artifactId: session.artifactId,
+      versionId: session.versionId,
+      versionNumber: version?.number ?? 0,
+      expiresAt: artifact?.expiresAt ?? 0,
+    });
+  }
+  if (session.state !== "uploading" && session.state !== "ready") {
+    return fail("upload_incomplete", `This upload is ${session.state}; start a new one.`);
+  }
+  if (input.now >= session.expiresAt)
+    return fail("upload_incomplete", "This upload expired; start a new one.");
+
+  const pending = await db
+    .select({
+      sha256: schema.objects.sha256,
+      size: schema.objects.size,
+      r2Key: schema.objects.r2Key,
+    })
+    .from(schema.objects)
+    .innerJoin(
+      schema.versionFiles,
+      and(
+        eq(schema.versionFiles.ownerId, schema.objects.ownerId),
+        eq(schema.versionFiles.sha256, schema.objects.sha256),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.versionFiles.versionId, session.versionId),
+        eq(schema.objects.ownerId, input.ownerId),
+        eq(schema.objects.state, "pending"),
+      ),
+    )
+    .groupBy(schema.objects.sha256);
+
+  const problems: string[] = [];
+  for (const object of pending) {
+    const body = await bucket.get(object.r2Key);
+    if (!body) {
+      problems.push(`${object.sha256} is missing`);
+      continue;
+    }
+    if (body.size !== object.size) {
+      await body.body.cancel();
+      problems.push(`${object.sha256} has ${body.size} bytes, expected ${object.size}`);
+      continue;
+    }
+    if ((await objectSha256(body)) !== object.sha256)
+      problems.push(`${object.sha256} does not match its hash`);
+  }
+  if (problems.length > 0) {
+    return fail("upload_incomplete", `Some files are missing or invalid: ${problems.join("; ")}.`);
+  }
+
+  const [version] = await db
+    .select({ number: schema.versions.number })
+    .from(schema.versions)
+    .where(eq(schema.versions.id, session.versionId))
+    .limit(1);
+  const expiresAt = nextExpiry(new Date(input.now)).getTime();
+  // Every write after the switch applies only if this commit performed it: the artifact now
+  // points at this version and the session is still open. The session is closed last, so a
+  // concurrent or repeated commit of the same session cannot apply the effects twice.
+  const switched = sql`(exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${session.artifactId} and ${schema.artifacts.currentVersionId} = ${session.versionId}) and exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.id} = ${session.id} and ${schema.uploadSessions.state} in ('uploading', 'ready')))`;
+  const verified = pending.map((object) => object.sha256);
+
+  const [switchResult] = await db.batch([
+    db
+      .update(schema.artifacts)
+      .set({
+        currentVersionId: session.versionId,
+        state: "active",
+        expiresAt,
+        archivedAt: null,
+        purgeAt: null,
+        lifecycleGeneration: sql`${schema.artifacts.lifecycleGeneration} + 1`,
+        updatedAt: input.now,
+      })
+      .where(
+        and(
+          eq(schema.artifacts.id, session.artifactId),
+          eq(schema.artifacts.ownerId, input.ownerId),
+          inArray(schema.artifacts.state, ["draft", "active"]),
+          session.baseVersionId === null
+            ? sql`${schema.artifacts.currentVersionId} is null`
+            : eq(schema.artifacts.currentVersionId, session.baseVersionId),
+        ),
+      ),
+    db
+      .update(schema.versions)
+      .set({ state: "committed", committedAt: input.now })
+      .where(and(eq(schema.versions.id, session.versionId), switched)),
+    ...(session.baseVersionId
+      ? [
+          db
+            .update(schema.versions)
+            .set({ expiresAt: input.now + LIMITS.previousVersionRetentionDays * DAY_MS })
+            .where(and(eq(schema.versions.id, session.baseVersionId), switched)),
+        ]
+      : []),
+    ...(verified.length > 0
+      ? [
+          db
+            .update(schema.objects)
+            .set({ state: "verified" })
+            .where(
+              and(
+                eq(schema.objects.ownerId, input.ownerId),
+                inArray(schema.objects.sha256, verified),
+                switched,
+              ),
+            ),
+        ]
+      : []),
+    db
+      .update(schema.accountUsage)
+      .set({
+        reservedBytes: sql`${schema.accountUsage.reservedBytes} - ${session.reservedBytes}`,
+        storedBytes: sql`${schema.accountUsage.storedBytes} + ${session.reservedBytes}`,
+        openUploads: sql`${schema.accountUsage.openUploads} - 1`,
+        newObjectsThisMonth: sql`${schema.accountUsage.newObjectsThisMonth} + ${session.reservedFiles}`,
+        updatedAt: input.now,
+      })
+      .where(and(eq(schema.accountUsage.ownerId, input.ownerId), switched)),
+    db
+      .insert(schema.usageEvents)
+      .select(sql`select null, ${input.ownerId}, 'publish', 1, ${input.now} where ${switched}`),
+    db
+      .insert(schema.usageEvents)
+      .select(
+        sql`select null, ${input.ownerId}, 'new_files', ${session.reservedFiles}, ${input.now} where ${switched}`,
+      ),
+    db
+      .insert(schema.usageEvents)
+      .select(
+        sql`select null, ${input.ownerId}, 'new_bytes', ${session.reservedBytes}, ${input.now} where ${switched}`,
+      ),
+    db
+      .insert(schema.lifecycleEvents)
+      .select(
+        sql`select null, ${session.artifactId}, ${input.ownerId}, 'system', 'published', null, ${input.now} where ${switched}`,
+      ),
+    db
+      .update(schema.uploadSessions)
+      .set({ state: "committed" })
+      .where(and(eq(schema.uploadSessions.id, session.id), switched)),
+  ]);
+
+  if (changes(switchResult) === 0) {
+    await abortPublish(
+      db,
+      { ownerId: input.ownerId, sessionId: session.id, now: input.now },
+      "failed",
+    );
+    return fail(
+      "version_conflict",
+      "Another publish changed this artifact first. Fetch it and try again.",
+    );
+  }
+  return ok({
+    artifactId: session.artifactId,
+    versionId: session.versionId,
+    versionNumber: version?.number ?? 0,
+    expiresAt,
+  });
+}
+
+/** Cancels an open upload and releases its reservations. Idempotent. */
+export async function abortPublish(
+  db: Db,
+  input: CommitInput,
+  finalState: "aborted" | "failed" | "expired" = "aborted",
+): Promise<Result<true>> {
+  const [session] = await db
+    .select()
+    .from(schema.uploadSessions)
+    .where(eq(schema.uploadSessions.id, input.sessionId))
+    .limit(1);
+  if (!session || session.ownerId !== input.ownerId) return fail("not_found", "Upload not found.");
+  if (session.state !== "uploading" && session.state !== "ready") return ok(true);
+
+  // The release reads the reservation from the session only while it is still open, and the
+  // session is closed in the same transaction, so concurrent aborts release it exactly once.
+  const open = sql`${schema.uploadSessions.id} = ${session.id} and ${schema.uploadSessions.state} in ('uploading', 'ready')`;
+  await db.batch([
+    db
+      .update(schema.accountUsage)
+      .set({
+        activeArtifacts: sql`${schema.accountUsage.activeArtifacts} - coalesce((select ${schema.uploadSessions.reservedSlots} from ${schema.uploadSessions} where ${open}), 0)`,
+        reservedBytes: sql`${schema.accountUsage.reservedBytes} - coalesce((select ${schema.uploadSessions.reservedBytes} from ${schema.uploadSessions} where ${open}), 0)`,
+        openUploads: sql`${schema.accountUsage.openUploads} - (select count(*) from ${schema.uploadSessions} where ${open})`,
+        updatedAt: input.now,
+      })
+      .where(eq(schema.accountUsage.ownerId, input.ownerId)),
+    db.update(schema.uploadSessions).set({ state: finalState }).where(open),
+    // A new artifact that never got a version disappears with its only upload.
+    db
+      .delete(schema.artifacts)
+      .where(
+        and(
+          eq(schema.artifacts.id, session.artifactId),
+          eq(schema.artifacts.state, "draft"),
+          sql`${schema.artifacts.currentVersionId} is null`,
+          sql`not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${session.artifactId} and ${schema.uploadSessions.state} in ('uploading', 'ready'))`,
+        ),
+      ),
+  ]);
+  return ok(true);
+}
+
+function changes(result: unknown): number {
+  const meta = (result as { meta?: { changes?: number } } | undefined)?.meta;
+  return meta?.changes ?? 0;
+}
+
+function constraintFailed(error: unknown, kind: "UNIQUE" | "CHECK"): boolean {
+  for (let e: unknown = error; e instanceof Error; e = e.cause) {
+    if (e.message.includes(`${kind} constraint failed`)) return true;
+  }
+  return false;
+}
