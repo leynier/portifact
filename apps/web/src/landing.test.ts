@@ -65,6 +65,55 @@ describe("landing page", () => {
     expect(html).not.toContain("—");
   });
 
+  it("gives the hero heading one stable, complete name and hides the animated line", () => {
+    const h1 = /<h1\b[^>]*>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? "";
+    const spoken = /<span class="sr-only">([^<]+)<\/span>/.exec(h1)?.[1];
+    const phrases = [...h1.matchAll(/<span data-typewriter-phrase\b[^>]*>([^<]+)</g)].map(
+      (match) => match[1] ?? "",
+    );
+    const initial = /<span data-typewriter-text>([^<]*)<\/span>/.exec(h1)?.[1];
+
+    expect(spoken).toBe(`Share what your agent built. ${phrases[0]}`);
+    expect(h1.replace(/<span class="sr-only">[^<]*<\/span>/, "")).toMatch(
+      /^\s*<span aria-hidden="true">[\s\S]*<\/span>\s*$/,
+    );
+    expect(phrases.length).toBeGreaterThanOrEqual(3);
+    expect(initial).toBe(phrases[0]);
+    for (const phrase of phrases) expect(phrase).not.toMatch(/[.—]$/);
+    expect(h1).toMatch(/data-typewriter-caret class="[^"]*motion-reduce:hidden/);
+  });
+
+  it("lists the supported agents with monochrome icons and an honest note", () => {
+    const strip = /<div id="agents"[\s\S]*?<\/ul>\s*<p\b[^>]*>([\s\S]*?)<\/p>/.exec(html);
+    const items = [...(strip?.[0] ?? "").matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/g)].map(
+      (match) => match[1] ?? "",
+    );
+    expect(html).toMatch(/<ul\b[^>]*aria-labelledby="agents-title"/);
+    expect(items.length).toBeGreaterThanOrEqual(8);
+    for (const item of items) {
+      expect(item).toMatch(/^<svg\b[^>]*fill="currentColor" aria-hidden="true"/);
+      expect(item.replace(/<[^>]+>/g, "").trim()).not.toBe("");
+    }
+    const names = items.map((item) => item.replace(/<[^>]+>/g, "").trim());
+    expect(names).toEqual(expect.arrayContaining(["Claude Code", "Codex", "Cursor", "Gemini CLI"]));
+    expect(strip?.[1]).toMatch(/installer and the agent skill work/);
+    expect(strip?.[1]).toMatch(/MCP is in development/);
+    expect(strip?.[1]).toMatch(/OAuth/);
+    expect(html).not.toMatch(/\b(?:fill|stroke)="#/);
+  });
+
+  it("links the star button in the top bar to the repository stargazers", () => {
+    const header = /<header\b[\s\S]*?<\/header>/.exec(html)?.[0] ?? "";
+    const star =
+      /<a\s+href="https:\/\/github\.com\/leynier\/portifact\/stargazers"[\s\S]*?<\/a>/.exec(
+        header,
+      )?.[0];
+    expect(star).toBeDefined();
+    expect(star).toMatch(/<svg\b[^>]*aria-hidden="true"/);
+    expect(star).toMatch(/>Star on GitHub</);
+    expect(star).not.toMatch(/class="[^"]*\bhidden\b/);
+  });
+
   it("labels every copy button with an existing target", () => {
     for (const match of html.matchAll(/data-copy-target="([^"]+)"/g)) {
       expect(html).toContain(`id="${match[1]}"`);

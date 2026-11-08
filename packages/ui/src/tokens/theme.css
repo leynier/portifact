@@ -131,6 +131,18 @@
     text-underline-offset: 3px;
   }
 
+  /*
+   * Tailwind v4 preflight leaves buttons with the default cursor. Every enabled control that
+   * acts on click shows the pointer, so apps never add `cursor-pointer` by hand.
+   */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  summary,
+  label[for] {
+    cursor: pointer;
+  }
+
   :focus-visible {
     outline: 2px solid var(--pf-color-focus);
     outline-offset: 3px;
@@ -147,6 +159,18 @@
       animation-duration: 0ms !important;
     }
   }
+}
+
+/*
+ * A text caret drawn as a solid block, sized in `em` so it matches the type it follows. Color
+ * comes from a token utility such as `bg-text`, and blinking from `motion-safe:animate-blink`.
+ */
+@utility typing-caret {
+  display: inline-block;
+  width: 0.45em;
+  height: 0.8em;
+  margin-left: 0.08em;
+  vertical-align: -0.05em;
 }
 
 /* Hides the disclosure triangle of a `summary`, including Safari's WebKit marker. */
