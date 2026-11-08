@@ -14,10 +14,16 @@ export const messages = {
   codeResent: "A new code is on its way.",
   signedInAs: (email: string) => `Signed in as ${email}`,
   signedOut: "You are signed out.",
+  providerLinked: (provider: string) => `${providerName(provider)} is connected.`,
   redirecting: "Signing you in.",
   providerErrors: {
     account_not_linked:
-      "This email already belongs to a Portifact account that signs in another way. Use that method, for example an email code.",
+      "This email already belongs to a Portifact account. Sign in the way you did before, then connect this provider under Sign-in methods.",
+    email_does_not_match:
+      "That provider account uses a different email address. Only an account with the same email can be connected.",
+    account_already_linked_to_different_user:
+      "That provider account already signs in to another Portifact account.",
+    unable_to_link_account: "The provider could not be connected. Sign in again and retry.",
     email_not_verified:
       "Your provider has not verified this email address. Verify it there, or sign in with an email code.",
     email_not_found: "Your provider did not share an email address. Sign in with an email code.",
@@ -35,3 +41,9 @@ export const messages = {
   consentClientUnknown: "The app that sent you here is not registered or is disabled.",
   redirectHost: (host: string) => `After you decide, you return to ${host}.`,
 } as const;
+
+const PROVIDER_NAMES: Record<string, string> = { google: "Google", github: "GitHub" };
+
+export function providerName(provider: string): string {
+  return PROVIDER_NAMES[provider] ?? provider;
+}

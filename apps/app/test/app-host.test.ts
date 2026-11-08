@@ -65,7 +65,7 @@ describe("auth API surface", () => {
       ["POST", "/api/auth/oauth2/introspect"],
       ["GET", "/api/auth/oauth2/userinfo"],
       ["POST", "/api/auth/device/token"],
-      ["POST", "/api/auth/link-social"],
+      ["POST", "/api/auth/unlink-account"],
       ["GET", "/api/auth/list-sessions"],
       ["GET", "/api/auth/error"],
       ["GET", "/api/auth/sign-out"],
