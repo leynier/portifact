@@ -185,6 +185,13 @@ export const reviewHandoffs = sqliteTable(
     usedAt: timestamp("used_at"),
     sessionId: text("session_id"),
     createdAt: createdAt(),
+    /**
+     * Where the code may be redeemed: `frame` in the viewer's iframe (partitioned cookie) or
+     * `tab` in a top-level review tab (first-party cookie, shorter session).
+     */
+    kind: text("kind", { enum: ["frame", "tab"] })
+      .notNull()
+      .default("frame"),
   },
   (t) => [
     index("review_handoffs_expires_idx").on(t.expiresAt),

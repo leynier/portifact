@@ -3,7 +3,7 @@
 // apps/app/test/review.test.ts covers that route.
 import { env } from "cloudflare:test";
 import { BRIDGE_VERSION } from "@portifact/bridge/bundle";
-import { REVIEW_SESSION } from "@portifact/contracts";
+import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import {
   commitPublish,
@@ -13,7 +13,8 @@ import {
 } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import { handle } from "../src/index.ts";
-import { REVIEW_COOKIE } from "../src/review.ts";
+import { injectReviewBanner } from "../src/inject.ts";
+import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
 
 const ID = "r7d2qm4xab";
 const OTHER_ID = "r3n5wq7yzc";
@@ -192,12 +193,13 @@ function reviewSetCookie(response: Response): string | undefined {
   return response.headers.getSetCookie().find((c) => c.startsWith(`${REVIEW_COOKIE}=`));
 }
 
-async function code(userId = READER, artifactId = ID): Promise<string> {
+async function code(userId = READER, artifactId = ID, kind?: ReviewKind): Promise<string> {
   const issued = await issueReviewHandoff(db(), {
     artifactId,
     userId,
     authSessionId: appSession(userId),
     now: NOW,
+    ...(kind ? { kind } : {}),
   });
   if (!issued.ok) throw new Error(issued.message);
   return issued.value.code;
@@ -578,5 +580,325 @@ describe("review of rendered documents", () => {
 
     const visitor = await send("/", { origin, headers: TOP_LEVEL });
     expect(visitor.status).toBe(303);
+  });
+
+  it("shows a document in a review tab with the banner and its script-free policy intact", async () => {
+    const id = await publishMarkdown();
+    const origin = `https://${id}.portifact.dev`;
+    const opened = await send(`/__portifact/review/tab?code=${await code(OWNER, id, "tab")}`, {
+      origin,
+      headers: {
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+        Referer: `${APP}/`,
+      },
+    });
+    const cookie = (opened.headers.getSetCookie()[0] ?? "").split(";")[0];
+    const response = await send("/", {
+      cookie,
+      origin,
+      headers: {
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+      },
+    });
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("End review");
+    expect(html).not.toContain("<script");
+    expect(html).toMatch(/http-equiv="Content-Security-Policy"/i);
+    const csp = response.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("default-src 'none'");
+    expect(csp).not.toContain("script-src");
+  });
+});
+
+describe("review tab", () => {
+  const TAB_SESSION_MS = REVIEW_SESSION.tabSessionTtlSeconds * 1000;
+  // The viewer's link: a cross-site top-level navigation that sends the app's origin as Referer.
+  const FROM_VIEWER = {
+    "Sec-Fetch-Site": "cross-site",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Dest": "document",
+    Referer: `${APP}/`,
+  };
+  const IN_TAB_LINK = {
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Dest": "document",
+  };
+  const tabSetCookie = (response: Response) =>
+    response.headers.getSetCookie().find((c) => c.startsWith(`${REVIEW_TAB_COOKIE}=`));
+
+  /** Opens a review tab and returns its cookie as `name=value`. */
+  async function openTab(userId = READER, artifactId = ID): Promise<string> {
+    const origin = `https://${artifactId}.portifact.dev`;
+    const response = await send(
+      `/__portifact/review/tab?code=${await code(userId, artifactId, "tab")}`,
+      { origin, headers: FROM_VIEWER },
+    );
+    expect(response.status).toBe(303);
+    const cookie = tabSetCookie(response);
+    if (!cookie) throw new Error("no review tab cookie");
+    return cookie.split(";")[0] ?? "";
+  }
+
+  it("sets a short, first-party, host-only cookie and checks that it came back", async () => {
+    const response = await send(`/__portifact/review/tab?code=${await code(READER, ID, "tab")}`, {
+      headers: FROM_VIEWER,
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(`${ORIGIN}/__portifact/review/tab/check`);
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(reviewSetCookie(response)).toBeUndefined();
+    const cookie = tabSetCookie(response) ?? "";
+    expect(cookie.split("; ").slice(1)).toEqual([
+      `Max-Age=${TAB_SESSION_MS / 1000}`,
+      "Path=/",
+      "Secure",
+      "HttpOnly",
+      "SameSite=Lax",
+    ]);
+    expect(cookie).not.toMatch(/Domain=|Partitioned/i);
+
+    const check = await send("/__portifact/review/tab/check", {
+      cookie: cookie.split(";")[0],
+      headers: FROM_VIEWER,
+    });
+    expect(check.status).toBe(303);
+    expect(check.headers.get("location")).toBe(`${ORIGIN}/`);
+    const dropped = await send("/__portifact/review/tab/check", { headers: FROM_VIEWER });
+    expect(dropped.status).toBe(409);
+  });
+
+  it("redeems only a tab code, only from the app's top-level navigation, and only once", async () => {
+    const pending = await code(READER, ID, "tab");
+    for (const headers of [
+      VIEWER_FRAME,
+      TOP_LEVEL,
+      IN_TAB_LINK,
+      { ...FROM_VIEWER, "Sec-Fetch-Site": "same-site" },
+      { ...FROM_VIEWER, "Sec-Fetch-Dest": "iframe" },
+      { ...FROM_VIEWER, Referer: `https://${OTHER_ID}.portifact.dev/` },
+      { ...FROM_VIEWER, Referer: "https://app.portifact.com.evil.example/" },
+      { ...FROM_VIEWER, Referer: "not a url" },
+      {
+        "Sec-Fetch-Site": "cross-site",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+      },
+      {},
+    ]) {
+      const refused = await send(`/__portifact/review/tab?code=${pending}`, { headers });
+      expect(refused.status).toBe(400);
+      expect(tabSetCookie(refused)).toBeUndefined();
+    }
+    // A frame code cannot open a tab, nor a tab code the frame.
+    const frameCode = await code();
+    expect(
+      (await send(`/__portifact/review/tab?code=${frameCode}`, { headers: FROM_VIEWER })).status,
+    ).toBe(400);
+    expect((await send(`/__portifact/review?code=${pending}`)).status).toBe(400);
+
+    expect(
+      (await send(`/__portifact/review/tab?code=${pending}`, { headers: FROM_VIEWER })).status,
+    ).toBe(303);
+    const replay = await send(`/__portifact/review/tab?code=${pending}`, { headers: FROM_VIEWER });
+    expect(replay.status).toBe(400);
+    expect(tabSetCookie(replay)).toBeUndefined();
+  });
+
+  it("serves the pinned version with the banner and no bridge, on the tab's pages and visits", async () => {
+    const cookie = await openTab();
+    for (const headers of [FROM_VIEWER, IN_TAB_LINK, TOP_LEVEL]) {
+      const response = await send("/", { cookie, headers });
+      expect(response.status).toBe(200);
+      const html = await response.text();
+      expect(html).toContain('<body><div role="region" aria-label="Portifact review"');
+      expect(html).toContain('<template shadowrootmode="open">');
+      expect(html).toContain('<a href="/__portifact/review/end">End review</a>');
+      expect(html).toContain(`within ${TAB_SESSION_MS / 60_000} minutes`);
+      expect(html).not.toContain("bridge.js");
+      expect(response.headers.get("cross-origin-resource-policy")).toBe("same-origin");
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("content-security-policy")).toBe(`frame-ancestors 'self' ${APP}`);
+    }
+    const script = await send("/app.js", { cookie, headers: SAME_ORIGIN });
+    expect(script.status).toBe(200);
+    expect(await script.text()).toBe(SCRIPT);
+  });
+
+  it("never honors the tab cookie for a sibling's loads or frames, or without fetch metadata", async () => {
+    const cookie = await openTab();
+    expect((await send("/app.js", { cookie, headers: SIBLING })).status).toBe(401);
+    const framed = await send("/", { cookie, headers: SIBLING_NAVIGATION });
+    expect(framed.status).not.toBe(200);
+    expect((await send("/", { cookie, headers: VIEWER_FRAME })).status).not.toBe(200);
+    expect((await send("/", { cookie, headers: {} })).status).toBe(401);
+    // Names match exactly; a frame cookie value is not a tab cookie.
+    const value = cookie.slice(REVIEW_TAB_COOKIE.length + 1);
+    const lower = await send("/app.js", {
+      cookie: `__host-pf_review_tab=${value}`,
+      headers: SAME_ORIGIN,
+    });
+    expect(lower.status).toBe(401);
+    const asFrame = await send("/app.js", {
+      cookie: `${REVIEW_COOKIE}=${value}`,
+      headers: SAME_ORIGIN,
+    });
+    expect(asFrame.status).toBe(401);
+  });
+
+  it("ends the session at once with End review, only from the artifact itself", async () => {
+    const cookie = await openTab();
+    for (const headers of [SIBLING_NAVIGATION, TOP_LEVEL, FROM_VIEWER, SAME_ORIGIN]) {
+      const refused = await send("/__portifact/review/end", { cookie, headers });
+      expect(refused.status).toBe(400);
+      expect(tabSetCookie(refused)).toBeUndefined();
+    }
+    const head = await send("/__portifact/review/end", {
+      cookie,
+      headers: IN_TAB_LINK,
+      method: "HEAD",
+    });
+    expect(head.status).toBe(400);
+    expect((await send("/", { cookie, headers: IN_TAB_LINK })).status).toBe(200);
+
+    const end = await send("/__portifact/review/end", { cookie, headers: IN_TAB_LINK });
+    expect(end.status).toBe(200);
+    expect(await end.text()).toContain("Review ended");
+    expect(end.headers.get("cache-control")).toBe("no-store");
+    expect(tabSetCookie(end)).toBe(
+      `${REVIEW_TAB_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`,
+    );
+    expect(await db().select().from(schema.reviewSessions)).toHaveLength(0);
+    // Claims still in a copy of the cookie are refused as soon as they need renewing.
+    const stale = await send("/", { cookie, headers: IN_TAB_LINK, now: NOW + CLAIMS_MS + 1 });
+    expect(stale.status).toBe(401);
+    expect(tabSetCookie(stale)).toMatch(/^__Host-pf_review_tab=; Max-Age=0;/);
+    // Ending again, or without a session, only clears the cookie.
+    const again = await send("/__portifact/review/end", { headers: IN_TAB_LINK });
+    expect(again.status).toBe(200);
+    expect(tabSetCookie(again)).toMatch(/Max-Age=0/);
+  });
+
+  it("ends within the claims' lifetime with the app session, a new version or its expiry", async () => {
+    const cookie = await openTab();
+    await env.DB.exec(`DELETE FROM sessions WHERE user_id = '${READER}'`);
+    const signedOut = await send("/", { cookie, headers: IN_TAB_LINK, now: NOW + CLAIMS_MS + 1 });
+    expect(signedOut.status).toBe(401);
+    expect(await signedOut.text()).not.toContain("End review");
+
+    await seed();
+    const moved = await openTab();
+    await env.DB.exec(`UPDATE artifacts SET current_version_id = '${ID}-v2' WHERE id = '${ID}'`);
+    expect((await send("/", { cookie: moved, headers: IN_TAB_LINK })).status).toBe(401);
+
+    await seed();
+    const expiring = await openTab();
+    const late = await send("/", {
+      cookie: expiring,
+      headers: IN_TAB_LINK,
+      now: NOW + TAB_SESSION_MS + 1,
+    });
+    expect(late.status).not.toBe(200);
+    expect(await late.text()).not.toContain("End review");
+  });
+
+  const clearsFrameCookie = (response: Response) =>
+    response.headers
+      .getSetCookie()
+      .includes(
+        `${REVIEW_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=None; Partitioned`,
+      );
+
+  it("never honors a frame cookie on a top-level page, and clears it there", async () => {
+    // A frame session planted in the artifact's own partition: a sibling framed a redirector to
+    // the exchange, which arrived as the cross-site iframe navigation the viewer's does.
+    const planted = await openReview();
+    for (const headers of [
+      TOP_LEVEL,
+      FROM_VIEWER,
+      IN_TAB_LINK,
+      { ...TOP_LEVEL, "Sec-Fetch-Site": "same-site" },
+    ]) {
+      const visit = await send("/", { cookie: planted, headers });
+      expect(visit.status, JSON.stringify(headers)).not.toBe(200);
+      expect(await visit.text()).not.toContain("bridge.js");
+      expect(clearsFrameCookie(visit), JSON.stringify(headers)).toBe(true);
+    }
+    // A public artifact is served normally, and the planted cookie still goes.
+    await env.DB.exec(`UPDATE artifacts SET access_mode = 'public'`);
+    const open = await send("/", { cookie: planted, headers: TOP_LEVEL });
+    expect(open.status).toBe(200);
+    expect(await open.text()).toBe(PAGE);
+    expect(clearsFrameCookie(open)).toBe(true);
+    // The viewer's own frame keeps its cookie and review mode.
+    const framed = await send("/", { cookie: planted });
+    expect(await framed.text()).toContain("bridge.js");
+    expect(clearsFrameCookie(framed)).toBe(false);
+    const subresource = await send("/app.js", { cookie: planted, headers: SAME_ORIGIN });
+    expect(subresource.status).toBe(200);
+    expect(clearsFrameCookie(subresource)).toBe(false);
+    // Only that exact name is cleared.
+    const other = await send("/", { cookie: "__host-pf_review=x", headers: TOP_LEVEL });
+    expect(clearsFrameCookie(other)).toBe(false);
+  });
+
+  it("serves the visitor's tab over a planted frame session and clears the planted one", async () => {
+    const planted = await openReview(OWNER);
+    const tab = await openTab();
+    for (const headers of [FROM_VIEWER, IN_TAB_LINK, TOP_LEVEL]) {
+      const page = await send("/", { cookie: `${planted}; ${tab}`, headers });
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain("End review");
+      expect(html).not.toContain("bridge.js");
+      expect(clearsFrameCookie(page)).toBe(true);
+    }
+    // Both valid on a subresource: the tab wins there too.
+    const both = await send("/", {
+      cookie: `${planted}; ${tab}`,
+      headers: { ...SAME_ORIGIN, "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate" },
+    });
+    expect(await both.text()).toContain("End review");
+  });
+
+  it("clears a planted frame cookie along with the tab's on End review", async () => {
+    const planted = await openReview(OWNER);
+    const tab = await openTab();
+    const end = await send("/__portifact/review/end", {
+      cookie: `${planted}; ${tab}`,
+      headers: IN_TAB_LINK,
+    });
+    expect(end.status).toBe(200);
+    expect(clearsFrameCookie(end)).toBe(true);
+    expect(tabSetCookie(end)).toMatch(/^__Host-pf_review_tab=; Max-Age=0;/);
+  });
+
+  it("adds the banner at the end of a page without a body tag", async () => {
+    const page = injectReviewBanner(new Response("<p>Bare page</p>"), 15);
+    const html = await page.text();
+    expect(html.startsWith('<p>Bare page</p><div role="region"')).toBe(true);
+    expect(html.match(/End review/g)).toHaveLength(1);
+    const nested = injectReviewBanner(
+      new Response("<body><iframe srcdoc='<body>x</body>'></iframe><body></body>"),
+      15,
+    );
+    expect((await nested.text()).match(/End review/g)).toHaveLength(1);
+  });
+
+  it("is unavailable without the signing secret", async () => {
+    const pending = await code(READER, ID, "tab");
+    const response = await send(`/__portifact/review/tab?code=${pending}`, {
+      headers: FROM_VIEWER,
+      secret: undefined,
+    });
+    expect(response.status).toBe(503);
+    expect(
+      (await send("/__portifact/review/end", { headers: IN_TAB_LINK, secret: undefined })).status,
+    ).toBe(503);
   });
 });

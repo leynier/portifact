@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "19d880f8-891d-45f6-acb8-0b6306ed2e90",
+  "id": "cdb15350-0b6d-4dda-b29c-471fadd0070f",
   "prevId": "78e3b0f5-bcf0-420b-8a35-79308ba0e61a",
   "tables": {
     "abuse_reports": {
@@ -845,71 +845,6 @@
         }
       }
     },
-    "budget_alerts": {
-      "name": "budget_alerts",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "cycle_start": {
-          "name": "cycle_start",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "level": {
-          "name": "level",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "projected_cents": {
-          "name": "projected_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "notified_at": {
-          "name": "notified_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "budget_alerts_cycle_kind_idx": {
-          "name": "budget_alerts_cycle_kind_idx",
-          "columns": ["cycle_start", "kind"],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "lifecycle_events": {
       "name": "lifecycle_events",
       "columns": {
@@ -1235,128 +1170,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "platform_budget": {
-      "name": "platform_budget",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'global'"
-        },
-        "cycle_start": {
-          "name": "cycle_start",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "level": {
-          "name": "level",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'none'"
-        },
-        "actions": {
-          "name": "actions",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
-        },
-        "projected_cents": {
-          "name": "projected_cents",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "metrics": {
-          "name": "metrics",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "analytics": {
-          "name": "analytics",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'off'"
-        },
-        "measured_at": {
-          "name": "measured_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "level_changed_at": {
-          "name": "level_changed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "override_level": {
-          "name": "override_level",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "override_steps": {
-          "name": "override_steps",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "override_until": {
-          "name": "override_until",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "override_note": {
-          "name": "override_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "override_set_at": {
-          "name": "override_set_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "platform_budget_single_row": {
-          "name": "platform_budget_single_row",
-          "value": "\"platform_budget\".\"id\" = 'global'"
-        },
-        "platform_budget_override_steps": {
-          "name": "platform_budget_override_steps",
-          "value": "\"platform_budget\".\"override_steps\" is null or \"platform_budget\".\"override_steps\" between 1 and 4"
-        }
-      }
-    },
     "read_handoffs": {
       "name": "read_handoffs",
       "columns": {
@@ -1652,6 +1465,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch() * 1000)"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'frame'"
         }
       },
       "indexes": {

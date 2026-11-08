@@ -9,7 +9,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { BRIDGE_TIMEOUT_MS } from "./review/use-bridge.ts";
-import { FRAME_SANDBOX } from "./screens/review.tsx";
+import { FRAME_SANDBOX, REVIEW_TAB_LINK_MS } from "./screens/review.tsx";
 import {
   artifact,
   type FakeServer,
@@ -491,6 +491,65 @@ describe("review states", () => {
     await screen.findByText("Review tools are not available in this browser");
     expect(screen.getByRole("button", { name: "Comment on the page" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Select an element" })).toBeNull();
+  });
+
+  it("offers a review tab where the frame cannot keep the cookie, through a one-use link", async () => {
+    await open();
+    expect(screen.queryByRole("heading", { name: "Review in a separate tab" })).toBeNull();
+    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    const offer = (
+      await screen.findByRole("heading", { name: "Review in a separate tab" })
+    ).closest("section") as HTMLElement;
+    expect(within(offer).getByText(/ends after 15 minutes/)).toBeTruthy();
+    // The frame can force this offer, so the tab is presented as the artifact, not Portifact.
+    expect(
+      within(offer).getByText(/shows the artifact itself, written by its author/),
+    ).toBeTruthy();
+    fireEvent.click(within(offer).getByRole("button", { name: "Prepare a review tab" }));
+    const link = await within(offer).findByRole("link", { name: "Open the review tab" });
+    expect(server.requests.filter((r) => r.path.endsWith("/review/tab"))).toHaveLength(1);
+    expect(link.getAttribute("href")).toBe(
+      `${ORIGIN}/__portifact/review/tab?code=${"1".padStart(43, "t")}`,
+    );
+    // No opener for the artifact to navigate, and only the app's origin as Referer.
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener");
+    expect(link.getAttribute("referrerpolicy")).toBe("origin");
+    await waitFor(() => expect(document.activeElement).toBe(link));
+    expect(await axeViolations(document.body)).toEqual([]);
+
+    // The code is used once: after opening, the link goes away.
+    const stop = (event: Event) => event.preventDefault();
+    document.addEventListener("click", stop);
+    fireEvent.click(link);
+    document.removeEventListener("click", stop);
+    await within(offer).findByText(/The review tab opened/);
+    expect(within(offer).queryByRole("link", { name: "Open the review tab" })).toBeNull();
+    expect(within(offer).getByRole("button", { name: "Prepare a review tab" })).toBeTruthy();
+    // General comments stay in the viewer.
+    expect(screen.getByRole("button", { name: "Comment on the page" })).toBeTruthy();
+  });
+
+  it("withdraws a prepared review tab link before its code expires", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await open();
+    fireEvent.load(screen.getByTitle("Launch plan, the version under review"));
+    await act(() => vi.advanceTimersByTimeAsync(BRIDGE_TIMEOUT_MS));
+    await screen.findByText("The page does not answer the review tools");
+    fireEvent.click(screen.getByRole("button", { name: "Prepare a review tab" }));
+    await screen.findByRole("link", { name: "Open the review tab" });
+    await act(() => vi.advanceTimersByTimeAsync(REVIEW_TAB_LINK_MS));
+    await screen.findByText("The link expired before it was opened. Prepare a new one.");
+    expect(screen.queryByRole("link", { name: "Open the review tab" })).toBeNull();
+  });
+
+  it("shows why a review tab could not be prepared", async () => {
+    await open();
+    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    delete server.reviews[ID];
+    fireEvent.click(await screen.findByRole("button", { name: "Prepare a review tab" }));
+    await screen.findByText("The action did not finish");
+    expect(screen.queryByRole("link", { name: "Open the review tab" })).toBeNull();
   });
 
   it("offers to reload when the review session ends, with a new code", async () => {

@@ -25,6 +25,7 @@ jobs:
     outputs:
       quality: ${{ steps.scope.outputs.quality }}
       cli: ${{ steps.scope.outputs.cli }}
+      e2e: ${{ steps.scope.outputs.e2e }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -66,6 +67,36 @@ jobs:
       - name: Validate the jobs Worker bundle
         working-directory: apps/jobs
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/jobs-worker"
+
+  # Playwright end to end in Chromium, Firefox and WebKit (e2e/, docs/testing.md), with the
+  # browsers' system libraries installed, so WebKit runs here even though it needs libraries
+  # most workstations lack. On Linux WebKit has no partitioned cookies and covers the fallback.
+  e2e:
+    name: e2e
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.e2e != 'false') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Install the browsers and their system libraries
+        run: bun run --cwd e2e browsers --with-deps
+      - run: bun run test:e2e
+      - name: Keep traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-traces
+          path: e2e/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
 
   coverage-badge:
     name: coverage-badge
