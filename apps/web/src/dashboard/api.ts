@@ -69,8 +69,6 @@ export interface SignInMethod {
 export interface DashboardApi {
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
-  /** The account's quotas and blocks, including the platform's budget protection. */
-  usage(): Promise<AccountUsageView>;
   signOut(): Promise<void>;
   listArtifacts(cursor?: string): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
@@ -84,6 +82,8 @@ export interface DashboardApi {
   disconnectApp(clientId: string): Promise<DisconnectResult>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
+  /** The account's quotas, this month's traffic and what blocks it now. */
+  usage(): Promise<AccountUsageView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -215,9 +215,6 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       }
       if (!response.ok) throw new ApiFailure("unexpected", response.status);
     },
-    usage() {
-      return call("/api/v1/usage", AccountUsageView);
-    },
     listArtifacts(cursor) {
       const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
       return call(`/api/v1/artifacts${query}`, ArtifactList);
@@ -264,6 +261,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     deleteAccount(confirmEmail) {
       return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });
+    },
+    usage() {
+      return call("/api/v1/usage", AccountUsageView);
     },
     preparePublish(request, idempotencyKey) {
       return call("/api/v1/publishes", PreparedPublish, "POST", request, {

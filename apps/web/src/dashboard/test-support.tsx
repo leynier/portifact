@@ -37,6 +37,28 @@ import { createDashboardRouter } from "./router.tsx";
 
 export const NOW = "2026-11-08T12:00:00.000Z";
 
+/** A usage body with nothing used and nothing blocking, as a new month starts. */
+export function usageView(overrides: Partial<AccountUsageView> = {}): AccountUsageView {
+  return {
+    activeArtifacts: { used: 2, limit: 50 },
+    storage: { used: 1_500_000, reserved: 0, limit: 2_500_000_000 },
+    publishesLast24h: { used: 3, limit: 100 },
+    newFilesLast24h: { used: 0, limit: 10_000 },
+    newBytesLast24h: { used: 0, limit: 5_000_000_000 },
+    newObjectsThisMonth: { used: 0, limit: 100_000, resetsAt: "2026-12-01T00:00:00.000Z" },
+    openUploads: { used: 0, limit: 2 },
+    trafficThisMonth: {
+      requests: { used: 12_345, limit: 1_000_000 },
+      bytes: { used: 3_200_000_000, limit: 25_000_000_000 },
+      resetsAt: "2026-12-01T00:00:00.000Z",
+    },
+    versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
+    publicAccessFrom: "2026-09-08T12:00:00.000Z",
+    blocks: [],
+    ...overrides,
+  };
+}
+
 export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): ArtifactSummary {
   return {
     id,
@@ -264,8 +286,8 @@ export interface FakeServer {
   providers: { providerId: string; createdAt: string }[];
   sessions: BrowserSession[];
   apps: ConnectedApp[];
-  /** Blocks GET /api/v1/usage reports, such as the platform's `capacity` block. */
-  usageBlocks: UsageBlock[];
+  /** The body of GET /api/v1/usage. */
+  usage: AccountUsageView;
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -293,7 +315,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     providers: [],
     sessions: [browserSession({ current: true })],
     apps: [],
-    usageBlocks: [],
+    usage: usageView(),
     bodies: [],
     pageSize: 50,
     requests: [],
@@ -322,29 +344,6 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     },
   };
   return server;
-}
-
-function usageOf(server: FakeServer): AccountUsageView {
-  const meter = (limit: number) => ({ used: 0, limit });
-  return {
-    activeArtifacts: meter(LIMITS.activeArtifacts),
-    storage: { ...meter(LIMITS.accountBytes), reserved: 0 },
-    publishesLast24h: meter(LIMITS.publishesPer24h),
-    newFilesLast24h: meter(LIMITS.newFilesPer24h),
-    newBytesLast24h: meter(LIMITS.newBytesPer24h),
-    newObjectsThisMonth: {
-      ...meter(LIMITS.newObjectsPerMonth),
-      resetsAt: "2026-12-01T00:00:00.000Z",
-    },
-    openUploads: meter(LIMITS.concurrentUploads),
-    versionLimits: {
-      publishedBytes: LIMITS.artifactBytes,
-      files: LIMITS.filesPerVersion,
-      documentBytes: LIMITS.documentBytes,
-    },
-    publicAccessFrom: "2026-09-08T12:00:00.000Z",
-    blocks: server.usageBlocks,
-  };
 }
 
 function json(body: unknown, status = 200): Response {
@@ -650,7 +649,6 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
-  if (path === "/api/v1/usage" && method === "GET") return json(usageOf(server));
   if (path === "/api/auth/get-session") {
     return Response.json(
       server.email
@@ -676,6 +674,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     }
     server.email = null;
     return Response.json({ deleted: true });
+  }
+  if (path === "/api/v1/usage" && method === "GET") {
+    return Response.json(server.usage);
   }
   if (path === "/api/v1/account/apps" && method === "GET") {
     return Response.json({ items: server.apps });

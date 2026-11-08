@@ -15,7 +15,9 @@ export type CliErrorCode =
   /** A download failed, or its bytes did not match the manifest. */
   | "download_failed"
   /** The user did not confirm a destructive action. */
-  | "cancelled";
+  | "cancelled"
+  /** `git` is not installed, or a git command the CLI needed failed. */
+  | "git_failed";
 
 /** Documented exit codes (skills/portifact/SKILL.md). */
 export const EXIT = {

@@ -1,8 +1,8 @@
 // Read queries used when serving artifacts. They run on every uncached request, so each is a
 // single indexed lookup.
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "./index.ts";
-import { artifacts, objects, versionFiles, versions } from "./schema.ts";
+import { artifacts, objects, trafficCounters, versionFiles, versions } from "./schema.ts";
 
 export interface DeliveryArtifact {
   id: string;
@@ -18,9 +18,19 @@ export interface DeliveryArtifact {
   entrypoint: string | null;
   expiresAt: number | null;
   archivedAt: number | null;
+  /** What the owner's artifacts served in the cycle asked for; zero without a counter yet. */
+  traffic: { requests: number; bytes: number };
 }
 
-export async function findDeliveryArtifact(db: Db, id: string): Promise<DeliveryArtifact | null> {
+/**
+ * The artifact, its current version's entrypoint and the owner's traffic counter for the cycle
+ * that starts at `cycleStart`, in one lookup.
+ */
+export async function findDeliveryArtifact(
+  db: Db,
+  id: string,
+  cycleStart: number,
+): Promise<DeliveryArtifact | null> {
   const [row] = await db
     .select({
       id: artifacts.id,
@@ -35,12 +45,23 @@ export async function findDeliveryArtifact(db: Db, id: string): Promise<Delivery
       entrypoint: versions.entrypoint,
       expiresAt: artifacts.expiresAt,
       archivedAt: artifacts.archivedAt,
+      requests: sql<number>`coalesce(${trafficCounters.requests}, 0)`,
+      bytes: sql<number>`coalesce(${trafficCounters.bytes}, 0)`,
     })
     .from(artifacts)
     .leftJoin(versions, eq(versions.id, artifacts.currentVersionId))
+    .leftJoin(
+      trafficCounters,
+      and(
+        eq(trafficCounters.ownerId, artifacts.ownerId),
+        eq(trafficCounters.cycleStart, cycleStart),
+      ),
+    )
     .where(eq(artifacts.id, id))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  const { requests, bytes, ...artifact } = row;
+  return { ...artifact, traffic: { requests: Number(requests), bytes: Number(bytes) } };
 }
 
 export interface DeliveryFile {

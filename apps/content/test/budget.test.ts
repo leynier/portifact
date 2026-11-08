@@ -85,11 +85,12 @@ async function seedPublicSite() {
   });
 }
 
-const visit = (limits: { PUBLIC_TRAFFIC_LIMIT?: RateLimit }) =>
+const visit = (limits: { PUBLIC_TRAFFIC_LIMIT?: RateLimit }, charges: unknown[] = []) =>
   handle(
     new Request(`${ORIGIN}/`, { headers: { "CF-Connecting-IP": "203.0.113.7" } }),
     { ...env, ...limits },
     NOW,
+    (charge) => charges.push(charge),
   );
 
 describe("budget protection on delivery", () => {
@@ -124,6 +125,32 @@ describe("budget protection on delivery", () => {
     const served = await visit({ PUBLIC_TRAFFIC_LIMIT: under.binding });
     expect(served.status).toBe(200);
     expect(await served.text()).toBe("<h1>Plan</h1>");
+  });
+
+  it("checks the traffic quota first and charges no traffic for a budget refusal", async () => {
+    await protect(3);
+    const over = limiter(false);
+    const charges: unknown[] = [];
+    expect((await visit({ PUBLIC_TRAFFIC_LIMIT: over.binding }, charges)).status).toBe(429);
+    expect(charges).toEqual([]);
+
+    await db().delete(schema.trafficCounters);
+    await db()
+      .insert(schema.trafficCounters)
+      .values({
+        ownerId: "u_owner",
+        cycleStart: Date.UTC(2026, 10, 1),
+        requests: 1_000_000,
+        bytes: 0,
+        updatedAt: NOW,
+      });
+    over.keys.length = 0;
+    const exhausted = await visit({ PUBLIC_TRAFFIC_LIMIT: over.binding });
+    expect(exhausted.status).toBe(429);
+    expect(exhausted.headers.get("portifact-error")).toBe("traffic_exceeded");
+    // The account's own quota answers before the platform's limiter is consulted.
+    expect(over.keys).toEqual([]);
+    await db().delete(schema.trafficCounters);
   });
 
   it("limits protected traffic only at the last step", async () => {

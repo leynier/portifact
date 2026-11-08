@@ -115,7 +115,7 @@ export interface FakeApiState {
   seedVersion(
     artifact: FakeArtifact,
     files: { published: Record<string, string | Buffer>; source?: Record<string, string | Buffer> },
-    options?: { entrypoint?: string },
+    options?: { entrypoint?: string; sourceOrigin?: SourceOrigin | null },
   ): FakeVersion;
   /** The account is in its first days, so it cannot make an artifact public. */
   tooNewForPublic: boolean;
@@ -163,6 +163,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         id: `ver_${randomUUID().replaceAll("-", "")}`,
         entrypoint: options.entrypoint ?? Object.keys(files.published)[0] ?? "index.html",
         files: entries,
+        sourceOrigin: options.sourceOrigin ?? null,
       });
     },
     tooNewForPublic: false,
@@ -175,6 +176,11 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       newBytesLast24h: { used: 0, limit: 5_000_000_000 },
       newObjectsThisMonth: { used: 0, limit: 100_000, resetsAt: "2026-12-01T00:00:00.000Z" },
       openUploads: { used: 0, limit: 2 },
+      trafficThisMonth: {
+        requests: { used: 0, limit: 1_000_000 },
+        bytes: { used: 0, limit: 25_000_000_000 },
+        resetsAt: "2026-12-01T00:00:00.000Z",
+      },
       versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
       publicAccessFrom: "2026-01-01T00:00:00.000Z",
       blocks: [],

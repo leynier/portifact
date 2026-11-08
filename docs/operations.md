@@ -1,6 +1,6 @@
 # Operations
 
-How the operator handles abuse reports and suspensions (plan section 13) and the budget alerts and protection (plan section 12). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
+How the operator handles abuse reports and suspensions (plan section 13), how storage is verified and a database backup restored (plan section 10), and the budget alerts and protection (plan section 12). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
 
 ## Why a local tool and not an operator account
 
@@ -22,6 +22,9 @@ bun run --cwd apps/jobs operator resolve-report <report-id> actioned
 bun run --cwd apps/jobs operator reinstate-artifact <id>
 bun run --cwd apps/jobs operator suspend-account <user-id|email> --reason malware
 bun run --cwd apps/jobs operator reinstate-account <user-id|email>
+bun run --cwd apps/jobs operator storage-report [--limit N]          # what the storage reconciliation found
+bun run --cwd apps/jobs operator export-tombstones --out <file>      # before restoring a backup
+bun run --cwd apps/jobs operator apply-tombstones --file <file>      # after restoring a backup
 ```
 
 `--local` runs against the local D1 state of `wrangler dev` in `apps/app` instead (apply the migrations there first with `wrangler d1 migrations apply portifact-control --local --persist-to apps/app/.wrangler/state`). The remote binding is defined in `apps/jobs/operator.wrangler.jsonc`, which is never deployed. Reasons are the `AbuseReason` values in `packages/contracts/src/moderation.ts`.
@@ -65,16 +68,16 @@ bun run --cwd apps/jobs operator budget-override clear
 
 An override replaces the automatic decision at once, in both directions, until `--hours` passes or it is cleared; `--steps` (1 to 4) says how many protection steps a `protect100` override applies. It can be set before the first measurement. The note is required and only the operator sees it.
 
-### Cloudflare analytics (optional)
+### Cloudflare analytics
 
-By default the projection uses what D1 knows: the bytes of every stored object and the objects created this cycle (one class A upload each). To measure R2 operations and storage, Worker requests and D1 rows, set both values on the `portifact-jobs` Worker; the collector (`apps/jobs/src/analytics.ts`) stays off unless both exist:
+The jobs Worker measures R2 operations and storage, Worker requests and D1 rows through Cloudflare's GraphQL Analytics API (`apps/jobs/src/analytics.ts`). In production the `portifact-jobs` Worker has both settings below, so the collector runs on every budget run; without either of them it stays off and the projection uses only what D1 knows (the bytes of every stored object and the objects created this cycle, one class A upload each).
 
-| Name                 | Kind          | Value                                                                                                                           |
-| -------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `CF_ANALYTICS_TOKEN` | Secret        | A Cloudflare API token with only **Account > Account Analytics > Read** on the Portifact account. No edit permission is needed. |
-| `CF_ACCOUNT_ID`      | Secret or var | The account ID the token can read.                                                                                              |
+| Name                 | Kind   | Value                                                                                                                           |
+| -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `CF_ANALYTICS_TOKEN` | Secret | A Cloudflare API token with only **Account > Account Analytics > Read** on the Portifact account. No edit permission is needed. |
+| `CF_ACCOUNT_ID`      | Secret | The account ID the token can read.                                                                                              |
 
-Set them with `wrangler secret put <NAME> --name portifact-jobs` from `apps/jobs`, piping the value so it never appears in the shell history. The collector queries `r2OperationsAdaptiveGroups`, `r2StorageAdaptiveGroups`, `workersInvocationsAdaptive` and `d1AnalyticsAdaptiveGroups` on `https://api.cloudflare.com/client/v4/graphql`, for the whole account; its errors report only the HTTP status or the number of GraphQL errors.
+Rotate or set them with `wrangler secret put <NAME> --name portifact-jobs` from `apps/jobs`, piping the value so it never appears in the shell history. The collector queries `r2OperationsAdaptiveGroups`, `r2StorageAdaptiveGroups`, `workersInvocationsAdaptive` and `d1AnalyticsAdaptiveGroups` on `https://api.cloudflare.com/client/v4/graphql`. The account also hosts other projects, so each dataset is filtered to Portifact's resources (`PORTIFACT_RESOURCES`: the `portifact-artifacts` bucket, the `portifact-app`, `portifact-content` and `portifact-jobs` Workers and the `portifact-control` database); keep that list in sync when a Worker, bucket or database is renamed or added. The plan's included amounts are per account, so the projection credits all of them to Portifact and can understate its share of the invoice when other projects use them too. The collector's errors report only the HTTP status or the number of GraphQL errors; `operator budget` shows `analytics failed` when the last query failed, and the counters it missed keep their last values of the cycle.
 
 ### Alert emails (optional)
 
@@ -83,3 +86,36 @@ Alert emails are a no-op until the `portifact-jobs` Worker has a `send_email` bi
 ## Account deletions
 
 Deletions need no operator action: the request removes the user at once and the scheduled jobs finish the rest (see "Account deletion" in [security.md](security.md)). `select * from account_deletions` lists the ones still in progress.
+
+## Traffic quota
+
+An account whose artifacts served 1 million requests or 25 GB in the current UTC month gets 429 on all of them until the next month (`TRAFFIC_LIMITS`; see "Access control" in [security.md](security.md)). Its counters are in `traffic_counters`, one row per account and month, for example `select owner_id, requests, bytes from traffic_counters where cycle_start = <month start in ms> order by bytes desc limit 20` to see the largest consumers during a budget review. There is no operator command to raise or reset a counter: a quota exception is a product decision, not an operation. Counters older than the previous month are pruned by the maintenance job.
+
+## Maintenance and the outbox
+
+State changes that need follow-up work write a job to the `outbox` table in the same D1 batch (`packages/services/src/outbox.ts`): `purge_artifact` when an artifact is claimed for purging (deletion by its owner, the six-month purge, account deletion, re-applied tombstones), `account_deletion` with a deletion request, and `delete_objects` with the R2 keys whose rows a release just deleted. Every 15 minutes the jobs Worker runs the maintenance scans, relays due rows to the `portifact-jobs` queue and reconciles a slice of storage. The consumer deletes a row once its job is done; a job whose row is gone is already done, a purge whose artifact is no longer in the `purging` state and generation it was claimed with is stale and dropped, and a `delete_objects` job keeps any key that has a row again. A row still there an hour after it was sent is sent again.
+
+`select topic, subject, attempts, dispatched_at from outbox order by id` shows what is pending. Rows with many attempts point at a job that keeps failing; the Worker logs `job_failed` with the topic and the error message. The scans in `runMaintenance` still archive, purge, prune and finish deletions on their own, so a queue outage only delays the work.
+
+## Storage reconciliation
+
+Each scheduled run checks the next 50 object rows against R2 and the next 100 R2 objects under `objects/` against D1, resuming where the previous run stopped (`maintenance_cursors`). It records in `storage_findings`, and never deletes:
+
+- `missing`: a verified object row whose R2 object is gone. Versions that reference it serve errors for that file. Look for a restore that brought back rows of bytes deleted after the restore point; if the artifact must keep the file, its owner publishes it again.
+- `size_mismatch`: the R2 object has another size than the row. Treat it as corruption and ask the owner to publish again.
+- `orphan`: an R2 object at least 24 hours old that no row references, for example after a restore to a point before it was uploaded, or a delete that never ran. If a restore is not the cause, delete it with `npx wrangler r2 object delete portifact-artifacts/<key> --remote`. Do not delete orphans right after a restore until the reconciliation has seen the restored rows: they may be the only copy of bytes the restored database references.
+
+A finding disappears once a later pass sees the key fine again or no longer sees it at all. A full pass takes `rows / 50` and `objects / 100` runs of 15 minutes.
+
+## Restoring a backup
+
+The database backup is D1 Time Travel (30 days on Workers Paid). R2 is not rewound, so a restore can bring back rows of artifacts and accounts deleted since, and lose the tombstones that recorded those deletions. Re-applying the tombstones afterwards deletes them again. With the deploy credentials, from the repository root:
+
+1. Note the current state so the restore can be undone: `npx wrangler d1 time-travel info portifact-control` prints the current bookmark.
+2. Export what the restore must not bring back from the live database: `bun run --cwd apps/jobs operator export-tombstones --out tombstones.jsonl`. The file lists tombstones, account deletions in progress and artifacts already claimed for purging, one JSON object per line. It holds user and artifact IDs: keep it out of the repository and delete it when done.
+3. Restore: `npx wrangler d1 time-travel restore portifact-control --timestamp <RFC 3339 time>` (or `--bookmark <bookmark>`).
+4. Re-apply the tombstones: `bun run --cwd apps/jobs operator apply-tombstones --file tombstones.jsonl`. It stores the markers as tombstones, claims every artifact that has a tombstone or belongs to a tombstoned account for purging, and deletes every tombstoned account the restore brought back the way a deletion request does, each with its outbox job. Running it again changes nothing. Without `--file` it applies the tombstones the restored database still has.
+5. The jobs Worker purges the claimed artifacts and finishes the deletions within the next runs. Check with `select count(*) from artifacts where state = 'purging'` and `select * from account_deletions`.
+6. Run `storage-report` after a full reconciliation pass and handle `missing` and `orphan` findings as described above.
+
+If the live database cannot be read for step 2, restore to the latest point that can, export from it, then restore to the point you need and apply. Migrations applied after the restore point are rewound too: apply them again with `wrangler d1 migrations apply portifact-control --remote` before step 4.

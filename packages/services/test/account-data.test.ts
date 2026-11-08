@@ -324,6 +324,12 @@ describe("finishing the deletion", () => {
       now: NOW,
     });
 
+    await db()
+      .insert(schema.trafficCounters)
+      .values([
+        { ownerId: owner.id, cycleStart: 0, requests: 3, bytes: 30, updatedAt: NOW },
+        { ownerId: "u_bystander", cycleStart: 0, requests: 1, bytes: 1, updatedAt: NOW },
+      ]);
     // Without the purge, the account cannot finish.
     await processAccountDeletions(db(), env.ARTIFACTS, NOW + 1, 100);
     expect(await deletion(owner.id)).toBeDefined();
@@ -338,9 +344,11 @@ describe("finishing the deletion", () => {
     expect(await deletion(owner.id)).toBeUndefined();
     const keys = (await env.ARTIFACTS.list({ prefix: `objects/${owner.id}/` })).objects;
     expect(keys).toEqual([]);
-    for (const table of [schema.objects, schema.accountUsage]) {
+    for (const table of [schema.objects, schema.accountUsage, schema.trafficCounters]) {
       expect(await db().select().from(table).where(eq(table.ownerId, owner.id))).toEqual([]);
     }
+    const bystander = eq(schema.trafficCounters.ownerId, "u_bystander");
+    expect(await db().select().from(schema.trafficCounters).where(bystander)).toHaveLength(1);
     expect(
       await db().select().from(schema.usageEvents).where(eq(schema.usageEvents.ownerId, owner.id)),
     ).toEqual([]);

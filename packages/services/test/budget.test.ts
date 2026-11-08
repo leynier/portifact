@@ -392,4 +392,23 @@ describe("enforcement", () => {
     expect(block).toMatchObject({ reason: "capacity", stops: "publishing", until: null });
     expect(block?.message).toMatch(/^New uploads and comments are paused/);
   });
+
+  it("reports the capacity block next to an exhausted traffic quota", async () => {
+    const owner = await user();
+    await db()
+      .insert(schema.trafficCounters)
+      .values({
+        ownerId: owner.id,
+        cycleStart: Date.UTC(2026, 10, 1),
+        requests: 1_000_000,
+        bytes: 0,
+        updatedAt: NOW,
+      });
+    await protect("slow75");
+    const { blocks } = await getAccountUsage(db(), { ownerId: owner.id, now: NOW });
+    expect(blocks.map((b) => [b.reason, b.stops])).toEqual([
+      ["capacity", "new_artifacts"],
+      ["traffic", "serving"],
+    ]);
+  });
 });

@@ -75,7 +75,7 @@ export async function publish(
   let sources: SourceManifest | undefined;
   try {
     if (options.source !== undefined) {
-      sources = await buildSourceManifest(options.source, { ref: options.ref });
+      sources = await buildSourceManifest(options.source, { ref: options.ref, git: runtime.git });
     }
     await publishBuilt(io, { manifest, sources, path, options, session, base, artifactId });
   } finally {

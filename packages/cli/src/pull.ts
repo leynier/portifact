@@ -21,7 +21,7 @@ import { messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
 import type { Session } from "./session.ts";
 import { URL_EXPIRY_MARGIN_MS } from "./upload.ts";
-import { parseVersionId } from "./versions.ts";
+import { parseVersionArg, resolveVersionArg } from "./versions.ts";
 
 /** Downloads in flight at once. */
 export const DOWNLOAD_CONCURRENCY = 4;
@@ -42,8 +42,7 @@ interface Job {
 
 export async function pull(io: Io, runtime: Runtime, id: string, options: PullOptions) {
   const artifactId = parseArtifactId(id);
-  const versionRef =
-    options.version === undefined ? CURRENT_VERSION : parseVersionId(options.version);
+  const target = options.version === undefined ? undefined : parseVersionArg(options.version);
   const kinds: DownloadKind[] = [];
   if (options.published || !options.source) kinds.push("published");
   if (options.source) kinds.push("source");
@@ -54,6 +53,8 @@ export async function pull(io: Io, runtime: Runtime, id: string, options: PullOp
   if (await exists(out)) throw new CliError("invalid_input", messages.errors.outExists(out));
 
   const session = await openSession(io, runtime);
+  const versionRef =
+    target === undefined ? CURRENT_VERSION : await resolveVersionArg(session, artifactId, target);
   // Every kind comes from the same version, even if a new one is published meanwhile.
   const first = await fetchLinks(session, artifactId, versionRef, kinds[0] as DownloadKind);
   const downloads = [first];
@@ -100,7 +101,7 @@ export async function pull(io: Io, runtime: Runtime, id: string, options: PullOp
   io.stdout(`${messages.pulled(files.length, totalBytes, first.versionNumber, artifactId, out)}\n`);
 }
 
-async function exists(path: string): Promise<boolean> {
+export async function exists(path: string): Promise<boolean> {
   try {
     await lstat(path);
     return true;
@@ -109,7 +110,7 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-function fetchLinks(
+export function fetchLinks(
   session: Session,
   artifactId: string,
   versionRef: string,
@@ -133,17 +134,9 @@ function fetchLinks(
  * regardless of case, free of `.git` segments and inside the folder of its kind.
  */
 function plan(out: string, download: VersionDownload): Job[] {
-  const paths = download.files.map((file) => file.path);
-  const checked = validateManifestPaths(paths);
-  if (!checked.ok) {
-    const path = paths.find((p) => checked.message.startsWith(`${p}:`)) ?? "";
-    throw new CliError("server_error", messages.errors.unsafePath(path, checked.message));
-  }
+  checkDownloadPaths(download);
   const root = join(out, download.kind);
-  return download.files.map((file, index) => {
-    if (checked.value[index] !== file.path) {
-      throw new CliError("server_error", messages.errors.unsafePath(file.path, "not canonical"));
-    }
+  return download.files.map((file) => {
     const target = join(root, ...file.path.split("/"));
     const inside = relative(root, target);
     if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
@@ -153,6 +146,24 @@ function plan(out: string, download: VersionDownload): Job[] {
       );
     }
     return { kind: download.kind, path: file.path, target };
+  });
+}
+
+/**
+ * Refuses a download whose paths are not already canonical, unique regardless of case and free of
+ * `.git` segments, with the same rules the server applies to manifests.
+ */
+export function checkDownloadPaths(download: VersionDownload): void {
+  const paths = download.files.map((file) => file.path);
+  const checked = validateManifestPaths(paths);
+  if (!checked.ok) {
+    const path = paths.find((p) => checked.message.startsWith(`${p}:`)) ?? "";
+    throw new CliError("server_error", messages.errors.unsafePath(path, checked.message));
+  }
+  download.files.forEach((file, index) => {
+    if (checked.value[index] !== file.path) {
+      throw new CliError("server_error", messages.errors.unsafePath(file.path, "not canonical"));
+    }
   });
 }
 
@@ -206,6 +217,23 @@ async function downloadOne(
   link: () => DownloadLink,
   renew: (job: Job) => Promise<void>,
 ): Promise<void> {
+  const bytes = await downloadVerified(session, job.path, link, () => renew(job));
+  await mkdir(dirname(job.target), { recursive: true });
+  // `wx` never replaces or follows anything already at the target.
+  await writeFile(job.target, bytes, { flag: "wx" });
+}
+
+/**
+ * Fetches the bytes behind a short-lived storage link and checks them against its size and
+ * SHA-256. `renew` replaces the link `link()` returns: once before it expires, or once after
+ * storage refuses it as expired. Transient failures are retried with backoff.
+ */
+export async function downloadVerified(
+  session: Session,
+  path: string,
+  link: () => DownloadLink,
+  renew: () => Promise<void>,
+): Promise<Buffer> {
   const { runtime } = session;
   let renewed = false;
   let failures = 0;
@@ -213,7 +241,7 @@ async function downloadOne(
     const current = link();
     if (!renewed && Date.parse(current.expiresAt) - runtime.now() <= URL_EXPIRY_MARGIN_MS) {
       renewed = true;
-      await renew(job);
+      await renew();
       continue;
     }
     let bytes: Buffer | undefined;
@@ -229,17 +257,14 @@ async function downloadOne(
     }
     if (bytes) {
       if (bytes.length !== current.size || sha256Of(bytes) !== current.sha256) {
-        throw new CliError("download_failed", messages.errors.downloadMismatch(job.path));
+        throw new CliError("download_failed", messages.errors.downloadMismatch(path));
       }
-      await mkdir(dirname(job.target), { recursive: true });
-      // `wx` never replaces or follows anything already at the target.
-      await writeFile(job.target, bytes, { flag: "wx" });
-      return;
+      return bytes;
     }
     // Storage answers 403 to an expired signature: get a fresh link once and try again.
     if (status === 403 && !renewed) {
       renewed = true;
-      await renew(job);
+      await renew();
       continue;
     }
     const transient = status === 0 || status >= 500 || status === 429;
@@ -248,7 +273,7 @@ async function downloadOne(
       await runtime.sleep(RETRY_BASE_MS * 2 ** (failures - 1));
       continue;
     }
-    throw new CliError("download_failed", messages.errors.downloadFailed(job.path));
+    throw new CliError("download_failed", messages.errors.downloadFailed(path));
   }
 }
 

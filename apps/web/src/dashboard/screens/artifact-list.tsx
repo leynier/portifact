@@ -20,6 +20,7 @@ import { useDashboard, useFormatDate, useT } from "../context.tsx";
 import { StateBadge } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
+import { TrafficNotice, trafficBlock, useUsage } from "./usage.tsx";
 
 export const ARTIFACTS_QUERY = ["artifacts"] as const;
 
@@ -28,6 +29,8 @@ export function ArtifactListScreen() {
   const formatDate = useFormatDate();
   const { api } = useDashboard();
   useDocumentTitle(t("list.title"));
+  // Only to explain a traffic block; the list works the same if usage cannot be loaded.
+  const traffic = trafficBlock(useUsage().data);
 
   const list = useInfiniteQuery({
     queryKey: ARTIFACTS_QUERY,
@@ -84,6 +87,11 @@ export function ArtifactListScreen() {
   return (
     <>
       {header}
+      {traffic ? (
+        <div className="mb-6">
+          <TrafficNotice block={traffic} link />
+        </div>
+      ) : null}
       {list.isRefetchError ? (
         <div className="mb-6">
           <Callout title={t("list.refreshFailed.title")} icon={<CircleAlert className="size-5" />}>

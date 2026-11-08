@@ -1,7 +1,9 @@
-// Optional collector of the account's usage from Cloudflare's GraphQL Analytics API, for the budget
-// projection (plan section 12). It is active only when CF_ANALYTICS_TOKEN and CF_ACCOUNT_ID are
-// configured; the token needs only "Account Analytics: Read" (docs/operations.md). Without it the
-// budget uses what D1 already knows. `fetch` is injected so tests never reach the network.
+// Collector of Portifact's usage from Cloudflare's GraphQL Analytics API, for the budget projection
+// (plan section 12). It is active when CF_ANALYTICS_TOKEN and CF_ACCOUNT_ID are configured (they
+// are in production); the token needs only "Account Analytics: Read" (docs/operations.md). The
+// account also hosts other projects, so every dataset is filtered to Portifact's bucket, Workers
+// and database. Without the settings the budget uses what D1 already knows. `fetch` is injected
+// so tests never reach the network.
 import type { PlatformMetrics } from "@portifact/domain";
 
 export const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
@@ -19,6 +21,13 @@ export interface AnalyticsEnv {
 }
 
 export type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
+
+/** Portifact's resources on the account, as named in the wrangler configurations. */
+export const PORTIFACT_RESOURCES = {
+  bucket: "portifact-artifacts",
+  scripts: ["portifact-app", "portifact-content", "portifact-jobs"],
+  databaseId: "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
+} as const;
 
 /**
  * R2 operations billed as class A (writes and lists). Deletes and aborted uploads are free; every
@@ -44,21 +53,21 @@ const R2_CLASS_A = new Set([
 ]);
 const R2_FREE = new Set(["DeleteObject", "DeleteBucket", "AbortMultipartUpload"]);
 
-export const BUDGET_QUERY = `query PortifactBudget($accountTag: string!, $start: Time!, $end: Time!, $startDate: Date!, $endDate: Date!) {
+export const BUDGET_QUERY = `query PortifactBudget($accountTag: string!, $start: Time!, $end: Time!, $startDate: Date!, $endDate: Date!, $bucket: string!, $scripts: [string!]!, $databaseId: string!) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
-      r2OperationsAdaptiveGroups(limit: 1000, filter: { datetime_geq: $start, datetime_lt: $end }) {
+      r2OperationsAdaptiveGroups(limit: 1000, filter: { datetime_geq: $start, datetime_lt: $end, bucketName: $bucket }) {
         sum { requests }
         dimensions { actionType }
       }
-      r2StorageAdaptiveGroups(limit: 1, filter: { datetime_geq: $start, datetime_lt: $end }, orderBy: [datetime_DESC]) {
+      r2StorageAdaptiveGroups(limit: 1, filter: { datetime_geq: $start, datetime_lt: $end, bucketName: $bucket }, orderBy: [datetime_DESC]) {
         max { payloadSize metadataSize }
         dimensions { datetime }
       }
-      workersInvocationsAdaptive(limit: 10000, filter: { datetime_geq: $start, datetime_lt: $end }) {
+      workersInvocationsAdaptive(limit: 10000, filter: { datetime_geq: $start, datetime_lt: $end, scriptName_in: $scripts }) {
         sum { requests }
       }
-      d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $startDate, date_leq: $endDate }) {
+      d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $startDate, date_leq: $endDate, databaseId: $databaseId }) {
         sum { rowsRead rowsWritten }
       }
     }
@@ -132,6 +141,9 @@ export function cloudflareAnalytics(
             end: new Date(end).toISOString(),
             startDate: isoDate(start),
             endDate: isoDate(end - 1),
+            bucket: PORTIFACT_RESOURCES.bucket,
+            scripts: PORTIFACT_RESOURCES.scripts,
+            databaseId: PORTIFACT_RESOURCES.databaseId,
           },
         }),
       });

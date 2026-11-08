@@ -7,19 +7,16 @@ import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
 import { AnnounceContext, useDashboard, useT } from "../context.tsx";
+import { useUsage } from "./usage.tsx";
 
 export const ACCOUNT_QUERY = ["account"] as const;
-export const USAGE_QUERY = ["usage"] as const;
-
 /**
  * The visible notice while the platform's budget protection limits publishing (plan section 12).
  * It comes from the account's usage blocks, so the API, the CLI and MCP report the same thing.
  */
 function CapacityNotice() {
   const t = useT();
-  const { api } = useDashboard();
-  const usage = useQuery({ queryKey: USAGE_QUERY, queryFn: () => api.usage() });
-  const block = usage.data?.blocks.find((b) => b.reason === "capacity");
+  const block = useUsage().data?.blocks.find((b) => b.reason === "capacity");
   if (!block) return null;
   return (
     <div className="mb-6">

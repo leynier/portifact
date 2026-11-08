@@ -82,6 +82,9 @@ describe("analytics collector", () => {
         end: "2026-11-08T12:00:00.000Z",
         startDate: "2026-11-01",
         endDate: "2026-11-08",
+        bucket: "portifact-artifacts",
+        scripts: ["portifact-app", "portifact-content", "portifact-jobs"],
+        databaseId: "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
       },
     });
   });
