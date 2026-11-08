@@ -16,9 +16,12 @@
     "@better-auth/oauth-provider": "1.7.17",
     "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
+    "@portifact/services": "workspace:*",
+    "aws4fetch": "^1.0.20",
     "better-auth": "1.7.17",
     "drizzle-orm": "^0.45.0",
-    "hono": "^4.0.0"
+    "hono": "^4.0.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.0.0",

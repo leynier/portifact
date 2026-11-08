@@ -109,7 +109,15 @@ async function existingObjects(db: Db, ownerId: string, hashes: string[]): Promi
     const rows = await db
       .select({ sha256: schema.objects.sha256 })
       .from(schema.objects)
-      .where(and(eq(schema.objects.ownerId, ownerId), inArray(schema.objects.sha256, chunk)));
+      .where(
+        and(
+          eq(schema.objects.ownerId, ownerId),
+          inArray(schema.objects.sha256, chunk),
+          // Only bytes already verified count as stored. A pending object from another open
+          // upload may never arrive, so this publish gets its own upload target for it.
+          eq(schema.objects.state, "verified"),
+        ),
+      );
     for (const row of rows) found.add(row.sha256);
   }
   return found;
@@ -541,6 +549,66 @@ export async function commitPublish(
     versionId: session.versionId,
     versionNumber: version?.number ?? 0,
     expiresAt,
+  });
+}
+
+/**
+ * An open upload as `preparePublish` returned it, with only the objects still pending, so a
+ * client can resume after its upload URLs expired.
+ */
+export async function uploadProgress(
+  db: Db,
+  input: { ownerId: string; sessionId: string; now: number },
+): Promise<Result<PreparedUpload>> {
+  const [session] = await db
+    .select({
+      artifactId: schema.uploadSessions.artifactId,
+      versionId: schema.uploadSessions.versionId,
+      state: schema.uploadSessions.state,
+      expiresAt: schema.uploadSessions.expiresAt,
+      ownerId: schema.uploadSessions.ownerId,
+      versionNumber: schema.versions.number,
+    })
+    .from(schema.uploadSessions)
+    .innerJoin(schema.versions, eq(schema.versions.id, schema.uploadSessions.versionId))
+    .where(eq(schema.uploadSessions.id, input.sessionId))
+    .limit(1);
+  if (!session || session.ownerId !== input.ownerId) return fail("not_found", "Upload not found.");
+  if (
+    (session.state !== "uploading" && session.state !== "ready") ||
+    input.now >= session.expiresAt
+  ) {
+    return fail("upload_incomplete", `This upload is no longer open; start a new one.`);
+  }
+  const uploads = await db
+    .select({
+      sha256: schema.objects.sha256,
+      size: schema.objects.size,
+      r2Key: schema.objects.r2Key,
+    })
+    .from(schema.objects)
+    .innerJoin(
+      schema.versionFiles,
+      and(
+        eq(schema.versionFiles.ownerId, schema.objects.ownerId),
+        eq(schema.versionFiles.sha256, schema.objects.sha256),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.versionFiles.versionId, session.versionId),
+        eq(schema.objects.ownerId, input.ownerId),
+        eq(schema.objects.state, "pending"),
+      ),
+    )
+    .groupBy(schema.objects.sha256);
+  return ok({
+    artifactId: session.artifactId,
+    versionId: session.versionId,
+    versionNumber: session.versionNumber,
+    sessionId: input.sessionId,
+    expiresAt: session.expiresAt,
+    uploads,
   });
 }
 

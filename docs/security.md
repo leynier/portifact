@@ -41,12 +41,13 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 
 ### Access control
 
+- The API under `app.portifact.com/api/v1` accepts only bearer tokens issued for the API resource, checks one scope per route (`artifacts:read`, `artifacts:write` or `artifacts:delete`) and takes the acting user from the token. Another account's artifact or upload answers 404 exactly like a missing one. Prepare requires an `Idempotency-Key`; a retry with the same key and body replays the stored response, and the same key with another body is refused.
 - Every request to `portifact.dev` follows this order: rate limit, resolve artifact, check state and dates, authenticate, authorize the version, check traffic quota, resolve the path, and only then read bytes from cache or R2.
 - Every file is authorized, including CSS, JS, images, source maps and downloads.
 - Cached bytes are looked up only after authorization and are keyed by artifact, version and path. No identity or access decision is cached in a shared cache.
 - The acting user always comes from the session or token, never from input. An opaque ID never replaces an authorization check.
 - Token scopes allow a class of action; ownership or permission on the specific artifact is always checked as well.
-- R2 has no public bucket, no `r2.dev` and no custom public domain. Presigned upload URLs are bound to one object key, size, checksum and a short expiry.
+- R2 has no public bucket, no `r2.dev` and no custom public domain. Presigned upload URLs are bound to one object key, size, checksum and a short expiry. The `portifact-app` Worker signs them (`apps/app/src/api/presign.ts`) with an R2 token limited to that bucket: `content-length`, `host` and `x-amz-checksum-sha256` are signed headers, the key is `objects/<owner>/<sha256>`, and they expire after 15 minutes. Commit still verifies every pending object's size and SHA-256 in R2 before the version becomes current, so a client that skips the URL cannot publish other bytes. Only verified objects count as already stored; an object another open upload declared but never sent gets a new upload URL.
 
 ### Requests and responses
 
