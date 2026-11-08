@@ -1,5 +1,5 @@
-// D1 schema for Portifact's product data (plan section 14). Identity and OAuth tables are added
-// with the authentication work, once the authorization server is chosen (docs/decisions).
+// D1 schema for Portifact's product data (plan section 14). Identity and OAuth tables live in
+// auth-schema.ts and are re-exported here, so drizzle-kit sees one schema.
 // Timestamps are integer milliseconds since the epoch (UTC).
 import { sql } from "drizzle-orm";
 import {
@@ -274,3 +274,5 @@ export const abuseReports = sqliteTable(
   },
   (t) => [index("abuse_reports_status_idx").on(t.status, t.createdAt)],
 );
+
+export * from "./auth-schema.ts";

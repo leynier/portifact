@@ -65,6 +65,7 @@ export const ErrorCode = z.enum([
   "artifact_archived",
   "account_too_new_for_public",
   "capacity_unavailable",
+  "rate_limited",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
@@ -76,3 +77,40 @@ export const ApiError = z.object({
   }),
 });
 export type ApiError = z.infer<typeof ApiError>;
+
+/**
+ * OAuth scopes for API and MCP tokens (plan section 5). A scope allows a class of action; the
+ * permission on the specific artifact is always checked as well.
+ */
+export const OAuthScope = z.enum([
+  "artifacts:read",
+  "artifacts:write",
+  "artifacts:share",
+  "artifacts:delete",
+  "annotations:read",
+  "annotations:write",
+  "annotations:moderate",
+]);
+export type OAuthScope = z.infer<typeof OAuthScope>;
+
+/** The identity behind a valid access token, as `GET /api/v1/me` returns it. */
+export const TokenPrincipal = z.object({
+  userId: z.string().min(1),
+  clientId: z.string().min(1),
+  scopes: z.array(z.string()),
+});
+export type TokenPrincipal = z.infer<typeof TokenPrincipal>;
+
+/**
+ * Limits on sending sign-in codes (plan section 5: cooldown, per email, per IP and a global
+ * budget). Windows are in seconds. The global budget keeps sends under the monthly email
+ * allowance of the admission limits (plan section 12).
+ */
+export const OTP_LIMITS = {
+  codeTtlSeconds: 300,
+  allowedAttempts: 3,
+  perEmailCooldown: { max: 1, windowSeconds: 60 },
+  perEmail: { max: 5, windowSeconds: 3_600 },
+  perIp: { max: 20, windowSeconds: 3_600 },
+  global: { max: 600, windowSeconds: 86_400 },
+} as const;

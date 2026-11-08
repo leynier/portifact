@@ -3,21 +3,42 @@
   "name": "portifact-app",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
-  "compatibility_flags": ["nodejs_compat"],
+  // global_fetch_strictly_public keeps Client ID Metadata Document fetches off private and
+  // internal addresses (docs/decisions/0001-oauth-server.md).
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": false,
   "preview_urls": false,
+  // The Worker routes by host: the site on the apex and www, identity and OAuth on app.
   "routes": [
     { "pattern": "portifact.com", "custom_domain": true },
-    { "pattern": "www.portifact.com", "custom_domain": true }
+    { "pattern": "www.portifact.com", "custom_domain": true },
+    { "pattern": "app.portifact.com", "custom_domain": true }
   ],
-  // The landing is built by apps/web. Requests matching run_worker_first reach the Worker
-  // before static assets; everything else is served from the assets when it exists.
+  // Static assets are built by apps/web: the landing and the auth pages. Every request except
+  // the hashed bundles reaches the Worker first, so it can decide by host what to serve.
   "assets": {
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    "run_worker_first": ["/install", "/install.ps1"]
+    "run_worker_first": ["/*", "!/assets/*"]
   },
+  // Non-secret configuration. Secrets (BETTER_AUTH_SECRET, GOOGLE_CLIENT_SECRET,
+  // GITHUB_CLIENT_SECRET) are set with `wrangler secret put`; see docs/releasing.md.
+  "vars": {
+    "APP_ORIGIN": "https://app.portifact.com",
+    "GOOGLE_CLIENT_ID": "929390487848-4aapfnvndu3g70ihbg8k0g4ad0fa86pv.apps.googleusercontent.com",
+    "GITHUB_CLIENT_ID": "Ov23liDZT9UwEKl6rZoY"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portifact-control",
+      "database_id": "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
+      "migrations_dir": "../../packages/db/migrations"
+    }
+  ],
+  // Cloudflare Email Service, onboarded for portifact.com. Sends sign-in codes.
+  "send_email": [{ "name": "EMAIL" }],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 0.1
