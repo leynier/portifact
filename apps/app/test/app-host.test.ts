@@ -40,6 +40,22 @@ describe("auth pages on app.portifact.com", () => {
     expect(PAGE_CSP).not.toMatch(/https?:/);
   });
 
+  it("sends no referrer from any app response: JSON, assets, the favicon, redirects and 404s", async () => {
+    const html = await (await get("/login")).text();
+    const asset = /(?:src|href)="(\/assets\/[^"]+)"/.exec(html)?.[1] ?? "";
+    for (const path of [
+      asset,
+      "/favicon.svg",
+      "/.well-known/oauth-protected-resource/api/v1",
+      "/api/v1/artifacts",
+      "/",
+      "/api/v1/unknown",
+    ]) {
+      const response = await get(path);
+      expect(response.headers.get("referrer-policy"), path).toBe("no-referrer");
+    }
+  });
+
   it("lets only the login page load Turnstile, and nothing else from another origin", () => {
     const challenges = "https://challenges.cloudflare.com";
     expect(LOGIN_CSP).toBe(

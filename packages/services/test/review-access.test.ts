@@ -1,9 +1,10 @@
 import { env } from "cloudflare:test";
-import { REVIEW_SESSION } from "@portifact/contracts";
+import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  endReviewSession,
   hashSecret,
   issueReviewHandoff,
   pruneReviewSessions,
@@ -18,6 +19,7 @@ const NOW = Date.UTC(2026, 10, 8, 12);
 const DAY = 86_400_000;
 const HANDOFF_MS = REVIEW_SESSION.handoffTtlSeconds * 1000;
 const SESSION_MS = REVIEW_SESSION.sessionTtlSeconds * 1000;
+const TAB_SESSION_MS = REVIEW_SESSION.tabSessionTtlSeconds * 1000;
 const db = () => createDb(env.DB);
 
 const OWNER = "ru_owner";
@@ -88,19 +90,23 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
   await db().insert(schema.artifactReaders).values({ artifactId: ID, email: "reader@example.com" });
 }
 
-async function issue(userId = READER, artifactId = ID) {
+async function issue(userId = READER, artifactId = ID, kind?: ReviewKind) {
   const result = await issueReviewHandoff(db(), {
     artifactId,
     userId,
     authSessionId: appSession(userId),
     now: NOW,
+    ...(kind ? { kind } : {}),
   });
   if (!result.ok) throw new Error(`issue failed: ${result.code}`);
   return result.value;
 }
 
-const redeem = (code: string, overrides: Partial<{ artifactId: string; now: number }> = {}) =>
-  redeemReviewHandoff(db(), { code, artifactId: ID, now: NOW + 1000, ...overrides });
+const redeem = (
+  code: string,
+  overrides: Partial<{ artifactId: string; now: number; kind: ReviewKind }> = {},
+) =>
+  redeemReviewHandoff(db(), { code, artifactId: ID, kind: "frame", now: NOW + 1000, ...overrides });
 
 const sessionCount = async () => (await db().select().from(schema.reviewSessions)).length;
 
@@ -235,6 +241,42 @@ describe("review access", () => {
     ).resolves.toMatchObject({ ok: false });
     await db().delete(schema.sessions).where(eq(schema.sessions.userId, READER));
     expect(await sessionCount()).toBe(0);
+  });
+
+  it("redeems a tab code only as a tab session, which is shorter, and a frame code only in a frame", async () => {
+    const tab = await issue(READER, ID, "tab");
+    const [row] = await db().select().from(schema.reviewHandoffs);
+    expect(row?.kind).toBe("tab");
+    await expect(redeem(tab.code, { kind: "frame" })).resolves.toMatchObject({ ok: false });
+    await expect(redeem(tab.code, { kind: "tab" })).resolves.toMatchObject({
+      ok: true,
+      value: { userId: READER, versionId: `${ID}_v1`, expiresAt: NOW + 1000 + TAB_SESSION_MS },
+    });
+    expect(TAB_SESSION_MS).toBeLessThan(SESSION_MS);
+    const frame = await issue();
+    await expect(redeem(frame.code, { kind: "tab" })).resolves.toMatchObject({ ok: false });
+    await expect(redeem(frame.code)).resolves.toMatchObject({ ok: true });
+    expect(await sessionCount()).toBe(2);
+  });
+
+  it("ends a session at once, only on its own artifact", async () => {
+    const { code } = await issue(READER, ID, "tab");
+    const redeemed = await redeem(code, { kind: "tab" });
+    if (!redeemed.ok) throw new Error("redeem failed");
+    const sessionId = redeemed.value.sessionId;
+    await expect(endReviewSession(db(), { sessionId, artifactId: OTHER_ID })).resolves.toEqual({
+      ended: false,
+    });
+    expect(await sessionCount()).toBe(1);
+    await expect(endReviewSession(db(), { sessionId, artifactId: ID })).resolves.toEqual({
+      ended: true,
+    });
+    await expect(
+      refreshReviewSession(db(), { sessionId, artifactId: ID, now: NOW + 2000 }),
+    ).resolves.toMatchObject({ ok: false });
+    await expect(endReviewSession(db(), { sessionId, artifactId: ID })).resolves.toEqual({
+      ended: false,
+    });
   });
 
   it("prunes expired codes and sessions in bounded batches", async () => {
