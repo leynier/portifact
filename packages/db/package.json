@@ -1,0 +1,28 @@
+{
+  "name": "@portifact/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "D1 schema, migrations and queries.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "drizzle-kit": "^0.31.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

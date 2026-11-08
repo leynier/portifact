@@ -7,3 +7,6 @@ coverage/
 .env.*
 *.log
 .DS_Store
+.claude/worktrees/
+test-results/
+playwright-report/

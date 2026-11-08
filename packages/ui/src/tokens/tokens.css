@@ -28,10 +28,19 @@
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
   /* Radii and motion */
+  --pf-radius-xs: 3px;
   --pf-radius-sm: 6px;
   --pf-radius-md: 10px;
   --pf-radius-lg: 16px;
   --pf-duration-fast: 120ms;
+  --pf-duration-base: 240ms;
+  --pf-duration-slow: 700ms;
+  --pf-duration-stagger: 200ms;
+  --pf-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Elevation. Shadows are pure black at low alpha, so they stay neutral in both themes. */
+  --pf-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --pf-shadow-float: 0 1px 2px rgb(0 0 0 / 0.06), 0 24px 64px -24px rgb(0 0 0 / 0.28);
 }
 
 /* Light theme (default). */
@@ -53,6 +62,10 @@
   --pf-color-warning: var(--pf-neutral-1000);
   --pf-color-success: var(--pf-neutral-1000);
   --pf-color-info: var(--pf-neutral-1000);
+  --pf-color-terminal: var(--pf-neutral-900);
+  --pf-color-terminal-text: var(--pf-neutral-0);
+  --pf-color-terminal-muted: var(--pf-neutral-400);
+  --pf-color-terminal-border: var(--pf-neutral-800);
 }
 
 /* Dark theme: follows the system unless a theme is forced. */
@@ -74,6 +87,10 @@
     --pf-color-warning: var(--pf-neutral-0);
     --pf-color-success: var(--pf-neutral-0);
     --pf-color-info: var(--pf-neutral-0);
+    --pf-color-terminal: var(--pf-neutral-1000);
+    --pf-color-terminal-text: var(--pf-neutral-0);
+    --pf-color-terminal-muted: var(--pf-neutral-400);
+    --pf-color-terminal-border: var(--pf-neutral-800);
   }
 }
 
@@ -94,4 +111,8 @@
   --pf-color-warning: var(--pf-neutral-0);
   --pf-color-success: var(--pf-neutral-0);
   --pf-color-info: var(--pf-neutral-0);
+  --pf-color-terminal: var(--pf-neutral-1000);
+  --pf-color-terminal-text: var(--pf-neutral-0);
+  --pf-color-terminal-muted: var(--pf-neutral-400);
+  --pf-color-terminal-border: var(--pf-neutral-800);
 }

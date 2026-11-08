@@ -53,6 +53,12 @@ describe("design tokens", () => {
         expect(contrast(get("text"), get("selection"))).toBeGreaterThanOrEqual(4.5);
       });
 
+      it("keeps terminal text readable and the terminal distinct from the canvas", () => {
+        expect(contrast(get("terminal-text"), get("terminal"))).toBeGreaterThanOrEqual(7);
+        expect(contrast(get("terminal-muted"), get("terminal"))).toBeGreaterThanOrEqual(4.5);
+        expect(get("terminal")).not.toBe(get("canvas"));
+      });
+
       it("gives focus rings and strong borders at least 3:1 against the canvas", () => {
         expect(contrast(get("focus"), get("canvas"))).toBeGreaterThanOrEqual(3);
         expect(contrast(get("border-strong"), get("canvas"))).toBeGreaterThanOrEqual(3);
