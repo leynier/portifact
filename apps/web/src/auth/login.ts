@@ -21,7 +21,8 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const { api, location } = env;
   const oauthQuery = signedOAuthQuery(location.search);
   const next = safeNext(location.search, env.origin);
-  const afterSignIn = next ?? "/login";
+  // Without a `next`, a sign-in opens the dashboard.
+  const afterSignIn = next ?? "/";
 
   const summary = byId(doc, "error-summary");
   const status = byId(doc, "status");

@@ -24,18 +24,22 @@ export function singleParam(query: string, name: string): string | undefined {
   return values.length === 1 ? values[0] : undefined;
 }
 
-const NEXT_PATHS = new Set(["/device"]);
+/** Pages a sign-in may return to: the device page and the dashboard routes. */
+const NEXT_PATHS = [/^\/device$/, /^\/$/, /^\/artifacts\/[A-Za-z0-9_-]+$/];
 
 /**
- * Where to go after signing in, from the `next` parameter. Only same-origin paths of the auth
- * pages are accepted, so the login page cannot be used to redirect elsewhere.
+ * Where to go after signing in, from the `next` parameter. Only same-origin paths of the
+ * device page and the dashboard are accepted, so the login page cannot be used to redirect
+ * elsewhere.
  */
 export function safeNext(search: string, origin: string): string | undefined {
   const raw = new URLSearchParams(search).get("next");
   if (!raw?.startsWith("/") || raw.startsWith("//")) return undefined;
   // A path relative to the origin always parses; the origin check catches "/\evil.example".
   const url = new URL(raw, origin);
-  if (url.origin !== origin || !NEXT_PATHS.has(url.pathname)) return undefined;
+  if (url.origin !== origin || !NEXT_PATHS.some((path) => path.test(url.pathname))) {
+    return undefined;
+  }
   return `${url.pathname}${url.search}`;
 }
 

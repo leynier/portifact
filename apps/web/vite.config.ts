@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
 const brandDir = fileURLToPath(new URL("../../assets/brand/", import.meta.url));
@@ -30,11 +31,14 @@ function brandAssets(): Plugin {
   };
 }
 
-/** HTML entries: the landing on portifact.com and the auth pages on app.portifact.com. */
-const pages = ["index", "login", "device", "consent"];
+/**
+ * HTML entries: the landing on portifact.com, and the dashboard and auth pages on
+ * app.portifact.com.
+ */
+const pages = ["index", "dashboard", "login", "device", "consent"];
 
 export default defineConfig({
-  plugins: [tailwindcss(), brandAssets()],
+  plugins: [react(), tailwindcss(), brandAssets()],
   server: { fs: { allow: ["../.."] } },
   build: {
     outDir: "dist",
