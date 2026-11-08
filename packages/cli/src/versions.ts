@@ -14,6 +14,7 @@ import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { formatBytes, formatDate, messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import type { Session } from "./session.ts";
 
 /** Versions asked for per request; the command follows the cursor until the last page. */
 const PAGE_SIZE = 100;
@@ -32,19 +33,7 @@ export async function versions(
 ): Promise<void> {
   const artifactId = parseArtifactId(id);
   const session = await openSession(io, runtime);
-  const items: VersionSummary[] = [];
-  let cursor: string | null = null;
-  do {
-    const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
-    if (cursor !== null) query.set("cursor", cursor);
-    const page: VersionList = await callApi(session, {
-      method: "GET",
-      path: `/artifacts/${artifactId}/versions?${query}`,
-      schema: VersionList,
-    });
-    items.push(...page.items);
-    cursor = page.nextCursor;
-  } while (cursor !== null);
+  const items = await listAllVersions(session, artifactId);
 
   if (options.json) {
     writeJson(io, { artifactId, items });
@@ -69,6 +58,27 @@ export async function versions(
       ]),
     ]),
   );
+}
+
+/** Every retained version of the artifact, newest first, following the cursor to the last page. */
+export async function listAllVersions(
+  session: Session,
+  artifactId: string,
+): Promise<VersionSummary[]> {
+  const items: VersionSummary[] = [];
+  let cursor: string | null = null;
+  do {
+    const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
+    if (cursor !== null) query.set("cursor", cursor);
+    const page: VersionList = await callApi(session, {
+      method: "GET",
+      path: `/artifacts/${artifactId}/versions?${query}`,
+      schema: VersionList,
+    });
+    items.push(...page.items);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return items;
 }
 
 export async function rollback(
