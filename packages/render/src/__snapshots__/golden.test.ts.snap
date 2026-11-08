@@ -1,0 +1,194 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden output > is stable for renderer version 1 1`] = `
+{
+  "blocks": [
+    {
+      "end": 15,
+      "endLine": 1,
+      "id": "b1",
+      "start": 0,
+      "startLine": 1,
+      "tag": "h1",
+    },
+    {
+      "end": 189,
+      "endLine": 4,
+      "id": "b2",
+      "start": 17,
+      "startLine": 3,
+      "tag": "p",
+    },
+    {
+      "end": 203,
+      "endLine": 6,
+      "id": "b3",
+      "start": 191,
+      "startLine": 6,
+      "tag": "h2",
+    },
+    {
+      "end": 274,
+      "endLine": 12,
+      "id": "b4",
+      "start": 205,
+      "startLine": 8,
+      "tag": "ul",
+    },
+    {
+      "end": 228,
+      "endLine": 8,
+      "id": "b5",
+      "start": 205,
+      "startLine": 8,
+      "tag": "li",
+    },
+    {
+      "end": 274,
+      "endLine": 12,
+      "id": "b6",
+      "start": 229,
+      "startLine": 9,
+      "tag": "li",
+    },
+    {
+      "end": 274,
+      "endLine": 12,
+      "id": "b7",
+      "start": 249,
+      "startLine": 10,
+      "tag": "ol",
+    },
+    {
+      "end": 260,
+      "endLine": 10,
+      "id": "b8",
+      "start": 249,
+      "startLine": 10,
+      "tag": "li",
+    },
+    {
+      "end": 274,
+      "endLine": 12,
+      "id": "b9",
+      "start": 261,
+      "startLine": 11,
+      "tag": "li",
+    },
+    {
+      "end": 305,
+      "endLine": 13,
+      "id": "b10",
+      "start": 275,
+      "startLine": 13,
+      "tag": "blockquote",
+    },
+    {
+      "end": 305,
+      "endLine": 13,
+      "id": "b11",
+      "start": 275,
+      "startLine": 13,
+      "tag": "p",
+    },
+    {
+      "end": 352,
+      "endLine": 17,
+      "id": "b12",
+      "start": 307,
+      "startLine": 15,
+      "tag": "table",
+    },
+    {
+      "end": 322,
+      "endLine": 15,
+      "id": "b13",
+      "start": 307,
+      "startLine": 15,
+      "tag": "tr",
+    },
+    {
+      "end": 352,
+      "endLine": 17,
+      "id": "b14",
+      "start": 339,
+      "startLine": 17,
+      "tag": "tr",
+    },
+    {
+      "end": 414,
+      "endLine": 19,
+      "id": "b15",
+      "start": 354,
+      "startLine": 19,
+      "tag": "p",
+    },
+    {
+      "end": 444,
+      "endLine": 23,
+      "id": "b16",
+      "start": 416,
+      "startLine": 21,
+      "tag": "code",
+    },
+    {
+      "end": 470,
+      "endLine": 27,
+      "id": "b17",
+      "start": 451,
+      "startLine": 27,
+      "tag": "p",
+    },
+  ],
+  "html": "<h1 data-pf-block="b1" id="release-notes">Release notes</h1>
+<p data-pf-block="b2">Intro with <em>emphasis</em>, <strong>strong</strong>, <s>strike</s>, <code>code</code>, a <a href="https://example.com" title="Example" rel="nofollow noopener noreferrer">link</a>,
+a <a href="guide.md#setup">relative link</a>, <a href="http://www.example.com" rel="nofollow noopener noreferrer">www.example.com</a> and an &lt;b&gt;inline tag&lt;/b&gt;.</p>
+<h2 data-pf-block="b3" id="checklist">Checklist</h2>
+<ul data-pf-block="b4" class="contains-task-list">
+<li data-pf-block="b5" class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled checked> Ship the renderer</li>
+<li data-pf-block="b6" class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled> Wire delivery
+<ol data-pf-block="b7">
+<li data-pf-block="b8">nested</li>
+<li data-pf-block="b9">ordered</li>
+</ol>
+</li>
+</ul>
+<blockquote data-pf-block="b10">
+<p data-pf-block="b11">A quote with a footnote<sup class="footnote-ref"><a href="#fn:1" id="fnref:1">1</a></sup>.</p>
+</blockquote>
+<div class="pf-table" tabindex="0">
+<table data-pf-block="b12">
+<thead>
+<tr data-pf-block="b13">
+<th class="pf-align-left">Name</th>
+<th class="pf-align-right">Size</th>
+</tr>
+</thead>
+<tbody>
+<tr data-pf-block="b14">
+<td class="pf-align-left">a.md</td>
+<td class="pf-align-right">12</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p data-pf-block="b15"><img src="diagram.png" alt="Diagram"> <a href="https://cdn.example/r.png" rel="nofollow noopener noreferrer">Remote</a></p>
+<pre><code data-pf-block="b16" class="language-ts">const answer = 42;
+</code></pre>
+<hr>
+<section class="footnotes" aria-label="Footnotes">
+<ol>
+<li id="fn:1"><p data-pf-block="b17">The footnote. <a href="#fnref:1" class="footnote-backref" aria-label="Back to reference 1">↩︎</a></p>
+</li>
+</ol>
+</section>
+",
+}
+`;
+
+exports[`golden output > is stable for renderer version 1 2`] = `
+"<pre class="pf-text">
+
+&lt;b&gt;&amp;&lt;/b&gt;
+</pre>"
+`;

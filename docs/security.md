@@ -61,7 +61,9 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 
 ### Untrusted content
 
-- Markdown is rendered with a restrictive sanitizer: no raw HTML execution, no MDX, no user plugins and an allowlist of URL schemes. TXT is always escaped.
+- Markdown is rendered by `packages/render` with markdown-it and `html: false`: raw HTML is shown as literal text, never parsed, and there is no MDX and no user plugins. Links and images keep only `http`, `https` and `mailto` URLs (plus paths on the artifact), checked with the WHATWG URL parser so `//host`, `/\host` and embedded tabs resolve as a browser resolves them. Links to other origins get `rel="nofollow noopener noreferrer"`. Remote images are off unless the document opts in; when off they become links. TXT is always escaped inside `<pre>`.
+- Rendered documents carry a Content-Security-Policy `<meta>` (`default-src 'none'`, no scripts, frames or forms, `base-uri 'none'`) as defense in depth if markup ever slips through. Review-mode delivery has to account for it when it injects the bridge.
+- Rendering must stay linear in the input, because a 5 MB document is allowed. remark/micromark is quadratic on nested emphasis, links and many footnotes (seconds to minutes on a few hundred KB), which is why the renderer uses markdown-it, and why `packages/render` patches markdown-it-footnote's quadratic token concatenation. Keep the hostile-size tests in `packages/render/src/security.test.ts` passing when changing the parser or adding plugins.
 - The Markdown and TXT viewers run on the artifact origin, never on `portifact.com`.
 - Annotation targets are untrusted input wherever they come from: they are validated with `AnnotationTarget` (strict keys, size caps, a CSS selector grammar without escapes or functions, same-origin routes); see [anchors.md](anchors.md).
 - Messages from the bridge are untrusted data. Validate the exact origin, source window, instance nonce, schema and size. A selection alone never creates a comment; the user confirms it in the trusted viewer.
