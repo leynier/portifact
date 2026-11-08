@@ -14,10 +14,26 @@ $ProgressPreference = 'SilentlyContinue'
 function Install-Portifact {
   $repo = 'leynier/portifact'
 
-  $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
-    'AMD64' { 'x64' }
+  # Use the operating system architecture, not the process one: an x64 PowerShell running under
+  # emulation on Windows on Arm reports AMD64 but should still get the native arm64 build.
+  # Win32_Processor reports the hardware (12 = ARM64, 9 = x64) regardless of emulation.
+  $osArch = $null
+  try {
+    switch ((Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop | Select-Object -First 1).Architecture) {
+      12 { $osArch = 'ARM64' }
+      9 { $osArch = 'X64' }
+    }
+  } catch { }
+  if (-not $osArch) {
+    try { $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString() } catch { }
+  }
+  if (-not $osArch) {
+    $osArch = if ($env:PROCESSOR_ARCHITEW6432) { $env:PROCESSOR_ARCHITEW6432 } else { $env:PROCESSOR_ARCHITECTURE }
+  }
+  $arch = switch ($osArch.ToUpperInvariant()) {
+    { $_ -in 'X64', 'AMD64' } { 'x64' }
     'ARM64' { 'arm64' }
-    default { throw "Unsupported architecture: $($env:PROCESSOR_ARCHITECTURE)" }
+    default { throw "Unsupported architecture: $osArch" }
   }
   $archive = "portifact-windows-$arch.zip"
 
