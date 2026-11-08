@@ -6,7 +6,20 @@
 import { CURRENT_VERSION, type DownloadKind, LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { checkPublish, fail, nextExpiry, normalizePath, ok, type Result } from "@portifact/domain";
-import { and, asc, desc, eq, exists, gt, isNull, lt, or, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
 
@@ -250,9 +263,19 @@ export async function getVersionManifest(
       contentType: schema.versionFiles.contentType,
     })
     .from(schema.versionFiles)
-    .where(eq(schema.versionFiles.versionId, version.id))
+    .where(
+      and(
+        eq(schema.versionFiles.versionId, version.id),
+        // Rendered pages and block maps are derived by the server, not part of the manifest.
+        inArray(schema.versionFiles.kind, ["published", "source"]),
+      ),
+    )
     .orderBy(asc(schema.versionFiles.kind), asc(schema.versionFiles.path));
-  return ok({ artifactId: artifact.id, version, files });
+  return ok({
+    artifactId: artifact.id,
+    version,
+    files: files as (Omit<(typeof files)[number], "kind"> & { kind: "published" | "source" })[],
+  });
 }
 
 /**

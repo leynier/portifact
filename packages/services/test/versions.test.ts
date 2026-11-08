@@ -280,7 +280,7 @@ describe("getVersionManifest", () => {
         kind: "published",
         sha256: await sha256("# One"),
         size: 5,
-        contentType: "text/markdown",
+        contentType: "text/markdown; charset=utf-8",
       },
       {
         path: "src/one.md",
@@ -377,7 +377,7 @@ describe("getVersionDownload", () => {
       path: "index.md",
       sha256: hash,
       size: 5,
-      contentType: "text/markdown",
+      contentType: "text/markdown; charset=utf-8",
       r2Key: `objects/${OWNER}/${hash}`,
     });
     const sources = await download(OWNER, id, v1.versionId, "source");
