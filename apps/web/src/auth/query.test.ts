@@ -41,6 +41,11 @@ describe("next after sign-in", () => {
     expect(safeNext(`?${new URLSearchParams({ next })}`, ORIGIN)).toBe(next);
   });
 
+  it("accepts the dashboard routes", () => {
+    expect(safeNext("?next=%2F", ORIGIN)).toBe("/");
+    expect(safeNext("?next=%2Fartifacts%2Fk7d2qm4xab", ORIGIN)).toBe("/artifacts/k7d2qm4xab");
+  });
+
   it("refuses other sites, other paths and tricks that leave the origin", () => {
     for (const next of [
       "https://evil.example/device",
@@ -55,6 +60,9 @@ describe("next after sign-in", () => {
       "/read/k7d2qm4xa1",
       "//evil.example/read/k7d2qm4xab",
       "https://evil.example/read/k7d2qm4xab",
+      "/artifacts",
+      "/artifacts/a/b",
+      "/dashboard",
       "device",
       "",
     ]) {

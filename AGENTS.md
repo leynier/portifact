@@ -26,9 +26,9 @@ If a decision in the plan conflicts with the code, do not silently pick one: fix
 ## Repository layout
 
 ```text
-apps/app        Worker for portifact.com and app.portifact.com: landing, installers, identity, OAuth, the /api/v1 publishing API and the protected-artifact entry; MCP tools later
+apps/app        Worker for portifact.com and app.portifact.com: landing, installers, dashboard, identity, OAuth, the /api/v1 publishing API, the remote MCP server at /mcp and the protected-artifact entry
 apps/content    Worker for <id>.portifact.dev: artifact delivery and read sessions for protected artifacts today; review sessions, bridge and viewers later
-apps/web        Landing page today; dashboard and review viewer later (Vite)
+apps/web        Landing, auth pages and the dashboard SPA (React, TanStack Router and Query, Lingui); review viewer later (Vite)
 apps/jobs       Scheduled Worker that runs the maintenance jobs (archive, expire uploads, prune, purge)
 packages/cli    portifact CLI: login, logout and whoami today; commands take an injected Runtime (packages/cli/src/runtime.ts)
 packages/contracts   Shared schemas, errors and OpenAPI
@@ -38,7 +38,7 @@ packages/db          Drizzle schema, migrations and queries
 packages/render      Markdown and TXT rendering to safe HTML documents (markdown-it); not wired into delivery yet
 packages/anchors     Annotation anchor model and resolution
 packages/bridge      Review script injected into artifacts
-packages/ui          Design system: tokens and components
+packages/ui          Design system: tokens, React components and patterns, and the axe test helper
 skills/              Agent skills for using Portifact, installable with npx skills
 assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer, CI-scope and validation scripts; a workspace whose pure logic is unit tested
@@ -73,7 +73,8 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - Business rules live only in `packages/domain` (pure functions) and the use cases that apply them with storage live in `packages/services`. API routes, MCP tools, CLI commands and the dashboard are thin adapters over these services; never reimplement a rule in an adapter.
 - In a D1 batch, condition every write after a guarded update on that update having happened (for example `exists(...)` on the new state), and close the session or token last, so a retried or concurrent request cannot apply effects twice. If two concurrent requests would write the same new state (a counter or generation plus one), `exists(...)` on it is true for both: condition the dependent writes on the old state the request read and run the guarded update last instead (see `packages/services/src/access.ts`).
 - Web, CLI and MCP must behave identically for the same operation: same permission checks, quotas, states and errors. Add a parity test when you add an operation.
-- MCP has no privileged path. It goes through the same authorization as the API.
+- MCP has no privileged path. It goes through the same authorization as the API. `apps/app/src/mcp` serves `/mcp` with the official SDK (`@modelcontextprotocol/server`, pinned exactly; the 2026-07-28 revision plus the stateless 2025 fallback). Every request passes `authorizeResourceRequest` with the scope of the tool it calls, from `TOOL_SCOPES` in `apps/app/src/mcp/tools.ts`, before the SDK runs; a new tool must be added there with the same scope as its API route, and to `test/mcp-parity.test.ts`. Tool results return the API's body as structured content and errors as `{ error: { code, message } }`.
+- `/api/v1` accepts a bearer token or the dashboard's session cookie; both resolve in `apps/app/src/api/access.ts` to one user and the same scope check. Session requests must carry `Sec-Fetch-Site: same-origin` and, on mutations, the exact app `Origin`. New routes go through `guarded` and get both for free.
 - The acting user, owner or author always comes from the authenticated session or token, never from request input.
 - Input and output shapes live in `packages/contracts` and are validated at every boundary.
 - Multi-step state changes in D1 use transactional batches with checked results. A read followed by a separate write is not a transaction.
@@ -81,7 +82,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - Mutations that may be retried take an idempotency key.
 - Protected artifacts are opened through a one-use handoff from `app.portifact.com/read/<id>` to `/__portifact/callback` on the artifact origin, which sets the host-only `__Host-pf_read` cookie; the content Worker needs the `READ_SESSION_SECRET` secret. Handoffs and read sessions reference Better Auth's `sessions.id` and end with it, so keep Better Auth sessions in D1 (no secondary storage) and keep sign-out deleting the row. Follow "Entry to protected artifacts" in [docs/security.md](docs/security.md) before touching any of it.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
-- The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves identity, OAuth, the auth pages and `/read/<id>` (the entry to protected artifacts) (its root, the landing's Sign in target, redirects to `/login` until the dashboard exists), anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
+- The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves the dashboard at `/` and its client routes (`DASHBOARD_ROUTES` in `apps/app/src/app-host.ts`, kept in sync with `apps/web/src/dashboard/router.tsx`; without a session they redirect to `/login?next=...`), identity, OAuth, the auth pages and `/read/<id>` (the entry to protected artifacts), anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.
 - Prefer the simplest correct solution. Do not add dependencies, services or abstractions the plan does not need; justify any new dependency in the change description.
 

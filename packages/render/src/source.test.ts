@@ -35,7 +35,8 @@ describe("utf8ByteLength", () => {
         expect(utf8ByteLength(value)).toBe(encoder.encode(value).byteLength);
       }),
     );
-  });
+    // Generous for a loaded CI runner; the property itself takes well under a second locally.
+  }, 30_000);
 });
 
 describe("assertSourceSize", () => {

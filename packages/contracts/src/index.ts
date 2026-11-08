@@ -3,5 +3,6 @@
 export * from "./anchors.ts";
 export * from "./core.ts";
 export * from "./limits.ts";
+export * from "./mcp.ts";
 export * from "./publishing.ts";
 export * from "./read.ts";

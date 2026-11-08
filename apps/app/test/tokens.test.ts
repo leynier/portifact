@@ -105,7 +105,7 @@ describe("audience validation (RFC 8707)", () => {
   it("rejects an MCP token at the API", async () => {
     const h = createHarness();
     const { tokens } = await mcpTokens(h, "aud-mcp@example.test");
-    expect((await callMcp(h, tokens.access_token)).status).toBe(501);
+    expect((await callMcp(h, tokens.access_token)).status).toBe(200);
     const api = await callApi(h, tokens.access_token);
     expect(api.status).toBe(401);
     expect(api.headers.get("www-authenticate")).toContain(
@@ -132,7 +132,7 @@ describe("audience validation (RFC 8707)", () => {
     const callback = await authorizeWithPkce(h, { clientId, cookie });
     const response = await exchangeCode(h, { clientId, ...callback, resource: null });
     const tokens = await response.json<TokenResponse>();
-    expect((await callMcp(h, tokens.access_token)).status).toBe(501);
+    expect((await callMcp(h, tokens.access_token)).status).toBe(200);
     expect((await callApi(h, tokens.access_token)).status).toBe(401);
   });
 });
@@ -226,7 +226,7 @@ describe("refresh tokens", () => {
     expect(first.status).toBe(200);
     const rotated = await first.json<TokenResponse>();
     expect(rotated.refresh_token).not.toBe(tokens.refresh_token);
-    expect((await callMcp(h, rotated.access_token)).status).toBe(501);
+    expect((await callMcp(h, rotated.access_token)).status).toBe(200);
     const reused = await refresh(h, clientId, tokens.refresh_token ?? "");
     expect(reused.status).toBe(400);
     expect(await reused.json()).toMatchObject({ error: "invalid_grant" });
@@ -267,7 +267,7 @@ describe("relation to the dashboard session", () => {
     const refreshed = await refresh(h, clientId, tokens.refresh_token ?? "");
     expect(refreshed.status).toBe(200);
     expect((await callMcp(h, (await refreshed.json<TokenResponse>()).access_token)).status).toBe(
-      501,
+      200,
     );
   });
 
