@@ -22,7 +22,7 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 - The review cookie is `Partitioned` (CHIPS). It grants reading one version and nothing else. The fallback review tab's cookie (`__Host-pf_review_tab`) is first-party and `SameSite=Lax`, grants the same and lasts 15 minutes (see "Review mode").
 - Sibling artifacts in the viewer's partition can send credentialed requests that carry another artifact's review cookie. The content Worker honors the review cookie only for `Sec-Fetch-Site: same-origin`, or `cross-site` with `Sec-Fetch-Mode: navigate`, fails closed without fetch metadata, and sends `Cross-Origin-Resource-Policy: same-origin` on review responses. See [decision 0002](decisions/0002-review-mode-cookies.md).
 - Cookie names are matched exactly and case-sensitively. WebKit lets a sibling set `__host-` (lowercase) cookies with a `Domain` attribute, so case-folding a name would let it shadow a `__Host-` cookie.
-- The content Worker ignores every cookie that is not on its allowlist and clears oversized injected cookies.
+- The content Worker ignores every cookie that is not on its allowlist. Clearing injected cookies once the `Cookie` header passes a threshold (plan section 4) is not implemented yet; until it is, an artifact that fills a visitor's cookie jar can break every artifact for that visitor. See follow-up 1 in [acceptance.md](acceptance.md#follow-ups).
 - Read sessions carry signed claims that expire in 60 seconds or less. After that, the Worker rechecks D1. Revocation must take effect within 60 seconds.
 
 ### Entry to protected artifacts

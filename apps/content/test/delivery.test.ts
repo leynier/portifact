@@ -149,6 +149,57 @@ describe("artifact delivery", () => {
     expect(await response.text()).toBe("789");
   });
 
+  it("keeps two artifacts' files apart when they share a path", async () => {
+    const otherId = "p3n5wq7yzc";
+    const otherPage = "<h1>Other</h1>";
+    const otherHash = sha("e");
+    const db = createDb(env.DB);
+    await env.ARTIFACTS.put(`objects/u_other/${otherHash}`, otherPage);
+    await db.insert(schema.artifacts).values({
+      id: otherId,
+      ownerId: "u_other",
+      type: "site",
+      name: "Other",
+      state: "active",
+      accessMode: "public",
+      currentVersionId: "v2",
+      expiresAt: NOW + 10 * DAY,
+    });
+    await db.insert(schema.versions).values({
+      id: "v2",
+      artifactId: otherId,
+      number: 1,
+      authorId: "u_other",
+      entrypoint: "index.html",
+      publishedBytes: otherPage.length,
+    });
+    await db.insert(schema.objects).values({
+      ownerId: "u_other",
+      sha256: otherHash,
+      size: otherPage.length,
+      r2Key: `objects/u_other/${otherHash}`,
+      state: "verified",
+    });
+    await db.insert(schema.versionFiles).values({
+      versionId: "v2",
+      kind: "published",
+      path: "index.html",
+      ownerId: "u_other",
+      sha256: otherHash,
+      size: otherPage.length,
+      contentType: "text/html; charset=utf-8",
+    });
+    const mine = await get("/index.html");
+    const theirs = await get("/index.html", {}, `https://${otherId}.portifact.dev`);
+    expect(await mine.text()).toBe(files["index.html"].body);
+    expect(await theirs.text()).toBe(otherPage);
+    expect(theirs.headers.get("etag")).toBe(`"${otherHash}"`);
+    // Revalidating one artifact's file with the other's ETag never gets a 304.
+    const crossed = await get("/index.html", { headers: { "If-None-Match": `"${otherHash}"` } });
+    expect(crossed.status).toBe(200);
+    expect(await crossed.text()).toBe(files["index.html"].body);
+  });
+
   it("serves artifacts without an expiry date", async () => {
     await seed({ expiresAt: null });
     expect((await get("/")).status).toBe(200);
