@@ -255,18 +255,21 @@ describe("budget protection on public delivery", () => {
   });
 
   it("forgets expired refusals first, and all of them if none expired", async () => {
+    // A small memory behaves like the real one; ten thousand requests take seconds per pass.
+    const max = 50;
     await protect(3);
+    resetProtectionCache({ maxRefusals: max });
     const request = (ip: string) => new Request(ORIGIN, { headers: { "CF-Connecting-IP": ip } });
     let resetAt = NOW + 1;
     const over = fakeLimiters(() => ({ allowed: false, resetAt }));
     const limits = { TRAFFIC_LIMITER: over.namespace };
-    for (let i = 0; i < MAX_REMEMBERED_REFUSALS; i++) {
+    for (let i = 0; i < max; i++) {
       await overTrafficLimit(request(`ip-${i}`), limits, db(), true, NOW);
     }
     resetAt = NOW + PERIOD;
     // Full, but every remembered refusal has expired: they go, the new one stays.
     await overTrafficLimit(request("late"), limits, db(), true, NOW + 1);
-    for (let i = 0; i < MAX_REMEMBERED_REFUSALS - 1; i++) {
+    for (let i = 0; i < max - 1; i++) {
       await overTrafficLimit(request(`next-${i}`), limits, db(), true, NOW + 1);
     }
     over.keys.length = 0;
@@ -277,6 +280,11 @@ describe("budget protection on public delivery", () => {
     over.keys.length = 0;
     await overTrafficLimit(request("late"), limits, db(), true, NOW + 2);
     expect(over.keys).toEqual(["public:late"]);
+    resetProtectionCache();
+  });
+
+  it("remembers ten thousand refusing visitors by default", () => {
+    expect(MAX_REMEMBERED_REFUSALS).toBe(10_000);
   });
 
   it("rereads the protection at most once a minute", async () => {
