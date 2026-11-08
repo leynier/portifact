@@ -8,6 +8,13 @@
       "when": 1794106169920,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794112958858,
+      "tag": "0001_lifecycle_triggers",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,24 @@
+{
+  "name": "@portifact/jobs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Scheduled maintenance Worker: archive, expire uploads, prune versions and purge.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@portifact/db": "workspace:*",
+    "@portifact/services": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "^4.0.0"
+  }
+}
