@@ -30,6 +30,7 @@ describe("dashboard pages", () => {
     for (const [path, next] of [
       ["/", "/"],
       ["/artifacts/k7d2qm4xab?tab=x", "/artifacts/k7d2qm4xab?tab=x"],
+      ["/account", "/account"],
     ] as const) {
       const response = await h.request(path, { redirect: "manual" });
       expect(response.status, path).toBe(302);
@@ -46,7 +47,7 @@ describe("dashboard pages", () => {
   it("serves the dashboard to a signed-in user with the strict page headers", async () => {
     const h = createHarness();
     const cookie = await h.signIn("dashboard-page@example.test");
-    for (const path of ["/", "/artifacts/k7d2qm4xab"]) {
+    for (const path of ["/", "/artifacts/k7d2qm4xab", "/account"]) {
       const response = await h.request(path, { headers: { cookie } });
       expect(response.status, path).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
@@ -68,7 +69,13 @@ describe("dashboard pages", () => {
   it("serves the dashboard only at its routes and only on the app host", async () => {
     const h = createHarness();
     const cookie = await h.signIn("dashboard-paths@example.test");
-    for (const path of ["/dashboard", "/dashboard.html", "/artifacts", "/artifacts/a/b"]) {
+    for (const path of [
+      "/dashboard",
+      "/dashboard.html",
+      "/artifacts",
+      "/artifacts/a/b",
+      "/account/x",
+    ]) {
       expect((await h.request(path, { headers: { cookie } })).status, path).toBe(404);
     }
     for (const path of ["/dashboard", "/dashboard.html"]) {

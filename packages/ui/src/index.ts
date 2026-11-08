@@ -6,6 +6,15 @@ export { Callout, type CalloutProps } from "./components/callout.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog.tsx";
 export { type DetailItem, DetailList } from "./components/detail-list.tsx";
 export { EmptyState, type EmptyStateProps } from "./components/empty-state.tsx";
+export {
+  Checkbox,
+  type CheckboxProps,
+  RadioGroup,
+  type RadioGroupProps,
+  type RadioOption,
+  TextInput,
+  type TextInputProps,
+} from "./components/fields.tsx";
 export { LiveRegion } from "./components/live-region.tsx";
 export { LoadingState } from "./components/loading-state.tsx";
 export {

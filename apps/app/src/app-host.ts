@@ -4,6 +4,7 @@ import { TokenPrincipal } from "@portifact/contracts";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { Hono } from "hono";
 import type { SessionLookup } from "./api/access.ts";
+import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { r2Presigner } from "./api/presign.ts";
 import { apiRoutes } from "./api/routes.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
@@ -31,7 +32,7 @@ export const DASHBOARD_PAGE = "/dashboard";
  * Client routes of the dashboard (apps/web/src/dashboard/router.tsx). Each one serves the SPA;
  * any other path keeps answering 404, so a typo never looks like an empty dashboard.
  */
-export const DASHBOARD_ROUTES = ["/", "/artifacts/:artifactId"] as const;
+export const DASHBOARD_ROUTES = ["/", "/artifacts/:artifactId", "/account"] as const;
 
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
@@ -79,6 +80,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       return session && !needsTermsAcceptance(session.user.termsVersion)
         ? session.user.id
         : undefined;
+    };
+
+  // The same session with its own ID, for the account endpoints that tell it from the others.
+  const accountSessionFor =
+    (env: Env): AccountSessionLookup =>
+    async (request) => {
+      const found = await authFor(env).api.getSession({ headers: request.headers });
+      return found ? { userId: found.user.id, sessionId: found.session.id } : undefined;
     };
 
   const presignerFor = (env: Env) =>
@@ -135,6 +144,16 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       resource: (env) => resources(env).api,
       session: sessionUserFor,
       presigner: presignerFor,
+      now: () => Date.now(),
+    }),
+  );
+  app.route(
+    "/",
+    accountRoutes({
+      session: accountSessionFor,
+      signOutOthers: (env) => async (request) => {
+        await authFor(env).api.revokeOtherSessions({ headers: request.headers });
+      },
       now: () => Date.now(),
     }),
   );

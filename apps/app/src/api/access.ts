@@ -66,7 +66,7 @@ export function hasSessionCookie(header: string | null): boolean {
  * off cross-site subresource requests; this also refuses sibling hosts and top-level
  * navigations from other sites.
  */
-function fromAppOrigin(request: Request, appOrigin: string): boolean {
+export function fromAppOrigin(request: Request, appOrigin: string): boolean {
   if (request.headers.get("sec-fetch-site") !== "same-origin") return false;
   return SAFE_METHODS.has(request.method) || request.headers.get("origin") === appOrigin;
 }

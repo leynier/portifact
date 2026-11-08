@@ -1,4 +1,5 @@
 export * from "./access.ts";
+export * from "./account.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";

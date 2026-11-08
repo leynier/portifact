@@ -44,6 +44,7 @@ describe("next after sign-in", () => {
   it("accepts the dashboard routes", () => {
     expect(safeNext("?next=%2F", ORIGIN)).toBe("/");
     expect(safeNext("?next=%2Fartifacts%2Fk7d2qm4xab", ORIGIN)).toBe("/artifacts/k7d2qm4xab");
+    expect(safeNext("?next=%2Faccount", ORIGIN)).toBe("/account");
   });
 
   it("refuses other sites, other paths and tricks that leave the origin", () => {
@@ -62,6 +63,7 @@ describe("next after sign-in", () => {
       "https://evil.example/read/k7d2qm4xab",
       "/artifacts",
       "/artifacts/a/b",
+      "/account/sessions",
       "/dashboard",
       "device",
       "",
