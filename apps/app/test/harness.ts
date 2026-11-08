@@ -1,5 +1,6 @@
 import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { TERMS_VERSION } from "@portifact/contracts";
 import { type Auth, createAuth } from "../src/auth/auth.ts";
 import type { AuthDeps } from "../src/auth/deps.ts";
 import type { EmailMessage } from "../src/auth/email.ts";
@@ -11,11 +12,19 @@ export const API_RESOURCE = `${ORIGIN}/api/v1`;
 export const MCP_RESOURCE = `${ORIGIN}/mcp`;
 export const SESSION_COOKIE = "__Host-pf.session_token";
 
+/** What the login page sends when the box is checked. */
+export const TERMS_ACCEPTANCE = { version: TERMS_VERSION, acceptTerms: true, confirmAdult: true };
+
 export interface Harness {
   /** Sends a request to the Worker as if it arrived at app.portifact.com (or a full URL). */
   request: (path: string, init?: RequestInit) => Promise<Response>;
   /** Signs a user in with an email code and returns the Cookie header value. */
   signIn: (email: string) => Promise<string>;
+  /**
+   * Accepts the terms like the login page does before any sign-in method and returns the
+   * acceptance cookie (`name=value`) to send with the sign-in.
+   */
+  acceptTerms: () => Promise<string>;
   /** A server-side Better Auth instance over the same D1 database, for seeding and checks. */
   auth: Auth;
   /** Every email the fake sender accepted. */
@@ -54,21 +63,39 @@ export function createHarness(): Harness {
     return response;
   };
 
+  const acceptTerms = async (): Promise<string> => {
+    const response = await request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE));
+    if (!response.ok) throw new Error(`accepting the terms failed with ${response.status}`);
+    return cookieHeader(response);
+  };
+
   const signIn = async (email: string): Promise<string> => {
     // This helper is not about limits: start every sign-in with fresh counters.
     await env.DB.exec("DELETE FROM rate_limits");
+    const terms = await acceptTerms();
     const sent = await request(
       "/api/auth/email-otp/send-verification-otp",
       json({ email, type: "sign-in" }),
     );
     if (!sent.ok) throw new Error(`sending the code failed with ${sent.status}`);
     const otp = codeFrom(outbox.findLast((message) => message.to === email));
-    const signedIn = await request("/api/auth/sign-in/email-otp", json({ email, otp }));
+    const signedIn = await request(
+      "/api/auth/sign-in/email-otp",
+      json({ email, otp }, { cookie: terms }),
+    );
     if (!signedIn.ok) throw new Error(`signing in failed with ${signedIn.status}`);
     return cookieHeader(signedIn);
   };
 
-  return { request, signIn, auth: createAuth(env, deps), outbox, clientMetadata, fetchedMetadata };
+  return {
+    request,
+    signIn,
+    acceptTerms,
+    auth: createAuth(env, deps),
+    outbox,
+    clientMetadata,
+    fetchedMetadata,
+  };
 }
 
 /** The six-digit code in a sign-in email. */

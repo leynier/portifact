@@ -17,6 +17,8 @@ export const ENDPOINT_LIMITS: Record<string, Limit> = {
   "/device/code": { max: 30, windowSeconds: 3_600 },
   // Guessing codes: each code allows three attempts; this caps fresh attempts per IP.
   "/sign-in/email-otp": { max: 30, windowSeconds: 600 },
+  // Signs an acceptance cookie or writes the account's acceptance.
+  "/accept-terms": { max: 30, windowSeconds: 600 },
 };
 
 /**

@@ -28,7 +28,7 @@
 
     <main id="main" class="mx-auto max-w-md px-4 py-12">
       <h1 class="text-2xl font-semibold tracking-tight">Sign in to Portifact</h1>
-      <p class="mt-2 text-text-muted">Use Google, GitHub or a code sent to your email.</p>
+      <p class="mt-2 text-text-muted">Use Google, GitHub or a code sent to your email. The first sign-in creates your account.</p>
 
       <div id="error-summary" role="alert" tabindex="-1" class="mt-6 rounded-md border-2 border-border-strong bg-surface p-4 text-sm font-medium" hidden></div>
       <p id="status" role="status" aria-live="polite" class="sr-only"></p>
@@ -51,7 +51,27 @@
         <button id="sign-out" type="button" class="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Sign out</button>
       </section>
 
+      <section id="terms-update" class="mt-8" aria-labelledby="terms-update-heading" hidden>
+        <h2 id="terms-update-heading" class="text-base font-semibold">Review the terms to continue</h2>
+        <p id="terms-update-email" class="mt-2 text-sm text-text-muted"></p>
+        <p class="mt-2 text-sm text-text-muted">Your account has not accepted the current version of the terms yet.</p>
+        <div class="mt-6 flex items-start gap-3">
+          <input id="terms-update-accept" name="terms-update-accept" type="checkbox" required class="mt-0.5 size-5 shrink-0 accent-text" />
+          <label for="terms-update-accept" class="text-sm">I am 18 or older and I agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>. I have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a></label>
+        </div>
+        <p id="terms-update-accept-error" class="mt-2 border-l-2 border-border-strong pl-2 text-sm font-medium" hidden></p>
+        <button id="terms-update-continue" type="button" class="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-surface-inverse px-6 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60">Accept and continue</button>
+        <button id="terms-update-sign-out" type="button" class="mt-3 inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Sign out</button>
+      </section>
+
       <div id="sign-in" class="mt-8" hidden>
+        <div class="mb-8">
+          <div class="flex items-start gap-3">
+            <input id="terms-accept" name="terms-accept" type="checkbox" required class="mt-0.5 size-5 shrink-0 accent-text" />
+            <label for="terms-accept" class="text-sm">I am 18 or older and I agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>. I have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a></label>
+          </div>
+          <p id="terms-accept-error" class="mt-2 border-l-2 border-border-strong pl-2 text-sm font-medium" hidden></p>
+        </div>
         <div class="space-y-3">
           <button type="button" data-provider="google" class="inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Continue with Google</button>
           <button type="button" data-provider="github" class="inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Continue with GitHub</button>
@@ -83,9 +103,14 @@
     </main>
 
     <footer class="border-t border-border">
-      <p class="mx-auto max-w-md px-4 py-8 text-sm text-text-muted">
-        <a href="https://portifact.com/" class="text-text-muted hover:text-text">portifact.com</a>
-      </p>
+      <nav aria-label="Legal" class="mx-auto max-w-md px-4 py-8 text-sm">
+        <ul class="flex flex-wrap gap-x-5 gap-y-2">
+          <li><a href="https://portifact.com/" class="text-text-muted hover:text-text">portifact.com</a></li>
+          <li><a href="https://portifact.com/terms" class="text-text-muted hover:text-text">Terms</a></li>
+          <li><a href="https://portifact.com/privacy" class="text-text-muted hover:text-text">Privacy</a></li>
+          <li><a href="https://portifact.com/acceptable-use" class="text-text-muted hover:text-text">Acceptable use</a></li>
+        </ul>
+      </nav>
     </footer>
   </body>
 </html>

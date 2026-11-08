@@ -1,0 +1,39 @@
+# Legal pages and terms acceptance
+
+Portifact publishes three legal documents on `portifact.com` and records, for every account, which version of them it accepted. The texts are drafts until a lawyer reviews them, which must happen before registration opens (plan section 17).
+
+## Pages
+
+| Path              | Source                         | Covers                                                                                                                             |
+| ----------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `/terms`          | `apps/web/terms.html`          | Operator, 18+ eligibility, accounts, quotas, content license, lifecycle, enforcement, disclaimers, liability, Florida law, changes |
+| `/privacy`        | `apps/web/privacy.html`        | Data collected, uses, cookies, processors (Cloudflare, Google, GitHub), retention, rights, children                                |
+| `/acceptable-use` | `apps/web/acceptable-use.html` | Prohibited content and behavior, coding agents, abuse reports, enforcement                                                         |
+
+- They are static Vite entries like the landing (`apps/web/vite.config.ts`), load only the shared stylesheet and no script, and use design-system token utilities only. `apps/app/src/site.ts` serves them on `portifact.com` with the strict `PAGE_CSP`, `no-cache`, `nosniff` and `X-Frame-Options: DENY`; the app host answers 404 for them.
+- Each page shows the draft notice, the version and the effective date. `apps/web/src/legal.test.ts` checks that both match `TERMS_VERSION`, so the pages and the code cannot drift.
+- The pages were written once from a generator that is not kept; edit the HTML directly and keep the structure (one `h1`, a table of contents whose links match the `section` ids, captioned tables, the legal footer with `aria-current`).
+- The landing footer and the footers of `/login`, `/device` and `/consent` link all three pages.
+- Write them in plain language and describe only what the product does today; mark planned features as planned (access logs, account deletion and export, the report button). When a feature ships or a rule changes (quotas, retention, cookies, processors), update the affected page in the same change.
+
+Contact addresses used by the pages: `abuse@portifact.com`, `privacy@portifact.com` and `legal@portifact.com`. Mail routing for them (Cloudflare Email Routing) must exist before registration opens.
+
+## Acceptance at sign-in
+
+No account is created and no session is issued for an account that has not accepted the current `TERMS_VERSION` (`packages/contracts/src/terms-version.ts`), whatever the method: Google, GitHub or email code.
+
+1. The login page has one required checkbox: "I am 18 or older and I agree to the Terms of Service and the Acceptable Use Policy. I have read the Privacy Policy". Before any method it posts `{ version, acceptTerms: true, confirmAdult: true }` (`TermsAcceptanceInput`) to `POST /api/auth/accept-terms`, a Portifact endpoint in the auth allowlist with the exact-Origin check and a per-IP limit.
+2. Without a session, the Worker answers with `__Host-pf_terms` (`Secure; HttpOnly; SameSite=Lax; Path=/`, 30 minutes): the version and the acceptance time, HMAC-signed with a key derived from `BETTER_AUTH_SECRET`. It survives the provider redirects because the callback is a top-level navigation.
+3. Better Auth database hooks (`apps/app/src/auth/terms.ts`) enforce it. `user.create.before` refuses to create an account without a valid, current, unexpired cookie and stores `terms_version` and `terms_accepted_at` on the new user. `session.create.before` refuses a session for an account whose stored version is not current unless the cookie is present, and then records it. Refusals are `APIError` `FORBIDDEN` with code `terms_not_accepted`: the email-code sign-in answers 403, and provider callbacks redirect to `/login?error=terms_not_accepted`. `session.create.after` clears the cookie.
+4. With a session, the endpoint records the acceptance on that account directly, keeping the time of an earlier acceptance of the same version.
+5. Sessions that already exist are checked too: the dashboard routes, the `/api/v1` session lookup and `/read/<id>` treat a session of an account without the current version as no session, so the visitor lands on `/login`, which shows "Review the terms to continue" (accept or sign out) instead of forwarding to `next`.
+
+`terms_version` and `terms_accepted_at` are Better Auth `additionalFields` with `input: false`, so no request body can set them; `get-session` returns them to the login page.
+
+Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.
+
+## Changing the texts
+
+1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.
+2. For a material change, set `TERMS_VERSION` to the new effective date and update the version and date on all three pages (the test fails until they match). Every account is then asked to accept again at its next sign-in or dashboard visit.
+3. Announce material changes in advance, as the pages promise.

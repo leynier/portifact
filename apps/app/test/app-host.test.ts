@@ -145,9 +145,14 @@ describe("session cookie", () => {
     const email = "cookie@example.test";
     await h.request("/api/auth/email-otp/send-verification-otp", json({ email, type: "sign-in" }));
     const code = h.outbox.at(-1)?.text.match(/(\d{6})/)?.[1];
-    const response = await h.request("/api/auth/sign-in/email-otp", json({ email, otp: code }));
+    const response = await h.request(
+      "/api/auth/sign-in/email-otp",
+      json({ email, otp: code }, { cookie: await h.acceptTerms() }),
+    );
     const cookies = response.headers.getSetCookie();
-    expect(cookies.length).toBeGreaterThan(0);
+    // The session cookie, and the used terms acceptance being cleared.
+    expect(cookies.some((cookie) => cookie.startsWith("__Host-pf_terms=;"))).toBe(true);
+    expect(cookies.length).toBeGreaterThan(1);
     for (const cookie of cookies) {
       const [nameValue, ...attributes] = cookie.split(/;\s*/);
       expect(nameValue?.startsWith("__Host-")).toBe(true);

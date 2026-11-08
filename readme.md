@@ -89,6 +89,7 @@ portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback
 | Signed releases with checksums and provenance           | Available      |
 | Agent skill (`npx skills add leynier/portifact`)        | Available      |
 | Sign-in (Google, GitHub, email code) and OAuth          | Available      |
+| Terms, privacy and acceptable use pages (draft)         | Available      |
 | CLI sign-in (`portifact login`, `logout`, `whoami`)     | Next release   |
 | Publishing API (`/api/v1`)                              | Available      |
 | MCP server: list, publish small documents, lifecycle    | Available      |
@@ -104,6 +105,7 @@ portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback
 
 - [Releasing](docs/releasing.md): versions, installers and supported platforms.
 - [Security](docs/security.md): the security model and how to report a vulnerability.
+- [Terms of Service](https://portifact.com/terms), [Privacy Policy](https://portifact.com/privacy) and [Acceptable Use Policy](https://portifact.com/acceptable-use): drafts pending legal review. Portifact is for people 18 or older; report abuse to abuse@portifact.com. How the pages and the sign-up acceptance work is in [docs/legal.md](docs/legal.md).
 - [Testing](docs/testing.md), [Design system](docs/design.md) and [Accessibility](docs/accessibility.md): how the project is built.
 - [Agent guidelines](AGENTS.md): for AI coding agents contributing to this repository.
 
