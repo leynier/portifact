@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { patternChunks, percentile, splitBytes, summarize, tally } from "./load/measure.ts";
+import {
+  patternChunks,
+  percentile,
+  sliceChunks,
+  splitBytes,
+  summarize,
+  tally,
+} from "./load/measure.ts";
 import { isProductionHost, PRODUCTION_FLAG, parseOptions, SCENARIOS } from "./load/options.ts";
 
 const staging = ["--app-url", "https://app.staging.example", "--content-domain", "staging.dev"];
@@ -201,5 +208,22 @@ describe("measurements", () => {
     expect(collect(7, 10_003, 1_001).sizes[0]).toBe(1_000);
     expect(new Set(collect(0, 4_096, 4_096).bytes).size).toBeGreaterThan(200);
     expect([...patternChunks(1, 0)]).toEqual([]);
+  });
+});
+
+describe("sliceChunks", () => {
+  it("yields exactly the bytes of a range across chunk boundaries", () => {
+    const whole = Buffer.concat([...patternChunks(7, 100, 16)]);
+    for (const [start, end] of [
+      [0, 100],
+      [0, 16],
+      [10, 40],
+      [48, 64],
+      [99, 100],
+    ] as const) {
+      const sliced = Buffer.concat([...sliceChunks(patternChunks(7, 100, 16), start, end)]);
+      expect(sliced).toEqual(whole.subarray(start, end));
+    }
+    expect([...sliceChunks(patternChunks(7, 100, 16), 50, 50)]).toEqual([]);
   });
 });
