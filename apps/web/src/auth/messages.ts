@@ -14,10 +14,12 @@ export const messages = {
   codeResent: "A new code is on its way.",
   signedInAs: (email: string) => `Signed in as ${email}`,
   signedOut: "You are signed out.",
+  methodConnected: "Connected",
+  methodNotUsed: "Not used yet",
   redirecting: "Signing you in.",
   providerErrors: {
     account_not_linked:
-      "This email already belongs to a Portifact account that signs in another way. Use that method, for example an email code.",
+      "Your provider has not verified this email address, so it cannot open the Portifact account that uses it. Verify it there, or sign in with an email code.",
     email_not_verified:
       "Your provider has not verified this email address. Verify it there, or sign in with an email code.",
     email_not_found: "Your provider did not share an email address. Sign in with an email code.",

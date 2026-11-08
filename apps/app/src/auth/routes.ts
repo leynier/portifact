@@ -21,6 +21,7 @@ const ENDPOINTS: Record<string, { method: "GET" | "POST"; kind: EndpointKind }> 
   "/sign-in/social": { method: "POST", kind: "browser" },
   "/callback/google": { method: "GET", kind: "browser" },
   "/callback/github": { method: "GET", kind: "browser" },
+  "/list-accounts": { method: "GET", kind: "browser" },
   "/email-otp/send-verification-otp": { method: "POST", kind: "browser" },
   "/sign-in/email-otp": { method: "POST", kind: "browser" },
   "/oauth2/authorize": { method: "GET", kind: "browser" },

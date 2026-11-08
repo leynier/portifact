@@ -292,3 +292,34 @@ describe("login page", () => {
     expect(button.hasAttribute("aria-busy")).toBe(false);
   });
 });
+
+describe("sign-in methods of a signed-in user", () => {
+  beforeEach(() => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+  });
+
+  it("shows which providers already sign in to the account", async () => {
+    api.on("GET", "/list-accounts", {
+      status: 200,
+      body: [{ providerId: "google" }, { providerId: "credential" }],
+    });
+    await open();
+    expect(element("method-google").textContent).toBe(messages.methodConnected);
+    expect(element("method-github").textContent).toBe(messages.methodNotUsed);
+    expect(document.querySelector("button[data-link-provider]")).toBeNull();
+  });
+
+  it("keeps the default text when the list cannot be loaded", async () => {
+    api.on("GET", "/list-accounts", { status: 500, body: null });
+    await open();
+    expect(element("method-google").textContent).toBe("Not used yet");
+    expect(element("method-github").textContent).toBe("Not used yet");
+  });
+
+  it("explains a provider sign-in refused because the provider did not verify the email", async () => {
+    api.on("GET", "/get-session", { status: 200, body: null });
+    await open("?error=account_not_linked");
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.account_not_linked);
+    expect(element("error-summary").textContent).toContain("has not verified");
+  });
+});

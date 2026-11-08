@@ -77,9 +77,16 @@ export function createAuth(env: Env, deps: AuthDeps) {
     },
     session: { expiresIn: 7 * 24 * 3600, updateAge: 24 * 3600 },
     account: {
-      // Identities are never merged because an email matches (plan section 5). A provider
-      // account whose email belongs to another account is refused, not linked.
-      accountLinking: { disableImplicitLinking: true },
+      // A Google or GitHub sign-in joins the existing account with the same email, but only
+      // when the provider vouches for the email and the account's own email is verified. Every
+      // Portifact account has a verified email (codes prove it, and providers that do not vouch
+      // for it cannot create one), so control of the address is proven on both sides.
+      accountLinking: {
+        enabled: true,
+        disableImplicitLinking: false,
+        requireLocalEmailVerified: true,
+        allowDifferentEmails: false,
+      },
       updateAccountOnSignIn: false,
     },
     user: {

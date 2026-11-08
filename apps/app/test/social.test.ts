@@ -159,21 +159,15 @@ describe("sign-in with Google", () => {
     expect(await usersWithEmail("after@example.test")).toEqual([]);
   });
 
-  it("does not merge into an existing account just because the email matches", async () => {
+  it("joins the existing account with the same verified email", async () => {
     const h = createHarness();
-    await h.signIn("shared@example.test");
+    const otpCookie = await h.signIn("shared@example.test");
     fakeProviders({ sub: "google-3003", email: "shared@example.test", email_verified: true });
     const callback = await finishSocial(h, "google");
-    const location = new URL(callback.headers.get("location") ?? "", ORIGIN);
-    expect(location.pathname).toBe("/login");
-    expect(location.searchParams.get("error")).toBe("account_not_linked");
-    expect(callback.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(
-      false,
-    );
-    const linked = await env.DB.prepare(
-      "select id from accounts where provider_id = 'google' and account_id = 'google-3003'",
-    ).all();
-    expect(linked.results).toEqual([]);
+    expect(errorOf(callback)).toBeNull();
+    expect(await userIdOf(h, cookieHeader(callback))).toBe(await userIdOf(h, otpCookie));
+    expect(await providersOf("shared@example.test")).toEqual(["google"]);
+    expect(await usersWithEmail("shared@example.test")).toHaveLength(1);
   });
 
   it("refuses an account whose email Google does not vouch for", async () => {
@@ -263,23 +257,92 @@ describe("sign-in with GitHub", () => {
     expect(await usersWithEmail("gh-unverified@example.test")).toEqual([]);
   });
 
-  it("keeps Google and GitHub accounts with the same email apart", async () => {
+  it("signs in to the Google account when GitHub has the same verified email", async () => {
     const h = createHarness();
     fakeProviders({ sub: "google-9009", email: "both@example.test", email_verified: true });
-    await finishSocial(h, "google");
+    const google = await finishSocial(h, "google");
     fakeProviders(undefined, {
       id: 9009,
       login: "both",
       email: "both@example.test",
       emails: [{ email: "both@example.test", primary: true, verified: true }],
     });
+    const github = await finishSocial(h, "github");
+    expect(errorOf(github)).toBeNull();
+    expect(await userIdOf(h, cookieHeader(github))).toBe(await userIdOf(h, cookieHeader(google)));
+    expect(await providersOf("both@example.test")).toEqual(["github", "google"]);
+    const tokens = await env.DB.prepare(
+      "select access_token, refresh_token, id_token from accounts where provider_id = 'github' and account_id = '9009'",
+    ).first();
+    expect(tokens).toEqual({ access_token: null, refresh_token: null, id_token: null });
+  });
+
+  it("does not join an existing account when GitHub has not verified the email", async () => {
+    const h = createHarness();
+    await h.signIn("claimed@example.test");
+    fakeProviders(undefined, {
+      id: 9010,
+      login: "claimer",
+      email: null,
+      emails: [{ email: "claimed@example.test", primary: true, verified: false }],
+    });
     const callback = await finishSocial(h, "github");
-    expect(new URL(callback.headers.get("location") ?? "", ORIGIN).searchParams.get("error")).toBe(
-      "account_not_linked",
+    expect(errorOf(callback)).toBe("account_not_linked");
+    expect(callback.headers.getSetCookie().some((c) => c.startsWith(`${SESSION_COOKIE}=`))).toBe(
+      false,
     );
-    const accounts = await env.DB.prepare(
-      "select provider_id from accounts a join users u on u.id = a.user_id where u.email = 'both@example.test'",
-    ).all();
-    expect(accounts.results).toEqual([{ provider_id: "google" }]);
+    expect(await providersOf("claimed@example.test")).toEqual([]);
+  });
+
+  it("does not join an account whose own email was never verified", async () => {
+    const h = createHarness();
+    await env.DB.prepare(
+      "insert into users (id, name, email, email_verified, created_at, updated_at) values ('legacy-user', '', 'legacy@example.test', 0, 0, 0)",
+    ).run();
+    fakeProviders(undefined, {
+      id: 9011,
+      login: "legacy",
+      email: "legacy@example.test",
+      emails: [{ email: "legacy@example.test", primary: true, verified: true }],
+    });
+    expect(errorOf(await finishSocial(h, "github"))).toBe("account_not_linked");
+    expect(await providersOf("legacy@example.test")).toEqual([]);
+  });
+});
+
+async function providersOf(email: string) {
+  const rows = await env.DB.prepare(
+    "select a.provider_id from accounts a join users u on u.id = a.user_id where u.email = ? and a.provider_id in ('google', 'github') order by a.provider_id",
+  )
+    .bind(email)
+    .all<{ provider_id: string }>();
+  return rows.results.map((row) => row.provider_id);
+}
+
+async function userIdOf(h: Harness, cookie: string): Promise<string> {
+  const response = await h.request("/api/auth/get-session", { headers: { cookie } });
+  return (await response.json<{ user: { id: string } }>()).user.id;
+}
+
+function errorOf(response: Response) {
+  return new URL(response.headers.get("location") ?? "", ORIGIN).searchParams.get("error");
+}
+
+describe("sign-in methods of the signed-in account", () => {
+  it("lists the connected providers without their tokens", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("list@example.test");
+    fakeProviders({ sub: "google-1103", email: "list@example.test", email_verified: true });
+    await finishSocial(h, "google");
+    const response = await h.request("/api/auth/list-accounts", { headers: { cookie } });
+    expect(response.status).toBe(200);
+    const accounts = await response.json<{ providerId: string }[]>();
+    expect(accounts.map((account) => account.providerId)).toContain("google");
+    expect(JSON.stringify(accounts)).not.toMatch(/accessToken|refreshToken|idToken/);
+  });
+
+  it("requires a session to list providers", async () => {
+    const h = createHarness();
+    expect((await h.request("/api/auth/list-accounts")).status).toBe(401);
   });
 });

@@ -15,6 +15,7 @@ export interface PageEnv {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_PATTERN = /^\d{6}$/;
+const PROVIDERS = ["google", "github"] as const;
 
 export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const { api, location } = env;
@@ -168,7 +169,20 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   if (sessionEmail) {
     byId(doc, "signed-in-email").textContent = messages.signedInAs(sessionEmail);
     signedIn.hidden = false;
+    await showMethods(doc, api);
     return;
   }
   signIn.hidden = false;
+}
+
+/** Shows which providers already sign in to this account. */
+async function showMethods(doc: Document, api: Api): Promise<void> {
+  const response = await api.get("/list-accounts");
+  if (response.status !== 200 || !Array.isArray(response.body)) return;
+  const connected = new Set(response.body.map((account: unknown) => field(account, "providerId")));
+  for (const provider of PROVIDERS) {
+    byId(doc, `method-${provider}`).textContent = connected.has(provider)
+      ? messages.methodConnected
+      : messages.methodNotUsed;
+  }
 }
