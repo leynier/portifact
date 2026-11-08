@@ -74,11 +74,12 @@ export function changeAccess(input: {
 }
 
 /**
- * Runs the content Worker's clock `offsetMs` ahead of real time (0 puts it back), so a test can
- * pass a delivery time window without waiting. Reset it in a `finally`.
+ * Runs the content Worker's clock `offsetMs` ahead of real time for one artifact (0 puts it
+ * back), so a test can pass a delivery time window without waiting. Other artifacts keep real
+ * time, so tests running next to it are not affected. Reset it in a `finally`.
  */
-export async function setContentClock(offsetMs: number): Promise<void> {
-  await control("/clock", { offsetMs });
+export async function setContentClock(artifactId: string, offsetMs: number): Promise<void> {
+  await control("/clock", { artifactId, offsetMs });
 }
 
 export function sql<T>(query: string, params: (string | number | null)[] = []): Promise<T[]> {

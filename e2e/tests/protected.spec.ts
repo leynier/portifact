@@ -156,9 +156,11 @@ test("signing out of the app ends artifact access within 60 seconds", async ({ p
 
   await page.goto(`${APP_ORIGIN}/`);
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect
-    .poll(async () => (await context.cookies(APP_ORIGIN)).some((c) => c.name.includes("session")))
-    .toBe(false);
+  // The dashboard leaves for the login page once sign-out answers. Wait for that page, not just
+  // for the cookie to go, or the navigation below races it and the login page cuts it off.
+  await expect(page.getByRole("heading", { name: "Sign in to Portifact" })).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe("/login");
+  expect((await context.cookies(APP_ORIGIN)).some((c) => c.name.includes("session"))).toBe(false);
 
   // Claims already issued are trusted for at most 60 seconds, and the cookie remains.
   await page.goto(`${artifactOrigin(artifactId)}/`);
@@ -167,7 +169,7 @@ test("signing out of the app ends artifact access within 60 seconds", async ({ p
   try {
     // Past the claims' 60 seconds the Worker rechecks D1: the dashboard session is gone, so it
     // clears the read cookie and starts the entry again, which needs a sign-in.
-    await setContentClock(61_000);
+    await setContentClock(artifactId, 61_000);
     const before = (await contentRequests()).length;
     await page.reload();
     await expect(page.getByRole("heading", { name: "Sign in to Portifact" })).toBeVisible();
@@ -177,6 +179,6 @@ test("signing out of the app ends artifact access within 60 seconds", async ({ p
     const cookies = await context.cookies(artifactOrigin(artifactId));
     expect(cookies.some((c) => c.name === READ_COOKIE)).toBe(false);
   } finally {
-    await setContentClock(0);
+    await setContentClock(artifactId, 0);
   }
 });
