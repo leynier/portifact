@@ -83,11 +83,14 @@ function send(target: ServerResponse, raw: Raw, extraCookies: string[] = []) {
 
 export async function startStack(): Promise<Stack> {
   const persist = mkdtempSync(join(tmpdir(), "pf-e2e-state-"));
-  execFileSync(
-    "npx",
-    ["wrangler", "d1", "migrations", "apply", "portifact-e2e", "--local", "--persist-to", persist],
-    { cwd: E2E_DIR, stdio: "ignore", env: { ...process.env, CI: "1" } },
-  );
+  // The control database and the access log database, each with its own migrations.
+  for (const database of ["portifact-e2e", "portifact-e2e-access"]) {
+    execFileSync(
+      "npx",
+      ["wrangler", "d1", "migrations", "apply", database, "--local", "--persist-to", persist],
+      { cwd: E2E_DIR, stdio: "ignore", env: { ...process.env, CI: "1" } },
+    );
+  }
   const worker = await unstable_startWorker({
     config: join(E2E_DIR, "wrangler.jsonc"),
     dev: {

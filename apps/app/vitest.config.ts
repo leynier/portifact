@@ -7,6 +7,9 @@ export default defineConfig(async () => {
   const migrations = await readD1Migrations(
     fileURLToPath(new URL("../../packages/db/migrations", import.meta.url).href),
   );
+  const accessMigrations = await readD1Migrations(
+    fileURLToPath(new URL("../../packages/db/access-migrations", import.meta.url).href),
+  );
   return {
     plugins: [
       cloudflareTest({
@@ -24,6 +27,7 @@ export default defineConfig(async () => {
             TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
             TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
             TEST_MIGRATIONS: migrations,
+            TEST_ACCESS_MIGRATIONS: accessMigrations,
           },
         },
       }),

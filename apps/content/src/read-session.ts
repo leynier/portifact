@@ -45,7 +45,8 @@ export type Page = "signIn" | "unavailable" | "notFound" | "browserRequired" | "
 
 /** What the content Worker does with a request for a protected (or unknown) artifact. */
 export type ReadDecision =
-  | { kind: "allow"; artifact: ServableArtifact; setCookies: string[] }
+  /** `userId` is the signed-in visitor the read session names, for the access log. */
+  | { kind: "allow"; artifact: ServableArtifact; userId: string; setCookies: string[] }
   | { kind: "redirect"; location: string; setCookies: string[] }
   | { kind: "page"; status: number; page: Page; setCookies: string[] };
 
@@ -128,7 +129,7 @@ export async function authorizeRead(
       };
     }
     if (claims.exp > now && claims.gen === artifact.policyGeneration) {
-      return { kind: "allow", artifact, setCookies };
+      return { kind: "allow", artifact, userId: claims.uid, setCookies };
     }
     const renewed = await refreshReadSession(db, { sessionId: claims.sid, artifactId, now });
     if (renewed.ok && renewed.value.userId === claims.uid) {
@@ -145,7 +146,7 @@ export async function authorizeRead(
           now,
         ),
       );
-      return { kind: "allow", artifact, setCookies };
+      return { kind: "allow", artifact, userId: claims.uid, setCookies };
     }
     // Access is gone: drop the session and let the app decide again, for this or another account.
     setCookies.push(clearCookie(READ_COOKIE));

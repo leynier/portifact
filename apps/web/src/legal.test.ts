@@ -105,7 +105,7 @@ describe("legal pages", () => {
       "Cloudflare Email Service",
       "Google and GitHub",
       "How long we keep it",
-      "Access logs (planned)",
+      "Access logs (who opened an artifact and when)",
       "__Host-pf.session_token",
       "__Host-pf_terms",
     ]) {

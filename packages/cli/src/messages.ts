@@ -101,6 +101,12 @@ export const messages = {
 
   // Versions.
   versionsEmpty: (id: string) => `${id} has no published versions.`,
+
+  // Access logs.
+  logsEmpty: (id: string, days: number) =>
+    `No signed-in visitor opened ${id} in the last ${days} days.`,
+  logsNote: (minutes: number, days: number) =>
+    `One entry per visitor every ${minutes} minutes, kept ${days} days. Anonymous visits to public artifacts and your own visits are not recorded, and some openings may be missing.`,
   rolledBack: (id: string, version: number, from: number, url: string, expiresAt: string) =>
     [
       `Rolled back ${id}: version ${version} has the files of version ${from}. Access did not change.`,
@@ -148,6 +154,8 @@ export const messages = {
     invalidEmail: (value: string) => `${JSON.stringify(value)} is not a valid email address.`,
     tooManyReaders: (max: number) => `Add or remove at most ${max} readers at a time.`,
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,
+    invalidSince: (value: string) =>
+      `${JSON.stringify(value)} is not a time. Use a duration like 30m, 12h or 7d, or an ISO date like 2026-11-01T00:00:00Z.`,
     invalidRevision: "Use the message revision, a whole number from 1.",
     notFoundPath: (path: string) => `${path} does not exist or cannot be read.`,
     symlink: (path: string) =>

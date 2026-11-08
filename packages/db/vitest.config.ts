@@ -6,14 +6,17 @@ export default defineConfig(async () => {
   const migrations = await readD1Migrations(
     fileURLToPath(new URL("./migrations", import.meta.url)),
   );
+  const accessMigrations = await readD1Migrations(
+    fileURLToPath(new URL("./access-migrations", import.meta.url)),
+  );
   return {
     plugins: [
       cloudflareTest({
         miniflare: {
           compatibilityDate: "2026-08-01",
           compatibilityFlags: ["nodejs_compat"],
-          d1Databases: ["DB"],
-          bindings: { TEST_MIGRATIONS: migrations },
+          d1Databases: ["DB", "ACCESS_DB"],
+          bindings: { TEST_MIGRATIONS: migrations, TEST_ACCESS_MIGRATIONS: accessMigrations },
         },
       }),
     ],
@@ -27,7 +30,7 @@ export default defineConfig(async () => {
         provider: "istanbul" as const,
         reporter: ["text", "json-summary"],
         include: ["src/**/*.ts"],
-        exclude: ["src/schema.ts", "src/auth-schema.ts"],
+        exclude: ["src/schema.ts", "src/auth-schema.ts", "src/access-schema.ts"],
         thresholds: { lines: 90, branches: 85, functions: 90, statements: 90 },
       },
     },

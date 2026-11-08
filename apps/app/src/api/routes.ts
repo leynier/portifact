@@ -43,6 +43,7 @@ import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
+import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
 import {
@@ -284,6 +285,7 @@ export function apiRoutes(deps: ApiDeps) {
   versionRoutes(api, guarded, deps);
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);
+  accessLogRoutes(api, guarded, deps.now);
 
   return api;
 }

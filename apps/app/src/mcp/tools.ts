@@ -38,6 +38,7 @@ import {
 } from "@portifact/services";
 import type { Presigner } from "../api/presign.ts";
 import type { Env } from "../env.ts";
+import { ACCESS_LOG_TOOL_SCOPES, registerAccessLogTools } from "./access-log-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
 import { type Outcome, publishInline } from "./inline.ts";
 import { artifactSummary, committedPublish, lifecycleResult } from "./present.ts";
@@ -48,6 +49,7 @@ import { registerVersionTools, VERSION_TOOL_SCOPES } from "./version-tools.ts";
 export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ...VERSION_TOOL_SCOPES,
   ...USAGE_TOOL_SCOPES,
+  ...ACCESS_LOG_TOOL_SCOPES,
   ...ANNOTATION_TOOL_SCOPES,
   ["list_artifacts", "artifacts:read"],
   ["get_artifact", "artifacts:read"],
@@ -297,6 +299,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
 
   registerVersionTools(register, context, db);
   registerUsageTools(register, context, db);
+  registerAccessLogTools(register, context, db);
   registerAnnotationTools(register, context, db);
 
   return server;

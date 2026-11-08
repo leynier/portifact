@@ -2,6 +2,7 @@
 // The browser sends the session cookie, fetch metadata and the Origin header, which the Worker
 // checks (apps/app/src/api/access.ts). Every response is validated with the shared contracts.
 import {
+  AccessLogView,
   AccessPolicyView,
   type AccessUpdate,
   AccountDeletionResult,
@@ -86,6 +87,8 @@ export interface DashboardApi {
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** The account's quotas, this month's traffic and what blocks it now. */
   usage(): Promise<AccountUsageView>;
+  /** A page of the artifact's access log, newest first; only its owner may read it. */
+  accessLog(artifactId: string, cursor?: string): Promise<AccessLogView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -271,6 +274,13 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     usage() {
       return call("/api/v1/usage", AccountUsageView);
+    },
+    accessLog(artifactId, cursor) {
+      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/access-log${query}`,
+        AccessLogView,
+      );
     },
     preparePublish(request, idempotencyKey) {
       return call("/api/v1/publishes", PreparedPublish, "POST", request, {

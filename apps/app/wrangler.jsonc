@@ -41,6 +41,14 @@
       "database_name": "portifact-control",
       "database_id": "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
       "migrations_dir": "../../packages/db/migrations"
+    },
+    // The access log (plan section 14: a D1 database of its own). The app only reads it, for the owner.
+    // The maintainer creates it once and puts its ID here (docs/releasing.md).
+    {
+      "binding": "ACCESS_DB",
+      "database_name": "portifact-access",
+      "database_id": "00000000-0000-4000-8000-000000000000",
+      "migrations_dir": "../../packages/db/access-migrations"
     }
   ],
   // Cloudflare Email Service, onboarded for portifact.com. Sends sign-in codes.

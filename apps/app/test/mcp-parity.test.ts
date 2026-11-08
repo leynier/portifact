@@ -602,6 +602,126 @@ describe("API and MCP parity for usage and source origins", () => {
   });
 });
 
+describe("API and MCP parity for access logs", () => {
+  /** Openings of `artifactId` by `count` visitors, one window apart, newest at NOW. */
+  async function seedOpenings(artifactId: string, owner: string, count: number) {
+    const insert = env.ACCESS_DB.prepare(
+      "insert into access_events (artifact_id, window_start, user_id, owner_id, email, opened_at) values (?, ?, ?, ?, ?, ?)",
+    );
+    const window = 30 * 60_000;
+    for (let i = 0; i < count; i += 1) {
+      const at = NOW - i * window;
+      await insert
+        .bind(
+          artifactId,
+          at - (at % window),
+          `u_visitor${i}`,
+          owner,
+          `visitor${i}@example.test`,
+          at,
+        )
+        .run();
+    }
+  }
+
+  it("lists the same openings, pages and filters the same way", async () => {
+    const b = await both("parity-access-log@example.test");
+    const owner = await ownerId(b);
+    const published = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Doc", content: "# Log" }),
+    );
+    const { artifactId } = published.body as { artifactId: string };
+    await seedOpenings(artifactId, owner, 3);
+
+    const viaMcp = fromTool(await b.tool("get_access_logs", { artifactId }));
+    expect(viaMcp).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${artifactId}/access-log`)),
+    );
+    expect(viaMcp.body).toEqual({
+      artifactId,
+      entries: [0, 1, 2].map((i) => ({
+        email: `visitor${i}@example.test`,
+        openedAt: new Date(NOW - i * 30 * 60_000).toISOString(),
+      })),
+      nextCursor: null,
+      windowMinutes: 30,
+      retentionDays: 30,
+    });
+
+    const first = fromTool(await b.tool("get_access_logs", { artifactId, limit: 2 }));
+    expect(first).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${artifactId}/access-log?limit=2`)),
+    );
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    expect(cursor).toEqual(expect.any(String));
+    const second = fromTool(await b.tool("get_access_logs", { artifactId, limit: 2, cursor }));
+    expect(second).toEqual(
+      await fromApi(
+        await b.apiCall(`/api/v1/artifacts/${artifactId}/access-log?limit=2&cursor=${cursor}`),
+      ),
+    );
+    expect((second.body as { entries: unknown[] }).entries).toHaveLength(1);
+
+    const since = new Date(NOW - 30 * 60_000).toISOString();
+    const recent = fromTool(await b.tool("get_access_logs", { artifactId, since }));
+    expect(recent).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${artifactId}/access-log?since=${since}`)),
+    );
+    expect((recent.body as { entries: unknown[] }).entries).toHaveLength(2);
+  });
+
+  it("refuses the same way: another user's or a missing artifact, and a bad cursor", async () => {
+    const owner = await both("parity-access-log-owner@example.test");
+    const stranger = await both("parity-access-log-stranger@example.test");
+    const published = fromTool(
+      await owner.tool("publish_document", { type: "text", name: "Doc", content: "log" }),
+    );
+    const { artifactId } = published.body as { artifactId: string };
+    await seedOpenings(artifactId, await ownerId(owner), 1);
+    for (const id of [artifactId, "zzzzzzzzzz"]) {
+      const viaApi = await fromApi(await stranger.apiCall(`/api/v1/artifacts/${id}/access-log`));
+      expect(viaApi).toEqual({
+        ok: false,
+        body: { error: { code: "not_found", message: "Artifact not found." } },
+      });
+      expect(fromTool(await stranger.tool("get_access_logs", { artifactId: id }))).toEqual(viaApi);
+    }
+    const badCursor = await fromApi(
+      await owner.apiCall(`/api/v1/artifacts/${artifactId}/access-log?cursor=nope!`),
+    );
+    expect(badCursor).toEqual({
+      ok: false,
+      body: { error: { code: "invalid_input", message: "Invalid cursor." } },
+    });
+    expect(fromTool(await owner.tool("get_access_logs", { artifactId, cursor: "nope!" }))).toEqual(
+      badCursor,
+    );
+    for (const query of ["limit=0", "limit=101", "since=yesterday"]) {
+      const response = await owner.apiCall(`/api/v1/artifacts/${artifactId}/access-log?${query}`);
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it("needs artifacts:read at both", async () => {
+    const h = createHarness();
+    const email = "parity-access-log-scope@example.test";
+    const path = "/api/v1/artifacts/zzzzzzzzzz/access-log";
+    const apiDenied = await api(h, await apiToken(h, email, "annotations:read"), path);
+    const mcpDenied = await rawCall(
+      h,
+      await mcpToken(h, email, "annotations:read"),
+      "get_access_logs",
+      {
+        artifactId: "zzzzzzzzzz",
+      },
+    );
+    expect(apiDenied.status).toBe(403);
+    expect(mcpDenied.status).toBe(apiDenied.status);
+    expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
+    expect(mcpDenied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
+  });
+});
+
 describe("API and MCP parity for annotations", () => {
   const EVERY =
     "artifacts:read artifacts:write artifacts:share annotations:read annotations:write annotations:moderate offline_access";

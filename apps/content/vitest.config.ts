@@ -6,6 +6,9 @@ export default defineConfig(async () => {
   const migrations = await readD1Migrations(
     fileURLToPath(new URL("../../packages/db/migrations", import.meta.url)),
   );
+  const accessMigrations = await readD1Migrations(
+    fileURLToPath(new URL("../../packages/db/access-migrations", import.meta.url)),
+  );
   return {
     plugins: [
       cloudflareTest({
@@ -15,6 +18,7 @@ export default defineConfig(async () => {
             // Fixed value that only exists in local tests. The real one uses wrangler secret.
             READ_SESSION_SECRET: "test-only-read-session-secret-0123456789abcdef",
             TEST_MIGRATIONS: migrations,
+            TEST_ACCESS_MIGRATIONS: accessMigrations,
           },
         },
       }),

@@ -1,6 +1,8 @@
 // Test support for the dashboard: an in-memory /api/v1 and session endpoint behind the real
 // API client, and a renderer with memory history. Only used by tests.
 import {
+  type AccessLogEntry,
+  type AccessLogView,
   type AccessPolicyView,
   AccessUpdate,
   type AccountUsageView,
@@ -298,6 +300,8 @@ export interface FakeServer {
   apps: ConnectedApp[];
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
+  /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
+  accessLogs: Record<string, AccessLogEntry[]>;
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -329,6 +333,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     sessions: [browserSession({ current: true })],
     apps: [],
     usage: usageView(),
+    accessLogs: {},
     bodies: [],
     pageSize: 50,
     requests: [],
@@ -690,6 +695,22 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     }
     server.email = null;
     return Response.json({ deleted: true });
+  }
+  const log = /^\/api\/v1\/artifacts\/([^/]+)\/access-log$/.exec(path);
+  if (log && method === "GET") {
+    const artifact = server.artifacts.find((a) => a.id === log[1]);
+    if (!artifact) return apiError("not_found", 404);
+    const all = server.accessLogs[artifact.id] ?? [];
+    const offset = Number(url.searchParams.get("cursor") ?? "0");
+    const page = all.slice(offset, offset + server.pageSize);
+    const next = offset + server.pageSize;
+    return json({
+      artifactId: artifact.id,
+      entries: page,
+      nextCursor: next < all.length ? String(next) : null,
+      windowMinutes: 30,
+      retentionDays: 30,
+    } satisfies AccessLogView);
   }
   if (path === "/api/v1/usage" && method === "GET") {
     return Response.json(server.usage);

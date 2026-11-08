@@ -12,6 +12,7 @@ import {
   reviewSessionTag,
 } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
+import type { LogOpening, Opening } from "../src/access-log.ts";
 import { handle } from "../src/index.ts";
 import { injectReviewBanner } from "../src/inject.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
@@ -176,6 +177,8 @@ interface Send {
   origin?: string;
   method?: string;
   secret?: string | undefined;
+  /** Receives the openings the request records in the owner's access log. */
+  logOpening?: LogOpening;
 }
 
 function send(path: string, options: Send = {}) {
@@ -186,7 +189,7 @@ function send(path: string, options: Send = {}) {
     headers,
   });
   const testEnv = "secret" in options ? { ...env, READ_SESSION_SECRET: options.secret } : env;
-  return handle(request, testEnv, options.now ?? NOW);
+  return handle(request, testEnv, options.now ?? NOW, undefined, options.logOpening);
 }
 
 function reviewSetCookie(response: Response): string | undefined {
@@ -328,6 +331,19 @@ describe("review delivery", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("etag")).toBeNull();
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
+  it("records the reviewer's page loads in the access log, not the page's subresources", async () => {
+    const cookie = await openReview();
+    const openings: Opening[] = [];
+    const logOpening = (opening: Opening) => openings.push(opening);
+    expect((await send("/", { cookie, logOpening })).status).toBe(200);
+    expect((await send("/app.js", { cookie, headers: SAME_ORIGIN, logOpening })).status).toBe(200);
+    expect(openings).toEqual([{ artifactId: ID, userId: READER, at: NOW }]);
+    // The owner reviewing their own artifact is not a visitor.
+    const own = await openReview(OWNER);
+    expect((await send("/", { cookie: own, logOpening })).status).toBe(200);
+    expect(openings).toHaveLength(1);
   });
 
   it("answers 429 in review mode too once the owner's traffic is used up, and charges the page", async () => {
