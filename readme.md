@@ -95,7 +95,7 @@ These commands describe the planned interface; the current release does not incl
 | Publish HTML, Markdown and text from the CLI            | In development |
 | Access control (private, signed-in, email list, public) | In development |
 | Annotations and review                                  | In development |
-| Web dashboard                                           | In development |
+| Web dashboard: artifact list, renew, archive, restore   | Available      |
 
 ## Documentation
 

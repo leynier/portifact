@@ -61,4 +61,8 @@ describe("theme utilities", () => {
     expect(caret).toMatch(/height:\s*[\d.]+em/);
     expect(caret).not.toMatch(/color|background/);
   });
+
+  it("marks the current page link through a `current:` variant on aria-current", () => {
+    expect(css).toMatch(/@custom-variant current \(&\[aria-current="page"\]\);/);
+  });
 });
