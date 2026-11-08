@@ -72,6 +72,8 @@ Portifact serves arbitrary HTML and JavaScript from untrusted users next to acco
 - Paths are normalized and checked on the server: absolute paths, `..`, symlinks, special entries, collisions, reserved paths, size and entry limits are all rejected.
 - The server verifies the real size and checksum before commit. A client-declared value is never trusted.
 - Quotas are reserved in the same transaction that admits the work.
+- The CLI (`packages/cli/src/manifest.ts`) also refuses links and special files instead of following them, applies the domain's path rules before uploading, and leaves out `.git` (any case), `node_modules`, caches and files that may hold secrets (`.env*` except templates, `.dev.vars`, `.npmrc`, `.netrc`, SSH keys, `*.pem`, `*.key`, Terraform state and similar), also when such a file or folder is named directly. These are conveniences for the user; the server still enforces every rule.
+- The CLI sends each object to the presigned URL with exactly the signed headers and never with the API token. Upload URLs are never printed. If anything fails after prepare, it cancels the upload with `DELETE /api/v1/publishes/:id` so the reservation is released.
 
 ### Secrets and logs
 

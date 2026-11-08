@@ -1,3 +1,5 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { exitCodeFor } from "./errors.ts";
@@ -51,6 +53,22 @@ describe("defaultRuntime", () => {
     await runtime.sleep(1);
     expect(runtime.now()).toBeGreaterThanOrEqual(before);
   });
+
+  it("cannot prompt when stdin is not a terminal, as under a test runner or in CI", () => {
+    expect(process.stdin.isTTY).toBeFalsy();
+    expect(defaultRuntime().prompt).toBeUndefined();
+  });
+
+  it("streams a file as a request body", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "portifact-body-"));
+    try {
+      await writeFile(join(dir, "a.txt"), "streamed bytes");
+      const body = defaultRuntime().fileBody(join(dir, "a.txt"));
+      expect(await new Response(body).text()).toBe("streamed bytes");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("exitCodeFor", () => {
@@ -62,5 +80,16 @@ describe("exitCodeFor", () => {
     expect(exitCodeFor("network_error")).toBe(1);
     expect(exitCodeFor("server_error")).toBe(1);
     expect(exitCodeFor("rate_limited")).toBe(1);
+    expect(exitCodeFor("capacity_unavailable")).toBe(1);
+    expect(exitCodeFor("upload_failed")).toBe(1);
+    expect(exitCodeFor("cancelled")).toBe(1);
+    expect(exitCodeFor("not_found")).toBe(5);
+    expect(exitCodeFor("forbidden")).toBe(5);
+    expect(exitCodeFor("version_conflict")).toBe(6);
+    expect(exitCodeFor("upload_incomplete")).toBe(6);
+    expect(exitCodeFor("artifact_archived")).toBe(6);
+    expect(exitCodeFor("quota_exceeded")).toBe(7);
+    expect(exitCodeFor("traffic_exceeded")).toBe(7);
+    expect(exitCodeFor("account_too_new_for_public")).toBe(7);
   });
 });

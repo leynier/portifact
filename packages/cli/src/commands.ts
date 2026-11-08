@@ -1,5 +1,6 @@
-// login, logout and whoami. Progress and instructions go to stderr; the result goes to stdout,
-// as text or as stable JSON with --json. Tokens never reach either stream.
+// login, logout and whoami, and the helpers every command shares. Progress and instructions go
+// to stderr; the result goes to stdout, as text or as stable JSON with --json. Tokens never reach
+// either stream.
 import { OAuthScope, type TokenPrincipal } from "@portifact/contracts";
 import { openCredentialStore } from "./credentials.ts";
 import { CliError } from "./errors.ts";
@@ -153,7 +154,7 @@ function principalOf(
   };
 }
 
-async function openSession(io: Io, runtime: Runtime): Promise<Session> {
+export async function openSession(io: Io, runtime: Runtime): Promise<Session> {
   const server = resolveServer(runtime.env);
   announceOverride(io, server);
   return { runtime, server, store: await openCredentialStore(runtime) };

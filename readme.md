@@ -79,7 +79,7 @@ portifact annotations set ARTIFACT_ID open
 portifact annotations export ARTIFACT_ID --format markdown   # hand the feedback to your agent
 ```
 
-These commands describe the planned interface; the current release does not include them yet. Agents will be able to do the same through the MCP server at `https://app.portifact.com/mcp`.
+`publish` and `access` arrive in the next release; annotations are still in development. Agents will be able to do the same through the MCP server at `https://app.portifact.com/mcp`.
 
 ## Status
 
@@ -91,7 +91,8 @@ These commands describe the planned interface; the current release does not incl
 | Sign-in (Google, GitHub, email code) and OAuth          | Available      |
 | CLI sign-in (`portifact login`, `logout`, `whoami`)     | Next release   |
 | Publishing API (`/api/v1`)                              | Available      |
-| Publish HTML, Markdown and text from the CLI            | In development |
+| Publish HTML, Markdown and text from the CLI            | Next release   |
+| Manage artifacts and access from the CLI                | Next release   |
 | Access control (private, signed-in, email list, public) | In development |
 | Annotations and review                                  | In development |
 | MCP server and web dashboard                            | In development |

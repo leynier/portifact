@@ -169,7 +169,7 @@ function postForm(
   });
 }
 
-async function send(
+export async function send(
   runtime: Runtime,
   server: Server,
   url: string,
@@ -183,7 +183,7 @@ async function send(
   }
 }
 
-async function readJson(response: Response): Promise<unknown> {
+export async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch {
