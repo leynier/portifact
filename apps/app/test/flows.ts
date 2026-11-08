@@ -182,8 +182,30 @@ export function exchangeCode(
   return h.request("/api/auth/oauth2/token", form(body));
 }
 
+/** A tools/list request at the MCP endpoint, as a 2026-07-28 client sends it. */
 export function callMcp(h: Harness, token: string) {
-  return h.request("/mcp", { method: "POST", headers: { authorization: `Bearer ${token}` } });
+  return h.request("/mcp", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "tools/list",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "flows", version: "1.0.0" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
 }
 
 export function callApi(h: Harness, token: string) {

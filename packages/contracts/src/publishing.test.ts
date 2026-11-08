@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ErrorCode, LIMITS } from "./core.ts";
+import { ErrorCode } from "./core.ts";
+import { LIMITS } from "./limits.ts";
 import {
   AccessUpdate,
   ArtifactList,

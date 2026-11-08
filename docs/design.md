@@ -7,8 +7,8 @@ All Portifact UI comes from one design system in `packages/ui`. This covers the 
 1. **Tokens.** Every visual value lives here: color, typography, spacing, sizing, radii, borders, shadows, z-index, motion and breakpoints. Tokens are CSS custom properties exposed through the Tailwind CSS v4 theme in `packages/ui/src/tokens`. Two levels:
    - Primitive tokens hold raw values, for example the color scale.
    - Semantic tokens describe intent, for example `--color-surface`, `--color-text-muted`, `--color-danger` and `--space-4`. Components and apps use semantic tokens only. Color tokens resolve to the neutral palette described below.
-2. **Components.** Accessible building blocks built on Radix UI primitives, owned in `packages/ui/src/components`: button, input, dialog, menu, table, tabs, toast, badge, empty state and so on. Variants such as size, tone and state are part of the component API, defined with `class-variance-authority`.
-3. **Patterns.** Compositions reused across screens, such as page layout, data table with filters, upload progress and annotation thread, in `packages/ui/src/patterns`.
+2. **Components.** Accessible React building blocks owned in `packages/ui/src/components` and exported from `@portifact/ui`: button, badge, callout, confirm dialog, detail list, empty state, loading state, live region and table today; input, menu, tabs, toast and so on as screens need them. Prefer a native element when it gives the behavior (the confirm dialog is a native `dialog` with `showModal()`), and use Radix UI primitives where none does, but not ones that inject inline `<style>` elements (such as Radix's scroll lock), which the strict page CSP refuses. Variants such as size, tone and state are part of the component API, defined with `class-variance-authority`. Icons are Lucide, decorative and `aria-hidden`; the label carries the meaning.
+3. **Patterns.** Compositions reused across screens, such as page layout, data table with filters, upload progress and annotation thread, in `packages/ui/src/patterns`. `AppShell` (skip link, header, labelled navigation, account and the focusable `main`) and `PageHeader` (the screen's single `h1`) exist today.
 4. **Apps.** Screens compose components and patterns. They only arrange layout using tokens.
 
 ## Palette
@@ -33,6 +33,8 @@ The `terminal`, `terminal-text`, `terminal-muted` and `terminal-border` tokens d
 Motion tokens and utilities live in `packages/ui/src/tokens/theme.css`: `animate-rise`, `animate-fade`, `animate-type`, `animate-sweep` and `animate-blink`, staggered with `animate-delay-<n>`. Always apply them through the `motion-safe:` variant, so nothing moves under `prefers-reduced-motion` and every element rests in its final state. Motion is decorative only; it never carries information.
 
 The landing hero types its second line with `apps/web/src/typewriter.ts`: one pass through the phrases, then it settles on the first and the caret fades, so nothing keeps moving. The `h1` keeps a visually hidden, complete sentence for assistive technology and marks the animated part `aria-hidden`; invisible copies of every phrase share one grid cell so the line never changes height. Under reduced motion the script does nothing and the caret (`typing-caret`, a block sized in `em` and colored with a token utility such as `bg-text`) is hidden.
+
+The `current:` variant styles the link to the page being shown (`aria-current="page"`), such as the active navigation item; use it instead of an arbitrary `aria-[...]` variant.
 
 Pattern utilities (`bg-dot-grid`, `bg-hatch`, `bg-highlight` for a selection-style text highlight on `mark`, `marker-none` for custom `summary` disclosures and `typing-caret`) and the `shadow-sm` and `shadow-float` elevations are defined there too. Tailwind's default shadows are removed.
 
@@ -67,6 +69,15 @@ Use the files as they are: do not recolor, stretch, add effects or rebuild the l
 
 `bun run check` runs `scripts/check-design-system.ts` (rules in `packages/ui/src/design-check.ts`), which fails on arbitrary Tailwind values, inline `style` attributes, Tailwind's default palette and raw color values outside `packages/ui/src/tokens`. The Tailwind theme in `packages/ui/src/tokens/theme.css` removes the default palette, so only token colors exist as utilities. Do not disable it; if a rule blocks a legitimate case, change the rule in a separate, explained change.
 
+## Dashboard
+
+The dashboard is a React 19 single-page app in `apps/web/src/dashboard`, built by Vite as `dashboard.html` and served by the `portifact-app` Worker at its client routes on `app.portifact.com`. TanStack Router defines the routes in `router.tsx` (keep them in sync with `DASHBOARD_ROUTES` in `apps/app/src/app-host.ts`) and TanStack Query loads data through `api.ts`, which validates every response with `packages/contracts`. Screens read the API client and navigation out of the app through `DashboardContext`, so tests pass fakes.
+
+- Every user-facing string goes through Lingui: add it to `i18n/en.ts` (ICU MessageFormat) and read it with `useT()`. Message IDs are typed, so a missing key fails the typecheck. Dates go through `useFormatDate()`.
+- Lists and details refresh at most every 30 seconds while the tab is visible, pause in the background and back off after errors (`refresh.ts`, plan section 2). A failed refresh keeps the last data and says so.
+- After a client-side navigation, focus moves to `main`, and each screen sets the document title with `useDocumentTitle`. Results of actions are announced through the shell's live region with `useAnnounce()`; errors use an alert callout.
+- Destructive actions, such as deleting an artifact, open a `ConfirmDialog` first.
+
 ## Forms
 
 Forms use TanStack Form through a single form hook created with `createFormHook` in `packages/ui/src/forms`. It binds the design-system field components (text, select, checkbox, OTP and so on) once, so screens never wire inputs, labels, errors or ARIA attributes by hand. Validation uses the Zod schemas from `packages/contracts` directly, so the client and the API apply the same rules. Do not add another form library or build ad hoc field state with `useState`.
@@ -77,10 +88,12 @@ Components carry the accessible behavior for the whole product. The requirements
 
 ## Catalog and tests
 
-- Every component and pattern has a Storybook story covering its variants and states, including loading, empty, error and disabled.
+- Every component and pattern has a Storybook story covering its variants and states, including loading, empty, error and disabled. Storybook is not set up yet; until it is, each component's tests render every variant and state and check them with `axeViolations` from `@portifact/ui/testing`.
 - Component tests verify behavior and accessibility (roles, labels, keyboard), not class names.
 - Visual changes to tokens are reviewed in Storybook in both themes.
 
 ## Artifact-origin viewers
 
 The Markdown and TXT viewers and the bridge run on `portifact.dev` and ship in their own small bundles. They import tokens and the few components they need from `packages/ui`, so they stay consistent with the dashboard without loading the full dashboard bundle. They must not depend on anything served from `portifact.com`.
+
+The Markdown and TXT documents rendered by `packages/render` load no bundle at all: they inline `TOKENS_CSS` (`@portifact/ui/tokens-css`) and `DOCUMENT_CSS` (`@portifact/ui/document-css`) in one `<style>`. `DOCUMENT_CSS` uses only `var(--pf-*)` tokens, including the type scale, spacing, measure and border widths in `tokens.css` that exist for surfaces styled without Tailwind. `tokens-css.ts` is generated from `tokens.css`: after editing the tokens, run `bun run --cwd packages/ui sync-tokens`, or the drift test fails.

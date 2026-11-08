@@ -11,8 +11,16 @@
       "spikes/*"
     ],
     "catalog": {
+      "@testing-library/react": "^16.0.0",
       "@types/node": "^26.0.0",
+      "@types/react": "^19.0.0",
+      "@types/react-dom": "^19.0.0",
       "@vitest/coverage-istanbul": "^4.1.0",
+      "axe-core": "^4.10.0",
+      "happy-dom": "^21.0.4",
+      "lucide-react": "^1.0.0",
+      "react": "^19.0.0",
+      "react-dom": "^19.0.0",
       "typescript": "^7.0.0",
       "vitest": "^4.1.0"
     }

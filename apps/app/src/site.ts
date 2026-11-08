@@ -1,6 +1,6 @@
 // portifact.com and www.portifact.com: the landing page and the installer redirects.
 import { Hono } from "hono";
-import { AUTH_PAGES } from "./app-host.ts";
+import { AUTH_PAGES, DASHBOARD_PAGE } from "./app-host.ts";
 import type { Env } from "./env.ts";
 
 const REPO = "leynier/portifact";
@@ -12,8 +12,10 @@ const installers: Record<string, string> = {
   "/install.ps1": "install.ps1",
 };
 
-/** Auth pages share the static assets but are only served on the app host. */
-const appOnlyPaths = new Set<string>(AUTH_PAGES.flatMap((page) => [page, `${page}.html`]));
+/** The dashboard and auth pages share the static assets but are only served on the app host. */
+const appOnlyPaths = new Set<string>(
+  [...AUTH_PAGES, DASHBOARD_PAGE].flatMap((page) => [page, `${page}.html`]),
+);
 
 export function createSite() {
   const site = new Hono<{ Bindings: Env }>();

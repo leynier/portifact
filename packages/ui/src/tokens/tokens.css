@@ -27,6 +27,31 @@
   --pf-font-mono:
     ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
+  /* Type scale and rhythm, for surfaces styled without Tailwind such as the document viewers. */
+  --pf-text-sm: 0.875rem;
+  --pf-text-base: 1rem;
+  --pf-text-lg: 1.125rem;
+  --pf-text-xl: 1.25rem;
+  --pf-text-2xl: 1.5rem;
+  --pf-text-3xl: 2rem;
+  --pf-leading-tight: 1.25;
+  --pf-leading-normal: 1.6;
+  --pf-weight-normal: 400;
+  --pf-weight-semibold: 600;
+  --pf-weight-bold: 700;
+
+  /* Spacing scale and layout */
+  --pf-space-1: 0.25rem;
+  --pf-space-2: 0.5rem;
+  --pf-space-3: 0.75rem;
+  --pf-space-4: 1rem;
+  --pf-space-6: 1.5rem;
+  --pf-space-8: 2rem;
+  --pf-space-12: 3rem;
+  --pf-measure: 72ch;
+  --pf-border-width: 1px;
+  --pf-border-width-strong: 3px;
+
   /* Radii and motion */
   --pf-radius-xs: 3px;
   --pf-radius-sm: 6px;

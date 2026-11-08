@@ -9,8 +9,8 @@ import {
   ArtifactType,
   Email,
   type ErrorCode,
-  LIMITS,
 } from "./core.ts";
+import { LIMITS } from "./limits.ts";
 
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "Invalid SHA-256");
 

@@ -84,6 +84,9 @@
   }
 }
 
+/* The link to the page being shown (`aria-current="page"`), such as the active navigation item. */
+@custom-variant current (&[aria-current="page"]);
+
 /* Staggers an animation: `animate-delay-3` waits three stagger steps. */
 @utility animate-delay-* {
   animation-delay: calc(--value(integer) * var(--pf-duration-stagger));
