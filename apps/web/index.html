@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Portifact: share what your agent built</title>
+    <meta
+      name="description"
+      content="Publish HTML, Markdown and text with a private link, decide who can open it, and collect feedback your coding agent can act on. Open source."
+    />
+    <meta property="og:title" content="Portifact: share what your agent built" />
+    <meta
+      property="og:description"
+      content="Publish HTML, Markdown and text with a private link, decide who can open it, and collect feedback your coding agent can act on."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://portifact.com/" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="canonical" href="https://portifact.com/" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body class="min-h-screen bg-canvas text-text">
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 rounded-sm bg-surface-inverse px-3 py-2 text-text-inverse"
+      >Skip to content</a
+    >
+
+    <header class="mx-auto flex max-w-5xl items-center justify-between px-6 py-6">
+      <a href="/" class="no-underline" aria-label="Portifact home">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="../../assets/brand/wordmark-dark.svg" />
+          <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-8 w-auto" />
+        </picture>
+      </a>
+      <nav aria-label="Main">
+        <ul class="flex items-center gap-6 text-sm">
+          <li><a href="#install" class="text-text-muted hover:text-text">Install</a></li>
+          <li><a href="#features" class="text-text-muted hover:text-text">Features</a></li>
+          <li><a href="https://github.com/leynier/portifact" class="text-text-muted hover:text-text">GitHub</a></li>
+        </ul>
+      </nav>
+    </header>
+
+    <main id="main">
+      <section
+        class="mx-auto grid max-w-5xl items-center gap-12 px-6 pt-16 pb-20 lg:grid-cols-2"
+        aria-labelledby="hero-title"
+      >
+        <div>
+        <p class="mb-6 inline-block rounded-full border border-border px-3 py-1 text-sm text-text-muted">
+          Early development · installer and agent skill available today
+        </p>
+        <h1 id="hero-title" class="max-w-3xl text-5xl font-semibold tracking-tight text-balance sm:text-6xl">
+          Share what your agent built
+        </h1>
+        <p class="mt-6 max-w-2xl text-lg text-text-muted text-pretty">
+          Publish HTML, Markdown and text with a private link, decide exactly who can open it, and collect
+          feedback on the exact sentence or element. Your coding agent can read that feedback and act on it.
+        </p>
+
+        <div class="mt-10 max-w-2xl rounded-md border border-border bg-surface">
+          <div class="flex items-center justify-between border-b border-border px-4 py-2 text-sm text-text-muted">
+            <span>macOS and Linux</span>
+            <button
+              type="button"
+              class="rounded-sm px-2 py-1 font-medium text-text hover:bg-selection"
+              data-copy-target="install-unix"
+              data-copy-status="copy-status"
+            >
+              Copy
+            </button>
+          </div>
+          <pre class="overflow-x-auto px-4 py-3 font-mono text-sm"><code id="install-unix">curl -fsSL https://portifact.com/install | bash</code></pre>
+        </div>
+        <p class="mt-3 text-sm text-text-muted">
+          On Windows: <code class="font-mono">irm https://portifact.com/install.ps1 | iex</code>. One executable for Linux,
+          macOS and Windows on x64 and arm64, no runtime needed.
+        </p>
+        </div>
+
+        <figure class="hidden lg:block" aria-label="A published report with a reviewer comment on a selected sentence">
+          <div class="overflow-hidden rounded-lg border border-border bg-surface-raised shadow-sm">
+            <div class="flex items-center gap-2 border-b border-border bg-surface px-4 py-3">
+              <span class="size-2.5 rounded-full bg-border" aria-hidden="true"></span>
+              <span class="size-2.5 rounded-full bg-border" aria-hidden="true"></span>
+              <span class="size-2.5 rounded-full bg-border" aria-hidden="true"></span>
+              <span class="ml-3 truncate rounded-sm bg-canvas px-3 py-1 font-mono text-xs text-text-muted"
+                >k7d2qm4x.portifact.dev</span
+              >
+            </div>
+            <div class="space-y-4 px-6 py-6 text-sm leading-relaxed">
+              <p class="text-xs font-semibold tracking-wide text-text-muted uppercase">Migration plan · v3</p>
+              <p class="text-text-muted">
+                Phase one moves read traffic to the new cluster behind a feature flag, with automatic rollback.
+              </p>
+              <p class="text-text-muted">
+                <span class="relative rounded-sm bg-selection px-0.5 text-text"
+                  >Writes switch over only after a full week without errors.</span
+                >
+                Old replicas stay online until the audit is signed.
+              </p>
+              <div class="ml-6 rounded-md border border-border-strong bg-surface p-3">
+                <p class="text-xs font-semibold">Ana · reviewer</p>
+                <p class="mt-1 text-text-muted">Can we shorten this to three days if the error rate stays at zero?</p>
+              </div>
+              <p class="text-text-muted">Phase two removes the flag and retires the old schema.</p>
+            </div>
+          </div>
+          <figcaption class="mt-3 text-sm text-text-muted">
+            Reviewers comment on the exact sentence. Your agent reads the thread.
+          </figcaption>
+        </figure>
+      </section>
+
+      <section id="install" class="border-y border-border bg-surface" aria-labelledby="agent-title">
+        <div class="mx-auto max-w-5xl px-6 py-20">
+          <h2 id="agent-title" class="text-3xl font-semibold tracking-tight">Let your agent set it up</h2>
+          <p class="mt-4 max-w-2xl text-text-muted">
+            Paste this into Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot or any coding agent with a terminal.
+            It installs the CLI for your operating system and teaches the agent how to use Portifact.
+          </p>
+          <div class="mt-8 rounded-md border border-border bg-surface-raised">
+            <div class="flex items-center justify-between border-b border-border px-4 py-2 text-sm text-text-muted">
+              <span>Prompt for your agent</span>
+              <button
+                type="button"
+                class="rounded-sm px-2 py-1 font-medium text-text hover:bg-selection"
+                data-copy-target="agent-prompt"
+                data-copy-status="copy-status"
+              >
+                Copy prompt
+              </button>
+            </div>
+            <pre class="overflow-x-auto px-4 py-4 font-mono text-sm leading-relaxed whitespace-pre-wrap"><code id="agent-prompt">Install Portifact for me and set up its agent skill.
+
+1. Detect my operating system and CPU architecture.
+2. Install the Portifact CLI with the official installer:
+   - macOS or Linux: curl -fsSL https://portifact.com/install | bash
+   - Windows (PowerShell): irm https://portifact.com/install.ps1 | iex
+   - On Alpine Linux, first install the C++ runtime: apk add libstdc++ libgcc
+   The installer verifies the download checksum. If verification fails, stop and tell me; do not work around it. Ask me before anything that needs administrator rights.
+3. Verify it with: portifact --version
+   If portifact is not on PATH yet, run ~/.portifact/bin/portifact (Windows: %USERPROFILE%\.portifact\bin\portifact.exe) and tell me how to add it to PATH.
+4. Install the Portifact skill globally for the agent you are, using your agent id from https://github.com/vercel-labs/skills/blob/main/docs/agents.md (for example claude-code, codex, cursor, gemini-cli, github-copilot, opencode):
+   npx skills add leynier/portifact --skill portifact -g -y -a &lt;your-agent-id&gt;
+   This needs Node.js 22.20 or newer. If Node.js is missing, tell me instead of installing it without asking.
+5. Summarize what you installed, the CLI version, and where the skill was placed.</code></pre>
+          </div>
+          <p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section id="features" class="mx-auto max-w-5xl px-6 py-20" aria-labelledby="features-title">
+        <h2 id="features-title" class="text-3xl font-semibold tracking-tight">Built for what agents make</h2>
+        <ul class="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
+          <li>
+            <h3 class="font-semibold">Private by default</h3>
+            <p class="mt-2 text-text-muted">
+              New artifacts are visible only to you. Open them to anyone signed in, to a list of emails, or to the public.
+            </p>
+          </li>
+          <li>
+            <h3 class="font-semibold">HTML, Markdown and text</h3>
+            <p class="mt-2 text-text-muted">
+              Sites with their CSS and JavaScript, Markdown rendered cleanly, text shown exactly as written. A file, a
+              folder or a ZIP.
+            </p>
+          </li>
+          <li>
+            <h3 class="font-semibold">Feedback where it belongs</h3>
+            <p class="mt-2 text-text-muted">
+              Reviewers select a sentence or an element and comment. Your agent reads and exports the threads.
+            </p>
+          </li>
+          <li>
+            <h3 class="font-semibold">CLI, MCP and dashboard</h3>
+            <p class="mt-2 text-text-muted">
+              Three ways in that share the same permissions, quotas and history, so agents and people stay in sync.
+            </p>
+          </li>
+          <li>
+            <h3 class="font-semibold">Nothing lost</h3>
+            <p class="mt-2 text-text-muted">
+              Artifacts stay online for 30 days and renew on every update. Expired ones are archived for six months.
+            </p>
+          </li>
+          <li>
+            <h3 class="font-semibold">Safe to open</h3>
+            <p class="mt-2 text-text-muted">
+              Every artifact runs on its own isolated origin, so a published page cannot act on your account.
+            </p>
+          </li>
+        </ul>
+      </section>
+
+      <section class="border-t border-border" aria-labelledby="how-title">
+        <div class="mx-auto max-w-5xl px-6 py-20">
+          <h2 id="how-title" class="text-3xl font-semibold tracking-tight">How it will work</h2>
+          <p class="mt-4 max-w-2xl text-text-muted">
+            Publishing, sharing and annotations are being built in the open. This is the planned interface.
+          </p>
+          <pre
+            class="mt-8 overflow-x-auto rounded-md border border-border bg-surface px-4 py-4 font-mono text-sm leading-relaxed"
+          ><code>portifact publish ./report.html            # get a private URL
+portifact access add ARTIFACT_ID ana@example.com
+portifact annotations set ARTIFACT_ID open
+portifact annotations export ARTIFACT_ID   # hand the feedback to your agent</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-border">
+      <div class="mx-auto flex max-w-5xl flex-col gap-2 px-6 py-10 text-sm text-text-muted sm:flex-row sm:justify-between">
+        <p>Open source under the GNU AGPL v3.0.</p>
+        <p>
+          <a href="https://github.com/leynier/portifact" class="hover:text-text">GitHub</a>
+          ·
+          <a href="https://github.com/leynier/portifact/releases" class="hover:text-text">Releases</a>
+          ·
+          <a href="https://github.com/leynier/portifact/security" class="hover:text-text">Security</a>
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>

@@ -7,6 +7,21 @@
     "test": {
       "dependsOn": ["^typecheck"],
       "outputs": ["coverage/**"]
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "@portifact/app#test": {
+      "dependsOn": ["^typecheck", "@portifact/web#build"],
+      "outputs": ["coverage/**"]
+    },
+    "@portifact/app#typecheck": {
+      "dependsOn": ["^typecheck", "@portifact/web#build"]
     }
   }
 }

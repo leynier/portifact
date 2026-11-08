@@ -26,6 +26,11 @@ Exception: third-party status badges in the readme (release, license, CI, covera
 
 Adding any other hue requires changing this section first, in a separate change with a reason.
 
+## Writing style
+
+- Titles and headings (page titles, headings, buttons, labels, taglines) never end with a period.
+- Never use em dashes (the long dash). Use a comma, a colon, parentheses or two sentences instead. The design-system check rejects em dashes in UI code.
+
 ## Brand assets
 
 The logo is the "selection" wordmark: the name `portifact` held between two text-selection handles over a light band. Source files live in `assets/brand/`:
@@ -46,7 +51,7 @@ Use the files as they are: do not recolor, stretch, add effects or rebuild the l
 - If something is missing, add the token, variant or component to `packages/ui` first, with its story and tests, then use it.
 - Light and dark themes are both driven by semantic tokens, so a component never branches on the theme.
 
-`bun run check` runs a design-system check that fails on these violations. Do not disable it; if a rule blocks a legitimate case, change the rule in a separate, explained change.
+`bun run check` runs `scripts/check-design-system.ts` (rules in `packages/ui/src/design-check.ts`), which fails on arbitrary Tailwind values, inline `style` attributes, Tailwind's default palette and raw color values outside `packages/ui/src/tokens`. The Tailwind theme in `packages/ui/src/tokens/theme.css` removes the default palette, so only token colors exist as utilities. Do not disable it; if a rule blocks a legitimate case, change the rule in a separate, explained change.
 
 ## Forms
 
