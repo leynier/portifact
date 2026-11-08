@@ -43,7 +43,7 @@ The `release` workflow (`.github/workflows/release.yml`):
 
 ## Deploying portifact.com
 
-Every push to `main` also runs the `deploy` job after `release`: it builds `apps/web` and deploys the `portifact-app` Worker with `wrangler`, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect. The Worker owns `portifact.com` and `www.portifact.com` as custom domains; `www` redirects to the apex. Pull requests validate the bundle with `wrangler deploy --dry-run`.
+Every push to `main` also runs the `deploy` job after `release`: it applies pending D1 migrations to `portifact-control` (`wrangler d1 migrations apply --remote`), deploys the `portifact-content` Worker (artifact origins on `*.portifact.dev`, D1 plus the private R2 bucket `portifact-artifacts`), builds `apps/web` and deploys the `portifact-app` Worker, using the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, then checks that `portifact.com` serves the landing page and the installer redirect. The Worker owns `portifact.com` and `www.portifact.com` as custom domains; `www` redirects to the apex. Pull requests validate both bundles with `wrangler deploy --dry-run`. Migrations must stay backward compatible with the code still running during a deploy: add columns and tables first, remove them in a later release.
 
 The token is an account API token named `portifact-ci-deploy`, limited to Workers, D1, R2 and Queues on the account plus Workers Routes, DNS and Zone read on `portifact.com` and `portifact.dev`. It expires on 2027-11-07; rotate it before then.
 

@@ -9,3 +9,5 @@ export function createDb(d1: D1Database) {
 }
 
 export type Db = ReturnType<typeof createDb>;
+
+export * from "./delivery.ts";
