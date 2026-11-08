@@ -35,6 +35,8 @@ Mock only true external boundaries: identity providers, the email provider and t
 
 Workers tests run inside workerd through `@cloudflare/vitest-plugin`, which supports Vitest 4, so the workspace catalog stays on Vitest 4. Keep `compatibility_date` in each `wrangler.jsonc` no newer than the date the installed workerd supports, or the test runtime refuses to start.
 
+End-to-end tests of review mode must block third-party cookies explicitly and prove it with an unpartitioned control cookie. Chromium needs the full browser (`channel: "chromium"`) with a profile that sets `profile.cookie_controls_mode = 1`; the headless shell ignores profile preferences. Firefox uses `network.cookie.cookieBehavior`. WebKit blocks by default, but only macOS uses Safari's cookie layer: WebKit on Linux has no partitioned cookies. `spikes/review-cookies` shows all three and maps hosts through a local proxy, which works in every engine.
+
 ## Required cases
 
 Every feature covers:

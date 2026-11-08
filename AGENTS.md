@@ -18,6 +18,7 @@ The project is in its initial build. Some commands and paths below are planned a
 | [docs/design.md](docs/design.md)               | Touching any UI: dashboard, review viewer, Markdown/TXT viewers or the annotation bridge.                                                                                                                             |
 | [docs/accessibility.md](docs/accessibility.md) | Touching any UI or CLI output. Accessibility is part of done.                                                                                                                                                         |
 | [docs/releasing.md](docs/releasing.md)         | Touching branches, versions, CI, release workflows, build scripts or installers.                                                                                                                                      |
+| [docs/decisions/](docs/decisions)              | Touching something a decision record covers, such as review-mode cookies ([0002](docs/decisions/0002-review-mode-cookies.md)). Add a numbered record when a spike or hard-to-reverse choice settles a question.       |
 
 If a decision in the plan conflicts with the code, do not silently pick one: fix the code or propose a plan update and say so.
 
@@ -38,6 +39,7 @@ packages/ui          Design system: tokens and components
 skills/              Agent skills for using Portifact, installable with npx skills
 assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer and validation scripts
+spikes/              Phase 0 prototypes with their own tests; never deployed or imported by apps and packages
 ```
 
 ## Commands
@@ -52,6 +54,7 @@ bun run test           # Vitest with coverage thresholds, through Turborepo (Wor
 bun run build          # build apps (the landing in apps/web/dist)
 bun run dev            # local dev servers (Vite for apps/web, wrangler for apps/app)
 bun run build:cli      # compile the CLI for this platform into dist/release (--all for every platform)
+bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
 ```
 
 Planned as the code arrives: `bun run test:e2e` (Playwright on Chromium, Firefox and WebKit) and `bun run test:mutation` (Stryker on critical packages). Add them here when they exist.
