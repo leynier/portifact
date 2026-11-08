@@ -113,3 +113,23 @@ export function navigatingPage(url: string): string {
   const script = `setTimeout(() => { location.href = ${JSON.stringify(url)}; }, 300);`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Navigator</title></head><body><main><h1>Navigator</h1></main><script>${script}</script></body></html>`;
 }
+
+/**
+ * An artifact that injects cookies on the shared content domain, as any artifact can while
+ * portifact.dev is not on the Public Suffix List: `count` cookies for every path, a few larger
+ * ones scoped to `/docs`, and names that imitate Portifact's read cookie. Its icon is inline, so
+ * no favicon request reaches the content Worker (which would start clearing) before the test
+ * counts them.
+ */
+export function cookieInjectingPage(count: number): string {
+  const script = `
+const domain = location.hostname.slice(location.hostname.indexOf(".") + 1);
+const attributes = "; domain=" + domain + "; max-age=3600; secure; samesite=lax";
+for (let i = 0; i < ${count}; i++) document.cookie = "inj" + i + "=" + "x".repeat(90) + "; path=/" + attributes;
+for (let i = 0; i < 10; i++) document.cookie = "deep" + i + "=" + "y".repeat(300) + "; path=/docs" + attributes;
+document.cookie = "pf_read=forged; path=/" + attributes;
+document.cookie = "__host-pf_read=forged; path=/" + attributes;
+document.getElementById("state").textContent = "injected";
+`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Cookie jar</title><link rel="icon" href="data:,"></head><body><main><h1>Cookie jar</h1><p id="state">injecting</p></main><script>${script}</script></body></html>`;
+}
