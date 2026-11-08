@@ -362,7 +362,7 @@ export async function processAccountDeletions(
  * Advances one pending account deletion. Each call claims artifacts that appeared after the
  * request (an upload already in flight), leaves the claimed ones to their purge jobs and
  * `purgeArchived`, erases a batch of the account's comments elsewhere, and finishes the account
- * once neither is left: its storage objects, counters, idempotency records and upload sessions
+ * once neither is left: its storage objects, counters (usage and traffic), idempotency records and upload sessions
  * are deleted and an `account` tombstone replaces the deletion row. Every step is idempotent and
  * safe to run concurrently. Returns `absent` when no deletion is pending for the account.
  */
@@ -404,6 +404,9 @@ export async function advanceAccountDeletion(
       .delete(schema.uploadSessions)
       .where(and(eq(schema.uploadSessions.ownerId, userId), nothingLeft)),
     db.delete(schema.usageEvents).where(and(eq(schema.usageEvents.ownerId, userId), nothingLeft)),
+    db
+      .delete(schema.trafficCounters)
+      .where(and(eq(schema.trafficCounters.ownerId, userId), nothingLeft)),
     db.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
     db
       .delete(schema.annotationUsage)

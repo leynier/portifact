@@ -92,6 +92,13 @@
       "when": 1794156464816,
       "tag": "0012_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1794157817365,
+      "tag": "0013_traffic_counters",
+      "breakpoints": true
     }
   ]
 }
