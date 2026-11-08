@@ -10,7 +10,9 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
-    "commander": "^15.0.0"
+    "@portifact/contracts": "workspace:*",
+    "commander": "^15.0.0",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

@@ -89,6 +89,7 @@ These commands describe the planned interface; the current release does not incl
 | Signed releases with checksums and provenance           | Available      |
 | Agent skill (`npx skills add leynier/portifact`)        | Available      |
 | Sign-in (Google, GitHub, email code) and OAuth          | Available      |
+| CLI sign-in (`portifact login`, `logout`, `whoami`)     | Next release   |
 | Publishing API (`/api/v1`)                              | Available      |
 | Publish HTML, Markdown and text from the CLI            | In development |
 | Access control (private, signed-in, email list, public) | In development |

@@ -94,7 +94,9 @@
       "name": "@portifact/cli",
       "version": "0.6.0",
       "dependencies": {
+        "@portifact/contracts": "workspace:*",
         "commander": "^15.0.0",
+        "zod": "^4.0.0",
       },
       "devDependencies": {
         "@types/node": "catalog:",
