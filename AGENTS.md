@@ -77,6 +77,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 - The D1 schema lives in `packages/db/src/schema.ts`; never edit a committed migration, generate a new one. Account limits are also CHECK constraints, so a race the application misses still fails in the database.
 - Mutations that may be retried take an idempotency key.
 - Anything with credentials or that mutates data is served from `portifact.com`. `portifact.dev` only serves user content. See [docs/security.md](docs/security.md).
+- The `portifact-app` Worker routes by host: `portifact.com` serves the landing and installers, `app.portifact.com` serves identity, OAuth and the auth pages, anything else is 404. Identity and OAuth are Better Auth ([decision 0001](docs/decisions/0001-oauth-server.md)) with exact pinned versions; its tables are `packages/db/src/auth-schema.ts`, which Better Auth checks at runtime. Only endpoints in the allowlist in `apps/app/src/auth/routes.ts` are reachable. On a Better Auth upgrade, diff the schema against Better Auth's Drizzle generator and run the whole `apps/app` suite.
 - Dependencies use the isolated linker and shared versions through workspace catalogs. Dependency lifecycle scripts run only for packages listed in `trustedDependencies`; add one only with a reason.
 - Prefer the simplest correct solution. Do not add dependencies, services or abstractions the plan does not need; justify any new dependency in the change description.
 

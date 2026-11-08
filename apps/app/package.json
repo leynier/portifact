@@ -2,7 +2,7 @@
   "name": "@portifact/app",
   "version": "0.0.0",
   "private": true,
-  "description": "Worker for portifact.com: landing, installers and, later, API, auth and MCP.",
+  "description": "Worker for portifact.com and app.portifact.com: landing, installers, identity and the OAuth authorization server.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -12,6 +12,12 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
+    "@better-auth/cimd": "1.7.17",
+    "@better-auth/oauth-provider": "1.7.17",
+    "@portifact/contracts": "workspace:*",
+    "@portifact/db": "workspace:*",
+    "better-auth": "1.7.17",
+    "drizzle-orm": "^0.45.0",
     "hono": "^4.0.0"
   },
   "devDependencies": {

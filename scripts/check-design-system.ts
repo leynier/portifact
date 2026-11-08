@@ -3,7 +3,7 @@ import { Glob } from "bun";
 import { checkFile, isTokenSource } from "../packages/ui/src/design-check.ts";
 
 const root = new URL("..", import.meta.url).pathname;
-const patterns = ["apps/*/index.html", "apps/*/src/**/*", "packages/*/src/**/*"];
+const patterns = ["apps/*/*.html", "apps/*/src/**/*", "packages/*/src/**/*"];
 const extensions = /\.(css|ts|tsx|html)$/;
 const ignored = /\.test\.tsx?$|\/node_modules\/|\/dist\//;
 

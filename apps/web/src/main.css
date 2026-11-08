@@ -1,4 +1,5 @@
 @import "tailwindcss";
 @import "@portifact/ui/theme.css";
 
-@source "../index.html";
+@source "../*.html";
+@source "./auth/*.ts";
