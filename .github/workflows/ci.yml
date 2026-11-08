@@ -72,7 +72,7 @@ jobs:
           retention-days: 3
 
   smoke-linux-distros:
-    name: smoke (linux distros)
+    name: smoke (linux-distros)
     needs: build
     runs-on: ubuntu-latest
     steps:
