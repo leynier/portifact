@@ -22,6 +22,9 @@ describe("version contracts", () => {
   it("downloads published files of the current version by default", () => {
     expect(DownloadQuery.parse({})).toEqual({ kind: "published" });
     expect(DownloadQuery.safeParse({ kind: "build" }).success).toBe(false);
+    expect(DownloadQuery.parse({ kind: "source", path: "p".repeat(1_024) }).kind).toBe("source");
+    expect(DownloadQuery.safeParse({ path: "p".repeat(1_025) }).success).toBe(false);
+    expect(DownloadQuery.safeParse({ path: "" }).success).toBe(false);
     expect(GetDownloadInput.parse({ artifactId: "abcdefghij" })).toEqual({
       artifactId: "abcdefghij",
       versionId: "current",

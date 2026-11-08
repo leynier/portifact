@@ -92,7 +92,7 @@ Coverage of the spike source is 100% of lines and branches.
 
 ## To verify after deployment
 
-Items 1, 2 (Claude.ai), 3 (CIMD, without the DCR fallback), 4 and 8 were checked on 2026-11-08; the results and what is still open are in [MCP compatibility](../mcp-compatibility.md). All three clients send `resource` in the authorization request. The check found that the CIMD transport refused the `304 Not Modified` that `chatgpt.com` answers when the plugin revalidates Codex's cached document, which broke Codex's refresh after five minutes; the transport now passes 304 through.
+Items 1, 2 (Claude.ai), 3 (CIMD, without the DCR fallback), 4 and 8 were checked on 2026-11-08; the results and what is still open are in [MCP compatibility](../mcp-compatibility.md). All three clients send `resource` in the authorization request. The check found that the CIMD transport refused the `304 Not Modified` that `chatgpt.com` answers when the plugin revalidates Codex's cached document, which broke Codex's refresh after five minutes; the transport now passes 304 through, and Codex refreshed an expired token in production on v0.13.0 (2026-11-08).
 
 These need a deployed staging Worker and the real clients, which the spike cannot reach:
 

@@ -715,8 +715,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     if (!artifact) return apiError("not_found", 404);
     const all = server.accessLogs[artifact.id] ?? [];
     const offset = Number(url.searchParams.get("cursor") ?? "0");
-    const page = all.slice(offset, offset + server.pageSize);
-    const next = offset + server.pageSize;
+    const size = Math.min(Number(url.searchParams.get("limit") ?? "50"), server.pageSize);
+    const page = all.slice(offset, offset + size);
+    const next = offset + size;
     return json({
       artifactId: artifact.id,
       entries: page,

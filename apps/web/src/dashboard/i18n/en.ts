@@ -266,6 +266,12 @@ export const en = {
   "accessLog.column.opened": "Opened",
   "accessLog.column.visitor": "Visitor",
   "accessLog.loadMore": "Show more",
+  "accessLog.export.hint": "Exports hold every entry of the last 30 days, not only the ones shown.",
+  "accessLog.export.csv": "Export as CSV",
+  "accessLog.export.json": "Export as JSON",
+  "accessLog.export.doneCsv": "The access log was exported as CSV.",
+  "accessLog.export.doneJson": "The access log was exported as JSON.",
+  "accessLog.export.failed": "The access log could not be exported",
 
   "usage.title": "Usage",
   "usage.hint":
