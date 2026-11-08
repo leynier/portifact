@@ -1,20 +1,17 @@
 name: mutation
 
-# Mutation testing (StrykerJS) of the critical packages. It takes several minutes per package,
-# so it runs weekly, on demand and on release pull requests instead of on every pull request.
+# Mutation testing (StrykerJS) of the critical packages. packages/services alone takes about
+# 1.5 hours, so it only runs when started by hand (Actions, "mutation", Run workflow) or locally
+# with `bun run test:mutation`, never on pushes or pull requests.
 # Each package fails when its score drops below the break threshold in its stryker.config.mjs.
 on:
-  schedule:
-    - cron: "17 4 * * 1"
   workflow_dispatch:
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: mutation-${{ github.event.pull_request.number || github.ref }}
+  group: mutation-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
