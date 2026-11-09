@@ -34,8 +34,10 @@ export function Panel({
   return (
     <section
       id={id}
+      // A target of in-page links takes focus when a section guide follows one to it.
+      tabIndex={id ? -1 : undefined}
       aria-labelledby={headingId}
-      className="scroll-mt-6 rounded-lg border border-border bg-canvas shadow-sm"
+      className="scroll-mt-32 rounded-lg border border-border bg-canvas shadow-sm focus:outline-none md:scroll-mt-20 xl:scroll-mt-6"
     >
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 pt-5">
         {/* The title keeps a readable width; on narrow screens the actions wrap below it. */}

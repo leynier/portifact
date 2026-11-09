@@ -177,3 +177,49 @@ test("on a laptop screen the list fits without scrolling sideways, actions inclu
   });
   expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test("wide screens use the room: the page starts at the sidebar and the section guide sits at the end", async ({
+  page,
+  context,
+}) => {
+  const owner = await createUser("Wide");
+  const { artifactId } = await publish({ ownerId: owner.userId, name: "Wide plan", files: PAGE });
+  await signIn(context, owner);
+  await page.setViewportSize({ width: 1900, height: 900 });
+  await page.goto(`${APP_ORIGIN}/artifacts/${artifactId}`);
+  await expect(page.getByText(/^Loading/)).toHaveCount(0);
+
+  // No centered column between two empty gutters: the title starts next to the sidebar, and the
+  // content is far wider than the old reading column.
+  const sidebar = await page.getByRole("banner").boundingBox();
+  const title = await page.getByRole("heading", { level: 1, name: "Wide plan" }).boundingBox();
+  expect((title?.x ?? 0) - (sidebar?.width ?? 0)).toBeLessThanOrEqual(48);
+  const overview = await page.getByRole("region", { name: "Overview" }).boundingBox();
+  expect(overview?.width ?? 0).toBeGreaterThan(1000);
+
+  const nav = page.getByRole("navigation", { name: "Artifact sections" });
+  await expect(nav.getByText("On this page")).toBeVisible();
+  const guide = await nav.boundingBox();
+  expect(guide?.x ?? 0).toBeGreaterThan((overview?.x ?? 0) + (overview?.width ?? 0));
+  await expect(nav.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "true");
+
+  // Following a link scrolls there, focuses the section and the guide follows; at the end of
+  // the page the last section is the current one.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await nav.getByRole("link", { name: "Activity" }).click();
+  await expect(page.getByRole("region", { name: "Activity" })).toBeFocused();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/artifacts/${artifactId}#activity`);
+  await expect(nav.getByRole("link", { name: "Activity" })).toHaveAttribute("aria-current", "true");
+  // The guide stays in view while the page scrolls.
+  expect((await nav.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(0);
+  // Scrolling with the keyboard hands the guide back to the scroll spy.
+  await page.keyboard.press("Home");
+  await expect(nav.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "true");
+  await page.keyboard.press("End");
+  await expect(nav.getByRole("link", { name: "Danger zone" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  expect(await scrollsSideways(page)).toBe(false);
+  expect(await axeViolations(page)).toEqual([]);
+});

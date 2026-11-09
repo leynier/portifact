@@ -265,7 +265,9 @@ export function AppShell({
         tabIndex={-1}
         className={`focus:outline-none ${collapsed ? "md:pl-16" : "md:pl-sidebar"}`}
       >
-        <div className="mx-auto w-full max-w-7xl px-4 py-8 sm:px-8 lg:py-10">{children}</div>
+        {/* Aligned to the sidebar and capped by `max-w-page`, so wide screens do not leave a column
+            floating between two empty gutters. */}
+        <div className="w-full max-w-page px-4 py-8 sm:px-8 lg:px-10 lg:py-10">{children}</div>
       </main>
     </div>
   );

@@ -14,9 +14,10 @@ Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard
 ## Keyboard and focus
 
 - Everything that works with a pointer works with a keyboard, in a logical order.
-- Focus is always visible, using the focus token, and never hidden behind sticky headers.
+- Focus is always visible, using the focus token, and never hidden behind sticky headers; sections reached from a sticky guide keep a scroll margin that clears it.
 - Dialogs and menus trap focus while open, close with Escape and return focus to the control that opened them.
 - Selects follow the WAI-ARIA select-only combobox pattern: focus stays on the trigger, the active option is announced through `aria-activedescendant`, and the keys of a native select work (arrows, Home, End, Page keys, typeahead, Enter, Space, Escape, Tab).
+- In-page section guides ("On this page") are a labelled `navigation` before the content: following a link moves focus to the section and marks the link `aria-current`, the scroll respects reduced motion, and on narrow screens the guide is a native disclosure that closes after a choice.
 - A card or row that takes a press anywhere uses one real link or label stretched over it, never nested interactive elements, and keeps its own controls above it.
 - Pages provide a skip link to the main content.
 - Shortcuts never override browser or assistive technology keys and can be discovered from the UI.

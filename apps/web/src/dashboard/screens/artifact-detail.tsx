@@ -267,7 +267,11 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
         </div>
       ) : null}
 
-      <SectionedPage label={t("detail.sectionsNav")} sections={sections}>
+      <SectionedPage
+        label={t("detail.sectionsNav")}
+        title={t("sections.title")}
+        sections={sections}
+      >
         <PageSection id="overview" title={t("detail.section.overview")}>
           <div className="grid items-start gap-6 xl:grid-cols-2">
             <Panel

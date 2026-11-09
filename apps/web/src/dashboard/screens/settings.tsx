@@ -8,7 +8,7 @@ import {
   type DefaultAnnotations,
   LIMITS,
 } from "@portifact/contracts";
-import { Callout, PageHeader } from "@portifact/ui";
+import { Callout, PageHeader, SectionedPage } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Save } from "lucide-react";
@@ -42,12 +42,22 @@ export function SettingsScreen() {
   useDocumentTitle(t("settings.title"));
   const account = useQueryClient().getQueryData<Account>(ACCOUNT_QUERY);
   return (
-    <div className="flex max-w-3xl flex-col gap-6">
+    <>
       <PageHeader title={t("settings.title")} description={t("settings.description")} />
-      <ArtifactDefaults />
-      <AccountData />
-      <DeleteAccount email={account?.email ?? ""} />
-    </div>
+      <SectionedPage
+        label={t("settings.sectionsNav")}
+        title={t("sections.title")}
+        sections={[
+          { id: "defaults", label: t("settings.defaults.title") },
+          { id: "data", label: t("account.data.title") },
+          { id: "delete", label: t("settings.danger.title") },
+        ]}
+      >
+        <ArtifactDefaults />
+        <AccountData />
+        <DeleteAccount email={account?.email ?? ""} />
+      </SectionedPage>
+    </>
   );
 }
 

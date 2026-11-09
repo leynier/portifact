@@ -119,41 +119,230 @@ describe("useMediaQuery", () => {
 });
 
 describe("SectionedPage", () => {
-  it("names its navigation, links each section and marks the first one current", async () => {
-    const { container } = render(
+  const SECTIONS = [
+    { id: "overview", label: "Overview" },
+    { id: "sharing", label: "Sharing" },
+    { id: "danger", label: "Danger zone" },
+  ];
+
+  function Example() {
+    return (
       <main>
-        <SectionedPage
-          label="Artifact sections"
-          sections={[
-            { id: "overview", label: "Overview" },
-            { id: "danger", label: "Danger zone" },
-          ]}
-        >
+        <SectionedPage label="Artifact sections" title="On this page" sections={SECTIONS}>
           <PageSection id="overview" title="Overview" description="What it is">
             <p>Details</p>
+          </PageSection>
+          <PageSection id="sharing" title="Sharing">
+            <p>Access</p>
           </PageSection>
           <PageSection id="danger" title="Danger zone" tone="danger">
             <p>Delete</p>
           </PageSection>
         </SectionedPage>
-      </main>,
+      </main>
     );
+  }
+
+  /** The window `matchMedia` answers for: its width and whether reduced motion is asked for. */
+  function stubMedia({ width, reduce }: { width: number; reduce: boolean }) {
+    const original = window.matchMedia;
+    window.matchMedia = (query: string) =>
+      ({
+        media: query,
+        matches: query.includes("reduced-motion")
+          ? reduce
+          : width >= Number(/min-width:\s*([\d.]+)rem/.exec(query)?.[1] ?? 0) * 16,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList;
+    return () => {
+      window.matchMedia = original;
+    };
+  }
+
+  /** Captures the scroll spy's observer, so a test can say which sections are in view. */
+  function stubObserver() {
+    const observers: { callback: IntersectionObserverCallback; targets: Element[] }[] = [];
+    const original = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      targets: Element[] = [];
+      constructor(callback: IntersectionObserverCallback) {
+        observers.push({ callback, targets: this.targets });
+      }
+      observe(target: Element) {
+        this.targets.push(target);
+      }
+      disconnect() {}
+      unobserve() {}
+      takeRecords() {
+        return [];
+      }
+    } as unknown as typeof IntersectionObserver;
+    const show = (inView: string[]) => {
+      const observer = observers[observers.length - 1];
+      if (!observer) throw new Error("no observer");
+      act(() =>
+        observer.callback(
+          observer.targets.map(
+            (target) =>
+              ({ target, isIntersecting: inView.includes(target.id) }) as IntersectionObserverEntry,
+          ),
+          {} as IntersectionObserver,
+        ),
+      );
+    };
+    return {
+      show,
+      restore: () => {
+        globalThis.IntersectionObserver = original;
+      },
+    };
+  }
+
+  afterEach(() => {
+    window.history.replaceState(null, "", "/");
+    vi.restoreAllMocks();
+  });
+
+  it("puts a titled guide at the end on wide screens and marks the first section current", async () => {
+    const restore = stubMedia({ width: 1440, reduce: false });
+    const { container } = render(<Example />);
     const nav = screen.getByRole("navigation", { name: "Artifact sections" });
+    expect(nav.textContent).toContain("On this page");
+    expect(nav.querySelector("details")).toBeNull();
+    // The guide comes first for the keyboard, and the grid draws it in the column at the end.
+    expect(nav.compareDocumentPosition(screen.getByRole("region", { name: "Overview" }))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     const links = within(nav).getAllByRole("link");
     expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
       ["Overview", "#overview"],
+      ["Sharing", "#sharing"],
       ["Danger zone", "#danger"],
     ]);
     expect(links[0]?.getAttribute("aria-current")).toBe("true");
     expect(screen.getByRole("region", { name: "Danger zone" }).id).toBe("danger");
     expect(screen.getByRole("heading", { level: 2, name: "Overview" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Overview" }).textContent).toContain("What it is");
-
-    // Following a link makes it the current one.
-    fireEvent.click(links[1] as HTMLElement);
-    expect(links[1]?.getAttribute("aria-current")).toBe("true");
-    expect(links[0]?.hasAttribute("aria-current")).toBe(false);
     expect(await axeViolations(container)).toEqual([]);
+    restore();
+  });
+
+  it("scrolls smoothly to a followed section, focuses it and keeps the address shareable", () => {
+    const restore = stubMedia({ width: 1440, reduce: false });
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    render(<Example />);
+    const nav = screen.getByRole("navigation", { name: "Artifact sections" });
+    const link = within(nav).getByRole("link", { name: "Sharing" });
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    fireEvent(link, event);
+    expect(event.defaultPrevented).toBe(true);
+    expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    const section = screen.getByRole("region", { name: "Sharing" });
+    expect(document.activeElement).toBe(section);
+    expect(section.getAttribute("tabindex")).toBe("-1");
+    expect(window.location.hash).toBe("#sharing");
+    expect(link.getAttribute("aria-current")).toBe("true");
+    expect(within(nav).getByRole("link", { name: "Overview" }).hasAttribute("aria-current")).toBe(
+      false,
+    );
+    restore();
+  });
+
+  it("jumps without motion under reduced motion, and leaves new-tab clicks to the browser", () => {
+    const restore = stubMedia({ width: 1440, reduce: true });
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    render(<Example />);
+    const nav = screen.getByRole("navigation", { name: "Artifact sections" });
+    fireEvent.click(within(nav).getByRole("link", { name: "Danger zone" }));
+    expect(scroll).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+
+    scroll.mockClear();
+    const event = new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true });
+    fireEvent(within(nav).getByRole("link", { name: "Sharing" }), event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(scroll).not.toHaveBeenCalled();
+    restore();
+  });
+
+  it("follows the section in view, and the last one at the end of the page", () => {
+    const restore = stubMedia({ width: 1440, reduce: false });
+    const spy = stubObserver();
+    render(<Example />);
+    const nav = screen.getByRole("navigation", { name: "Artifact sections" });
+    const current = () => within(nav).getByRole("link", { current: true }).textContent;
+    expect(current()).toBe("Overview");
+
+    spy.show(["sharing", "danger"]);
+    expect(current()).toBe("Sharing");
+    spy.show(["overview"]);
+    expect(current()).toBe("Overview");
+
+    // Scrolled to the bottom: the short last section never reaches the top of the window.
+    vi.spyOn(window, "scrollY", "get").mockReturnValue(900);
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(800);
+    vi.spyOn(document.documentElement, "scrollHeight", "get").mockReturnValue(1700);
+    spy.show(["sharing"]);
+    expect(current()).toBe("Danger zone");
+    spy.restore();
+    restore();
+  });
+
+  it("keeps a followed section current until the person scrolls again", () => {
+    const restore = stubMedia({ width: 1440, reduce: true });
+    const spy = stubObserver();
+    Element.prototype.scrollIntoView = vi.fn();
+    render(<Example />);
+    const nav = screen.getByRole("navigation", { name: "Artifact sections" });
+    const current = () => within(nav).getByRole("link", { current: true }).textContent;
+    fireEvent.click(within(nav).getByRole("link", { name: "Sharing" }));
+    // The page cannot bring Sharing to the top: the spy sees Overview, but the choice holds.
+    spy.show(["overview", "sharing"]);
+    expect(current()).toBe("Sharing");
+    // A key that does not scroll keeps it; the person's own scrolling hands it back.
+    fireEvent.keyDown(window, { key: "Tab" });
+    spy.show(["overview", "sharing"]);
+    expect(current()).toBe("Sharing");
+    fireEvent.wheel(window);
+    spy.show(["overview", "sharing"]);
+    expect(current()).toBe("Overview");
+    fireEvent.click(within(nav).getByRole("link", { name: "Danger zone" }));
+    fireEvent.keyDown(window, { key: "PageUp" });
+    spy.show(["sharing"]);
+    expect(current()).toBe("Sharing");
+    spy.restore();
+    restore();
+  });
+
+  it("starts at the section named in the address", () => {
+    const restore = stubMedia({ width: 1440, reduce: false });
+    window.history.replaceState(null, "", "/#danger");
+    render(<Example />);
+    const nav = screen.getByRole("navigation", { name: "Artifact sections" });
+    expect(within(nav).getByRole("link", { current: true }).textContent).toBe("Danger zone");
+    restore();
+  });
+
+  it("is a compact menu at the top on narrow screens that closes when a section is chosen", async () => {
+    const restore = stubMedia({ width: 375, reduce: true });
+    Element.prototype.scrollIntoView = vi.fn();
+    const { container } = render(<Example />);
+    const nav = screen.getByRole("navigation", { name: "Artifact sections" });
+    const details = nav.querySelector("details") as HTMLDetailsElement;
+    const summary = nav.querySelector("summary") as HTMLElement;
+    expect(details.open).toBe(false);
+    expect(summary.textContent).toBe("On this pageOverview");
+    expect(await axeViolations(container)).toEqual([]);
+
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    fireEvent.click(within(nav).getByRole("link", { name: "Sharing" }));
+    expect(details.open).toBe(false);
+    expect(summary.textContent).toBe("On this pageSharing");
+    expect(await axeViolations(container)).toEqual([]);
+    restore();
   });
 });
 

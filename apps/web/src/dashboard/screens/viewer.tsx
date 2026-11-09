@@ -249,9 +249,36 @@ function Standalone({ children }: { children: ReactNode }) {
   );
 }
 
-/** Whether the sidebar starts open: where the screen is wide enough to show it beside the frame. */
+/** Where this browser remembers whether the reader keeps the comments open on wide screens. */
+export const SIDEBAR_STORAGE_KEY = "portifact.viewer.comments";
+
+/** The reader's last choice on a wide screen, or null without one or without storage. */
+function rememberedSidebar(): boolean | null {
+  try {
+    const value = window.localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return value === "open" ? true : value === "closed" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers the reader's choice in this browser; without storage it is simply not kept. */
+function rememberSidebar(open: boolean) {
+  try {
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, open ? "open" : "closed");
+  } catch {
+    // Private windows and blocked storage keep the default.
+  }
+}
+
+/**
+ * Whether the sidebar starts open: on a wide screen, as the reader last left it (open by default);
+ * on a narrow one it would cover the artifact, so it starts closed.
+ */
 function startsOpen(): boolean {
-  return typeof window.matchMedia === "function" ? window.matchMedia(WIDE_SCREEN).matches : true;
+  const wide =
+    typeof window.matchMedia === "function" ? window.matchMedia(WIDE_SCREEN).matches : true;
+  return wide && (rememberedSidebar() ?? true);
 }
 
 interface LayoutProps {
@@ -396,7 +423,10 @@ function ViewerLayout({
                 : undefined
             }
             onClick={() => {
-              focusSidebar.current = !sidebarOpen && narrow();
+              const isNarrow = narrow();
+              focusSidebar.current = !sidebarOpen && isNarrow;
+              // Only a wide screen's choice is kept: there the sidebar sits beside the artifact.
+              if (!isNarrow) rememberSidebar(!sidebarOpen);
               onSidebar(!sidebarOpen);
             }}
           >
