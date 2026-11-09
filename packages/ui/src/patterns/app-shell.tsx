@@ -100,6 +100,11 @@ function writeSidebar(storageKey: string | undefined, state: SidebarState) {
 /** Where shell content is drawn: the sidebar (collapsed or not) or the drawer of small screens. */
 const Placement = createContext<{ collapsed: boolean }>({ collapsed: false });
 
+/** Whether content of the account slot is drawn in the collapsed rail, to fit its width. */
+export function useSidebarCollapsed(): boolean {
+  return useContext(Placement).collapsed;
+}
+
 /** Classes for a navigation link, also when it is drawn as an icon in the collapsed rail. */
 export const navLinkClasses =
   "flex h-9 w-full min-w-0 items-center gap-2.5 rounded-xs px-2.5 text-text-muted no-underline transition-colors duration-150 hover:bg-surface-hover hover:text-text current:font-semibold current:selection-band current:hover:bg-selection";

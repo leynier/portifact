@@ -13,7 +13,11 @@ import {
   IdempotencyKey,
   LIST_SEARCH_MAX,
   ListedArtifactState,
+  ManifestFile,
+  PublishRequest,
   ReaderCommentVisibility,
+  SourceOrigin,
+  UploadedPart,
 } from "./publishing.ts";
 
 const artifactId = ArtifactId.describe(
@@ -130,3 +134,117 @@ export const SetCommentVisibilityInput = z.object({
     ),
 });
 export type SetCommentVisibilityInput = z.infer<typeof SetCommentVisibilityInput>;
+
+/** The access mode and search and embedding settings; validated as an `AccessUpdate`. */
+export const SetAccessInput = z.object({
+  artifactId,
+  mode: AccessMode.optional().describe(
+    "restricted: only the owner and the readers on the list, after signing in. authenticated: anyone signed in to Portifact. public: anyone with the link, no sign-in. Ask the user before choosing authenticated or public.",
+  ),
+  indexable: z
+    .boolean()
+    .optional()
+    .describe(
+      "true lets search engines index the artifact while it is public; false keeps it noindex, the default.",
+    ),
+  embeddable: z
+    .boolean()
+    .optional()
+    .describe(
+      "true lets other sites embed the artifact in a frame while it is public; false refuses it, the default.",
+    ),
+});
+export type SetAccessInput = z.infer<typeof SetAccessInput>;
+
+/** Addresses to add to or remove from the reader list; validated as an `AccessUpdate`. */
+export const ReaderChangeInput = z.object({
+  artifactId,
+  emails: z
+    .array(z.string().max(254))
+    .min(1)
+    .max(LIMITS.readersPerChange)
+    .describe(
+      `Email addresses, at most ${LIMITS.readersPerChange} per call. Portifact sends them nothing: share the link yourself.`,
+    ),
+});
+export type ReaderChangeInput = z.infer<typeof ReaderChangeInput>;
+
+const manifestFile = z.object({
+  path: ManifestFile.shape.path.describe(
+    "The file's path in the artifact, with forward slashes, for example index.html or assets/app.js.",
+  ),
+  kind: ManifestFile.shape.kind.describe(
+    "published (the default) for files the artifact serves; source for private sources only the owner can download.",
+  ),
+  sha256: ManifestFile.shape.sha256.describe(
+    "SHA-256 of the file's exact bytes, in lowercase hex.",
+  ),
+  size: ManifestFile.shape.size.describe("Size of the file in bytes."),
+  contentType: ManifestFile.shape.contentType.describe(
+    "The file's media type, for example text/html; charset=utf-8.",
+  ),
+});
+
+/** A publish of several or large files: the API's `PublishRequest` with a required key. */
+export const PrepareUploadInput = z.object({
+  type: PublishRequest.shape.type.describe(
+    "site for HTML with its assets, markdown or text for one document. It cannot change after the first publish.",
+  ),
+  name: PublishRequest.shape.name.describe("A short title the owner will recognize."),
+  entrypoint: PublishRequest.shape.entrypoint.describe(
+    "The path of the main file among files: index.html for a site, the document for markdown or text.",
+  ),
+  files: z
+    .array(manifestFile)
+    .min(1)
+    .max(LIMITS.filesPerVersion)
+    .describe(
+      `Every file of the version, at most ${LIMITS.filesPerVersion}, ${LIMITS.artifactBytes} bytes in all. Files the account already stores are not uploaded again.`,
+    ),
+  artifactId: artifactId
+    .optional()
+    .describe("Only to publish a new version of an existing artifact. Omit it to create one."),
+  baseVersionId: PublishRequest.shape.baseVersionId.describe(
+    "Required with artifactId: the currentVersionId you last read from get_artifact. A newer version published since makes the commit fail with version_conflict.",
+  ),
+  sourceOrigin: SourceOrigin.optional().describe(
+    "The git commit, branch and remote the source files came from, when there are source files.",
+  ),
+  multipart: z
+    .boolean()
+    .optional()
+    .describe(
+      "true when you can upload large files in parts: files over 64 MiB then get one URL per part, and commit_upload needs each part's ETag. Omit it to get one PUT per file.",
+    ),
+  idempotencyKey: IdempotencyKey.describe(
+    "A unique string (8 to 128 letters, digits, '.', '_', ':' or '-') for this publish. Retrying with the same key and arguments returns the first result instead of opening a second upload.",
+  ),
+});
+export type PrepareUploadInput = z.infer<typeof PrepareUploadInput>;
+
+const uploadId = z.string().min(1).max(128).describe("The uploadId prepare_upload returned.");
+
+export const UploadRef = z.object({ uploadId });
+export type UploadRef = z.infer<typeof UploadRef>;
+
+export const CommitUploadInput = z.object({
+  uploadId,
+  parts: z
+    .array(
+      z.object({
+        sha256: UploadedPart.shape.sha256.describe(
+          "SHA-256 of the whole file the part belongs to.",
+        ),
+        partNumber: UploadedPart.shape.partNumber.describe("The part's partNumber."),
+        etag: UploadedPart.shape.etag.describe(
+          "The ETag header storage answered the part's PUT with.",
+        ),
+      }),
+    )
+    .max(1_000)
+    .optional()
+    .describe(
+      "Only for multipart files: every part you uploaded and have not reported yet, with its ETag. Reporting a part twice is harmless.",
+    ),
+});
+export type CommitUploadInput = z.infer<typeof CommitUploadInput>;

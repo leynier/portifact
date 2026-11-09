@@ -12,6 +12,7 @@
     "./language-links": "./src/static/language-links.ts",
     "./testing": "./src/testing/axe.ts",
     "./tokens": "./src/tokens/tokens.ts",
+    "./theme": "./src/theme/theme.ts",
     "./theme.css": "./src/tokens/theme.css",
     "./tokens-css": "./src/tokens/tokens-css.ts",
     "./tokens.css": "./src/tokens/tokens.css"
@@ -35,6 +36,7 @@
     "vitest": "catalog:"
   },
   "dependencies": {
+    "@portifact/contracts": "workspace:*",
     "@tanstack/react-form": "^1.28.0",
     "class-variance-authority": "^0.7.1",
     "lucide-react": "catalog:"

@@ -12,6 +12,7 @@ import { workerDeps } from "../../apps/app/src/auth/deps.ts";
 import type { EmailSender } from "../../apps/app/src/auth/email.ts";
 import { createWorker } from "../../apps/app/src/index.ts";
 import { handle, isolateMeter, isolateOpenings } from "../../apps/content/src/index.ts";
+import { SITE_HOST } from "../src/hosts.ts";
 import { TURNSTILE_PASS } from "../src/turnstile-fake.ts";
 import { contentNow } from "./clock.ts";
 import { CONTROL_HOST, control, type E2eEnv, MAIL_PREFIX } from "./control.ts";
@@ -42,6 +43,12 @@ export default {
   fetch(request, env, ctx) {
     const host = new URL(request.url).hostname;
     if (host === CONTROL_HOST) return control(request, env);
+    // The site host plays portifact.com, which the app Worker serves by that exact name.
+    if (host === SITE_HOST) {
+      const url = new URL(request.url);
+      url.hostname = "portifact.com";
+      return app.fetch(new Request(url, request), env, ctx);
+    }
     if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) {
       // Like the content Worker's own fetch: traffic and access log batches after the response.
       const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);

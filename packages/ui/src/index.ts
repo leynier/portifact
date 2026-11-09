@@ -73,6 +73,14 @@ export {
   TableRow,
   type TableRowProps,
 } from "./components/table.tsx";
+export {
+  ThemedImage,
+  type ThemedImageProps,
+  ThemeSwitcher,
+  type ThemeSwitcherProps,
+  themeSwitcherClasses,
+  useThemePreference,
+} from "./components/theme-switcher.tsx";
 export { Toast, type ToastProps } from "./components/toast.tsx";
 export { Tooltip, type TooltipProps } from "./components/tooltip.tsx";
 export { useMediaQuery, WIDE_QUERY } from "./hooks/use-media-query.ts";
@@ -88,6 +96,7 @@ export {
   SIDEBAR_WIDTH,
   SidebarAccount,
   type SidebarAccountProps,
+  useSidebarCollapsed,
 } from "./patterns/app-shell.tsx";
 export {
   Floating,
@@ -110,3 +119,11 @@ export {
   type SectionedPageProps,
 } from "./patterns/section-nav.tsx";
 export { ViewerShell, type ViewerShellProps } from "./patterns/viewer-shell.tsx";
+export {
+  applyTheme,
+  darkSourceMedia,
+  isThemePreference,
+  setThemePreference,
+  THEME_PREFERENCES,
+  type ThemePreference,
+} from "./theme/theme.ts";

@@ -21,6 +21,10 @@ export const en = {
   "shell.signOutFailed": "Sign out did not finish. Try again.",
   "shell.publishLink": "Publish",
   "shell.dismiss": "Dismiss message",
+  "theme.legend": "Theme",
+  "theme.system": "System",
+  "theme.light": "Light",
+  "theme.dark": "Dark",
   "copy.done": "Copied to the clipboard",
   "copy.failed": "The browser blocked the clipboard. Select the text and copy it by hand.",
   "copy.copied": "Copied",
@@ -373,7 +377,11 @@ export const en = {
   "account.apps.disconnected": "{name} disconnected.",
   "settings.title": "Settings",
   "settings.sectionsNav": "Settings sections",
-  "settings.description": "How new artifacts start, your data, and deleting your account.",
+  "settings.description":
+    "Your language, how Portifact looks, how new artifacts start, your data, and deleting your account.",
+  "settings.appearance.title": "Appearance",
+  "settings.appearance.hint":
+    "How Portifact looks in this browser. System follows your device's setting. Artifacts keep the look their creators gave them.",
   "settings.defaults.title": "Defaults for new artifacts",
   "settings.defaults.hint":
     "Every artifact you create from now on starts like this, whether you publish from the dashboard, the CLI or an agent. Artifacts you already have keep their own settings; change those on each artifact's page.",

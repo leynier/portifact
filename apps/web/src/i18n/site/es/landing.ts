@@ -312,6 +312,10 @@ export const landing: PageMessages = {
   "landing.cta.install": "Instalar Portifact",
   "landing.footer.tagline":
     "Comparte lo que construyó tu agente. Código abierto bajo la GNU AGPL v3.0.",
+  "landing.footer.theme": "Tema",
+  "landing.footer.theme.system": "Sistema",
+  "landing.footer.theme.light": "Claro",
+  "landing.footer.theme.dark": "Oscuro",
   "landing.footer.product": "Producto",
   "landing.footer.interfaces": "Tres formas de usarlo",
   "landing.footer.install": "Instalación",

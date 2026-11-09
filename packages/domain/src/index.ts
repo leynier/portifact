@@ -15,6 +15,7 @@ export * from "./quotas.ts";
 export * from "./result.ts";
 export * from "./sources.ts";
 export * from "./terms.ts";
+export * from "./text-read.ts";
 export * from "./traffic.ts";
 export * from "./usage.ts";
 export * from "./viewer.ts";

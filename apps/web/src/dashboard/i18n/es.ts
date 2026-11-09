@@ -23,6 +23,10 @@ export const es = {
   "shell.signOutFailed": "No se pudo cerrar la sesión. Inténtalo de nuevo.",
   "shell.publishLink": "Publicar",
   "shell.dismiss": "Descartar mensaje",
+  "theme.legend": "Tema",
+  "theme.system": "Sistema",
+  "theme.light": "Claro",
+  "theme.dark": "Oscuro",
   "copy.done": "Copiado al portapapeles",
   "copy.failed": "El navegador bloqueó el portapapeles. Selecciona el texto y cópialo manualmente.",
   "copy.copied": "Copiado",
@@ -385,7 +389,10 @@ export const es = {
   "settings.title": "Configuración",
   "settings.sectionsNav": "Secciones de configuración",
   "settings.description":
-    "Cómo empiezan los artifacts nuevos, tus datos y la eliminación de tu cuenta.",
+    "Tu idioma, cómo se ve Portifact, cómo empiezan los artifacts nuevos, tus datos y la eliminación de tu cuenta.",
+  "settings.appearance.title": "Apariencia",
+  "settings.appearance.hint":
+    "Cómo se ve Portifact en este navegador. Sistema sigue la configuración de tu dispositivo. Los artifacts conservan el aspecto que les dieron sus creadores.",
   "settings.defaults.title": "Valores predeterminados para artifacts nuevos",
   "settings.defaults.hint":
     "Cada artifact que crees a partir de ahora empieza así, ya sea que publiques desde el panel, la CLI o un agente. Los artifacts que ya tienes conservan su propia configuración; cámbiala en la página de cada artifact.",

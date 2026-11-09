@@ -4,10 +4,10 @@ export const APP_HOST = "app.portifact.test";
 export const APP_ORIGIN = `https://${APP_HOST}`;
 export const CONTENT_SITE = "portifact-content.test";
 /**
- * The landing and the static documents. The app Worker serves them only on its real apex host,
- * so the stack answers it under that name; the proxy keeps the traffic on this machine.
+ * Stands in for portifact.com, the landing and legal pages: the e2e Worker serves it as the
+ * site host (worker/index.ts).
  */
-export const SITE_HOST = "portifact.com";
+export const SITE_HOST = "portifact.test";
 export const SITE_ORIGIN = `https://${SITE_HOST}`;
 export const CONTROL_HOST = "control.e2e.test";
 /**

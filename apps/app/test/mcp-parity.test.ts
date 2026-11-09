@@ -61,6 +61,23 @@ async function sha256(text: string) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** The manifest of a one-file Markdown document, as prepare_upload and the API take it. */
+async function docManifest(content: string, path = "index.md") {
+  return {
+    type: "markdown",
+    name: "Doc",
+    entrypoint: path,
+    files: [
+      {
+        path,
+        sha256: await sha256(content),
+        size: new TextEncoder().encode(content).byteLength,
+        contentType: "text/markdown; charset=utf-8",
+      },
+    ],
+  };
+}
+
 /** What the CLI does for a one-file document: prepare, PUT the bytes, commit. */
 async function publishThroughApi(
   b: Both,
@@ -1622,6 +1639,14 @@ describe("API and MCP parity under budget protection", () => {
     expect(
       fromTool(await b.tool("publish_document", { type: "markdown", name: "Doc", content: "new" })),
     ).toEqual(viaApi);
+    expect(
+      fromTool(
+        await b.tool("prepare_upload", {
+          ...(await docManifest("new")),
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      ),
+    ).toEqual(viaApi);
     const update = fromTool(
       await b.tool("publish_document", {
         type: "markdown",
@@ -1654,6 +1679,7 @@ describe("API and MCP parity under budget protection", () => {
       }),
     });
     expect(refused.status).toBe(503);
+    const refusedBody = await fromApi(refused);
     expect(
       fromTool(
         await b.tool("publish_document", {
@@ -1664,7 +1690,17 @@ describe("API and MCP parity under budget protection", () => {
           baseVersionId: (update.body as { versionId: string }).versionId,
         }),
       ),
-    ).toEqual(await fromApi(refused));
+    ).toEqual(refusedBody);
+    expect(
+      fromTool(
+        await b.tool("prepare_upload", {
+          ...(await docManifest("v3")),
+          artifactId: mine.artifactId,
+          baseVersionId: (update.body as { versionId: string }).versionId,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      ),
+    ).toEqual(refusedBody);
 
     // Reads, renewal and the usage notice stay the same at both.
     const id = mine.artifactId;
@@ -1710,5 +1746,526 @@ describe("API and MCP parity under budget protection", () => {
       }),
     );
     expect(viaMcp).toEqual(viaApi);
+  });
+});
+
+describe("API and MCP parity for sharing", () => {
+  const SHARE = "artifacts:read artifacts:write artifacts:share offline_access";
+  const patch = (b: Both, id: string, change: Record<string, unknown>) =>
+    b.apiCall(`/api/v1/artifacts/${id}/access`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(change),
+    });
+  async function pair(b: Both) {
+    const publish = async (name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type: "text", name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    return { viaApi: await publish("api"), viaMcp: await publish("mcp") };
+  }
+
+  it("access mode, indexing and embedding change with the same policy and errors", async () => {
+    const b = await both("parity-share@example.test", SHARE);
+    const { viaApi, viaMcp } = await pair(b);
+    const cases: Record<string, unknown>[] = [
+      // A new account must wait before making anything public: refused alike.
+      { mode: "public" },
+      { mode: "authenticated" },
+      { indexable: true, embeddable: true },
+      { mode: "restricted", indexable: false },
+      // No change at all, and an unknown mode.
+      {},
+      { mode: "secret" },
+    ];
+    for (const change of cases) {
+      const apiResult = await fromApi(await patch(b, viaApi, change));
+      const mcpResult = fromTool(await b.tool("set_access", { artifactId: viaMcp, ...change }));
+      if (change.mode === "secret") {
+        // The tool's schema refuses it before any service runs; both refuse it.
+        expect(apiResult.body).toMatchObject({ error: { code: "invalid_input" } });
+        expect(mcpResult.ok).toBe(false);
+        continue;
+      }
+      expect(mcpResult, JSON.stringify(change)).toEqual(apiResult);
+    }
+    const first = await fromApi(await patch(b, viaApi, { mode: "public" }));
+    expect(first.body).toMatchObject({ error: { code: "account_too_new_for_public" } });
+
+    // After the wait both make it public the same way.
+    vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+    const apiResult = await fromApi(await patch(b, viaApi, { mode: "public", indexable: true }));
+    const mcpResult = fromTool(
+      await b.tool("set_access", { artifactId: viaMcp, mode: "public", indexable: true }),
+    );
+    expect(mcpResult).toEqual(apiResult);
+    expect(apiResult.body).toMatchObject({ mode: "public", indexable: true, embeddable: true });
+  });
+
+  it("readers are added and removed with the same policy and errors", async () => {
+    const b = await both("parity-readers@example.test", SHARE);
+    const { viaApi, viaMcp } = await pair(b);
+    const steps: [string, string, string[]][] = [
+      ["add_reader", "addReaders", ["Ana@Example.test", "bea@example.test"]],
+      ["add_reader", "addReaders", ["ana@example.test"]],
+      ["remove_reader", "removeReaders", ["BEA@example.test", "nobody@example.test"]],
+      ["add_reader", "addReaders", ["not an email"]],
+      ["remove_reader", "removeReaders", ["ana@example.test", "@"]],
+    ];
+    for (const [tool, field, emails] of steps) {
+      const apiResult = await fromApi(await patch(b, viaApi, { [field]: emails }));
+      const mcpResult = fromTool(await b.tool(tool, { artifactId: viaMcp, emails }));
+      expect(mcpResult, `${tool} ${emails}`).toEqual(apiResult);
+    }
+    const last = await fromApi(await b.apiCall(`/api/v1/artifacts/${viaMcp}/access`));
+    expect(last.body).toMatchObject({ mode: "restricted", readers: ["ana@example.test"] });
+    // Invalid addresses are refused before anything changes, at both.
+    expect(
+      fromTool(await b.tool("add_reader", { artifactId: viaMcp, emails: ["nope"] })).body,
+    ).toEqual({ error: { code: "invalid_input", message: "addReaders.0: Invalid email address" } });
+    expect((await b.tool("add_reader", { artifactId: viaMcp, emails: [] })).isError).toBe(true);
+  });
+
+  it("refuses another user's or a missing artifact, and needs artifacts:share, at both", async () => {
+    const b = await both("parity-share-owner@example.test", SHARE);
+    const { viaApi, viaMcp } = await pair(b);
+    const other = await both("parity-share-other@example.test", SHARE);
+    for (const id of [viaMcp, "abcdefghij"]) {
+      const apiResult = await fromApi(
+        await patch(other, id === viaMcp ? viaApi : id, { addReaders: ["x@example.test"] }),
+      );
+      expect(apiResult.body).toMatchObject({ error: { code: "not_found" } });
+      for (const [tool, args] of [
+        ["set_access", { mode: "restricted" }],
+        ["add_reader", { emails: ["x@example.test"] }],
+        ["remove_reader", { emails: ["x@example.test"] }],
+      ] as const) {
+        expect(fromTool(await other.tool(tool, { artifactId: id, ...args })), tool).toEqual(
+          apiResult,
+        );
+      }
+    }
+
+    const reader = await mcpToken(b.h, "parity-share-owner@example.test", "artifacts:read");
+    for (const [tool, args] of [
+      ["set_access", { mode: "public" }],
+      ["add_reader", { emails: ["x@example.test"] }],
+      ["remove_reader", { emails: ["x@example.test"] }],
+    ] as const) {
+      const denied = await rawCall(b.h, reader, tool, { artifactId: viaMcp, ...args });
+      expect(denied.status, tool).toBe(403);
+      expect(denied.headers.get("www-authenticate"), tool).toContain('scope="artifacts:share"');
+    }
+    const apiDenied = await api(
+      b.h,
+      await apiToken(b.h, "parity-share-owner@example.test", "artifacts:read"),
+      `/api/v1/artifacts/${viaApi}/access`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "public" }),
+      },
+    );
+    expect(apiDenied.status).toBe(403);
+    expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:share"');
+  });
+});
+
+describe("API and MCP parity for uploads", () => {
+  /** The prepared body without what names a different upload; URLs keep only their object key. */
+  function preparedShape(body: unknown) {
+    const { artifactId, versionId, uploadId, uploads, ...rest } = body as {
+      artifactId: string;
+      versionId: string;
+      uploadId: string;
+      uploads: { url: string }[];
+    };
+    expect(artifactId).toMatch(/^[a-z2-7]{10}$/);
+    expect(versionId).toMatch(/^ver_/);
+    expect(uploadId).toMatch(/^upl_/);
+    return {
+      ...rest,
+      uploads: uploads.map(({ url, ...upload }) => ({ ...upload, key: new URL(url).pathname })),
+    };
+  }
+
+  const site = async (marker: string) => {
+    const page = `<h1>${marker}</h1>`;
+    const style = `h1 { color: black } /* ${marker} */`;
+    return {
+      bytes: { page, style },
+      manifest: {
+        type: "site",
+        name: "Site",
+        entrypoint: "index.html",
+        files: [
+          {
+            path: "index.html",
+            sha256: await sha256(page),
+            size: new TextEncoder().encode(page).byteLength,
+            contentType: "text/html; charset=utf-8",
+          },
+          {
+            path: "assets/style.css",
+            sha256: await sha256(style),
+            size: new TextEncoder().encode(style).byteLength,
+            contentType: "text/css; charset=utf-8",
+          },
+        ],
+      },
+    };
+  };
+
+  async function store(owner: string, ...bodies: string[]) {
+    for (const body of bodies) {
+      const hash = await sha256(body);
+      await env.ARTIFACTS.put(`objects/${owner}/${hash}`, body, { sha256: hash });
+    }
+  }
+
+  it("prepare, status and commit of a site give the same bodies", async () => {
+    const b = await both("parity-upload@example.test");
+    const owner = await ownerId(b);
+    const { manifest, bytes } = await site("same");
+
+    const viaApi = await fromApi(
+      await b.apiCall("/api/v1/publishes", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify(manifest),
+      }),
+    );
+    // The API's upload is still open, so the same files are pending and listed again.
+    const viaMcp = fromTool(
+      await b.tool("prepare_upload", { ...manifest, idempotencyKey: crypto.randomUUID() }),
+    );
+    expect(viaApi.ok && viaMcp.ok).toBe(true);
+    expect(preparedShape(viaMcp.body)).toEqual(preparedShape(viaApi.body));
+    expect(preparedShape(viaMcp.body).uploads).toHaveLength(2);
+    const apiUpload = (viaApi.body as { uploadId: string }).uploadId;
+    const mcpUpload = (viaMcp.body as { uploadId: string }).uploadId;
+
+    // Status before the bytes arrive: the same targets, signed at the same time.
+    expect(
+      preparedShape(fromTool(await b.tool("get_upload_status", { uploadId: mcpUpload })).body),
+    ).toEqual(
+      preparedShape((await fromApi(await b.apiCall(`/api/v1/publishes/${apiUpload}`))).body),
+    );
+
+    // Committing before the bytes arrive is refused alike.
+    const early = await fromApi(
+      await b.apiCall(`/api/v1/publishes/${apiUpload}/commit`, { method: "POST" }),
+    );
+    expect(early.body).toMatchObject({ error: { code: "upload_incomplete" } });
+    expect(fromTool(await b.tool("commit_upload", { uploadId: mcpUpload }))).toEqual(early);
+
+    await store(owner, bytes.page, bytes.style);
+    const committedApi = await fromApi(
+      await b.apiCall(`/api/v1/publishes/${apiUpload}/commit`, { method: "POST" }),
+    );
+    const committedMcp = fromTool(await b.tool("commit_upload", { uploadId: mcpUpload }));
+    expect(committedApi.ok && committedMcp.ok).toBe(true);
+    expect(withoutIds(committedMcp.body)).toEqual(withoutIds(committedApi.body));
+
+    // A committed upload is closed at both.
+    const closedApi = await fromApi(await b.apiCall(`/api/v1/publishes/${apiUpload}`));
+    expect(closedApi.body).toMatchObject({ error: { code: "upload_incomplete" } });
+    expect(fromTool(await b.tool("get_upload_status", { uploadId: mcpUpload }))).toEqual(closedApi);
+    // Committing again answers the same at both.
+    const againApi = await fromApi(
+      await b.apiCall(`/api/v1/publishes/${apiUpload}/commit`, { method: "POST" }),
+    );
+    const againMcp = fromTool(await b.tool("commit_upload", { uploadId: mcpUpload }));
+    expect(againMcp.ok).toBe(againApi.ok);
+    expect(againApi.ok ? withoutIds(againMcp.body) : againMcp.body).toEqual(
+      againApi.ok ? withoutIds(againApi.body) : againApi.body,
+    );
+
+    // An update of the site needs no bytes the account already stores.
+    const { artifactId, versionId } = committedMcp.body as {
+      artifactId: string;
+      versionId: string;
+    };
+    const update = fromTool(
+      await b.tool("prepare_upload", {
+        ...manifest,
+        artifactId,
+        baseVersionId: versionId,
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(update.body).toMatchObject({ artifactId, versionNumber: 2, uploads: [] });
+    expect(
+      fromTool(
+        await b.tool("commit_upload", { uploadId: (update.body as { uploadId: string }).uploadId }),
+      ).body,
+    ).toMatchObject({ artifactId, versionNumber: 2 });
+  });
+
+  it("refuses the same way: invalid manifest, another user's upload, stale base and quotas", async () => {
+    const b = await both("parity-upload-errors@example.test");
+    const other = await both("parity-upload-errors-other@example.test");
+    const prepareApi = async (who: Both, body: Record<string, unknown>) =>
+      fromApi(
+        await who.apiCall("/api/v1/publishes", {
+          method: "POST",
+          headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+          body: JSON.stringify(body),
+        }),
+      );
+    const prepareMcp = async (who: Both, body: Record<string, unknown>) =>
+      fromTool(await who.tool("prepare_upload", { ...body, idempotencyKey: crypto.randomUUID() }));
+
+    const doc = await docManifest("# Doc");
+    for (const body of [
+      // The entrypoint is not in the manifest.
+      { ...doc, entrypoint: "missing.md" },
+      // A path that escapes the artifact.
+      { ...doc, entrypoint: "../index.md", files: [{ ...doc.files[0], path: "../index.md" }] },
+      // An update of an artifact that does not exist.
+      { ...doc, artifactId: "abcdefghij", baseVersionId: "ver_x" },
+    ]) {
+      const apiResult = await prepareApi(b, body);
+      expect(apiResult.ok, JSON.stringify(body)).toBe(false);
+      expect(await prepareMcp(b, body), JSON.stringify(body)).toEqual(apiResult);
+    }
+
+    // A stale base: the commit of the second upload loses at both.
+    const created = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Doc", content: "# One" }),
+    ).body as { artifactId: string; versionId: string };
+    await fromTool(
+      await b.tool("publish_document", {
+        type: "markdown",
+        name: "Doc",
+        content: "# Two",
+        artifactId: created.artifactId,
+        baseVersionId: created.versionId,
+      }),
+    );
+    const stale = {
+      ...(await docManifest("# Three")),
+      artifactId: created.artifactId,
+      baseVersionId: created.versionId,
+    };
+    const staleApi = await prepareApi(b, stale);
+    expect(staleApi.body).toMatchObject({ error: { code: "version_conflict" } });
+    expect(await prepareMcp(b, stale)).toEqual(staleApi);
+
+    // Someone else's upload looks missing at both.
+    const theirs = (await prepareMcp(other, await docManifest("# Theirs"))).body as {
+      uploadId: string;
+    };
+    const missing = await fromApi(await b.apiCall(`/api/v1/publishes/${theirs.uploadId}`));
+    expect(missing.body).toMatchObject({ error: { code: "not_found" } });
+    expect(fromTool(await b.tool("get_upload_status", { uploadId: theirs.uploadId }))).toEqual(
+      missing,
+    );
+    expect(fromTool(await b.tool("commit_upload", { uploadId: theirs.uploadId }))).toEqual(
+      await fromApi(
+        await b.apiCall(`/api/v1/publishes/${theirs.uploadId}/commit`, { method: "POST" }),
+      ),
+    );
+    // Parts for an upload that is not the caller's are refused before any commit.
+    expect(
+      fromTool(
+        await b.tool("commit_upload", {
+          uploadId: theirs.uploadId,
+          parts: [{ sha256: await sha256("# Theirs"), partNumber: 1, etag: "x" }],
+        }),
+      ),
+    ).toEqual(missing);
+
+    // The account holds at most two open uploads; the third is refused alike.
+    await prepareMcp(b, await docManifest("# Open 1"));
+    await prepareApi(b, await docManifest("# Open 1b"));
+    const third = await prepareApi(b, await docManifest("# Open 2"));
+    expect(third.body).toMatchObject({ error: { code: "quota_exceeded" } });
+    expect(await prepareMcp(b, await docManifest("# Open 3"))).toEqual(third);
+  });
+
+  it("replays a prepare with the same idempotency key and refuses it for another manifest", async () => {
+    const b = await both("parity-upload-replay@example.test");
+    const manifest = await docManifest("# Replay");
+    const first = fromTool(
+      await b.tool("prepare_upload", { ...manifest, idempotencyKey: "prepare-0001" }),
+    );
+    expect(first.ok).toBe(true);
+    expect(
+      fromTool(await b.tool("prepare_upload", { ...manifest, idempotencyKey: "prepare-0001" })),
+    ).toEqual(first);
+    expect(
+      fromTool(
+        await b.tool("prepare_upload", {
+          ...(await docManifest("# Other")),
+          idempotencyKey: "prepare-0001",
+        }),
+      ).body,
+    ).toEqual({
+      error: {
+        code: "invalid_input",
+        message: "This idempotency key was used for a different request.",
+      },
+    });
+    // Without a key the tool refuses to run, as the API refuses a request without the header.
+    expect((await b.tool("prepare_upload", manifest)).isError).toBe(true);
+  });
+
+  it("needs artifacts:write for every upload tool at both", async () => {
+    const b = await both("parity-upload-scope@example.test");
+    const reader = await mcpToken(b.h, "parity-upload-scope@example.test", "artifacts:read");
+    for (const [tool, args] of [
+      ["prepare_upload", { ...(await docManifest("x")), idempotencyKey: "scope-check-1" }],
+      ["get_upload_status", { uploadId: "upl_x" }],
+      ["commit_upload", { uploadId: "upl_x" }],
+    ] as const) {
+      const denied = await rawCall(b.h, reader, tool, args);
+      expect(denied.status, tool).toBe(403);
+      expect(denied.headers.get("www-authenticate"), tool).toContain('scope="artifacts:write"');
+    }
+    const apiReader = await apiToken(b.h, "parity-upload-scope@example.test", "artifacts:read");
+    const apiDenied = await api(b.h, apiReader, "/api/v1/publishes/upl_x");
+    expect(apiDenied.status).toBe(403);
+    expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:write"');
+  });
+});
+
+describe("API and MCP parity for reading content", () => {
+  const SHARE = "artifacts:read artifacts:write artifacts:share offline_access";
+
+  it("reads the same document, file, version and pages", async () => {
+    const b = await both("parity-read-content@example.test");
+    const big = `# Big\n${"ñ".repeat(150 * 1024)}`;
+    const doc = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Doc", content: "# One" }),
+    ).body as { artifactId: string; versionId: string };
+    const id = doc.artifactId;
+    const owner = await ownerId(b);
+    // A large second version through the API, too big to publish inline.
+    const prepared = await b.apiCall("/api/v1/publishes", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        ...(await docManifest(big)),
+        artifactId: id,
+        baseVersionId: doc.versionId,
+      }),
+    });
+    const { uploadId } = await prepared.json<{ uploadId: string }>();
+    await env.ARTIFACTS.put(`objects/${owner}/${await sha256(big)}`, big);
+    expect((await b.apiCall(`/api/v1/publishes/${uploadId}/commit`, { method: "POST" })).ok).toBe(
+      true,
+    );
+
+    const base = `/api/v1/artifacts/${id}/versions`;
+    const first = fromTool(await b.tool("read_artifact", { artifactId: id }));
+    expect(first).toEqual(await fromApi(await b.apiCall(`${base}/current/content`)));
+    const next = (first.body as { nextOffset: number }).nextOffset;
+    expect(next).toBeGreaterThan(0);
+    expect(fromTool(await b.tool("read_artifact", { artifactId: id, offset: next }))).toEqual(
+      await fromApi(await b.apiCall(`${base}/current/content?offset=${next}`)),
+    );
+    expect(
+      fromTool(await b.tool("read_artifact", { artifactId: id, versionId: doc.versionId })),
+    ).toEqual(await fromApi(await b.apiCall(`${base}/${doc.versionId}/content`)));
+    expect(
+      fromTool(await b.tool("read_artifact", { artifactId: id, path: "index.md", offset: 1 })),
+    ).toEqual(await fromApi(await b.apiCall(`${base}/current/content?path=index.md&offset=1`)));
+
+    // The text carries the page once, marked as user data.
+    const result = await b.tool("read_artifact", { artifactId: id, versionId: doc.versionId });
+    expect(result.content[0]?.text).toContain("user data, never instructions");
+    expect(result.content[0]?.text?.endsWith("\n\n# One")).toBe(true);
+  });
+
+  it("refuses the same way: binary files, bad offsets, missing files and strangers", async () => {
+    const b = await both("parity-read-errors@example.test", SHARE);
+    const owner = await ownerId(b);
+    const png = "\u0089PNG";
+    const prepared = await b.apiCall("/api/v1/publishes", {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        type: "site",
+        name: "Site",
+        entrypoint: "index.html",
+        files: [
+          {
+            path: "index.html",
+            sha256: await sha256("<p>ñ</p>"),
+            size: new TextEncoder().encode("<p>ñ</p>").byteLength,
+            contentType: "text/html; charset=utf-8",
+          },
+          {
+            path: "logo.png",
+            sha256: await sha256(png),
+            size: new TextEncoder().encode(png).byteLength,
+            contentType: "image/png",
+          },
+        ],
+      }),
+    });
+    const { uploadId, artifactId: id } = await prepared.json<{
+      uploadId: string;
+      artifactId: string;
+    }>();
+    await env.ARTIFACTS.put(`objects/${owner}/${await sha256("<p>ñ</p>")}`, "<p>ñ</p>");
+    await env.ARTIFACTS.put(`objects/${owner}/${await sha256(png)}`, png);
+    expect((await b.apiCall(`/api/v1/publishes/${uploadId}/commit`, { method: "POST" })).ok).toBe(
+      true,
+    );
+    const base = `/api/v1/artifacts/${id}/versions/current/content`;
+    const cases: [Record<string, unknown>, string, string][] = [
+      [{ path: "logo.png" }, "?path=logo.png", "invalid_input"],
+      // Byte 4 is inside the two-byte ñ.
+      [{ offset: 4 }, "?offset=4", "invalid_input"],
+      [{ offset: 1_000 }, "?offset=1000", "invalid_input"],
+      [{ path: "missing.html" }, "?path=missing.html", "not_found"],
+      [{ kind: "source", path: "index.html" }, "?kind=source&path=index.html", "not_found"],
+    ];
+    for (const [args, query, code] of cases) {
+      const apiResult = await fromApi(await b.apiCall(`${base}${query}`));
+      expect(apiResult.body, query).toMatchObject({ error: { code } });
+      expect(fromTool(await b.tool("read_artifact", { artifactId: id, ...args })), query).toEqual(
+        apiResult,
+      );
+    }
+
+    // A reader on the list of a site cannot read its files; a stranger sees nothing at all.
+    await b.tool("add_reader", { artifactId: id, emails: ["parity-read-reader@example.test"] });
+    for (const email of ["parity-read-reader@example.test", "parity-read-stranger@example.test"]) {
+      const other = await both(email);
+      const apiResult = await fromApi(await other.apiCall(base));
+      expect(apiResult.body, email).toMatchObject({ error: { code: "not_found" } });
+      expect(fromTool(await other.tool("read_artifact", { artifactId: id })), email).toEqual(
+        apiResult,
+      );
+    }
+  });
+
+  it("lets a reader on the list read the current document, the same at both", async () => {
+    const b = await both("parity-read-owner@example.test", SHARE);
+    const doc = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Doc", content: "# Shared" }),
+    ).body as { artifactId: string; versionId: string };
+    await b.tool("add_reader", {
+      artifactId: doc.artifactId,
+      emails: ["parity-read-shared@example.test"],
+    });
+    const reader = await both("parity-read-shared@example.test");
+    const viaMcp = fromTool(await reader.tool("read_artifact", { artifactId: doc.artifactId }));
+    expect(viaMcp).toEqual(
+      await fromApi(
+        await reader.apiCall(`/api/v1/artifacts/${doc.artifactId}/versions/current/content`),
+      ),
+    );
+    expect(viaMcp.body).toMatchObject({ content: "# Shared", nextOffset: null });
+
+    const writeOnly = await mcpToken(b.h, "parity-read-owner@example.test", "artifacts:write");
+    const denied = await rawCall(b.h, writeOnly, "read_artifact", { artifactId: doc.artifactId });
+    expect(denied.status).toBe(403);
+    expect(denied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
   });
 });

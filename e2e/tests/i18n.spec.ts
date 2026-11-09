@@ -78,6 +78,15 @@ test("the dashboard switches to Spanish, keeps it on reload and saves it in the 
   expect(await page.evaluate(() => localStorage.getItem("portifact.locale"))).toBe("es");
 });
 
+/**
+ * Gives back the per-IP code this spec used. Every browser of the stack shares one address, and
+ * the sign-in specs of all projects already spend most of its 20 codes an hour (OTP_LIMITS.perIp),
+ * so one more send per project left the last project (WebKit in CI) refused with 429.
+ */
+async function releaseCodeBudget(): Promise<void> {
+  await sql("delete from rate_limits where key like 'otp:ip:%'");
+}
+
 test("the login page asked for Spanish shows Spanish and sends the code email in Spanish", async ({
   page,
 }) => {
@@ -88,7 +97,7 @@ test("the login page asked for Spanish shows Spanish and sends the code email in
   await expect(page).toHaveURL(`${APP_ORIGIN}/login`);
   await page.getByLabel("Correo electrónico").fill(email);
   await page.getByRole("button", { name: "Envíame un código" }).click();
-  const message = await lastEmail(email);
+  const message = await lastEmail(email).finally(releaseCodeBudget);
   expect(message.subject).toBe("Tu código para iniciar sesión en Portifact");
   expect(message.html).toContain('<html lang="es"');
 

@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { TERMS_VERSION } from "@portifact/contracts";
+import { THEME_SCRIPT, THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { describe, expect, it } from "vitest";
 import { PAGE_CSP } from "../src/app-host.ts";
 
@@ -47,6 +48,21 @@ describe("portifact.com", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(await response.text()).toContain("Share what your agent built");
+  });
+
+  it("applies the stored theme on every site page with the one inline script its policy allows", async () => {
+    const pages = ["/", "/terms", "/privacy", "/acceptable-use", "/mcp-compatibility"];
+    // The pages prerendered in Spanish carry the same script, byte for byte, so the hash holds.
+    for (const path of [...pages, ...pages.map((page) => `/es${page}`)]) {
+      const response = await get(`https://portifact.com${path}`);
+      const html = await response.text();
+      const head = html.slice(0, html.indexOf("</head>"));
+      expect(head, path).toContain(`<script>${THEME_SCRIPT}</script>`);
+      expect(html.match(/<script>/g), path).toHaveLength(1);
+      // The landing's policy comes from apps/web/public/_headers, the others from the Worker.
+      const policy = response.headers.get("content-security-policy");
+      if (policy !== null) expect(policy, path).toContain(THEME_SCRIPT_HASH);
+    }
   });
 
   it("serves the legal pages with the strict page headers", async () => {

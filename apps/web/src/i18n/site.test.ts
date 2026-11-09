@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LOCALE_CODES } from "@portifact/contracts/locales";
+import { THEME_SCRIPT } from "@portifact/contracts/theme";
 import { axeViolations } from "@portifact/ui/testing";
 import { describe, expect, it } from "vitest";
 import { collectMessages, localizeDocument, markupOf, stripMarkers } from "./markers.ts";
@@ -179,6 +180,15 @@ describe("renderSiteHtml", () => {
     expect(document.head.querySelector('link[rel="canonical"]')?.getAttribute("href")).toBe(
       "https://portifact.com/es/mcp-compatibility",
     );
+  });
+
+  it("keeps the inline theme script byte for byte, so its CSP hash still allows it", () => {
+    // Vite adds the script to the built English page; the localized pages are rendered from it.
+    const built = source(LANDING).replace("</head>", `<script>${THEME_SCRIPT}</script></head>`);
+    for (const locale of LOCALE_CODES) {
+      const html = renderSiteHtml(built, LANDING, locale);
+      expect(html, locale).toContain(`<script>${THEME_SCRIPT}</script>`);
+    }
   });
 
   it("fails on a marker the catalog lacks, naming it", () => {
