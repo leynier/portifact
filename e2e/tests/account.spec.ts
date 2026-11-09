@@ -3,6 +3,7 @@
 // and the defaults for new artifacts are saved for the account.
 
 import type { Page } from "@playwright/test";
+import { axeViolations } from "../src/axe.ts";
 import { createUser, expect, signIn, sql, test } from "../src/fixtures.ts";
 import { APP_ORIGIN } from "../src/hosts.ts";
 
@@ -158,4 +159,99 @@ test("the defaults for new artifacts are saved for the account", async ({ page, 
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
   await page.goto(`${APP_ORIGIN}/account`);
   await expect(page.getByRole("heading", { level: 1, name: "Profile" })).toBeVisible();
+});
+
+test("settings and profile have a section guide, a compact menu on phones", async ({
+  page,
+  context,
+}) => {
+  const owner = await createUser("Guide");
+  await signIn(context, owner);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, "/profile", "Profile");
+  const profile = page.getByRole("navigation", { name: "Profile sections" });
+  await expect(profile.getByRole("link")).toHaveText([
+    "Your account",
+    "Sign-in methods",
+    "Browser sessions",
+  ]);
+  await open(page, "/settings", "Settings");
+  const settings = page.getByRole("navigation", { name: "Settings sections" });
+  await expect(settings.getByRole("link")).toHaveText([
+    "Defaults for new artifacts",
+    "Your data",
+    "Danger zone",
+  ]);
+  await settings.getByRole("link", { name: "Danger zone" }).click();
+  await expect(page.getByRole("region", { name: "Danger zone" })).toBeInViewport();
+  await expect(settings.getByRole("link", { name: "Danger zone" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+
+  await page.setViewportSize({ width: 375, height: 740 });
+  await open(page, "/settings", "Settings");
+  const menu = page.getByRole("navigation", { name: "Settings sections" });
+  const summary = menu.locator("summary");
+  await expect(summary).toHaveText(/On this page\s*Defaults for new artifacts/);
+  await expect(menu.getByRole("link", { name: "Your data" })).toBeHidden();
+  await summary.click();
+  await menu.getByRole("link", { name: "Your data" }).click();
+  await expect(menu.getByRole("link", { name: "Your data" })).toBeHidden();
+  await expect(summary).toHaveText(/On this page\s*Your data/);
+  // The menu stays at the top without covering the section it opened.
+  const heading = await page.getByRole("heading", { name: "Your data" }).boundingBox();
+  const bar = await menu.boundingBox();
+  expect(heading?.y ?? 0).toBeGreaterThanOrEqual((bar?.y ?? 0) + (bar?.height ?? 0));
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  );
+  expect(overflow).toBe(0);
+  expect(await axeViolations(page)).toEqual([]);
+});
+
+test("connected apps are cards with a summary, details on demand and Disconnect", async ({
+  page,
+  context,
+}) => {
+  const owner = await createUser("Apps");
+  const now = Date.now();
+  await sql(
+    "INSERT OR IGNORE INTO oauth_clients (id, client_id, name, redirect_uris, scopes) VALUES ('e2e-agent', 'e2e-agent', 'Agent', '[]', '[]')",
+  );
+  await sql(
+    "INSERT INTO oauth_refresh_tokens (id, token, client_id, user_id, resources, expires_at, created_at, auth_time, scopes) VALUES (?, ?, 'e2e-agent', ?, ?, ?, ?, ?, ?)",
+    [
+      crypto.randomUUID(),
+      crypto.randomUUID(),
+      owner.userId,
+      JSON.stringify([`${APP_ORIGIN}/mcp`]),
+      now + 30 * 86_400_000,
+      now - 2 * 3_600_000,
+      now - 5 * 86_400_000,
+      JSON.stringify(["artifacts:read", "annotations:read", "offline_access"]),
+    ],
+  );
+  await signIn(context, owner);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await open(page, "/apps", "Apps");
+  const card = page
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("heading", { name: "Agent" }) });
+  await expect(card).toContainText("Third-party app");
+  await expect(card).toContainText("Read only");
+  await expect(card).toContainText("Connects to Portifact MCP");
+  await expect(card).toContainText("Last used 2 hours ago");
+  await expect(card.getByText("Read comments on your artifacts")).toBeHidden();
+  await card.locator("summary").click();
+  await expect(card.getByText("Read comments on your artifacts")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Connect an app" })).toContainText(
+    "portifact login",
+  );
+  expect(await axeViolations(page)).toEqual([]);
+
+  await card.getByRole("button", { name: "Disconnect Agent" }).click();
+  const dialog = page.getByRole("dialog", { name: "Disconnect Agent?" });
+  await dialog.getByRole("button", { name: "Disconnect" }).click();
+  await expect(page.getByRole("heading", { name: "No apps connected" })).toBeVisible();
 });

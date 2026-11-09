@@ -97,6 +97,7 @@ export {
   type VisualViewportBox,
 } from "./patterns/frame-overlay.tsx";
 export {
+  GUIDE_QUERY,
   PageSection,
   type PageSectionLink,
   type PageSectionProps,
