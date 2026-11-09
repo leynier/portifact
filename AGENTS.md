@@ -67,7 +67,7 @@ bun run notices        # regenerate third-party-notices.md and the CLI's copy af
 bun run --cwd packages/db generate -- --name <change>   # create a D1 migration from schema.ts
 bun run --cwd packages/db generate:access -- --name <change>   # create an access log migration from access-schema.ts
 bun run --cwd packages/ui sync-tokens   # regenerate tokens-css.ts after editing tokens.css
-bun run --cwd packages/render build     # build the diagram script (Mermaid and its runner) into packages/render/dist; turbo runs it before the content Worker's tasks
+bun run --cwd packages/render build     # build the diagram script (Mermaid and its runner) into packages/render/dist; turbo runs it before the content Worker's tasks and the e2e typecheck
 bun run --cwd packages/emails preview   # render every email to /tmp/portifact-email-previews (.html and .txt) for review
 bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit with third-party cookies blocked (see docs/testing.md); CI's e2e job runs it too
 bun run test:mutation  # Stryker on domain, anchors, contracts, render and services, one package at a time (slow; see docs/testing.md)
