@@ -157,7 +157,7 @@ describe("artifact list", () => {
       within(active)
         .getByRole("link", { name: "Review and comment on Launch plan" })
         .getAttribute("href"),
-    ).toBe("/review/k7d2qm4xab");
+    ).toBe("/view/k7d2qm4xab");
     expect(within(archived).queryByRole("link", { name: /Open the published/ })).toBeNull();
     expect(within(archived).queryByRole("link", { name: /Review and comment/ })).toBeNull();
     expect(within(table).getByRole("link", { name: "Launch plan" }).getAttribute("href")).toBe(

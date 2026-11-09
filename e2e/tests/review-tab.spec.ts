@@ -34,7 +34,12 @@ test("a review tab shows the version with a banner, comments stay in the viewer,
   engine,
 }) => {
   const owner = await createUser("Owner");
-  const { artifactId } = await publish({ ownerId: owner.userId, name: "Launch plan", files: SITE });
+  const { artifactId } = await publish({
+    ownerId: owner.userId,
+    name: "Launch plan",
+    bar: false,
+    files: SITE,
+  });
   await signIn(context, owner);
   await openReview(page, artifactId, "Launch plan");
   await expect(
@@ -117,6 +122,7 @@ test("an artifact cannot open a review tab session in a visitor's browser", asyn
   const reviewed = await publish({
     ownerId: attacker.userId,
     name: "Launch plan",
+    bar: false,
     accessMode: "public",
     files: SITE,
   });
@@ -140,6 +146,7 @@ test("an artifact cannot open a review tab session in a visitor's browser", asyn
     const planter = await publish({
       ownerId: attacker.userId,
       name: "Navigator",
+      bar: false,
       accessMode: "public",
       files: { "index.html": navigatingPage(url) },
     });
@@ -178,6 +185,7 @@ test("a frame session a sibling plants in the artifact's own partition is never 
   const reviewed = await publish({
     ownerId: victim.userId,
     name: "Launch plan",
+    bar: false,
     accessMode: "public",
     files: SITE,
   });
@@ -201,6 +209,7 @@ test("a frame session a sibling plants in the artifact's own partition is never 
     const sibling = await publish({
       ownerId: attacker.userId,
       name: "Cute cats",
+      bar: false,
       accessMode: "public",
       files: {
         "index.html": plantingPage(bounced(`${origin}/__portifact/review?code=${code}`)),

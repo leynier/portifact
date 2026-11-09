@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   endReviewSession,
+  getViewerArtifact,
   hashSecret,
   issueReviewHandoff,
   pruneReviewSessions,
@@ -294,5 +295,103 @@ describe("review access", () => {
     await expect(pruneReviewSessions(db(), NOW + 2000 + SESSION_MS)).resolves.toEqual({
       processed: 0,
     });
+  });
+});
+
+describe("viewer artifact", () => {
+  beforeEach(() => seed());
+
+  const view = (userId: string | null, now = NOW) =>
+    getViewerArtifact(db(), { artifactId: ID, userId, now });
+
+  it("names who is looking: the owner, a reader the policy admits", async () => {
+    expect(await view(OWNER)).toEqual({
+      ok: true,
+      value: {
+        name: "Plan",
+        type: "site",
+        versionNumber: 1,
+        accessMode: "restricted",
+        annotations: "off",
+        role: "owner",
+      },
+    });
+    const reader = await view(READER);
+    expect(reader.ok && reader.value.role).toBe("reader");
+  });
+
+  it("answers a stranger exactly like a missing artifact", async () => {
+    const stranger = await view(STRANGER);
+    const missing = await getViewerArtifact(db(), {
+      artifactId: "zzzzzzzzzz",
+      userId: STRANGER,
+      now: NOW,
+    });
+    expect(stranger).toEqual(missing);
+    expect(stranger.ok).toBe(false);
+  });
+
+  it("shows anonymous visitors only public artifacts that are servable", async () => {
+    expect((await view(null)).ok).toBe(false);
+    await env.DB.exec("UPDATE artifacts SET access_mode = 'authenticated'");
+    expect((await view(null)).ok).toBe(false);
+    await env.DB.exec("UPDATE artifacts SET access_mode = 'public', annotations = 'open'");
+    const open = await view(null);
+    expect(open.ok && open.value).toMatchObject({ role: "anonymous", annotations: "open" });
+    // Expired, archived or suspended public artifacts look missing too.
+    expect((await view(null, NOW + 11 * DAY)).ok).toBe(false);
+    await env.DB.exec("UPDATE artifacts SET state = 'suspended'");
+    expect(await view(null)).toEqual(await view(STRANGER));
+  });
+});
+
+describe("open review codes", () => {
+  beforeEach(() => seed());
+
+  it("keeps at most a few open codes per account and expires the oldest", async () => {
+    const codes: string[] = [];
+    for (let i = 0; i < REVIEW_SESSION.openCodesPerUser + 3; i++) {
+      const result = await issueReviewHandoff(db(), {
+        artifactId: ID,
+        userId: READER,
+        authSessionId: appSession(READER),
+        now: NOW + i,
+      });
+      if (!result.ok) throw new Error(result.message);
+      codes.push(result.value.code);
+    }
+    const rows = await db()
+      .select()
+      .from(schema.reviewHandoffs)
+      .where(eq(schema.reviewHandoffs.userId, READER));
+    expect(rows).toHaveLength(REVIEW_SESSION.openCodesPerUser);
+    // The newest still redeems; the oldest no longer does.
+    const newest = await redeemReviewHandoff(db(), {
+      code: codes.at(-1) as string,
+      artifactId: ID,
+      kind: "frame",
+      now: NOW + 100,
+    });
+    expect(newest.ok).toBe(true);
+    const oldest = await redeemReviewHandoff(db(), {
+      code: codes[0] as string,
+      artifactId: ID,
+      kind: "frame",
+      now: NOW + 100,
+    });
+    expect(oldest.ok).toBe(false);
+    // Another account's codes are never touched.
+    await issueReviewHandoff(db(), {
+      artifactId: ID,
+      userId: OWNER,
+      authSessionId: appSession(OWNER),
+      now: NOW,
+    });
+    expect(
+      await db()
+        .select()
+        .from(schema.reviewHandoffs)
+        .where(eq(schema.reviewHandoffs.userId, READER)),
+    ).toHaveLength(REVIEW_SESSION.openCodesPerUser);
   });
 });

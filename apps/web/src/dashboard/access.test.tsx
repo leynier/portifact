@@ -19,6 +19,7 @@ const POLICY: AccessPolicyView = {
   readers: ["ana@example.com"],
   indexable: false,
   embeddable: false,
+  bar: true,
   policyGeneration: 4,
 };
 
@@ -56,6 +57,8 @@ describe("access settings", () => {
     expect((indexable as HTMLInputElement).checked).toBe(false);
     expect(screen.getByRole("checkbox", { name: "Let other sites embed it" })).toBeTruthy();
     expect(region.textContent).toContain("Only applies while the artifact is public.");
+    const bar = screen.getByRole("checkbox", { name: "Show the Portifact bar" });
+    expect((bar as HTMLInputElement).checked).toBe(true);
 
     const list = screen.getByRole("list", { name: "People who can open this artifact" });
     expect(
@@ -65,6 +68,16 @@ describe("access settings", () => {
     ).toEqual(["ana@example.com"]);
     expect(screen.getByText("1 of 500 people")).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("turns the Portifact bar off and saves only that", async () => {
+    renderDashboard(PATH, server);
+    await accessRegion();
+    await screen.findByRole("group", { name: "Who can open this artifact" });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show the Portifact bar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save access" }));
+    await waitFor(() => expect(server.bodies.at(-1)).toEqual({ bar: false }));
+    await waitFor(() => expect(server.access[ID]?.bar).toBe(false));
   });
 
   it("saves only what changed and announces it, updating the artifact's access", async () => {
@@ -304,15 +317,26 @@ describe("access helpers", () => {
       readers: [],
       indexable: false,
       embeddable: true,
+      bar: true,
       policyGeneration: 1,
     };
-    expect(settingsChange(policy, { mode: "restricted", indexable: false, embeddable: true })).toBe(
-      undefined,
-    );
-    expect(settingsChange(policy, { mode: "public", indexable: true, embeddable: false })).toEqual({
+    expect(
+      settingsChange(policy, { mode: "restricted", indexable: false, embeddable: true, bar: true }),
+    ).toBe(undefined);
+    expect(
+      settingsChange(policy, { mode: "public", indexable: true, embeddable: false, bar: true }),
+    ).toEqual({
       mode: "public",
       indexable: true,
       embeddable: false,
     });
+    expect(
+      settingsChange(policy, {
+        mode: "restricted",
+        indexable: false,
+        embeddable: true,
+        bar: false,
+      }),
+    ).toEqual({ bar: false });
   });
 });

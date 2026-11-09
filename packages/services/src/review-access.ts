@@ -96,17 +96,27 @@ export async function issueReviewHandoff(
   if (!current) return unavailable();
   const code = randomToken();
   const expiresAt = input.now + REVIEW_SESSION.handoffTtlSeconds * SECOND_MS;
-  await db.insert(schema.reviewHandoffs).values({
-    codeHash: await hashSecret(code),
-    artifactId: input.artifactId,
-    versionId: current.versionId,
-    userId: input.userId,
-    authSessionId: input.authSessionId,
-    policyGeneration: access.value.policyGeneration,
-    kind: input.kind ?? "frame",
-    expiresAt,
-    createdAt: input.now,
-  });
+  const handoff = schema.reviewHandoffs;
+  await db.batch([
+    db.insert(handoff).values({
+      codeHash: await hashSecret(code),
+      artifactId: input.artifactId,
+      versionId: current.versionId,
+      userId: input.userId,
+      authSessionId: input.authSessionId,
+      policyGeneration: access.value.policyGeneration,
+      kind: input.kind ?? "frame",
+      expiresAt,
+      createdAt: input.now,
+    }),
+    // Keeps the account's newest unredeemed codes only, the new one included; redeemed codes
+    // stay until the maintenance job prunes them.
+    db
+      .delete(handoff)
+      .where(
+        sql`${handoff.codeHash} in (select code_hash from review_handoffs where user_id = ${input.userId} and used_at is null order by created_at desc, rowid desc limit -1 offset ${REVIEW_SESSION.openCodesPerUser})`,
+      ),
+  ]);
   return ok({ code, expiresAt, sessionTag: await reviewSessionTag(code), ...current });
 }
 

@@ -343,15 +343,15 @@ function RowActions({ artifact }: { artifact: ArtifactListItem }) {
           >
             <ExternalLink aria-hidden="true" className="size-4" />
           </a>
-          <Link
-            to="/review/$artifactId"
-            params={{ artifactId: artifact.id }}
+          {/* A full page load, so the viewer gets its own policy (frames of this artifact only). */}
+          <a
+            href={`/view/${encodeURIComponent(artifact.id)}`}
             aria-label={t("list.reviewLabel", { name: artifact.name })}
             title={t("list.review")}
             className={buttonClasses({ intent: "ghost", size: "sm" })}
           >
             <MessageSquareText aria-hidden="true" className="size-4" />
-          </Link>
+          </a>
         </>
       ) : null}
     </span>

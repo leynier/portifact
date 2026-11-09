@@ -2,14 +2,14 @@
 // viewer's iframe redeems on the artifact origin. apps/content/test/review.test.ts covers the
 // artifact origin's part.
 import { env } from "cloudflare:workers";
-import { REVIEW_SESSION, ReviewStart, ReviewTabStart } from "@portifact/contracts";
+import { REVIEW_SESSION, ReviewStart, ReviewTabStart, ViewerInfo } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { hashSecret, redeemReviewHandoff, reviewSessionTag } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
-import { REVIEW_START_LIMIT } from "../src/auth/limits.ts";
+import { REVIEW_START_LIMIT, VIEWER_LOOKUP_LIMIT } from "../src/auth/limits.ts";
 import { publishSite, type TokenClient, tokenClient } from "./api-client.ts";
-import { createHarness, type Harness, ORIGIN } from "./harness.ts";
+import { createHarness, type Harness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
 const db = () => createDb(env.DB);
 
@@ -132,7 +132,7 @@ describe("review codes", () => {
     expect(response.status).toBe(404);
   });
 
-  it("limits how many codes an account asks for", async () => {
+  it("limits how many codes an account asks for one artifact", async () => {
     for (let i = 0; i < REVIEW_START_LIMIT.max; i++) {
       expect((await start(h, artifactId, owner.cookie)).status).toBe(200);
     }
@@ -140,6 +140,21 @@ describe("review codes", () => {
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
+  });
+
+  it("keeps other artifacts open when one artifact's codes are used up", async () => {
+    // Any site can reload the viewer of one artifact in a popup; that must not lock the account
+    // out of the artifacts it reads.
+    const other = await publishSite(owner, "Other plan");
+    for (let i = 0; i <= REVIEW_START_LIMIT.max; i++) await start(h, artifactId, owner.cookie);
+    expect((await start(h, artifactId, owner.cookie)).status).toBe(429);
+    expect((await start(h, other, owner.cookie)).status).toBe(200);
+    // At most REVIEW_OPEN_CODES codes stay open per account; older ones are expired.
+    const open = await db()
+      .select()
+      .from(schema.reviewHandoffs)
+      .where(eq(schema.reviewHandoffs.userId, owner.userId));
+    expect(open.length).toBeLessThanOrEqual(REVIEW_SESSION.openCodesPerUser);
   });
 
   it("does not issue tab codes with GET", async () => {
@@ -215,5 +230,79 @@ describe("review tab codes", () => {
     const limited = await startTab(owner.cookie);
     expect(limited.status).toBe(429);
     expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
+  });
+});
+
+describe("viewer info", () => {
+  const view = (cookie: string, extra: Record<string, string> = {}, id = artifactId) =>
+    h.request(`/api/v1/artifacts/${id}/viewer`, {
+      headers: { ...(cookie ? { cookie } : {}), "sec-fetch-site": "same-origin", ...extra },
+    });
+
+  it("tells the owner and a signed-in reader what the bar shows, never threads or readers", async () => {
+    const response = await view(owner.cookie);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(ViewerInfo.parse(await response.json())).toEqual({
+      artifactId,
+      name: "Review plan",
+      type: "site",
+      origin: `https://${artifactId}.portifact.dev`,
+      versionNumber: 1,
+      accessMode: "restricted",
+      annotations: "off",
+      role: "owner",
+    });
+    await env.DB.prepare("UPDATE artifacts SET access_mode = 'authenticated' WHERE id = ?")
+      .bind(artifactId)
+      .run();
+    const reader = await h.signIn(`viewer-reader-${crypto.randomUUID()}@example.test`);
+    expect(await (await view(reader)).json()).toMatchObject({ role: "reader" });
+  });
+
+  it("shows anonymous visitors public artifacts only; anything else looks missing", async () => {
+    const hidden = await view("");
+    const missing = await view("", {}, "zzzzzzzzzz");
+    expect(hidden.status).toBe(404);
+    expect(await hidden.json()).toEqual(await missing.json());
+    const stranger = await h.signIn(`viewer-stranger-${crypto.randomUUID()}@example.test`);
+    expect((await view(stranger)).status).toBe(404);
+    await env.DB.prepare("UPDATE artifacts SET access_mode = 'public' WHERE id = ?")
+      .bind(artifactId)
+      .run();
+    expect(await (await view("")).json()).toMatchObject({ role: "anonymous" });
+    expect(await (await view(stranger)).json()).toMatchObject({ role: "reader" });
+    // A forged session cookie is an anonymous visitor, not an error.
+    expect((await view(`${SESSION_COOKIE}=forged.value`)).status).toBe(200);
+  });
+
+  it("limits lookups per IP address, with or without a session", async () => {
+    const fromIp = (ip: string) => view("", { "cf-connecting-ip": ip });
+    for (let i = 0; i < VIEWER_LOOKUP_LIMIT.max; i++) {
+      expect((await fromIp("203.0.113.7")).status).toBe(404);
+    }
+    const limited = await fromIp("203.0.113.7");
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
+    expect((await view(owner.cookie, { "cf-connecting-ip": "203.0.113.7" })).status).toBe(429);
+    expect((await fromIp("203.0.113.8")).status).toBe(404);
+  });
+
+  it("answers only the app's own pages: no bearer tokens, no other sites, no bad IDs", async () => {
+    const bearer = await owner.call(`/api/v1/artifacts/${artifactId}/viewer`);
+    expect(bearer.status).toBe(403);
+    for (const site of ["cross-site", "same-site", ""]) {
+      const refused = await view(owner.cookie, site ? { "sec-fetch-site": site } : {});
+      if (!site) {
+        const bare = await h.request(`/api/v1/artifacts/${artifactId}/viewer`, {
+          headers: { cookie: owner.cookie },
+        });
+        expect(bare.status).toBe(403);
+        continue;
+      }
+      expect(refused.status, site).toBe(403);
+    }
+    expect((await view(owner.cookie, {}, "NOT-AN-ID")).status).toBe(404);
   });
 });

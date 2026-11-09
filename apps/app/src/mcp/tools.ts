@@ -11,6 +11,7 @@ import {
   type ToolCallback,
 } from "@modelcontextprotocol/server";
 import {
+  AccessPolicyView,
   ArtifactList,
   ArtifactRef,
   ArtifactSummary,
@@ -22,6 +23,7 @@ import {
   ListArtifactsInput,
   type OAuthScope,
   PublishDocumentInput,
+  SetPortifactBarInput,
 } from "@portifact/contracts";
 import { createDb, type Db } from "@portifact/db";
 import type { HumanCheck } from "@portifact/services";
@@ -35,6 +37,7 @@ import {
   renewArtifact,
   restoreArtifact,
   runIdempotent,
+  updateAccess,
 } from "@portifact/services";
 import type { Presigner } from "../api/presign.ts";
 import type { Env } from "../env.ts";
@@ -58,6 +61,8 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ["archive_artifact", "artifacts:write"],
   ["restore_artifact", "artifacts:write"],
   ["delete_artifact", "artifacts:delete"],
+  // The bar is part of the access policy (PATCH /api/v1/artifacts/:id/access).
+  ["set_portifact_bar", "artifacts:share"],
 ]);
 
 export const SERVER_INSTRUCTIONS = [
@@ -296,6 +301,37 @@ export function createPortifactServer(context: ToolContext): McpServer {
           artifactId: args.artifactId,
           now: context.now(),
         }),
+      );
+    },
+  );
+
+  register(
+    "set_portifact_bar",
+    {
+      title: "Turn the Portifact bar on or off",
+      description:
+        "Choose how the artifact's link opens in a browser. On (the default), visitors see the artifact inside Portifact's viewer, with the Portifact bar on top and the comments sidebar, where readers select text to comment. Off, the link serves the artifact itself, full screen, for apps and pages that need the whole window; comments then happen only through the API, the CLI and these tools. Returns the access policy.",
+      inputSchema: SetPortifactBarInput,
+      outputSchema: AccessPolicyView,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args: SetPortifactBarInput) => {
+      const result = await updateAccess(db, {
+        ownerId: context.userId,
+        artifactId: args.artifactId,
+        change: { bar: args.enabled },
+        now: context.now(),
+      });
+      if (!result.ok) return failure(result.code, result.message);
+      const body = AccessPolicyView.parse(result.value);
+      return success(
+        `The Portifact bar of ${args.artifactId} is ${body.bar ? "on" : "off"}.`,
+        body,
       );
     },
   );

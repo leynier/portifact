@@ -115,7 +115,13 @@ test("a top-level visit to a reviewed artifact gets no review cookie and no brid
 }) => {
   test.skip(!engine.reviewWorks, "no review cookie is stored in this configuration");
   const owner = await createUser("Owner");
-  const { artifactId } = await publish({ ownerId: owner.userId, name: "Launch plan", files: SITE });
+  // Without the bar, a top-level visit gets the artifact itself (viewer.spec.ts covers the bar).
+  const { artifactId } = await publish({
+    ownerId: owner.userId,
+    name: "Launch plan",
+    bar: false,
+    files: SITE,
+  });
   await signIn(context, owner);
   await openReview(page, artifactId, "Launch plan");
   await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
@@ -163,6 +169,8 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
   // The victim reviews their own private artifact first, so the browser holds its review cookie
   // in the viewer's partition, where the hostile artifact also runs.
   await openReview(page, secret.artifactId, "Private numbers");
+  // The frame must have shown the artifact, so its own requests are done before counting.
+  await artifactFrame(page, secret.artifactId);
   await expect(page.getByText("Connecting to the page")).toBeHidden();
   const before = (await contentRequests()).length;
 
@@ -180,7 +188,7 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
 
   // The frame cannot reach the viewer, navigate it, or read the API or another artifact.
   expect(results.parentDom).toBe("blocked");
-  expect(page.url()).toBe(`${APP_ORIGIN}/review/${hostile.artifactId}`);
+  expect(page.url()).toBe(`${APP_ORIGIN}/view/${hostile.artifactId}`);
   expect(results.readApi).toBe("blocked");
   expect(results.readSibling).toBe("blocked");
   expect(results.cookies).not.toContain(REVIEW_COOKIE);
@@ -203,7 +211,7 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
   expect(await threadsBy(victim.userId)).toHaveLength(0);
   expect(await sql("SELECT id FROM sessions WHERE id = ?", [victim.sessionId])).toHaveLength(1);
   await page.reload();
-  await expect(page.getByRole("heading", { level: 1, name: "Review Free prizes" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Free prizes" })).toBeVisible();
 
   // Its loads of the victim's private artifact carried the review cookie as same-site requests,
   // and the content Worker refused every one of them.
@@ -284,10 +292,11 @@ test("the viewer refuses a review session another artifact planted in its frame"
   await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
 });
 
-test("the viewer warns when the frame leaves the artifact for another one", async ({
+test("the frame never reaches another artifact, and the viewer warns when it leaves", async ({
   page,
   context,
   engine,
+  browserName,
 }) => {
   test.skip(!engine.reviewWorks, "the bridge never runs in this configuration");
   const victim = await createUser("Victim");
@@ -306,13 +315,24 @@ test("the viewer warns when the frame leaves the artifact for another one", asyn
   });
 
   await signIn(context, victim);
+  const before = (await contentRequests()).length;
   await openReview(page, trampoline.artifactId, "Trampoline");
   await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
-  // The frame now shows another artifact, which cannot answer this viewer from its origin.
-  await artifactFrame(page, elsewhere.artifactId);
-  await expect(page.getByText("The frame stopped answering from the artifact")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Select an element" })).toBeHidden();
-  await expect(page.getByRole("button", { name: "Comment on the page" })).toBeVisible();
+  // The viewer's `frame-src` names only this artifact's origin, so the page's navigation to
+  // another artifact is refused before it is sent (Chromium shows an error page, Firefox keeps
+  // the page) and the look-alike never renders in the viewer.
+  await page.waitForTimeout(4_000);
+  const reached = (await contentRequests())
+    .slice(before)
+    .filter((r) => r.host.startsWith(elsewhere.artifactId));
+  expect(reached).toEqual([]);
+  expect(page.frames().some((f) => f.url().includes(elsewhere.artifactId))).toBe(false);
+  if (browserName === "chromium") {
+    // The error page cannot answer from the artifact's origin: the viewer says so.
+    await expect(page.getByText("The frame stopped answering from the artifact")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Select an element" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Comment on the page" })).toBeVisible();
+  }
 });
 
 test("a frame bounced through another site never reaches another artifact in review mode", async ({

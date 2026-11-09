@@ -41,6 +41,11 @@ describe("next after sign-in", () => {
     expect(safeNext(`?${new URLSearchParams({ next })}`, ORIGIN)).toBe(next);
   });
 
+  it("accepts the viewer with the page it opens", () => {
+    const next = "/view/k7d2qm4xab?path=%2Fdocs%2Fa.html";
+    expect(safeNext(`?${new URLSearchParams({ next })}`, ORIGIN)).toBe(next);
+  });
+
   it("accepts the dashboard routes", () => {
     expect(safeNext("?next=%2F", ORIGIN)).toBe("/");
     expect(safeNext("?next=%2Fartifacts%2Fk7d2qm4xab", ORIGIN)).toBe("/artifacts/k7d2qm4xab");
@@ -59,6 +64,9 @@ describe("next after sign-in", () => {
       "/read/K7D2QM4XAB",
       "/read/k7d2qm4xab/extra",
       "/read/k7d2qm4xa1",
+      "/view/K7D2QM4XAB",
+      "/view/k7d2qm4xab/extra",
+      "//evil.example/view/k7d2qm4xab",
       "//evil.example/read/k7d2qm4xab",
       "https://evil.example/read/k7d2qm4xab",
       "/artifacts",

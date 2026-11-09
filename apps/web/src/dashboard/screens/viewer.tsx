@@ -1,7 +1,10 @@
-// The trusted review viewer (plan section 8): the artifact runs isolated in a sandboxed iframe on
-// its own origin, with the bridge; comments are written, confirmed and posted here, through the
-// annotations API, by the signed-in account. Thread bodies, quotes and names are untrusted text
-// and are only ever rendered as text.
+// The viewer with the Portifact bar (plan section 8, "Flujo", decision of 2026-11-08). A visit to
+// an artifact's page lands here: a slim bar says it is a Portifact artifact, the page runs
+// isolated in a sandboxed iframe on its own origin, with the bridge when the visitor is signed
+// in, and the comments sidebar sits beside it. Comments are written, confirmed and posted here,
+// through the annotations API, by the signed-in account. Thread bodies, quotes and names are
+// untrusted text and are only ever rendered as text. Anonymous visitors of a public artifact see
+// the artifact itself in the frame and are asked to sign in to read and add comments.
 import type { RefusalReason } from "@portifact/bridge";
 import {
   AnnotationBody,
@@ -12,43 +15,56 @@ import {
   REVIEW_SESSION,
   type ReviewStart,
   type ReviewTabStart,
+  type ViewerInfo,
 } from "@portifact/contracts";
+import { viewerHash, viewerPath } from "@portifact/domain";
 import {
   Badge,
   Button,
   buttonClasses,
   Callout,
   ConfirmDialog,
+  CopyField,
+  Disclosure,
   LoadingState,
   PageHeader,
   Select,
   type SelectOption,
+  Toast,
+  ViewerShell,
 } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { useLocation, useParams, useSearch } from "@tanstack/react-router";
 import {
   AppWindow,
-  ArrowLeft,
   CircleAlert,
   CircleCheck,
   CircleDot,
   Crosshair,
   Download,
   ExternalLink,
+  Flag,
   Info,
+  LayoutGrid,
   LocateFixed,
+  LogIn,
   MapPinOff,
+  MessageSquare,
   MessageSquarePlus,
   RefreshCw,
   Reply,
   RotateCcw,
   Send,
+  Settings,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import symbol from "../../../../../assets/brand/symbol.svg";
+import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
+import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
-import { useAnnounce, useDashboard, useT } from "../context.tsx";
+import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
 import { MessageContent, TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
@@ -61,6 +77,7 @@ import {
 } from "../review/use-threads.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
+import { ACCOUNT_QUERY } from "./shell.tsx";
 
 type T = ReturnType<typeof useT>;
 
@@ -70,88 +87,416 @@ type T = ReturnType<typeof useT>;
  */
 export const FRAME_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-popups";
 
-export function ReviewScreen() {
+/** ID of the comments sidebar, which the bar's toggle controls. */
+const SIDEBAR_ID = "viewer-comments";
+
+/** The sidebar starts open where it fits beside the artifact. */
+const WIDE_SCREEN = "(min-width: 64rem)";
+
+/** The search of `/view/<id>`: the page of the artifact to open, if not its root. */
+export interface ViewerSearch {
+  path?: string;
+}
+
+export function parseViewerSearch(search: Record<string, unknown>): ViewerSearch {
+  return typeof search.path === "string" ? { path: search.path } : {};
+}
+
+/** The page a viewer link opens, validated: anyone can write the link. */
+interface Target {
+  /** Path and query on the artifact origin. */
+  path: string;
+  /** Fragment, passed to the frame only. */
+  hash: string;
+}
+
+/** The artifact page itself, on its origin: what anonymous visitors see in the frame. */
+function pageUrl(origin: string, target: Target): string {
+  return `${origin}${target.path}${target.hash}`;
+}
+
+/**
+ * The artifact on its own origin, without the bar: `/__portifact/raw` sets a short opt-out for
+ * this browser and continues to the page, through the usual sign-in for a protected artifact.
+ * The bar is not a security boundary, so this is always safe to offer.
+ */
+function withoutBarUrl(origin: string, target: Target): string {
+  const link = new URL("/__portifact/raw", origin);
+  if (target.path !== "/") link.searchParams.set("to", target.path);
+  return `${link.toString()}${target.hash}`;
+}
+
+/** The link to the artifact without the bar, for when the viewer cannot show it with tools. */
+function WithoutBarLink({ info, target }: { info: ViewerInfo; target: Target }) {
   const t = useT();
-  const { artifactId } = useParams({ from: "/review/$artifactId" });
+  return (
+    <p className="text-sm">
+      <a href={withoutBarUrl(info.origin, target)}>{t("viewer.withoutBar")}</a>
+    </p>
+  );
+}
+
+/**
+ * A review link (frame or tab) that starts on the target page. The artifact origin checks `to`
+ * again; the fragment rides along the redirects to the page.
+ */
+function withTarget(url: string, target: Target): string {
+  const link = new URL(url);
+  if (target.path !== "/") link.searchParams.set("to", target.path);
+  return `${link.toString()}${target.hash}`;
+}
+
+export function ViewerScreen() {
+  const t = useT();
+  const { artifactId } = useParams({ from: "/view/$artifactId" });
+  const search = useSearch({ from: "/view/$artifactId" });
+  const location = useLocation();
+  const { api, leave } = useDashboard();
+  const [announcement, setAnnouncement] = useState("");
+  const announce = useCallback((message: string) => setAnnouncement(message), []);
+  // Read once: the frame keeps its own place in the artifact from then on.
+  const [target] = useState<Target>(() => ({
+    path: viewerPath(search.path) ?? "/",
+    hash: viewerHash(location.hash ? `#${location.hash}` : ""),
+  }));
+  const here = `/view/${artifactId}${target.path === "/" ? "" : `?${new URLSearchParams({ path: target.path })}`}`;
+
+  const account = useQuery({ queryKey: ACCOUNT_QUERY, queryFn: () => api.account() });
+  const info = useQuery({
+    queryKey: ["viewer", artifactId],
+    queryFn: () => api.viewerInfo(artifactId),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const missing = info.error instanceof ApiFailure && info.error.code === "not_found";
+  // A protected artifact looks missing to anonymous visitors until they sign in.
+  const signInFirst = missing && account.data === null;
+  useEffect(() => {
+    if (signInFirst) leave(loginUrl(here));
+  }, [signInFirst, here, leave]);
+  useDocumentTitle(info.data?.name ?? (missing ? t("viewer.unavailable.title") : undefined));
+
+  let content: ReactNode;
+  if (info.isPending || account.isPending || signInFirst) {
+    content = <Standalone>{<LoadingState label={t("viewer.loading")} />}</Standalone>;
+  } else if (info.isError) {
+    content = (
+      <Standalone>
+        <PageHeader title={missing ? t("viewer.unavailable.title") : t("viewer.failed.title")} />
+        {missing ? (
+          <>
+            <p className="text-text-muted">{t("viewer.unavailable.body")}</p>
+            <p className="mt-4">
+              <a href="/">{t("viewer.dashboard")}</a>
+            </p>
+          </>
+        ) : (
+          <Callout
+            tone="error"
+            title={t("viewer.failed.title")}
+            icon={<CircleAlert className="size-5" />}
+            action={
+              <Button icon={<RefreshCw className="size-4" />} onClick={() => info.refetch()}>
+                {t("action.retry")}
+              </Button>
+            }
+          >
+            {errorMessage(t, info.error)}
+          </Callout>
+        )}
+      </Standalone>
+    );
+  } else if (info.data.role === "anonymous" || !account.data) {
+    content = <AnonymousViewer info={info.data} target={target} here={here} />;
+  } else {
+    content = <SignedInViewer info={info.data} target={target} />;
+  }
+  return (
+    <AnnounceContext.Provider value={announce}>
+      {content}
+      <Toast message={announcement} dismissLabel={t("shell.dismiss")} />
+    </AnnounceContext.Provider>
+  );
+}
+
+/** A page of the viewer without the bar: loading, or an artifact that cannot be opened. */
+function Standalone({ children }: { children: ReactNode }) {
+  return (
+    <main id="main" className="mx-auto w-full max-w-2xl px-4 py-12">
+      {children}
+    </main>
+  );
+}
+
+/** Whether the sidebar starts open: where the screen is wide enough to show it beside the frame. */
+function startsOpen(): boolean {
+  return typeof window.matchMedia === "function" ? window.matchMedia(WIDE_SCREEN).matches : true;
+}
+
+interface LayoutProps {
+  info: ViewerInfo;
+  target: Target;
+  /** What the bar's account control is: the dashboard, or signing in. */
+  account: { kind: "signed-in" } | { kind: "anonymous"; here: string };
+  frame: ReactNode;
+  /** The sidebar's content; null shows no sidebar and no toggle. */
+  sidebar: ReactNode | null;
+  sidebarOpen: boolean;
+  onSidebar(open: boolean): void;
+}
+
+/** The bar, the frame and the sidebar, the same for every visitor. */
+function ViewerLayout({
+  info,
+  target,
+  account,
+  frame,
+  sidebar,
+  sidebarOpen,
+  onSidebar,
+}: LayoutProps) {
+  const t = useT();
+  const announce = useAnnounce();
+  const link = pageUrl(info.origin, target);
+  return (
+    <ViewerShell
+      skipLinkLabel={t("viewer.skipLink")}
+      brand={
+        <a href="/" aria-label={t("viewer.brand")} className="no-underline">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcSet={symbolDark} />
+            <img src={symbol} alt="" width={32} height={32} className="size-8" />
+          </picture>
+        </a>
+      }
+      caption={{
+        // The artifact's own link, so its origin is always in sight next to its name.
+        link: (
+          <CopyField
+            compact
+            label={t("viewer.link")}
+            value={link}
+            href={link}
+            copyLabel={t("viewer.copyLink")}
+            copiedLabel={t("copy.copied")}
+            onCopied={() => announce(t("viewer.copied"))}
+            onCopyFailed={() => announce(t("copy.failed"))}
+          />
+        ),
+        title: info.name,
+        details: (
+          <Badge emphasis="quiet">{t("viewer.version", { number: info.versionNumber })}</Badge>
+        ),
+        notice: t("viewer.userContent"),
+      }}
+      actions={
+        <>
+          {info.role === "owner" ? (
+            // Full page loads: the dashboard gets its own policy, not the viewer's narrow frame-src.
+            <a
+              href={`/artifacts/${encodeURIComponent(info.artifactId)}`}
+              className={buttonClasses({ intent: "ghost", size: "sm" })}
+            >
+              <Settings aria-hidden="true" className="size-4" />
+              {t("viewer.manage")}
+            </a>
+          ) : (
+            <a
+              href={`/report?${new URLSearchParams({ artifact: info.artifactId })}`}
+              className={buttonClasses({ intent: "ghost", size: "sm" })}
+            >
+              <Flag aria-hidden="true" className="size-4" />
+              {t("review.report")}
+            </a>
+          )}
+          {sidebar !== null ? (
+            <Button
+              size="sm"
+              icon={<MessageSquare className="size-4" />}
+              aria-expanded={sidebarOpen}
+              aria-controls={SIDEBAR_ID}
+              onClick={() => onSidebar(!sidebarOpen)}
+            >
+              {t("viewer.comments")}
+            </Button>
+          ) : null}
+          {account.kind === "signed-in" ? (
+            <a href="/" className={buttonClasses({ intent: "ghost", size: "sm" })}>
+              <LayoutGrid aria-hidden="true" className="size-4" />
+              {t("viewer.dashboard")}
+            </a>
+          ) : (
+            <a
+              href={loginUrl(account.here)}
+              className={buttonClasses({ intent: "primary", size: "sm" })}
+            >
+              <LogIn aria-hidden="true" className="size-4" />
+              {t("viewer.signIn")}
+            </a>
+          )}
+        </>
+      }
+      frameLabel={t("viewer.frame.label")}
+      frame={frame}
+      sidebar={
+        sidebar !== null && sidebarOpen
+          ? { id: SIDEBAR_ID, label: t("review.comments.heading"), content: sidebar }
+          : undefined
+      }
+    />
+  );
+}
+
+function ArtifactFrame({
+  info,
+  src,
+  frame,
+  onLoad,
+}: {
+  info: ViewerInfo;
+  src: string;
+  frame?: React.RefObject<HTMLIFrameElement | null>;
+  onLoad?: () => void;
+}) {
+  const t = useT();
+  return (
+    <iframe
+      ref={frame}
+      title={t("viewer.frame.title", { name: info.name })}
+      src={src}
+      sandbox={FRAME_SANDBOX}
+      referrerPolicy="no-referrer"
+      onLoad={onLoad}
+      className="min-h-0 w-full flex-1 border-0 bg-canvas"
+    />
+  );
+}
+
+/**
+ * An anonymous visitor of a public artifact: the artifact itself in the frame, without the
+ * bridge (no session names them), and a sidebar that asks them to sign in, which comes back here.
+ * Threads are for signed-in readers only (plan section 8, "Permisos").
+ */
+function AnonymousViewer({
+  info,
+  target,
+  here,
+}: {
+  info: ViewerInfo;
+  target: Target;
+  here: string;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(startsOpen);
+  const sidebar =
+    info.annotations === "off" ? null : (
+      <>
+        <h2 className="text-lg font-semibold">{t("review.comments.heading")}</h2>
+        <p className="text-sm">{t("viewer.anonymous.body")}</p>
+        <div>
+          <a href={loginUrl(here)} className={buttonClasses({ intent: "primary", size: "sm" })}>
+            <LogIn aria-hidden="true" className="size-4" />
+            {t("viewer.anonymous.signIn")}
+          </a>
+        </div>
+      </>
+    );
+  return (
+    <ViewerLayout
+      info={info}
+      target={target}
+      account={{ kind: "anonymous", here }}
+      frame={<ArtifactFrame info={info} src={pageUrl(info.origin, target)} />}
+      sidebar={sidebar}
+      sidebarOpen={open}
+      onSidebar={setOpen}
+    />
+  );
+}
+
+/** A signed-in visitor: a review session in the frame, with the bridge, and the comments. */
+function SignedInViewer({ info, target }: { info: ViewerInfo; target: Target }) {
+  const t = useT();
   const { api } = useDashboard();
   const [attempt, setAttempt] = useState(0);
   // Which version's threads the panel lists; only the owner can pick another one.
   const [version, setVersion] = useState<AnnotationVersionFilter>("current");
   const start = useQuery({
-    queryKey: ["review-start", artifactId, attempt],
-    queryFn: () => api.startReview(artifactId),
+    queryKey: ["review-start", info.artifactId, attempt],
+    queryFn: () => api.startReview(info.artifactId),
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 0,
     retry: false,
     refetchOnWindowFocus: false,
   });
-  const threads = useThreads(artifactId, version);
-  useDocumentTitle(start.data ? t("review.documentTitle", { name: start.data.name }) : undefined);
-
-  const back = (
-    <p className="mb-4 text-sm">
-      <Link
-        to="/artifacts/$artifactId"
-        params={{ artifactId }}
-        className="inline-flex items-center gap-1"
-      >
-        <ArrowLeft aria-hidden="true" className="size-4" />
-        {t("review.back")}
-      </Link>
-    </p>
-  );
+  // Readers have no threads while comments are off; the owner keeps the switch to turn them on.
+  const comments = info.annotations !== "off" || info.role === "owner";
+  const threads = useThreads(info.artifactId, version, comments);
 
   if (start.isPending) {
     return (
-      <>
-        {back}
-        <LoadingState label={t("review.loading")} />
-      </>
+      <ViewerLayout
+        info={info}
+        target={target}
+        account={{ kind: "signed-in" }}
+        frame={<LoadingState label={t("viewer.loading")} />}
+        sidebar={null}
+        sidebarOpen={false}
+        onSidebar={() => {}}
+      />
     );
   }
   if (start.isError) {
-    const missing = start.error instanceof ApiFailure && start.error.code === "not_found";
+    // Without a review session a public artifact is still shown as it is, without review tools;
+    // a protected one cannot be, so only the notice remains.
     return (
-      <>
-        {back}
-        <PageHeader
-          title={missing ? t("review.unavailable.title") : t("review.startFailed.title")}
-        />
-        {missing ? (
-          <p className="text-text-muted">{t("review.unavailable.body")}</p>
-        ) : (
-          <Callout
-            tone="error"
-            title={t("review.startFailed.title")}
-            icon={<CircleAlert className="size-5" />}
-            action={
-              <Button icon={<RefreshCw className="size-4" />} onClick={() => start.refetch()}>
-                {t("action.retry")}
-              </Button>
-            }
-          >
-            {errorMessage(t, start.error)}
-          </Callout>
-        )}
-      </>
+      <ViewerLayout
+        info={info}
+        target={target}
+        account={{ kind: "signed-in" }}
+        frame={
+          <>
+            <div className="p-3">
+              <Callout
+                tone="error"
+                title={t("review.startFailed.title")}
+                icon={<CircleAlert className="size-5" />}
+                action={
+                  <Button icon={<RefreshCw className="size-4" />} onClick={() => start.refetch()}>
+                    {t("action.retry")}
+                  </Button>
+                }
+              >
+                {errorMessage(t, start.error)}
+              </Callout>
+              <WithoutBarLink info={info} target={target} />
+            </div>
+            {info.accessMode === "public" ? (
+              <ArtifactFrame info={info} src={pageUrl(info.origin, target)} />
+            ) : null}
+          </>
+        }
+        sidebar={null}
+        sidebarOpen={false}
+        onSidebar={() => {}}
+      />
     );
   }
-
   return (
-    <>
-      {back}
-      <ReviewSession
-        key={attempt}
-        start={start.data}
-        threads={threads}
-        version={version}
-        onVersion={setVersion}
-        onRestart={() => {
-          setAttempt((n) => n + 1);
-          void threads.refetch();
-        }}
-      />
-    </>
+    <ReviewSession
+      key={attempt}
+      info={info}
+      target={target}
+      start={start.data}
+      comments={comments}
+      threads={threads}
+      version={version}
+      onVersion={setVersion}
+      onRestart={() => {
+        setAttempt((n) => n + 1);
+        void threads.refetch();
+      }}
+    />
   );
 }
 
@@ -183,13 +528,19 @@ function matchesFilter(thread: AnnotationThreadView, filter: ThreadFilter): bool
 }
 
 function ReviewSession({
+  info,
+  target,
   start,
+  comments,
   threads,
   version,
   onVersion,
   onRestart,
 }: {
+  info: ViewerInfo;
+  target: Target;
   start: ReviewStart;
+  comments: boolean;
   threads: ThreadsQuery;
   version: AnnotationVersionFilter;
   onVersion(version: AnnotationVersionFilter): void;
@@ -198,6 +549,7 @@ function ReviewSession({
   const t = useT();
   const announce = useAnnounce();
   const frame = useRef<HTMLIFrameElement>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(startsOpen);
   const [selection, setSelection] = useState<AnnotationTarget | null>(null);
   const [draft, setDraftState] = useState<Draft>(null);
   const [picking, setPicking] = useState(false);
@@ -209,9 +561,9 @@ function ReviewSession({
   const drafting = useRef(false);
   const awaitingPick = useRef(false);
   const draftIds = useRef(0);
-  const setDraft = (target: AnnotationTarget | null) => {
-    drafting.current = target !== null;
-    setDraftState(target ? { id: ++draftIds.current, target } : null);
+  const setDraft = (next: AnnotationTarget | null) => {
+    drafting.current = next !== null;
+    setDraftState(next ? { id: ++draftIds.current, target: next } : null);
   };
   const stopPicking = () => {
     awaitingPick.current = false;
@@ -228,16 +580,26 @@ function ReviewSession({
     : { ...filterState, author: "all" };
   const shown = (threads.data?.threads ?? []).filter((thread) => matchesFilter(thread, filter));
 
+  const data = threads.data;
+  const outdated = data !== undefined && data.currentVersionId !== start.versionId;
+  const mode = data?.annotations;
+  const canComment = mode === "open" && !outdated;
+
   const bridge = useBridge(frame, start.origin, start.sessionTag, {
-    onSelection(target) {
+    onSelection(selected) {
       if (drafting.current) return;
-      setSelection(target);
-      if (target) announce(t("review.selection.received"));
+      setSelection(selected);
+      if (selected && canComment) {
+        // The offer to comment lives in the sidebar, so it opens; focus stays in the artifact.
+        setSidebarOpen(true);
+        announce(t("review.selection.received"));
+      }
     },
-    onElement(target) {
+    onElement(picked) {
       if (!awaitingPick.current || drafting.current) return;
       stopPicking();
-      setDraft(target);
+      setSidebarOpen(true);
+      setDraft(picked);
     },
     onRefused(reason: RefusalReason) {
       announce(refusalMessage(t, reason));
@@ -251,14 +613,15 @@ function ReviewSession({
     },
     onActivate(id) {
       setActive(id);
+      setSidebarOpen(true);
       const number = numbers.get(id);
       if (number !== undefined) announce(t("review.thread.activated", { number }));
-      items.current.get(id)?.focus();
+      // After the sidebar renders, so the thread exists to take focus.
+      setTimeout(() => items.current.get(id)?.focus(), 0);
     },
   });
 
   // The frame only gets targets and short labels for the threads of the page it shows.
-  const data = threads.data;
   const { send, state, page } = bridge;
   const markerKey = JSON.stringify([
     state,
@@ -287,9 +650,6 @@ function ReviewSession({
     send({ type: "markers", markers, active });
   }, [markerKey]);
 
-  const outdated = data !== undefined && data.currentVersionId !== start.versionId;
-  const mode = data?.annotations;
-  const canComment = mode === "open" && !outdated;
   const path = page?.path ?? start.entrypoint;
 
   // Element mode ends wherever the frame stops being a connected bridge.
@@ -315,141 +675,124 @@ function ReviewSession({
     send({ type: "focus", id });
   };
 
-  return (
-    <>
-      <PageHeader
-        title={t("review.title", { name: start.name })}
-        description={<span className="font-mono break-all">{start.origin}</span>}
-      />
-      <div className="grid gap-6 lg:grid-cols-3">
-        <section
-          aria-labelledby="review-frame-heading"
-          className="flex flex-col gap-4 lg:col-span-2"
-        >
-          <h2 id="review-frame-heading" className="sr-only">
-            {t("review.frame.heading")}
-          </h2>
-          <BridgeNotice state={state} artifactId={start.artifactId} onRestart={onRestart} />
-          {outdated ? (
-            <Callout
-              title={t("review.newVersion.title")}
-              icon={<Info className="size-5" />}
-              action={
-                <Button icon={<RefreshCw className="size-4" />} onClick={onRestart}>
-                  {t("review.newVersion.action")}
-                </Button>
-              }
-            >
-              {t("review.newVersion.body")}
-            </Callout>
-          ) : null}
-          <iframe
-            ref={frame}
-            title={t("review.frame.title", { name: start.name })}
-            src={start.url}
-            sandbox={FRAME_SANDBOX}
-            referrerPolicy="no-referrer"
-            onLoad={bridge.onFrameLoad}
-            className="h-screen w-full rounded-md border border-border-strong bg-canvas"
-          />
-          <p className="text-sm text-text-muted">{t("review.frame.isolated")}</p>
-          {data?.role === "participant" ? (
-            <p className="text-sm">
-              <a href={`/report?${new URLSearchParams({ artifact: start.artifactId })}`}>
-                {t("review.report")}
-              </a>
-            </p>
-          ) : null}
-        </section>
+  // Where the browser keeps no session in the frame, a public artifact is still shown as it is,
+  // without review tools; a protected one cannot be, so the frame keeps the notice.
+  const plain = state === "unavailable" && info.accessMode === "public";
+  const src = plain ? pageUrl(info.origin, target) : withTarget(start.url, target);
 
-        <section aria-labelledby="review-comments-heading" className="flex min-w-0 flex-col gap-4">
-          <h2 id="review-comments-heading" className="text-lg font-semibold">
-            {t("review.comments.heading")}
-          </h2>
-          <p className="text-sm text-text-muted">{t("review.comments.untrusted")}</p>
-          {data ? <ModeNotice artifactId={start.artifactId} state={data} /> : null}
-          {canComment ? (
-            <div
-              role="toolbar"
-              aria-label={t("review.toolbar.label")}
-              className="flex flex-wrap gap-2"
-            >
-              <Button
-                size="sm"
-                icon={<MessageSquarePlus className="size-4" />}
-                onClick={startGeneral}
-              >
-                {t("review.general")}
+  const frameArea = (
+    <>
+      <div className="flex flex-col gap-3 p-3 empty:hidden">
+        <BridgeNotice state={state} info={info} target={target} onRestart={onRestart} />
+        {outdated ? (
+          <Callout
+            title={t("review.newVersion.title")}
+            icon={<Info className="size-5" />}
+            action={
+              <Button icon={<RefreshCw className="size-4" />} onClick={onRestart}>
+                {t("review.newVersion.action")}
               </Button>
-              {start.type === "site" && state === "connected" ? (
-                <Button
-                  size="sm"
-                  icon={<Crosshair className="size-4" />}
-                  aria-pressed={picking}
-                  onClick={togglePick}
-                >
-                  {t("review.pick")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {canComment && selection && !draft ? (
-            <div className="flex flex-col gap-2 rounded-md border border-border-strong p-3">
-              <p className="text-sm font-medium">{t("review.selection.label")}</p>
-              <TargetSummary target={selection} />
-              <div>
-                <Button
-                  size="sm"
-                  intent="primary"
-                  icon={<MessageSquarePlus className="size-4" />}
-                  onClick={() => setDraft(selection)}
-                >
-                  {t("review.selection.comment")}
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          {canComment && draft ? (
-            <Composer
-              key={draft.id}
-              start={start}
-              target={draft.target}
-              onDone={(thread) => {
-                closeDraft();
-                if (thread) setActive(thread.id);
-              }}
-            />
-          ) : null}
-          {data ? (
-            <CommentTools
-              start={start}
-              role={data.role}
-              version={version}
-              onVersion={onVersion}
-              filter={filter}
-              onFilter={setFilter}
-              authors={authors}
-            />
-          ) : null}
-          <ThreadList
-            start={start}
-            threads={threads}
-            shown={shown}
-            filtered={filter.status !== "all" || filter.author !== "all"}
-            numbers={numbers}
-            active={active}
-            resolutions={bridge.resolutions}
-            path={path}
-            located={state === "connected"}
-            onShow={show}
-            register={(id, element) => {
-              if (element) items.current.set(id, element);
-              else items.current.delete(id);
-            }}
-          />
-        </section>
+            }
+          >
+            {t("review.newVersion.body")}
+          </Callout>
+        ) : null}
       </div>
+      <ArtifactFrame info={info} src={src} frame={frame} onLoad={bridge.onFrameLoad} />
     </>
+  );
+
+  const sidebar = !comments ? null : (
+    <>
+      <h2 className="text-lg font-semibold">{t("review.comments.heading")}</h2>
+      <p className="text-sm text-text-muted">{t("review.comments.untrusted")}</p>
+      {data ? <ModeNotice artifactId={start.artifactId} state={data} /> : null}
+      {canComment ? (
+        <div role="toolbar" aria-label={t("review.toolbar.label")} className="flex flex-wrap gap-2">
+          <Button size="sm" icon={<MessageSquarePlus className="size-4" />} onClick={startGeneral}>
+            {t("review.general")}
+          </Button>
+          {start.type === "site" && state === "connected" ? (
+            <Button
+              size="sm"
+              icon={<Crosshair className="size-4" />}
+              aria-pressed={picking}
+              onClick={togglePick}
+            >
+              {t("review.pick")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {canComment && selection && !draft ? (
+        <div className="flex flex-col gap-2 rounded-lg border border-border bg-canvas p-4 shadow-sm">
+          <p className="text-sm font-medium">
+            <span className="selection-band px-1.5">{t("review.selection.label")}</span>
+          </p>
+          <TargetSummary target={selection} />
+          <div>
+            <Button
+              size="sm"
+              intent="primary"
+              icon={<MessageSquarePlus className="size-4" />}
+              onClick={() => setDraft(selection)}
+            >
+              {t("review.selection.comment")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+      {canComment && draft ? (
+        <Composer
+          key={draft.id}
+          start={start}
+          target={draft.target}
+          onDone={(thread) => {
+            closeDraft();
+            if (thread) setActive(thread.id);
+          }}
+        />
+      ) : null}
+      <ThreadList
+        start={start}
+        threads={threads}
+        shown={shown}
+        filtered={filter.status !== "all" || filter.author !== "all"}
+        numbers={numbers}
+        active={active}
+        resolutions={bridge.resolutions}
+        path={path}
+        located={state === "connected"}
+        onShow={show}
+        register={(id, element) => {
+          if (element) items.current.set(id, element);
+          else items.current.delete(id);
+        }}
+      />
+      {data ? (
+        <CommentTools
+          start={start}
+          role={data.role}
+          version={version}
+          onVersion={onVersion}
+          filter={filter}
+          onFilter={setFilter}
+          authors={authors}
+        />
+      ) : null}
+    </>
+  );
+
+  return (
+    <ViewerLayout
+      info={info}
+      target={target}
+      account={{ kind: "signed-in" }}
+      frame={frameArea}
+      sidebar={sidebar}
+      sidebarOpen={sidebarOpen}
+      onSidebar={setSidebarOpen}
+    />
   );
 }
 
@@ -461,13 +804,16 @@ function refusalMessage(t: T, reason: RefusalReason): string {
 
 function BridgeNotice({
   state,
-  artifactId,
+  info,
+  target,
   onRestart,
 }: {
   state: BridgeState;
-  artifactId: string;
+  info: ViewerInfo;
+  target: Target;
   onRestart(): void;
 }) {
+  const artifactId = info.artifactId;
   const t = useT();
   if (state === "connecting") {
     return <p className="text-sm text-text-muted">{t("review.frame.connecting")}</p>;
@@ -478,7 +824,8 @@ function BridgeNotice({
         <Callout title={t(`review.status.${state}.title`)} icon={<Info className="size-5" />}>
           {t(`review.status.${state}.body`)}
         </Callout>
-        <ReviewTabOffer artifactId={artifactId} />
+        <WithoutBarLink info={info} target={target} />
+        <ReviewTabOffer artifactId={artifactId} target={target} />
       </>
     );
   }
@@ -511,7 +858,7 @@ export const REVIEW_TAB_LINK_MS = (REVIEW_SESSION.handoffTtlSeconds - 10) * 1000
  * artifact origin requires before it redeems a tab code. The tab has no review tools: comments
  * are still written and posted here.
  */
-function ReviewTabOffer({ artifactId }: { artifactId: string }) {
+function ReviewTabOffer({ artifactId, target }: { artifactId: string; target: Target }) {
   const t = useT();
   const announce = useAnnounce();
   const { api } = useDashboard();
@@ -547,9 +894,9 @@ function ReviewTabOffer({ artifactId }: { artifactId: string }) {
       aria-labelledby="review-tab-heading"
       className="flex flex-col gap-3 rounded-md border border-border-strong p-3"
     >
-      <h3 id="review-tab-heading" className="text-base font-semibold">
+      <h2 id="review-tab-heading" className="text-base font-semibold">
         {t("review.tab.title")}
-      </h3>
+      </h2>
       <p className="text-sm">
         {t("review.tab.body", { minutes: REVIEW_SESSION.tabSessionTtlSeconds / 60 })}
       </p>
@@ -563,7 +910,7 @@ function ReviewTabOffer({ artifactId }: { artifactId: string }) {
         {link ? (
           <a
             ref={anchor}
-            href={link.url}
+            href={withTarget(link.url, target)}
             target="_blank"
             rel="noopener"
             referrerPolicy="origin"
@@ -816,59 +1163,62 @@ function CommentTools({
       })),
   ];
   return (
-    <section
-      aria-labelledby="review-tools-heading"
-      className="flex flex-col gap-3 rounded-md border border-border p-3"
+    // Collapsed by default: reading and writing comments come first in the sidebar.
+    <Disclosure
+      summary={
+        filter.status === "all" && filter.author === "all" && version === "current"
+          ? t("review.filter.heading")
+          : t("review.filter.headingActive")
+      }
     >
-      <h3 id="review-tools-heading" className="text-base font-semibold">
-        {t("review.filter.heading")}
-      </h3>
-      <Select
-        label={t("review.filter.status")}
-        value={filter.status}
-        options={[
-          { value: "all", label: t("review.filter.status.all") },
-          { value: "open", label: t("review.filter.status.open") },
-          { value: "resolved", label: t("review.filter.status.resolved") },
-        ]}
-        onChange={(status) => onFilter({ ...filter, status })}
-      />
-      <Select
-        label={t("review.filter.author")}
-        value={filter.author}
-        options={authors}
-        onChange={(author) => onFilter({ ...filter, author })}
-      />
-      {owner ? (
+      <div className="flex flex-col gap-3">
         <Select
-          label={t("review.filter.version")}
-          description={t("review.filter.version.hint")}
-          value={version}
-          options={versionOptions}
-          onChange={onVersion}
+          label={t("review.filter.status")}
+          value={filter.status}
+          options={[
+            { value: "all", label: t("review.filter.status.all") },
+            { value: "open", label: t("review.filter.status.open") },
+            { value: "resolved", label: t("review.filter.status.resolved") },
+          ]}
+          onChange={(status) => onFilter({ ...filter, status })}
         />
-      ) : null}
-      <p className="text-sm text-text-muted">{t("review.export.hint")}</p>
-      {exporter.isError ? <ActionError error={exporter.error} /> : null}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          icon={<Download className="size-4" />}
-          busy={exporter.isPending && exporter.variables === "json"}
-          onClick={() => exporter.mutate("json")}
-        >
-          {t("review.export.json")}
-        </Button>
-        <Button
-          size="sm"
-          icon={<Download className="size-4" />}
-          busy={exporter.isPending && exporter.variables === "markdown"}
-          onClick={() => exporter.mutate("markdown")}
-        >
-          {t("review.export.markdown")}
-        </Button>
+        <Select
+          label={t("review.filter.author")}
+          value={filter.author}
+          options={authors}
+          onChange={(author) => onFilter({ ...filter, author })}
+        />
+        {owner ? (
+          <Select
+            label={t("review.filter.version")}
+            description={t("review.filter.version.hint")}
+            value={version}
+            options={versionOptions}
+            onChange={onVersion}
+          />
+        ) : null}
+        <p className="text-sm text-text-muted">{t("review.export.hint")}</p>
+        {exporter.isError ? <ActionError error={exporter.error} /> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            icon={<Download className="size-4" />}
+            busy={exporter.isPending && exporter.variables === "json"}
+            onClick={() => exporter.mutate("json")}
+          >
+            {t("review.export.json")}
+          </Button>
+          <Button
+            size="sm"
+            icon={<Download className="size-4" />}
+            busy={exporter.isPending && exporter.variables === "markdown"}
+            onClick={() => exporter.mutate("markdown")}
+          >
+            {t("review.export.markdown")}
+          </Button>
+        </div>
       </div>
-    </section>
+    </Disclosure>
   );
 }
 
@@ -1030,7 +1380,7 @@ function ThreadItem({
         tabIndex={-1}
         aria-labelledby={titleId}
         aria-current={active === thread.id ? "true" : undefined}
-        className="flex flex-col gap-3 rounded-md border border-border p-3 current-item:border-2 current-item:border-text"
+        className="flex flex-col gap-3 rounded-lg border border-border bg-canvas p-4 shadow-sm current-item:border-text current-item:shadow-raised"
       >
         <div className="flex flex-wrap items-center gap-2">
           <h3 id={titleId} className="text-base font-semibold">

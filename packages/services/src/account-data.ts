@@ -198,6 +198,7 @@ export async function exportAccount(
       annotations: artifact.annotations,
       indexable: artifact.indexable,
       embeddable: artifact.embeddable,
+      bar: artifact.bar,
       suspension: artifact.suspensionReason ? { reason: artifact.suspensionReason } : null,
       createdAt: iso(artifact.createdAt),
       updatedAt: iso(artifact.updatedAt),

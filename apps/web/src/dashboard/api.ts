@@ -40,6 +40,7 @@ import {
   VersionDownload,
   VersionList,
   VersionManifest,
+  ViewerInfo,
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
@@ -117,7 +118,12 @@ export interface DashboardApi {
     idempotencyKey: string,
   ): Promise<RolledBack>;
   previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
-  /** A one-use review code and the URL the review viewer's iframe opens with it. */
+  /**
+   * What the viewer's bar shows about the artifact and who is looking; works without a session
+   * for public artifacts and answers `not_found` for anything an anonymous visitor cannot see.
+   */
+  viewerInfo(artifactId: string): Promise<ViewerInfo>;
+  /** A one-use review code and the URL the viewer's iframe opens with it. */
   startReview(artifactId: string): Promise<ReviewStart>;
   /** A one-use code and the link that opens the artifact in a top-level review tab. */
   startReviewTab(artifactId: string): Promise<ReviewTabStart>;
@@ -366,6 +372,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     startReview(artifactId) {
       return call(`${artifactPath(artifactId)}/review`, ReviewStart, "POST");
+    },
+    viewerInfo(artifactId) {
+      return call(`${artifactPath(artifactId)}/viewer`, ViewerInfo);
     },
     startReviewTab(artifactId) {
       return call(`${artifactPath(artifactId)}/review/tab`, ReviewTabStart, "POST");

@@ -1,6 +1,6 @@
 # Accessibility
 
-Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard, the review viewer, the annotation flow, the Markdown and TXT viewers, the CLI and the documentation. Accessibility is a requirement for a feature to be done, not a later pass. We cannot make sites uploaded by users accessible, but nothing we inject or wrap around them may make them less accessible.
+Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard, the viewer with the Portifact bar, the annotation flow, the Markdown and TXT viewers, the CLI and the documentation. Accessibility is a requirement for a feature to be done, not a later pass. We cannot make sites uploaded by users accessible, but nothing we inject or wrap around them may make them less accessible.
 
 ## Foundations
 
@@ -41,7 +41,7 @@ Annotation must be fully possible without a mouse:
 
 - The Markdown viewer outputs semantic HTML: real headings, lists, tables with header cells, code blocks and links with meaningful text. Images keep the author's alt text; missing alt text is flagged to the creator in the dashboard.
 - The TXT viewer keeps line numbers out of the text read by screen readers and the copy buffer.
-- The review viewer gives the artifact iframe an accessible title and does not trap focus inside it.
+- The viewer gives the artifact iframe an accessible title and does not trap focus inside it. Its bar is the page's `banner` with the artifact's name as the only `h1`, a skip link jumps to the artifact region, the comments sidebar is a labelled `complementary` landmark, and its toggle states `aria-expanded` and `aria-controls`. Selecting text in the artifact never moves focus out of it.
 - The bridge injected into sites adds no focusable elements, landmarks or announcements unless review mode is active, and it never changes the site's own semantics.
 
 ## CLI

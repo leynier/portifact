@@ -232,6 +232,7 @@ describe("dashboard API client", () => {
       readers: ["ana@example.com"],
       indexable: false,
       embeddable: false,
+      bar: true,
       policyGeneration: 3,
     };
     const { api, calls } = client(() => Response.json(policy));

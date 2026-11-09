@@ -54,3 +54,4 @@ export {
   PageHeader,
   type PageHeaderProps,
 } from "./patterns/app-shell.tsx";
+export { ViewerShell, type ViewerShellProps } from "./patterns/viewer-shell.tsx";

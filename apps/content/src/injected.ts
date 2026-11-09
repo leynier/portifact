@@ -6,6 +6,7 @@
 // docs/security.md, "Injected cookies".
 import { READ_COOKIE, TRANSACTION_COOKIE_PREFIX } from "./cookies.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "./review.ts";
+import { NO_BAR_COOKIE } from "./viewer.ts";
 
 /**
  * Bytes of foreign `name=value` pairs a request may carry before they are cleared. Well below
@@ -22,7 +23,7 @@ export const CLEANUP_BUDGET = 16 * 1024;
 /** Cookie paths tried per request: `/` and the prefixes of the requested path. */
 export const MAX_CLEANUP_PATHS = 8;
 
-const OWN_NAMES = new Set([READ_COOKIE, REVIEW_COOKIE, REVIEW_TAB_COOKIE]);
+const OWN_NAMES = new Set([READ_COOKIE, REVIEW_COOKIE, REVIEW_TAB_COOKIE, NO_BAR_COOKIE]);
 
 /** One of Portifact's cookies on artifact origins, by exact, case-sensitive name. */
 export function isPortifactCookie(name: string): boolean {

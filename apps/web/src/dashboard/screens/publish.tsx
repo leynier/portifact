@@ -492,14 +492,14 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
             >
               {t("publish.done.open")}
             </Link>
-            <Link
-              to="/review/$artifactId"
-              params={{ artifactId: committed.artifactId }}
+            {/* A full page load, so the viewer gets its own policy (frames of this artifact only). */}
+            <a
+              href={`/view/${encodeURIComponent(committed.artifactId)}`}
               className={buttonClasses()}
             >
               <MessageSquareText aria-hidden="true" className="size-4" />
               {t("publish.done.review")}
-            </Link>
+            </a>
             {base ? null : (
               <Button intent="ghost" onClick={startOver}>
                 {t("publish.done.another")}

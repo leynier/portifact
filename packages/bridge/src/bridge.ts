@@ -238,12 +238,17 @@ export function startBridge(
         resolution.kind === "text"
           ? rangeBoxes(window, resolution.range)
           : [pageBox(window, (resolution.element as unknown as Element).getBoundingClientRect())];
+      const holder =
+        resolution.kind === "text"
+          ? blockOf(window, resolution.range.start.node as unknown as Node)
+          : (resolution.element as unknown as Element);
       const button = overlay.mark({
         id: marker.id,
         label: marker.label,
         name: marker.name,
         kind: resolution.kind,
         boxes,
+        ...(holder ? { gutter: pageBox(window, holder.getBoundingClientRect()).x } : {}),
         active: marker.id === active,
       });
       if (button) drawn.set(marker.id, button);
@@ -366,6 +371,19 @@ export function pageBox(window: Window, rect: DOMRectReadOnly): Box {
     width: Math.round(rect.width),
     height: Math.round(rect.height),
   };
+}
+
+/**
+ * The nearest element around `node` that is not laid out inline: the paragraph, list item or cell
+ * whose left edge is the gutter a text marker sits in.
+ */
+function blockOf(window: Window, node: Node): Element | null {
+  let element = node.nodeType === 1 ? (node as Element) : node.parentElement;
+  while (element && element !== window.document.body) {
+    if (!window.getComputedStyle(element).display.startsWith("inline")) return element;
+    element = element.parentElement;
+  }
+  return element;
 }
 
 /** The boxes of each line of a resolved text range. */

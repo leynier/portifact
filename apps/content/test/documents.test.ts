@@ -61,7 +61,8 @@ async function publish({ type, files, accessMode = "public" }: Doc): Promise<str
     now: NOW,
   });
   if (!committed.ok) throw new Error(committed.message);
-  await env.DB.prepare("UPDATE artifacts SET access_mode = ? WHERE id = ?")
+  // Top-level visits here test the document itself; the viewer redirect has its own tests.
+  await env.DB.prepare("UPDATE artifacts SET access_mode = ?, bar = 0 WHERE id = ?")
     .bind(accessMode, committed.value.artifactId)
     .run();
   return committed.value.artifactId;

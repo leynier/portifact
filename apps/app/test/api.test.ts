@@ -550,6 +550,7 @@ describe("access control through the API", () => {
       readers: [],
       indexable: false,
       embeddable: false,
+      bar: true,
       policyGeneration: 1,
     });
     const added = await c.call(path, patch({ addReaders: ["Ana@Example.test"] }));

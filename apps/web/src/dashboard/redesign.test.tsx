@@ -135,7 +135,7 @@ describe("publishing steps and dropping files", () => {
     expect(steps.textContent).toContain("Publish, done");
     const created = server.artifacts.at(-1);
     expect(screen.getByRole("link", { name: "Review and comment" }).getAttribute("href")).toBe(
-      `/review/${created?.id}`,
+      `/view/${created?.id}`,
     );
     expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
   });

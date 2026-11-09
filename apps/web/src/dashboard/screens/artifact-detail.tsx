@@ -181,14 +181,14 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
               </Link>
             ) : null}
             {servable ? (
-              <Link
-                to="/review/$artifactId"
-                params={{ artifactId: artifact.id }}
+              // A full page load, so the viewer gets its own policy (frames of this artifact only).
+              <a
+                href={`/view/${encodeURIComponent(artifact.id)}`}
                 className={buttonClasses({ intent: "primary" })}
               >
                 <MessageSquareText aria-hidden="true" className="size-4" />
                 {t("review.open")}
-              </Link>
+              </a>
             ) : null}
           </>
         }
