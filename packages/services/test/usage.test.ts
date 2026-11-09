@@ -101,7 +101,7 @@ describe("getAccountUsage", () => {
         resetsAt: Date.UTC(2026, 11, 1),
       },
       versionLimits: { publishedBytes: 250_000_000, files: 1_000, documentBytes: 5_000_000 },
-      publicAccessFrom: NOW - 23 * DAY,
+      publicAccessFrom: NOW - 30 * DAY + 15 * 60_000,
       blocks: [],
     });
   });
@@ -186,7 +186,7 @@ describe("getAccountUsage", () => {
     ]);
 
     const fresh = await getAccountUsage(db(), { ownerId: "u_missing", now: NOW });
-    expect(fresh.publicAccessFrom).toBe(NOW + 7 * DAY);
+    expect(fresh.publicAccessFrom).toBe(NOW + 15 * 60_000);
     expect(fresh.blocks.map((block) => block.reason)).toEqual(["account_too_new_for_public"]);
   });
 

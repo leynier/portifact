@@ -16,7 +16,8 @@ export const LIMITS = {
   previousVersionRetentionDays: 7,
   activeDays: 30,
   archiveMonths: 6,
-  publicAccessMinAccountAgeDays: 7,
+  /** New accounts wait this long before making an artifact public (abuse protection). */
+  publicAccessMinAccountAgeMinutes: 15,
   pathMaxLength: 1_024,
   /** Bounds the reader list of a restricted artifact; not a product tier, a safety cap. */
   readersPerArtifact: 500,

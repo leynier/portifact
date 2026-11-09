@@ -20,7 +20,7 @@ function newId(): string {
   return id;
 }
 
-async function owner(ageDays: number): Promise<string> {
+async function owner(ageDays: number, ageMinutes = 0): Promise<string> {
   const id = `u_${crypto.randomUUID()}`;
   await db()
     .insert(schema.users)
@@ -29,7 +29,7 @@ async function owner(ageDays: number): Promise<string> {
       name: "",
       email: `${id}@example.test`,
       emailVerified: true,
-      createdAt: new Date(NOW - ageDays * DAY),
+      createdAt: new Date(NOW - ageDays * DAY - ageMinutes * 60_000),
       updatedAt: new Date(NOW),
     });
   return id;
@@ -137,7 +137,7 @@ describe("access policy", () => {
   });
 
   it("keeps new accounts from going public but lets them narrow access", async () => {
-    const young = await owner(2);
+    const young = await owner(0, LIMITS.publicAccessMinAccountAgeMinutes - 1);
     const artifactId = await artifact(young);
     expect(
       await updateAccess(db(), {
@@ -156,7 +156,7 @@ describe("access policy", () => {
       }),
     ).toMatchObject({ ok: true });
 
-    const old = await owner(LIMITS.publicAccessMinAccountAgeDays);
+    const old = await owner(0, LIMITS.publicAccessMinAccountAgeMinutes);
     const other = await artifact(old);
     expect(
       await updateAccess(db(), {

@@ -21,7 +21,7 @@ import { ACCOUNT_QUERY } from "./shell.tsx";
 
 export const accessQuery = (artifactId: string) => ["artifact", artifactId, "access"] as const;
 
-const DAY_MS = 86_400_000;
+const MINUTE_MS = 60_000;
 const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
 
 /** When the account may first make an artifact public, or null when that is not known. */
@@ -29,7 +29,7 @@ export function publicAvailableFrom(account: Account | null | undefined): Date |
   if (!account?.createdAt) return null;
   const created = Date.parse(account.createdAt);
   if (Number.isNaN(created)) return null;
-  return new Date(created + LIMITS.publicAccessMinAccountAgeDays * DAY_MS);
+  return new Date(created + LIMITS.publicAccessMinAccountAgeMinutes * MINUTE_MS);
 }
 
 export function AccessSettings({ artifact }: { artifact: ArtifactSummary }) {
@@ -78,7 +78,7 @@ function useAccessError(): (error: unknown) => string {
   const t = useT();
   const formatDate = useFormatDate();
   const queryClient = useQueryClient();
-  const days = LIMITS.publicAccessMinAccountAgeDays;
+  const minutes = LIMITS.publicAccessMinAccountAgeMinutes;
   return (error) => {
     const code = error instanceof ApiFailure ? error.code : "unexpected";
     if (code === "version_conflict") return t("accessSettings.conflict");
@@ -88,8 +88,8 @@ function useAccessError(): (error: unknown) => string {
     if (code === "account_too_new_for_public") {
       const from = publicAvailableFrom(queryClient.getQueryData<Account | null>(ACCOUNT_QUERY));
       return from
-        ? t("accessSettings.tooNew", { days, date: formatDate(from.toISOString()) })
-        : t("accessSettings.tooNewNoDate", { days });
+        ? t("accessSettings.tooNew", { minutes, date: formatDate(from.toISOString(), true) })
+        : t("accessSettings.tooNewNoDate", { minutes });
     }
     return errorMessage(t, error);
   };
@@ -243,8 +243,8 @@ function SettingsForm({
           <span className="block">{t("accessSettings.mode.public")}</span>
           <span className="mt-1 block font-medium text-text">
             {t("accessSettings.mode.publicFrom", {
-              date: formatDate(publicFrom.toISOString()),
-              days: LIMITS.publicAccessMinAccountAgeDays,
+              date: formatDate(publicFrom.toISOString(), true),
+              minutes: LIMITS.publicAccessMinAccountAgeMinutes,
             })}
           </span>
         </>
