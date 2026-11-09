@@ -75,6 +75,7 @@ test("the dashboard switches to Spanish, keeps it on reload and saves it in the 
 
   // A browser that kept nothing, like another device, follows the account's language.
   await page.evaluate(() => localStorage.removeItem("portifact.locale"));
+  await context.clearCookies({ name: "__Secure-pf_lang" });
   await page.goto(`${APP_ORIGIN}/`);
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   await expect(page.getByRole("heading", { level: 1, name: "Artifacts" })).toBeVisible();
@@ -185,7 +186,9 @@ test.describe("at 320 px with wider text than any font gives", () => {
       const prefix = code === "en" ? "" : `/${code.toLowerCase()}`;
       const pages = [
         ...["/", "/mcp-compatibility", "/terms", "/privacy", "/acceptable-use"].map(
-          (path) => `${SITE_ORIGIN}${prefix}${path}`,
+          // Each asks for its language: the login page's `?lang=` before it is kept in the
+          // shared cookie, which would send the next static page to that language.
+          (path) => `${SITE_ORIGIN}${prefix}${path}?lang=${code}`,
         ),
         ...["/login", "/device", "/report"].map((path) => `${APP_ORIGIN}${path}?lang=${code}`),
       ];

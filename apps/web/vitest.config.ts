@@ -7,12 +7,14 @@ export default defineConfig({
     // explicitly where they matter, so the timeout only catches hangs.
     testTimeout: 30_000,
     include: ["src/**/*.test.{ts,tsx}"],
+    setupFiles: ["src/test-setup.ts"],
     coverage: {
       provider: "istanbul",
       reporter: ["text", "json-summary"],
       include: ["src/**/*.{ts,tsx}"],
       exclude: [
         "src/**/*.test.{ts,tsx}",
+        "src/test-setup.ts",
         "src/main.ts",
         "src/pages/**",
         "src/auth/test-page.ts",

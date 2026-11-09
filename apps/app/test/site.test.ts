@@ -1,9 +1,12 @@
 import { SELF } from "cloudflare:test";
 import { TERMS_VERSION } from "@portifact/contracts";
 import { LOCALE_CODES } from "@portifact/contracts/locales";
+import { LOCALE_COOKIE, preferenceCookie } from "@portifact/contracts/preferences";
 import { THEME_SCRIPT, THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { describe, expect, it } from "vitest";
 import { PAGE_CSP } from "../src/app-host.ts";
+import { DOCUMENT_PAGES } from "../src/site.ts";
+import { SITE_PAGE_PATHS, sitePageLocale } from "../src/site-language.ts";
 
 async function get(url: string, init?: RequestInit): Promise<Response> {
   return SELF.fetch(url, { redirect: "manual", ...init });
@@ -301,5 +304,98 @@ describe("host routing", () => {
     const root = await get("https://app.portifact.com/");
     expect(root.status).toBe(302);
     expect(await root.text()).not.toMatch(/<html/i);
+  });
+});
+
+describe("the visitor's language on portifact.com", () => {
+  const chosen = (locale: string) => ({
+    headers: { Cookie: `other=1; ${LOCALE_COOKIE}=${locale}` },
+  });
+
+  it("serves crawlers and first visits the page they asked for, whatever their languages", async () => {
+    for (const path of ["/", "/es/", "/terms", "/fr/privacy"]) {
+      const response = await get(`https://portifact.com${path}`, {
+        headers: { "Accept-Language": "de-DE,de;q=0.9" },
+      });
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("set-cookie"), path).toBeNull();
+      expect(response.headers.get("vary"), path).toContain("Cookie");
+    }
+  });
+
+  it("sends a visitor who chose a language to the same page in it, never from a shared cache", async () => {
+    const cases = [
+      ["/", "es", "/es/"],
+      ["/es/", "en", "/"],
+      ["/terms", "pt-BR", "/pt-br/terms"],
+      ["/zh-cn/mcp-compatibility", "fr", "/fr/mcp-compatibility"],
+      ["/de/acceptable-use?x=1", "ja", "/ja/acceptable-use?x=1"],
+    ] as const;
+    for (const [path, locale, target] of cases) {
+      const response = await get(`https://portifact.com${path}`, chosen(locale));
+      expect(response.status, path).toBe(302);
+      expect(response.headers.get("location"), path).toBe(target);
+      expect(response.headers.get("vary"), path).toContain("Cookie");
+      expect(response.headers.get("cache-control"), path).toBe("private, no-store");
+      expect(response.headers.get("set-cookie"), path).toBeNull();
+    }
+  });
+
+  it("serves the page when it is already in the chosen language", async () => {
+    const response = await get("https://portifact.com/es/terms", chosen("es"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("vary")).toContain("Cookie");
+    expect(await response.text()).toMatch(/<html lang="es"[\s>]/);
+  });
+
+  it("ignores a cookie with a language it does not have", async () => {
+    for (const value of ["xx", "pt-br", ""]) {
+      const response = await get("https://portifact.com/", chosen(value));
+      expect(response.status, value).toBe(200);
+    }
+  });
+
+  it("keeps a language picked in a switcher and drops the parameter, without a loop", async () => {
+    // The visitor chose Spanish earlier and now picks English on a Spanish page.
+    const pick = await get("https://portifact.com/?lang=en", chosen("es"));
+    expect(pick.status).toBe(302);
+    expect(pick.headers.get("location")).toBe("/");
+    expect(pick.headers.get("cache-control")).toBe("private, no-store");
+    expect(pick.headers.get("set-cookie")).toBe(
+      preferenceCookie(LOCALE_COOKIE, "en", "portifact.com"),
+    );
+    // With the new cookie the page is served at once.
+    const next = await get("https://portifact.com/", chosen("en"));
+    expect(next.status).toBe(200);
+    // A parameter sends the page to its language, keeping the rest of the query.
+    const terms = await get("https://portifact.com/terms?lang=ja&x=1");
+    expect(terms.headers.get("location")).toBe("/ja/terms?x=1");
+    expect(terms.headers.get("set-cookie")).toContain(`${LOCALE_COOKIE}=ja; Domain=portifact.com`);
+  });
+
+  it("leaves an unknown parameter, other paths and other methods alone", async () => {
+    expect((await get("https://portifact.com/?lang=klingon")).status).toBe(200);
+    expect(
+      (await get("https://portifact.com/install", chosen("es"))).headers.get("location"),
+    ).toMatch(/^https:\/\/github\.com\//);
+    const notices = await get("https://portifact.com/third-party-notices", chosen("es"));
+    expect(notices.status).toBe(200);
+    expect(notices.headers.get("vary")).toBeNull();
+    const post = await get("https://portifact.com/", { method: "POST", ...chosen("es") });
+    expect(post.headers.get("location")).toBeNull();
+  });
+
+  it("never touches the app host, where the app reads the cookie itself", async () => {
+    const response = await get("https://app.portifact.com/login?lang=es", chosen("fr"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("covers every page of the site", () => {
+    expect([...SITE_PAGE_PATHS]).toEqual(["/", ...DOCUMENT_PAGES]);
+    expect(sitePageLocale("/es")).toBeUndefined();
+    expect(sitePageLocale("/xx/terms")).toBeUndefined();
+    expect(sitePageLocale("/es/unknown")).toBeUndefined();
+    expect(sitePageLocale("/pt-br/")).toEqual({ locale: "pt-BR", page: "/" });
   });
 });
