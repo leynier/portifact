@@ -1,5 +1,5 @@
 import { CircleAlert } from "lucide-react";
-import { useId } from "react";
+import { type ReactNode, useId } from "react";
 
 export interface MeterProps {
   /** What is measured, such as "Storage". It names the meter. */
@@ -15,6 +15,8 @@ export interface MeterProps {
   nearLimitLabel: string;
   /** Shown instead of `nearLimitLabel` once `value` reaches `max`. */
   atLimitLabel: string;
+  /** What the quota counts and when it resets, read after the amount. */
+  description?: ReactNode;
 }
 
 const NEAR = 0.8;
@@ -23,7 +25,15 @@ const NEAR = 0.8;
  * How much of a limit is used: a native `meter` with its amount in words. The bar turns hatched
  * near the limit, and the words say so, never the tone alone.
  */
-export function Meter({ label, value, max, valueText, nearLimitLabel, atLimitLabel }: MeterProps) {
+export function Meter({
+  label,
+  value,
+  max,
+  valueText,
+  nearLimitLabel,
+  atLimitLabel,
+  description,
+}: MeterProps) {
   const id = useId();
   const limit = Math.max(max, 0);
   const clamped = Math.min(Math.max(value, 0), limit);
@@ -42,7 +52,7 @@ export function Meter({ label, value, max, valueText, nearLimitLabel, atLimitLab
       <meter
         className="meter-bar"
         aria-labelledby={`${id}-label`}
-        aria-describedby={`${id}-text${state === "ok" ? "" : ` ${id}-state`}`}
+        aria-describedby={`${id}-text${state === "ok" ? "" : ` ${id}-state`}${description ? ` ${id}-description` : ""}`}
         min={0}
         max={limit || 1}
         low={high}
@@ -56,6 +66,11 @@ export function Meter({ label, value, max, valueText, nearLimitLabel, atLimitLab
           {state === "at" ? atLimitLabel : nearLimitLabel}
         </p>
       )}
+      {description ? (
+        <p id={`${id}-description`} className="text-xs text-text-muted">
+          {description}
+        </p>
+      ) : null}
     </div>
   );
 }

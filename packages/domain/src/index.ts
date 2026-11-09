@@ -1,5 +1,6 @@
 export * from "./access.ts";
 export * from "./access-log.ts";
+export * from "./account-settings.ts";
 export * from "./annotations.ts";
 export * from "./budget.ts";
 export * from "./documents.ts";

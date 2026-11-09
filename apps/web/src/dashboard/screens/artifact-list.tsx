@@ -277,10 +277,7 @@ export function ArtifactListScreen() {
             ) : null}
           </div>
           <p className="mt-2 text-sm text-text-muted">
-            {t("list.trafficNote")}{" "}
-            <Link to="/account" hash="usage">
-              {t("list.trafficLink")}
-            </Link>
+            {t("list.trafficNote")} <Link to="/usage">{t("list.trafficLink")}</Link>
           </p>
         </>
       )}

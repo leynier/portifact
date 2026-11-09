@@ -55,7 +55,10 @@ for (const scheme of ["light", "dark"] as const) {
       [`/artifacts/${artifactId}`, "Launch plan"],
       ["/publish", "Publish"],
       [`/artifacts/${artifactId}/history`, "History of Launch plan"],
-      ["/account", "Account"],
+      ["/profile", "Profile"],
+      ["/apps", "Apps"],
+      ["/usage", "Usage"],
+      ["/settings", "Settings"],
     ];
     for (const [path, title] of screens) {
       await page.goto(`${APP_ORIGIN}${path}`);
@@ -64,6 +67,17 @@ for (const scheme of ["light", "dark"] as const) {
       await expect(page.getByText(/^Loading/)).toHaveCount(0);
       expect(await violations(page), `${path} in the ${scheme} theme`).toEqual([]);
     }
+
+    // The collapsed sidebar, and on a phone the open drawer.
+    await page.goto(`${APP_ORIGIN}/`);
+    await page.getByRole("button", { name: "Collapse sidebar" }).click();
+    expect(await violations(page), `the collapsed sidebar in the ${scheme} theme`).toEqual([]);
+    await page.getByRole("button", { name: "Expand sidebar" }).click();
+    await page.setViewportSize({ width: 375, height: 740 });
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("dialog", { name: "Open navigation" }).waitFor();
+    expect(await violations(page), `the navigation drawer in the ${scheme} theme`).toEqual([]);
+    await page.keyboard.press("Escape");
 
     // The first-publish guide of a new account.
     const fresh = await createUser(`Newcomer${scheme}`);

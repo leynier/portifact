@@ -230,6 +230,11 @@
     cursor: pointer;
   }
 
+  /* A modal drawer (`Drawer`) keeps the page behind it from scrolling while it is open. */
+  html:has(dialog[data-scroll-lock][open]) {
+    overflow: hidden;
+  }
+
   :focus-visible {
     outline: 2px solid var(--pf-color-focus);
     outline-offset: 3px;
@@ -361,4 +366,16 @@
       var(--pf-color-text-muted) 3px 5px
     );
   }
+}
+
+/*
+ * The width of the dashboard's sidebar, which the person can resize. `AppShell` sets
+ * `--pf-sidebar-width` through the CSSOM (the dynamic-geometry exception); 15rem without it.
+ */
+@utility w-sidebar {
+  width: var(--pf-sidebar-width, 15rem);
+}
+
+@utility pl-sidebar {
+  padding-left: var(--pf-sidebar-width, 15rem);
 }

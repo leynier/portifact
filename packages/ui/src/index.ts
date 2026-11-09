@@ -1,6 +1,6 @@
 // Portifact design system: components and patterns. Tokens are imported as CSS from
 // `@portifact/ui/theme.css`.
-export { Avatar, type AvatarProps, initialOf } from "./components/avatar.tsx";
+export { Avatar, type AvatarProps, initialOf, initials } from "./components/avatar.tsx";
 export { Badge, type BadgeProps } from "./components/badge.tsx";
 export { Button, type ButtonProps, buttonClasses } from "./components/button.tsx";
 export { Callout, type CalloutProps } from "./components/callout.tsx";
@@ -8,6 +8,7 @@ export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dia
 export { CopyField, type CopyFieldProps } from "./components/copy-field.tsx";
 export { type DetailItem, DetailList, type DetailListProps } from "./components/detail-list.tsx";
 export { Disclosure, type DisclosureProps } from "./components/disclosure.tsx";
+export { Drawer, type DrawerProps } from "./components/drawer.tsx";
 export {
   type DroppedFile,
   type DroppedItems,
@@ -44,6 +45,7 @@ export { Meter, type MeterProps } from "./components/meter.tsx";
 export { Panel, type PanelProps } from "./components/panel.tsx";
 export { PreviewFrame, type PreviewFrameProps } from "./components/preview-frame.tsx";
 export { ProgressBar, type ProgressBarProps } from "./components/progress.tsx";
+export { ResizeHandle, type ResizeHandleProps } from "./components/resize-handle.tsx";
 export {
   placeListbox,
   Select,
@@ -71,11 +73,16 @@ export { Tooltip, type TooltipProps } from "./components/tooltip.tsx";
 export { useMediaQuery, WIDE_QUERY } from "./hooks/use-media-query.ts";
 export {
   AppShell,
+  type AppShellLabels,
+  type AppShellNavItem,
   type AppShellProps,
   backLinkClasses,
   navLinkClasses,
   PageHeader,
   type PageHeaderProps,
+  SIDEBAR_WIDTH,
+  SidebarAccount,
+  type SidebarAccountProps,
 } from "./patterns/app-shell.tsx";
 export {
   Floating,

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { BrowserSession, ConnectedApp, DisconnectResult } from "./index.ts";
+import {
+  AccountSettings,
+  AccountSettingsUpdate,
+  BrowserSession,
+  ConnectedApp,
+  DisconnectResult,
+} from "./index.ts";
 
 const AT = "2026-11-08T12:00:00.000Z";
 
@@ -40,5 +46,24 @@ describe("account contracts", () => {
 
   it("confirms a disconnection only as done", () => {
     expect(DisconnectResult.safeParse({ clientId: "c", disconnected: false }).success).toBe(false);
+  });
+
+  it("describes the defaults for new artifacts and refuses unknown or empty changes", () => {
+    const settings = {
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "off",
+      defaultCommentVisibility: "owner",
+      defaultBar: true,
+    };
+    expect(AccountSettings.parse(settings)).toEqual(settings);
+    expect(AccountSettings.safeParse({ ...settings, defaultAnnotations: "locked" }).success).toBe(
+      false,
+    );
+    expect(AccountSettingsUpdate.parse({ defaultBar: false })).toEqual({ defaultBar: false });
+    expect(AccountSettingsUpdate.safeParse({}).success).toBe(false);
+    expect(AccountSettingsUpdate.safeParse({ defaultAccessMode: "everyone" }).success).toBe(false);
+    expect(AccountSettingsUpdate.safeParse({ defaultBar: true, ownerId: "u_1" }).success).toBe(
+      false,
+    );
   });
 });

@@ -5,6 +5,7 @@ import {
   type AccessLogView,
   type AccessPolicyView,
   AccessUpdate,
+  type AccountSettings,
   type AccountUsageView,
   type AnnotationMessageView,
   type AnnotationRole,
@@ -319,6 +320,8 @@ export interface FakeServer {
   providers: { providerId: string; createdAt: string }[];
   sessions: BrowserSession[];
   apps: ConnectedApp[];
+  /** The account's defaults for new artifacts. */
+  settings: AccountSettings;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
@@ -355,6 +358,12 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     providers: [],
     sessions: [browserSession({ current: true })],
     apps: [],
+    settings: {
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "off",
+      defaultCommentVisibility: "owner",
+      defaultBar: true,
+    },
     usage: usageView(),
     accessLogs: {},
     bodies: [],
@@ -712,6 +721,20 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const before = server.sessions.length;
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
+  }
+  if (path === "/api/v1/account/settings" && method === "GET") {
+    return Response.json(server.settings);
+  }
+  if (path === "/api/v1/account/settings" && method === "PATCH") {
+    const update = server.bodies.at(-1) as Partial<AccountSettings>;
+    if (update.defaultAccessMode === "public" && server.createdAt) {
+      const age = Date.now() - Date.parse(server.createdAt);
+      if (age < LIMITS.publicAccessMinAccountAgeMinutes * 60_000) {
+        return apiError("account_too_new_for_public", 403);
+      }
+    }
+    server.settings = { ...server.settings, ...update };
+    return Response.json(server.settings);
   }
   if (path === "/api/v1/account/delete" && method === "POST") {
     const body = server.bodies.at(-1) as { confirmEmail?: string } | undefined;

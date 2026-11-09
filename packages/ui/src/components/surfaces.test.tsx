@@ -92,6 +92,27 @@ describe("Meter", () => {
     expect(screen.getByRole("meter").getAttribute("value")).toBe("100");
   });
 
+  it("reads what the quota counts after its amount and state", async () => {
+    const { container } = render(
+      <Meter
+        label="Storage"
+        value={90}
+        max={100}
+        valueText="90 of 100"
+        nearLimitLabel="Near the limit"
+        atLimitLabel="Limit reached"
+        description="Unique files you keep, in every version."
+      />,
+    );
+    const ids = (screen.getByRole("meter").getAttribute("aria-describedby") ?? "").split(" ");
+    expect(ids.map((id) => document.getElementById(id)?.textContent)).toEqual([
+      "90 of 100",
+      "Near the limit",
+      "Unique files you keep, in every version.",
+    ]);
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("never warns about a limit of zero", () => {
     render(
       <Meter

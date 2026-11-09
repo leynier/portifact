@@ -7,16 +7,20 @@ import {
   createRouter,
   Outlet,
   type RouterHistory,
+  redirect,
   useMatch,
 } from "@tanstack/react-router";
-import { AccountScreen } from "./screens/account.tsx";
+import { AppsScreen } from "./screens/apps.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
+import { ProfileScreen } from "./screens/profile.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
+import { SettingsScreen } from "./screens/settings.tsx";
 import { Shell } from "./screens/shell.tsx";
+import { UsageScreen } from "./screens/usage.tsx";
 import { parseViewerSearch, ViewerScreen } from "./screens/viewer.tsx";
 
 /**
@@ -26,6 +30,25 @@ import { parseViewerSearch, ViewerScreen } from "./screens/viewer.tsx";
 function Frame() {
   const viewer = useMatch({ from: "/view/$artifactId", shouldThrow: false });
   return viewer ? <Outlet /> : <Shell />;
+}
+
+/**
+ * Where a link to the old single account page lands: its sections moved to Profile, Apps, Usage
+ * and Settings, so each anchor goes to the page that holds it now.
+ */
+export function accountRedirect(hash: string): "/profile" | "/apps" | "/usage" | "/settings" {
+  switch (hash.replace(/^#/, "")) {
+    case "usage":
+      return "/usage";
+    case "apps":
+      return "/apps";
+    case "data":
+    case "delete":
+    case "defaults":
+      return "/settings";
+    default:
+      return "/profile";
+  }
 }
 
 export function createDashboardRouter(history?: RouterHistory) {
@@ -61,10 +84,33 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/artifacts/$artifactId/history",
     component: HistoryScreen,
   });
+  const profile = createRoute({
+    getParentRoute: () => root,
+    path: "/profile",
+    component: ProfileScreen,
+  });
+  const apps = createRoute({
+    getParentRoute: () => root,
+    path: "/apps",
+    component: AppsScreen,
+  });
+  const usage = createRoute({
+    getParentRoute: () => root,
+    path: "/usage",
+    component: UsageScreen,
+  });
+  const settings = createRoute({
+    getParentRoute: () => root,
+    path: "/settings",
+    component: SettingsScreen,
+  });
+  // The old account page: links and bookmarks to it, with or without an anchor, still work.
   const account = createRoute({
     getParentRoute: () => root,
     path: "/account",
-    component: AccountScreen,
+    beforeLoad: ({ location }) => {
+      throw redirect({ to: accountRedirect(location.hash), replace: true });
+    },
   });
   const viewer = createRoute({
     getParentRoute: () => root,
@@ -80,6 +126,10 @@ export function createDashboardRouter(history?: RouterHistory) {
       publishVersion,
       edit,
       versionHistory,
+      profile,
+      apps,
+      usage,
+      settings,
       account,
       viewer,
     ]),

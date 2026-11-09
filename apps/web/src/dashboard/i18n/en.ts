@@ -7,8 +7,15 @@ export const en = {
   "shell.navigation": "Main",
   "shell.home": "Portifact dashboard",
   "shell.artifacts": "Artifacts",
-  "shell.accountLink": "Account",
-  "shell.account": "Signed in as {email}",
+  "shell.usageLink": "Usage",
+  "shell.appsLink": "Apps",
+  "shell.settingsLink": "Settings",
+  "shell.profileLink": "Profile",
+  "shell.openNavigation": "Open navigation",
+  "shell.closeNavigation": "Close navigation",
+  "shell.collapseSidebar": "Collapse sidebar",
+  "shell.expandSidebar": "Expand sidebar",
+  "shell.resizeSidebar": "Resize sidebar",
   "shell.signOut": "Sign out",
   "shell.signingOut": "Signing you out.",
   "shell.signOutFailed": "Sign out did not finish. Try again.",
@@ -272,10 +279,10 @@ export const en = {
   "readers.comments.confirm.body":
     "{email} will see every thread on this artifact, including comments already written by other people.",
 
-  "account.title": "Account",
-  "account.description": "How you sign in, where you are signed in and which apps can act for you.",
-  "account.profile": "Profile",
-  "account.sectionsNav": "Account sections",
+  "profile.title": "Profile",
+  "profile.description": "Who you are on Portifact, how you sign in and where you are signed in.",
+  "profile.details": "Your account",
+  "account.name": "Name",
   "account.email": "Email",
   "account.memberSince": "Member since",
   "account.methods.title": "Sign-in methods",
@@ -308,6 +315,9 @@ export const en = {
   "account.sessions.confirm.confirm": "Sign out others",
   "account.sessions.signedOut":
     "{count, plural, =0 {No other browser was signed in.} one {Signed out # other session.} other {Signed out # other sessions.}}",
+  "apps.title": "Apps",
+  "apps.description":
+    "The CLI and the agents that can act for you. Disconnect any of them at any time.",
   "account.apps.title": "Connected apps",
   "account.apps.hint":
     "The CLI and the agents you connected through MCP. Each one can do what is listed until you disconnect it.",
@@ -315,7 +325,7 @@ export const en = {
   "account.apps.error": "Connected apps could not be loaded",
   "account.apps.empty.title": "No apps connected",
   "account.apps.empty.body":
-    "Run portifact login in a terminal, or add Portifact's MCP server to your agent.",
+    "Run portifact login in a terminal, or add Portifact's MCP server to your agent. Each one asks for your approval here, and shows up in this list until you disconnect it.",
   "account.apps.unnamed": "Unnamed app",
   "account.apps.firstParty": "Made by Portifact",
   "account.apps.thirdParty": "Third-party app",
@@ -333,6 +343,28 @@ export const en = {
   "account.apps.confirm.body":
     "It loses access right away and has to ask for your approval again to reconnect.",
   "account.apps.disconnected": "{name} disconnected.",
+  "settings.title": "Settings",
+  "settings.description": "How new artifacts start, your data, and deleting your account.",
+  "settings.defaults.title": "Defaults for new artifacts",
+  "settings.defaults.hint":
+    "Every artifact you create from now on starts like this, whether you publish from the dashboard, the CLI or an agent. Artifacts you already have keep their own settings; change those on each artifact's page.",
+  "settings.defaults.loading": "Loading your settings",
+  "settings.defaults.error": "Your settings could not be loaded",
+  "settings.defaults.access": "Who can open a new artifact",
+  "settings.defaults.access.restricted":
+    "Only you, until you add people. This is the safest choice.",
+  "settings.defaults.comments": "Comments on a new artifact",
+  "settings.defaults.comments.off": "Off",
+  "settings.defaults.comments.off.hint": "Nobody can comment until you turn comments on.",
+  "settings.defaults.comments.open": "Open",
+  "settings.defaults.comments.open.hint": "Everyone who can open the artifact can comment.",
+  "settings.defaults.bar.label": "Show the Portifact bar on new artifacts",
+  "settings.defaults.save": "Save defaults",
+  "settings.defaults.saved": "Defaults saved. New artifacts start this way.",
+  "settings.defaults.unchanged": "Nothing to save: your defaults are already set this way.",
+  "settings.defaults.failed": "Your defaults were not saved",
+  "settings.danger.title": "Danger zone",
+  "settings.danger.hint": "These actions cannot be undone.",
   "account.data.title": "Your data",
   "account.data.hint":
     "Download everything your account holds as JSON: your profile, artifacts with their access, versions and file lists, and comments. Each version lists a link that downloads its files.",
@@ -373,8 +405,39 @@ export const en = {
   "accessLog.export.failed": "The access log could not be exported",
 
   "usage.title": "Usage",
-  "usage.hint":
+  "usage.description":
     "Your quotas and what your artifacts served this month. Traffic is counted every few seconds, so it can lag slightly behind.",
+  "usage.meterPercent": "{used} of {limit} ({percent})",
+  "usage.traffic.section": "Traffic this month",
+  "usage.traffic.hint":
+    "Counted for your whole account, across all your artifacts. Reaching either limit pauses every artifact until the reset.",
+  "usage.trafficRequests.hint": "Every page, file and download your artifacts answered.",
+  "usage.trafficBytes.hint": "The size of everything your artifacts sent to visitors.",
+  "usage.storage.section": "Artifacts and storage",
+  "usage.activeArtifacts.hint":
+    "Artifacts that are online now. Archived and deleted artifacts do not count.",
+  "usage.storage.hint":
+    "Unique files you keep across every version, counted once. Uploads in progress count while they run.",
+  "usage.publishing.section": "Publishing",
+  "usage.publishing.hint":
+    "Limits on how fast you can publish. The 24-hour windows roll, so they free up gradually.",
+  "usage.publishes.hint": "Versions you published or rolled back to.",
+  "usage.newFiles": "New files, last 24 hours",
+  "usage.newFiles.hint": "Files you had not uploaded before; files you already keep do not count.",
+  "usage.newBytes": "New data, last 24 hours",
+  "usage.newBytes.hint": "The size of those new files.",
+  "usage.newObjects": "New files this month",
+  "usage.newObjects.hint": "Resets on {date}.",
+  "usage.openUploads": "Uploads in progress",
+  "usage.openUploads.hint": "Publishes started but not finished yet.",
+  "usage.versions.section": "Limits of each version",
+  "usage.versions.hint": "The same for every artifact.",
+  "usage.versions.publishedBytes": "Published size",
+  "usage.versions.files": "Files",
+  "usage.versions.documentBytes": "Markdown or text document",
+  "usage.public.title": "Public artifacts are available soon",
+  "usage.public.body":
+    "New accounts can make an artifact public {minutes} minutes after they are created. You can from {date}.",
   "usage.loading": "Loading your usage",
   "usage.error": "Usage could not be loaded",
   "usage.meter": "{used} of {limit}",
@@ -392,7 +455,6 @@ export const en = {
   "usage.traffic.link": "See your usage",
   "usage.nearLimit": "Near the limit",
   "usage.atLimit": "Limit reached",
-  "usage.sidebar": "Your usage",
   "account.cancel": "Cancel",
 
   "scope.artifacts:read": "See your artifacts, their settings and their versions",
