@@ -11,12 +11,13 @@
     "e2e": "playwright test"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.0.0",
     "@playwright/test": "~1.64.1",
     "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
     "@portifact/services": "workspace:*",
-    "@cloudflare/workers-types": "^5.0.0",
     "@types/node": "catalog:",
+    "axe-core": "catalog:",
     "typescript": "catalog:",
     "wrangler": "^4.0.0"
   }

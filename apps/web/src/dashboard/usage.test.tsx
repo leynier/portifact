@@ -31,26 +31,38 @@ beforeEach(() => {
   server = fakeServer([artifact("k7d2qm4xab", { name: "Launch plan" })]);
 });
 
+/** Each meter's accessible name and the words it is described by. */
+function meters(region: HTMLElement): Record<string, string> {
+  return Object.fromEntries(
+    within(region)
+      .getAllByRole("meter")
+      .map((meter) => {
+        const name = document.getElementById(meter.getAttribute("aria-labelledby") ?? "");
+        const [text] = (meter.getAttribute("aria-describedby") ?? "").split(" ");
+        return [name?.textContent ?? "", document.getElementById(text ?? "")?.textContent ?? ""];
+      }),
+  );
+}
+
 const usageRegion = () => screen.findByRole("region", { name: "Usage" });
 
 describe("account usage", () => {
   it("shows the quotas and this month's traffic with their limits", async () => {
     const { container } = renderDashboard("/account", server);
     const region = await usageRegion();
-    await waitFor(() => expect(within(region).getAllByRole("term").length).toBeGreaterThan(0));
-    const rows = Object.fromEntries(
-      within(region)
-        .getAllByRole("term")
-        .map((term) => [term.textContent, term.nextElementSibling?.textContent]),
-    );
-    expect(rows).toEqual({
+    await waitFor(() => expect(within(region).getAllByRole("meter").length).toBeGreaterThan(0));
+    expect(meters(region)).toEqual({
       "Active artifacts": "2 of 50",
       Storage: "1.5 MB of 2.5 GB",
       "Publishes, last 24 hours": "3 of 100",
       "Requests served this month": "12,345 of 1,000,000",
       "Data served this month": "3.2 GB of 25 GB",
-      "Traffic resets on": local("2026-12-01T00:00:00.000Z"),
     });
+    const reset = within(region).getByRole("term");
+    expect(reset.textContent).toBe("Traffic resets on");
+    expect(reset.nextElementSibling?.textContent).toBe(local("2026-12-01T00:00:00.000Z"));
+    // Nothing is close to its limit, so no meter warns.
+    expect(within(region).queryByText("Near the limit")).toBeNull();
     expect(within(region).queryByText("Your artifacts used this month's traffic")).toBeNull();
     expect(await axeViolations(container)).toEqual([]);
   });
@@ -94,6 +106,9 @@ describe("account usage", () => {
       "Your 2.5 GB of storage is full.",
       `You published 100 times in the last 24 hours. Lifts ${local("2026-11-09T08:30:00.000Z")}.`,
     ]);
+    // The requests meter is full: it says so in words, read with the meter.
+    expect(meters(region)["Requests served this month"]).toBe("1,000,000 of 1,000,000");
+    expect(within(region).getByText("Limit reached")).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
   });
 

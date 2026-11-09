@@ -7,18 +7,22 @@
   /* Primitive neutral ramp, white to black. */
   --pf-neutral-0: #ffffff;
   --pf-neutral-50: #f7f7f7;
+  --pf-neutral-75: #f3f3f3;
   --pf-neutral-100: #efefef;
   --pf-neutral-150: #e5e5e5;
   --pf-neutral-200: #dedede;
   --pf-neutral-300: #c4c4c4;
+  --pf-neutral-350: #ababab;
   --pf-neutral-400: #9e9e9e;
   --pf-neutral-500: #767676;
   --pf-neutral-600: #5c5c5c;
   --pf-neutral-700: #3a3a3a;
+  --pf-neutral-750: #2e2e2e;
   --pf-neutral-800: #262626;
   --pf-neutral-850: #1c1c1c;
   --pf-neutral-900: #141414;
   --pf-neutral-950: #0f0f0f;
+  --pf-neutral-975: #0a0a0a;
   --pf-neutral-1000: #000000;
 
   /* Typography */
@@ -63,18 +67,28 @@
   --pf-duration-stagger: 200ms;
   --pf-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
-  /* Elevation. Shadows are pure black at low alpha, so they stay neutral in both themes. */
+  /*
+   * Elevation. Shadows are pure black at low alpha, so they stay neutral in both themes. Panels
+   * sit on the backdrop with `sm`; menus, toasts and dialogs float with `raised` and `float`.
+   */
   --pf-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
+  --pf-shadow-raised: 0 1px 2px rgb(0 0 0 / 0.08), 0 12px 32px -12px rgb(0 0 0 / 0.32);
   --pf-shadow-float: 0 1px 2px rgb(0 0 0 / 0.06), 0 24px 64px -24px rgb(0 0 0 / 0.28);
+
+  /* The selection handle drawn by the `selection-band` utility, after the logo's handles. */
+  --pf-handle-width: 2px;
+  --pf-handle-knob: 6px;
 }
 
 /* Light theme (default). */
 :root,
 [data-theme="light"] {
   color-scheme: light;
+  --pf-color-backdrop: var(--pf-neutral-75);
   --pf-color-canvas: var(--pf-neutral-0);
   --pf-color-surface: var(--pf-neutral-50);
   --pf-color-surface-raised: var(--pf-neutral-0);
+  --pf-color-surface-hover: var(--pf-neutral-100);
   --pf-color-surface-inverse: var(--pf-neutral-1000);
   --pf-color-text: var(--pf-neutral-1000);
   --pf-color-text-muted: var(--pf-neutral-600);
@@ -97,14 +111,16 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --pf-color-canvas: var(--pf-neutral-950);
-    --pf-color-surface: var(--pf-neutral-900);
+    --pf-color-backdrop: var(--pf-neutral-975);
+    --pf-color-canvas: var(--pf-neutral-900);
+    --pf-color-surface: var(--pf-neutral-850);
     --pf-color-surface-raised: var(--pf-neutral-850);
+    --pf-color-surface-hover: var(--pf-neutral-800);
     --pf-color-surface-inverse: var(--pf-neutral-0);
     --pf-color-text: var(--pf-neutral-0);
-    --pf-color-text-muted: var(--pf-neutral-400);
+    --pf-color-text-muted: var(--pf-neutral-350);
     --pf-color-text-inverse: var(--pf-neutral-1000);
-    --pf-color-border: var(--pf-neutral-800);
+    --pf-color-border: var(--pf-neutral-750);
     --pf-color-border-strong: var(--pf-neutral-500);
     --pf-color-selection: var(--pf-neutral-700);
     --pf-color-focus: var(--pf-neutral-0);
@@ -121,14 +137,16 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --pf-color-canvas: var(--pf-neutral-950);
-  --pf-color-surface: var(--pf-neutral-900);
+  --pf-color-backdrop: var(--pf-neutral-975);
+  --pf-color-canvas: var(--pf-neutral-900);
+  --pf-color-surface: var(--pf-neutral-850);
   --pf-color-surface-raised: var(--pf-neutral-850);
+  --pf-color-surface-hover: var(--pf-neutral-800);
   --pf-color-surface-inverse: var(--pf-neutral-0);
   --pf-color-text: var(--pf-neutral-0);
-  --pf-color-text-muted: var(--pf-neutral-400);
+  --pf-color-text-muted: var(--pf-neutral-350);
   --pf-color-text-inverse: var(--pf-neutral-1000);
-  --pf-color-border: var(--pf-neutral-800);
+  --pf-color-border: var(--pf-neutral-750);
   --pf-color-border-strong: var(--pf-neutral-500);
   --pf-color-selection: var(--pf-neutral-700);
   --pf-color-focus: var(--pf-neutral-0);

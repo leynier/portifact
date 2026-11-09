@@ -1,11 +1,13 @@
 import { cva, type VariantProps } from "class-variance-authority";
 import type { ReactNode } from "react";
 
-const calloutClasses = cva("flex gap-3 rounded-md p-4 text-sm", {
+// The left edge is a selection handle: thick for errors and results, thin for information.
+const calloutClasses = cva("flex gap-3 rounded-md border bg-canvas p-4 text-sm", {
   variants: {
     tone: {
-      error: "border-2 border-text bg-surface",
-      info: "border border-border-strong bg-surface",
+      error: "border-border-strong border-l-4 border-l-text",
+      success: "border-border border-l-4 border-l-text",
+      info: "border-border border-l-2 border-l-border-strong",
     },
   },
   defaultVariants: { tone: "info" },
