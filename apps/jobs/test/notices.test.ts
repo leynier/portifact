@@ -36,6 +36,15 @@ describe("expiry notice email", () => {
     expect(email.text).toContain("https://app.portifact.com/settings");
     expect(email.text).toContain("another 30 days");
     expect(email.html).toContain('href="https://app.portifact.com/artifacts/k7d2qm4xab"');
+    expect(email.html).toContain('<html lang="en"');
+  });
+
+  it("is written in the owner's language, English when they chose none", () => {
+    const german = noticeEmail(env, [ARTIFACT], "de");
+    expect(german.html).toContain('<html lang="de"');
+    expect(german.subject).not.toBe(noticeEmail(env, [ARTIFACT]).subject);
+    expect(german.text).toContain("https://app.portifact.com/artifacts/k7d2qm4xab");
+    expect(noticeEmail(env, [ARTIFACT], null)).toEqual(noticeEmail(env, [ARTIFACT]));
   });
 });
 
@@ -45,10 +54,11 @@ describe("expiryNotifierFromEnv", () => {
     await expiryNotifierFromEnv({ ...env, EMAIL: binding }).send({
       to: "ada@example.com",
       artifacts: [ARTIFACT],
+      locale: "ru",
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ from: NOTICE_SENDER, to: "ada@example.com" });
-    expect(sent[0]).toMatchObject(noticeEmail(env, [ARTIFACT]));
+    expect(sent[0]).toMatchObject(noticeEmail(env, [ARTIFACT], "ru"));
   });
 
   it("turns the provider's suppression refusal into RecipientSuppressedError", async () => {
@@ -61,6 +71,7 @@ describe("expiryNotifierFromEnv", () => {
         expiryNotifierFromEnv({ ...env, EMAIL: binding }).send({
           to: "ada@example.com",
           artifacts: [ARTIFACT],
+          locale: null,
         }),
       ).rejects.toBeInstanceOf(RecipientSuppressedError);
     }
@@ -71,6 +82,7 @@ describe("expiryNotifierFromEnv", () => {
     const sending = expiryNotifierFromEnv({ ...env, EMAIL: binding }).send({
       to: "ada@example.com",
       artifacts: [ARTIFACT],
+      locale: null,
     });
     await expect(sending).rejects.toThrow(/^email delivery failed$/);
   });

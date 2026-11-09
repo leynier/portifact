@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { LOCALE_CODES } from "@portifact/contracts/locales";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LOCALE_STORAGE_KEY, type StorageSource } from "../../i18n/preference.ts";
 import { messages } from "../messages.ts";
@@ -6,7 +7,7 @@ import { describeScopes } from "../scopes.ts";
 import { loadPage, ORIGIN } from "../test-page.ts";
 import { en } from "./en.ts";
 import { es } from "./es.ts";
-import { type AuthCatalogLoaders, localizeAuthPage } from "./i18n.ts";
+import { type AuthCatalogLoaders, authCatalogLoaders, localizeAuthPage } from "./i18n.ts";
 
 let stored: Map<string, string>;
 let storage: StorageSource;
@@ -117,9 +118,9 @@ describe("localizeAuthPage", () => {
 
   it("stays in English for a language it does not have", async () => {
     const shown = await localizeAuthPage(document, {
-      url: `${ORIGIN}/login?lang=fr`,
+      url: `${ORIGIN}/login?lang=it`,
       storage,
-      languages: ["fr-FR", "de"],
+      languages: ["it-IT", "zh-TW"],
     });
     expect(shown).toBe("en");
     expect(document.documentElement.lang).toBe("en");
@@ -131,7 +132,10 @@ describe("localizeAuthPage", () => {
   });
 
   it("keeps English when the catalog cannot load", async () => {
-    const loaders: AuthCatalogLoaders = { es: () => Promise.reject(new TypeError("offline")) };
+    const loaders: AuthCatalogLoaders = {
+      ...authCatalogLoaders,
+      es: () => Promise.reject(new TypeError("offline")),
+    };
     const shown = await localizeAuthPage(document, {
       url: `${ORIGIN}/login?lang=es`,
       storage,
@@ -154,10 +158,13 @@ describe("localizeAuthPage", () => {
     });
     const nav = document.querySelector("[data-language-switcher] nav");
     expect(nav?.getAttribute("aria-label")).toBe("Idioma");
-    expect(switcherLinks()).toEqual([
-      { code: "en", href: "/device?user_code=ABCD-EFGH&lang=en", current: null },
-      { code: "es", href: "/device?user_code=ABCD-EFGH&lang=es", current: "true" },
-    ]);
+    expect(switcherLinks()).toEqual(
+      LOCALE_CODES.map((code) => ({
+        code,
+        href: `/device?user_code=ABCD-EFGH&lang=${code}`,
+        current: code === "es" ? "true" : null,
+      })),
+    );
     expect(document.querySelector('[data-locale-link="es"]')?.textContent).toBe("Español");
   });
 
@@ -165,7 +172,7 @@ describe("localizeAuthPage", () => {
     for (const name of ["login", "device", "consent", "report"] as const) {
       loadPage(name);
       await localizeAuthPage(document, { url: `${ORIGIN}/${name}`, storage, languages: [] });
-      expect(switcherLinks().map((link) => link.code)).toEqual(["en", "es"]);
+      expect(switcherLinks().map((link) => link.code)).toEqual([...LOCALE_CODES]);
       expect(
         document.querySelector("[data-language-switcher] nav")?.getAttribute("aria-label"),
       ).toBe("Language");

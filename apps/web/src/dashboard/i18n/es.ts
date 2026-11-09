@@ -788,12 +788,12 @@ export const es = {
     "Puede que su propia política de seguridad las bloquee. Todavía puedes dejar comentarios generales sobre la página.",
   "review.tab.title": "Revisar en una pestaña aparte",
   "review.tab.body":
-    "Abre el artifact en su propia pestaña para verlo en modo de revisión. La pestaña muestra el artifact en sí, escrito por su autor, no por Portifact: no inicies sesión ni escribas nada ahí, aunque parezca Portifact. No tiene herramientas de revisión, así que escribe tus comentarios aquí. Su sesión de revisión termina después de {minutes} minutos, o cuando eliges End review en la pestaña.",
+    "Abre el artifact en su propia pestaña para verlo en modo de revisión. La pestaña muestra el artifact en sí, escrito por su autor, no por Portifact: no inicies sesión ni escribas nada ahí, aunque parezca Portifact. No tiene herramientas de revisión, así que escribe tus comentarios aquí. Su sesión de revisión termina después de {minutes} minutos, o cuando eliges Terminar revisión en la pestaña.",
   "review.tab.prepare": "Preparar una pestaña de revisión",
   "review.tab.open": "Abrir la pestaña de revisión",
   "review.tab.ready": "El enlace de la pestaña de revisión está listo.",
   "review.tab.opened":
-    "Se abrió la pestaña de revisión. Elige End review en la pestaña cuando termines; los comentarios se quedan aquí.",
+    "Se abrió la pestaña de revisión. Elige Terminar revisión en la pestaña cuando termines; los comentarios se quedan aquí.",
   "review.tab.expired": "El enlace venció antes de abrirse. Prepara uno nuevo.",
   "review.status.ended.title": "Esta sesión de revisión terminó",
   "review.status.ended.body":

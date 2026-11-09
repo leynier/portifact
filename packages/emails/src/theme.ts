@@ -40,6 +40,22 @@ export const DARK = palette("dark");
 /** Font stacks without quotes inside, so they fit in a double-quoted style attribute. */
 export const FONT_SANS =
   "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+/**
+ * System fonts for Chinese and Japanese text, after the Latin ones so Latin text keeps them.
+ * Each language gets its own first, since the same characters are drawn differently in each.
+ */
+const CJK_FONTS: Readonly<Record<string, string>> = {
+  ja: "'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', Meiryo, 'Noto Sans CJK JP', 'Noto Sans JP'",
+  "zh-CN":
+    "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Noto Sans SC'",
+};
+
+/** The sans-serif stack for an email in a language: `FONT_SANS`, with CJK fonts when needed. */
+export function fontSans(lang: string | undefined): string {
+  const cjk = lang === undefined ? undefined : CJK_FONTS[lang];
+  return cjk ? FONT_SANS.replace(/, sans-serif$/, `, ${cjk}, sans-serif`) : FONT_SANS;
+}
+
 export const FONT_MONO = "SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace";
 
 /** The hosted wordmarks (apps/web/vite.config.ts publishes them from assets/brand). */

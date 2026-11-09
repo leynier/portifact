@@ -205,6 +205,9 @@
     color: var(--pf-color-text);
     font-family: var(--pf-font-sans);
     -webkit-font-smoothing: antialiased;
+    /* A word wider than its line (a long German or Russian word, an address) breaks instead of
+       pushing the page sideways, whatever the font's width. */
+    overflow-wrap: break-word;
   }
 
   ::selection {

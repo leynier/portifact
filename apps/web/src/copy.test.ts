@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { LOCALE_CODES } from "@portifact/contracts/locales";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type Clipboard, setupCopyButtons } from "./copy.ts";
 import { LANDING_MESSAGES, landingMessages } from "./landing-messages.ts";
@@ -151,8 +152,16 @@ describe("landingMessages", () => {
     expect(landingMessages(document)).toBe(LANDING_MESSAGES.en);
   });
 
+  it("has the messages of every language, each translated", () => {
+    for (const code of LOCALE_CODES) {
+      document.documentElement.lang = code;
+      expect(landingMessages(document)).toBe(LANDING_MESSAGES[code]);
+      if (code !== "en") expect(LANDING_MESSAGES[code].copied).not.toBe(LANDING_MESSAGES.en.copied);
+    }
+  });
+
   it("falls back to English for a language it does not have", () => {
-    for (const lang of ["", "fr", "ES", "es-MX"]) {
+    for (const lang of ["", "it", "ES", "es-MX", "zh-TW", "pt"]) {
       document.documentElement.lang = lang;
       expect(landingMessages(document)).toBe(LANDING_MESSAGES.en);
     }

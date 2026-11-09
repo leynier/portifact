@@ -6,6 +6,7 @@
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { renderEmail } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
+import { pluralForm } from "./plural.ts";
 
 export interface SignInCodeInput {
   /** The address the code was requested for, shown so the reader knows which account. */
@@ -59,6 +60,95 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     reason:
       "Recibiste este correo porque alguien pidió iniciar sesión en Portifact con esta dirección.",
     preheader: (expiry) => `Ingrésalo en la página de inicio de sesión. ${expiry}`,
+    signature: "Portifact, https://portifact.com",
+  },
+  "pt-BR": {
+    subject: "Seu código de login do Portifact",
+    heading: "Seu código de login",
+    codeLabel: "Código de login",
+    intro: ["Digite este código na página de login para continuar como ", "."],
+    expiry: (minutes) =>
+      `Ele expira em ${minutes} minuto${minutes === 1 ? "" : "s"} e funciona uma vez.`,
+    share: "Nunca compartilhe este código. O Portifact nunca vai pedi-lo a você.",
+    ignore:
+      "Se você não tentou entrar, pode ignorar este e-mail. Ninguém consegue entrar sem o código.",
+    reason:
+      "Você recebeu este e-mail porque alguém pediu para entrar no Portifact com este endereço.",
+    preheader: (expiry) => `Digite-o na página de login. ${expiry}`,
+    signature: "Portifact, https://portifact.com",
+  },
+  fr: {
+    subject: "Votre code de connexion Portifact",
+    heading: "Votre code de connexion",
+    codeLabel: "Code de connexion",
+    intro: ["Saisissez ce code sur la page de connexion pour continuer en tant que ", "."],
+    expiry: (minutes) =>
+      `Il expire dans ${minutes} minute${minutes < 2 ? "" : "s"} et ne fonctionne qu’une fois.`,
+    share: "Ne partagez jamais ce code. Portifact ne vous le demandera jamais.",
+    ignore:
+      "Si vous n’avez pas essayé de vous connecter, vous pouvez ignorer cet e-mail. Personne ne peut se connecter sans le code.",
+    reason:
+      "Vous avez reçu cet e-mail, car quelqu’un a demandé à se connecter à Portifact avec cette adresse.",
+    preheader: (expiry) => `Saisissez-le sur la page de connexion. ${expiry}`,
+    signature: "Portifact, https://portifact.com",
+  },
+  de: {
+    subject: "Dein Anmeldecode für Portifact",
+    heading: "Dein Anmeldecode",
+    codeLabel: "Anmeldecode",
+    intro: ["Gib diesen Code auf der Anmeldeseite ein, um fortzufahren als ", "."] as [
+      before: string,
+      after: string,
+    ],
+    expiry: (minutes) =>
+      `Er läuft in ${minutes} Minute${minutes === 1 ? "" : "n"} ab und funktioniert einmal.`,
+    share: "Teile diesen Code niemals. Portifact wird dich nie danach fragen.",
+    ignore:
+      "Wenn du nicht versucht hast, dich anzumelden, kannst du diese E-Mail ignorieren. Ohne den Code kann sich niemand anmelden.",
+    reason:
+      "Du hast diese E-Mail erhalten, weil jemand mit dieser Adresse eine Anmeldung bei Portifact angefordert hat.",
+    preheader: (expiry) => `Gib ihn auf der Anmeldeseite ein. ${expiry}`,
+    signature: "Portifact, https://portifact.com",
+  },
+  ru: {
+    subject: "Ваш код для входа в Portifact",
+    heading: "Ваш код для входа",
+    codeLabel: "Код для входа",
+    intro: ["Введите этот код на странице входа, чтобы продолжить как ", "."],
+    // Accusative after "действует": 1 минуту, 2 минуты, 5 минут.
+    expiry: (minutes) =>
+      `Код действует ${minutes} ${pluralForm("ru", minutes, { one: "минуту", few: "минуты", many: "минут", other: "минуты" })} и только один раз.`,
+    share: "Никому не сообщайте этот код. Portifact никогда не попросит его у вас.",
+    ignore:
+      "Если вы не пытались войти, просто проигнорируйте это письмо. Без кода войти никто не сможет.",
+    reason: "Вы получили это письмо, потому что кто-то запросил вход в Portifact с этим адресом.",
+    preheader: (expiry) => `Введите его на странице входа. ${expiry}`,
+    signature: "Portifact, https://portifact.com",
+  },
+  ja: {
+    subject: "Portifactのサインインコード",
+    heading: "サインインコード",
+    codeLabel: "サインインコード",
+    intro: ["", "として続行するには、サインインページでこのコードを入力してください。"],
+    expiry: (minutes) => `有効期限は${minutes}分で、1回だけ使用できます。`,
+    share: "このコードは誰にも教えないでください。Portifactがコードを尋ねることはありません。",
+    ignore:
+      "サインインしようとしていない場合は、このメールを無視してください。コードがなければ誰もサインインできません。",
+    reason:
+      "このアドレスでPortifactへのサインインがリクエストされたため、このメールをお送りしています。",
+    preheader: (expiry) => `サインインページで入力してください。${expiry}`,
+    signature: "Portifact, https://portifact.com",
+  },
+  "zh-CN": {
+    subject: "你的 Portifact 登录验证码",
+    heading: "你的登录验证码",
+    codeLabel: "登录验证码",
+    intro: ["在登录页面输入此验证码，以 ", " 的身份继续。"],
+    expiry: (minutes) => `验证码将在 ${minutes} 分钟后过期，且只能使用一次。`,
+    share: "切勿分享此验证码。Portifact 绝不会向你索要它。",
+    ignore: "如果你没有尝试登录，可以忽略这封邮件。没有验证码，任何人都无法登录。",
+    reason: "你收到这封邮件，是因为有人请求使用此地址登录 Portifact。",
+    preheader: (expiry) => `请在登录页面输入。${expiry}`,
     signature: "Portifact, https://portifact.com",
   },
 };

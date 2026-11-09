@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LOCALE_CODES } from "@portifact/contracts/locales";
+import { LOCALE_CODES, LOCALES, localeInfo } from "@portifact/contracts/locales";
 import { THEME_SCRIPT } from "@portifact/contracts/theme";
 import { axeViolations } from "@portifact/ui/testing";
 import { describe, expect, it } from "vitest";
@@ -55,6 +55,53 @@ describe.each(LOCALE_CODES.filter((code) => code !== "en"))("the %s site catalog
   });
 });
 
+describe.each(LOCALE_CODES.filter((code) => code !== "en"))("the %s pages", (code) => {
+  const prefix = `/${code.toLowerCase()}`;
+
+  it.each(SITE_PAGES.map((sitePage) => [sitePage.file, sitePage] as const))(
+    "render %s with its language, canonical, alternates and switchers",
+    (_file, sitePage) => {
+      const document = parse(renderSiteHtml(source(sitePage), sitePage, code));
+      expect(document.documentElement.lang).toBe(code);
+      expect(document.documentElement.dir).toBe(localeInfo(code).dir);
+      const own = `https://portifact.com${prefix}${sitePage.path}`;
+      expect(document.querySelector('link[rel="canonical"]')?.getAttribute("href")).toBe(
+        sitePage.kind === "legal" ? `https://portifact.com${sitePage.path}` : own,
+      );
+      const alternates = [...document.querySelectorAll('link[rel="alternate"][hreflang]')].map(
+        (link) => link.getAttribute("hreflang"),
+      );
+      expect(alternates).toEqual(sitePage.kind === "legal" ? [] : [...LOCALE_CODES, "x-default"]);
+      expect(
+        document.querySelector('meta[property="og:url"]')?.getAttribute("content") ?? own,
+      ).toBe(own);
+      const switchers = document.querySelectorAll("nav[aria-label]");
+      const languageNavs = [...switchers].filter((nav) => nav.querySelector("a[hreflang]"));
+      expect(languageNavs.length).toBeGreaterThanOrEqual(1);
+      for (const nav of languageNavs) {
+        expect(nav.getAttribute("aria-label")).toBe(SITE_CATALOGS[code].chrome.languageLabel);
+        const links = [...nav.querySelectorAll("a[hreflang]")];
+        expect(links.map((link) => link.textContent)).toEqual(LOCALES.map((l) => l.name));
+        expect(links.map((link) => link.getAttribute("lang"))).toEqual([...LOCALE_CODES]);
+        expect(nav.querySelector('a[aria-current="true"]')?.getAttribute("href")).toBe(
+          `${prefix}${sitePage.path}`,
+        );
+      }
+      expect(document.documentElement.outerHTML).not.toContain("data-i18n");
+      if (sitePage.kind === "translated") {
+        expect(document.title).not.toBe(parse(source(sitePage)).title);
+      }
+    },
+  );
+
+  it("passes the accessibility checks on the landing", async () => {
+    const rendered = parse(renderSiteHtml(source(LANDING), LANDING, code));
+    document.documentElement.lang = code;
+    document.body.innerHTML = rendered.body.innerHTML;
+    expect(await axeViolations(document.body)).toEqual([]);
+  });
+});
+
 describe("legal pages", () => {
   it("never mark the legal text itself, which stays English in every language", () => {
     for (const legal of SITE_PAGES.filter((candidate) => candidate.kind === "legal")) {
@@ -82,6 +129,12 @@ describe("renderSiteHtml", () => {
     ).toEqual([
       ["en", "https://portifact.com/"],
       ["es", "https://portifact.com/es/"],
+      ["pt-BR", "https://portifact.com/pt-br/"],
+      ["fr", "https://portifact.com/fr/"],
+      ["de", "https://portifact.com/de/"],
+      ["ru", "https://portifact.com/ru/"],
+      ["ja", "https://portifact.com/ja/"],
+      ["zh-CN", "https://portifact.com/zh-cn/"],
       ["x-default", "https://portifact.com/"],
     ]);
     const switchers = document.querySelectorAll('nav[aria-label="Language"]');
@@ -210,8 +263,12 @@ function titleKey(sitePage: SitePage): string {
 }
 
 describe("site paths", () => {
-  it("prefix every language but English", () => {
+  it("prefix every language but English, in lowercase", () => {
     expect(localePrefix("en")).toBe("");
+    expect(localePrefix("pt-BR")).toBe("/pt-br");
+    expect(localePrefix("zh-CN")).toBe("/zh-cn");
+    expect(sitePath("/terms", "zh-CN")).toBe("/zh-cn/terms");
+    expect(localizedFile(LANDING, "pt-BR")).toBe("pt-br/index.html");
     expect(localePrefix("es")).toBe("/es");
     expect(sitePath("/", "es")).toBe("/es/");
     expect(sitePath("/terms", "es")).toBe("/es/terms");
@@ -227,6 +284,8 @@ describe("site paths", () => {
     expect(sitePageForPath("/")).toMatchObject({ locale: "en", file: "index.html" });
     expect(sitePageForPath("/index.html")).toMatchObject({ locale: "en", file: "index.html" });
     expect(sitePageForPath("/mcp-compatibility")).toMatchObject({ locale: "en" });
+    expect(sitePageForPath("/zh-cn/")).toMatchObject({ locale: "zh-CN", file: "index.html" });
+    expect(sitePageForPath("/pt-br/privacy")).toMatchObject({ locale: "pt-BR" });
     expect(sitePageForPath("/es/login")).toBeUndefined();
     expect(sitePageForPath("/login")).toBeUndefined();
   });

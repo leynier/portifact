@@ -43,7 +43,14 @@ describe("pageLocale", () => {
     expect(pageLocale({ url: PAGE, storage: memory().source, languages: ["es-AR", "en"] })).toBe(
       "es",
     );
-    expect(pageLocale({ url: PAGE, storage: memory().source, languages: ["de"] })).toBe("en");
+    expect(pageLocale({ url: PAGE, storage: memory().source, languages: ["de-CH"] })).toBe("de");
+    expect(pageLocale({ url: PAGE, storage: memory().source, languages: ["zh-Hans-CN"] })).toBe(
+      "zh-CN",
+    );
+    expect(pageLocale({ url: PAGE, storage: memory().source, languages: ["zh-TW", "ja"] })).toBe(
+      "ja",
+    );
+    expect(pageLocale({ url: PAGE, storage: memory().source, languages: ["it"] })).toBe("en");
   });
 
   it("prefers the choice kept in this browser over the browser's languages", () => {

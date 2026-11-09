@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { TERMS_VERSION } from "@portifact/contracts";
+import { LOCALE_CODES } from "@portifact/contracts/locales";
 import { THEME_SCRIPT, THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { describe, expect, it } from "vitest";
 import { PAGE_CSP } from "../src/app-host.ts";
@@ -193,6 +194,40 @@ describe("portifact.com", () => {
     expect(terms).toContain('<link rel="canonical" href="https://portifact.com/terms">');
     expect(terms).toContain(`<time datetime="${TERMS_VERSION}">`);
   });
+
+  it.each(LOCALE_CODES.filter((code) => code !== "en"))(
+    "serves every page in %s under its lowercase prefix, with its language and alternates",
+    async (code) => {
+      const prefix = `/${code.toLowerCase()}`;
+      const english = await get("https://portifact.com/");
+      const landing = await get(`https://portifact.com${prefix}/`);
+      expect(landing.status).toBe(200);
+      for (const header of ["content-security-policy", "x-frame-options", "referrer-policy"]) {
+        expect(landing.headers.get(header), header).toBe(english.headers.get(header));
+      }
+      const policy = landing.headers.get("content-security-policy");
+      if (policy !== null) expect(policy).toContain(THEME_SCRIPT_HASH);
+      const html = await landing.text();
+      expect(html).toMatch(new RegExp(`<html lang="${code}"[\\s>]`));
+      expect(html).toContain(`<script>${THEME_SCRIPT}</script>`);
+      expect(html).toContain(`<link rel="canonical" href="https://portifact.com${prefix}/">`);
+      for (const other of LOCALE_CODES) {
+        const otherPrefix = other === "en" ? "" : `/${other.toLowerCase()}`;
+        expect(html).toContain(
+          `<link rel="alternate" hreflang="${other}" href="https://portifact.com${otherPrefix}/">`,
+        );
+      }
+      expect(html).toContain(`href="https://app.portifact.com/?lang=${code}"`);
+      expect(html).not.toContain("data-i18n");
+      for (const path of ["/terms", "/privacy", "/acceptable-use", "/mcp-compatibility"]) {
+        const response = await get(`https://portifact.com${prefix}${path}`);
+        expect(response.status, path).toBe(200);
+        expect(response.headers.get("content-security-policy"), path).toBe(PAGE_CSP);
+        expect(await response.text(), path).toMatch(new RegExp(`<html lang="${code}"[\\s>]`));
+      }
+      expect((await get(`https://app.portifact.com${prefix}/terms`)).status).toBe(404);
+    },
+  );
 
   it("keeps the Spanish pages off the app host", async () => {
     expect((await get("https://app.portifact.com/es/terms")).status).toBe(404);
