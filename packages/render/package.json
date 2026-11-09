@@ -7,10 +7,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./policy": "./src/policy.ts"
+    "./policy": "./src/policy.ts",
+    "./diagrams-bundle": {
+      "types": "./dist/diagrams.d.ts",
+      "default": "./dist/diagrams.js"
+    }
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
+    "build": "bun scripts/build-diagrams.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.dom.json",
     "test": "vitest run --coverage",
     "test:mutation": "NODE_OPTIONS=--max-old-space-size=1024 stryker run"
   },
@@ -18,15 +23,20 @@
     "@portifact/contracts": "workspace:*",
     "@portifact/ui": "workspace:*",
     "github-slugger": "^2.0.0",
+    "highlight.js": "11.12.0",
     "markdown-it": "^15.0.3",
-    "markdown-it-footnote": "^4.0.0"
+    "markdown-it-footnote": "^4.0.0",
+    "mermaid": "12.3.0"
   },
   "devDependencies": {
+    "@portifact/anchors": "workspace:*",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
+    "@types/bun": "^1.0.0",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
     "fast-check": "^4.0.0",
+    "happy-dom": "catalog:",
     "parse5": "^8.1.0",
     "typescript": "catalog:",
     "vitest": "catalog:"

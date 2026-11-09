@@ -3,6 +3,12 @@
 import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
+import {
+  DIAGRAM_SCRIPT,
+  DIAGRAM_VERSION,
+  MERMAID_VERSION,
+} from "@portifact/render/diagrams-bundle";
+import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH } from "@portifact/render/policy";
 import { commitPublish, preparePublish } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import { READ_COOKIE, seal } from "../src/cookies.ts";
@@ -87,8 +93,9 @@ async function renderedSha(id: string): Promise<string> {
 }
 
 const MARKDOWN = "# Release\n\n![Diagram](images/diagram.png)\n\n<script>alert(1)</script>\n";
-const DOCUMENT_POLICY =
-  "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
+/** The header policy of a rendered page: its meta's, with the diagram script at its exact URL. */
+const documentPolicy = (id: string) =>
+  `default-src 'none'; img-src 'self' blob:; style-src 'unsafe-inline'; script-src ${DIAGRAM_LOADER_HASH} https://${id}.portifact.dev/__portifact/diagrams.js; base-uri 'none'; form-action 'none'`;
 
 beforeEach(async () => {
   const listed = await env.ARTIFACTS.list();
@@ -110,6 +117,18 @@ beforeEach(async () => {
 describe("markdown delivery", () => {
   const files = { "notes/plan.md": MARKDOWN, "notes/images/diagram.png": "png-bytes" };
 
+  it("serves a page with diagrams with its loader, allowed by the meta and the header", async () => {
+    const source = "# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```\n";
+    const id = await publish({ type: "markdown", files: { "flow.md": source } });
+    const response = await get(id, "/");
+    const html = await response.text();
+    expect(html).toContain(`<script>${DIAGRAM_LOADER}</script>`);
+    expect(html).toContain(`script-src ${DIAGRAM_LOADER_HASH} 'strict-dynamic'`);
+    expect(response.headers.get("content-security-policy")).toBe(
+      `${documentPolicy(id)}; frame-ancestors 'self' https://app.portifact.com`,
+    );
+  });
+
   it("serves the rendered page at the root with the document policy", async () => {
     const id = await publish({ type: "markdown", files });
     const response = await get(id, "/");
@@ -121,7 +140,7 @@ describe("markdown delivery", () => {
     expect(html).not.toContain("<script>");
     expect(Object.fromEntries(response.headers)).toMatchObject({
       "content-type": "text/html; charset=utf-8",
-      "content-security-policy": `${DOCUMENT_POLICY}; frame-ancestors 'self' https://app.portifact.com`,
+      "content-security-policy": `${documentPolicy(id)}; frame-ancestors 'self' https://app.portifact.com`,
       "x-content-type-options": "nosniff",
       "x-robots-tag": "noindex",
       "cache-control": "no-cache",
@@ -265,5 +284,49 @@ describe("attachment", () => {
     expect(attachment(`plán "v2"'s (draft).md`)).toBe(
       `attachment; filename="pl_n _v2_'s (draft).md"; filename*=UTF-8''pl%C3%A1n%20%22v2%22%27s%20%28draft%29.md`,
     );
+  });
+});
+
+describe("diagram script", () => {
+  const request = (host: string, init: RequestInit = {}) =>
+    new Request(`https://${host}/__portifact/diagrams.js`, init);
+
+  it("serves the script before any artifact lookup, charging nothing", async () => {
+    const charges: unknown[] = [];
+    const response = await handle(request("r7d2qm4xab.portifact.dev"), env, NOW, (charge) => {
+      charges.push(charge);
+    });
+    expect(response.status).toBe(200);
+    expect(Object.fromEntries(response.headers)).toMatchObject({
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": "public, max-age=3600",
+      etag: `"${DIAGRAM_VERSION}"`,
+      "cross-origin-resource-policy": "same-origin",
+      "x-content-type-options": "nosniff",
+      "x-robots-tag": "noindex",
+    });
+    const body = await response.text();
+    expect(body).toBe(DIAGRAM_SCRIPT);
+    expect(body).toContain('globalThis["mermaid"]');
+    expect(body).toContain("pf-mermaid");
+    expect(MERMAID_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(charges).toEqual([]);
+  });
+
+  it("answers a revalidation with its ETag, and HEAD, without a body", async () => {
+    const host = "r7d2qm4xab.portifact.dev";
+    const fresh = await handle(
+      request(host, { headers: { "If-None-Match": `"${DIAGRAM_VERSION}"` } }),
+      env,
+      NOW,
+    );
+    expect(fresh.status).toBe(304);
+    expect(await fresh.text()).toBe("");
+    const stale = await handle(request(host, { headers: { "If-None-Match": '"old"' } }), env, NOW);
+    expect(stale.status).toBe(200);
+    await stale.body?.cancel();
+    const head = await handle(request(host, { method: "HEAD" }), env, NOW);
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
   });
 });

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { TOKENS_CSS } from "@portifact/ui/tokens-css";
 import { describe, expect, it } from "vitest";
 import {
@@ -6,7 +7,7 @@ import {
   renderMarkdownDocument,
   renderTextDocument,
 } from "./document.ts";
-import { documentPolicy } from "./policy.ts";
+import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH, DIAGRAM_PATH, documentPolicy } from "./policy.ts";
 import { attr, byTag, document, text } from "./test-html.ts";
 import { RENDERER_VERSION } from "./version.ts";
 
@@ -109,8 +110,8 @@ describe("document wrapper", () => {
   it("forbids scripts, frames, forms and base changes through a policy in the document", () => {
     const { meta } = head(renderMarkdownDocument("x", { title: "t" }).html);
     const policy = meta("http-equiv", "Content-Security-Policy");
-    expect(policy && attr(policy, "content")).toBe(documentPolicy(false));
-    expect(documentPolicy(false)).toBe(
+    expect(policy && attr(policy, "content")).toBe(documentPolicy());
+    expect(documentPolicy()).toBe(
       "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
     );
     expect(meta("name", "referrer")).toBeDefined();
@@ -144,5 +145,80 @@ describe("document wrapper", () => {
     expect(attr(byTag(root, "pre")[0] ?? (root as never), "class")).toBe("pf-text");
     expect(byTag(root, "b")).toHaveLength(0);
     expect(text(byTag(root, "pre")[0] ?? root)).toBe("<b>hi</b>");
+  });
+});
+
+describe("diagrams", () => {
+  const SOURCE = "# Plan\n\n```mermaid\nflowchart LR\n  A --> B\n```\n";
+
+  it("loads the diagram script only in published documents with Mermaid blocks", () => {
+    const scripts = (html: string) => byTag(document(html), "script");
+    const live = renderMarkdownDocument(SOURCE, { title: "t", liveDiagrams: true });
+    const [loader] = scripts(live.html);
+    expect(scripts(live.html)).toHaveLength(1);
+    expect(loader && text(loader)).toBe(DIAGRAM_LOADER);
+    expect(loader?.attrs).toEqual([]);
+    expect(live.diagrams).toBe(1);
+    // The editor's preview runs no scripts; documents without diagrams need none.
+    expect(scripts(renderMarkdownDocument(SOURCE, { title: "t" }).html)).toHaveLength(0);
+    const none = renderMarkdownDocument("```ts\nlet a\n```", { title: "t", liveDiagrams: true });
+    expect(scripts(none.html)).toHaveLength(0);
+    expect(none.diagrams).toBe(0);
+  });
+
+  it("puts the loader after the content, outside main", () => {
+    const { root } = head(renderMarkdownDocument(SOURCE, { title: "t", liveDiagrams: true }).html);
+    expect(byTag(byTag(root, "main")[0] ?? root, "script")).toHaveLength(0);
+    expect(byTag(byTag(root, "head")[0] ?? root, "script")).toHaveLength(0);
+  });
+
+  it("allows the loader by its hash, its script through strict-dynamic and blob: images", () => {
+    const { meta } = head(renderMarkdownDocument(SOURCE, { title: "t", liveDiagrams: true }).html);
+    const policy = meta("http-equiv", "Content-Security-Policy");
+    expect(policy && attr(policy, "content")).toBe(documentPolicy({ diagrams: true }));
+    expect(documentPolicy({ diagrams: true })).toBe(
+      `default-src 'none'; img-src 'self' blob:; style-src 'unsafe-inline'; script-src ${DIAGRAM_LOADER_HASH} 'strict-dynamic'; base-uri 'none'; form-action 'none'`,
+    );
+    const quiet = head(renderMarkdownDocument(SOURCE, { title: "t" }).html);
+    expect(
+      attr(quiet.meta("http-equiv", "Content-Security-Policy") ?? (quiet.root as never), "content"),
+    ).toBe(documentPolicy());
+  });
+
+  it("hashes the loader exactly", () => {
+    const digest = createHash("sha256").update(DIAGRAM_LOADER, "utf8").digest("base64");
+    expect(DIAGRAM_LOADER_HASH).toBe(`'sha256-${digest}'`);
+    expect(DIAGRAM_LOADER).toContain(`"${DIAGRAM_PATH}"`);
+    expect(DIAGRAM_PATH).toBe("/__portifact/diagrams.js");
+  });
+});
+
+describe("document policy", () => {
+  it("allows the diagram script at its exact URL when the origin is known", () => {
+    expect(documentPolicy({ diagrams: true, origin: "https://a1.portifact.dev" })).toContain(
+      `script-src ${DIAGRAM_LOADER_HASH} https://a1.portifact.dev/__portifact/diagrams.js;`,
+    );
+    expect(documentPolicy({ diagrams: true, origin: "https://a1.portifact.dev" })).not.toContain(
+      "strict-dynamic",
+    );
+  });
+
+  it("adds the bridge's nonce to the same script directive", () => {
+    const policy = documentPolicy({
+      diagrams: true,
+      origin: "https://a1.portifact.dev",
+      nonce: "n0",
+    });
+    expect(policy.match(/script-src/g)).toHaveLength(1);
+    expect(policy).toContain("/__portifact/diagrams.js 'nonce-n0';");
+    expect(documentPolicy({ nonce: "n1" })).toBe(
+      "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-n1'; base-uri 'none'; form-action 'none'",
+    );
+  });
+
+  it("combines remote images with diagrams", () => {
+    expect(documentPolicy({ remoteImages: true, diagrams: true })).toContain(
+      "img-src 'self' blob: https:;",
+    );
   });
 });
