@@ -11,6 +11,10 @@
     "./diagrams-bundle": {
       "types": "./dist/diagrams.d.ts",
       "default": "./dist/diagrams.js"
+    },
+    "./diagrams-version": {
+      "types": "./dist/diagrams-version.d.ts",
+      "default": "./dist/diagrams-version.js"
     }
   },
   "scripts": {

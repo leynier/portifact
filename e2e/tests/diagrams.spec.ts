@@ -4,7 +4,16 @@
 // before. See "Diagrams and highlighted code" in docs/security.md.
 
 import type { Frame, Page } from "@playwright/test";
-import { artifactFrame, createUser, expect, publish, signIn, sql, test } from "../src/fixtures.ts";
+import {
+  artifactFrame,
+  contentRequests,
+  createUser,
+  expect,
+  publish,
+  signIn,
+  sql,
+  test,
+} from "../src/fixtures.ts";
 import { APP_ORIGIN, artifactOrigin } from "../src/hosts.ts";
 
 const CODE = "const answer: number = 42;";
@@ -121,7 +130,9 @@ test("a Markdown page draws its diagrams on its own origin and highlights its co
   await diagramsDrawn(page, 2);
 });
 
-test("the diagram script is served from the artifact origin and cached", async ({ page }) => {
+test("the diagram script is a compressed, immutable file the browser downloads once", async ({
+  page,
+}) => {
   const owner = await createUser("Owner");
   const { artifactId } = await publish({
     ownerId: owner.userId,
@@ -131,16 +142,41 @@ test("the diagram script is served from the artifact origin and cached", async (
     accessMode: "public",
     bar: false,
   });
-  const scripts: string[] = [];
-  page.on("request", (request) => {
-    if (request.resourceType() === "script") scripts.push(request.url());
-  });
-  await page.goto(`${artifactOrigin(artifactId)}/`);
+  const origin = artifactOrigin(artifactId);
+  const FILE = /^\/__portifact\/diagrams\.[0-9a-f]{16}\.js$/;
+  const before = (await contentRequests()).length;
+  await page.goto(`${origin}/`);
   await diagramsDrawn(page, 2);
-  expect(scripts).toEqual([`${artifactOrigin(artifactId)}/__portifact/diagrams.js`]);
-  const response = await page.request.get(`${artifactOrigin(artifactId)}/__portifact/diagrams.js`);
-  expect(response.headers()["cache-control"]).toBe("public, max-age=3600");
-  expect(response.headers()["content-type"]).toBe("text/javascript; charset=utf-8");
+  // A second visit draws again from the browser's cache: the file is not requested again.
+  await page.goto(`${origin}/?again`);
+  await diagramsDrawn(page, 2);
+  const files = (await contentRequests())
+    .slice(before)
+    .filter((request) => request.host.startsWith(`${artifactId}.`) && FILE.test(request.path));
+  expect(files.map((request) => request.status)).toEqual([200]);
+
+  // The loader's stable path is a short-lived redirect to the current build's file.
+  const redirect = await page.request.get(`${origin}/__portifact/diagrams.js`, { maxRedirects: 0 });
+  expect(redirect.status()).toBe(302);
+  expect(redirect.headers()["cache-control"]).toBe("public, max-age=3600");
+  const location = redirect.headers().location ?? "";
+  expect(location).toMatch(FILE);
+  const file = await page.request.get(`${origin}${location}`, {
+    headers: { "Accept-Encoding": "br" },
+  });
+  expect(file.headers()["cache-control"]).toBe("public, max-age=31536000, immutable");
+  expect(file.headers()["content-type"]).toBe("text/javascript; charset=utf-8");
+  expect(file.headers()["content-encoding"]).toBe("br");
+  // Compressed on the wire: about a fifth of the 5.5 MB script.
+  expect(Number(file.headers()["content-length"])).toBeLessThan(2_000_000);
+  expect((await file.body()).length).toBeGreaterThan(4_000_000);
+  // Without brotli the Worker sends the plain script and the edge (here Miniflare, which
+  // emulates it) gzips it.
+  const gzip = await page.request.get(`${origin}${location}`, {
+    headers: { "Accept-Encoding": "gzip" },
+  });
+  expect(gzip.headers()["content-encoding"]).toBe("gzip");
+  expect((await gzip.body()).length).toBeGreaterThan(4_000_000);
 });
 
 /** Selects `quote` inside the first element matching `selector`, across highlight spans. */

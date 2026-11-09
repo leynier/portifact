@@ -23,6 +23,8 @@ export {
   DIAGRAM_LOADER,
   DIAGRAM_LOADER_HASH,
   DIAGRAM_PATH,
+  diagramFilePath,
+  diagramFileVersion,
   documentPolicy,
   type PolicyOptions,
 } from "./policy.ts";

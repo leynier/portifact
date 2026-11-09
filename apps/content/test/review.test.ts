@@ -6,6 +6,7 @@ import { BRIDGE_VERSION } from "@portifact/bridge/bundle";
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
+import { DIAGRAM_VERSION } from "@portifact/render/diagrams-version";
 import { DIAGRAM_LOADER_HASH } from "@portifact/render/policy";
 import {
   commitPublish,
@@ -595,7 +596,7 @@ describe("review of rendered documents", () => {
     const csp = response.headers.get("content-security-policy") ?? "";
     const nonce = /^[^,]*script-src [^;]*'nonce-([^']+)'/.exec(csp)?.[1];
     expect(csp).toContain(
-      `script-src ${DIAGRAM_LOADER_HASH} ${origin}/__portifact/diagrams.js 'nonce-`,
+      `script-src ${DIAGRAM_LOADER_HASH} ${origin}/__portifact/diagrams.js ${origin}/__portifact/diagrams.${DIAGRAM_VERSION}.js 'nonce-`,
     );
     expect(nonce).toBeDefined();
     expect(csp).toContain("default-src 'none'");
@@ -648,7 +649,9 @@ describe("review of rendered documents", () => {
     const csp = response.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("default-src 'none'");
     // Only the diagram loader and its script, never a nonce: the banner needs no script.
-    expect(csp).toContain(`script-src ${DIAGRAM_LOADER_HASH} ${origin}/__portifact/diagrams.js;`);
+    expect(csp).toContain(
+      `script-src ${DIAGRAM_LOADER_HASH} ${origin}/__portifact/diagrams.js ${origin}/__portifact/diagrams.${DIAGRAM_VERSION}.js;`,
+    );
     expect(csp).not.toContain("nonce");
   });
 });

@@ -15,6 +15,9 @@ export default defineConfig(async () => {
         "@portifact/render/diagrams-bundle": fileURLToPath(
           new URL("./test/diagrams-bundle.stub.ts", import.meta.url),
         ),
+        "@portifact/render/diagrams-version": fileURLToPath(
+          new URL("./test/diagrams-version.stub.ts", import.meta.url),
+        ),
       },
     },
     plugins: [

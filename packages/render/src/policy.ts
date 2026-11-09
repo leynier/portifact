@@ -2,10 +2,21 @@
 // from the renderer so the content Worker can send it as a header without bundling markdown-it.
 
 /**
- * The reserved path of every artifact origin that serves the diagram script: the pinned,
- * self-hosted Mermaid build followed by Portifact's runner (`@portifact/render/diagrams-bundle`).
+ * The stable path the diagram loader requests on every artifact origin. It answers a short-lived
+ * redirect to the current build's content-hashed file (`diagramFilePath`), so documents never
+ * carry a build's hash and keep working across builds, while the file itself is immutable.
  */
 export const DIAGRAM_PATH = "/__portifact/diagrams.js";
+
+/** The diagram script of one build: the pinned Mermaid build followed by Portifact's runner. */
+export function diagramFilePath(version: string): string {
+  return `/__portifact/diagrams.${version}.js`;
+}
+
+/** The build version in a content-hashed diagram script path, or undefined for any other path. */
+export function diagramFileVersion(pathname: string): string | undefined {
+  return /^\/__portifact\/diagrams\.([0-9a-f]{16})\.js$/.exec(pathname)?.[1];
+}
 
 /**
  * The only inline script a rendered document may carry, added at commit when the document has
@@ -25,10 +36,14 @@ export interface PolicyOptions {
   diagrams?: boolean;
   /**
    * The artifact origin the policy is sent from, as a header: the diagram script is then allowed
-   * only at its exact URL there. Without it (the `<meta>` written at commit, which cannot know
-   * the origin) the loader's script is trusted through `'strict-dynamic'` instead.
+   * only at its exact URLs there, the loader's stable path and the current build's file (after a
+   * redirect browsers match the host only, so a stale cached redirect still loads). Without it
+   * (the `<meta>` written at commit, which cannot know the origin) the loader's script is trusted
+   * through `'strict-dynamic'` instead.
    */
   origin?: string;
+  /** The current diagram script build, listed with `origin`. */
+  diagramVersion?: string;
   /** Nonce of the review bridge's script tag. */
   nonce?: string;
 }
@@ -41,11 +56,15 @@ export interface PolicyOptions {
  * only from the artifact unless remote images are enabled.
  */
 export function documentPolicy(options: PolicyOptions = {}): string {
-  const { remoteImages = false, diagrams = false, origin, nonce } = options;
+  const { remoteImages = false, diagrams = false, origin, diagramVersion, nonce } = options;
   const scripts: string[] = [];
   if (diagrams) {
     scripts.push(DIAGRAM_LOADER_HASH);
-    scripts.push(origin === undefined ? "'strict-dynamic'" : `${origin}${DIAGRAM_PATH}`);
+    if (origin === undefined) scripts.push("'strict-dynamic'");
+    else {
+      scripts.push(`${origin}${DIAGRAM_PATH}`);
+      if (diagramVersion !== undefined) scripts.push(`${origin}${diagramFilePath(diagramVersion)}`);
+    }
   }
   if (nonce !== undefined) scripts.push(`'nonce-${nonce}'`);
   return [

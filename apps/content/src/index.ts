@@ -27,7 +27,7 @@ import { documentPolicy } from "@portifact/render/policy";
 import { recordOpenings, recordTraffic } from "@portifact/services";
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
-import { DIAGRAM_PATH, diagramScript } from "./diagrams.ts";
+import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
 import {
   BRIDGE_PATH,
   bridgeScript,
@@ -247,7 +247,7 @@ async function route(
     return reviewStepResponse(await handleReviewEnd(request, env, db, id), env);
   }
   if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
-  if (url.pathname === DIAGRAM_PATH) return diagramScript(request);
+  if (isDiagramPath(url.pathname)) return diagramScript(request);
   if (url.pathname === NO_BAR_PATH) {
     const response = noBarRedirect(request);
     return response ?? message(400, PAGES.noBarRefused);
@@ -408,7 +408,12 @@ async function serveFile(
     // The page carries this policy as a <meta> too; the header also covers what a meta cannot,
     // and allows the diagram script only at its exact URL on this origin. In review mode the
     // meta is dropped and the header allows the bridge by its nonce.
-    const policy = documentPolicy({ diagrams: true, origin: url.origin, ...(nonce && { nonce }) });
+    const policy = documentPolicy({
+      diagrams: true,
+      origin: url.origin,
+      diagramVersion: DIAGRAM_VERSION,
+      ...(nonce && { nonce }),
+    });
     headers.set("Content-Security-Policy", `${policy}; ${headers.get("Content-Security-Policy")}`);
   } else if (role === "original") {
     headers.set("Content-Disposition", attachment(file.path));

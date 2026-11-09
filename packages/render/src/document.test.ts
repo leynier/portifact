@@ -7,7 +7,14 @@ import {
   renderMarkdownDocument,
   renderTextDocument,
 } from "./document.ts";
-import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH, DIAGRAM_PATH, documentPolicy } from "./policy.ts";
+import {
+  DIAGRAM_LOADER,
+  DIAGRAM_LOADER_HASH,
+  DIAGRAM_PATH,
+  diagramFilePath,
+  diagramFileVersion,
+  documentPolicy,
+} from "./policy.ts";
 import { attr, byTag, document, text } from "./test-html.ts";
 import { RENDERER_VERSION } from "./version.ts";
 
@@ -193,7 +200,41 @@ describe("diagrams", () => {
   });
 });
 
+describe("diagram script paths", () => {
+  it("put the build version in the file name and read it back from exactly that shape", () => {
+    expect(diagramFilePath("0123456789abcdef")).toBe("/__portifact/diagrams.0123456789abcdef.js");
+    expect(diagramFileVersion("/__portifact/diagrams.0123456789abcdef.js")).toBe(
+      "0123456789abcdef",
+    );
+    for (const path of [
+      DIAGRAM_PATH,
+      "/__portifact/diagrams.0123456789ABCDEF.js",
+      "/__portifact/diagrams.0123456789abcde.js",
+      "/__portifact/diagrams.0123456789abcdef.js/x",
+      "/x/__portifact/diagrams.0123456789abcdef.js",
+    ]) {
+      expect(diagramFileVersion(path)).toBeUndefined();
+    }
+  });
+});
+
 describe("document policy", () => {
+  it("lists the loader's path and the current build's file for a known origin", () => {
+    expect(
+      documentPolicy({
+        diagrams: true,
+        origin: "https://a1.portifact.dev",
+        diagramVersion: "0123456789abcdef",
+        nonce: "n2",
+      }),
+    ).toContain(
+      `script-src ${DIAGRAM_LOADER_HASH} https://a1.portifact.dev/__portifact/diagrams.js https://a1.portifact.dev/__portifact/diagrams.0123456789abcdef.js 'nonce-n2';`,
+    );
+    expect(documentPolicy({ diagrams: true, diagramVersion: "0123456789abcdef" })).not.toContain(
+      "diagrams.0123456789abcdef.js",
+    );
+  });
+
   it("allows the diagram script at its exact URL when the origin is known", () => {
     expect(documentPolicy({ diagrams: true, origin: "https://a1.portifact.dev" })).toContain(
       `script-src ${DIAGRAM_LOADER_HASH} https://a1.portifact.dev/__portifact/diagrams.js;`,
