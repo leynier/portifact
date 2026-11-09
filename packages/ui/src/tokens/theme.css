@@ -108,6 +108,11 @@
 @custom-variant current (&[aria-current="page"]);
 /* The item a list points at, such as the selected thread in the review viewer. */
 @custom-variant current-item (&[aria-current="true"]);
+/*
+ * A field box whose own input has keyboard focus, such as the search field: the box draws the
+ * focus ring around the input, its icon and its clear button together.
+ */
+@custom-variant input-focus (&:has(input:focus-visible));
 
 /* Staggers an animation: `animate-delay-3` waits three stagger steps. */
 @utility animate-delay-* {
@@ -219,6 +224,7 @@
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),
   [role="tab"]:not([aria-disabled="true"]),
+  [role="option"]:not([aria-disabled="true"]),
   summary,
   label[for] {
     cursor: pointer;
@@ -252,6 +258,16 @@
   height: 0.8em;
   margin-left: 0.08em;
   vertical-align: -0.05em;
+}
+
+/* Hides the browser's own clear button of a search input, for fields that draw their own. */
+@utility search-plain {
+  appearance: none;
+
+  &::-webkit-search-cancel-button,
+  &::-webkit-search-decoration {
+    appearance: none;
+  }
 }
 
 /* Hides the disclosure triangle of a `summary`, including Safari's WebKit marker. */

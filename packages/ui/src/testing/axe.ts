@@ -26,3 +26,5 @@ export async function axeViolations(root: Element): Promise<AxeViolation[]> {
     nodes: violation.nodes.map((node) => node.html),
   }));
 }
+
+export { resetViewport, setViewportWidth } from "./viewport.ts";

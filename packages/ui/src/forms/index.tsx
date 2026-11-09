@@ -16,13 +16,14 @@ import {
   type CheckboxProps,
   RadioGroup as RadioGroupControl,
   type RadioGroupProps,
-  Select,
-  type SelectProps,
+  SearchField as SearchFieldControl,
+  type SearchFieldProps,
   TextArea,
   type TextAreaProps,
   TextInput,
   type TextInputProps,
 } from "../components/fields.tsx";
+import { Select, type SelectProps } from "../components/select.tsx";
 
 export { revalidateLogic } from "@tanstack/react-form";
 
@@ -51,6 +52,26 @@ function TextField(props: Bound<TextInputProps>) {
       value={field.state.value}
       onChange={(event) => field.handleChange(event.target.value)}
       onBlur={field.handleBlur}
+      error={firstError(field.state.meta.errors)}
+    />
+  );
+}
+
+/** A search box; clearing it empties the field and submits the form, so the search ends. */
+function SearchField(props: Omit<Bound<SearchFieldProps>, "onClear">) {
+  const field = useFieldContext<string>();
+  const form = useFormContext();
+  return (
+    <SearchFieldControl
+      {...props}
+      name={field.name}
+      value={field.state.value}
+      onChange={(event) => field.handleChange(event.target.value)}
+      onBlur={field.handleBlur}
+      onClear={() => {
+        field.handleChange("");
+        void form.handleSubmit();
+      }}
       error={firstError(field.state.meta.errors)}
     />
   );
@@ -184,6 +205,13 @@ function SubmitButton({
 export const { useAppForm, withForm } = createFormHook({
   fieldContext,
   formContext,
-  fieldComponents: { TextField, TextAreaField, CheckboxField, RadioGroupField, SelectField },
+  fieldComponents: {
+    TextField,
+    SearchField,
+    TextAreaField,
+    CheckboxField,
+    RadioGroupField,
+    SelectField,
+  },
   formComponents: { Form, SubmitButton },
 });

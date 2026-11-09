@@ -12,12 +12,14 @@ import { BRIDGE_TIMEOUT_MS } from "./review/use-bridge.ts";
 import { FRAME_SANDBOX, REVIEW_TAB_LINK_MS } from "./screens/viewer.tsx";
 import {
   artifact,
+  choose,
   type FakeServer,
   fakeMessage,
   fakeServer,
   fakeThread,
   renderDashboard,
   seedVersion,
+  selectOptions,
 } from "./test-support.tsx";
 
 const ID = "k7d2qm4xab";
@@ -832,8 +834,6 @@ describe("comment filters and export", () => {
       .queryAllByRole("article")
       .map((article) => article.getAttribute("aria-labelledby"))
       .map((id) => (id ? document.getElementById(id)?.textContent : null));
-  const choose = (name: string, value: string) =>
-    fireEvent.change(screen.getByRole("combobox", { name }), { target: { value } });
   const lastMarkers = () =>
     sent()
       .map((s) => s.message)
@@ -875,29 +875,24 @@ describe("comment filters and export", () => {
     expect(tools.open).toBe(false);
     fireEvent.click(within(tools).getByText("Filter and export"));
     expect(tools.open).toBe(true);
-    expect(
-      within(tools)
-        .getAllByRole("option")
-        .slice(3, 7)
-        .map((option) => option.textContent),
-    ).toEqual(["Everyone", "You", "Bea", "Cy"]);
+    expect(selectOptions("Author").options).toEqual(["Everyone", "You", "Bea", "Cy"]);
     expect(await axeViolations(container)).toEqual([]);
 
-    choose("Status", "resolved");
+    choose("Status", "Resolved");
     expect(headings()).toEqual(["Thread 3"]);
     // The summary says filters are on while the disclosure is closed.
     expect(within(tools).getByText("Filter and export (filters on)")).toBeTruthy();
     expect(screen.getByText("Showing 1 of 4 comment threads").getAttribute("role")).toBe("status");
     await waitFor(() => expect(lastMarkers()).toEqual(["t3"]));
 
-    choose("Status", "all");
-    choose("Author", "own");
+    choose("Status", "Open and resolved");
+    choose("Author", "You");
     expect(headings()).toEqual(["Thread 4"]);
     await waitFor(() => expect(lastMarkers()).toEqual([]));
 
-    choose("Author", "id:u-bea");
+    choose("Author", "Bea");
     expect(headings()).toEqual(["Thread 1", "Thread 2"]);
-    choose("Status", "resolved");
+    choose("Status", "Resolved");
     expect(headings()).toEqual([]);
     expect(screen.getByText("No comment threads match the filters.")).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
@@ -918,16 +913,15 @@ describe("comment filters and export", () => {
     await open();
     await connect();
     expect(headings()).toEqual(["Thread 1", "Thread 2", "Thread 3", "Thread 4"]);
-    const versions = screen.getByRole("combobox", { name: "Version" });
     await waitFor(() =>
-      expect(
-        within(versions)
-          .getAllByRole("option")
-          .map((o) => o.textContent),
-      ).toEqual(["Current version", "All versions", "Version 1"]),
+      expect(selectOptions("Version").options).toEqual([
+        "Current version",
+        "All versions",
+        "Version 1",
+      ]),
     );
 
-    choose("Version", "all");
+    choose("Version", "All versions");
     await waitFor(() =>
       expect(headings()).toEqual(["Thread 1", "Thread 2", "Thread 3", "Thread 4", "Thread 5"]),
     );
@@ -940,7 +934,7 @@ describe("comment filters and export", () => {
     expect(within(earlier).queryByRole("button", { name: "Reply" })).toBeNull();
     await waitFor(() => expect(lastMarkers()).toEqual(["t1", "t3"]));
 
-    choose("Version", "v0");
+    choose("Version", "Version 1");
     await waitFor(() => expect(headings()).toEqual(["Thread 1"]));
     expect(server.requests.map((r) => r.path)).toContain(
       `/api/v1/artifacts/${ID}/annotations?version=v0`,
@@ -964,7 +958,7 @@ describe("comment filters and export", () => {
     const exported = JSON.parse((await saved[0]?.blob.text()) ?? "");
     expect(exported.threads.map((t: { id: string }) => t.id)).toEqual(["t1", "t2", "t3", "t4"]);
 
-    choose("Status", "open");
+    choose("Status", "Open");
     fireEvent.click(screen.getByRole("button", { name: "Export as Markdown" }));
     await waitFor(() => expect(saved).toHaveLength(2));
     expect(saved[1]?.fileName).toBe(`${ID}-annotations.md`);

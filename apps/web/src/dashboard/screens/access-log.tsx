@@ -70,7 +70,7 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
       ) : (
         <div className="flex flex-col gap-2">
           <AccessLogExport artifactId={artifact.id} />
-          <Table caption={t("accessLog.caption")} variant="flush">
+          <Table caption={t("accessLog.caption")} variant="flush" stacked>
             <TableHead>
               <TableRow>
                 <TableHeaderCell>{t("accessLog.column.opened")}</TableHeaderCell>
@@ -80,12 +80,12 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
             <TableBody>
               {entries.map((entry) => (
                 <TableRow key={`${entry.openedAt} ${entry.email}`}>
-                  <TableCell>
+                  <TableCell label={t("accessLog.column.opened")}>
                     <span className="whitespace-nowrap tabular-nums">
                       {formatDate(entry.openedAt, true)}
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell label={t("accessLog.column.visitor")}>
                     <span className="break-all">{entry.email}</span>
                   </TableCell>
                 </TableRow>
@@ -107,6 +107,7 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
   return (
     <Panel
       id="access-log"
+      headingLevel={3}
       title={t("accessLog.title")}
       description={t("accessLog.hint")}
       flush={listed}

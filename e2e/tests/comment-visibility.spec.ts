@@ -95,18 +95,18 @@ test("readers see their own threads and the owner's until the owner opens all co
   await as(page, owner);
   await viewerThreads(page, artifactId, 3);
   await page.goto(`${APP_ORIGIN}/artifacts/${artifactId}`);
-  const access = page.getByRole("region", { name: "Access" });
+  const access = page.getByRole("region", { name: "Comment settings" });
   const group = access.getByRole("group", { name: "Who sees comments" });
   await expect(
     group.getByRole("radio", { name: "Only you, and each person their own" }),
   ).toBeChecked();
   await group.getByRole("radio", { name: "Everyone who can open the artifact" }).check();
-  await access.getByRole("button", { name: "Save access" }).click();
+  await access.getByRole("button", { name: "Save comment settings" }).click();
   // Widening is retroactive, so the dashboard asks first.
   const confirm = page.getByRole("dialog", { name: "Show every comment to everyone?" });
   await expect(confirm).toContainText("Comments already written become visible");
   await confirm.getByRole("button", { name: "Show all comments" }).click();
-  await expect(page.getByText(/Access saved/).first()).toBeVisible();
+  await expect(page.getByText("Comment settings saved.").first()).toBeVisible();
 
   await as(page, ana);
   await viewerThreads(page, artifactId, 3);
@@ -115,9 +115,8 @@ test("readers see their own threads and the owner's until the owner opens all co
   // An exception for Ana: only her threads and the owner's, while Bea still sees all.
   await as(page, owner);
   await page.goto(`${APP_ORIGIN}/artifacts/${artifactId}`);
-  await page
-    .getByRole("combobox", { name: `Comments ${ana.email} sees` })
-    .selectOption({ label: "Only own and yours" });
+  await page.getByRole("combobox", { name: `Comments ${ana.email} sees` }).click();
+  await page.getByRole("option", { name: "Only own and yours" }).click();
   await expect(page.getByText(`${ana.email} now sees: Only own and yours.`)).toBeVisible();
 
   await as(page, ana);

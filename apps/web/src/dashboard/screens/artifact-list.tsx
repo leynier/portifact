@@ -15,12 +15,17 @@ import {
   EmptyState,
   LoadingState,
   PageHeader,
+  rowControlClasses,
+  rowLinkClasses,
+  Sheet,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeaderCell,
   TableRow,
+  useMediaQuery,
+  WIDE_QUERY,
 } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
@@ -32,14 +37,13 @@ import {
   Inbox,
   MessageSquareText,
   RefreshCw,
-  Search,
   SearchX,
+  SlidersHorizontal,
   SquareTerminal,
   Upload,
-  X,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
 import { AccessBadge, StateBadge, TypeIcon } from "../presentation.tsx";
@@ -185,7 +189,7 @@ export function ArtifactListScreen() {
       ) : null}
       {searchable ? (
         <div className="mb-6">
-          <FilterForm filters={filters} busy={searching} onApply={apply} />
+          <FilterForm filters={filters} filtered={filtered} onApply={apply} />
         </div>
       ) : null}
       {artifacts.length === 0 && !searching ? (
@@ -198,7 +202,7 @@ export function ArtifactListScreen() {
         )
       ) : (
         <>
-          <Table caption={t(filtered ? "list.captionFiltered" : "list.caption")}>
+          <Table caption={t(filtered ? "list.captionFiltered" : "list.caption")} stacked>
             <TableHead>
               <TableRow>
                 <TableHeaderCell>{t("list.column.name")}</TableHeaderCell>
@@ -214,7 +218,7 @@ export function ArtifactListScreen() {
             </TableHead>
             <TableBody>
               {artifacts.map((artifact) => (
-                <TableRow key={artifact.id}>
+                <TableRow key={artifact.id} linked>
                   <TableCell>
                     <span className="flex min-w-52 items-center gap-3">
                       <TypeIcon type={artifact.type} />
@@ -222,7 +226,7 @@ export function ArtifactListScreen() {
                         <Link
                           to="/artifacts/$artifactId"
                           params={{ artifactId: artifact.id }}
-                          className="font-semibold no-underline hover:underline"
+                          className={`font-semibold ${rowLinkClasses}`}
                         >
                           {artifact.name}
                         </Link>
@@ -233,13 +237,13 @@ export function ArtifactListScreen() {
                       </span>
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell stack="inline">
                     <StateBadge state={artifact.state} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell stack="inline">
                     <AccessBadge mode={artifact.accessMode} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell stack="inline" label={t("list.column.expires")}>
                     <span className="whitespace-nowrap tabular-nums">
                       {artifact.expiresAt ? formatDate(artifact.expiresAt) : t("list.never")}
                     </span>
@@ -250,7 +254,7 @@ export function ArtifactListScreen() {
                   <TableCell>
                     <ActivityCell artifact={artifact} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell stack="end">
                     <RowActions artifact={artifact} />
                   </TableCell>
                 </TableRow>
@@ -332,7 +336,7 @@ function RowActions({ artifact }: { artifact: ArtifactListItem }) {
   const t = useT();
   const servable = artifact.state === "active";
   return (
-    <span className="flex justify-end gap-1">
+    <span className={`flex justify-end gap-1 ${rowControlClasses}`}>
       {servable ? (
         <>
           <a
@@ -464,16 +468,17 @@ function countMessage(
 }
 
 /**
- * Search by name or ID and filter by state, type, access and comments. The API applies them,
- * so they cover every page, not only the loaded one. Submitting puts them in the URL.
+ * Search by name or ID and filter by state, type, access and comments, as one compact toolbar.
+ * The API applies them, so they cover every page, not only the loaded one. A filter applies as
+ * soon as it changes and the search on Enter; both go to the URL.
  */
 function FilterForm({
   filters,
-  busy,
+  filtered,
   onApply,
 }: {
   filters: ArtifactListFilters;
-  busy: boolean;
+  filtered: boolean;
   onApply(filters: ArtifactListFilters): void;
 }) {
   const t = useT();
@@ -494,88 +499,126 @@ function FilterForm({
     form.reset(formValues(JSON.parse(current) as ArtifactListFilters));
   }, [current]);
 
-  const any = (label: string) => ({ value: ANY, label });
+  const wide = useMediaQuery(WIDE_QUERY);
+  const [sheet, setSheet] = useState(false);
+  // Filters that are on, besides the search, for the narrow layout's "Filters" button.
+  const active = (["state", "type", "access", "annotations"] as const).filter(
+    (name) => filters[name] !== undefined,
+  ).length;
+  const any = { value: ANY, label: t("list.filter.any") };
+  const applyOnChange = { onChange: () => void form.handleSubmit() };
+  const filter = (
+    name: "state" | "type" | "access" | "annotations",
+    label: string,
+    options: { value: string; label: string }[],
+  ) => (
+    <form.AppField name={name} listeners={applyOnChange}>
+      {(field) => (
+        <field.SelectField
+          variant={wide ? "compact" : "field"}
+          label={label}
+          active={field.state.value !== ANY}
+          options={[any, ...options]}
+        />
+      )}
+    </form.AppField>
+  );
+  const selects = (
+    <>
+      {filter(
+        "state",
+        t("list.filter.state"),
+        ListedArtifactState.options.map((value) => ({ value, label: t(`state.${value}`) })),
+      )}
+      {filter(
+        "type",
+        t("list.filter.type"),
+        ArtifactType.options.map((value) => ({ value, label: t(`type.${value}`) })),
+      )}
+      {filter(
+        "access",
+        t("list.filter.access"),
+        AccessMode.options.map((value) => ({ value, label: t(`list.access.${value}`) })),
+      )}
+      {filter(
+        "annotations",
+        t("list.filter.annotations"),
+        AnnotationsState.options.map((value) => ({
+          value,
+          label: t(`list.annotations.${value}`),
+        })),
+      )}
+    </>
+  );
+  const clear = filtered ? (
+    <span className="inline-flex h-8 items-center px-1">
+      <Button intent="link" size="inline" onClick={() => onApply({})}>
+        {t("list.filter.clear")}
+      </Button>
+    </span>
+  ) : null;
   return (
     <form.AppForm>
       <form.Form label={t("list.filter.label")}>
-        <div className="flex flex-col gap-4 rounded-lg border border-border bg-canvas p-4 shadow-sm">
-          <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
-            <div className="min-w-64 flex-1">
-              <form.AppField name="search">
-                {(field) => (
-                  <field.TextField
-                    type="search"
-                    label={t("list.filter.search")}
-                    description={t("list.filter.searchHint")}
-                    autoComplete="off"
-                  />
-                )}
-              </form.AppField>
-            </div>
-            <div className="flex gap-2">
-              <form.SubmitButton icon={<Search className="size-4" />} busy={busy}>
-                {t("list.filter.submit")}
-              </form.SubmitButton>
-              <Button intent="ghost" icon={<X className="size-4" />} onClick={() => onApply({})}>
-                {t("list.filter.clear")}
+        <div className="flex flex-wrap items-start gap-2">
+          <div className="min-w-0 flex-1 sm:w-80 sm:flex-none">
+            <form.AppField name="search">
+              {(field) => (
+                <field.SearchField
+                  label={t("list.filter.search")}
+                  placeholder={t("list.filter.searchPlaceholder")}
+                  clearLabel={t("list.filter.clearSearch")}
+                  autoComplete="off"
+                  enterKeyHint="search"
+                />
+              )}
+            </form.AppField>
+          </div>
+          {wide ? (
+            <>
+              {selects}
+              {clear}
+            </>
+          ) : (
+            // Phones keep the search in sight and put the filters in a sheet.
+            <>
+              <Button
+                size="sm"
+                icon={<SlidersHorizontal className="size-4" />}
+                aria-haspopup="dialog"
+                onClick={() => setSheet(true)}
+              >
+                {t("list.filter.open")}
+                {active > 0 ? (
+                  <span className="rounded-xs bg-surface-inverse px-1.5 text-xs font-semibold text-text-inverse tabular-nums">
+                    {active}
+                    <span className="sr-only"> {t("list.filter.activeCount")}</span>
+                  </span>
+                ) : null}
               </Button>
-            </div>
-          </div>
-          <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
-            <form.AppField name="state">
-              {(field) => (
-                <field.SelectField
-                  label={t("list.filter.state")}
-                  options={[
-                    any(t("list.filter.anyState")),
-                    ...ListedArtifactState.options.map((value) => ({
-                      value,
-                      label: t(`state.${value}`),
-                    })),
-                  ]}
-                />
-              )}
-            </form.AppField>
-            <form.AppField name="type">
-              {(field) => (
-                <field.SelectField
-                  label={t("list.filter.type")}
-                  options={[
-                    any(t("list.filter.anyType")),
-                    ...ArtifactType.options.map((value) => ({ value, label: t(`type.${value}`) })),
-                  ]}
-                />
-              )}
-            </form.AppField>
-            <form.AppField name="access">
-              {(field) => (
-                <field.SelectField
-                  label={t("list.filter.access")}
-                  options={[
-                    any(t("list.filter.anyAccess")),
-                    ...AccessMode.options.map((value) => ({
-                      value,
-                      label: t(`list.access.${value}`),
-                    })),
-                  ]}
-                />
-              )}
-            </form.AppField>
-            <form.AppField name="annotations">
-              {(field) => (
-                <field.SelectField
-                  label={t("list.filter.annotations")}
-                  options={[
-                    any(t("list.filter.anyAnnotations")),
-                    ...AnnotationsState.options.map((value) => ({
-                      value,
-                      label: t(`list.annotations.${value}`),
-                    })),
-                  ]}
-                />
-              )}
-            </form.AppField>
-          </div>
+              {clear ? <div className="w-full">{clear}</div> : null}
+              <Sheet
+                open={sheet}
+                title={t("list.filter.sheetTitle")}
+                closeLabel={t("list.filter.close")}
+                onClose={() => setSheet(false)}
+                footer={
+                  <>
+                    {filtered ? (
+                      <Button intent="ghost" onClick={() => onApply({})}>
+                        {t("list.filter.clear")}
+                      </Button>
+                    ) : null}
+                    <Button intent="primary" onClick={() => setSheet(false)}>
+                      {t("list.filter.done")}
+                    </Button>
+                  </>
+                }
+              >
+                <div className="flex flex-col gap-4">{selects}</div>
+              </Sheet>
+            </>
+          )}
         </div>
       </form.Form>
     </form.AppForm>
