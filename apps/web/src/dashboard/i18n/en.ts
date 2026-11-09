@@ -173,7 +173,7 @@ export const en = {
     "Anyone with the link who signs in to Portifact, with any account.",
   "accessSettings.mode.public": "Anyone with the link, without signing in.",
   "accessSettings.mode.publicFrom":
-    "Available from {date}. New accounts wait {days} days before making an artifact public.",
+    "Available from {date}. New accounts wait {minutes} minutes before making an artifact public.",
   "accessSettings.indexable.label": "Let search engines list it",
   "accessSettings.indexable.hint": "Only applies while the artifact is public.",
   "accessSettings.embeddable.label": "Let other sites embed it",
@@ -204,9 +204,9 @@ export const en = {
   "accessSettings.conflict":
     "Access changed somewhere else meanwhile. The latest settings are shown now; check them and try again.",
   "accessSettings.tooNew":
-    "New accounts can make an artifact public {days} days after they are created, from {date}.",
+    "New accounts can make an artifact public {minutes} minutes after they are created, from {date}.",
   "accessSettings.tooNewNoDate":
-    "New accounts can make an artifact public {days} days after they are created.",
+    "New accounts can make an artifact public {minutes} minutes after they are created.",
   "accessSettings.readersFull":
     "An artifact can list at most {max} people. Remove someone to add another.",
 

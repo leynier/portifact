@@ -197,14 +197,14 @@ describe("access settings", () => {
     expect(patches()).toEqual([]);
   });
 
-  it("keeps public unavailable during the account's first 7 days and says from when", async () => {
-    server.createdAt = new Date(Date.now() - 2 * DAY).toISOString();
+  it("keeps public unavailable during the account's first 15 minutes and says from when", async () => {
+    server.createdAt = new Date(Date.now() - 2 * 60_000).toISOString();
     const { container } = renderDashboard(PATH, server);
     await screen.findByRole("group", { name: "Who can open this artifact" });
     const publicMode = radio("Public: anyone with the link");
     expect(publicMode.disabled).toBe(true);
     const hint = document.getElementById(publicMode.getAttribute("aria-describedby") ?? "");
-    expect(hint?.textContent).toMatch(/Available from .+\. New accounts wait 7 days/);
+    expect(hint?.textContent).toMatch(/Available from .+\. New accounts wait 15 minutes/);
     expect(await axeViolations(container)).toEqual([]);
   });
 
@@ -233,7 +233,7 @@ describe("access settings", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Access was not saved");
     expect(alert.textContent).toContain(
-      "New accounts can make an artifact public 7 days after they are created.",
+      "New accounts can make an artifact public 15 minutes after they are created.",
     );
     // The choice stays, so the user can change it without starting over.
     expect(radio("Public: anyone with the link").checked).toBe(true);
@@ -249,7 +249,12 @@ describe("access settings", () => {
     await screen.findByRole("group", { name: "Who can open this artifact" });
     fireEvent.click(radio("Public: anyone with the link"));
     save();
-    expect((await screen.findByRole("alert")).textContent).toContain("from Jan 17, 2026.");
+    // The wait is minutes long, so the refusal names the time too.
+    const expected = new Intl.DateTimeFormat("en", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date("2026-01-10T12:15:00.000Z"));
+    expect((await screen.findByRole("alert")).textContent).toContain(`from ${expected}.`);
   });
 
   it("loads the current policy after a conflict and asks to check it and try again", async () => {
@@ -391,13 +396,13 @@ describe("reader list", () => {
 });
 
 describe("access helpers", () => {
-  it("dates public access 7 days after the account was created, when known", () => {
+  it("dates public access 15 minutes after the account was created, when known", () => {
     expect(publicAvailableFrom(null)).toBeNull();
     expect(publicAvailableFrom({ email: "a", name: "", createdAt: null })).toBeNull();
     expect(publicAvailableFrom({ email: "a", name: "", createdAt: "garbage" })).toBeNull();
     expect(
       publicAvailableFrom({ email: "a", name: "", createdAt: "2026-11-01T00:00:00.000Z" }),
-    ).toEqual(new Date("2026-11-08T00:00:00.000Z"));
+    ).toEqual(new Date("2026-11-01T00:15:00.000Z"));
   });
 
   it("sends only the settings that differ", () => {

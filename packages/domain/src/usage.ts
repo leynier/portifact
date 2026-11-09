@@ -81,7 +81,7 @@ export function nextMonthStart(now: number): number {
 
 /** From when an account may make artifacts public (the same rule as checkAccessChange). */
 export function publicAccessFrom(accountCreatedAt: number): number {
-  return accountCreatedAt + LIMITS.publicAccessMinAccountAgeDays * DAY_MS;
+  return accountCreatedAt + LIMITS.publicAccessMinAccountAgeMinutes * 60_000;
 }
 
 /** Every limit that stops the account now, in the order checkPublish applies them. */
@@ -152,7 +152,7 @@ export function usageBlocks(usage: UsageSnapshot): Block[] {
     blocks.push({
       reason: "account_too_new_for_public",
       stops: "public_access",
-      message: `Accounts can make artifacts public after ${LIMITS.publicAccessMinAccountAgeDays} days.`,
+      message: `Accounts can make artifacts public ${LIMITS.publicAccessMinAccountAgeMinutes} minutes after they are created.`,
       until: publicFrom,
     });
   }
