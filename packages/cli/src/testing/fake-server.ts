@@ -2,6 +2,7 @@
 // code endpoint, device and refresh grants, revocation, GET /api/v1/me, the publishing and
 // artifact API (fake-api.ts) and presigned storage uploads. The token endpoint's answers to
 // device polls are scripted, and any request can be answered or dropped by a scripted fault.
+// It also answers /api/v1/tokens over its own token state: the CLI's grant plus `otherApps`.
 import { randomUUID } from "node:crypto";
 import {
   createServer,
@@ -10,6 +11,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import type { ConnectedApp } from "@portifact/contracts";
 import {
   annotationScope,
   createFakeAnnotations,
@@ -88,6 +90,8 @@ export interface FakeServer {
   clock: () => number;
   accessTokens: Map<string, AccessToken>;
   refreshTokens: Map<string, { userId: string; scopes: string[] }>;
+  /** Apps other than the CLI holding tokens for the user, as /api/v1/tokens lists them. */
+  otherApps: ConnectedApp[];
   /** Issues a token pair directly, as if a login had happened before the test. */
   issue(scopes?: string[]): { accessToken: string; refreshToken: string };
   revokedTokens(): string[];
@@ -122,6 +126,7 @@ export async function startFakeServer(): Promise<FakeServer> {
     issuedTokens: [],
     accessTokens: new Map(),
     refreshTokens: new Map(),
+    otherApps: [],
     issue(scopes = ["artifacts:read", "offline_access"]) {
       const accessToken = `at-${randomUUID()}`;
       const refreshToken = `rt-${randomUUID()}`;
@@ -167,9 +172,11 @@ export async function startFakeServer(): Promise<FakeServer> {
 
     const answer = isStorage
       ? fakeApi.storage(method, url, request.headers, bytes)
-      : url.pathname.startsWith("/api/v1/") && url.pathname !== "/api/v1/me"
-        ? api(method, url, request.headers, body)
-        : undefined;
+      : url.pathname === "/api/v1/tokens" || url.pathname.startsWith("/api/v1/tokens/")
+        ? tokens(method, url, request.headers)
+        : url.pathname.startsWith("/api/v1/") && url.pathname !== "/api/v1/me"
+          ? api(method, url, request.headers, body)
+          : undefined;
     if (answer) {
       if (fault?.drop === "after") return response.socket?.destroy();
       return reply(response, answer);
@@ -202,6 +209,59 @@ export async function startFakeServer(): Promise<FakeServer> {
         body: { error: { code: "not_found", message: "Not found." } },
       }
     );
+  }
+
+  // GET /api/v1/tokens and DELETE /api/v1/tokens/:clientId, as apps/app/src/api/tokens.ts.
+  function tokens(method: string, url: URL, headers: IncomingHttpHeaders): Reply {
+    const access = accessFor(headers.authorization);
+    if (!access) return { status: 401, body: { error: "invalid_token" } };
+    if (!access.scopes.includes("credentials:manage")) {
+      return { status: 403, body: { error: "insufficient_scope" } };
+    }
+    const live = [...fake.accessTokens.values()].filter(
+      (token) => token.userId === access.userId && !token.revoked,
+    );
+    const at = new Date(fake.clock()).toISOString();
+    const cli: ConnectedApp = {
+      clientId: "portifact-cli",
+      name: "Portifact CLI",
+      firstParty: true,
+      resources: ["api"],
+      scopes: [...new Set(live.flatMap((token) => token.scopes))],
+      approvedAt: at,
+      lastIssuedAt: at,
+      expiresAt: new Date(fake.clock() + 30 * 86_400_000).toISOString(),
+    };
+    if (method === "GET" && url.pathname === "/api/v1/tokens") {
+      const items = [cli, ...fake.otherApps].map((app) => ({
+        ...app,
+        current: app.clientId === "portifact-cli",
+      }));
+      return { status: 200, body: { items } };
+    }
+    if (method !== "DELETE") return { status: 404, body: { error: { code: "not_found" } } };
+    const clientId = decodeURIComponent(url.pathname.slice("/api/v1/tokens/".length));
+    if (clientId === "portifact-cli") {
+      for (const token of live) token.revoked = true;
+      for (const [value, refresh] of fake.refreshTokens) {
+        if (refresh.userId === access.userId) fake.refreshTokens.delete(value);
+      }
+      return { status: 200, body: { clientId, revoked: true, current: true } };
+    }
+    const index = fake.otherApps.findIndex((app) => app.clientId === clientId);
+    if (index === -1) {
+      return {
+        status: 404,
+        body: {
+          error: {
+            code: "not_found",
+            message: "No app with that ID is connected to this account.",
+          },
+        },
+      };
+    }
+    fake.otherApps.splice(index, 1);
+    return { status: 200, body: { clientId, revoked: true, current: false } };
   }
 
   function accessFor(authorization: string | undefined) {

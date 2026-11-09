@@ -1,7 +1,7 @@
 // The account endpoints under /api/v1/account (plan section 6, "Cuenta"): the signed-in user's
 // browser sessions, connected apps, defaults for new artifacts, data export and deletion. They answer only the dashboard's session cookie from the
-// app's own pages. Bearer tokens are refused: no OAuth scope covers account and credential
-// management yet, and a token must never list or revoke other credentials.
+// app's own pages. Bearer tokens are refused: account management has no OAuth scope. The CLI
+// lists and revokes the same connected apps through ./tokens.ts, with its own narrow scope.
 import {
   AccountDeletionInput,
   AccountDeletionResult,
@@ -10,6 +10,7 @@ import {
   AccountSettingsUpdate,
   type AppResource,
   BrowserSessionList,
+  type ConnectedApp,
   ConnectedAppList,
   DisconnectResult,
   ERROR_STATUS,
@@ -18,6 +19,7 @@ import {
 } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
 import {
+  type ConnectedAppRow,
   disconnectApp,
   exportAccount,
   getAccountSettings,
@@ -120,29 +122,12 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     "/api/v1/account/apps",
     sessionOnly(async (c, session) => {
-      const urls = authUrls(c.env.APP_ORIGIN);
-      const known: Record<string, AppResource> = {
-        [urls.apiResource]: "api",
-        [urls.mcpResource]: "mcp",
-      };
       const rows = await listConnectedApps(createDb(c.env.DB), {
         userId: session.userId,
         now: deps.now(),
       });
-      return c.json(
-        ConnectedAppList.parse({
-          items: rows.map((row) => ({
-            clientId: row.clientId,
-            name: row.name,
-            firstParty: row.clientId === CLI_CLIENT_ID,
-            resources: row.resources.flatMap((resource) => known[resource] ?? []),
-            scopes: row.scopes,
-            approvedAt: iso(row.approvedAt),
-            lastIssuedAt: iso(row.lastIssuedAt),
-            expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
-          })),
-        }),
-      );
+      const present = connectedAppView(c.env.APP_ORIGIN);
+      return c.json(ConnectedAppList.parse({ items: rows.map(present) }));
     }),
   );
 
@@ -221,6 +206,28 @@ export function accountRoutes(deps: AccountDeps) {
   );
 
   return routes;
+}
+
+/**
+ * How a connected app is shown, the same for the dashboard (`/api/v1/account/apps`) and the CLI
+ * (`/api/v1/tokens`): only Portifact's own resources are named, and no token ever appears.
+ */
+export function connectedAppView(appOrigin: string): (row: ConnectedAppRow) => ConnectedApp {
+  const urls = authUrls(appOrigin);
+  const known: Record<string, AppResource> = {
+    [urls.apiResource]: "api",
+    [urls.mcpResource]: "mcp",
+  };
+  return (row) => ({
+    clientId: row.clientId,
+    name: row.name,
+    firstParty: row.clientId === CLI_CLIENT_ID,
+    resources: row.resources.flatMap((resource) => known[resource] ?? []),
+    scopes: row.scopes,
+    approvedAt: iso(row.approvedAt),
+    lastIssuedAt: iso(row.lastIssuedAt),
+    expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
+  });
 }
 
 function iso(ms: number): string {

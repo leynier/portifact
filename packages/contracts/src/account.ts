@@ -1,7 +1,8 @@
 // Shapes of the account endpoints under `/api/v1/account` (plan sections 5 and 6, "Cuenta").
 // They answer only the dashboard's session cookie, never a bearer token, and show the signed-in
 // user's own browser sessions and connected apps. Secrets (session tokens, OAuth tokens, IP
-// addresses) never appear in them.
+// addresses) never appear in them. The CLI's view of the same connected apps
+// (`/api/v1/tokens`, bearer only with `credentials:manage`) is at the end.
 import { z } from "zod";
 import { AccessMode, CommentVisibility } from "./core.ts";
 
@@ -50,6 +51,32 @@ export type ConnectedAppList = z.infer<typeof ConnectedAppList>;
 
 export const DisconnectResult = z.object({ clientId: z.string(), disconnected: z.literal(true) });
 export type DisconnectResult = z.infer<typeof DisconnectResult>;
+
+/**
+ * The OAuth scope that lets a bearer token list and revoke the account's own tokens
+ * (`/api/v1/tokens`, decision 0003). It is not a product scope: only the first-party CLI client
+ * may request it, so MCP and other registered clients can never manage credentials.
+ */
+export const CREDENTIALS_SCOPE = "credentials:manage";
+
+/**
+ * An app holding live tokens for the account, as `GET /api/v1/tokens` lists it for the CLI. Its
+ * ID is the app's client ID; `current` marks the app whose token made the request.
+ */
+export const TokenGrant = ConnectedApp.extend({ current: z.boolean() });
+export type TokenGrant = z.infer<typeof TokenGrant>;
+
+export const TokenGrantList = z.object({ items: z.array(TokenGrant) });
+export type TokenGrantList = z.infer<typeof TokenGrantList>;
+
+/** `DELETE /api/v1/tokens/:clientId`: every token of that app for the account is revoked. */
+export const TokenRevokeResult = z.object({
+  clientId: z.string(),
+  revoked: z.literal(true),
+  /** True when the revoked app made the request, so its own token no longer works either. */
+  current: z.boolean(),
+});
+export type TokenRevokeResult = z.infer<typeof TokenRevokeResult>;
 
 /** Comments on a new artifact: closed, or open to everyone who can read it. */
 export const DefaultAnnotations = z.enum(["off", "open"]);

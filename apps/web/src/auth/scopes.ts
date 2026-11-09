@@ -9,6 +9,7 @@ const DESCRIPTIONS: Record<string, string> = {
   "annotations:read": "Read comments on your artifacts",
   "annotations:write": "Write and reply to comments as you",
   "annotations:moderate": "Resolve, hide and delete comments on your artifacts",
+  "credentials:manage": "See the apps connected to your account and disconnect them",
   offline_access: "Stay connected until you revoke access",
 };
 
