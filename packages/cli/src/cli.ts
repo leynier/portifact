@@ -67,6 +67,11 @@ reported. Other folders and ZIP files use the default exclusions. Secret files a
 
 --assets publishes a folder of images and other files with a Markdown document; it must be
 inside the document's folder so its relative links resolve.
+
+After a publish, the CLI may suggest once per device starring Portifact's GitHub repository,
+only when GitHub CLI (gh) is signed in and the repository is not starred yet. It runs only
+\`gh auth status\` and \`gh api user/starred/leynier/portifact\`, never stars for you, and sends
+nothing to Portifact. Set PORTIFACT_NO_STAR_PROMPT=1 to turn it off; it is off when CI is set.
 `;
 
 const PULL_HELP = `
