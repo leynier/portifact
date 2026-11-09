@@ -293,6 +293,34 @@ describe("human check on first comments", () => {
     });
   });
 
+  it("tells the list whether the caller's next comment needs a check, never for the owner", async () => {
+    const w = await world();
+    const hint = async (userId: string) => {
+      const page = await list(w, userId);
+      return page.ok ? page.value.humanCheck : undefined;
+    };
+    expect(await hint(w.owner)).toBe(false);
+    expect(await hint(w.reader)).toBe(true);
+    const first = await thread(w, w.reader, HUMAN, NOW - 30 * MINUTE);
+    if (!first.ok) throw new Error(first.code);
+    expect(await hint(w.reader)).toBe(true);
+    for (let i = 1; i < ANNOTATION_LIMITS.humanCheckedComments; i++) {
+      expect(
+        code(
+          await replyToAnnotationThread(db(), {
+            humanCheck: HUMAN,
+            userId: w.reader,
+            artifactId: w.id,
+            threadId: first.value.id,
+            body: `Reply ${i}`,
+            now: NOW - 20 * MINUTE + i * MINUTE,
+          }),
+        ),
+      ).toBe("ok");
+    }
+    expect(await hint(w.reader)).toBe(false);
+  });
+
   it("never asks the owner, whatever client they use", async () => {
     const w = await world();
     const { check, verified } = recording("failed");

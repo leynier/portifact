@@ -10,6 +10,7 @@
 // trusting it, and the threads, their state and the ability to comment always come from the API.
 import {
   type BridgePage,
+  type FrameRect,
   type MarkerResolution,
   newInstanceNonce,
   type RefusalReason,
@@ -38,8 +39,11 @@ export type BridgeState =
   | "failed";
 
 export interface BridgeEvents {
-  onSelection(target: AnnotationTarget | null): void;
-  onElement(target: AnnotationTarget): void;
+  /** `rect` is where the selection is drawn in the frame: an untrusted placement hint. */
+  onSelection(target: AnnotationTarget | null, rect: FrameRect | null): void;
+  onElement(target: AnnotationTarget, rect: FrameRect | null): void;
+  /** The offered selection or element moved in the frame, or is no longer drawn (`null`). */
+  onSelectionRect(rect: FrameRect | null): void;
   onRefused(reason: RefusalReason): void;
   onPickEnded(): void;
   onActivate(id: string): void;
@@ -121,10 +125,13 @@ export function useBridge(
           setPage(message.page);
           return;
         case "selection":
-          handlers.current.onSelection(message.target);
+          handlers.current.onSelection(message.target, message.rect ?? null);
           return;
         case "element":
-          handlers.current.onElement(message.target);
+          handlers.current.onElement(message.target, message.rect ?? null);
+          return;
+        case "selection-rect":
+          handlers.current.onSelectionRect(message.rect);
           return;
         case "refused":
           handlers.current.onRefused(message.reason);

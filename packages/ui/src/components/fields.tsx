@@ -70,10 +70,19 @@ export interface TextAreaProps
   error?: string | undefined;
   /** Monospaced text with no wrapping changes, for source code and plain text. */
   code?: boolean;
+  /** A few lines tall at first, for short notes such as a comment or a reply. */
+  compact?: boolean;
 }
 
 /** A labelled multi-line text input, tall enough to edit a document. */
-export function TextArea({ label, description, error, code = false, ...rest }: TextAreaProps) {
+export function TextArea({
+  label,
+  description,
+  error,
+  code = false,
+  compact = false,
+  ...rest
+}: TextAreaProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
@@ -94,7 +103,7 @@ export function TextArea({ label, description, error, code = false, ...rest }: T
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
-        className={`min-h-48 w-full resize-y rounded-sm border border-border-strong bg-canvas p-3 text-sm text-text transition-colors duration-150 hover:border-text disabled:opacity-55 aria-invalid:border-2 aria-invalid:border-text ${code ? "font-mono leading-6" : "leading-6"}`}
+        className={`${compact ? "min-h-20" : "min-h-48"} w-full resize-y rounded-sm border border-border-strong bg-canvas p-3 text-sm text-text transition-colors duration-150 hover:border-text disabled:opacity-55 aria-invalid:border-2 aria-invalid:border-text ${code ? "font-mono leading-6" : "leading-6"}`}
       />
       {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>

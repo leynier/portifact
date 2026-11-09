@@ -20,6 +20,8 @@ export const BRIDGE_LIMITS = {
   markersMax: 200,
   idMaxLength: 64,
   labelMaxLength: 128,
+  /** Largest coordinate or size a frame rectangle may hold, in CSS pixels. */
+  rectMaxPixels: 1_000_000,
 } as const;
 
 /** A random per-instance value the viewer hands to one bridge instance (one page load). */
@@ -36,6 +38,23 @@ export const SessionTag = z.string().regex(/^[A-Za-z0-9_-]{22}$/, "Invalid sessi
 export const MarkerId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "Invalid marker id");
 
 const Label = z.string().min(1).max(BRIDGE_LIMITS.labelMaxLength);
+
+const coordinate = z.number().min(-BRIDGE_LIMITS.rectMaxPixels).max(BRIDGE_LIMITS.rectMaxPixels);
+const extent = z.number().min(0).max(BRIDGE_LIMITS.rectMaxPixels);
+
+/**
+ * Where the reader's selection or picked element is drawn, in the frame's viewport (CSS pixels
+ * from the frame's top left corner, as `getBoundingClientRect` reports it). The viewer places
+ * its "Comment" control and composer by it, but treats it as an untrusted hint: it clamps it to
+ * the frame's visible box and never draws outside the frame (see `visibleRect`).
+ */
+export const FrameRect = z.strictObject({
+  x: coordinate,
+  y: coordinate,
+  width: extent,
+  height: extent,
+});
+export type FrameRect = z.infer<typeof FrameRect>;
 
 /** The page the bridge runs on: its file path in the version and its SPA route. */
 export const BridgePage = z.strictObject({
@@ -89,10 +108,29 @@ export const BridgeMessage = z.discriminatedUnion("type", [
   }),
   /** The SPA route changed. */
   z.strictObject({ ...bound, type: z.literal("location"), page: BridgePage }),
-  /** The reader's text selection as a target, or `null` once it is gone. */
-  z.strictObject({ ...bound, type: z.literal("selection"), target: AnnotationTarget.nullable() }),
-  /** The element the reader picked in element mode. */
-  z.strictObject({ ...bound, type: z.literal("element"), target: AnnotationTarget }),
+  /**
+   * The reader's text selection as a target, or `null` once it is gone. `rect` is where it is
+   * drawn in the frame, a hint for placing the viewer's "Comment" control.
+   */
+  z.strictObject({
+    ...bound,
+    type: z.literal("selection"),
+    target: AnnotationTarget.nullable(),
+    rect: FrameRect.optional(),
+  }),
+  /** The element the reader picked in element mode, and where it is drawn in the frame. */
+  z.strictObject({
+    ...bound,
+    type: z.literal("element"),
+    target: AnnotationTarget,
+    rect: FrameRect.optional(),
+  }),
+  /**
+   * The reported selection or picked element moved in the frame (the page scrolled or was
+   * resized): its new rectangle, or `null` when it is no longer drawn. It never changes the
+   * target, and the viewer ignores it while it offers nothing or a comment is open.
+   */
+  z.strictObject({ ...bound, type: z.literal("selection-rect"), rect: FrameRect.nullable() }),
   z.strictObject({ ...bound, type: z.literal("refused"), reason: RefusalReason }),
   /** Element mode ended in the page (Escape or a pick). */
   z.strictObject({ ...bound, type: z.literal("pick-ended") }),

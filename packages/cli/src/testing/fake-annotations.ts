@@ -149,6 +149,7 @@ export function createFakeAnnotations(
         annotations: state.modes.get(artifact.id) ?? "off",
         currentVersionId: artifact.currentVersionId,
         role: state.role,
+        humanCheck: false,
         threads: page.map(view),
         removed,
         cursor: String(changed.length > limit ? last : Math.max(last, seq)),

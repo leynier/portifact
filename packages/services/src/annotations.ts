@@ -1045,6 +1045,9 @@ export async function listAnnotations(
     annotations: loaded.artifact.annotations,
     currentVersionId: loaded.artifact.currentVersionId,
     role: loaded.role,
+    humanCheck:
+      loaded.role === "participant" &&
+      needsHumanCheck(loaded.role, await commentsOnOthersArtifacts(db, input.userId)),
     threads: await threadViews(db, loaded, input.userId, page.filter(matches)),
     removed: [...removed],
     cursor: encodeAnnotationCursor(upper),

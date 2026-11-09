@@ -92,17 +92,18 @@ test("the bridge anchors selections in a client-rendered app and finds them afte
 
   // A text selection inside the rendered view becomes a text target on the SPA route.
   await frame.locator(".pitch").selectText();
-  await page.getByRole("button", { name: "Comment on the selection" }).click();
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
   await page.getByRole("textbox", { name: "Comment" }).fill("Mention the warranty");
-  await page.getByRole("button", { name: "Post comment" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("1 comment thread")).toBeVisible();
 
   // Element mode picks a button the script created.
   await page.getByRole("button", { name: "Select an element" }).click();
   await frame.getByTestId("add-kettle").click();
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText("Element button")).toBeVisible();
   await page.getByRole("textbox", { name: "Comment" }).fill("Make this the primary action");
-  await page.getByRole("button", { name: "Post comment" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("2 comment threads")).toBeVisible();
 
   const [text, element] = await targetsBy(owner.userId);
@@ -137,10 +138,9 @@ test("the bridge anchors selections in a client-rendered app and finds them afte
 
   // A selection made after the re-render anchors in the new DOM too.
   await frame.getByRole("heading", { name: "Copper kettle" }).selectText();
-  await expect(page.getByRole("button", { name: "Comment on the selection" })).toBeVisible();
-  await page.getByRole("button", { name: "Comment on the selection" }).click();
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
   await page.getByRole("textbox", { name: "Comment" }).fill("Name the size");
-  await page.getByRole("button", { name: "Post comment" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("3 comment threads")).toBeVisible();
   const third = (await targetsBy(owner.userId))[2];
   expect(third).toMatchObject({

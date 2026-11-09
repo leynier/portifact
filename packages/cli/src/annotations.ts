@@ -122,6 +122,7 @@ export async function list(
       annotations: page.annotations,
       currentVersionId: page.currentVersionId,
       role: page.role,
+      humanCheck: page.humanCheck,
       threads,
       removed,
       cursor: page.cursor,

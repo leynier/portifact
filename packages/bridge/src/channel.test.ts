@@ -106,6 +106,44 @@ describe("bridge messages, as the viewer reads them", () => {
     }
   });
 
+  it("accepts frame rectangles only as bounded, finite numbers with nothing else", () => {
+    const rect = { x: 10, y: -20, width: 100, height: 18 };
+    const accepted = (body: Record<string, unknown>) =>
+      readBridgeMessage(fromFrame(bridgeEnvelope(NONCE, body as never)), viewerExpects());
+    expect(accepted({ type: "selection", target, rect })).toMatchObject({ rect });
+    expect(accepted({ type: "element", target, rect })).toMatchObject({ rect });
+    expect(accepted({ type: "selection-rect", rect })).toMatchObject({ rect });
+    expect(accepted({ type: "selection-rect", rect: null })).toMatchObject({ rect: null });
+    // A selection without a rectangle still offers a comment, placed by the viewer's fallback.
+    expect(accepted({ type: "selection", target })).not.toBeNull();
+    const limit = BRIDGE_LIMITS.rectMaxPixels;
+    for (const hostile of [
+      { ...rect, x: Number.NaN },
+      { ...rect, y: Number.POSITIVE_INFINITY },
+      { ...rect, width: Number.NEGATIVE_INFINITY },
+      { ...rect, width: -1 },
+      { ...rect, height: -0.5 },
+      { ...rect, x: limit + 1 },
+      { ...rect, y: -limit - 1 },
+      { ...rect, width: limit + 1 },
+      { ...rect, x: "10" },
+      { ...rect, extra: 1 },
+      { x: 1, y: 1, width: 1 },
+      [1, 2, 3, 4],
+      "0,0,10,10",
+    ]) {
+      expect(
+        accepted({ type: "selection-rect", rect: hostile }),
+        JSON.stringify(hostile),
+      ).toBeNull();
+      expect(accepted({ type: "selection", target, rect: hostile })).toBeNull();
+      expect(accepted({ type: "element", target, rect: hostile })).toBeNull();
+    }
+    // A rectangle never travels without the nonce of the current handshake.
+    const unbound = { channel: REVIEW_CHANNEL, v: 1, type: "selection-rect", rect };
+    expect(readBridgeMessage(fromFrame(unbound), viewerExpects())).toBeNull();
+  });
+
   it("refuses messages over the size limit and data that is not plain JSON", () => {
     const results = Array.from({ length: BRIDGE_LIMITS.markersMax }, (_, i) => ({
       id: `${"t".repeat(60)}${String(i).padStart(4, "0")}`,

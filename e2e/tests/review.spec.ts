@@ -81,12 +81,12 @@ test("review works with third-party cookies blocked, and comments are confirmed 
   );
   expect(await frame.evaluate(() => document.documentElement.dataset.app)).toBe("ran");
 
-  // Selecting text only offers a comment; nothing is posted until the reader confirms.
+  // Selecting text only offers a comment; nothing is posted until the reader saves it.
   await frame.locator("#intro").selectText();
-  await page.getByRole("button", { name: "Comment on the selection" }).click();
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
   expect(await threadsBy(owner.userId)).toHaveLength(0);
   await page.getByRole("textbox", { name: "Comment" }).fill("Say hello to the old world too");
-  await page.getByRole("button", { name: "Post comment" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("1 comment thread")).toBeVisible();
   const [text] = await threadsBy(owner.userId);
   expect(JSON.parse(text?.target ?? "{}")).toMatchObject({
@@ -100,9 +100,10 @@ test("review works with third-party cookies blocked, and comments are confirmed 
   // Element mode: the click goes to the bridge, not to the page.
   await page.getByRole("button", { name: "Select an element" }).click();
   await frame.locator("#buy").click();
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.getByText("Element button")).toBeVisible();
   await page.getByRole("textbox", { name: "Comment" }).fill("Make this the primary action");
-  await page.getByRole("button", { name: "Post comment" }).click();
+  await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("2 comment threads")).toBeVisible();
   const targets = (await threadsBy(owner.userId)).map((t) => JSON.parse(t.target).anchor.kind);
   expect(targets.sort()).toEqual(["element", "text"]);
@@ -202,11 +203,21 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
     expect(received).not.toContain(leak);
   }
 
-  // Its forged selection only offered a comment in the viewer, its forged element (with no pick
-  // in progress) did nothing, nothing was posted, and its requests could not act as the visitor
-  // or sign them out.
+  // Its forged selection only offered a comment in the viewer, drawn inside the frame whatever
+  // rectangle it claimed, its forged element (with no pick in progress) did nothing, nothing was
+  // posted, and its requests could not act as the visitor or sign them out.
   expect(results.forged).toBeGreaterThan(0);
-  await expect(page.getByRole("button", { name: "Comment on the selection" })).toBeVisible();
+  const offer = page.getByRole("button", { name: "Comment", exact: true });
+  await expect(offer).toBeVisible();
+  const offerBox = await offer.boundingBox();
+  const frameBox = await page.locator("iframe").boundingBox();
+  expect(offerBox && frameBox).toBeTruthy();
+  if (offerBox && frameBox) {
+    expect(offerBox.x).toBeGreaterThanOrEqual(frameBox.x);
+    expect(offerBox.y).toBeGreaterThanOrEqual(frameBox.y);
+    expect(offerBox.x + offerBox.width).toBeLessThanOrEqual(frameBox.x + frameBox.width);
+    expect(offerBox.y + offerBox.height).toBeLessThanOrEqual(frameBox.y + frameBox.height);
+  }
   await expect(page.getByRole("form", { name: "New comment" })).toBeHidden();
   expect(await threadsBy(victim.userId)).toHaveLength(0);
   expect(await sql("SELECT id FROM sessions WHERE id = ?", [victim.sessionId])).toHaveLength(1);
@@ -394,5 +405,5 @@ test("a Markdown document is reviewed with the bridge allowed only by nonce", as
   // The document's own scripts stay blocked; only the bridge runs.
   expect(await frame.locator("script").count()).toBe(1);
   await frame.getByText("The review bridge runs here.").selectText();
-  await expect(page.getByRole("button", { name: "Comment on the selection" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Comment", exact: true })).toBeVisible();
 });

@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 /** Classes of the button variants, also used by links that look like buttons. */
 export const buttonClasses = cva(
@@ -15,6 +15,9 @@ export const buttonClasses = cva(
         // Quiet actions in toolbars, rows and navigation; the label and icon carry them.
         ghost: "rounded-sm text-text hover:bg-surface-hover disabled:hover:bg-transparent",
         link: "text-text underline underline-offset-4 hover:decoration-2",
+        // Floats over content, such as the "Comment" control next to a selection in the viewer.
+        floating:
+          "rounded-sm bg-surface-inverse text-text-inverse shadow-float hover:opacity-85 disabled:hover:opacity-55",
       },
       size: {
         md: "h-10 px-4 text-sm",
@@ -36,6 +39,8 @@ export type ButtonVariants = VariantProps<typeof buttonClasses>;
 export interface ButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className">,
     ButtonVariants {
+  /** The button element, for moving focus back to it. */
+  ref?: Ref<HTMLButtonElement>;
   /** Leading icon, hidden from assistive technology; the label carries the meaning. */
   icon?: ReactNode;
   /**

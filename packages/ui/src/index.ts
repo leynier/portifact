@@ -54,4 +54,14 @@ export {
   PageHeader,
   type PageHeaderProps,
 } from "./patterns/app-shell.tsx";
+export {
+  Floating,
+  FloatingPanel,
+  type FloatingPanelProps,
+  type FloatingProps,
+  FrameOverlay,
+  type FrameOverlayProps,
+  type OverlayPoint,
+  type OverlaySize,
+} from "./patterns/frame-overlay.tsx";
 export { ViewerShell, type ViewerShellProps } from "./patterns/viewer-shell.tsx";
