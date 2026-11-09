@@ -199,10 +199,10 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
   expect(results.cookies).not.toContain(REVIEW_COOKIE);
   expect(results.cookies).not.toContain("pf.session_token");
 
-  // It received targets and labels, never bodies, names, emails or tokens.
+  // It received the targets to highlight, never bodies, names, emails or tokens.
   const received = results.received.join("\n");
   expect(received).toContain('"type":"init"');
-  expect(received).toContain('"type":"markers"');
+  expect(received).toContain('"type":"highlights"');
   for (const leak of ["TOP SECRET BODY", victim.email, carol.email, "Carol", victim.cookie]) {
     expect(received).not.toContain(leak);
   }

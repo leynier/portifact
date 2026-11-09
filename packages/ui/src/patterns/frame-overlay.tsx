@@ -10,6 +10,21 @@ export interface OverlayPoint {
   y: number;
 }
 
+/** What a visual viewport reports: its height and how far it is scrolled within the layout. */
+export interface VisualViewportBox {
+  height: number;
+  offsetTop: number;
+}
+
+/**
+ * How much of the bottom of the layout viewport is covered, such as by an on-screen keyboard: a
+ * sheet fixed to the bottom moves up by this much so the field being typed in stays in view.
+ */
+export function keyboardInset(layoutHeight: number, visual: VisualViewportBox | null): number {
+  if (!visual) return 0;
+  return Math.max(0, Math.round(layoutHeight - visual.offsetTop - visual.height));
+}
+
 export interface FrameOverlayProps {
   /** The frame the layer covers, such as the artifact iframe. */
   children: ReactNode;
@@ -43,8 +58,9 @@ export interface FloatingProps {
   /** Called with whether it could be placed, for example to fall back to another layout. */
   onPlaced?(placed: boolean): void;
   /**
-   * Fixed across the bottom of the screen instead of placed, for a bottom sheet. Switching keeps
-   * the content mounted, so nothing typed into it is lost.
+   * Fixed across the bottom of the screen instead of placed, for a bottom sheet, kept above the
+   * on-screen keyboard (`keyboardInset`). Switching keeps the content mounted, so nothing typed
+   * into it is lost.
    */
   sheet?: boolean;
   children: ReactNode;
@@ -66,10 +82,16 @@ export function Floating({ place, onPlaced, sheet = false, children }: FloatingP
     const area = element?.parentElement;
     if (!element || !area) return;
     if (latest.current.sheet) {
+      // Above the on-screen keyboard, and never taller than what is left of the screen.
+      const visual = window.visualViewport ?? null;
       element.style.visibility = "visible";
       element.style.transform = "";
+      element.style.bottom = `${keyboardInset(window.innerHeight, visual)}px`;
+      element.style.maxHeight = visual ? `${Math.round(visual.height)}px` : "";
       return;
     }
+    element.style.bottom = "";
+    element.style.maxHeight = "";
     const point = latest.current.place(
       { width: element.offsetWidth, height: element.offsetHeight },
       { width: area.clientWidth, height: area.clientHeight },
@@ -91,13 +113,25 @@ export function Floating({ place, onPlaced, sheet = false, children }: FloatingP
     observer.observe(area);
     return () => observer.disconnect();
   }, []);
+  useLayoutEffect(() => {
+    // The on-screen keyboard resizes the visual viewport, not the layout one.
+    const visual = window.visualViewport;
+    if (!visual) return;
+    const follow = () => position();
+    visual.addEventListener("resize", follow);
+    visual.addEventListener("scroll", follow);
+    return () => {
+      visual.removeEventListener("resize", follow);
+      visual.removeEventListener("scroll", follow);
+    };
+  }, []);
 
   return (
     <div
       ref={ref}
       className={
         sheet
-          ? "pointer-events-auto fixed inset-x-0 bottom-0 z-40"
+          ? "pointer-events-auto fixed inset-x-0 bottom-0 z-40 flex flex-col"
           : "pointer-events-auto invisible absolute top-0 left-0"
       }
     >
@@ -128,7 +162,7 @@ export function FloatingPanel({ label, sheet = false, children }: FloatingPanelP
       aria-label={label}
       className={
         sheet
-          ? "flex max-h-dvh flex-col gap-3 overflow-y-auto rounded-t-lg border-t border-border-strong bg-canvas p-4 text-text shadow-float motion-safe:animate-pop"
+          ? "flex max-h-dvh min-h-0 flex-col gap-3 overflow-y-auto rounded-t-lg border-t border-border-strong bg-canvas p-4 text-text shadow-float motion-safe:animate-pop"
           : "flex w-80 max-w-full flex-col gap-3 rounded-lg border border-border-strong bg-canvas p-3 text-text shadow-float motion-safe:animate-pop"
       }
     >
