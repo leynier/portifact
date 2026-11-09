@@ -49,10 +49,13 @@
   "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" }],
   // Expiry notices to owners (docs/operations.md), sent from noreply@portifact.com like the
   // sign-in codes of portifact-app, with links to the artifacts and the dashboard.
-  "send_email": [{ "name": "EMAIL" }],
+  "send_email": [{ "name": "EMAIL" }, { "name": "BUDGET_EMAIL" }],
   "vars": {
     "APP_ORIGIN": "https://app.portifact.com",
-    "CONTENT_DOMAIN": "portifact.dev"
+    "CONTENT_DOMAIN": "portifact.dev",
+    // Budget alerts (docs/operations.md): hello@ forwards to the operator through Email Routing.
+    "BUDGET_ALERT_TO": "hello@portifact.com",
+    "BUDGET_ALERT_FROM": "noreply@portifact.com"
   },
   "observability": { "enabled": true, "head_sampling_rate": 1 }
 }
