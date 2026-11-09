@@ -100,6 +100,11 @@ function writeSidebar(storageKey: string | undefined, state: SidebarState) {
 /** Where shell content is drawn: the sidebar (collapsed or not) or the drawer of small screens. */
 const Placement = createContext<{ collapsed: boolean }>({ collapsed: false });
 
+/** Whether content of the account slot is drawn in the collapsed rail, to fit its width. */
+export function useSidebarCollapsed(): boolean {
+  return useContext(Placement).collapsed;
+}
+
 /** Classes for a navigation link, also when it is drawn as an icon in the collapsed rail. */
 export const navLinkClasses =
   "flex h-9 w-full min-w-0 items-center gap-2.5 rounded-xs px-2.5 text-text-muted no-underline transition-colors duration-150 hover:bg-surface-hover hover:text-text current:font-semibold current:selection-band current:hover:bg-selection";
@@ -265,9 +270,9 @@ export function AppShell({
         tabIndex={-1}
         className={`focus:outline-none ${collapsed ? "md:pl-16" : "md:pl-sidebar"}`}
       >
-        {/* Aligned to the sidebar and capped by `max-w-page`, so wide screens do not leave a column
-            floating between two empty gutters. */}
-        <div className="w-full max-w-page px-4 py-8 sm:px-8 lg:px-10 lg:py-10">{children}</div>
+        {/* The page column takes every pixel next to the sidebar, with no cap: wide screens get
+            wider tables and more panels per row, never empty gutters. Prose keeps its own measure. */}
+        <div className="w-full px-4 py-8 sm:px-8 lg:px-10 lg:py-10">{children}</div>
       </main>
     </div>
   );
@@ -291,6 +296,11 @@ export interface SidebarAccountProps {
   signOutLabel: string;
   signingOut?: boolean;
   onSignOut(): void;
+  /**
+   * A control shown above the account in the open sidebar, such as the language choice. The
+   * collapsed rail leaves it out; the same choice stays on the settings page.
+   */
+  extra?: ReactNode;
 }
 
 /**
@@ -307,6 +317,7 @@ export function SidebarAccount({
   signOutLabel,
   signingOut = false,
   onSignOut,
+  extra,
 }: SidebarAccountProps) {
   const { collapsed } = useContext(Placement);
   const shown = name.trim() || email.split("@")[0] || email;
@@ -338,7 +349,7 @@ export function SidebarAccount({
       </div>
     );
   }
-  return (
+  const row = (
     <div className="flex items-center gap-1">
       {renderProfileLink({
         className:
@@ -358,6 +369,13 @@ export function SidebarAccount({
         ),
       })}
       {signOut}
+    </div>
+  );
+  if (!extra) return row;
+  return (
+    <div className="flex flex-col gap-3">
+      {extra}
+      {row}
     </div>
   );
 }

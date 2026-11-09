@@ -80,6 +80,24 @@
   --pf-handle-knob: 6px;
 }
 
+/*
+ * Chinese and Japanese pages: each language's system fonts after the Latin ones, so Latin text
+ * keeps its fonts and the same characters take each language's own forms. No web fonts.
+ */
+:root:lang(ja) {
+  --pf-font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Yu Gothic", Meiryo,
+    "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
+}
+
+:root:lang(zh-CN) {
+  --pf-font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+}
+
 /* Light theme (default). */
 :root,
 [data-theme="light"] {
@@ -107,7 +125,11 @@
   --pf-color-terminal-border: var(--pf-neutral-800);
 }
 
-/* Dark theme: follows the system unless a theme is forced. */
+/*
+ * Dark theme. Under System (no `data-theme` on the root) it follows the operating system; a
+ * person's Light or Dark choice sets `data-theme` on the root (packages/ui/src/theme), which the
+ * media query respects and the forced block below applies.
+ */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -135,6 +157,7 @@
   }
 }
 
+/* Forced dark: after the light block, so it wins on the root at the same specificity. */
 [data-theme="dark"] {
   color-scheme: dark;
   --pf-color-backdrop: var(--pf-neutral-975);

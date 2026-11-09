@@ -1,9 +1,11 @@
 // Shapes of the account endpoints under `/api/v1/account` (plan sections 5 and 6, "Cuenta").
 // They answer only the dashboard's session cookie, never a bearer token, and show the signed-in
 // user's own browser sessions and connected apps. Secrets (session tokens, OAuth tokens, IP
-// addresses) never appear in them.
+// addresses) never appear in them. The CLI's view of the same connected apps
+// (`/api/v1/tokens`, bearer only with `credentials:manage`) is at the end.
 import { z } from "zod";
 import { AccessMode, CommentVisibility } from "./core.ts";
+import { LOCALE_CODES } from "./locales.ts";
 
 /** A signed-in browser on app.portifact.com. */
 export const BrowserSession = z.object({
@@ -51,6 +53,36 @@ export type ConnectedAppList = z.infer<typeof ConnectedAppList>;
 export const DisconnectResult = z.object({ clientId: z.string(), disconnected: z.literal(true) });
 export type DisconnectResult = z.infer<typeof DisconnectResult>;
 
+/**
+ * The OAuth scope that lets a bearer token list and revoke the account's own tokens
+ * (`/api/v1/tokens`, decision 0003). It is not a product scope: only the first-party CLI client
+ * may request it, so MCP and other registered clients can never manage credentials.
+ */
+export const CREDENTIALS_SCOPE = "credentials:manage";
+
+/**
+ * An app holding live tokens for the account, as `GET /api/v1/tokens` lists it for the CLI. Its
+ * ID is the app's client ID; `current` marks the app whose token made the request.
+ */
+export const TokenGrant = ConnectedApp.extend({ current: z.boolean() });
+export type TokenGrant = z.infer<typeof TokenGrant>;
+
+export const TokenGrantList = z.object({ items: z.array(TokenGrant) });
+export type TokenGrantList = z.infer<typeof TokenGrantList>;
+
+/** `DELETE /api/v1/tokens/:clientId`: every token of that app for the account is revoked. */
+export const TokenRevokeResult = z.object({
+  clientId: z.string(),
+  revoked: z.literal(true),
+  /** True when the revoked app made the request, so its own token no longer works either. */
+  current: z.boolean(),
+});
+export type TokenRevokeResult = z.infer<typeof TokenRevokeResult>;
+
+/** A language Portifact is translated into (`LOCALES` in locales.ts). */
+export const Locale = z.enum(LOCALE_CODES);
+export type Locale = z.infer<typeof Locale>;
+
 /** Comments on a new artifact: closed, or open to everyone who can read it. */
 export const DefaultAnnotations = z.enum(["off", "open"]);
 export type DefaultAnnotations = z.infer<typeof DefaultAnnotations>;
@@ -66,6 +98,13 @@ export const AccountSettings = z.object({
   defaultCommentVisibility: CommentVisibility,
   /** The Portifact bar on new artifacts. */
   defaultBar: z.boolean(),
+  /** Email the owner before their artifacts expire (one email per account, grouped). */
+  expiryNotices: z.boolean(),
+  /**
+   * The language the account chose for the dashboard and the emails; null follows each
+   * browser's languages.
+   */
+  locale: Locale.nullable(),
 });
 export type AccountSettings = z.infer<typeof AccountSettings>;
 
@@ -76,6 +115,9 @@ export const AccountSettingsUpdate = z
     defaultAnnotations: DefaultAnnotations.optional(),
     defaultCommentVisibility: CommentVisibility.optional(),
     defaultBar: z.boolean().optional(),
+    expiryNotices: z.boolean().optional(),
+    /** A language of the locale list, or null to follow the browser again. */
+    locale: Locale.nullable().optional(),
   })
   .refine((update) => Object.values(update).some((value) => value !== undefined), {
     message: "Send at least one change.",

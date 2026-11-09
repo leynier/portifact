@@ -1,6 +1,7 @@
 // The owner's defaults for new artifacts: read them, change them, and the policy a publish gives
-// an artifact it creates (`preparePublish`). The rules are in packages/domain/src/account-settings.ts.
-import type { AccountSettings, AccountSettingsUpdate } from "@portifact/contracts";
+// an artifact it creates (`preparePublish`). The same settings hold the expiry notices opt-out and
+// the account's language. The rules are in packages/domain/src/account-settings.ts.
+import { type AccountSettings, type AccountSettingsUpdate, isLocale } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import {
   BUILT_IN_SETTINGS,
@@ -21,11 +22,15 @@ export async function loadSettings(db: Db, userId: string): Promise<AccountSetti
       defaultAnnotations: schema.accountSettings.defaultAnnotations,
       defaultCommentVisibility: schema.accountSettings.defaultCommentVisibility,
       defaultBar: schema.accountSettings.defaultBar,
+      expiryNotices: schema.accountSettings.expiryNotices,
+      locale: schema.accountSettings.locale,
     })
     .from(schema.accountSettings)
     .where(eq(schema.accountSettings.userId, userId))
     .limit(1);
-  return row ?? BUILT_IN_SETTINGS;
+  if (!row) return BUILT_IN_SETTINGS;
+  // A language that is no longer offered falls back to the browser's, like no choice.
+  return { ...row, locale: isLocale(row.locale) ? row.locale : null };
 }
 
 async function accountCreatedAt(db: Db, userId: string): Promise<Date | undefined> {

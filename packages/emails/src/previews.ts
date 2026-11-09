@@ -1,6 +1,8 @@
 // Sample renderings of every email, for scripts/preview.ts and the tests. A new email adds its
 // samples here, so `bun run --cwd packages/emails preview` always shows all of them.
+import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { budgetAlertEmail } from "./budget-alert.ts";
+import { expiryNoticeEmail } from "./expiry-notice.ts";
 import type { EmailContent } from "./message.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 
@@ -10,6 +12,22 @@ export interface Preview {
 }
 
 const CREATED_AT = Date.UTC(2026, 10, 8, 12, 0, 0);
+const HOUR = 3_600_000;
+
+const noticeArtifact = (id: string, name: string, hoursLeft: number) => ({
+  name,
+  url: `https://${id}.portifact.dev/`,
+  renewUrl: `https://app.portifact.com/artifacts/${id}`,
+  expiresAt: CREATED_AT + hoursLeft * HOUR,
+});
+const notice = {
+  settingsUrl: "https://app.portifact.com/settings",
+  activeDays: 30,
+  archiveMonths: 6,
+};
+
+/** Every language besides English, each previewed in every user-facing email. */
+const TRANSLATED = LOCALE_CODES.filter((locale) => locale !== DEFAULT_LOCALE);
 
 export function previews(): Preview[] {
   return [
@@ -17,6 +35,15 @@ export function previews(): Preview[] {
       name: "sign-in-code",
       email: signInCodeEmail({ email: "ada@example.com", code: "482913", expiresInMinutes: 5 }),
     },
+    ...TRANSLATED.map((locale) => ({
+      name: `sign-in-code-${locale.toLowerCase()}`,
+      email: signInCodeEmail({
+        email: "ada@example.com",
+        code: "482913",
+        expiresInMinutes: 5,
+        locale,
+      }),
+    })),
     {
       name: "budget-alert",
       email: budgetAlertEmail({
@@ -38,5 +65,34 @@ export function previews(): Preview[] {
         actions: [],
       }),
     },
+    {
+      name: "expiry-notice",
+      email: expiryNoticeEmail({
+        ...notice,
+        artifacts: [
+          noticeArtifact("k7d2qm4xab", "Q3 launch plan", 50),
+          noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
+          noticeArtifact("z9w3hj6mef", "API prototype", 71),
+        ],
+      }),
+    },
+    {
+      name: "expiry-notice-one",
+      email: expiryNoticeEmail({
+        ...notice,
+        artifacts: [noticeArtifact("k7d2qm4xab", "Q3 launch plan", 70)],
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `expiry-notice-${locale.toLowerCase()}`,
+      email: expiryNoticeEmail({
+        ...notice,
+        locale,
+        artifacts: [
+          noticeArtifact("k7d2qm4xab", "Q3 launch plan", 50),
+          noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
+        ],
+      }),
+    })),
   ];
 }

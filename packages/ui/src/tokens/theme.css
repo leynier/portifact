@@ -30,12 +30,6 @@
   --font-sans: var(--pf-font-sans);
   --font-mono: var(--pf-font-mono);
 
-  /*
-   * The dashboard's page column (`max-w-page`): wide enough for grids of panels on large
-   * screens, aligned to the sidebar instead of centered. Prose inside keeps `max-w-3xl`.
-   */
-  --container-page: 88rem;
-
   --radius-xs: var(--pf-radius-xs);
   --radius-sm: var(--pf-radius-sm);
   --radius-md: var(--pf-radius-md);
@@ -211,6 +205,9 @@
     color: var(--pf-color-text);
     font-family: var(--pf-font-sans);
     -webkit-font-smoothing: antialiased;
+    /* A word wider than its line (a long German or Russian word, an address) breaks instead of
+       pushing the page sideways, whatever the font's width. */
+    overflow-wrap: break-word;
   }
 
   ::selection {

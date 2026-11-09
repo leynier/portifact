@@ -1,7 +1,7 @@
 // The branded email layout: one centered card on a quiet page, built with tables and inline
 // styles so it renders the same in Gmail, Outlook and Apple Mail. Every value that reaches the
 // markup goes through `escapeHtml`; callers pass text, never HTML.
-import { DARK, FONT_MONO, FONT_SANS, LIGHT, WORDMARK } from "./theme.ts";
+import { DARK, FONT_MONO, FONT_SANS, fontSans, LIGHT, WORDMARK } from "./theme.ts";
 
 const ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -25,7 +25,8 @@ export type Block =
   | { kind: "code"; label: string; value: string }
   | { kind: "command"; value: string }
   | { kind: "facts"; rows: { label: string; value: string }[] }
-  | { kind: "list"; items: string[] }
+  /** Items are plain text, or runs of text when an item needs emphasis or a link. */
+  | { kind: "list"; items: (string | Inline[])[] }
   | { kind: "divider" };
 
 export interface EmailLayout {
@@ -37,11 +38,14 @@ export interface EmailLayout {
   blocks: Block[];
   /** Small print under the card, such as why the email was sent. */
   footer: string;
+  /** The language of the text, a BCP 47 tag; English when absent. */
+  lang?: string;
 }
 
 const text = `color: ${LIGHT.text}`;
 const muted = `color: ${LIGHT.muted}`;
-const paragraph = `margin: 0 0 16px; font-family: ${FONT_SANS}; font-size: 15px; line-height: 24px`;
+const paragraph = (sans: string) =>
+  `margin: 0 0 16px; font-family: ${sans}; font-size: 15px; line-height: 24px`;
 
 function inline(content: Inline[]): string {
   return content
@@ -53,19 +57,19 @@ function inline(content: Inline[]): string {
     .join("");
 }
 
-function block(item: Block): string {
+function block(item: Block, sans: string): string {
   switch (item.kind) {
     case "paragraph":
       return item.muted
-        ? `<p class="pf-muted" style="${paragraph}; ${muted}">${inline(item.content)}</p>`
-        : `<p class="pf-text" style="${paragraph}; ${text}">${inline(item.content)}</p>`;
+        ? `<p class="pf-muted" style="${paragraph(sans)}; ${muted}">${inline(item.content)}</p>`
+        : `<p class="pf-text" style="${paragraph(sans)}; ${text}">${inline(item.content)}</p>`;
     case "code":
       // One unbroken string, so a double click or a long press copies exactly the code; the
       // spacing between digits is letter-spacing, which copies as nothing.
       return [
         `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 8px 0 24px">`,
         `<tr><td class="pf-panel" align="center" style="padding: 20px 16px; background-color: ${LIGHT.panel}; border: 1px solid ${LIGHT.panelBorder}; border-radius: 10px">`,
-        `<p class="pf-muted" style="margin: 0 0 8px; font-family: ${FONT_SANS}; font-size: 12px; line-height: 16px; letter-spacing: 1px; text-transform: uppercase; ${muted}">${escapeHtml(item.label)}</p>`,
+        `<p class="pf-muted" style="margin: 0 0 8px; font-family: ${sans}; font-size: 12px; line-height: 16px; letter-spacing: 1px; text-transform: uppercase; ${muted}">${escapeHtml(item.label)}</p>`,
         `<p class="pf-text" style="margin: 0; font-family: ${FONT_MONO}; font-size: 36px; line-height: 44px; font-weight: 700; letter-spacing: 8px; ${text}">${escapeHtml(item.value)}</p>`,
         "</td></tr></table>",
       ].join("");
@@ -81,15 +85,18 @@ function block(item: Block): string {
         `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 16px; border-collapse: collapse">`,
         ...item.rows.map(
           (row) =>
-            `<tr><td class="pf-muted pf-rule" style="padding: 8px 12px 8px 0; border-bottom: 1px solid ${LIGHT.border}; font-family: ${FONT_SANS}; font-size: 14px; line-height: 20px; ${muted}; white-space: nowrap; vertical-align: top">${escapeHtml(row.label)}</td>` +
-            `<td class="pf-text pf-rule" style="padding: 8px 0; border-bottom: 1px solid ${LIGHT.border}; font-family: ${FONT_SANS}; font-size: 14px; line-height: 20px; font-weight: 600; ${text}">${escapeHtml(row.value)}</td></tr>`,
+            `<tr><td class="pf-muted pf-rule" style="padding: 8px 12px 8px 0; border-bottom: 1px solid ${LIGHT.border}; font-family: ${sans}; font-size: 14px; line-height: 20px; ${muted}; white-space: nowrap; vertical-align: top">${escapeHtml(row.label)}</td>` +
+            `<td class="pf-text pf-rule" style="padding: 8px 0; border-bottom: 1px solid ${LIGHT.border}; font-family: ${sans}; font-size: 14px; line-height: 20px; font-weight: 600; ${text}">${escapeHtml(row.value)}</td></tr>`,
         ),
         "</table>",
       ].join("");
     case "list":
       return [
-        `<ul class="pf-text" style="margin: 0 0 16px; padding: 0 0 0 20px; font-family: ${FONT_SANS}; font-size: 14px; line-height: 22px; ${text}">`,
-        ...item.items.map((entry) => `<li style="margin: 0 0 4px">${escapeHtml(entry)}</li>`),
+        `<ul class="pf-text" style="margin: 0 0 16px; padding: 0 0 0 20px; font-family: ${sans}; font-size: 14px; line-height: 22px; ${text}">`,
+        ...item.items.map(
+          (entry) =>
+            `<li style="margin: 0 0 4px">${typeof entry === "string" ? escapeHtml(entry) : inline(entry)}</li>`,
+        ),
         "</ul>",
       ].join("");
     case "divider":
@@ -127,9 +134,10 @@ function logo(): string {
 
 /** The full HTML document of an email. */
 export function renderEmail(layout: EmailLayout): string {
+  const sans = fontSans(layout.lang);
   return [
     "<!doctype html>",
-    '<html lang="en" dir="ltr">',
+    `<html lang="${escapeHtml(layout.lang ?? "en")}" dir="ltr">`,
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -146,12 +154,12 @@ export function renderEmail(layout: EmailLayout): string {
     '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width: 520px">',
     `<tr><td style="padding: 0 4px 20px">${logo()}</td></tr>`,
     `<tr><td class="pf-card" style="padding: 32px; background-color: ${LIGHT.card}; border: 1px solid ${LIGHT.border}; border-radius: 16px">`,
-    `<h1 class="pf-text" style="margin: 0 0 16px; font-family: ${FONT_SANS}; font-size: 22px; line-height: 30px; font-weight: 700; ${text}">${escapeHtml(layout.heading)}</h1>`,
-    ...layout.blocks.map(block),
+    `<h1 class="pf-text" style="margin: 0 0 16px; font-family: ${sans}; font-size: 22px; line-height: 30px; font-weight: 700; ${text}">${escapeHtml(layout.heading)}</h1>`,
+    ...layout.blocks.map((item) => block(item, sans)),
     "</td></tr>",
     `<tr><td style="padding: 20px 4px 0">`,
-    `<p class="pf-muted" style="margin: 0 0 8px; font-family: ${FONT_SANS}; font-size: 12px; line-height: 18px; ${muted}">${escapeHtml(layout.footer)}</p>`,
-    `<p class="pf-muted" style="margin: 0; font-family: ${FONT_SANS}; font-size: 12px; line-height: 18px; ${muted}">Portifact, <a href="https://portifact.com" class="pf-muted" style="${muted}; text-decoration: underline">portifact.com</a></p>`,
+    `<p class="pf-muted" style="margin: 0 0 8px; font-family: ${sans}; font-size: 12px; line-height: 18px; ${muted}">${escapeHtml(layout.footer)}</p>`,
+    `<p class="pf-muted" style="margin: 0; font-family: ${sans}; font-size: 12px; line-height: 18px; ${muted}">Portifact, <a href="https://portifact.com" class="pf-muted" style="${muted}; text-decoration: underline">portifact.com</a></p>`,
     "</td></tr>",
     "</table>",
     "</td></tr>",

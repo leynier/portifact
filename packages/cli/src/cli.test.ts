@@ -88,6 +88,17 @@ describe("portifact cli", () => {
     expect((await invoke("delete", "--help")).stdout).toContain("-y, --yes");
   });
 
+  it("lists tokens in the help and documents its subcommands and the revoke flag", async () => {
+    expect((await invoke("--help")).stdout).toMatch(/^ {2}tokens /m);
+    const tokens = await invoke("tokens", "--help");
+    for (const sub of ["list", "revoke"]) {
+      expect(tokens.stdout).toMatch(new RegExp(`^  ${sub} `, "m"));
+    }
+    expect(tokens.stdout).toContain("signs this device out too");
+    expect((await invoke("tokens", "revoke", "--help")).stdout).toContain("-y, --yes");
+    expect((await invoke("tokens", "revoke")).code).toBe(2);
+  });
+
   it("fails with the usage exit code when an argument is missing", async () => {
     for (const argv of [["publish"], ["info"], ["access", "set", "abcdefghij"]]) {
       const result = await invoke(...argv);

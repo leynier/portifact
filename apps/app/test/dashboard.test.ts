@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { env } from "cloudflare:workers";
+import { THEME_SCRIPT, THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { describe, expect, it } from "vitest";
 import { SESSION_SCOPES } from "../src/api/access.ts";
@@ -46,6 +47,18 @@ describe("dashboard pages", () => {
     expect(forged.status).toBe(302);
   });
 
+  it("passes a language asked for on the way in to the login page, and only a known one", async () => {
+    const h = createHarness();
+    const asked = await h.request("/?lang=es", { redirect: "manual" });
+    expect(asked.headers.get("location")).toBe(
+      `/login?${new URLSearchParams({ next: "/?lang=es", lang: "es" })}`,
+    );
+    const unknown = await h.request("/?lang=xx", { redirect: "manual" });
+    expect(unknown.headers.get("location")).toBe(
+      `/login?${new URLSearchParams({ next: "/?lang=xx" })}`,
+    );
+  });
+
   it("serves the dashboard to a signed-in user with the strict page headers", async () => {
     const h = createHarness();
     const cookie = await h.signIn("dashboard-page@example.test");
@@ -67,7 +80,10 @@ describe("dashboard pages", () => {
       expect(response.headers.get("x-frame-options")).toBe("DENY");
       const html = await response.text();
       expect(html).toContain('<div id="root"></div>');
-      expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/);
+      // The only inline code is the theme script, which the policy allows by its hash.
+      expect(html.replace(`<script>${THEME_SCRIPT}</script>`, "")).not.toMatch(
+        /<script(?![^>]*\bsrc=)[^>]*>/,
+      );
       const bundles = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
       expect(bundles.length).toBeGreaterThan(0);
       for (const bundle of bundles) {
@@ -159,7 +175,7 @@ describe("dashboard policy", () => {
     // Images stay as strict as the page policy; scripts only add Turnstile, and frames only
     // artifact origins (the review viewer) and Turnstile's challenge.
     expect(policy).toContain("default-src 'none'");
-    expect(policy).toContain(`script-src 'self' ${challenges};`);
+    expect(policy).toContain(`script-src 'self' ${challenges} ${THEME_SCRIPT_HASH};`);
     expect(policy).toContain("img-src 'self';");
     expect(policy).toContain("frame-ancestors 'none'");
     expect(policy).not.toContain("unsafe");

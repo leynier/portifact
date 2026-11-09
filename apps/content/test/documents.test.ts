@@ -3,6 +3,9 @@
 import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
+import { DIAGRAM_BROTLI } from "@portifact/render/diagrams-bundle";
+import { DIAGRAM_VERSION } from "@portifact/render/diagrams-version";
+import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH } from "@portifact/render/policy";
 import { commitPublish, preparePublish } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import { READ_COOKIE, seal } from "../src/cookies.ts";
@@ -87,8 +90,9 @@ async function renderedSha(id: string): Promise<string> {
 }
 
 const MARKDOWN = "# Release\n\n![Diagram](images/diagram.png)\n\n<script>alert(1)</script>\n";
-const DOCUMENT_POLICY =
-  "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
+/** The header policy of a rendered page: its meta's, with the diagram script at its exact URLs. */
+const documentPolicy = (id: string) =>
+  `default-src 'none'; img-src 'self' blob:; style-src 'unsafe-inline'; script-src ${DIAGRAM_LOADER_HASH} https://${id}.portifact.dev/__portifact/diagrams.js https://${id}.portifact.dev/__portifact/diagrams.${DIAGRAM_VERSION}.js; base-uri 'none'; form-action 'none'`;
 
 beforeEach(async () => {
   const listed = await env.ARTIFACTS.list();
@@ -110,6 +114,18 @@ beforeEach(async () => {
 describe("markdown delivery", () => {
   const files = { "notes/plan.md": MARKDOWN, "notes/images/diagram.png": "png-bytes" };
 
+  it("serves a page with diagrams with its loader, allowed by the meta and the header", async () => {
+    const source = "# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```\n";
+    const id = await publish({ type: "markdown", files: { "flow.md": source } });
+    const response = await get(id, "/");
+    const html = await response.text();
+    expect(html).toContain(`<script>${DIAGRAM_LOADER}</script>`);
+    expect(html).toContain(`script-src ${DIAGRAM_LOADER_HASH} 'strict-dynamic'`);
+    expect(response.headers.get("content-security-policy")).toBe(
+      `${documentPolicy(id)}; frame-ancestors 'self' https://app.portifact.com`,
+    );
+  });
+
   it("serves the rendered page at the root with the document policy", async () => {
     const id = await publish({ type: "markdown", files });
     const response = await get(id, "/");
@@ -121,7 +137,7 @@ describe("markdown delivery", () => {
     expect(html).not.toContain("<script>");
     expect(Object.fromEntries(response.headers)).toMatchObject({
       "content-type": "text/html; charset=utf-8",
-      "content-security-policy": `${DOCUMENT_POLICY}; frame-ancestors 'self' https://app.portifact.com`,
+      "content-security-policy": `${documentPolicy(id)}; frame-ancestors 'self' https://app.portifact.com`,
       "x-content-type-options": "nosniff",
       "x-robots-tag": "noindex",
       "cache-control": "no-cache",
@@ -265,5 +281,78 @@ describe("attachment", () => {
     expect(attachment(`plán "v2"'s (draft).md`)).toBe(
       `attachment; filename="pl_n _v2_'s (draft).md"; filename*=UTF-8''pl%C3%A1n%20%22v2%22%27s%20%28draft%29.md`,
     );
+  });
+});
+
+describe("diagram script", () => {
+  const HOST = "r7d2qm4xab.portifact.dev";
+  const FILE = `/__portifact/diagrams.${DIAGRAM_VERSION}.js`;
+  const STUB = 'globalThis["mermaid"] = {}; /* runner: pre.pf-mermaid */\n';
+  const get = (path: string, init: RequestInit = {}, charges: unknown[] = []) =>
+    handle(new Request(`https://${HOST}${path}`, init), env, NOW, (charge) => {
+      charges.push(charge);
+    });
+  const base64 = (bytes: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+
+  it("redirects the loader's stable path to the current build's file, for an hour", async () => {
+    const charges: unknown[] = [];
+    const response = await get("/__portifact/diagrams.js", {}, charges);
+    expect(response.status).toBe(302);
+    expect(Object.fromEntries(response.headers)).toMatchObject({
+      location: FILE,
+      "cache-control": "public, max-age=3600",
+      "cross-origin-resource-policy": "same-origin",
+    });
+    expect(charges).toEqual([]);
+  });
+
+  it("sends a build that is gone to the current one, without caching the redirect", async () => {
+    const response = await get("/__portifact/diagrams.fedcba9876543210.js");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(FILE);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("serves the file as immutable, precompressed with brotli, before any artifact lookup", async () => {
+    const charges: unknown[] = [];
+    const response = await get(
+      FILE,
+      { headers: { "Accept-Encoding": "gzip, deflate, br" } },
+      charges,
+    );
+    expect(response.status).toBe(200);
+    expect(Object.fromEntries(response.headers)).toMatchObject({
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": "public, max-age=31536000, immutable",
+      "content-encoding": "br",
+      vary: "Accept-Encoding, Sec-Fetch-Dest, Sec-Fetch-Mode, Sec-Fetch-Site",
+      "cross-origin-resource-policy": "same-origin",
+      "x-content-type-options": "nosniff",
+      "x-robots-tag": "noindex",
+    });
+    const body = await response.arrayBuffer();
+    expect(base64(body)).toBe(DIAGRAM_BROTLI);
+    expect(response.headers.get("content-length")).toBe(String(body.byteLength));
+    expect(charges).toEqual([]);
+  });
+
+  it("sends the plain script to a client without brotli, for the edge to compress", async () => {
+    for (const accept of ["gzip, br;q=0", "identity", undefined]) {
+      const response = await get(
+        FILE,
+        accept === undefined ? {} : { headers: { "Accept-Encoding": accept } },
+      );
+      expect(response.headers.has("content-encoding")).toBe(false);
+      expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(response.headers.get("content-length")).toBe(String(STUB.length));
+      expect(await response.text()).toBe(STUB);
+    }
+  });
+
+  it("answers HEAD without a body", async () => {
+    const head = await get(FILE, { method: "HEAD", headers: { "Accept-Encoding": "br" } });
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-encoding")).toBe("br");
+    expect(await head.text()).toBe("");
   });
 });

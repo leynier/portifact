@@ -167,6 +167,12 @@ describe("license metadata", () => {
     expect(declaredLicense({ license: "" })).toBe("UNKNOWN");
   });
 
+  it("uses a reviewed license only for the exact version reviewed, and only without a declared one", () => {
+    expect(declaredLicense({ name: "khroma", version: "2.1.0" })).toBe("MIT");
+    expect(declaredLicense({ name: "khroma", version: "2.1.1" })).toBe("UNKNOWN");
+    expect(declaredLicense({ name: "khroma", version: "2.1.0", license: "ISC" })).toBe("ISC");
+  });
+
   it("turns repository fields into browsable URLs", () => {
     expect(repositoryUrl({ repository: "o/r" })).toBe("https://github.com/o/r");
     expect(repositoryUrl({ repository: "github:o/r" })).toBe("https://github.com/o/r");
@@ -297,7 +303,8 @@ describe("committed notices", () => {
     for (const row of [
       "| better-auth | MIT | Workers |",
       "| react | MIT | Web pages |",
-      "| commander | MIT | CLI |",
+      // d3-dsv (a Mermaid dependency in the content Worker) also depends on commander.
+      "| commander | MIT | Workers, CLI |",
     ]) {
       expect(markdown).toContain(row);
     }

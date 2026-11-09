@@ -178,6 +178,23 @@ test("on a laptop screen the list fits without scrolling sideways, actions inclu
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
+test("on a very wide screen the artifact list reaches the right edge, with no cap on the page", async ({
+  page,
+  context,
+}) => {
+  const owner = await createUser("Ultrawide");
+  await publish({ ownerId: owner.userId, name: "Ultrawide notes", files: PAGE });
+  await signIn(context, owner);
+  await page.setViewportSize({ width: 2560, height: 1000 });
+  await page.goto(`${APP_ORIGIN}/`);
+  await expect(page.getByRole("row").filter({ hasText: "Ultrawide notes" })).toBeVisible();
+  // Only the page's own padding separates the table from the window's right edge.
+  const table = await page.getByRole("table").boundingBox();
+  const right = (table?.x ?? 0) + (table?.width ?? 0);
+  expect(2560 - right).toBeLessThanOrEqual(48);
+  expect(await scrollsSideways(page)).toBe(false);
+});
+
 test("wide screens use the room: the page starts at the sidebar and the section guide sits at the end", async ({
   page,
   context,
@@ -216,6 +233,10 @@ test("wide screens use the room: the page starts at the sidebar and the section 
   await page.keyboard.press("Home");
   await expect(nav.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "true");
   await page.keyboard.press("End");
+  // WebKit's End does not always reach the bottom when a section has focus; a wheel scroll over
+  // the content finishes the trip the way a person would.
+  await page.mouse.move(900, 450);
+  await page.mouse.wheel(0, 20_000);
   await expect(nav.getByRole("link", { name: "Danger zone" })).toHaveAttribute(
     "aria-current",
     "true",

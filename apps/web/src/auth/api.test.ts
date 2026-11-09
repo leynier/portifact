@@ -1,4 +1,4 @@
-import { OAuthScope } from "@portifact/contracts";
+import { CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { browserApi, currentUserEmail, field } from "./api.ts";
 import { messages } from "./messages.ts";
@@ -20,6 +20,22 @@ describe("browser API", () => {
     });
     expect(await api.get("/get-session")).toEqual({ status: 201, body: { ok: true } });
     expect(seen[1]?.init?.method).toBe("GET");
+  });
+
+  it("sends the page's language so the Worker writes its emails in it", async () => {
+    const headers: Headers[] = [];
+    const record = async (_url: string, init?: RequestInit) => {
+      headers.push(new Headers(init?.headers));
+      return Response.json({ success: true });
+    };
+    const spanish = browserApi(record, { locale: "es" });
+    await spanish.post("/email-otp/send-verification-otp", { email: "a@example.test" });
+    await spanish.get("/get-session");
+    expect(headers.map((sent) => sent.get("accept-language"))).toEqual(["es", "es"]);
+    expect(headers[0]?.get("content-type")).toBe("application/json");
+
+    await browserApi(record).get("/get-session");
+    expect(headers[2]?.has("accept-language")).toBe(false);
   });
 
   it("returns a null body when the response is not JSON", async () => {
@@ -54,8 +70,8 @@ describe("browser API", () => {
 });
 
 describe("scope descriptions", () => {
-  it("describes every product scope and offline access in plain language", () => {
-    expect(DESCRIBED_SCOPES).toEqual([...OAuthScope.options, "offline_access"]);
+  it("describes every product scope, the CLI's credentials scope and offline access in plain language", () => {
+    expect(DESCRIBED_SCOPES).toEqual([...OAuthScope.options, CREDENTIALS_SCOPE, "offline_access"]);
     for (const line of describeScopes(DESCRIBED_SCOPES.join(" "))) {
       expect(line).not.toMatch(/[:_]/);
       expect(line).not.toMatch(/\.$/);

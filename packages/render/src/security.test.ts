@@ -2,6 +2,7 @@
 // carry markup the author wrote as raw HTML (docs/security.md, "Untrusted content").
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { TOKEN_CLASSES } from "./highlight.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { attr, byTag, type Element, elements, fragment, text } from "./test-html.ts";
 import { classifyUrl } from "./urls.ts";
@@ -26,9 +27,10 @@ const ALLOWED: Record<string, readonly string[]> = {
   li: ["id", "class"],
   ol: ["start", "class"],
   p: [],
-  pre: [],
+  pre: ["class", "data-pf-diagram", "data-pf-diagram-source"],
   s: [],
   section: ["class", "aria-label"],
+  span: ["class"],
   strong: [],
   sup: ["class"],
   table: [],
@@ -38,6 +40,13 @@ const ALLOWED: Record<string, readonly string[]> = {
   thead: [],
   tr: [],
   ul: ["class"],
+};
+
+/** Classes the renderer writes on code: highlight tokens, fence languages and Mermaid blocks. */
+const CLASS_VALUES: Record<string, (value: string) => boolean> = {
+  span: (value) => TOKEN_CLASSES.includes(value),
+  pre: (value) => value === "pf-mermaid",
+  code: (value) => /^language-\S+$/.test(value),
 };
 
 /** Violations of the output allowlist and URL policy, as readable strings. */
@@ -58,6 +67,11 @@ function elementViolations(element: Element, remoteImages: boolean): string[] {
       found.push(`${element.tagName}[${name}]`);
     }
     if (name === "data-pf-block" && !/^b\d+$/.test(value)) found.push(`block id ${value}`);
+  }
+  const classes = attr(element, "class");
+  const allowedClass = CLASS_VALUES[element.tagName];
+  if (classes !== undefined && allowedClass && !allowedClass(classes)) {
+    found.push(`${element.tagName}.${classes}`);
   }
   const href = attr(element, "href");
   if (href !== undefined && !href.startsWith("#") && classifyUrl(href) === undefined) {
@@ -112,6 +126,15 @@ const VECTORS = [
   "x[^<script>]\n\n[^<script>]: <img src=x onerror=alert(1)>",
   "www.example.com/<script>alert(1)</script>",
   'https://example.com/"onmouseover="alert(1)',
+  "```html\n<script>alert(1)</script><img src=x onerror=alert(1)>\n```",
+  "```js\n</code></pre><script>alert(1)</script>\n```",
+  '```ts\nconst s = "<span class=\\"x\\" onclick=alert(1)>";\n```',
+  "```xml\n<![CDATA[<script>alert(1)</script>]]><!-- <svg onload=alert(1)> -->\n```",
+  "```markdown\n[x](javascript:alert(1)) <b>y</b>\n```",
+  '```mermaid\nflowchart LR\n  A[<img src=x onerror=alert(1)>] --> B\n  click A href "javascript:alert(1)"\n```',
+  '```mermaid\n%%{init: {"securityLevel": "loose", "htmlLabels": true}}%%\nflowchart LR\n  A["<script>alert(1)</script>"]\n```',
+  "```mermaid\n</code></pre><script>alert(1)</script>\n```",
+  '```mermaid" onmouseover="alert(1)\nflowchart LR\n```',
 ];
 
 describe("hostile Markdown", () => {
@@ -213,6 +236,11 @@ describe("hostile Markdown", () => {
       "1. ",
       "> ",
       "```",
+      "```ts\n",
+      "```html\n",
+      "```mermaid\n",
+      "</span>",
+      '<span class="hljs-keyword">',
       "a",
       "on",
       "\u0000",
@@ -254,6 +282,14 @@ describe("hostile Markdown size and shape", () => {
     ["deep lists", Array.from({ length: 1_000 }, (_, i) => `${" ".repeat(i * 2)}- a`).join("\n")],
     ["backticks", fill("`a")],
     ["entities", fill("&amp;&#x1F600;&#0;&bogus;")],
+    ["highlighted fences", fill("```ts\nconst a = `${b}` /* c */ // d\n```\n\n")],
+    [
+      "one long fence per language",
+      ["html", "css", "ts", "py", "sh", "sql", "yaml", "rust", "diff"]
+        .map((l) => `\`\`\`${l}\n${fill('<a b=\'c\'>{("d\\"e")}/*f*/ ', 99_000)}\n\`\`\``)
+        .join("\n\n"),
+    ],
+    ["Mermaid blocks", fill("```mermaid\nflowchart LR\n  A --> B\n```\n\n")],
   ])(
     "renders %s quickly and without overflowing the stack",
     (_name, source) => {

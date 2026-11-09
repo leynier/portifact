@@ -4,7 +4,11 @@ import {
   AccountSettingsUpdate,
   BrowserSession,
   ConnectedApp,
+  CREDENTIALS_SCOPE,
   DisconnectResult,
+  OAuthScope,
+  TokenGrantList,
+  TokenRevokeResult,
 } from "./index.ts";
 
 const AT = "2026-11-08T12:00:00.000Z";
@@ -44,6 +48,34 @@ describe("account contracts", () => {
     expect(ConnectedApp.safeParse({ ...app, resources: ["userinfo"] }).success).toBe(false);
   });
 
+  it("lists the CLI's tokens as connected apps marked current, without secrets", () => {
+    const grant = {
+      clientId: "portifact-cli",
+      name: "Portifact CLI",
+      firstParty: true,
+      current: true,
+      resources: ["api"],
+      scopes: ["artifacts:read", CREDENTIALS_SCOPE],
+      approvedAt: AT,
+      lastIssuedAt: AT,
+      expiresAt: AT,
+    };
+    expect(TokenGrantList.parse({ items: [{ ...grant, refreshToken: "x" }] })).toEqual({
+      items: [grant],
+    });
+    expect(TokenGrantList.safeParse({ items: [{ ...grant, current: undefined }] }).success).toBe(
+      false,
+    );
+    expect(
+      TokenRevokeResult.safeParse({ clientId: "c", revoked: false, current: false }).success,
+    ).toBe(false);
+  });
+
+  it("keeps the credentials scope apart from the product scopes", () => {
+    expect(CREDENTIALS_SCOPE).toBe("credentials:manage");
+    expect(OAuthScope.safeParse(CREDENTIALS_SCOPE).success).toBe(false);
+  });
+
   it("confirms a disconnection only as done", () => {
     expect(DisconnectResult.safeParse({ clientId: "c", disconnected: false }).success).toBe(false);
   });
@@ -54,8 +86,16 @@ describe("account contracts", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      expiryNotices: true,
+      locale: null,
     };
     expect(AccountSettings.parse(settings)).toEqual(settings);
+    expect(AccountSettings.safeParse({ ...settings, expiryNotices: undefined }).success).toBe(
+      false,
+    );
+    expect(AccountSettingsUpdate.parse({ expiryNotices: false })).toEqual({
+      expiryNotices: false,
+    });
     expect(AccountSettings.safeParse({ ...settings, defaultAnnotations: "locked" }).success).toBe(
       false,
     );
@@ -65,5 +105,23 @@ describe("account contracts", () => {
     expect(AccountSettingsUpdate.safeParse({ defaultBar: true, ownerId: "u_1" }).success).toBe(
       false,
     );
+  });
+
+  it("takes a supported language or null as the account's language, and nothing else", () => {
+    const settings = {
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "off",
+      defaultCommentVisibility: "owner",
+      defaultBar: true,
+      expiryNotices: true,
+      locale: "es",
+    };
+    expect(AccountSettings.parse(settings)).toEqual(settings);
+    expect(AccountSettings.safeParse({ ...settings, locale: undefined }).success).toBe(false);
+    expect(AccountSettings.safeParse({ ...settings, locale: "es-MX" }).success).toBe(false);
+    expect(AccountSettingsUpdate.parse({ locale: "es" })).toEqual({ locale: "es" });
+    expect(AccountSettingsUpdate.parse({ locale: null })).toEqual({ locale: null });
+    expect(AccountSettingsUpdate.safeParse({ locale: "xx" }).success).toBe(false);
+    expect(AccountSettingsUpdate.safeParse({ locale: "ES" }).success).toBe(false);
   });
 });

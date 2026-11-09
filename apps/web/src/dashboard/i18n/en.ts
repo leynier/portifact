@@ -21,6 +21,10 @@ export const en = {
   "shell.signOutFailed": "Sign out did not finish. Try again.",
   "shell.publishLink": "Publish",
   "shell.dismiss": "Dismiss message",
+  "theme.legend": "Theme",
+  "theme.system": "System",
+  "theme.light": "Light",
+  "theme.dark": "Dark",
   "copy.done": "Copied to the clipboard",
   "copy.failed": "The browser blocked the clipboard. Select the text and copy it by hand.",
   "copy.copied": "Copied",
@@ -30,6 +34,16 @@ export const en = {
     "Creating new artifacts is paused for now. Updates to your artifacts still work, and your artifacts stay online.",
   "shell.capacity.publishing":
     "New uploads are paused for now, and new comments may be too. Your artifacts stay online, and you can still read, export, delete, renew and reduce access.",
+
+  "language.title": "Language",
+  "language.hint":
+    "The language of the dashboard, the sign-in pages and the emails Portifact sends you.",
+  "language.label": "Language",
+  "language.description": "Saved in your account, so your other devices use it too.",
+  "language.changed": "The dashboard is now in English.",
+  "language.loadFailed": "The language could not be loaded. Check your connection and try again.",
+  "language.saveFailed":
+    "The language changed in this browser, but your account could not save it. Try again later.",
 
   "list.title": "Artifacts",
   "list.description": "Everything you published. The list refreshes while this tab is open.",
@@ -363,7 +377,11 @@ export const en = {
   "account.apps.disconnected": "{name} disconnected.",
   "settings.title": "Settings",
   "settings.sectionsNav": "Settings sections",
-  "settings.description": "How new artifacts start, your data, and deleting your account.",
+  "settings.description":
+    "Your language, how Portifact looks, how new artifacts start, the emails you get, your data, and deleting your account.",
+  "settings.appearance.title": "Appearance",
+  "settings.appearance.hint":
+    "How Portifact looks in this browser. System follows your device's setting. Artifacts keep the look their creators gave them.",
   "settings.defaults.title": "Defaults for new artifacts",
   "settings.defaults.hint":
     "Every artifact you create from now on starts like this, whether you publish from the dashboard, the CLI or an agent. Artifacts you already have keep their own settings; change those on each artifact's page.",
@@ -382,6 +400,16 @@ export const en = {
   "settings.defaults.saved": "Defaults saved. New artifacts start this way.",
   "settings.defaults.unchanged": "Nothing to save: your defaults are already set this way.",
   "settings.defaults.failed": "Your defaults were not saved",
+  "settings.notices.title": "Email notices",
+  "settings.notices.hint":
+    "Artifacts stop being served 30 days after you last publish or renew them. Portifact can remind you a few days before.",
+  "settings.notices.expiry.label": "Email me before my artifacts expire",
+  "settings.notices.expiry.hint":
+    "At most one email a day, listing every artifact that expires within 3 days, with a link to renew each one.",
+  "settings.notices.save": "Save email notices",
+  "settings.notices.saved": "Email notices saved.",
+  "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
+  "settings.notices.failed": "Your email notices were not saved",
   "settings.danger.title": "Danger zone",
   "settings.danger.hint": "These actions cannot be undone.",
   "account.data.title": "Your data",
@@ -483,6 +511,7 @@ export const en = {
   "scope.annotations:read": "Read comments on your artifacts",
   "scope.annotations:write": "Write and reply to comments as you",
   "scope.annotations:moderate": "Resolve, hide and delete comments on your artifacts",
+  "scope.credentials:manage": "See the apps connected to your account and disconnect them",
   "scope.offline_access": "Stay connected until you disconnect it",
   "scope.unknown": "Use the permission {name}",
 
@@ -937,3 +966,10 @@ export const en = {
 } as const;
 
 export type MessageId = keyof typeof en;
+
+/**
+ * A translation of the dashboard: every message ID, and nothing else. A catalog written as
+ * `export const xx = { ... } satisfies Catalog` fails the typecheck when a key is missing or
+ * unknown.
+ */
+export type Catalog = { readonly [id in MessageId]: string };

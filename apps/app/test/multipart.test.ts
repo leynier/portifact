@@ -5,6 +5,7 @@ import { UPLOAD_URL_TTL_SECONDS } from "../src/api/presign.ts";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
 import { approveDevice, pollDeviceToken, requestDeviceCode } from "./flows.ts";
 import { createHarness, type Harness } from "./harness.ts";
+import { callTool, connect, mcpToken } from "./mcp-helpers.ts";
 
 const MiB = 1024 * 1024;
 const SIZE = 12 * MiB;
@@ -204,5 +205,76 @@ describe("multipart uploads through the API", () => {
     const closed = await c.call(path, json({ sha256: large.sha256, partNumber: 1, etag: "e" }));
     expect(closed.status).toBe(409);
     expect((await closed.json<{ error: { code: string } }>()).error.code).toBe("upload_incomplete");
+  });
+
+  it("runs the same multipart upload through the MCP tools, with parts reported at commit", async () => {
+    const h = createHarness({ multipart: MULTIPART });
+    const email = "multipart-mcp@example.test";
+    const c = await client(h, email);
+    const mcp = await connect(h, await mcpToken(h, email));
+    const data = bytes(SIZE);
+    const files = [
+      {
+        path: "index.html",
+        sha256: await sha256(PAGE),
+        size: PAGE.length,
+        contentType: "text/html",
+      },
+      {
+        path: "data.bin",
+        sha256: await sha256(data),
+        size: data.length,
+        contentType: "application/octet-stream",
+      },
+    ];
+    const args = { type: "site", name: "Large", entrypoint: "index.html", files };
+    const tool = (name: string, input: Record<string, unknown>) => callTool(mcp, name, input);
+
+    // Without multipart the tool gives one PUT per object, like the API.
+    const single = await tool("prepare_upload", { ...args, idempotencyKey: "mcp-single-001" });
+    const singleBody = PreparedPublish.parse(single.structuredContent);
+    expect(singleBody.uploads.map((upload) => upload.method)).toEqual(["PUT", "PUT"]);
+    expect(
+      (await c.call(`/api/v1/publishes/${singleBody.uploadId}`, { method: "DELETE" })).status,
+    ).toBe(204);
+
+    const prepared = await tool("prepare_upload", {
+      ...args,
+      multipart: true,
+      idempotencyKey: "mcp-multipart-001",
+    });
+    expect(prepared.content[0]?.text).toContain("ETag");
+    const body = PreparedPublish.parse(prepared.structuredContent);
+    const large = body.uploads.find((upload) => upload.method === "MULTIPART");
+    if (large?.method !== "MULTIPART") throw new Error("no multipart target");
+    expect(large.parts.map((part) => part.partNumber)).toEqual([1, 2, 3]);
+    await env.ARTIFACTS.put(`objects/${c.userId}/${files[0]?.sha256}`, PAGE);
+
+    const sent = [];
+    for (const part of large.parts) {
+      const stored = await putPart(part.url, data, part.offset, part.size);
+      sent.push({ sha256: large.sha256, partNumber: part.partNumber, etag: stored.etag });
+    }
+    // A part of another object is refused before the commit, like the parts route refuses it.
+    const wrong = await tool("commit_upload", {
+      uploadId: body.uploadId,
+      parts: [{ ...sent[0], sha256: files[0]?.sha256 }],
+    });
+    expect(wrong.isError).toBe(true);
+    expect(wrong.structuredContent).toMatchObject({ error: { code: "invalid_input" } });
+
+    // The refused commit reported nothing: status still signs every part, until commit.
+    const status = PreparedPublish.parse(
+      (await tool("get_upload_status", { uploadId: body.uploadId })).structuredContent,
+    );
+    const pending = status.uploads.find((upload) => upload.method === "MULTIPART");
+    expect(pending).toMatchObject({ doneParts: [] });
+    const committed = await tool("commit_upload", { uploadId: body.uploadId, parts: sent });
+    expect(committed.isError).toBeUndefined();
+    expect(committed.structuredContent).toMatchObject({
+      artifactId: body.artifactId,
+      versionNumber: 1,
+    });
+    expect((await env.ARTIFACTS.head(`objects/${c.userId}/${large.sha256}`))?.size).toBe(SIZE);
   });
 });

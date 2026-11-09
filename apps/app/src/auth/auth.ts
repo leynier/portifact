@@ -12,9 +12,10 @@ import {
   type AuthUrls,
   authUrls,
   MCP_BASELINE_SCOPES,
+  REGISTRATION_SCOPES,
 } from "./config.ts";
 import type { AuthDeps } from "./deps.ts";
-import { deliverSignInCode } from "./email.ts";
+import { deliverSignInCode, emailLocale } from "./email.ts";
 import { humanHooks } from "./human.ts";
 import { inProcessIntrospection } from "./introspection.ts";
 import { termsHooks } from "./terms.ts";
@@ -33,6 +34,9 @@ export function createAuth(env: Env, deps: AuthDeps) {
     loginPage: "/login",
     consentPage: "/consent",
     scopes: [...ALL_SCOPES],
+    // Metadata advertises only what a client can register for, so an MCP client that asks for
+    // every advertised scope never asks for `credentials:manage`, which only the CLI holds.
+    advertisedMetadata: { scopes_supported: [...REGISTRATION_SCOPES] },
     resources: [
       { identifier: urls.apiResource, name: "Portifact API" },
       { identifier: urls.mcpResource, name: "Portifact MCP" },
@@ -47,7 +51,7 @@ export function createAuth(env: Env, deps: AuthDeps) {
     allowDynamicClientRegistration: true,
     allowUnauthenticatedClientRegistration: true,
     clientRegistrationDefaultScopes: [...MCP_BASELINE_SCOPES],
-    clientRegistrationAllowedScopes: [...ALL_SCOPES],
+    clientRegistrationAllowedScopes: [...REGISTRATION_SCOPES],
     clientRegistrationRequirePKCE: true,
     // MCP clients that omit application_type but use loopback callbacks register as native
     // clients; web clients keep the https-only redirect policy.
@@ -156,11 +160,12 @@ export function createAuth(env: Env, deps: AuthDeps) {
         expiresIn: OTP_LIMITS.codeTtlSeconds,
         allowedAttempts: OTP_LIMITS.allowedAttempts,
         storeOTP: "hashed",
-        sendVerificationOTP: async ({ email, otp }) => {
+        sendVerificationOTP: async ({ email, otp }, context) => {
           await deliverSignInCode(createDb(env.DB), deps.email, {
             email,
             code: otp,
             now: Date.now,
+            locale: emailLocale(context?.request?.headers ?? context?.headers),
           });
         },
       }),

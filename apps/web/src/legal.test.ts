@@ -18,7 +18,7 @@ const EFFECTIVE = new Date(`${TERMS_VERSION}T00:00:00Z`).toLocaleDateString("en-
 });
 
 function legalLinks(html: string): string[] {
-  const nav = /<nav aria-label="Legal"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[1] ?? "";
+  const nav = /<nav\b[^>]*\baria-label="Legal"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[1] ?? "";
   return [...nav.matchAll(/href="([^"]+)"/g)].map((match) => match[1] ?? "");
 }
 
@@ -33,7 +33,7 @@ describe("legal pages", () => {
         expect(html).toContain('<main id="main"');
         expect(html.match(/<h1\b/g)).toHaveLength(1);
         expect(html).toContain(`>${title}</h1>`);
-        expect(html).toContain(`<title>${title}: Portifact</title>`);
+        expect(html).toMatch(new RegExp(`<title[^>]*>${title}: Portifact</title>`));
         expect(html).toContain(`<link rel="canonical" href="https://portifact.com/${slug}" />`);
         for (const img of html.match(/<img\b[^>]*>/g) ?? []) expect(img).toMatch(/\balt="[^"]+"/);
       });

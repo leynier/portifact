@@ -1,5 +1,6 @@
 // Markdown to safe HTML: CommonMark plus the GFM extensions (tables, strikethrough, autolinks,
-// task lists and footnotes). Raw HTML is never interpreted: it is shown as literal text.
+// task lists and footnotes), highlighted code and Mermaid blocks. Raw HTML is never interpreted:
+// it is shown as literal text.
 /// <reference path="./markdown-it-footnote.d.ts" />
 import GithubSlugger, { slug } from "github-slugger";
 import MarkdownIt, {
@@ -9,6 +10,7 @@ import MarkdownIt, {
   type Token,
 } from "markdown-it";
 import footnotes from "markdown-it-footnote";
+import { type HighlightBudget, highlightBudget, highlightCode } from "./highlight.ts";
 import { assertSourceSize } from "./source.ts";
 import { classifyUrl } from "./urls.ts";
 
@@ -18,11 +20,17 @@ export interface RenderLabels {
   footnotes: string;
   /** Accessible name of the link from footnote `n` back to where it is referenced. */
   backToReference: (n: number) => string;
+  /** Text alternative of a drawn diagram that has no title of its own. */
+  diagram: string;
+  /** Name of the control that shows or hides the source under a drawn diagram. */
+  diagramSource: string;
 }
 
 export const DEFAULT_LABELS: RenderLabels = {
   footnotes: "Footnotes",
   backToReference: (n) => `Back to reference ${n}`,
+  diagram: "Diagram",
+  diagramSource: "Diagram source",
 };
 
 export interface MarkdownOptions {
@@ -60,6 +68,8 @@ export interface RenderedMarkdown {
   /** Every element carrying `data-pf-block`, in document order. */
   blocks: SourceBlock[];
   headings: Heading[];
+  /** How many Mermaid blocks the document has; each is drawn by the diagram script. */
+  diagrams: number;
 }
 
 interface RenderEnv {
@@ -68,6 +78,8 @@ interface RenderEnv {
   labels: RenderLabels;
   blocks: SourceBlock[];
   headings: Heading[];
+  diagrams: number;
+  highlight: HighlightBudget;
 }
 
 /** Opening tokens that become anchorable blocks. Hidden paragraphs (tight lists) are skipped. */
@@ -116,6 +128,19 @@ function createParser(): MarkdownItInstance {
   md.core.ruler.push("portifact", annotate);
 
   const rules = md.renderer.rules;
+  const fence = rules.fence as NonNullable<typeof rules.fence>;
+  rules.fence = (tokens, idx, options, env, self) => {
+    const token = tokens[idx] as Token;
+    const state = renderEnv(env);
+    const language = fenceLanguage(md, token.info);
+    if (language.toLowerCase() === "mermaid") {
+      state.diagrams += 1;
+      return diagramBlock(md, token, state.labels, self.renderAttrs(token));
+    }
+    const highlighted = highlightCode(token.content, language, state.highlight);
+    if (highlighted === undefined) return fence(tokens, idx, options, env, self);
+    return fence(tokens, idx, { ...options, highlight: () => highlighted }, env, self);
+  };
   rules.table_open = (tokens, idx, options, _env, self) =>
     `<div class="pf-table" tabindex="0">\n${self.renderToken(tokens, idx, options)}`;
   rules.table_close = (tokens, idx, options, _env, self) =>
@@ -143,6 +168,27 @@ function createParser(): MarkdownItInstance {
     return ` <a href="#fnref:${refId}" class="footnote-backref" aria-label="${label}">↩︎</a>`;
   };
   return md;
+}
+
+/** A fence's language: the first word of its info string, as markdown-it reads it. */
+function fenceLanguage(md: MarkdownItInstance, info: string): string {
+  return md.utils.unescapeAll(info).trim().split(/\s+/)[0] ?? "";
+}
+
+/**
+ * A Mermaid block: the source as code, which is what readers get when scripts do not run (the
+ * editor's preview, a blocked or failed script). The diagram script draws the diagram above it
+ * and folds the source behind a control; the labels it needs travel as data attributes. The
+ * block id stays on the `code` element, as for any fence.
+ */
+function diagramBlock(
+  md: MarkdownItInstance,
+  token: Token,
+  labels: RenderLabels,
+  attrs: string,
+): string {
+  const escapeHtml = md.utils.escapeHtml;
+  return `<pre class="pf-mermaid" data-pf-diagram="${escapeHtml(labels.diagram)}" data-pf-diagram-source="${escapeHtml(labels.diagramSource)}"><code${attrs} class="language-mermaid">${escapeHtml(token.content)}</code></pre>\n`;
 }
 
 function renderEnv(env: Env | undefined): RenderEnv {
@@ -307,7 +353,9 @@ export function renderMarkdown(source: string, options: MarkdownOptions = {}): R
     labels: options.labels ?? DEFAULT_LABELS,
     blocks: [],
     headings: [],
+    diagrams: 0,
+    highlight: highlightBudget(),
   };
   const html = parser.render(source, env as unknown as Env);
-  return { html, blocks: env.blocks, headings: env.headings };
+  return { html, blocks: env.blocks, headings: env.headings, diagrams: env.diagrams };
 }

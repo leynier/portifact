@@ -27,6 +27,22 @@ export const SUPPRESSION_TTL_MS: Record<EmailSuppressionReason, number> = {
   provider: 7 * DAY_MS,
 };
 
+/**
+ * Emails of the cycle kept for sign-in codes once expiry notices stop. Notices are a courtesy;
+ * signing in is not, so notices never use the last of the sign-in budget.
+ */
+export const NOTICE_EMAIL_RESERVE = 5_000;
+
+/** Expiry notices Portifact sends in one cycle at most, counting every email sent before them. */
+export const NOTICE_EMAILS_PER_CYCLE = SIGN_IN_EMAILS_PER_CYCLE - NOTICE_EMAIL_RESERVE;
+
+/** Whether the cycle still has room for an expiry notice. */
+export function checkNoticeCapacity(sentThisCycle: number): Result<true> {
+  return sentThisCycle >= NOTICE_EMAILS_PER_CYCLE
+    ? fail("capacity_unavailable", "Expiry notices are paused until the next cycle.")
+    : ok(true);
+}
+
 /** Whether the cycle still has room for another sign-in code. */
 export function checkEmailCapacity(sentThisCycle: number): Result<true> {
   return sentThisCycle >= SIGN_IN_EMAILS_PER_CYCLE

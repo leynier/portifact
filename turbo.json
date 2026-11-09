@@ -36,14 +36,17 @@
       "dependsOn": ["^typecheck", "@portifact/web#build"]
     },
     "@portifact/content#test": {
-      "dependsOn": ["^typecheck", "@portifact/bridge#build"],
+      "dependsOn": ["^typecheck", "@portifact/bridge#build", "@portifact/render#build"],
       "outputs": ["coverage/**"]
     },
     "@portifact/content#typecheck": {
-      "dependsOn": ["^typecheck", "@portifact/bridge#build"]
+      "dependsOn": ["^typecheck", "@portifact/bridge#build", "@portifact/render#build"]
+    },
+    "@portifact/e2e#typecheck": {
+      "dependsOn": ["^typecheck", "@portifact/bridge#build", "@portifact/render#build"]
     },
     "@portifact/content#dev": {
-      "dependsOn": ["@portifact/bridge#build"],
+      "dependsOn": ["@portifact/bridge#build", "@portifact/render#build"],
       "cache": false,
       "persistent": true
     }

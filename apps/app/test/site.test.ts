@@ -1,5 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { TERMS_VERSION } from "@portifact/contracts";
+import { LOCALE_CODES } from "@portifact/contracts/locales";
+import { THEME_SCRIPT, THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { describe, expect, it } from "vitest";
 import { PAGE_CSP } from "../src/app-host.ts";
 
@@ -47,6 +49,21 @@ describe("portifact.com", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/html");
     expect(await response.text()).toContain("Share what your agent built");
+  });
+
+  it("applies the stored theme on every site page with the one inline script its policy allows", async () => {
+    const pages = ["/", "/terms", "/privacy", "/acceptable-use", "/mcp-compatibility"];
+    // The pages prerendered in Spanish carry the same script, byte for byte, so the hash holds.
+    for (const path of [...pages, ...pages.map((page) => `/es${page}`)]) {
+      const response = await get(`https://portifact.com${path}`);
+      const html = await response.text();
+      const head = html.slice(0, html.indexOf("</head>"));
+      expect(head, path).toContain(`<script>${THEME_SCRIPT}</script>`);
+      expect(html.match(/<script>/g), path).toHaveLength(1);
+      // The landing's policy comes from apps/web/public/_headers, the others from the Worker.
+      const policy = response.headers.get("content-security-policy");
+      if (policy !== null) expect(policy, path).toContain(THEME_SCRIPT_HASH);
+    }
   });
 
   it("serves the legal pages with the strict page headers", async () => {
@@ -112,6 +129,108 @@ describe("portifact.com", () => {
     expect(html).toContain('href="/mcp-compatibility"');
     expect(html).toContain('href="https://app.portifact.com/"');
     expect((await get("https://portifact.com/mcp-compatibility")).status).toBe(200);
+  });
+
+  it("serves the landing in Spanish at /es/ with the same headers as the English one", async () => {
+    const english = await get("https://portifact.com/");
+    const spanish = await get("https://portifact.com/es/");
+    expect(spanish.status).toBe(200);
+    expect(spanish.headers.get("content-type")).toContain("text/html");
+    for (const header of [
+      "content-security-policy",
+      "x-frame-options",
+      "x-content-type-options",
+      "referrer-policy",
+      "strict-transport-security",
+    ]) {
+      expect(spanish.headers.get(header), header).toBe(english.headers.get(header));
+    }
+    const html = await spanish.text();
+    expect(html).toMatch(/<html lang="es"[\s>]/);
+    expect(html).toContain('<link rel="canonical" href="https://portifact.com/es/">');
+    expect(html).toContain('<link rel="alternate" hreflang="en" href="https://portifact.com/">');
+    expect(html).toContain('<link rel="alternate" hreflang="es" href="https://portifact.com/es/">');
+    expect(html).toContain('href="/es/terms"');
+    expect(html).toContain('href="https://app.portifact.com/?lang=es"');
+    expect(html).not.toContain("data-i18n");
+    for (const [, url] of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
+      expect((await get(`https://portifact.com${url}`)).status, url).toBe(200);
+    }
+    // The English page names its Spanish alternate and never sends anyone there by itself.
+    const englishHtml = await english.text();
+    expect(englishHtml).toContain(
+      '<link rel="alternate" hreflang="es" href="https://portifact.com/es/">',
+    );
+    expect(english.status).toBe(200);
+  });
+
+  it("sends /es to /es/, where the Spanish landing lives", async () => {
+    const response = await get("https://portifact.com/es");
+    expect([301, 307, 308]).toContain(response.status);
+    expect(new URL(response.headers.get("location") ?? "", "https://portifact.com").pathname).toBe(
+      "/es/",
+    );
+  });
+
+  it("serves the Spanish documents with the strict page headers, legal texts kept in English", async () => {
+    for (const path of [
+      "/es/terms",
+      "/es/privacy",
+      "/es/acceptable-use",
+      "/es/mcp-compatibility",
+    ]) {
+      const response = await get(`https://portifact.com${path}`);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("content-security-policy"), path).toBe(PAGE_CSP);
+      expect(response.headers.get("cache-control"), path).toBe("no-cache");
+      expect(response.headers.get("x-frame-options"), path).toBe("DENY");
+      const html = await response.text();
+      expect(html, path).toMatch(/<html lang="es"[\s>]/);
+    }
+    const terms = await (await get("https://portifact.com/es/terms")).text();
+    expect(terms).toMatch(/<main[^>]* lang="en"/);
+    expect(terms).toContain(">Terms of Service</h1>");
+    expect(terms).toContain("data-legal-note");
+    expect(terms).toContain('<link rel="canonical" href="https://portifact.com/terms">');
+    expect(terms).toContain(`<time datetime="${TERMS_VERSION}">`);
+  });
+
+  it.each(LOCALE_CODES.filter((code) => code !== "en"))(
+    "serves every page in %s under its lowercase prefix, with its language and alternates",
+    async (code) => {
+      const prefix = `/${code.toLowerCase()}`;
+      const english = await get("https://portifact.com/");
+      const landing = await get(`https://portifact.com${prefix}/`);
+      expect(landing.status).toBe(200);
+      for (const header of ["content-security-policy", "x-frame-options", "referrer-policy"]) {
+        expect(landing.headers.get(header), header).toBe(english.headers.get(header));
+      }
+      const policy = landing.headers.get("content-security-policy");
+      if (policy !== null) expect(policy).toContain(THEME_SCRIPT_HASH);
+      const html = await landing.text();
+      expect(html).toMatch(new RegExp(`<html lang="${code}"[\\s>]`));
+      expect(html).toContain(`<script>${THEME_SCRIPT}</script>`);
+      expect(html).toContain(`<link rel="canonical" href="https://portifact.com${prefix}/">`);
+      for (const other of LOCALE_CODES) {
+        const otherPrefix = other === "en" ? "" : `/${other.toLowerCase()}`;
+        expect(html).toContain(
+          `<link rel="alternate" hreflang="${other}" href="https://portifact.com${otherPrefix}/">`,
+        );
+      }
+      expect(html).toContain(`href="https://app.portifact.com/?lang=${code}"`);
+      expect(html).not.toContain("data-i18n");
+      for (const path of ["/terms", "/privacy", "/acceptable-use", "/mcp-compatibility"]) {
+        const response = await get(`https://portifact.com${prefix}${path}`);
+        expect(response.status, path).toBe(200);
+        expect(response.headers.get("content-security-policy"), path).toBe(PAGE_CSP);
+        expect(await response.text(), path).toMatch(new RegExp(`<html lang="${code}"[\\s>]`));
+      }
+      expect((await get(`https://app.portifact.com${prefix}/terms`)).status).toBe(404);
+    },
+  );
+
+  it("keeps the Spanish pages off the app host", async () => {
+    expect((await get("https://app.portifact.com/es/terms")).status).toBe(404);
   });
 
   it("serves the third-party notices as plain text with the strict page headers", async () => {

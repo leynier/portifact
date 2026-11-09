@@ -6,6 +6,7 @@ import { updateAccess } from "../src/access.ts";
 import { archiveArtifact } from "../src/lifecycle.ts";
 import { pruneVersions } from "../src/maintenance.ts";
 import { commitPublish, type ManifestEntry, preparePublish } from "../src/publish.ts";
+import { READ_PAGE_BYTES, readVersionFile } from "../src/read-file.ts";
 import {
   getVersionDownload,
   getVersionManifest,
@@ -39,8 +40,12 @@ async function manifest(files: Files): Promise<ManifestEntry[]> {
         path,
         kind,
         sha256: await sha256(body),
-        size: body.length,
-        contentType: path.endsWith(".md") ? "text/markdown" : "text/plain",
+        size: new TextEncoder().encode(body).byteLength,
+        contentType: path.endsWith(".md")
+          ? "text/markdown"
+          : path.endsWith(".bin")
+            ? "application/octet-stream"
+            : "text/plain",
       });
     }
   }
@@ -691,5 +696,148 @@ describe("rollbackArtifact", () => {
     });
     expect(commit).toMatchObject({ ok: false, code: "version_conflict" });
     if (rolled.ok) expect((await artifactRow(id)).currentVersionId).toBe(rolled.value.versionId);
+  });
+});
+
+describe("readVersionFile", () => {
+  const read = (
+    userId: string,
+    artifactId: string,
+    options: {
+      versionId?: string;
+      kind?: "published" | "source";
+      path?: string;
+      offset?: number;
+    } = {},
+  ) =>
+    readVersionFile(db(), env.ARTIFACTS, {
+      userId,
+      artifactId,
+      versionId: options.versionId ?? "current",
+      kind: options.kind ?? "published",
+      path: options.path,
+      offset: options.offset ?? 0,
+      now: NOW + 2 * HOUR,
+    });
+
+  it("reads the entrypoint by default, or a named file, a source or an older version", async () => {
+    const { id, v1, v2, v3 } = await threeVersions();
+    expect(await read(OWNER, id)).toEqual({
+      ok: true,
+      value: {
+        artifactId: id,
+        versionId: v3.versionId,
+        versionNumber: 3,
+        kind: "published",
+        path: "index.md",
+        contentType: "text/markdown; charset=utf-8",
+        size: 7,
+        sha256: await sha256("# Three"),
+        offset: 0,
+        length: 7,
+        nextOffset: null,
+        content: "# Three",
+      },
+    });
+    expect(await read(OWNER, id, { path: "notes.md" })).toMatchObject({
+      ok: true,
+      value: { path: "notes.md", content: "notes" },
+    });
+    expect(await read(OWNER, id, { versionId: v2.versionId })).toMatchObject({
+      ok: true,
+      value: { versionNumber: 2, content: "# Two" },
+    });
+    expect(
+      await read(OWNER, id, { versionId: v1.versionId, kind: "source", path: "src/one.md" }),
+    ).toMatchObject({ ok: true, value: { kind: "source", content: "one source" } });
+    // Sources have no entrypoint: without a path there is nothing to pick.
+    expect(await read(OWNER, id, { versionId: v1.versionId, kind: "source" })).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+  });
+
+  it("pages a large file by bytes, never splitting a character", async () => {
+    // Two-byte characters with one ASCII byte in front: every page boundary falls mid-character.
+    const body = `x${"ñ".repeat(READ_PAGE_BYTES)}`;
+    const { artifactId } = await publish({ published: { "big.md": body } });
+    const pages: string[] = [];
+    let offset: number | null = 0;
+    const offsets: number[] = [];
+    while (offset !== null) {
+      const page = await read(OWNER, artifactId, { offset });
+      if (!page.ok) throw new Error(page.message);
+      expect(page.value.length).toBeLessThanOrEqual(READ_PAGE_BYTES);
+      expect(page.value.offset).toBe(offset);
+      offsets.push(offset);
+      pages.push(page.value.content);
+      offset = page.value.nextOffset;
+    }
+    expect(offsets).toEqual([0, READ_PAGE_BYTES - 1, 2 * READ_PAGE_BYTES - 1]);
+    expect(pages.join("")).toBe(body);
+
+    // Starting inside a character is refused instead of returning replacement characters.
+    expect(await read(OWNER, artifactId, { offset: 2 })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    });
+    const size = new TextEncoder().encode(body).byteLength;
+    expect(await read(OWNER, artifactId, { offset: size })).toMatchObject({
+      ok: true,
+      value: { content: "", length: 0, nextOffset: null },
+    });
+    expect(await read(OWNER, artifactId, { offset: size + 1 })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    });
+  });
+
+  it("keeps a byte order mark, so offsets match the stored bytes", async () => {
+    const { artifactId } = await publish({ published: { "bom.md": "\uFEFF# Hi" } });
+    expect(await read(OWNER, artifactId)).toMatchObject({
+      ok: true,
+      value: { content: "\uFEFF# Hi", length: 7, size: 7 },
+    });
+  });
+
+  it("refuses binary files and bytes that are not UTF-8, pointing to downloads", async () => {
+    const { artifactId } = await publish({
+      published: { "index.md": "# ab", "data.bin": "binary" },
+    });
+    const binary = await read(OWNER, artifactId, { path: "data.bin" });
+    expect(binary).toMatchObject({ ok: false, code: "invalid_input" });
+    if (!binary.ok) expect(binary.message).toContain("get_download");
+
+    // Stored bytes that are not UTF-8 under a text content type, as a corrupted object would be.
+    await env.ARTIFACTS.put(
+      `objects/${OWNER}/${await sha256("# ab")}`,
+      new Uint8Array([0x23, 0x20, 0xff, 0xfe]),
+    );
+    const invalid = await read(OWNER, artifactId);
+    expect(invalid).toMatchObject({ ok: false, code: "invalid_input" });
+    if (!invalid.ok) expect(invalid.message).toContain("not valid UTF-8");
+  });
+
+  it("answers not_found when the stored bytes are gone", async () => {
+    const { artifactId } = await publish({ published: { "index.md": "# Gone" } });
+    await env.ARTIFACTS.delete(`objects/${OWNER}/${await sha256("# Gone")}`);
+    expect(await read(OWNER, artifactId)).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("lets readers read only what they could download, and refuses everyone else alike", async () => {
+    const { id, v1 } = await threeVersions();
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: id, email: "reader@example.com" });
+    expect(await read(READER, id)).toMatchObject({ ok: true, value: { content: "# Three" } });
+    const refused = { ok: false, code: "not_found" };
+    expect(await read(READER, id, { versionId: v1.versionId })).toMatchObject(refused);
+    expect(await read(READER, id, { kind: "source", path: "src/one.md" })).toMatchObject(refused);
+    expect(await read(STRANGER, id)).toMatchObject(refused);
+    expect(await read(OWNER, "abcdefghij")).toMatchObject(refused);
+    expect(await read(OWNER, id, { path: "../index.md" })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    });
   });
 });

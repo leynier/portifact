@@ -1,7 +1,12 @@
 // Sections of the account pages (plan section 6, "Cuenta"), shared by Profile, Apps and Settings:
 // how the user can sign in, the browsers signed in, the apps (CLI and MCP clients) that hold
 // tokens, the data export and account deletion, with the loading and error states they share.
-import { type BrowserSession, type ConnectedApp, OAuthScope } from "@portifact/contracts";
+import {
+  type BrowserSession,
+  type ConnectedApp,
+  CREDENTIALS_SCOPE,
+  OAuthScope,
+} from "@portifact/contracts";
 import {
   Badge,
   Button,
@@ -288,6 +293,7 @@ function permissionSummary(t: ReturnType<typeof useT>, scopes: readonly string[]
 function scopeLabel(t: ReturnType<typeof useT>, name: string): string {
   return name.startsWith("artifacts:") ||
     name.startsWith("annotations:") ||
+    name === CREDENTIALS_SCOPE ||
     name === "offline_access"
     ? t(`scope.${name}` as Parameters<typeof t>[0])
     : t("scope.unknown", { name });

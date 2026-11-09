@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MCP compatibility: Portifact</title>
-    <meta name="description" content="Which MCP clients work with the Portifact remote MCP server, how they sign in and what to expect from each." />
+    <title data-i18n="mcp.meta.title">MCP compatibility: Portifact</title>
+    <meta name="description" data-i18n-content="mcp.meta.description" content="Which MCP clients work with the Portifact remote MCP server, how they sign in and what to expect from each." />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="canonical" href="https://portifact.com/mcp-compatibility" />
@@ -13,83 +13,91 @@
   <body class="min-h-screen bg-canvas text-text antialiased">
     <a
       href="#main"
+      data-i18n="mcp.chrome.skip"
       class="sr-only z-50 rounded-sm bg-surface-inverse px-3 py-2 text-text-inverse focus:not-sr-only focus:fixed focus:top-4 focus:left-4"
       >Skip to content</a
     >
     <header class="border-b border-border">
       <div class="mx-auto flex h-16 max-w-3xl items-center px-4 sm:px-6">
-        <a href="/" class="no-underline" aria-label="Portifact home">
+        <a href="/" class="no-underline" aria-label="Portifact home" data-i18n-aria-label="mcp.chrome.home">
           <picture>
             <source media="(prefers-color-scheme: dark)" srcset="../../assets/brand/wordmark-dark.svg" />
             <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-7 w-auto" />
           </picture>
         </a>
+        <div data-language-switcher="menu" class="ml-auto"></div>
       </div>
     </header>
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
-      <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">MCP compatibility</h1>
-      <p class="mt-3 text-sm text-text-muted">Last tested <time datetime="2026-11-08">November 8, 2026</time>, against Portifact 0.11.0. Codex CLI token refresh and the comment tools were checked again the same day against Portifact 0.13.0.</p>
-      <p class="mt-6 leading-7">Portifact runs a remote MCP server at <code>https://app.portifact.com/mcp</code> (Streamable HTTP). Add it to your client and sign in with your Portifact account in the browser. The first sign-in asks only to see your artifacts; your client asks again when a tool needs more, such as publishing or deleting.</p>
+      <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="mcp.intro.title">MCP compatibility</h1>
+      <p class="mt-3 text-sm text-text-muted" data-i18n="mcp.intro.tested">Last tested <time datetime="2026-11-08">November 8, 2026</time>, against Portifact 0.11.0. Codex CLI token refresh and the comment tools were checked again the same day against Portifact 0.13.0.</p>
+      <p class="mt-6 leading-7" data-i18n="mcp.intro.server">Portifact runs a remote MCP server at <code>https://app.portifact.com/mcp</code> (Streamable HTTP). Add it to your client and sign in with your Portifact account in the browser. The first sign-in asks only to see your artifacts; your client asks again when a tool needs more, such as publishing or deleting.</p>
 
       <nav aria-labelledby="toc-heading" class="mt-10 rounded-md border border-border p-5">
-        <h2 id="toc-heading" class="text-sm font-semibold">On this page</h2>
+        <h2 id="toc-heading" class="text-sm font-semibold" data-i18n="mcp.toc.title">On this page</h2>
         <ol class="mt-3 list-decimal space-y-1.5 pl-5 text-sm">
-          <li><a href="#matrix">Tested clients</a></li>
+          <li><a href="#matrix" data-i18n="mcp.matrix.title">Tested clients</a></li>
           <li><a href="#claude-ai">Claude.ai</a></li>
           <li><a href="#claude-code">Claude Code</a></li>
           <li><a href="#codex">Codex CLI</a></li>
-          <li><a href="#other">Other clients</a></li>
+          <li><a href="#other" data-i18n="mcp.other.title">Other clients</a></li>
         </ol>
       </nav>
 
       <section id="matrix" aria-labelledby="matrix-heading" class="mt-12 scroll-mt-8">
-        <h2 id="matrix-heading" class="text-xl font-semibold tracking-tight">Tested clients</h2>
-        <p class="mt-4 leading-7">Each client listed, published, read back and deleted a document. All three sign in with OAuth and PKCE and identify themselves with a published client metadata document.</p>
-        <table class="mt-4 w-full text-left text-sm leading-6">
-          <caption class="sr-only">MCP clients tested with Portifact</caption>
-          <thead><tr><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Client</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Version</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Protocol</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">When a tool needs more access</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Status</th></tr></thead>
+        <h2 id="matrix-heading" class="text-xl font-semibold tracking-tight" data-i18n="mcp.matrix.title">Tested clients</h2>
+        <p class="mt-4 leading-7" data-i18n="mcp.matrix.intro">Each client listed, published, read back and deleted a document. All three sign in with OAuth and PKCE and identify themselves with a published client metadata document.</p>
+        <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: the table scrolls sideways on narrow screens, and a scrolling region must be reachable by keyboard -->
+        <section class="mt-4 overflow-x-auto rounded-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" tabindex="0" aria-labelledby="matrix-caption">
+        <table class="w-full text-left text-sm leading-6">
+          <caption id="matrix-caption" class="sr-only" data-i18n="mcp.matrix.caption">MCP clients tested with Portifact</caption>
+          <thead><tr><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.client">Client</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.version">Version</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.protocol">Protocol</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.moreAccess">When a tool needs more access</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.status">Status</th></tr></thead>
           <tbody>
-            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Claude.ai</th><td class="border-b border-border py-2 pr-4 align-top">Web, November 2026</td><td class="border-b border-border py-2 pr-4 align-top">Not recorded</td><td class="border-b border-border py-2 pr-4 align-top">Asks you to allow it in the browser</td><td class="border-b border-border py-2 pr-4 align-top">Works</td></tr>
-            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Claude Code</th><td class="border-b border-border py-2 pr-4 align-top">2.1.319</td><td class="border-b border-border py-2 pr-4 align-top">2026-07-28</td><td class="border-b border-border py-2 pr-4 align-top">Tells you to run <code>/mcp</code> and sign in again</td><td class="border-b border-border py-2 pr-4 align-top">Works</td></tr>
-            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Codex CLI</th><td class="border-b border-border py-2 pr-4 align-top">0.167.0</td><td class="border-b border-border py-2 pr-4 align-top">2025-06-18</td><td class="border-b border-border py-2 pr-4 align-top">Fails the call; sign in again with the scopes you need</td><td class="border-b border-border py-2 pr-4 align-top">Works</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Claude.ai</th><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.claudeAiVersion">Web, November 2026</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.notRecorded">Not recorded</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.claudeAiMoreAccess">Asks you to allow it in the browser</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.works">Works</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Claude Code</th><td class="border-b border-border py-2 pr-4 align-top">2.1.319</td><td class="border-b border-border py-2 pr-4 align-top">2026-07-28</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.claudeCodeMoreAccess">Tells you to run <code>/mcp</code> and sign in again</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.works">Works</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Codex CLI</th><td class="border-b border-border py-2 pr-4 align-top">0.167.0</td><td class="border-b border-border py-2 pr-4 align-top">2025-06-18</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.codexMoreAccess">Fails the call; sign in again with the scopes you need</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.works">Works</td></tr>
           </tbody>
         </table>
+        </section>
       </section>
 
       <section id="claude-ai" aria-labelledby="claude-ai-heading" class="mt-12 scroll-mt-8">
         <h2 id="claude-ai-heading" class="text-xl font-semibold tracking-tight">Claude.ai</h2>
-        <p class="mt-4 leading-7">Add a custom connector with the server address and sign in. The first time Claude publishes, it asks you to allow publishing as well. The connector shows 24 tools: 9 that only read and 15 that write or delete.</p>
+        <p class="mt-4 leading-7" data-i18n="mcp.claudeAi.body">Add a custom connector with the server address and sign in. The first time Claude publishes, it asks you to allow publishing as well. The connector shows 24 tools: 9 that only read and 15 that write or delete.</p>
       </section>
 
       <section id="claude-code" aria-labelledby="claude-code-heading" class="mt-12 scroll-mt-8">
         <h2 id="claude-code-heading" class="text-xl font-semibold tracking-tight">Claude Code</h2>
-        <p class="mt-4 leading-7">Add the server with <code>claude mcp add --transport http portifact https://app.portifact.com/mcp</code>, then choose it in <code>/mcp</code> and sign in. When a tool needs access you have not given yet, the call fails with a message that names the missing permission. Run <code>/mcp</code>, choose Re-authenticate and allow it; Claude Code keeps what you allowed before. Non-interactive runs (<code>claude -p</code>) cannot sign in, so do it in an interactive session first.</p>
+        <p class="mt-4 leading-7" data-i18n="mcp.claudeCode.body">Add the server with <code>claude mcp add --transport http portifact https://app.portifact.com/mcp</code>, then choose it in <code>/mcp</code> and sign in. When a tool needs access you have not given yet, the call fails with a message that names the missing permission. Run <code>/mcp</code>, choose Re-authenticate and allow it; Claude Code keeps what you allowed before. Non-interactive runs (<code>claude -p</code>) cannot sign in, so do it in an interactive session first.</p>
       </section>
 
       <section id="codex" aria-labelledby="codex-heading" class="mt-12 scroll-mt-8">
         <h2 id="codex-heading" class="text-xl font-semibold tracking-tight">Codex CLI</h2>
-        <p class="mt-4 leading-7">Add the server with <code>codex mcp add portifact --url https://app.portifact.com/mcp</code>; Codex starts the sign-in right away. Codex does not ask for more access on its own, so sign in with everything your agent will need, for example:</p>
+        <p class="mt-4 leading-7" data-i18n="mcp.codex.body">Add the server with <code>codex mcp add portifact --url https://app.portifact.com/mcp</code>; Codex starts the sign-in right away. Codex does not ask for more access on its own, so sign in with everything your agent will need, for example:</p>
         <pre class="mt-4 overflow-x-auto rounded-md border border-border p-4 text-sm"><code>codex mcp login portifact --scopes artifacts:read,artifacts:write,artifacts:delete,offline_access</code></pre>
-        <p class="mt-4 leading-7">Add <code>annotations:read</code>, <code>annotations:write</code> or <code>annotations:moderate</code> for the comment tools; with all three, Codex turned comments on, commented, replied, resolved and exported the comments of a document. Codex asks you to approve tools that delete before it runs them. It renews its access on its own when the hour-long token expires.</p>
+        <p class="mt-4 leading-7" data-i18n="mcp.codex.comments">Add <code>annotations:read</code>, <code>annotations:write</code> or <code>annotations:moderate</code> for the comment tools; with all three, Codex turned comments on, commented, replied, resolved and exported the comments of a document. Codex asks you to approve tools that delete before it runs them. It renews its access on its own when the hour-long token expires.</p>
       </section>
 
       <section id="other" aria-labelledby="other-heading" class="mt-12 scroll-mt-8">
-        <h2 id="other-heading" class="text-xl font-semibold tracking-tight">Other clients</h2>
-        <p class="mt-4 leading-7">Any client that supports remote MCP servers with OAuth should work: Portifact follows the MCP authorization specification of 2026-07-28 and also accepts dynamic client registration and the 2025 protocol revisions. If yours does not, the <code>portifact</code> CLI and the agent skill work in every agent with a shell. Tell us about it on <a href="https://github.com/leynier/portifact/issues">GitHub</a>.</p>
+        <h2 id="other-heading" class="text-xl font-semibold tracking-tight" data-i18n="mcp.other.title">Other clients</h2>
+        <p class="mt-4 leading-7" data-i18n="mcp.other.body">Any client that supports remote MCP servers with OAuth should work: Portifact follows the MCP authorization specification of 2026-07-28 and also accepts dynamic client registration and the 2025 protocol revisions. If yours does not, the <code>portifact</code> CLI and the agent skill work in every agent with a shell. Tell us about it on <a href="https://github.com/leynier/portifact/issues">GitHub</a>.</p>
       </section>
     </main>
 
     <footer class="border-t border-border">
       <div class="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-10 text-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
-        <p class="text-text-muted">Portifact is open source under the GNU AGPL v3.0.</p>
-        <nav aria-label="Legal">
-          <ul class="flex flex-wrap gap-x-5 gap-y-2">
-            <li><a href="/terms" class="text-text-muted no-underline hover:text-text hover:underline">Terms</a></li>
-            <li><a href="/privacy" class="text-text-muted no-underline hover:text-text hover:underline">Privacy</a></li>
-            <li><a href="/acceptable-use" class="text-text-muted no-underline hover:text-text hover:underline">Acceptable use</a></li>
-          </ul>
-        </nav>
+        <p class="text-text-muted" data-i18n="mcp.footer.license">Portifact is open source under the GNU AGPL v3.0.</p>
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
+          <nav aria-label="Legal" data-i18n-aria-label="mcp.footer.nav">
+            <ul class="flex flex-wrap gap-x-5 gap-y-2">
+              <li><a href="/terms" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="mcp.footer.terms">Terms</a></li>
+              <li><a href="/privacy" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="mcp.footer.privacy">Privacy</a></li>
+              <li><a href="/acceptable-use" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="mcp.footer.acceptableUse">Acceptable use</a></li>
+            </ul>
+          </nav>
+          <div data-language-switcher="list"></div>
+        </div>
       </div>
     </footer>
   </body>

@@ -1,11 +1,26 @@
-import { OAuthScope } from "@portifact/contracts";
+import { CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
 
 export const AUTH_BASE_PATH = "/api/auth";
 
-/** Every scope a client can request: the product scopes plus refresh tokens. */
+/** The product scopes: classes of action on artifacts and annotations. */
 export const PORTIFACT_SCOPES: readonly string[] = OAuthScope.options;
 export const OFFLINE_ACCESS = "offline_access";
-export const ALL_SCOPES: readonly string[] = [...PORTIFACT_SCOPES, OFFLINE_ACCESS];
+
+/**
+ * What a dynamically registered or CIMD client (MCP) may ever ask for: the product scopes and a
+ * refresh token, never `credentials:manage` (decision 0003).
+ */
+export const REGISTRATION_SCOPES: readonly string[] = [...PORTIFACT_SCOPES, OFFLINE_ACCESS];
+
+/**
+ * Every scope the authorization server knows. `credentials:manage` is granted only to clients
+ * whose own record lists it, which today is the seeded CLI client (migration 0024).
+ */
+export const ALL_SCOPES: readonly string[] = [
+  ...PORTIFACT_SCOPES,
+  CREDENTIALS_SCOPE,
+  OFFLINE_ACCESS,
+];
 
 // The minimal set an MCP client requests first; more scopes come through step-up.
 export const MCP_BASELINE_SCOPES: readonly string[] = ["artifacts:read"];

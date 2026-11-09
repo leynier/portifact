@@ -5,6 +5,9 @@ import { env } from "cloudflare:test";
 import { BRIDGE_VERSION } from "@portifact/bridge/bundle";
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
+import { RENDERER_VERSION } from "@portifact/render";
+import { DIAGRAM_VERSION } from "@portifact/render/diagrams-version";
+import { DIAGRAM_LOADER_HASH } from "@portifact/render/policy";
 import {
   commitPublish,
   issueReviewHandoff,
@@ -14,7 +17,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 import type { LogOpening, Opening } from "../src/access-log.ts";
 import { handle } from "../src/index.ts";
-import { injectReviewBanner } from "../src/inject.ts";
+import { BANNER_TEXT, injectReviewBanner } from "../src/inject.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
 import { NO_BAR_COOKIE } from "../src/viewer.ts";
 
@@ -582,7 +585,7 @@ describe("review of rendered documents", () => {
     return committed.value.artifactId;
   }
 
-  it("replaces the page's script-free policy with one that allows only the bridge by nonce", async () => {
+  it("replaces the page's policy with one that adds only the bridge, by nonce", async () => {
     const id = await publishMarkdown();
     const cookie = await openReview(OWNER, id);
     const origin = `https://${id}.portifact.dev`;
@@ -591,13 +594,16 @@ describe("review of rendered documents", () => {
     const html = await response.text();
     expect(html).not.toMatch(/http-equiv="Content-Security-Policy"/i);
     const csp = response.headers.get("content-security-policy") ?? "";
-    const nonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
+    const nonce = /^[^,]*script-src [^;]*'nonce-([^']+)'/.exec(csp)?.[1];
+    expect(csp).toContain(
+      `script-src ${DIAGRAM_LOADER_HASH} ${origin}/__portifact/diagrams.js ${origin}/__portifact/diagrams.${DIAGRAM_VERSION}.js 'nonce-`,
+    );
     expect(nonce).toBeDefined();
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain(`frame-ancestors 'self' ${APP}`);
     expect(html).toMatch(
       new RegExp(
-        `data-path="notes\\.md" data-session-tag="[A-Za-z0-9_-]{22}" data-renderer="portifact-render@2" nonce="${nonce?.replace(/[+/=]/g, "\\$&")}"`,
+        `data-path="notes\\.md" data-session-tag="[A-Za-z0-9_-]{22}" data-renderer="portifact-render@${RENDERER_VERSION}" nonce="${nonce?.replace(/[+/=]/g, "\\$&")}"`,
       ),
     );
     expect(html.match(/<script/g)).toHaveLength(1);
@@ -613,7 +619,7 @@ describe("review of rendered documents", () => {
     expect(visitor.status).toBe(303);
   });
 
-  it("shows a document in a review tab with the banner and its script-free policy intact", async () => {
+  it("shows a document in a review tab with the banner and its policy intact", async () => {
     const id = await publishMarkdown();
     const origin = `https://${id}.portifact.dev`;
     const opened = await send(`/__portifact/review/tab?code=${await code(OWNER, id, "tab")}`, {
@@ -642,7 +648,11 @@ describe("review of rendered documents", () => {
     expect(html).toMatch(/http-equiv="Content-Security-Policy"/i);
     const csp = response.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("default-src 'none'");
-    expect(csp).not.toContain("script-src");
+    // Only the diagram loader and its script, never a nonce: the banner needs no script.
+    expect(csp).toContain(
+      `script-src ${DIAGRAM_LOADER_HASH} ${origin}/__portifact/diagrams.js ${origin}/__portifact/diagrams.${DIAGRAM_VERSION}.js;`,
+    );
+    expect(csp).not.toContain("nonce");
   });
 });
 
@@ -739,6 +749,18 @@ describe("review tab", () => {
     const replay = await send(`/__portifact/review/tab?code=${pending}`, { headers: FROM_VIEWER });
     expect(replay.status).toBe(400);
     expect(tabSetCookie(replay)).toBeUndefined();
+  });
+
+  it("writes the banner in the browser's language, marked as such", async () => {
+    const cookie = await openTab();
+    const response = await send("/", {
+      cookie,
+      headers: { ...TOP_LEVEL, "Accept-Language": "de-AT,de;q=0.9,en;q=0.5" },
+    });
+    const html = await response.text();
+    expect(html).toContain('lang="de" dir="ltr"');
+    expect(html).toContain(`<a href="/__portifact/review/end">${BANNER_TEXT.de.end}</a>`);
+    expect(html).not.toContain("End review");
   });
 
   it("serves the pinned version with the banner and no bridge, on the tab's pages and visits", async () => {

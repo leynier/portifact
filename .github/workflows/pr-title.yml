@@ -1,0 +1,27 @@
+name: pr-title
+
+# The title becomes the squash commit, which decides the release, so it is checked on every
+# title edit. It lives apart from ci.yml so that editing a pull request's title or description
+# never starts (and, through ci.yml's concurrency group, cancels) a full CI run.
+on:
+  pull_request:
+    branches: [develop]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

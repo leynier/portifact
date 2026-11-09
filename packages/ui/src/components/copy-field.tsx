@@ -95,7 +95,7 @@ export function CopyField({
             <code className="min-w-0 break-all">{value}</code>
           )}
         </div>
-        <div className="flex shrink-0 gap-2">
+        <div className="flex max-w-full shrink-0 flex-wrap gap-2">
           <button
             type="button"
             aria-describedby={`${id}-label`}

@@ -6,6 +6,25 @@ const css = readFileSync(new URL("./tokens.css", import.meta.url), "utf8");
 const themes: Theme[] = ["light", "dark"];
 
 describe("design tokens", () => {
+  it("draws Chinese and Japanese pages with their own system fonts after the Latin ones", () => {
+    const stack = (selector: string) => {
+      const start = css.indexOf(`${selector} {`);
+      expect(start, selector).toBeGreaterThan(-1);
+      const body = css.slice(start, css.indexOf("}", start));
+      return /--pf-font-sans:([^;]+);/.exec(body)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
+    };
+    const latin = (/--pf-font-sans:([^;]+);/.exec(css)?.[1] ?? "").replace(/\s+/g, " ").trim();
+    for (const [selector, font] of [
+      [":root:lang(ja)", '"Hiragino Sans"'],
+      [":root:lang(zh-CN)", '"PingFang SC"'],
+    ] as const) {
+      const fonts = stack(selector);
+      expect(fonts.startsWith(latin.replace(/, sans-serif$/, ""))).toBe(true);
+      expect(fonts).toContain(font);
+      expect(fonts.endsWith("sans-serif")).toBe(true);
+    }
+  });
+
   it("only declares neutral colors, so the palette stays monochromatic", () => {
     const colors = allHexColors(css);
     expect(colors.length).toBeGreaterThan(10);
@@ -30,6 +49,18 @@ describe("design tokens", () => {
       .replace(/\s+/g, " ")
       .trim();
     expect(mediaDecls).toBe(forcedDecls);
+  });
+
+  it("lets a chosen theme on the root win over the system theme", () => {
+    const light = css.indexOf(':root,\n[data-theme="light"]');
+    const forcedDark = css.lastIndexOf('[data-theme="dark"] {');
+    expect(light).toBeGreaterThan(-1);
+    // Same specificity as the light block, so the later block wins on the root.
+    expect(forcedDark).toBeGreaterThan(light);
+    // The system's dark theme never overrides a chosen Light theme.
+    expect(css).toContain(
+      '@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {',
+    );
   });
 
   for (const theme of themes) {

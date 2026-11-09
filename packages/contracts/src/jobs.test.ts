@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DeleteObjectsPayload, JobMessage, TombstoneMarker } from "./index.ts";
+import {
+  DeleteObjectsPayload,
+  ExpiryNoticePayload,
+  JobMessage,
+  LIMITS,
+  TombstoneMarker,
+} from "./index.ts";
 
 describe("job contracts", () => {
   it("accepts a queue message that points at an outbox row", () => {
@@ -25,6 +31,22 @@ describe("job contracts", () => {
     expect(DeleteObjectsPayload.safeParse({ keys: ["objects/u/a"] }).success).toBe(true);
     expect(DeleteObjectsPayload.safeParse({ keys: [""] }).success).toBe(false);
     expect(DeleteObjectsPayload.safeParse({ keys: Array(101).fill("k") }).success).toBe(false);
+  });
+
+  it("bounds the artifacts of an expiry_notice payload by the active artifact limit", () => {
+    const entry = { id: "k7d2qm4xab", expiresAt: 1 };
+    expect(JobMessage.parse({ id: 3, topic: "expiry_notice" }).topic).toBe("expiry_notice");
+    expect(ExpiryNoticePayload.parse({ artifacts: [entry] })).toEqual({ artifacts: [entry] });
+    expect(ExpiryNoticePayload.safeParse({ artifacts: [] }).success).toBe(false);
+    const full = Array(LIMITS.activeArtifacts).fill(entry);
+    expect(ExpiryNoticePayload.safeParse({ artifacts: full }).success).toBe(true);
+    expect(ExpiryNoticePayload.safeParse({ artifacts: [...full, entry] }).success).toBe(false);
+    expect(
+      ExpiryNoticePayload.safeParse({ artifacts: [{ ...entry, expiresAt: -1 }] }).success,
+    ).toBe(false);
+    expect(ExpiryNoticePayload.safeParse({ artifacts: [{ ...entry, name: "x" }] }).success).toBe(
+      false,
+    );
   });
 
   it("accepts only artifact and account tombstone markers", () => {

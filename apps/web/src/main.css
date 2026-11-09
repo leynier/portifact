@@ -2,6 +2,7 @@
 @import "@portifact/ui/theme.css";
 
 @source "../*.html";
-@source "./auth/*.ts";
+@source "./auth";
+@source "./i18n";
 @source "./dashboard";
 @source "../../../packages/ui/src";

@@ -12,6 +12,7 @@ export * from "./human.ts";
 export * from "./jobs.ts";
 export * from "./legal.ts";
 export * from "./limits.ts";
+export * from "./locales.ts";
 export * from "./mcp.ts";
 export * from "./moderation.ts";
 export * from "./publishing.ts";

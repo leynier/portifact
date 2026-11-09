@@ -43,7 +43,7 @@ export async function publishInline(
     return {
       ok: false,
       code: "invalid_input",
-      message: `Inline content is limited to ${LIMITS.inlineMcpBytes} bytes; this is ${bytes.byteLength}. Publish it with the portifact CLI instead.`,
+      message: `Inline content is limited to ${LIMITS.inlineMcpBytes} bytes; this is ${bytes.byteLength}. Publish it with prepare_upload and commit_upload, or the portifact CLI, instead.`,
     };
   }
   const file = INLINE_FILES[input.type];

@@ -26,6 +26,8 @@ Quotes, context, fingerprints and positions refer to normalized text:
 
 In a DOM, the text is that of the root (normally `document.body`) in document order, skipping `script`, `style`, `noscript`, `template`, form controls, embedded content, `[hidden]` and `[data-portifact-ignore]` (the review UI marks its own elements with it). Block elements and `br` separate text as a space. Form values, cookies, storage and computed styles are never read.
 
+Rendered Markdown keeps the same text whatever the browser does with it. Highlighted code only wraps its text in spans. A drawn Mermaid diagram is an image in a `figure` marked `data-portifact-ignore`, and its source block stays in the page with the same text, folded by a class rather than `hidden`, so a quote in a diagram's source has the same position whether the diagram script ran, failed or was blocked ("Diagrams and highlighted code" in [security.md](security.md)). The block map is the same as for a plain fence.
+
 ## Confidence
 
 | Result     | Text                                                                                                                                                                     | Element                                                                                           |

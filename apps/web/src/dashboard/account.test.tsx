@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { OAuthScope } from "@portifact/contracts";
+import { CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -230,7 +230,7 @@ describe("connected apps", () => {
     const hour = 3_600_000;
     server.apps = [
       connectedApp("portifact-cli", {
-        scopes: [...OAuthScope.options, "offline_access"],
+        scopes: [...OAuthScope.options, CREDENTIALS_SCOPE, "offline_access"],
         lastIssuedAt: new Date(Date.now() - 2 * hour).toISOString(),
       }),
       connectedApp("mcp-client-1", {
@@ -275,6 +275,14 @@ describe("connected apps", () => {
     expect(details.textContent).toContain("Use the permission custom:thing");
     expect(details.textContent).toContain("Approved on");
     expect(details.textContent).toContain("Last token issued");
+    // The CLI's credentials scope is named in plain words, not as an unknown permission.
+    const cliDetails = within(cli).getByText("Details").closest("details") as HTMLDetailsElement;
+    cliDetails.open = true;
+    fireEvent(cliDetails, new Event("toggle"));
+    expect(cliDetails.textContent).toContain(
+      "See the apps connected to your account and disconnect them",
+    );
+    expect(cliDetails.textContent).not.toContain("Use the permission");
 
     // Disconnect is one click away on each card.
     expect(within(claude).getByRole("button", { name: "Disconnect Claude Code" })).toBeTruthy();
@@ -371,7 +379,18 @@ describe("connected apps", () => {
 describe("section guides", () => {
   it.each([
     ["/profile", "Profile sections", ["Your account", "Sign-in methods", "Browser sessions"]],
-    ["/settings", "Settings sections", ["Defaults for new artifacts", "Your data", "Danger zone"]],
+    [
+      "/settings",
+      "Settings sections",
+      [
+        "Language",
+        "Appearance",
+        "Defaults for new artifacts",
+        "Email notices",
+        "Your data",
+        "Danger zone",
+      ],
+    ],
   ])("%s links each of its sections from an On this page guide", async (path, name, labels) => {
     const { container } = renderDashboard(path, server);
     const nav = await screen.findByRole("navigation", { name });

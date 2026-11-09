@@ -1,7 +1,7 @@
 // login, logout and whoami, and the helpers every command shares. Progress and instructions go
 // to stderr; the result goes to stdout, as text or as stable JSON with --json. Tokens never reach
 // either stream.
-import { OAuthScope, type TokenPrincipal } from "@portifact/contracts";
+import { CREDENTIALS_SCOPE, OAuthScope, type TokenPrincipal } from "@portifact/contracts";
 import { openCredentialStore } from "./credentials.ts";
 import { CliError } from "./errors.ts";
 import { messages } from "./messages.ts";
@@ -16,8 +16,15 @@ import type { Io, Runtime } from "./runtime.ts";
 import { resolveServer, type Server } from "./server.ts";
 import { type Authorized, credentialsFrom, type Session, withAccessToken } from "./session.ts";
 
-/** Every product scope the CLI's commands use, plus a refresh token. */
-export const LOGIN_SCOPES: readonly string[] = [...OAuthScope.options, "offline_access"];
+/**
+ * Every product scope the CLI's commands use, managing the account's own tokens
+ * (`portifact tokens`) and a refresh token.
+ */
+export const LOGIN_SCOPES: readonly string[] = [
+  ...OAuthScope.options,
+  CREDENTIALS_SCOPE,
+  "offline_access",
+];
 
 /** RFC 8628: the default polling interval, and the increase after `slow_down`. */
 const DEFAULT_INTERVAL_SECONDS = 5;

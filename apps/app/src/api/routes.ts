@@ -11,12 +11,11 @@ import {
   type ErrorCode,
   LifecycleResult,
   type OAuthScope,
-  PreparedPublish,
   PublishRequest,
   UploadedPart,
 } from "@portifact/contracts";
 import { createDb, type Db } from "@portifact/db";
-import { type MultipartConfig, partRange } from "@portifact/domain";
+import type { MultipartConfig } from "@portifact/domain";
 import {
   type ArtifactRow,
   abortPublish,
@@ -27,18 +26,13 @@ import {
   getArtifact,
   type LifecycleOutcome,
   listArtifacts,
-  type PendingUpload,
-  type PreparedUpload,
-  preparePublish,
   renewArtifact,
   reportUploadedPart,
   restoreArtifact,
-  type StoredResponse,
   updateAccess,
   uploadProgress,
 } from "@portifact/services";
 import { Hono } from "hono";
-import type { z } from "zod";
 import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
@@ -47,16 +41,9 @@ import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
-import {
-  type ApiContext,
-  error,
-  failure,
-  type Guarded,
-  idempotent,
-  iso,
-  readJson,
-} from "./http.ts";
+import { type ApiContext, error, type Guarded, idempotent, iso, readJson } from "./http.ts";
 import type { Presigner } from "./presign.ts";
+import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
 
@@ -107,7 +94,17 @@ export function apiRoutes(deps: ApiDeps) {
       const db = createDb(c.env.DB);
       const now = deps.now();
       return idempotent(c, { userId, operation: "publish.prepare", request: body.value, now }, () =>
-        prepare(c.env, db, deps, userId, body.value, now),
+        prepareUpload(
+          db,
+          {
+            bucket: c.env.ARTIFACTS,
+            presigner: deps.presigner(c.env),
+            multipart: deps.multipart?.(c.env),
+          },
+          userId,
+          body.value,
+          now,
+        ),
       );
     }),
   );
@@ -123,7 +120,7 @@ export function apiRoutes(deps: ApiDeps) {
         now,
       });
       if (!result.ok) return error(c, result.code, result.message);
-      return c.json(await prepared(deps.presigner(c.env), result.value, now));
+      return c.json(await preparedPublish(deps.presigner(c.env), result.value, now));
     }),
   );
 
@@ -305,96 +302,6 @@ export function apiRoutes(deps: ApiDeps) {
   accessLogRoutes(api, guarded, deps.now);
 
   return api;
-}
-
-async function prepare(
-  env: Env,
-  db: Db,
-  deps: ApiDeps,
-  ownerId: string,
-  body: z.infer<typeof PublishRequest>,
-  now: number,
-): Promise<StoredResponse> {
-  const config = deps.multipart?.(env);
-  const multipart = body.multipart
-    ? { bucket: env.ARTIFACTS, ...(config ? { config } : {}) }
-    : undefined;
-  const result = await preparePublish(
-    db,
-    {
-      ownerId,
-      ...(body.artifactId ? { artifactId: body.artifactId } : {}),
-      type: body.type,
-      name: body.name,
-      entrypoint: body.entrypoint,
-      baseVersionId: body.baseVersionId,
-      files: body.files,
-      sourceOrigin: body.sourceOrigin,
-      now,
-    },
-    multipart,
-  );
-  if (!result.ok) return failure(result.code, result.message);
-  return { status: 201, body: await prepared(deps.presigner(env), result.value, now) };
-}
-
-async function prepared(presigner: Presigner, upload: PreparedUpload, now: number) {
-  return PreparedPublish.parse({
-    artifactId: upload.artifactId,
-    versionId: upload.versionId,
-    versionNumber: upload.versionNumber,
-    uploadId: upload.sessionId,
-    expiresAt: iso(upload.expiresAt),
-    uploads: await Promise.all(upload.uploads.map((pending) => target(presigner, pending, now))),
-  });
-}
-
-async function target(presigner: Presigner, upload: PendingUpload, now: number) {
-  const { multipart } = upload;
-  if (multipart) {
-    const done = new Set(multipart.doneParts);
-    const missing: number[] = [];
-    for (let part = 1; part <= multipart.partCount; part += 1) {
-      if (!done.has(part)) missing.push(part);
-    }
-    return {
-      sha256: upload.sha256,
-      size: upload.size,
-      method: "MULTIPART" as const,
-      partSize: multipart.partSize,
-      partCount: multipart.partCount,
-      doneParts: multipart.doneParts,
-      parts: await Promise.all(
-        missing.map(async (partNumber) => {
-          const range = partRange(upload.size, multipart, partNumber);
-          const signed = await presigner.presignPart(
-            multipart.key,
-            multipart.uploadId,
-            partNumber,
-            range.size,
-            now,
-          );
-          return {
-            partNumber,
-            ...range,
-            method: "PUT" as const,
-            url: signed.url,
-            headers: signed.headers,
-            expiresAt: iso(signed.expiresAt),
-          };
-        }),
-      ),
-    };
-  }
-  const signed = await presigner.presignPut(upload.r2Key, upload.size, upload.sha256, now);
-  return {
-    sha256: upload.sha256,
-    size: upload.size,
-    method: "PUT" as const,
-    url: signed.url,
-    headers: signed.headers,
-    expiresAt: iso(signed.expiresAt),
-  };
 }
 
 function summary(env: Env, row: ArtifactRow) {

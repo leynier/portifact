@@ -14,14 +14,21 @@ import {
 import { LIMITS } from "./limits.ts";
 import {
   ArtifactRef,
+  CommitUploadInput,
   DeleteArtifactInput,
   ListArtifactsInput,
+  PrepareUploadInput,
   PublishDocumentInput,
+  ReaderChangeInput,
+  SetAccessInput,
+  UploadRef,
 } from "./mcp.ts";
 import {
+  ContentQuery,
   GetDownloadInput,
   GetVersionInput,
   ListVersionsInput,
+  ReadArtifactInput,
   RollbackArtifactInput,
 } from "./versions.ts";
 
@@ -43,6 +50,12 @@ const MCP_TOOL_INPUTS = {
   GetVersionInput,
   GetDownloadInput,
   RollbackArtifactInput,
+  SetAccessInput,
+  ReaderChangeInput,
+  PrepareUploadInput,
+  UploadRef,
+  CommitUploadInput,
+  ReadArtifactInput,
 };
 
 const doc = { type: "markdown", name: "  Plan  ", content: "# Plan" };
@@ -153,5 +166,81 @@ describe("MCP tool inputs", () => {
     expect(ExportAnnotationsInput.parse(ref).format).toBe("json");
     expect(ExportAnnotationsInput.parse({ ...ref, format: "markdown" }).format).toBe("markdown");
     expect(ExportAnnotationsInput.safeParse({ ...ref, format: "csv" }).success).toBe(false);
+  });
+
+  it("takes sharing changes the access update validates, within its reader bounds", () => {
+    const ref = { artifactId: "abcdefghij" };
+    expect(SetAccessInput.parse({ ...ref, mode: "public", indexable: true })).toEqual({
+      ...ref,
+      mode: "public",
+      indexable: true,
+    });
+    // An empty change passes here; the access update refuses it with the API's message.
+    expect(SetAccessInput.safeParse(ref).success).toBe(true);
+    expect(SetAccessInput.safeParse({ ...ref, mode: "private" }).success).toBe(false);
+    const emails = (n: number) => Array.from({ length: n }, (_, i) => `r${i}@example.test`);
+    expect(ReaderChangeInput.safeParse({ ...ref, emails: [] }).success).toBe(false);
+    expect(
+      ReaderChangeInput.safeParse({ ...ref, emails: emails(LIMITS.readersPerChange) }).success,
+    ).toBe(true);
+    expect(
+      ReaderChangeInput.safeParse({ ...ref, emails: emails(LIMITS.readersPerChange + 1) }).success,
+    ).toBe(false);
+  });
+
+  it("prepares uploads with the API's manifest and a required idempotency key", () => {
+    const file = { path: "index.html", sha256: "a".repeat(64), size: 4, contentType: "text/html" };
+    const upload = {
+      type: "site",
+      name: " Site ",
+      entrypoint: "index.html",
+      files: [file],
+      idempotencyKey: "prepare-0001",
+    };
+    expect(PrepareUploadInput.parse(upload)).toEqual({
+      ...upload,
+      name: "Site",
+      baseVersionId: null,
+      files: [{ ...file, kind: "published" }],
+    });
+    const { idempotencyKey: _, ...withoutKey } = upload;
+    expect(PrepareUploadInput.safeParse(withoutKey).success).toBe(false);
+    expect(PrepareUploadInput.safeParse({ ...upload, files: [] }).success).toBe(false);
+    expect(
+      PrepareUploadInput.safeParse({ ...upload, files: [{ ...file, sha256: "x" }] }).success,
+    ).toBe(false);
+    expect(
+      PrepareUploadInput.safeParse({
+        ...upload,
+        files: Array.from({ length: LIMITS.filesPerVersion + 1 }, () => file),
+      }).success,
+    ).toBe(false);
+    expect(UploadRef.safeParse({ uploadId: "" }).success).toBe(false);
+    const part = { sha256: "a".repeat(64), partNumber: 1, etag: "e" };
+    expect(CommitUploadInput.parse({ uploadId: "upl_1", parts: [part] }).parts).toEqual([part]);
+    expect(
+      CommitUploadInput.safeParse({ uploadId: "upl_1", parts: [{ ...part, partNumber: 0 }] })
+        .success,
+    ).toBe(false);
+  });
+
+  it("reads the current entrypoint from the first byte by default, within the file limit", () => {
+    const ref = { artifactId: "abcdefghij" };
+    expect(ReadArtifactInput.parse(ref)).toEqual({
+      ...ref,
+      versionId: "current",
+      kind: "published",
+      offset: 0,
+    });
+    expect(ReadArtifactInput.safeParse({ ...ref, offset: -1 }).success).toBe(false);
+    expect(ReadArtifactInput.safeParse({ ...ref, offset: 1.5 }).success).toBe(false);
+    expect(ReadArtifactInput.safeParse({ ...ref, offset: LIMITS.artifactBytes + 1 }).success).toBe(
+      false,
+    );
+    // The API's query takes the offset as text.
+    expect(ContentQuery.parse({ offset: "42" })).toEqual({ kind: "published", offset: 42 });
+    expect(ContentQuery.parse({})).toEqual({ kind: "published", offset: 0 });
+    expect(ContentQuery.safeParse({ offset: "x" }).success).toBe(false);
+    expect(ContentQuery.safeParse({ offset: "-1" }).success).toBe(false);
   });
 });

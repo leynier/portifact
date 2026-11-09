@@ -8,11 +8,21 @@ import type { PageEnv } from "./login.ts";
 
 export const ORIGIN = "https://app.portifact.com";
 
-export function loadPage(name: "login" | "device" | "consent" | "report"): void {
-  // Vitest runs from apps/web; happy-dom replaces URL, so build the path from the root.
-  const html = readFileSync(join(process.cwd(), `${name}.html`), "utf8");
+export type PageName = "login" | "device" | "consent" | "report";
+export const PAGE_NAMES: readonly PageName[] = ["login", "device", "consent", "report"];
+
+export function loadPage(name: PageName): void {
+  const html = readPage(name);
   const body = /<body[^>]*>([\s\S]*)<\/body>/.exec(html)?.[1] ?? "";
+  // Only the title of the head: its scripts and icons would make happy-dom fetch them.
+  document.head.innerHTML = /<title\b[^>]*>[\s\S]*?<\/title>/.exec(html)?.[0] ?? "";
   document.body.innerHTML = body;
+}
+
+/** A page's whole markup, head included. */
+export function readPage(name: PageName): string {
+  // Vitest runs from apps/web; happy-dom replaces URL, so build the path from the root.
+  return readFileSync(join(process.cwd(), `${name}.html`), "utf8");
 }
 
 export type Handler = (body: unknown) => ApiResponse | Promise<ApiResponse>;

@@ -6,6 +6,8 @@ import {
   TURNSTILE_ORIGIN,
   TURNSTILE_SITE_KEY_META,
 } from "@portifact/contracts";
+import { isLocale } from "@portifact/contracts/locales";
+import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { Hono } from "hono";
@@ -15,6 +17,7 @@ import { r2Presigner } from "./api/presign.ts";
 import { reportRoutes } from "./api/reports.ts";
 import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
+import { tokenRoutes } from "./api/tokens.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
 import type { AuthDeps } from "./auth/deps.ts";
@@ -35,6 +38,9 @@ import { readRoutes } from "./read.ts";
  * the public abuse report form.
  */
 export const AUTH_PAGES = ["/login", "/device", "/consent", "/report"] as const;
+
+/** The query parameter through which a link asks a page for a language (apps/web, src/i18n). */
+export const LOCALE_PARAM = "lang";
 
 /** The dashboard SPA, built by apps/web as dashboard.html and served on this host only. */
 export const DASHBOARD_PAGE = "/dashboard";
@@ -69,10 +75,11 @@ export const VIEWER_ROUTE = "/view/:artifactId";
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
 
 // Strict policy for the dashboard and the auth pages: only same-origin scripts, styles, images and requests,
-// no framing, no plugins and no base or form targets elsewhere.
+// no framing, no plugins and no base or form targets elsewhere. The one inline script allowed is
+// the theme script every page carries, by the hash of its exact text (`THEME_SCRIPT`).
 export const PAGE_CSP = [
   "default-src 'none'",
-  "script-src 'self'",
+  `script-src 'self' ${THEME_SCRIPT_HASH}`,
   "style-src 'self'",
   "img-src 'self'",
   "font-src 'self'",
@@ -277,6 +284,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       now: () => Date.now(),
     }),
   );
+  app.route(
+    "/",
+    tokenRoutes({
+      introspect: introspectFor,
+      resource: (env) => resources(env).api,
+      now: () => Date.now(),
+    }),
+  );
   app.route("/", reportRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
   app.route(
@@ -308,6 +323,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       resource: (env) => resources(env).mcp,
       presigner: presignerFor,
       siteverify: (env) => depsFor(env).siteverify,
+      multipart: (env) => depsFor(env).multipart,
       now: () => Date.now(),
     }),
   );
@@ -320,7 +336,11 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       if (!(await sessionUserFor(c.env)(c.req.raw))) {
         const url = new URL(c.req.url);
         const next = `${url.pathname}${url.search}`;
-        return c.redirect(`/login?${new URLSearchParams({ next })}`, 302);
+        const login = new URLSearchParams({ next });
+        // A language asked for on the way in (the landing's links) applies to the login page too.
+        const lang = url.searchParams.get(LOCALE_PARAM);
+        if (isLocale(lang)) login.set(LOCALE_PARAM, lang);
+        return c.redirect(`/login?${login}`, 302);
       }
       return withSiteKey(
         trustedPage(

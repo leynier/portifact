@@ -3,7 +3,7 @@
 import { env } from "cloudflare:test";
 import { LIMITS } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
-import { RENDERER_VERSION } from "@portifact/render";
+import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH, RENDERER_VERSION } from "@portifact/render";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { previewDocument } from "../src/documents.ts";
@@ -206,6 +206,18 @@ describe("commit a document", () => {
     expect(blocks).toMatchObject({ rendererVersion: RENDERER_VERSION, sourceSha256: sourceSha });
     expect(blocks.headings).toEqual([{ id: "release", level: 1, text: "Release" }]);
     expect(blocks.blocks[0]).toMatchObject({ tag: "h1", startLine: 1, endLine: 1, start: 0 });
+  });
+
+  it("adds the diagram loader to published Markdown with Mermaid blocks, and only then", async () => {
+    const source =
+      "# Flow\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n```ts\nconst a = 1;\n```\n";
+    const result = await publish("markdown", "flow.md", source);
+    const html = (await text((await file(result.versionId, "rendered"))?.sha256 ?? "")) ?? "";
+    expect(html).toContain(`<script>${DIAGRAM_LOADER}</script>`);
+    expect(html).toContain(`script-src ${DIAGRAM_LOADER_HASH} 'strict-dynamic'`);
+    expect(html).toContain('<pre class="pf-mermaid"');
+    expect(html).toContain('<span class="pf-tok-keyword">const</span>');
+    expect(html.match(/<script/g)).toHaveLength(1);
   });
 
   it("renders text literally, with no block map", async () => {
@@ -465,6 +477,15 @@ describe("preview a document", () => {
     expect(html).toContain("<h1");
     expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
     expect(html).toContain("<title>Plan</title>");
+    const diagram = previewDocument({
+      type: "markdown",
+      name: "D",
+      source: "```mermaid\ngraph TD\n```",
+    });
+    // The preview's frame runs no scripts: it shows the diagram's source, highlighted code and
+    // no loader.
+    expect(diagram.ok && diagram.value.html).toContain('<pre class="pf-mermaid"');
+    expect(diagram.ok && diagram.value.html).not.toContain("<script");
     const text = previewDocument({ type: "text", name: "Notes", source: "<script>1</script>" });
     expect(text.ok && text.value.html).toContain("&lt;script&gt;1&lt;/script&gt;");
     expect(text.ok && text.value.html).not.toContain("<script>");

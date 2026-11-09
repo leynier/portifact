@@ -264,6 +264,8 @@ describe("dashboard API client", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      expiryNotices: true,
+      locale: null,
     };
     const at = "2026-11-08T12:00:00.000Z";
     const answers: Record<string, unknown> = {
