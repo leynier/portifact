@@ -14,7 +14,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { BRIDGE_TIMEOUT_MS } from "./review/use-bridge.ts";
-import { FRAME_SANDBOX, REVIEW_TAB_LINK_MS } from "./screens/viewer.tsx";
+import { FRAME_SANDBOX, REVIEW_TAB_LINK_MS, SIDEBAR_STORAGE_KEY } from "./screens/viewer.tsx";
 import {
   artifact,
   choose,
@@ -202,6 +202,44 @@ async function open() {
 }
 
 describe("review viewer", () => {
+  it("remembers in this browser whether the reader keeps the comments open", async () => {
+    window.localStorage.removeItem(SIDEBAR_STORAGE_KEY);
+    try {
+      await open();
+      const toggle = () => screen.getByRole("button", { name: /^Comments/ });
+      expect(toggle().getAttribute("aria-pressed")).toBe("true");
+      fireEvent.click(toggle());
+      expect(toggle().getAttribute("aria-pressed")).toBe("false");
+      expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe("closed");
+
+      // A reload keeps them closed.
+      cleanup();
+      renderDashboard(PATH, server);
+      await screen.findByTitle("Launch plan, published with Portifact");
+      expect(toggle().getAttribute("aria-pressed")).toBe("false");
+      expect(screen.queryByRole("heading", { name: "Thread 1" })).toBeNull();
+
+      fireEvent.click(toggle());
+      await screen.findByRole("heading", { name: "Thread 1" });
+      expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe("open");
+    } finally {
+      window.localStorage.removeItem(SIDEBAR_STORAGE_KEY);
+    }
+  });
+
+  it("opens the comments when storage is unavailable", async () => {
+    // Blocked site data: reading `localStorage` itself throws.
+    const storage = vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    await open();
+    const toggle = screen.getByRole("button", { name: /^Comments/ });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(storage).toHaveBeenCalled();
+  });
+
   it("opens the artifact isolated in a sandboxed frame and lists its threads", async () => {
     const { container } = await open();
     expect(server.requests).toContainEqual({
