@@ -182,6 +182,20 @@ export const en = {
   "accessSettings.bar.label": "Show the Portifact bar",
   "accessSettings.bar.hint":
     "Links open in Portifact's viewer, with the bar on top and the comments beside the artifact. Turn it off for apps and pages that need the whole window; the link then opens the artifact alone.",
+  "accessSettings.comments.legend": "Who sees comments",
+  "accessSettings.comments.owner": "Only you, and each person their own",
+  "accessSettings.comments.owner.hint":
+    "Each person sees the threads they started and the threads you started, with every reply in them. You see every thread.",
+  "accessSettings.comments.everyone": "Everyone who can open the artifact",
+  "accessSettings.comments.everyone.hint":
+    "Everyone who can open the artifact sees every thread and can reply to it.",
+  "accessSettings.comments.exceptions":
+    "You can make an exception for a person you added, in the list below.",
+  "accessSettings.comments.confirm.title": "Show every comment to everyone?",
+  "accessSettings.comments.confirm.body":
+    "Comments already written become visible to everyone who can open the artifact, not only new ones.",
+  "accessSettings.comments.confirm.action": "Show all comments",
+  "accessSettings.cancel": "Cancel",
   "accessSettings.save": "Save access",
   "accessSettings.saved":
     "Access saved. Anyone who can no longer open the artifact loses access within a minute.",
@@ -213,6 +227,17 @@ export const en = {
   "readers.duplicate": "{email} is already on the list.",
   "readers.full": "The list is full: an artifact can have at most {max} people.",
   "readers.failed.title": "The list was not changed",
+  "readers.comments.label": "Comments {email} sees",
+  "readers.comments.inherit.owner": "Default: own and yours",
+  "readers.comments.inherit.everyone": "Default: all comments",
+  "readers.comments.all": "All comments",
+  "readers.comments.own": "Only own and yours",
+  "readers.comments.hint":
+    "The menu beside each person chooses which comments they see. It applies whenever they sign in with that address, in any access mode.",
+  "readers.comments.changed": "{email} now sees: {choice}.",
+  "readers.comments.confirm.title": "Show {email} every comment?",
+  "readers.comments.confirm.body":
+    "{email} will see every thread on this artifact, including comments already written by other people.",
 
   "account.title": "Account",
   "account.description": "How you sign in, where you are signed in and which apps can act for you.",
@@ -669,6 +694,8 @@ export const en = {
     "Element selected in the artifact. Use the Comment button after the artifact to comment on it.",
   "review.inline.label": "Comment on the selection",
   "review.inline.hint": "Enter saves, Shift+Enter adds a line, Escape cancels.",
+  "review.message.edited.hidden":
+    "Your message was saved. You no longer see its thread: the owner changed who sees comments.",
   "review.inline.submit": "Save",
   "review.refused.quote_too_long": "The selection is too long to quote. Select less text.",
   "review.refused.no_selector":
@@ -676,7 +703,9 @@ export const en = {
   "review.refused.other": "That selection cannot be used for a comment.",
   "review.composer.label": "New comment",
   "review.composer.body": "Comment",
-  "review.composer.hint": "Plain text. Everyone who can open this artifact can read it.",
+  "review.composer.hint":
+    "Plain text. The owner of this artifact can read it; the owner chooses whether other readers can too.",
+  "review.composer.hint.owner": "Plain text. Everyone who can open this artifact can read it.",
   "review.composer.submit": "Post comment",
   "review.composer.cancel": "Cancel",
   "review.composer.empty": "Write a comment.",
@@ -732,6 +761,8 @@ export const en = {
     "This message changed somewhere else meanwhile. The latest version is shown; edit it again.",
   "review.reply.label": "Reply to thread {number}",
   "review.reply.body": "Reply",
+  "review.reply.hint.owner":
+    "The owner started this thread, so everyone who can see the comments sees your reply.",
   "review.reply.submit": "Post reply",
   "review.reply.posted": "Reply posted.",
   "review.actionFailed.title": "The action did not finish",

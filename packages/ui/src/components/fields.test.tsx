@@ -174,4 +174,19 @@ describe("Select", () => {
     fireEvent.change(select, { target: { value: "deleted" } });
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("keeps a hidden label as the accessible name", async () => {
+    const { container } = render(
+      <Select
+        label="State of ana"
+        labelVisible={false}
+        value="any"
+        options={options}
+        onChange={() => {}}
+      />,
+    );
+    const select = screen.getByRole("combobox", { name: "State of ana" }) as HTMLSelectElement;
+    expect(select.labels[0]?.className).toBe("sr-only");
+    expect(await axeViolations(container)).toEqual([]);
+  });
 });

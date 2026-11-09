@@ -16,6 +16,21 @@ export type AccessMode = z.infer<typeof AccessMode>;
 export const AnnotationsState = z.enum(["off", "open", "locked"]);
 export type AnnotationsState = z.infer<typeof AnnotationsState>;
 
+/**
+ * Who sees an artifact's comment threads (plan section 8, "Permisos"). `owner`, the default:
+ * each reader sees only the threads they started and the threads the owner started, each with
+ * every reply in it. `everyone`: every reader sees every thread. The owner always sees all.
+ */
+export const CommentVisibility = z.enum(["owner", "everyone"]);
+export type CommentVisibility = z.infer<typeof CommentVisibility>;
+
+/**
+ * Which threads one reader sees: `all`, or only their `own` and the owner's. A reader on the
+ * list may have one set as an exception to the artifact's `CommentVisibility`.
+ */
+export const CommentScope = z.enum(["all", "own"]);
+export type CommentScope = z.infer<typeof CommentScope>;
+
 export const ArtifactState = z.enum([
   "draft",
   "active",

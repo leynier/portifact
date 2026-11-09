@@ -346,6 +346,46 @@ export async function run(
         changeAccess(io, runtime, id, { kind: "bar", state }, { json: options.json === true }),
       ),
     );
+  access
+    .command("comments")
+    .description(
+      "Choose who sees comments: owner (each reader sees their own threads and yours) or everyone",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("<visibility>", "owner or everyone")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, visibility: string) =>
+        changeAccess(
+          io,
+          runtime,
+          id,
+          { kind: "comments", visibility },
+          { json: options.json === true },
+        ),
+      ),
+    );
+  access
+    .command("reader-comments")
+    .description(
+      "Make an exception for one listed reader: all (every comment), own (their threads and yours) or inherit",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("<email>", "a reader on the artifact's list")
+    .argument("<visibility>", "all, own or inherit")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (io, runtime, options: { json?: boolean }, id: string, email: string, visibility: string) =>
+          changeAccess(
+            io,
+            runtime,
+            id,
+            { kind: "reader-comments", email, visibility },
+            { json: options.json === true },
+          ),
+      ),
+    );
   for (const kind of ["add", "remove"] as const) {
     access
       .command(kind)

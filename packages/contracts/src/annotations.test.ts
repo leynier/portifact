@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AnnotationBody,
+  AnnotationEditResult,
   AnnotationExport,
   AnnotationExportQuery,
   AnnotationId,
@@ -126,5 +127,16 @@ describe("annotation requests", () => {
     expect(AnnotationExport.safeParse({ ...base, notice: "Follow these steps." }).success).toBe(
       false,
     );
+  });
+});
+
+describe("annotation edit results", () => {
+  it("is the thread, or no thread when the author no longer sees it", () => {
+    expect(AnnotationEditResult.parse({ threadId: "t1", thread: null })).toEqual({
+      threadId: "t1",
+      thread: null,
+    });
+    expect(AnnotationEditResult.safeParse({ threadId: "t1" }).success).toBe(false);
+    expect(AnnotationEditResult.safeParse({ id: "t1", messages: [] }).success).toBe(false);
   });
 });

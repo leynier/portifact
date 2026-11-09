@@ -335,6 +335,7 @@ describe("portifact annotations list and show", () => {
       "annotations",
       "currentVersionId",
       "role",
+      "commentScope",
       "humanCheck",
       "threads",
       "removed",
@@ -342,6 +343,8 @@ describe("portifact annotations list and show", () => {
     ]);
     expect(page.threads).toHaveLength(52);
     expect(page.role).toBe("owner");
+    expect(page.commentScope).toBe("all");
+    expect(result.stderr).not.toContain("You see only the threads you started");
     expect(page.humanCheck).toBe(false);
     expect(
       server.requests.slice(before).filter((r) => r.path.endsWith("/annotations")),
@@ -416,6 +419,55 @@ describe("portifact annotations list and show", () => {
     expect((await h.invoke("annotations", "list", open.id)).stdout).toContain(
       "has no threads yet.",
     );
+  });
+
+  it("tells a reader who sees only their own threads and the owner's", async () => {
+    const artifact = reviewed();
+    server.annotations.role = "participant";
+    server.annotations.commentScope = "own";
+    const text = await h.invoke("annotations", "list", artifact.id);
+    expect(text.stderr).toContain(
+      "You see only the threads you started and the threads the owner started; the owner chooses who sees the rest.",
+    );
+    const output = await h.invoke("annotations", "list", artifact.id, "--json");
+    expect(json(output)).toMatchObject({ role: "participant", commentScope: "own" });
+  });
+});
+
+describe("portifact annotations on a thread the reader no longer sees", () => {
+  it("edits and deletes the reader's own message and says the thread is not visible", async () => {
+    const artifact = reviewed();
+    const thread = await startThread(artifact);
+    server.annotations.outOfScope.add(thread.id);
+    const messageId = thread.messages[0]?.id ?? "";
+    const edited = await h.invoke(
+      "annotations",
+      "edit",
+      artifact.id,
+      messageId,
+      "--body-file",
+      await bodyFile("Redacted"),
+      "--revision",
+      "1",
+    );
+    expect(edited.code).toBe(0);
+    expect(edited.stdout).toBe(
+      `Edited message ${messageId}.\nYou no longer see thread ${thread.id}: the owner limited who sees comments, or it is gone.\n`,
+    );
+    const json_ = await h.invoke(
+      "annotations",
+      "edit",
+      artifact.id,
+      messageId,
+      "--body-file",
+      await bodyFile("Again"),
+      "--revision",
+      "2",
+      "--json",
+    );
+    expect(json(json_)).toEqual({ threadId: thread.id, thread: null });
+    const deleted = await h.invoke("annotations", "delete", artifact.id, messageId, "--yes");
+    expect(deleted.stdout).toContain(`You no longer see thread ${thread.id}`);
   });
 });
 
@@ -497,7 +549,9 @@ describe("portifact annotations delete, moderate and delete-thread", () => {
     const deleted = await h.invoke("annotations", "delete", artifact.id, messageId, "--yes");
     expect(deleted.code).toBe(0);
     expect(deleted.stdout).toContain(`Deleted message ${messageId}.`);
-    expect(deleted.stdout).toContain(`Thread ${thread.id} has no messages left and is gone.`);
+    expect(deleted.stdout).toContain(
+      `You no longer see thread ${thread.id}: the owner limited who sees comments, or it is gone.`,
+    );
   });
 
   it("deletes after typing delete at the prompt and cancels otherwise", async () => {
@@ -738,6 +792,7 @@ describe("text formatting", () => {
     state: "open" as const,
     author: null,
     own: false,
+    byOwner: false,
     revision: 1,
     createdAt: "2026-11-08T12:00:00.000Z",
     updatedAt: "2026-11-08T12:00:00.000Z",

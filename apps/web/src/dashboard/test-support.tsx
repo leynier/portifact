@@ -14,6 +14,7 @@ import {
   ArtifactListQuery,
   type ArtifactSummary,
   type BrowserSession,
+  type CommentScope,
   type ConnectedApp,
   DocumentPreviewRequest,
   type ErrorCode,
@@ -240,6 +241,10 @@ function fakeStorage(): FakeStorage {
 export interface FakeAnnotations {
   mode: AnnotationsState;
   role: AnnotationRole;
+  /** Which threads the caller sees; `all` unless a test narrows it. */
+  commentScope?: CommentScope;
+  /** Threads the caller no longer sees: an edit of their own message there answers no thread. */
+  outOfScope?: string[];
   currentVersionId: string;
   threads: (AnnotationThreadView & { seq: number })[];
   deleted: { id: string; seq: number }[];
@@ -278,6 +283,7 @@ export function fakeThread(
     state: "open",
     author: { id: "u-bea", name: "Bea", image: null },
     own: false,
+    byOwner: false,
     revision: 1,
     createdAt: NOW,
     updatedAt: NOW,
@@ -758,6 +764,8 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       indexable: false,
       embeddable: false,
       bar: true,
+      commentVisibility: "owner",
+      readerCommentVisibility: [],
       policyGeneration: 1,
     };
     server.access[owned.id] = policy;
@@ -918,6 +926,7 @@ function reviewRoute(
       annotations: store.mode,
       currentVersionId: store.currentVersionId,
       role: store.role,
+      commentScope: store.commentScope ?? "all",
       humanCheck: store.role === "participant" && (store.humanChecks ?? 0) > 0,
       threads: store.threads.filter((t) => t.seq > since && scoped(t)).map(view),
       removed: since > 0 ? store.deleted.filter((d) => d.seq > since).map((d) => d.id) : [],
@@ -1016,6 +1025,7 @@ function reviewRoute(
       message.revision += 1;
       message.editedAt = NOW;
       touch(t);
+      if (store.outOfScope?.includes(t.id)) return Response.json({ threadId: t.id, thread: null });
       return Response.json(view(t));
     }
   }
@@ -1040,18 +1050,43 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
   if (!change.success) {
     return Response.json({ error: { code: "invalid_input", message: "x" } }, { status: 400 });
   }
-  const { mode, indexable, embeddable, bar, addReaders = [], removeReaders = [] } = change.data;
+  const {
+    mode,
+    indexable,
+    embeddable,
+    bar,
+    commentVisibility,
+    addReaders = [],
+    removeReaders = [],
+    readerCommentVisibility = [],
+  } = change.data;
   const readers = new Set(policy.readers.filter((email) => !removeReaders.includes(email)));
   for (const email of addReaders) readers.add(email);
   if (readers.size > LIMITS.readersPerArtifact) {
     return Response.json({ error: { code: "quota_exceeded", message: "x" } }, { status: 429 });
+  }
+  const exceptions = new Map(
+    policy.readerCommentVisibility
+      .filter((entry) => readers.has(entry.email))
+      .map((entry) => [entry.email, entry.commentVisibility]),
+  );
+  for (const entry of readerCommentVisibility) {
+    if (!readers.has(entry.email)) {
+      return Response.json({ error: { code: "invalid_input", message: "x" } }, { status: 400 });
+    }
+    if (entry.commentVisibility === "inherit") exceptions.delete(entry.email);
+    else exceptions.set(entry.email, entry.commentVisibility);
   }
   Object.assign(policy, {
     mode: mode ?? policy.mode,
     indexable: indexable ?? policy.indexable,
     embeddable: embeddable ?? policy.embeddable,
     bar: bar ?? policy.bar,
+    commentVisibility: commentVisibility ?? policy.commentVisibility,
     readers: [...readers].sort(),
+    readerCommentVisibility: [...exceptions]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([email, scope]) => ({ email, commentVisibility: scope })),
     policyGeneration: policy.policyGeneration + 1,
   });
   artifact.accessMode = policy.mode;

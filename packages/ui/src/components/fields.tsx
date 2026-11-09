@@ -121,6 +121,11 @@ export interface SelectProps<T extends string = string>
     "className" | "id" | "value" | "onChange" | "multiple" | "children"
   > {
   label: string;
+  /**
+   * Show the label (the default). Hide it only where the surroundings already say what the
+   * choice is about, such as a row of a list; assistive technology still reads it.
+   */
+  labelVisible?: boolean;
   description?: ReactNode;
   error?: string | undefined;
   value: T;
@@ -134,6 +139,7 @@ export interface SelectProps<T extends string = string>
  */
 export function Select<T extends string = string>({
   label,
+  labelVisible = true,
   description,
   error,
   value,
@@ -146,7 +152,7 @@ export function Select<T extends string = string>({
   const errorId = `${id}-error`;
   return (
     <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="text-sm font-medium">
+      <label htmlFor={id} className={labelVisible ? "text-sm font-medium" : "sr-only"}>
         {label}
       </label>
       {description ? (

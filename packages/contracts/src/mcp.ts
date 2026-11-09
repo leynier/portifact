@@ -1,9 +1,20 @@
 // Inputs of the remote MCP tools (plan section 6). Outputs are the `/api/v1` shapes, so an
 // agent reads the same fields the CLI and the dashboard read.
 import { z } from "zod";
-import { AccessMode, AnnotationsState, ArtifactId, ArtifactType } from "./core.ts";
+import {
+  AccessMode,
+  AnnotationsState,
+  ArtifactId,
+  ArtifactType,
+  CommentVisibility,
+} from "./core.ts";
 import { LIMITS } from "./limits.ts";
-import { IdempotencyKey, LIST_SEARCH_MAX, ListedArtifactState } from "./publishing.ts";
+import {
+  IdempotencyKey,
+  LIST_SEARCH_MAX,
+  ListedArtifactState,
+  ReaderCommentVisibility,
+} from "./publishing.ts";
 
 const artifactId = ArtifactId.describe(
   "The artifact ID, as list_artifacts or get_artifact return it.",
@@ -96,3 +107,26 @@ export const SetPortifactBarInput = z.object({
     ),
 });
 export type SetPortifactBarInput = z.infer<typeof SetPortifactBarInput>;
+
+/** Who sees comments, and exceptions for readers on the list; validated as an `AccessUpdate`. */
+export const SetCommentVisibilityInput = z.object({
+  artifactId,
+  commentVisibility: CommentVisibility.optional().describe(
+    "owner (the default): each reader sees only the threads they started and the threads the owner started, with every reply in them. everyone: every reader sees every thread. The owner always sees all.",
+  ),
+  readerCommentVisibility: z
+    .array(
+      z.object({
+        email: z.string().max(254).describe("A reader already on the artifact's reader list."),
+        commentVisibility: ReaderCommentVisibility.describe(
+          "all: every thread. own: only their threads and the owner's. inherit: follow commentVisibility again.",
+        ),
+      }),
+    )
+    .max(LIMITS.readersPerChange)
+    .optional()
+    .describe(
+      "Exceptions for readers on the list. They apply to whoever signs in with that verified address, in any access mode.",
+    ),
+});
+export type SetCommentVisibilityInput = z.infer<typeof SetCommentVisibilityInput>;

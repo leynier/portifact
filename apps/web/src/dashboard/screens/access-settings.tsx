@@ -1,19 +1,31 @@
 // The access section of the artifact page (plan section 6, "Acceso"): the three modes with who
-// each lets in, the reader list, indexing and embedding. The API applies the rules (account age
-// for public, the reader cap, the policy generation); this explains them and shows its answers.
+// each lets in, the reader list, indexing, embedding and who sees the comments (plan section 8,
+// with an exception per reader). The API applies the rules (account age for public, the reader
+// cap, the policy generation); this explains them and shows its answers.
 import {
   type AccessMode,
   type AccessPolicyView,
   type AccessUpdate,
   type ArtifactSummary,
+  type CommentVisibility,
   Email,
   LIMITS,
+  type ReaderCommentVisibility,
 } from "@portifact/contracts";
-import { Button, Callout, LoadingState, Panel } from "@portifact/ui";
+import { Button, Callout, ConfirmDialog, LoadingState, Panel, Select } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Info, RefreshCw, Save, UserMinus, UserPlus, UsersRound } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  CircleAlert,
+  Eye,
+  Info,
+  RefreshCw,
+  Save,
+  UserMinus,
+  UserPlus,
+  UsersRound,
+} from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
@@ -23,6 +35,7 @@ export const accessQuery = (artifactId: string) => ["artifact", artifactId, "acc
 
 const MINUTE_MS = 60_000;
 const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
+const COMMENT_VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
 
 /** When the account may first make an artifact public, or null when that is not known. */
 export function publicAvailableFrom(account: Account | null | undefined): Date | null {
@@ -128,6 +141,15 @@ function AccessEditor({
   const suspended = artifact.state === "suspended";
   const settings = useAccessChange(artifact.id);
   const readers = useAccessChange(artifact.id);
+  // A change that shows every comment to everyone waits here for the owner's confirmation.
+  const [widening, setWidening] = useState<AccessUpdate | null>(null);
+  const saveSettings = async (update: AccessUpdate) => {
+    // On failure the callout above, an alert, says why.
+    await settings.mutateAsync(update).then(
+      () => announce(t("accessSettings.saved")),
+      () => {},
+    );
+  };
 
   return (
     <div className="flex flex-col gap-8">
@@ -148,7 +170,7 @@ function AccessEditor({
         ) : null}
         <SettingsForm
           // Start over from the server's values whenever they change, such as after a conflict.
-          key={`${policy.mode}:${policy.indexable}:${policy.embeddable}:${policy.bar}`}
+          key={`${policy.mode}:${policy.indexable}:${policy.embeddable}:${policy.bar}:${policy.commentVisibility}`}
           policy={policy}
           disabled={suspended}
           busy={settings.isPending}
@@ -157,13 +179,30 @@ function AccessEditor({
               announce(t("accessSettings.unchanged"));
               return;
             }
-            // On failure the callout above, an alert, says why.
-            await settings.mutateAsync(update).then(
-              () => announce(t("accessSettings.saved")),
-              () => {},
-            );
+            // Widening is retroactive: every comment already written becomes visible.
+            if (update.commentVisibility === "everyone") {
+              setWidening(update);
+              return;
+            }
+            await saveSettings(update);
           }}
         />
+        <ConfirmDialog
+          open={widening !== null}
+          title={t("accessSettings.comments.confirm.title")}
+          confirmLabel={t("accessSettings.comments.confirm.action")}
+          cancelLabel={t("accessSettings.cancel")}
+          confirmIcon={<Eye className="size-4" />}
+          busy={settings.isPending}
+          onConfirm={() => {
+            const update = widening;
+            setWidening(null);
+            if (update) void saveSettings(update);
+          }}
+          onCancel={() => setWidening(null)}
+        >
+          {t("accessSettings.comments.confirm.body")}
+        </ConfirmDialog>
       </div>
       <Readers
         policy={policy}
@@ -189,6 +228,7 @@ interface SettingsValues {
   indexable: boolean;
   embeddable: boolean;
   bar: boolean;
+  commentVisibility: CommentVisibility;
 }
 
 /** The fields that differ from the current policy, or undefined when nothing changed. */
@@ -201,6 +241,9 @@ export function settingsChange(
     ...(values.indexable === policy.indexable ? {} : { indexable: values.indexable }),
     ...(values.embeddable === policy.embeddable ? {} : { embeddable: values.embeddable }),
     ...(values.bar === policy.bar ? {} : { bar: values.bar }),
+    ...(values.commentVisibility === policy.commentVisibility
+      ? {}
+      : { commentVisibility: values.commentVisibility }),
   };
   return Object.keys(update).length > 0 ? update : undefined;
 }
@@ -230,6 +273,7 @@ function SettingsForm({
       indexable: policy.indexable,
       embeddable: policy.embeddable,
       bar: policy.bar,
+      commentVisibility: policy.commentVisibility,
     } as SettingsValues,
     onSubmit: ({ value }) => onSave(settingsChange(policy, value)),
   });
@@ -296,6 +340,22 @@ function SettingsForm({
               )}
             </form.AppField>
           </div>
+          <div className="flex flex-col gap-2">
+            <form.AppField name="commentVisibility">
+              {(field) => (
+                <field.RadioGroupField
+                  legend={t("accessSettings.comments.legend")}
+                  options={COMMENT_VISIBILITIES.map((value) => ({
+                    value,
+                    label: t(`accessSettings.comments.${value}`),
+                    description: t(`accessSettings.comments.${value}.hint`),
+                  }))}
+                  disabled={disabled}
+                />
+              )}
+            </form.AppField>
+            <p className="text-sm text-text-muted">{t("accessSettings.comments.exceptions")}</p>
+          </div>
           <div>
             <form.SubmitButton icon={<Save className="size-4" />} busy={busy} disabled={disabled}>
               {t("accessSettings.save")}
@@ -333,6 +393,7 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
         </p>
       </div>
       <p className="mt-1 text-sm text-text-muted">{t("readers.hint")}</p>
+      <p className="mt-1 text-sm text-text-muted">{t("readers.comments.hint")}</p>
       {error ? (
         <div className="mt-4">
           <Callout
@@ -356,7 +417,15 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
         >
           {policy.readers.map((email) => (
             <li key={email} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
-              <span className="min-w-0 text-sm break-all">{email}</span>
+              <span className="min-w-0 flex-1 text-sm break-all">{email}</span>
+              <div className="w-56 max-w-full">
+                <ReaderComments
+                  email={email}
+                  policy={policy}
+                  disabled={disabled || pending !== undefined}
+                  onChange={onChange}
+                />
+              </div>
               <Button
                 intent="ghost"
                 size="sm"
@@ -384,6 +453,70 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
         />
       </div>
     </section>
+  );
+}
+
+/** One reader's exception to who sees comments, sent as soon as it changes. */
+function ReaderComments({
+  email,
+  policy,
+  disabled,
+  onChange,
+}: {
+  email: string;
+  policy: AccessPolicyView;
+  disabled: boolean;
+  onChange: ReadersProps["onChange"];
+}) {
+  const t = useT();
+  const [widening, setWidening] = useState<ReaderCommentVisibility | null>(null);
+  const current: ReaderCommentVisibility =
+    policy.readerCommentVisibility.find((entry) => entry.email === email)?.commentVisibility ??
+    "inherit";
+  const label = (choice: ReaderCommentVisibility) =>
+    choice === "inherit"
+      ? t(`readers.comments.inherit.${policy.commentVisibility}`)
+      : t(`readers.comments.${choice}`);
+  const sees = (choice: ReaderCommentVisibility) =>
+    choice === "inherit" ? (policy.commentVisibility === "everyone" ? "all" : "own") : choice;
+  const send = (choice: ReaderCommentVisibility) =>
+    onChange(
+      { readerCommentVisibility: [{ email, commentVisibility: choice }] },
+      t("readers.comments.changed", { email, choice: label(choice) }),
+    );
+  return (
+    <>
+      <Select<ReaderCommentVisibility>
+        label={t("readers.comments.label", { email })}
+        labelVisible={false}
+        value={current}
+        options={(["inherit", "all", "own"] as const).map((value) => ({
+          value,
+          label: label(value),
+        }))}
+        disabled={disabled}
+        onChange={(choice) => {
+          // Showing every comment is retroactive, so it waits for a confirmation.
+          if (sees(choice) === "all" && sees(current) === "own") setWidening(choice);
+          else void send(choice);
+        }}
+      />
+      <ConfirmDialog
+        open={widening !== null}
+        title={t("readers.comments.confirm.title", { email })}
+        confirmLabel={t("accessSettings.comments.confirm.action")}
+        cancelLabel={t("accessSettings.cancel")}
+        confirmIcon={<Eye className="size-4" />}
+        onConfirm={() => {
+          const choice = widening;
+          setWidening(null);
+          if (choice) void send(choice);
+        }}
+        onCancel={() => setWidening(null)}
+      >
+        {t("readers.comments.confirm.body", { email })}
+      </ConfirmDialog>
+    </>
   );
 }
 

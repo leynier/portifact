@@ -1,7 +1,14 @@
 // The owner's access policy of an artifact (plan section 5): read it, and change the mode, the
-// reader list, indexing, embedding and the Portifact bar in one transaction. Every change but the
-// bar bumps the policy generation, which read sessions carry, so a revocation applies quickly.
-import { type AccessMode, LIMITS } from "@portifact/contracts";
+// reader list, indexing, embedding, the Portifact bar and who sees the comments (plan section 8)
+// in one transaction. Every change but the bar and comment visibility bumps the policy
+// generation, which read sessions carry, so a revocation applies quickly.
+import {
+  type AccessMode,
+  type CommentScope,
+  type CommentVisibility,
+  LIMITS,
+  type ReaderCommentVisibility,
+} from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { checkAccessChange, fail, ok, type Result } from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -13,6 +20,9 @@ export interface AccessPolicyState {
   indexable: boolean;
   embeddable: boolean;
   bar: boolean;
+  commentVisibility: CommentVisibility;
+  /** Readers with an exception to `commentVisibility`, by address. */
+  readerCommentVisibility: { email: string; commentVisibility: CommentScope }[];
   policyGeneration: number;
 }
 
@@ -24,12 +34,18 @@ export interface AccessChange {
   /** Lowercased email addresses. */
   addReaders?: readonly string[] | undefined;
   removeReaders?: readonly string[] | undefined;
+  commentVisibility?: CommentVisibility | undefined;
+  /** Exceptions for readers on the list after this change; `inherit` drops one. */
+  readerCommentVisibility?:
+    | readonly { email: string; commentVisibility: ReaderCommentVisibility }[]
+    | undefined;
 }
 
 /**
  * Whether a change can narrow or widen who reads or how the artifact is delivered to other
- * sites. Only those end read and review sessions (the generation moves); the Portifact bar
- * changes neither, so turning it on or off keeps every reader's sessions. The update is still
+ * sites. Only those end read and review sessions (the generation moves); the Portifact bar and
+ * who sees the comments change neither, so they keep every reader's sessions (the annotation
+ * services check comment visibility on every request and inside every write). The update is still
  * conditioned on the generation read, so it conflicts with a concurrent access change.
  */
 function changesAccess(change: AccessChange): boolean {
@@ -54,13 +70,19 @@ async function loadOwned(db: Db, ownerId: string, artifactId: string) {
   return artifact;
 }
 
-async function readers(db: Db, artifactId: string): Promise<string[]> {
-  const rows = await db
-    .select({ email: schema.artifactReaders.email })
+async function readerRows(db: Db, artifactId: string) {
+  return db
+    .select({
+      email: schema.artifactReaders.email,
+      commentVisibility: schema.artifactReaders.commentVisibility,
+    })
     .from(schema.artifactReaders)
     .where(eq(schema.artifactReaders.artifactId, artifactId))
     .orderBy(schema.artifactReaders.email);
-  return rows.map((row) => row.email);
+}
+
+async function readers(db: Db, artifactId: string): Promise<string[]> {
+  return (await readerRows(db, artifactId)).map((row) => row.email);
 }
 
 export async function getAccess(
@@ -69,12 +91,19 @@ export async function getAccess(
 ): Promise<Result<AccessPolicyState>> {
   const artifact = await loadOwned(db, input.ownerId, input.artifactId);
   if (!artifact) return fail("not_found", "Artifact not found.");
+  const rows = await readerRows(db, artifact.id);
   return ok({
     mode: artifact.accessMode,
-    readers: await readers(db, artifact.id),
+    readers: rows.map((row) => row.email),
     indexable: artifact.indexable,
     embeddable: artifact.embeddable,
     bar: artifact.bar,
+    commentVisibility: artifact.commentVisibility,
+    readerCommentVisibility: rows.flatMap((row) =>
+      row.commentVisibility === null
+        ? []
+        : [{ email: row.email, commentVisibility: row.commentVisibility }],
+    ),
     policyGeneration: artifact.policyGeneration,
   });
 }
@@ -110,13 +139,22 @@ export async function updateAccess(
   }
   const add = [...new Set(change.addReaders ?? [])];
   const remove = [...new Set(change.removeReaders ?? [])].filter((email) => !add.includes(email));
-  if (add.length > 0) {
+  const exceptions = change.readerCommentVisibility ?? [];
+  if (add.length > 0 || exceptions.length > 0) {
     const current = await readers(db, artifact.id);
-    const total = new Set([...current.filter((email) => !remove.includes(email)), ...add]).size;
-    if (total > LIMITS.readersPerArtifact) {
+    const after = new Set([...current.filter((email) => !remove.includes(email)), ...add]);
+    if (after.size > LIMITS.readersPerArtifact) {
       return fail(
         "quota_exceeded",
         `An artifact can list at most ${LIMITS.readersPerArtifact} readers.`,
+      );
+    }
+    // An exception belongs to a reader on the list; it never adds one.
+    const unlisted = exceptions.find((entry) => !after.has(entry.email));
+    if (unlisted) {
+      return fail(
+        "invalid_input",
+        `${unlisted.email} is not on the reader list. Add the reader before choosing what they see.`,
       );
     }
   }
@@ -142,8 +180,24 @@ export async function updateAccess(
     ...add.map((email) =>
       db
         .insert(schema.artifactReaders)
-        .select(sql`select ${artifact.id}, ${email}, ${input.now} where ${unchanged}`)
+        // Columns in schema order: artifact, email, created, comment visibility (inherited).
+        .select(sql`select ${artifact.id}, ${email}, ${input.now}, null where ${unchanged}`)
         .onConflictDoNothing(),
+    ),
+    // After the inserts, so an exception can go with the reader it is for.
+    ...exceptions.map((entry) =>
+      db
+        .update(schema.artifactReaders)
+        .set({
+          commentVisibility: entry.commentVisibility === "inherit" ? null : entry.commentVisibility,
+        })
+        .where(
+          and(
+            eq(schema.artifactReaders.artifactId, artifact.id),
+            eq(schema.artifactReaders.email, entry.email),
+            unchanged,
+          ),
+        ),
     ),
     db
       .update(schema.artifacts)
@@ -152,6 +206,9 @@ export async function updateAccess(
         ...(change.indexable === undefined ? {} : { indexable: change.indexable }),
         ...(change.embeddable === undefined ? {} : { embeddable: change.embeddable }),
         ...(change.bar === undefined ? {} : { bar: change.bar }),
+        ...(change.commentVisibility === undefined
+          ? {}
+          : { commentVisibility: change.commentVisibility }),
         policyGeneration: artifact.policyGeneration + (changesAccess(change) ? 1 : 0),
         updatedAt: input.now,
       })
@@ -178,6 +235,8 @@ export async function updateAccess(
       ...(change.mode ? { mode: change.mode } : {}),
       added: add.length,
       removed: remove.length,
+      ...(change.commentVisibility ? { commentVisibility: change.commentVisibility } : {}),
+      ...(exceptions.length > 0 ? { readerExceptions: exceptions.length } : {}),
     },
     at: input.now,
   });

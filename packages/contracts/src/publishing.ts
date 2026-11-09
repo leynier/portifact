@@ -7,6 +7,8 @@ import {
   ArtifactId,
   ArtifactState,
   ArtifactType,
+  CommentScope,
+  CommentVisibility,
   Email,
   type ErrorCode,
 } from "./core.ts";
@@ -235,10 +237,23 @@ export const AccessPolicyView = z.object({
    * app.portifact.com, with the bar and the comments sidebar. Off, they get the artifact itself.
    */
   bar: z.boolean(),
+  /** Who sees the comment threads; the owner always sees all of them. */
+  commentVisibility: CommentVisibility,
+  /**
+   * Readers with an exception to `commentVisibility`, by address: `all` threads or only their
+   * `own` and the owner's. Readers not listed here follow `commentVisibility`.
+   */
+  readerCommentVisibility: z.array(
+    z.object({ email: z.string(), commentVisibility: CommentScope }),
+  ),
   /** Increases on every change; read sessions issued before it stop working. */
   policyGeneration: z.number().int().min(1),
 });
 export type AccessPolicyView = z.infer<typeof AccessPolicyView>;
+
+/** A reader's exception to who sees comments, or `inherit` to drop it. */
+export const ReaderCommentVisibility = z.enum([...CommentScope.options, "inherit"]);
+export type ReaderCommentVisibility = z.infer<typeof ReaderCommentVisibility>;
 
 /** A change to the access policy. Applying the same change twice leaves the same policy. */
 export const AccessUpdate = z
@@ -249,10 +264,26 @@ export const AccessUpdate = z
     bar: z.boolean().optional(),
     addReaders: z.array(Email).max(LIMITS.readersPerChange).optional(),
     removeReaders: z.array(Email).max(LIMITS.readersPerChange).optional(),
+    commentVisibility: CommentVisibility.optional(),
+    /**
+     * Exceptions for readers on the list (added in the same change or before): `all`, `own`,
+     * or `inherit` to follow `commentVisibility` again. One entry per address.
+     */
+    readerCommentVisibility: z
+      .array(z.object({ email: Email, commentVisibility: ReaderCommentVisibility }))
+      .max(LIMITS.readersPerChange)
+      .optional(),
   })
   .refine((update) => Object.values(update).some((value) => value !== undefined), {
     message: "Send at least one change.",
-  });
+  })
+  .refine(
+    (update) => {
+      const emails = (update.readerCommentVisibility ?? []).map((entry) => entry.email);
+      return new Set(emails).size === emails.length;
+    },
+    { message: "Send one comment visibility per reader.", path: ["readerCommentVisibility"] },
+  );
 export type AccessUpdate = z.infer<typeof AccessUpdate>;
 
 /** `Idempotency-Key` header of retryable mutations. */

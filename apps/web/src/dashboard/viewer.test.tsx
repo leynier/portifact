@@ -591,6 +591,40 @@ describe("review viewer", () => {
     expect(server.requests.at(-1)?.path).toBe(`/api/v1/artifacts/${ID}/annotations?cursor=2`);
   });
 
+  it("starts over when the caller's comment scope changes, dropping threads it no longer shows", async () => {
+    const { queryClient } = await open();
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    expect(screen.getByText("Secret feedback for the owner")).toBeTruthy();
+    // The owner narrowed who sees comments: the server lists fewer threads and a new scope.
+    store.commentScope = "own";
+    store.threads.splice(0, 1);
+    store.seq += 1;
+    await act(() => queryClient.invalidateQueries({ queryKey: ["annotations", ID] }));
+    await waitFor(() => expect(screen.queryByText("Secret feedback for the owner")).toBeNull());
+    expect(server.requests.at(-1)?.path).toBe(`/api/v1/artifacts/${ID}/annotations`);
+  });
+
+  it.each([
+    [
+      "participant",
+      "The owner of this artifact can read it; the owner chooses whether other readers can too.",
+    ],
+    ["owner", "Everyone who can open this artifact can read it."],
+  ] as const)("tells the %s who can read a new comment", async (role, note) => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.role = role;
+    await open();
+    const nonce = await connect();
+    // In the inline composer next to the selection, and in the sidebar's general comment.
+    const panel = await commentInline(nonce);
+    expect(within(panel).getByRole("form", { name: "New comment" }).textContent).toContain(note);
+    fireEvent.click(within(panel).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Comment on the page" }));
+    expect(screen.getByRole("form", { name: "New comment" }).textContent).toContain(note);
+  });
+
   it("renders bodies and quotes as text, never as markup", async () => {
     const store = server.annotations[ID];
     store?.threads.push({
@@ -625,6 +659,27 @@ describe("thread actions", () => {
     await within(thread).findByRole("button", { name: "Resolve" });
   });
 
+  it("says in the reply box when every reader sees the thread: the owner started it", async () => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.role = "participant";
+    const first = store.threads[0];
+    if (first) first.byOwner = true;
+    await open();
+    const ownerThread = screen.getByRole("article", { name: "Thread 1" });
+    fireEvent.click(within(ownerThread).getByRole("button", { name: "Reply" }));
+    const form = within(ownerThread).getByRole("form", { name: "Reply to thread 1" });
+    expect(within(form).getByRole("textbox", { name: "Reply" })).toBeTruthy();
+    expect(form.textContent).toContain(
+      "The owner started this thread, so everyone who can see the comments sees your reply.",
+    );
+    const other = screen.getByRole("article", { name: "Thread 2" });
+    fireEvent.click(within(other).getByRole("button", { name: "Reply" }));
+    expect(
+      within(other).getByRole("form", { name: "Reply to thread 2" }).textContent,
+    ).not.toContain("The owner started this thread");
+  });
+
   it("edits your own message in place, marks it edited and sends the revision it started from", async () => {
     const store = server.annotations[ID];
     const own = fakeMessage({ id: "m-own", own: true, body: "Frist draft", revision: 2 });
@@ -654,6 +709,28 @@ describe("thread actions", () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(within(thread).getByRole("button", { name: "Edit" })),
     );
+  });
+
+  it("drops the thread when an edit lands in a thread the reader no longer sees", async () => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.role = "participant";
+    store.threads[0]?.messages.push(fakeMessage({ id: "m-own", own: true, body: "Mine" }));
+    // The owner narrowed who sees comments after the viewer loaded the thread.
+    store.outOfScope = [store.threads[0]?.id ?? ""];
+    await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    fireEvent.click(within(thread).getByRole("button", { name: "Edit" }));
+    const form = within(thread).getByRole("form", { name: "Edit your message" });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), {
+      target: { value: "Redacted" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await screen.findByText(
+      "Your message was saved. You no longer see its thread: the owner changed who sees comments.",
+    );
+    await waitFor(() => expect(screen.queryByText("Secret feedback for the owner")).toBeNull());
+    expect(server.bodies.at(-1)).toEqual({ body: "Redacted", revision: 1 });
   });
 
   it("cancels an edit, and reloads the message when it changed elsewhere meanwhile", async () => {

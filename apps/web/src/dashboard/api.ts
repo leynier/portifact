@@ -8,6 +8,7 @@ import {
   AccountDeletionResult,
   AccountUsageView,
   AnnotationDeleteResult,
+  AnnotationEditResult,
   AnnotationExport,
   type AnnotationExportQuery,
   AnnotationModeView,
@@ -165,7 +166,7 @@ export interface DashboardApi {
     artifactId: string,
     messageId: string,
     request: EditMessageRequest,
-  ): Promise<AnnotationThreadView>;
+  ): Promise<AnnotationEditResult>;
   moderateMessage(
     artifactId: string,
     messageId: string,
@@ -437,7 +438,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     editMessage(artifactId, messageId, request) {
       return call(
         `${annotationsPath(artifactId)}/messages/${encodeURIComponent(messageId)}`,
-        AnnotationThreadView,
+        AnnotationEditResult,
         "PATCH",
         request,
       );

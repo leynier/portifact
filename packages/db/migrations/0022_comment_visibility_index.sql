@@ -1,0 +1,1 @@
+CREATE INDEX `annotation_events_artifact_kind_actor_idx` ON `annotation_events` (`artifact_id`,`kind`,`actor_id`,`thread_id`);

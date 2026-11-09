@@ -826,6 +826,7 @@ function ReviewSession({
             <FloatingPanel label={t("review.inline.label")} sheet={sheet}>
               <InlineComposer
                 start={start}
+                owner={data?.role === "owner"}
                 target={draft.target}
                 humanNeeded={humanNeeded}
                 onDone={(thread) => {
@@ -890,6 +891,7 @@ function ReviewSession({
         <Composer
           key={draft.id}
           start={start}
+          owner={data?.role === "owner"}
           target={draft.target}
           humanNeeded={humanNeeded}
           onDone={(thread) => {
@@ -1206,14 +1208,20 @@ function useCreateThread(
   return { form, post, human, error };
 }
 
+/** Who can read a new thread: every reader sees the owner's threads; a reader's, the owner. */
+const visibilityHint = (owner: boolean) =>
+  owner ? "review.composer.hint.owner" : "review.composer.hint";
+
 /** The sidebar's composer: general comments on the page the frame shows. */
 function Composer({
   start,
+  owner,
   target: initialTarget,
   humanNeeded,
   onDone,
 }: {
   start: ReviewStart;
+  owner: boolean;
   target: AnnotationTarget;
   humanNeeded: boolean;
   onDone(thread: AnnotationThreadView | null): void;
@@ -1233,7 +1241,7 @@ function Composer({
               {(field) => (
                 <field.TextAreaField
                   label={t("review.composer.body")}
-                  description={t("review.composer.hint")}
+                  description={t(visibilityHint(owner))}
                   autoFocus
                 />
               )}
@@ -1275,11 +1283,14 @@ function submitOnEnter(onEscape: () => void) {
  */
 function InlineComposer({
   start,
+  owner,
   target: initialTarget,
   humanNeeded,
   onDone,
 }: {
   start: ReviewStart;
+  /** Who can read a new thread differs: every reader sees the owner's threads. */
+  owner: boolean;
   target: AnnotationTarget;
   humanNeeded: boolean;
   onDone(thread: AnnotationThreadView | null): void;
@@ -1323,7 +1334,7 @@ function InlineComposer({
               {(field) => (
                 <field.TextAreaField
                   label={t("review.composer.body")}
-                  description={t("review.inline.hint")}
+                  description={`${t(visibilityHint(owner))} ${t("review.inline.hint")}`}
                   rows={3}
                   compact
                   onKeyDown={submitOnEnter(() => onDone(null))}
@@ -1730,6 +1741,7 @@ function ThreadItem({
           <ReplyForm
             artifactId={start.artifactId}
             threadId={thread.id}
+            byOwner={thread.byOwner}
             number={number}
             humanNeeded={state.humanCheck}
             onDone={() => setReplying(false)}
@@ -1836,12 +1848,15 @@ function MessageItem({
 function ReplyForm({
   artifactId,
   threadId,
+  byOwner,
   number,
   humanNeeded,
   onDone,
 }: {
   artifactId: string;
   threadId: string;
+  /** The owner started the thread, so every reader who sees comments sees the reply. */
+  byOwner: boolean;
   number: number;
   humanNeeded: boolean;
   onDone(): void;
@@ -1878,7 +1893,14 @@ function ReplyForm({
         <form.Form label={t("review.reply.label", { number })}>
           <div className="flex flex-col gap-2">
             <form.AppField name="body">
-              {(field) => <field.TextAreaField label={t("review.reply.body")} rows={3} autoFocus />}
+              {(field) => (
+                <field.TextAreaField
+                  label={t("review.reply.body")}
+                  description={byOwner ? t("review.reply.hint.owner") : undefined}
+                  rows={3}
+                  autoFocus
+                />
+              )}
             </form.AppField>
             {human.field}
             <div className="flex flex-wrap gap-2">
@@ -1917,9 +1939,15 @@ function EditForm({
   const edit = useMutation({
     mutationFn: (body: string) =>
       api.editMessage(artifactId, message.id, { body, revision: revision.current }),
-    onSuccess: (thread) => {
-      applyThread(queryClient, artifactId, thread);
-      announce(t("review.message.edited.done"));
+    onSuccess: (result) => {
+      if ("thread" in result && result.thread === null) {
+        // Saved in a thread the reader no longer sees: the owner narrowed who sees comments.
+        dropThread(queryClient, artifactId, result.threadId);
+        announce(t("review.message.edited.hidden"));
+      } else {
+        applyThread(queryClient, artifactId, result as AnnotationThreadView);
+        announce(t("review.message.edited.done"));
+      }
       onDone();
     },
     onError: async (error) => {

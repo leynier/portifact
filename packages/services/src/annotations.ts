@@ -12,11 +12,18 @@
 // threads, so a new version or a rollback needs no hook here: what is current follows
 // `artifacts.current_version_id`.
 //
+// Who sees which threads (`commentScope` in the domain): every read path (list, get by ID,
+// export, refresh cursors and `removed`) and every write that names a thread or message filters
+// by the caller's scope, so a thread outside it answers exactly like a missing one. Writes on
+// someone else's thread re-check the scope inside the batch, so narrowing the visibility wins
+// over a reply in flight.
+//
 // Bodies are untrusted plain text and are never logged.
 import {
   ANNOTATION_LIMITS,
   type AnnotationAuthor,
   type AnnotationDeleteResult,
+  type AnnotationEditResult,
   type AnnotationExport,
   type AnnotationMessageView,
   type AnnotationPage,
@@ -26,6 +33,7 @@ import {
   type AnnotationThreadView,
   type AnnotationVersionFilter,
   type ArtifactState,
+  type CommentScope,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   utf8Length,
 } from "@portifact/contracts";
@@ -45,6 +53,7 @@ import {
   checkHumanVerdict,
   checkResolve,
   checkThreadWritable,
+  commentScope,
   effectiveState,
   fail,
   type HumanVerdict,
@@ -54,6 +63,7 @@ import {
   needsHumanCheck,
   ok,
   type Result,
+  threadInScope,
   threadVisible,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
@@ -77,6 +87,10 @@ interface Loaded {
   artifact: ArtifactRow;
   role: AnnotationRole | null;
   state: ArtifactState;
+  /** The caller's ID, their verified address (or null) and which threads they see. */
+  viewerId: string;
+  verifiedEmail: string | null;
+  scope: CommentScope;
 }
 
 interface Authorized extends Loaded {
@@ -130,36 +144,71 @@ async function load(db: Db, input: AnnotationActor): Promise<Loaded | undefined>
     },
     new Date(input.now),
   );
-  return { artifact, state, role: await roleOf(db, artifact, input.userId) };
+  const { role, verifiedEmail, exception } = await roleOf(db, artifact, input.userId);
+  return {
+    artifact,
+    state,
+    role,
+    viewerId: input.userId,
+    verifiedEmail,
+    scope: commentScope(role ?? "participant", artifact.commentVisibility, exception),
+  };
+}
+
+interface Caller {
+  role: AnnotationRole | null;
+  verifiedEmail: string | null;
+  /** The reader's exception on the list, matched by verified address in any access mode. */
+  exception: CommentScope | null;
 }
 
 /** The owner, a reader admitted by the access policy, or nobody. */
-async function roleOf(
-  db: Db,
-  artifact: ArtifactRow,
-  userId: string,
-): Promise<AnnotationRole | null> {
-  if (artifact.ownerId === userId) return "owner";
+async function roleOf(db: Db, artifact: ArtifactRow, userId: string): Promise<Caller> {
+  if (artifact.ownerId === userId) return { role: "owner", verifiedEmail: null, exception: null };
   const [user] = await db
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
     .limit(1);
-  if (!user) return null;
-  const readers =
+  if (!user) return { role: null, verifiedEmail: null, exception: null };
+  const verifiedEmail = user.emailVerified ? user.email.toLowerCase() : null;
+  const r = schema.artifactReaders;
+  const columns = { email: r.email, commentVisibility: r.commentVisibility };
+  // A restricted artifact needs the whole list to decide access; otherwise only the caller's row
+  // matters, for their exception.
+  const listed =
     artifact.accessMode === "restricted"
-      ? (
-          await db
-            .select({ email: schema.artifactReaders.email })
-            .from(schema.artifactReaders)
-            .where(eq(schema.artifactReaders.artifactId, artifact.id))
-        ).map((row) => row.email)
-      : [];
+      ? await db.select(columns).from(r).where(eq(r.artifactId, artifact.id))
+      : verifiedEmail === null
+        ? []
+        : await db
+            .select(columns)
+            .from(r)
+            .where(and(eq(r.artifactId, artifact.id), eq(r.email, verifiedEmail)));
   const decision = canRead(
-    { mode: artifact.accessMode, ownerId: artifact.ownerId, readers },
-    { userId, verifiedEmails: user.emailVerified ? [user.email.toLowerCase()] : [] },
+    {
+      mode: artifact.accessMode,
+      ownerId: artifact.ownerId,
+      readers: artifact.accessMode === "restricted" ? listed.map((row) => row.email) : [],
+    },
+    { userId, verifiedEmails: verifiedEmail === null ? [] : [verifiedEmail] },
   );
-  return decision.ok ? "participant" : null;
+  const exception =
+    verifiedEmail === null
+      ? null
+      : (listed.find((row) => row.email === verifiedEmail)?.commentVisibility ?? null);
+  return { role: decision.ok ? "participant" : null, verifiedEmail, exception };
+}
+
+/** Whether the caller sees a thread started by `authorId`. */
+function inScope(loaded: Loaded, authorId: string): boolean {
+  return threadInScope(loaded.scope, loaded.viewerId, loaded.artifact.ownerId, authorId);
+}
+
+/** The threads of the caller's scope, as a filter on `annotation_threads`. */
+function scopeFilter(loaded: Loaded): SQL | undefined {
+  if (loaded.scope === "all") return undefined;
+  return inArray(schema.annotationThreads.authorId, [loaded.viewerId, loaded.artifact.ownerId]);
 }
 
 async function authorize(
@@ -188,8 +237,13 @@ async function findThread(db: Db, loaded: Authorized, threadId: string) {
       ),
     )
     .limit(1);
-  // Another artifact's thread, or an older version's thread for a visitor, looks missing.
-  if (!thread || !threadVisible(loaded.role, thread.versionId, loaded.artifact.currentVersionId)) {
+  // Another artifact's thread, an older version's thread for a visitor, or a thread outside the
+  // caller's comment scope, looks missing.
+  if (
+    !thread ||
+    !threadVisible(loaded.role, thread.versionId, loaded.artifact.currentVersionId) ||
+    !inScope(loaded, thread.authorId)
+  ) {
     return undefined;
   }
   return thread;
@@ -209,6 +263,52 @@ async function findMessage(db: Db, loaded: Authorized, messageId: string) {
   if (!message) return undefined;
   const thread = await findThread(db, loaded, message.threadId);
   return thread ? { message, thread } : undefined;
+}
+
+/**
+ * One's own message, whatever the scope of its thread: an author can always edit and delete
+ * their words (plan section 8), also in a thread they no longer see. Anyone else's message
+ * needs its thread in scope, so the answer for it stays that of a missing one.
+ */
+async function findOwnMessage(db: Db, loaded: Authorized, messageId: string) {
+  const [message] = await db
+    .select()
+    .from(schema.annotationMessages)
+    .where(
+      and(
+        eq(schema.annotationMessages.id, messageId),
+        eq(schema.annotationMessages.artifactId, loaded.artifact.id),
+      ),
+    )
+    .limit(1);
+  if (!message) return undefined;
+  if (message.authorId !== loaded.viewerId) return findMessage(db, loaded, messageId);
+  const [thread] = await db
+    .select()
+    .from(schema.annotationThreads)
+    .where(eq(schema.annotationThreads.id, message.threadId))
+    .limit(1);
+  if (!thread || !threadVisible(loaded.role, thread.versionId, loaded.artifact.currentVersionId)) {
+    return undefined;
+  }
+  return { message, thread };
+}
+
+/**
+ * The thread after a change to one's own message, or `null` when the caller does not see it (any
+ * more). The caller is loaded again, so a visibility change that landed meanwhile counts.
+ */
+async function threadIfVisible(
+  db: Db,
+  input: AnnotationActor,
+  threadId: string,
+): Promise<Result<AnnotationDeleteResult>> {
+  const authorized = await authorize(db, input, "read");
+  const loaded = authorized.ok ? authorized.value : undefined;
+  const thread = loaded ? await findThread(db, loaded, threadId) : undefined;
+  if (!loaded || !thread) return ok({ threadId, thread: null });
+  const [view] = await threadViews(db, loaded, loaded.viewerId, [thread]);
+  return ok({ threadId, thread: view as AnnotationThreadView });
 }
 
 // Guards evaluated inside the write batch
@@ -235,6 +335,24 @@ function currentThreadGuard(threadId: string): SQL {
   const th = schema.annotationThreads;
   const t = schema.artifacts;
   return sql`exists (select 1 from ${th} join ${t} on ${t.id} = ${th.artifactId} where ${th.id} = ${threadId} and ${th.versionId} = ${t.currentVersionId})`;
+}
+
+/**
+ * For a reader, the thread is still within their comment scope: they or the owner started it,
+ * or their exception on the list (by verified address), else the artifact's setting, shows
+ * them every thread. The same rule as `commentScope`, evaluated on the live rows.
+ */
+function scopeGuard(loaded: Authorized, threadId: string): SQL {
+  if (loaded.role === "owner") return sql`1`;
+  const th = schema.annotationThreads;
+  const t = schema.artifacts;
+  const r = schema.artifactReaders;
+  const setting = sql`case ${t.commentVisibility} when 'everyone' then 'all' else 'own' end`;
+  const scope =
+    loaded.verifiedEmail === null
+      ? setting
+      : sql`coalesce((select ${r.commentVisibility} from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${loaded.verifiedEmail}), ${setting})`;
+  return sql`exists (select 1 from ${th} join ${t} on ${t.id} = ${th.artifactId} where ${th.id} = ${threadId} and (${th.authorId} = ${loaded.viewerId} or ${th.authorId} = ${t.ownerId} or ${scope} = 'all'))`;
 }
 
 /** The author and the artifact are under their write limits. */
@@ -593,7 +711,7 @@ export async function replyToAnnotationThread(
     },
     (loaded) => {
       const a = loaded.artifact;
-      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(input.threadId)} and ${rateGuard(input.userId, a.id, input.now)}`;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(input.threadId)} and ${scopeGuard(loaded, input.threadId)} and ${rateGuard(input.userId, a.id, input.now)}`;
       return runClaimed(db, [
         claim(
           db,
@@ -627,18 +745,21 @@ export async function replyToAnnotationThread(
   );
 }
 
-/** Edits one's own message, based on the message revision the client holds. */
+/**
+ * Edits one's own message, based on the message revision the client holds. The author may edit
+ * it even in a thread they no longer see; the answer is then `{ threadId, thread: null }`.
+ */
 export async function editAnnotationMessage(
   db: Db,
   input: AnnotationActor & { messageId: string; body: string; revision: number },
-): Promise<Result<AnnotationThreadView>> {
+): Promise<Result<AnnotationEditResult>> {
   const bodyBytes = utf8Length(input.body);
   const writeId = crypto.randomUUID();
   return guardedWrite(
     async () => {
       const loaded = await authorize(db, input, "participate");
       if (!loaded.ok) return loaded;
-      const found = await findMessage(db, loaded.value, input.messageId);
+      const found = await findOwnMessage(db, loaded.value, input.messageId);
       if (!found) return missingMessage();
       const editable = checkEditMessage(input.userId, found.message);
       if (!editable.ok) return editable;
@@ -658,6 +779,7 @@ export async function editAnnotationMessage(
     },
     ({ loaded, threadId }) => {
       const m = schema.annotationMessages;
+      // Authorship, not the thread's scope: the author edits their own words wherever they are.
       const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(threadId)} and ${rateGuard(input.userId, loaded.artifact.id, input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.authorId} = ${input.userId} and ${m.state} = 'visible' and ${m.revision} = ${input.revision})`;
       return runClaimed(db, [
         claim(
@@ -685,11 +807,19 @@ export async function editAnnotationMessage(
         touchThread(db, threadId, writeId, input.now),
       ]);
     },
-    ({ loaded, threadId }) => threadResult(db, loaded, input.userId, threadId),
+    async ({ threadId }) => {
+      const result = await threadIfVisible(db, input, threadId);
+      if (!result.ok) return result;
+      const { threadId: id, thread } = result.value;
+      return ok<AnnotationEditResult>(thread ?? { threadId: id, thread: null });
+    },
   );
 }
 
-/** Deletes one's own message. A thread left without live messages is removed. */
+/**
+ * Deletes one's own message, also in a thread the author no longer sees (then the answer's
+ * `thread` is `null`). A thread left without live messages is removed.
+ */
 export async function deleteOwnAnnotationMessage(
   db: Db,
   input: AnnotationActor & { messageId: string },
@@ -762,7 +892,10 @@ async function removeMessage(
     async () => {
       const loaded = await authorize(db, input, action);
       if (!loaded.ok) return loaded;
-      const found = await findMessage(db, loaded.value, input.messageId);
+      const found =
+        action === "delete_own"
+          ? await findOwnMessage(db, loaded.value, input.messageId)
+          : await findMessage(db, loaded.value, input.messageId);
       if (!found) return missingMessage();
       if (action === "delete_own") {
         const allowed = checkDeleteOwnMessage(input.userId, found.message);
@@ -786,6 +919,8 @@ async function removeMessage(
       const th = schema.annotationThreads;
       const others = sql`exists (select 1 from ${m} where ${m.threadId} = ${found.thread.id} and ${m.id} <> ${input.messageId} and ${m.state} <> 'deleted')`;
       const guard = sql`${artifactGuard(loaded, action, input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.state} <> 'deleted') and ${removesThread ? sql`not ${others}` : others}${
+        // A participant only deletes their own message (checked above, and authors never
+        // change), so the thread's scope does not matter here.
         loaded.role === "participant" ? sql` and ${currentThreadGuard(found.thread.id)}` : sql``
       }`;
       const event: Claim = {
@@ -819,9 +954,7 @@ async function removeMessage(
       if (removesThread && found.message.state !== "deleted") {
         return ok({ threadId: found.thread.id, thread: null });
       }
-      const view = await threadResult(db, loaded, input.userId, found.thread.id);
-      if (!view.ok) return view;
-      return ok({ threadId: found.thread.id, thread: view.value });
+      return threadIfVisible(db, input, found.thread.id);
     },
   );
 }
@@ -968,9 +1101,21 @@ function threadFilter(
   const th = schema.annotationThreads;
   return and(
     eq(th.artifactId, loaded.artifact.id),
+    scopeFilter(loaded),
     scope === undefined ? undefined : scope === null ? sql`0` : eq(th.versionId, scope),
     state ? eq(th.state, state) : undefined,
   );
+}
+
+/**
+ * With the `own` scope, the events of threads the caller or the owner started, found by the
+ * `thread_created` event that outlives a deleted thread; with `all`, every event.
+ */
+function eventScopeFilter(loaded: Loaded): SQL | undefined {
+  if (loaded.scope === "all") return undefined;
+  const e = schema.annotationEvents;
+  // Interpolating an alias renders only its name, so the FROM clause names the table itself.
+  return sql`${e.threadId} in (select created.thread_id from ${e} as created where created.artifact_id = ${loaded.artifact.id} and created.kind = 'thread_created' and created.actor_id in (${loaded.viewerId}, ${loaded.artifact.ownerId}))`;
 }
 
 /**
@@ -998,7 +1143,7 @@ export async function listAnnotations(
       and(
         since === 0
           ? threadFilter(loaded, scope.value, input.state)
-          : eq(th.artifactId, loaded.artifact.id),
+          : and(eq(th.artifactId, loaded.artifact.id), scopeFilter(loaded)),
         gt(th.changeSeq, since),
       ),
     )
@@ -1016,10 +1161,12 @@ export async function listAnnotations(
   if (hasMore && last) {
     upper = last.changeSeq;
   } else {
+    // With the `own` scope only the events of threads in it count, so the cursor never moves
+    // because of activity the caller cannot see.
     const [latest] = await db
       .select({ id: sql<number | null>`max(${e.id})` })
       .from(e)
-      .where(eq(e.artifactId, loaded.artifact.id));
+      .where(and(eq(e.artifactId, loaded.artifact.id), eventScopeFilter(loaded)));
     upper = Math.max(since, Number(latest?.id ?? 0));
   }
 
@@ -1035,6 +1182,7 @@ export async function listAnnotations(
           eq(e.kind, "thread_deleted"),
           gt(e.id, since),
           sql`${e.id} <= ${upper}`,
+          eventScopeFilter(loaded),
         ),
       );
     for (const row of deleted) removed.add(row.threadId);
@@ -1045,6 +1193,7 @@ export async function listAnnotations(
     annotations: loaded.artifact.annotations,
     currentVersionId: loaded.artifact.currentVersionId,
     role: loaded.role,
+    commentScope: loaded.scope,
     humanCheck:
       loaded.role === "participant" &&
       needsHumanCheck(loaded.role, await commentsOnOthersArtifacts(db, input.userId)),
@@ -1150,6 +1299,7 @@ async function threadViews(
     state: thread.state,
     author: authors.get(thread.authorId) ?? null,
     own: thread.authorId === viewerId,
+    byOwner: thread.authorId === loaded.artifact.ownerId,
     revision: thread.revision,
     createdAt: iso(thread.createdAt),
     updatedAt: iso(thread.updatedAt),

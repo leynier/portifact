@@ -12,6 +12,7 @@ import {
   AnchorPath,
   AnnotationBody,
   AnnotationDeleteResult,
+  AnnotationEditResult,
   AnnotationExport,
   AnnotationId,
   AnnotationModeView,
@@ -122,6 +123,7 @@ export async function list(
       annotations: page.annotations,
       currentVersionId: page.currentVersionId,
       role: page.role,
+      commentScope: page.commentScope,
       humanCheck: page.humanCheck,
       threads,
       removed,
@@ -135,6 +137,7 @@ export async function list(
     io.stdout(threads.map(formatThread).join("\n"));
   }
   if (removed.length > 0) io.stdout(`${text.removed(removed)}\n`);
+  if (page.commentScope === "own") io.stderr(`${text.ownScope}\n`);
   io.stderr(`${text.listCursor(artifactId, page.cursor)}\n`);
 }
 
@@ -247,9 +250,14 @@ export async function edit(
     method: "PATCH",
     path: `${base(artifactId)}/messages/${messageId}`,
     body: { body, revision: options.revision },
-    schema: AnnotationThreadView,
+    schema: AnnotationEditResult,
   });
-  writeThread(io, result, options, text.edited(messageId));
+  if ("thread" in result && result.thread === null) {
+    // The edit applied in a thread the reader no longer sees.
+    writeDeleted(io, artifactId, result, options, text.edited(messageId), false);
+    return;
+  }
+  writeThread(io, result as AnnotationThreadView, options, text.edited(messageId));
 }
 
 export async function setThreadState(
@@ -593,9 +601,10 @@ function writeDeleted(
   result: AnnotationDeleteResult,
   options: OutputOptions,
   summary: string,
+  withArtifact = true,
 ): void {
   if (options.json) {
-    writeJson(io, { artifactId, ...result });
+    writeJson(io, withArtifact ? { artifactId, ...result } : result);
     return;
   }
   io.stdout(`${summary}\n`);
