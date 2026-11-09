@@ -102,6 +102,10 @@ test("readers see their own threads and the owner's until the owner opens all co
   ).toBeChecked();
   await group.getByRole("radio", { name: "Everyone who can open the artifact" }).check();
   await access.getByRole("button", { name: "Save access" }).click();
+  // Widening is retroactive, so the dashboard asks first.
+  const confirm = page.getByRole("dialog", { name: "Show every comment to everyone?" });
+  await expect(confirm).toContainText("Comments already written become visible");
+  await confirm.getByRole("button", { name: "Show all comments" }).click();
   await expect(page.getByText(/Access saved/).first()).toBeVisible();
 
   await as(page, ana);

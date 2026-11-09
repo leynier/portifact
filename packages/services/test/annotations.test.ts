@@ -816,7 +816,8 @@ describe("moderation and resolution", () => {
     const events = await db()
       .select({ kind: schema.annotationEvents.kind })
       .from(schema.annotationEvents)
-      .where(eq(schema.annotationEvents.threadId, thread.id));
+      .where(eq(schema.annotationEvents.threadId, thread.id))
+      .orderBy(schema.annotationEvents.id);
     expect(events.map((e) => e.kind)).toEqual([
       "thread_created",
       "message_hidden",
