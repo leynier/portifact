@@ -4,8 +4,9 @@
 // and German (the longest strings) and Russian are checked on narrow and wide screens for
 // overflow, with every language offered in the switchers.
 
+import type { Page } from "@playwright/test";
 import { axeViolations } from "../src/axe.ts";
-import { createUser, expect, lastEmail, signIn, sql, test } from "../src/fixtures.ts";
+import { createUser, expect, lastEmail, publish, signIn, sql, test } from "../src/fixtures.ts";
 import { APP_ORIGIN, SITE_ORIGIN } from "../src/hosts.ts";
 
 test("the landing switches to Spanish from its top bar and stays there on reload", async ({
@@ -80,7 +81,10 @@ test("the dashboard switches to Spanish, keeps it on reload and saves it in the 
   expect(await page.evaluate(() => localStorage.getItem("portifact.locale"))).toBe("es");
 });
 
-/** Every language, by its own name, as the switchers list them. */
+/** Every language, as the switchers list them. */
+const LANGUAGE_CODES = ["en", "es", "pt-BR", "fr", "de", "ru", "ja", "zh-CN"];
+
+/** Every language, by its own name, in the same order. */
 const LANGUAGE_NAMES = [
   "English",
   "Español",
@@ -92,12 +96,55 @@ const LANGUAGE_NAMES = [
   "简体中文",
 ];
 
-/** The page scrolls sideways when its content is wider than the viewport. */
-async function overflowsSideways(page: import("@playwright/test").Page): Promise<boolean> {
-  return page.evaluate(
-    () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-  );
+/**
+ * What makes the page scroll sideways: every element or run of text that ends past the viewport
+ * and is not inside something that clips or scrolls it. Empty when the page fits.
+ */
+async function sidewaysOverflow(page: Page): Promise<string[]> {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const width = root.clientWidth;
+    if (root.scrollWidth <= width + 1) return [];
+    const contained = (element: Element | null): boolean => {
+      for (let node = element; node && node !== document.body; node = node.parentElement) {
+        if (/^(auto|scroll|hidden|clip)$/.test(getComputedStyle(node).overflowX)) return true;
+      }
+      return false;
+    };
+    const label = (element: Element) =>
+      `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}.${String(element.className).trim().split(/\s+/).slice(0, 4).join(".")}`;
+    const found: string[] = [];
+    for (const element of document.body.querySelectorAll("*")) {
+      const right = element.getBoundingClientRect().right;
+      if (right <= width + 1 || contained(element.parentElement)) continue;
+      const childPast = [...element.children].some(
+        (child) => child.getBoundingClientRect().right > width + 1,
+      );
+      if (!childPast) found.push(`${label(element)} ends at ${Math.round(right)}px`);
+    }
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const parent = node.parentElement;
+      if (!parent || !node.textContent?.trim() || contained(parent)) continue;
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const right = Math.max(...[...range.getClientRects()].map((rect) => rect.right));
+      if (right > width + 1) {
+        found.push(
+          `text "${node.textContent.trim().slice(0, 40)}" in ${label(parent)} ends at ${Math.round(right)}px`,
+        );
+      }
+    }
+    return found.length > 0 ? found : [`the page is ${root.scrollWidth}px wide in ${width}px`];
+  });
 }
+
+/**
+ * Widens every glyph, so the check does not depend on the fonts of the machine running it: CI's
+ * fallback fonts are wider than a developer's. Static pages refuse inline styles, so the tests
+ * that use it bypass the CSP.
+ */
+const WIDER_TEXT = "*, *::before, *::after { letter-spacing: 0.08em !important; }";
 
 test("the landing offers every language and goes to Japanese and German without overflowing", async ({
   page,
@@ -126,14 +173,66 @@ test("the landing offers every language and goes to Japanese and German without 
   await expect(page.locator("html")).toHaveAttribute("lang", "de");
   await expect(page.getByRole("link", { name: "Zum Inhalt springen" })).toBeAttached();
   expect(await axeViolations(page)).toEqual([]);
+});
 
-  for (const path of ["/de/", "/ru/", "/ja/", "/zh-cn/", "/de/mcp-compatibility", "/ru/terms"]) {
-    for (const width of [320, 1280]) {
-      await page.setViewportSize({ width, height: 800 });
-      await page.goto(`${SITE_ORIGIN}${path}`);
-      expect(await overflowsSideways(page), `${path} at ${width}px`).toBe(false);
+test.describe("at 320 px with wider text than any font gives", () => {
+  test.use({ bypassCSP: true });
+
+  test("no static or sign-in page in any language scrolls sideways", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    for (const code of LANGUAGE_CODES) {
+      const prefix = code === "en" ? "" : `/${code.toLowerCase()}`;
+      const pages = [
+        ...["/", "/mcp-compatibility", "/terms", "/privacy", "/acceptable-use"].map(
+          (path) => `${SITE_ORIGIN}${prefix}${path}`,
+        ),
+        ...["/login", "/device", "/report"].map((path) => `${APP_ORIGIN}${path}?lang=${code}`),
+      ];
+      for (const url of pages) {
+        await page.goto(url);
+        await expect(page.locator("html")).toHaveAttribute("lang", code);
+        // Every page draws its language switchers last, once its text is in place.
+        await expect(
+          page.getByRole("link", { name: "Deutsch", exact: true }).first(),
+          url,
+        ).toBeAttached();
+        await page.waitForLoadState("networkidle");
+        expect(await sidewaysOverflow(page), url).toEqual([]);
+        await page.addStyleTag({ content: WIDER_TEXT });
+        expect(await sidewaysOverflow(page), `${url} with wider text`).toEqual([]);
+      }
     }
-  }
+  });
+
+  test("no dashboard page in any language scrolls sideways", async ({ page, context }) => {
+    const owner = await createUser("Breite");
+    await signIn(context, owner);
+    const { artifactId } = await publish({
+      ownerId: owner.userId,
+      name: "Plan",
+      files: { "index.html": "<h1>Plan</h1>" },
+    });
+    await page.setViewportSize({ width: 320, height: 800 });
+    for (const code of LANGUAGE_CODES) {
+      for (const path of [
+        "/",
+        "/settings",
+        "/usage",
+        "/apps",
+        "/profile",
+        "/publish",
+        `/artifacts/${artifactId}`,
+        `/view/${artifactId}`,
+      ]) {
+        await page.goto(`${APP_ORIGIN}${path}?lang=${code}`);
+        await expect(page.locator("html")).toHaveAttribute("lang", code);
+        await expect(page.getByRole("heading", { level: 1 }).first()).toBeVisible();
+        expect(await sidewaysOverflow(page), `${path} in ${code}`).toEqual([]);
+        await page.addStyleTag({ content: WIDER_TEXT });
+        expect(await sidewaysOverflow(page), `${path} in ${code} with wider text`).toEqual([]);
+      }
+    }
+  });
 });
 
 test("the dashboard switches to Japanese, then German, without overflowing", async ({
@@ -173,12 +272,9 @@ test("the dashboard switches to Japanese, then German, without overflowing", asy
   expect(await axeViolations(page)).toEqual([]);
 
   for (const path of ["/settings", "/", "/usage", "/apps", "/profile"]) {
-    for (const width of [320, 1280]) {
-      await page.setViewportSize({ width, height: 800 });
-      await page.goto(`${APP_ORIGIN}${path}`);
-      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-      expect(await overflowsSideways(page), `${path} at ${width}px`).toBe(false);
-    }
+    await page.goto(`${APP_ORIGIN}${path}`);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    expect(await sidewaysOverflow(page), path).toEqual([]);
   }
 });
 
