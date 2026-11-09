@@ -1,6 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { ALL_SCOPES } from "../src/auth/config.ts";
+import { REGISTRATION_SCOPES } from "../src/auth/config.ts";
 import { API_RESOURCE, createHarness, ISSUER, json, MCP_RESOURCE, ORIGIN } from "./harness.ts";
 
 describe("authorization server metadata (RFC 8414)", () => {
@@ -24,7 +24,9 @@ describe("authorization server metadata (RFC 8414)", () => {
       ]),
     );
     expect(metadata.grant_types_supported).not.toContain("client_credentials");
-    expect(metadata.scopes_supported).toEqual([...ALL_SCOPES]);
+    // Only what a client can register for: credentials:manage is the CLI's alone.
+    expect(metadata.scopes_supported).toEqual([...REGISTRATION_SCOPES]);
+    expect(metadata.scopes_supported).not.toContain("credentials:manage");
   });
 
   it("answers compact JSON, which the release workflow's deploy check greps", async () => {

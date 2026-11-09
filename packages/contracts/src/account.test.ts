@@ -4,7 +4,11 @@ import {
   AccountSettingsUpdate,
   BrowserSession,
   ConnectedApp,
+  CREDENTIALS_SCOPE,
   DisconnectResult,
+  OAuthScope,
+  TokenGrantList,
+  TokenRevokeResult,
 } from "./index.ts";
 
 const AT = "2026-11-08T12:00:00.000Z";
@@ -42,6 +46,34 @@ describe("account contracts", () => {
     };
     expect(ConnectedApp.parse({ ...app, accessToken: "x" })).toEqual(app);
     expect(ConnectedApp.safeParse({ ...app, resources: ["userinfo"] }).success).toBe(false);
+  });
+
+  it("lists the CLI's tokens as connected apps marked current, without secrets", () => {
+    const grant = {
+      clientId: "portifact-cli",
+      name: "Portifact CLI",
+      firstParty: true,
+      current: true,
+      resources: ["api"],
+      scopes: ["artifacts:read", CREDENTIALS_SCOPE],
+      approvedAt: AT,
+      lastIssuedAt: AT,
+      expiresAt: AT,
+    };
+    expect(TokenGrantList.parse({ items: [{ ...grant, refreshToken: "x" }] })).toEqual({
+      items: [grant],
+    });
+    expect(TokenGrantList.safeParse({ items: [{ ...grant, current: undefined }] }).success).toBe(
+      false,
+    );
+    expect(
+      TokenRevokeResult.safeParse({ clientId: "c", revoked: false, current: false }).success,
+    ).toBe(false);
+  });
+
+  it("keeps the credentials scope apart from the product scopes", () => {
+    expect(CREDENTIALS_SCOPE).toBe("credentials:manage");
+    expect(OAuthScope.safeParse(CREDENTIALS_SCOPE).success).toBe(false);
   });
 
   it("confirms a disconnection only as done", () => {

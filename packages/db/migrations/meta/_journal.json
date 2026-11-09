@@ -169,6 +169,13 @@
       "when": 1794195599230,
       "tag": "0023_account_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1794233170873,
+      "tag": "0024_cli_credentials_scope",
+      "breakpoints": true
     }
   ]
 }
