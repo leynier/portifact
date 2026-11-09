@@ -11,6 +11,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
+import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { abortPublish } from "./publish.ts";
@@ -458,6 +459,7 @@ export async function rerenderDocuments(
 export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
   return {
     archived: (await archiveExpired(db, now)).processed,
+    expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
     expiredUploads: (await expireUploads(db, now)).processed,
     prunedVersions: (await pruneVersions(db, bucket, now)).processed,
     purged: (await purgeArchived(db, bucket, now)).processed,

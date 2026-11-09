@@ -54,8 +54,15 @@ describe("account contracts", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      expiryNotices: true,
     };
     expect(AccountSettings.parse(settings)).toEqual(settings);
+    expect(AccountSettings.safeParse({ ...settings, expiryNotices: undefined }).success).toBe(
+      false,
+    );
+    expect(AccountSettingsUpdate.parse({ expiryNotices: false })).toEqual({
+      expiryNotices: false,
+    });
     expect(AccountSettings.safeParse({ ...settings, defaultAnnotations: "locked" }).success).toBe(
       false,
     );

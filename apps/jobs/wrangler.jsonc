@@ -47,5 +47,12 @@
     }
   ],
   "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" }],
+  // Expiry notices to owners (docs/operations.md), sent from noreply@portifact.com like the
+  // sign-in codes of portifact-app, with links to the artifacts and the dashboard.
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": {
+    "APP_ORIGIN": "https://app.portifact.com",
+    "CONTENT_DOMAIN": "portifact.dev"
+  },
   "observability": { "enabled": true, "head_sampling_rate": 1 }
 }

@@ -25,7 +25,8 @@ export type Block =
   | { kind: "code"; label: string; value: string }
   | { kind: "command"; value: string }
   | { kind: "facts"; rows: { label: string; value: string }[] }
-  | { kind: "list"; items: string[] }
+  /** Items are plain text, or runs of text when an item needs emphasis or a link. */
+  | { kind: "list"; items: (string | Inline[])[] }
   | { kind: "divider" };
 
 export interface EmailLayout {
@@ -89,7 +90,10 @@ function block(item: Block): string {
     case "list":
       return [
         `<ul class="pf-text" style="margin: 0 0 16px; padding: 0 0 0 20px; font-family: ${FONT_SANS}; font-size: 14px; line-height: 22px; ${text}">`,
-        ...item.items.map((entry) => `<li style="margin: 0 0 4px">${escapeHtml(entry)}</li>`),
+        ...item.items.map(
+          (entry) =>
+            `<li style="margin: 0 0 4px">${typeof entry === "string" ? escapeHtml(entry) : inline(entry)}</li>`,
+        ),
         "</ul>",
       ].join("");
     case "divider":

@@ -342,6 +342,7 @@ describe("account settings", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      expiryNotices: true,
     });
     const saved = await change(h, cookie, { defaultAnnotations: "open", defaultBar: false });
     expect(saved.status).toBe(200);
@@ -350,8 +351,11 @@ describe("account settings", () => {
       defaultAnnotations: "open",
       defaultCommentVisibility: "owner",
       defaultBar: false,
+      expiryNotices: true,
     });
     expect(await (await settings(h, cookie)).json()).toMatchObject({ defaultBar: false });
+    const off = await change(h, cookie, { expiryNotices: false });
+    expect(await off.json()).toMatchObject({ defaultBar: false, expiryNotices: false });
   });
 
   it("refuses invalid changes without saving anything", async () => {
@@ -362,6 +366,7 @@ describe("account settings", () => {
       { defaultAnnotations: "locked" },
       { defaultAccessMode: "everyone" },
       { defaultBar: "yes" },
+      { expiryNotices: "no" },
       { defaultBar: false, userId: "someone-else" },
     ]) {
       const response = await change(h, cookie, body);

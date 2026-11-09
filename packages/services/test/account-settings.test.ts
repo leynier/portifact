@@ -12,6 +12,7 @@ const OPEN_DEFAULTS = {
   defaultAnnotations: "open",
   defaultCommentVisibility: "everyone",
   defaultBar: false,
+  expiryNotices: false,
 } as const;
 
 async function newAccount(): Promise<string> {

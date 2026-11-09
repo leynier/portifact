@@ -1,5 +1,5 @@
 // The owner's defaults for new artifacts: read them, change them, and the policy a publish gives
-// an artifact it creates (`preparePublish`). The rules are in packages/domain/src/account-settings.ts.
+// an artifact it creates (`preparePublish`). The same settings hold the expiry notices opt-out. The rules are in packages/domain/src/account-settings.ts.
 import type { AccountSettings, AccountSettingsUpdate } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import {
@@ -21,6 +21,7 @@ export async function loadSettings(db: Db, userId: string): Promise<AccountSetti
       defaultAnnotations: schema.accountSettings.defaultAnnotations,
       defaultCommentVisibility: schema.accountSettings.defaultCommentVisibility,
       defaultBar: schema.accountSettings.defaultBar,
+      expiryNotices: schema.accountSettings.expiryNotices,
     })
     .from(schema.accountSettings)
     .where(eq(schema.accountSettings.userId, userId))

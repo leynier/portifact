@@ -363,7 +363,8 @@ export const en = {
   "account.apps.disconnected": "{name} disconnected.",
   "settings.title": "Settings",
   "settings.sectionsNav": "Settings sections",
-  "settings.description": "How new artifacts start, your data, and deleting your account.",
+  "settings.description":
+    "How new artifacts start, the emails you get, your data, and deleting your account.",
   "settings.defaults.title": "Defaults for new artifacts",
   "settings.defaults.hint":
     "Every artifact you create from now on starts like this, whether you publish from the dashboard, the CLI or an agent. Artifacts you already have keep their own settings; change those on each artifact's page.",
@@ -382,6 +383,16 @@ export const en = {
   "settings.defaults.saved": "Defaults saved. New artifacts start this way.",
   "settings.defaults.unchanged": "Nothing to save: your defaults are already set this way.",
   "settings.defaults.failed": "Your defaults were not saved",
+  "settings.notices.title": "Email notices",
+  "settings.notices.hint":
+    "Artifacts stop being served 30 days after you last publish or renew them. Portifact can remind you a few days before.",
+  "settings.notices.expiry.label": "Email me before my artifacts expire",
+  "settings.notices.expiry.hint":
+    "At most one email a day, listing every artifact that expires within 3 days, with a link to renew each one.",
+  "settings.notices.save": "Save email notices",
+  "settings.notices.saved": "Email notices saved.",
+  "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
+  "settings.notices.failed": "Your email notices were not saved",
   "settings.danger.title": "Danger zone",
   "settings.danger.hint": "These actions cannot be undone.",
   "account.data.title": "Your data",

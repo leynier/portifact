@@ -9,12 +9,13 @@ const old = new Date(NOW.getTime() - ageLimit);
 const fresh = new Date(NOW.getTime() - ageLimit + 1);
 
 describe("BUILT_IN_SETTINGS", () => {
-  it("keeps new artifacts private, without comments, owner visibility and the bar on", () => {
+  it("keeps new artifacts private, without comments, owner visibility, the bar and notices on", () => {
     expect(BUILT_IN_SETTINGS).toEqual({
       defaultAccessMode: "restricted",
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      expiryNotices: true,
     });
   });
 });
@@ -24,6 +25,14 @@ describe("changeSettings", () => {
     expect(changeSettings(BUILT_IN_SETTINGS, { defaultBar: false }, fresh, NOW)).toEqual({
       ok: true,
       value: { ...BUILT_IN_SETTINGS, defaultBar: false },
+    });
+    expect(changeSettings(BUILT_IN_SETTINGS, { expiryNotices: false }, fresh, NOW)).toEqual({
+      ok: true,
+      value: { ...BUILT_IN_SETTINGS, expiryNotices: false },
+    });
+    const off = { ...BUILT_IN_SETTINGS, expiryNotices: false };
+    expect(changeSettings(off, { defaultBar: false }, fresh, NOW)).toMatchObject({
+      value: { expiryNotices: false },
     });
     expect(
       changeSettings(
@@ -70,6 +79,7 @@ describe("newArtifactPolicy", () => {
           defaultAnnotations: "open",
           defaultCommentVisibility: "everyone",
           defaultBar: false,
+          expiryNotices: false,
         },
         fresh,
         NOW,

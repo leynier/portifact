@@ -132,10 +132,11 @@ The login, device, consent and report pages (`apps/web/{login,device,consent,rep
 
 ## Emails
 
-Every email is built by `packages/emails`: one layout (`layout.ts`) and a template per message (`sign-in-code.ts`, `budget-alert.ts`), each with an HTML version and a plain-text alternative. The HTML is table-based with inline styles so it renders the same in Gmail, Outlook and Apple Mail: a quiet page, the hosted wordmark (`https://portifact.com/brand/wordmark.png` and its dark variant, published from `assets/brand` by `apps/web/vite.config.ts`, with "Portifact" as the alternative text), one card and small print. Colors are the semantic tokens resolved to their values (`theme.ts`); a `prefers-color-scheme: dark` block repaints them for clients that honor it, and the light version is pure grays so the clients that invert it on their own keep it legible.
+Every email is built by `packages/emails`: one layout (`layout.ts`) and a template per message (`sign-in-code.ts`, `budget-alert.ts`, `expiry-notice.ts`), each with an HTML version and a plain-text alternative. The HTML is table-based with inline styles so it renders the same in Gmail, Outlook and Apple Mail: a quiet page, the hosted wordmark (`https://portifact.com/brand/wordmark.png` and its dark variant, published from `assets/brand` by `apps/web/vite.config.ts`, with "Portifact" as the alternative text), one card and small print. Colors are the semantic tokens resolved to their values (`theme.ts`); a `prefers-color-scheme: dark` block repaints them for clients that honor it, and the light version is pure grays so the clients that invert it on their own keep it legible.
 
 - Callers pass text; every value goes through `escapeHtml`. Never build email markup elsewhere.
 - A code is one unbroken string, large and in a monospace font; the spacing between its digits is `letter-spacing`, so copying it copies only the digits. Codes never go in the subject or the preview text, which lock screens show.
+- Names and other text people choose never go in a subject, and are collapsed to one line in the plain-text version so they cannot fake another entry (see `expiry-notice.ts`). Dates are shown in UTC, with the weekday and a 24-hour clock (`formatExpiry`).
 - `bun run --cwd packages/emails preview` writes every email (`src/previews.ts`) to `/tmp/portifact-email-previews` as `.html` and `.txt` for review; add a sample there with every new email.
 
 ## Forms
