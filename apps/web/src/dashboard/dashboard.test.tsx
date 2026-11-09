@@ -1,13 +1,15 @@
 // @vitest-environment happy-dom
-import { axeViolations } from "@portifact/ui/testing";
+import { axeViolations, resetViewport, setViewportWidth } from "@portifact/ui/testing";
 import { focusManager } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   artifact,
+  choose,
   type FakeServer,
   fakeServer,
   renderDashboard,
+  selectOptions,
   usageView,
 } from "./test-support.tsx";
 
@@ -132,7 +134,7 @@ describe("artifact list", () => {
         "Launch planSitek7d2qm4xab",
         "Active",
         "Restricted",
-        "Dec 8, 2026",
+        "ExpiresDec 8, 2026",
         "2 kB1 version kept",
         "Updated Nov 8, 2026",
         "",
@@ -141,7 +143,7 @@ describe("artifact list", () => {
         "Old reportMarkdownm3n4p5q6rs",
         "Archived",
         "Restricted",
-        "Dec 8, 2026",
+        "ExpiresDec 8, 2026",
         "2 kB1 version kept",
         "Updated Nov 8, 2026",
         "",
@@ -309,7 +311,7 @@ describe("artifact search and filters", () => {
       .getAllByRole("row")
       .slice(1)
       .map((row) => within(row).getAllByRole("link")[0]?.textContent);
-  const select = (name: string) => screen.getByRole("combobox", { name }) as HTMLSelectElement;
+  const chosen = (name: string) => selectOptions(name).chosen;
   const lastListPath = () =>
     server.requests
       .filter((r) => r.path.startsWith("/api/v1/artifacts") && r.method === "GET")
@@ -326,56 +328,97 @@ describe("artifact search and filters", () => {
     );
   });
 
-  it("searches by name on the server, keeps the filters in the URL and announces the count", async () => {
+  it("searches by name on Enter, applies a filter as soon as it is chosen and keeps both in the URL", async () => {
     const { container, router } = renderDashboard("/", server);
     await screen.findByRole("table", { name: "Your artifacts" });
     const form = screen.getByRole("form", { name: "Search and filter artifacts" });
     expect(await axeViolations(container)).toEqual([]);
+    // Nothing to clear yet.
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
 
     fireEvent.change(screen.getByRole("searchbox", { name: "Search" }), {
       target: { value: "  LAUNCH " },
     });
-    fireEvent.change(select("Type"), { target: { value: "markdown" } });
     fireEvent.submit(form);
+    await waitFor(() => expect(router.state.location.search).toEqual({ search: "LAUNCH" }));
+    choose("Type", "Markdown");
 
     await screen.findByRole("table", { name: "Your artifacts that match the search and filters" });
     await waitFor(() => expect(rowNames()).toEqual(["Launch notes"]));
     expect(lastListPath()).toBe("/api/v1/artifacts?search=LAUNCH&type=markdown");
     expect(router.state.location.search).toEqual({ search: "LAUNCH", type: "markdown" });
     expect(screen.getByText("Showing 1 matching artifact").getAttribute("role")).toBe("status");
+    // The chip shows the filter's value, and the clear link appears once something is on.
+    expect(screen.getByRole("combobox", { name: "Type" }).textContent).toContain("Markdown");
+    expect(screen.getByRole("button", { name: "Clear filters" })).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
+
+    // The search box's own clear button ends the search and keeps the filter.
+    fireEvent.click(screen.getByRole("button", { name: "Clear the search" }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ type: "markdown" }));
+    expect(document.activeElement).toBe(screen.getByRole("searchbox", { name: "Search" }));
   });
 
   it("filters by state, access and comments, and finds an artifact by its ID", async () => {
     renderDashboard("/", server);
     await screen.findByRole("table");
     const form = screen.getByRole("form", { name: "Search and filter artifacts" });
-    expect(Array.from(select("State").options, (option) => option.textContent)).toEqual([
-      "Any state",
-      "Active",
-      "Archived",
-      "Suspended",
-      "Being deleted",
-    ]);
+    expect(selectOptions("State")).toEqual({
+      options: ["Any", "Active", "Archived", "Suspended", "Being deleted"],
+      chosen: "Any",
+    });
 
-    fireEvent.change(select("State"), { target: { value: "archived" } });
-    fireEvent.submit(form);
+    choose("State", "Archived");
     await waitFor(() => expect(rowNames()).toEqual(["Old report"]));
 
-    fireEvent.change(select("State"), { target: { value: "any" } });
-    fireEvent.change(select("Access"), { target: { value: "public" } });
-    fireEvent.change(select("Comments"), { target: { value: "open" } });
-    fireEvent.submit(form);
+    choose("State", "Any");
+    choose("Access", "Public");
+    choose("Comments", "Comments open");
     await waitFor(() => expect(rowNames()).toEqual(["Launch notes"]));
-    expect(lastListPath()).toBe("/api/v1/artifacts?access=public&annotations=open");
+    await waitFor(() =>
+      expect(lastListPath()).toBe("/api/v1/artifacts?access=public&annotations=open"),
+    );
 
-    fireEvent.change(select("Access"), { target: { value: "any" } });
-    fireEvent.change(select("Comments"), { target: { value: "any" } });
+    choose("Access", "Any");
+    choose("Comments", "Any");
     fireEvent.change(screen.getByRole("searchbox", { name: "Search" }), {
       target: { value: "k7d2qm" },
     });
     fireEvent.submit(form);
     await waitFor(() => expect(rowNames()).toEqual(["Launch plan"]));
+  });
+
+  it("puts the filters behind a Filters button with their count on a phone", async () => {
+    setViewportWidth(375);
+    try {
+      const { container, router } = renderDashboard("/?state=active&type=site", server);
+      await waitFor(() => expect(rowNames()).toEqual(["Launch plan"]));
+      // The search stays in sight; the selects wait in the sheet.
+      expect(screen.getByRole("searchbox", { name: "Search" })).toBeTruthy();
+      expect(screen.queryByRole("combobox", { name: "State" })).toBeNull();
+      const open = screen.getByRole("button", { name: "Filters 2 on" });
+      expect(await axeViolations(container)).toEqual([]);
+
+      open.focus();
+      fireEvent.click(open);
+      const sheet = screen.getByRole("dialog", { name: "Filter artifacts" });
+      expect(within(sheet).getByRole("combobox", { name: "State" }).textContent).toContain(
+        "Active",
+      );
+      expect(await axeViolations(container)).toEqual([]);
+      choose("Type", "Any");
+      await waitFor(() => expect(router.state.location.search).toEqual({ state: "active" }));
+      fireEvent.click(within(sheet).getByRole("button", { name: "Done" }));
+      expect((sheet as HTMLDialogElement).open).toBe(false);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Filters 1 on" }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Filters 1 on" }));
+      fireEvent.click(within(sheet).getByRole("button", { name: "Clear filters" }));
+      await waitFor(() => expect(router.state.location.search).toEqual({}));
+      expect(screen.getByRole("button", { name: "Filters" })).toBeTruthy();
+    } finally {
+      resetViewport();
+    }
   });
 
   it("says when nothing matches and clears the filters back to every artifact", async () => {
@@ -394,16 +437,15 @@ describe("artifact search and filters", () => {
     const { router } = renderDashboard("/?state=deleted&type=markdown&access=everyone", server);
     await waitFor(() => expect(rowNames()).toEqual(["Old report", "Launch notes"]));
     expect(lastListPath()).toBe("/api/v1/artifacts?type=markdown");
-    expect(select("Type").value).toBe("markdown");
-    expect(select("State").value).toBe("any");
-    expect(select("Access").value).toBe("any");
+    expect(chosen("Type")).toBe("Markdown");
+    expect(chosen("State")).toBe("Any");
+    expect(chosen("Access")).toBe("Any");
 
-    fireEvent.change(select("Type"), { target: { value: "site" } });
-    fireEvent.submit(screen.getByRole("form", { name: "Search and filter artifacts" }));
+    choose("Type", "Site");
     await waitFor(() => expect(rowNames()).toEqual(["Launch plan"]));
     act(() => router.history.back());
     await waitFor(() => expect(rowNames()).toEqual(["Old report", "Launch notes"]));
-    expect(select("Type").value).toBe("markdown");
+    expect(chosen("Type")).toBe("Markdown");
   });
 
   it("pages through the filtered list with the same filters", async () => {
@@ -464,14 +506,46 @@ describe("artifact detail", () => {
     expect(document.title).toBe("Old report · Portifact");
   });
 
-  it("offers the actions that fit the state", async () => {
-    renderDashboard("/artifacts/k7d2qm4xab", server);
-    const actions = await screen.findByRole("region", { name: "Actions" });
+  it("groups the page by task, keeps renewing with the dates and removal in the danger zone", async () => {
+    const { container } = renderDashboard("/artifacts/k7d2qm4xab", server);
+    const nav = await screen.findByRole("navigation", { name: "Artifact sections" });
     expect(
-      within(actions)
+      within(nav)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Overview", "Sharing", "Comments", "Activity", "Danger zone"]);
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
+    ).toEqual(["Overview", "Sharing", "Comments", "Activity", "Danger zone"]);
+    const details = screen.getByRole("region", { name: "Details" });
+    expect(
+      within(details)
         .getAllByRole("button")
         .map((b) => b.textContent),
-    ).toEqual(["Renew for 30 days", "Archive", "Delete"]);
+    ).toEqual(["Renew for 30 days"]);
+    const danger = screen.getByRole("region", { name: "Danger zone" });
+    expect(
+      within(danger)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Archive", "Delete"]);
+    await screen.findByRole("group", { name: "Who can open this artifact" });
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("offers restore with the dates and only delete in the danger zone while archived", async () => {
+    renderDashboard("/artifacts/m3n4p5q6rs", server);
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(
+      within(details)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Restore"]);
+    expect(
+      within(screen.getByRole("region", { name: "Danger zone" }))
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Delete"]);
   });
 
   it("archives and restores, announcing the new dates", async () => {

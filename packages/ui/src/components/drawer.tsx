@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { type ReactNode, type Ref, useEffect, useId, useRef } from "react";
-import { Button } from "./button.tsx";
+import { IconButton } from "./icon-button.tsx";
 
 export interface DrawerProps {
   open: boolean;
@@ -83,10 +83,9 @@ export function Drawer({
         <div className="flex h-full flex-col">
           <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border px-4">
             <div className="min-w-0">{header}</div>
-            <Button
-              intent="ghost"
-              size="sm"
-              aria-label={closeLabel}
+            <IconButton
+              label={closeLabel}
+              align="end"
               icon={<X className="size-5" />}
               onClick={onClose}
             />

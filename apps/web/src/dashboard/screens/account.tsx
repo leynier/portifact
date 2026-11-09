@@ -190,68 +190,39 @@ export function BrowserSessions() {
                   </Callout>
                 </div>
               ) : null}
-              {/* Phones get one card per browser; wider screens a table to scan. */}
-              <ul
-                aria-label={t("account.sessions.caption")}
-                className="flex flex-col divide-y divide-border rounded-lg border border-border md:hidden"
-              >
-                {items.map((session, index) => (
-                  // Sessions carry no public ID; the order is stable between refreshes.
-                  <li key={index} className="flex flex-col gap-2 p-4">
-                    <span className="inline-flex flex-wrap items-center gap-2 text-sm font-medium">
-                      {deviceName(t, session)}
-                      {session.current ? (
-                        <Badge icon={<Monitor className="size-3.5" />}>
-                          {t("account.sessions.this")}
-                        </Badge>
-                      ) : null}
-                    </span>
-                    <DetailList
-                      framed={false}
-                      layout="stacked"
-                      items={[
-                        {
-                          term: t("account.sessions.column.lastActive"),
-                          detail: formatDate(session.lastActiveAt, true),
-                        },
-                        {
-                          term: t("account.sessions.column.expires"),
-                          detail: formatDate(session.expiresAt),
-                        },
-                      ]}
-                    />
-                  </li>
-                ))}
-              </ul>
-              <div className="hidden md:block">
-                <Table caption={t("account.sessions.caption")}>
-                  <TableHead>
-                    <TableRow>
-                      <TableHeaderCell>{t("account.sessions.column.browser")}</TableHeaderCell>
-                      <TableHeaderCell>{t("account.sessions.column.lastActive")}</TableHeaderCell>
-                      <TableHeaderCell>{t("account.sessions.column.expires")}</TableHeaderCell>
+              {/* Phones get one stacked card per browser; wider screens a table to scan. */}
+              <Table caption={t("account.sessions.caption")} stacked>
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>{t("account.sessions.column.browser")}</TableHeaderCell>
+                    <TableHeaderCell>{t("account.sessions.column.lastActive")}</TableHeaderCell>
+                    <TableHeaderCell>{t("account.sessions.column.expires")}</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {items.map((session, index) => (
+                    // Sessions carry no public ID; the order is stable between refreshes.
+                    <TableRow key={index}>
+                      <TableCell>
+                        <span className="inline-flex flex-wrap items-center gap-2 font-medium sm:font-normal">
+                          {deviceName(t, session)}
+                          {session.current ? (
+                            <Badge icon={<Monitor className="size-3.5" />}>
+                              {t("account.sessions.this")}
+                            </Badge>
+                          ) : null}
+                        </span>
+                      </TableCell>
+                      <TableCell label={t("account.sessions.column.lastActive")} stack="inline">
+                        {formatDate(session.lastActiveAt, true)}
+                      </TableCell>
+                      <TableCell label={t("account.sessions.column.expires")} stack="inline">
+                        {formatDate(session.expiresAt)}
+                      </TableCell>
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {items.map((session, index) => (
-                      <TableRow key={index}>
-                        <TableCell>
-                          <span className="inline-flex flex-wrap items-center gap-2">
-                            {deviceName(t, session)}
-                            {session.current ? (
-                              <Badge icon={<Monitor className="size-3.5" />}>
-                                {t("account.sessions.this")}
-                              </Badge>
-                            ) : null}
-                          </span>
-                        </TableCell>
-                        <TableCell>{formatDate(session.lastActiveAt, true)}</TableCell>
-                        <TableCell>{formatDate(session.expiresAt)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                  ))}
+                </TableBody>
+              </Table>
               <div className="mt-4">
                 {others === 0 ? (
                   <p className="text-sm text-text-muted">{t("account.sessions.onlyThis")}</p>

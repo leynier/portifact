@@ -1,23 +1,23 @@
 // Form controls with their label, description and error wired for assistive technology. Screens
 // use them through the form hook in ../forms, which binds them to TanStack Form fields.
-import { CircleAlert } from "lucide-react";
+import { CircleAlert, Search, X } from "lucide-react";
 import {
   type InputHTMLAttributes,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useId,
+  useRef,
 } from "react";
 
 type NativeInput = Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "id" | "type">;
 
 /** IDs of the hint and error under a control, for `aria-describedby`. */
-function describedBy(...ids: (string | false | undefined)[]): string | undefined {
+export function describedBy(...ids: (string | false | undefined)[]): string | undefined {
   const joined = ids.filter(Boolean).join(" ");
   return joined || undefined;
 }
 
-function FieldError({ id, children }: { id: string; children: string }) {
+export function FieldError({ id, children }: { id: string; children: string }) {
   return (
     <p id={id} className="flex items-center gap-1.5 text-sm font-semibold text-text">
       <CircleAlert aria-hidden="true" className="size-4 shrink-0" />
@@ -58,6 +58,62 @@ export function TextInput({ label, description, error, type = "text", ...rest }:
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
         className="h-10 w-full rounded-sm border border-border-strong bg-canvas px-3 text-sm text-text transition-colors duration-150 placeholder:text-text-muted hover:border-text disabled:opacity-55 disabled:hover:border-border-strong aria-invalid:border-2 aria-invalid:border-text"
       />
+      {error ? <FieldError id={errorId}>{error}</FieldError> : null}
+    </div>
+  );
+}
+
+export interface SearchFieldProps extends Omit<NativeInput, "value"> {
+  /** Shown inside the box, before the input, and its accessible name. */
+  label: string;
+  value: string;
+  /** The validation message; marks the field invalid. */
+  error?: string | undefined;
+  /** Accessible name of the clear button, shown while the field has text. */
+  clearLabel: string;
+  onClear(): void;
+}
+
+/**
+ * A compact search box for toolbars: a search icon, the visible label, the input and a clear
+ * button while it has text. The box, not the input, shows focus, so the ring surrounds all of it.
+ */
+export function SearchField({ label, error, clearLabel, onClear, ...rest }: SearchFieldProps) {
+  const id = useId();
+  const errorId = `${id}-error`;
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <div className="flex h-8 min-w-0 items-center gap-2 rounded-sm border border-border-strong bg-canvas pr-1 pl-2.5 text-sm transition-colors duration-150 hover:border-text has-aria-invalid:border-2 has-aria-invalid:border-text input-focus:border-text input-focus:outline-2 input-focus:outline-offset-2 input-focus:outline-focus">
+        <Search aria-hidden="true" className="size-4 shrink-0 text-text-muted" />
+        <label htmlFor={id} className="shrink-0 text-text-muted">
+          {label}
+        </label>
+        <input
+          {...rest}
+          ref={input}
+          id={id}
+          type="search"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          className="search-plain h-full min-w-0 flex-1 bg-transparent text-text placeholder:text-text-muted focus-visible:outline-none"
+        />
+        {rest.value ? (
+          <button
+            type="button"
+            aria-label={clearLabel}
+            title={clearLabel}
+            onClick={() => {
+              // The button goes away with the text, so focus returns to the input.
+              input.current?.focus();
+              onClear();
+            }}
+            className="inline-flex size-6 shrink-0 items-center justify-center rounded-xs text-text-muted transition-colors duration-150 hover:bg-surface-hover hover:text-text"
+          >
+            <X aria-hidden="true" className="size-4" />
+          </button>
+        ) : null}
+      </div>
       {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>
   );
@@ -105,79 +161,6 @@ export function TextArea({
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
         className={`${compact ? "min-h-20" : "min-h-48"} w-full resize-y rounded-sm border border-border-strong bg-canvas p-3 text-sm text-text transition-colors duration-150 hover:border-text disabled:opacity-55 aria-invalid:border-2 aria-invalid:border-text ${code ? "font-mono leading-6" : "leading-6"}`}
       />
-      {error ? <FieldError id={errorId}>{error}</FieldError> : null}
-    </div>
-  );
-}
-
-export interface SelectOption<T extends string = string> {
-  value: T;
-  label: string;
-}
-
-export interface SelectProps<T extends string = string>
-  extends Omit<
-    SelectHTMLAttributes<HTMLSelectElement>,
-    "className" | "id" | "value" | "onChange" | "multiple" | "children"
-  > {
-  label: string;
-  /**
-   * Show the label (the default). Hide it only where the surroundings already say what the
-   * choice is about, such as a row of a list; assistive technology still reads it.
-   */
-  labelVisible?: boolean;
-  description?: ReactNode;
-  error?: string | undefined;
-  value: T;
-  options: readonly SelectOption<T>[];
-  onChange(value: T): void;
-}
-
-/**
- * One choice among many in a native select, so the browser and assistive technology provide
- * the keyboard and the list. Use a radio group instead when every option needs explaining.
- */
-export function Select<T extends string = string>({
-  label,
-  labelVisible = true,
-  description,
-  error,
-  value,
-  options,
-  onChange,
-  ...rest
-}: SelectProps<T>) {
-  const id = useId();
-  const hintId = `${id}-hint`;
-  const errorId = `${id}-error`;
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className={labelVisible ? "text-sm font-medium" : "sr-only"}>
-        {label}
-      </label>
-      {description ? (
-        <p id={hintId} className="text-sm text-text-muted">
-          {description}
-        </p>
-      ) : null}
-      <select
-        {...rest}
-        id={id}
-        value={value}
-        onChange={(event) => {
-          const chosen = options.find((option) => option.value === event.target.value);
-          if (chosen) onChange(chosen.value);
-        }}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
-        className="h-10 w-full rounded-sm border border-border-strong bg-canvas px-3 text-sm text-text transition-colors duration-150 placeholder:text-text-muted hover:border-text disabled:opacity-55 disabled:hover:border-border-strong aria-invalid:border-2 aria-invalid:border-text"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
       {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>
   );
@@ -258,9 +241,11 @@ export function RadioGroup<T extends string>({
           const optionId = `${id}-${option.value}`;
           const hintId = `${optionId}-hint`;
           return (
+            // The label is stretched over the whole card (its ::after covers it), so a press
+            // anywhere on the card chooses the option, while the name stays the label alone.
             <div
               key={option.value}
-              className="flex items-start gap-3 rounded-sm border border-border bg-canvas p-3.5 transition-colors duration-150 hover:bg-surface has-checked:border-transparent has-checked:selection-band has-disabled:hover:bg-canvas"
+              className="relative flex items-start gap-3 rounded-sm border border-border bg-canvas p-3.5 transition-colors duration-150 hover:border-border-strong hover:bg-surface-hover has-checked:border-transparent has-checked:selection-band has-checked:hover:bg-selection has-disabled:hover:border-border has-disabled:hover:bg-canvas"
             >
               <input
                 id={optionId}
@@ -272,10 +257,14 @@ export function RadioGroup<T extends string>({
                 onChange={() => onChange(option.value)}
                 onBlur={onBlur}
                 aria-describedby={option.description ? hintId : undefined}
-                className="mt-0.5 size-5 shrink-0 accent-text disabled:opacity-60"
+                // Above the label's overlay, so a press on the radio itself reaches it.
+                className="relative z-10 mt-0.5 size-5 shrink-0 accent-text disabled:opacity-60"
               />
               <div className="min-w-0">
-                <label htmlFor={optionId} className="text-sm font-medium">
+                <label
+                  htmlFor={optionId}
+                  className={`text-sm font-medium after:absolute after:inset-0 after:rounded-sm ${disabled || option.disabled ? "cursor-default" : ""}`}
+                >
                   {option.label}
                 </label>
                 {option.description ? (

@@ -16,6 +16,8 @@ Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard
 - Everything that works with a pointer works with a keyboard, in a logical order.
 - Focus is always visible, using the focus token, and never hidden behind sticky headers.
 - Dialogs and menus trap focus while open, close with Escape and return focus to the control that opened them.
+- Selects follow the WAI-ARIA select-only combobox pattern: focus stays on the trigger, the active option is announced through `aria-activedescendant`, and the keys of a native select work (arrows, Home, End, Page keys, typeahead, Enter, Space, Escape, Tab).
+- A card or row that takes a press anywhere uses one real link or label stretched over it, never nested interactive elements, and keeps its own controls above it.
 - Pages provide a skip link to the main content.
 - Shortcuts never override browser or assistive technology keys and can be discovered from the UI.
 
@@ -33,15 +35,16 @@ Annotation must be fully possible without a mouse:
 
 - Text selected with the keyboard (Shift plus arrow keys) can be annotated through a visible "Comment" control. In the viewer it appears next to the selection, a polite announcement says so, and it is the next stop in the tab order after the artifact frame; its composer takes focus, saves with Enter (Shift+Enter adds a line), cancels with Escape and returns focus to the frame.
 - In `site` artifacts, a keyboard mode lets the user move through selectable elements and choose one; the highlighted target is announced.
-- Annotation markers are focusable, have an accessible name that includes the quoted text, and open their thread on Enter.
+- Highlights in the artifact are not focusable and add nothing to its tab order: each thread's "Show in the artifact" button in the sidebar scrolls the page to its text, and pointing at or focusing a thread outlines its text in the page. Clicking highlighted text selects every thread there, announced politely, without moving focus out of the artifact.
+- The sidebar's compact controls (show, resolve or reopen, the thread and message menus) are icon buttons whose accessible name is also their tooltip, shown on hover and keyboard focus and dismissed with Escape. Menus follow the ARIA menu button pattern: arrow keys, Home and End move, Escape closes and returns focus to the button. A message's menu button is shown on hover and focus where there is a pointer, and always on touch screens.
 - The threads panel is a landmark region, navigable with headings and lists, and new replies are announced politely.
-- When an anchor cannot be placed, the thread says so in text, not only by changing a marker's color.
+- When an anchor cannot be placed, the thread says so in text ("Without location"), not only by changing a highlight.
 
 ## Viewers
 
 - The Markdown viewer outputs semantic HTML: real headings, lists, tables with header cells, code blocks and links with meaningful text. Images keep the author's alt text; missing alt text is flagged to the creator in the dashboard.
 - The TXT viewer keeps line numbers out of the text read by screen readers and the copy buffer.
-- The viewer gives the artifact iframe an accessible title and does not trap focus inside it. Its bar is the page's `banner` with the artifact's name as the only `h1` (plain text after the mark), a skip link jumps to the artifact region, the comments sidebar is a labelled `complementary` landmark, and its toggle states `aria-expanded` and `aria-controls`. Selecting text in the artifact never moves focus out of it.
+- The viewer gives the artifact iframe an accessible title and does not trap focus inside it. Its bar is the page's `banner` with the artifact's name as the only `h1` (plain text after the mark), a skip link jumps to the artifact region, the comments sidebar is a labelled `complementary` landmark, and its toggle is a toggle button (`aria-pressed`, with `aria-controls` while the sidebar is open) whose name includes the count of open threads. Below the `lg` breakpoint the sidebar covers the artifact: opening it from the toggle moves focus into it, and its "Close comments" button returns focus to the toggle. Selecting text in the artifact never moves focus out of it.
 - The bridge injected into sites adds no focusable elements, landmarks or announcements unless review mode is active, and it never changes the site's own semantics.
 
 ## CLI
@@ -57,6 +60,6 @@ Accessibility is tested like any other behavior. See [testing.md](testing.md).
 
 - Component tests query by role and accessible name, which also verifies the accessible name exists.
 - `vitest-axe` runs on every component story and state in `packages/ui`.
-- axe-core runs in real browsers in the end-to-end tests (`e2e/src/axe.ts`), in both themes, so contrast is checked too: `e2e/tests/design.spec.ts` covers the dashboard's main screens (list, artifact page, publish, history, account and the empty list) and the sign-in specs cover the auth pages. Any violation fails the build. Accessible names of controls start with their visible label (WCAG 2.5.3), which this check enforces.
+- axe-core runs in real browsers in the end-to-end tests (`e2e/src/axe.ts`), in both themes, so contrast is checked too: `e2e/tests/design.spec.ts` covers the dashboard's main screens (list, artifact page, publish, history, account and the empty list), `e2e/tests/dashboard-layout.spec.ts` the phone layout at 375 px, and the sign-in specs cover the auth pages. Any violation fails the build. Accessible names of controls start with their visible label (WCAG 2.5.3), which this check enforces.
 - End-to-end tests include keyboard-only paths: sign in, publish, change access, annotate text, annotate an element, reply and restore.
 - Automated tools find only part of the problems. Before release, run a manual check with the keyboard alone, with VoiceOver or NVDA, at 200% zoom and with reduced motion.

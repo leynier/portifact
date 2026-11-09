@@ -10,8 +10,8 @@ import {
   useState,
 } from "react";
 import { Avatar } from "../components/avatar.tsx";
-import { Button } from "../components/button.tsx";
 import { Drawer } from "../components/drawer.tsx";
+import { IconButton } from "../components/icon-button.tsx";
 import { ResizeHandle } from "../components/resize-handle.tsx";
 import { Tooltip } from "../components/tooltip.tsx";
 
@@ -110,7 +110,7 @@ function NavList({ items }: { items: AppShellNavItem[] }) {
     <ul className="flex flex-col gap-1.5 text-sm">
       {items.map((item) => (
         <li key={item.key}>
-          <Tooltip label={item.label} disabled={!collapsed} block>
+          <Tooltip label={item.label} side="right" disabled={!collapsed} block>
             {item.render({
               className: collapsed ? `${navLinkClasses} justify-center` : navLinkClasses,
               children: (
@@ -190,10 +190,9 @@ export function AppShell({
           <div className={collapsed ? "md:hidden" : "min-w-0"}>{brand}</div>
           {collapsed ? <div className="hidden md:block">{compactBrand}</div> : null}
           <div className="ml-auto md:hidden">
-            <Button
-              intent="ghost"
-              size="sm"
-              aria-label={labels.openNavigation}
+            <IconButton
+              label={labels.openNavigation}
+              align="end"
               aria-expanded={drawerOpen}
               aria-controls={drawerId}
               icon={<Menu className="size-5" />}
@@ -201,23 +200,20 @@ export function AppShell({
             />
           </div>
           <div className={`hidden md:block ${collapsed ? "md:mt-3" : ""}`}>
-            <Tooltip label={toggle}>
-              <Button
-                intent="ghost"
-                size="sm"
-                aria-label={toggle}
-                aria-expanded={!collapsed}
-                aria-controls={navId}
-                icon={
-                  collapsed ? (
-                    <PanelLeftOpen className="size-4" />
-                  ) : (
-                    <PanelLeftClose className="size-4" />
-                  )
-                }
-                onClick={() => setState((current) => ({ ...current, collapsed: !collapsed }))}
-              />
-            </Tooltip>
+            <IconButton
+              label={toggle}
+              side="right"
+              aria-expanded={!collapsed}
+              aria-controls={navId}
+              icon={
+                collapsed ? (
+                  <PanelLeftOpen className="size-4" />
+                ) : (
+                  <PanelLeftClose className="size-4" />
+                )
+              }
+              onClick={() => setState((current) => ({ ...current, collapsed: !collapsed }))}
+            />
           </div>
         </div>
         <Placement.Provider value={{ collapsed }}>
@@ -313,27 +309,27 @@ export function SidebarAccount({
   const { collapsed } = useContext(Placement);
   const shown = name.trim() || email.split("@")[0] || email;
   const signOut = (
-    <Tooltip label={signOutLabel} side={collapsed ? "right" : "top"}>
-      <Button
-        intent="ghost"
-        size="sm"
-        aria-label={signOutLabel}
-        busy={signingOut}
-        icon={<LogOut className="size-4" />}
-        onClick={onSignOut}
-      />
-    </Tooltip>
+    <IconButton
+      label={signOutLabel}
+      side={collapsed ? "right" : "top"}
+      align={collapsed ? "center" : "end"}
+      busy={signingOut}
+      icon={<LogOut className="size-4" />}
+      onClick={onSignOut}
+    />
   );
   const profileName = `${profileLabel}: ${shown} ${email}`;
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-2">
-        <Tooltip label={profileLabel}>
+        <Tooltip label={profileLabel} side="right">
           {renderProfileLink({
             className:
               "inline-flex rounded-full no-underline transition-opacity duration-150 hover:opacity-85",
             "aria-label": profileName,
-            children: <Avatar name={name} email={email} image={image} />,
+            children: (
+              <Avatar name={name} email={email} image={image} size="md" tone="solid" letters={2} />
+            ),
           })}
         </Tooltip>
         {signOut}
@@ -348,7 +344,7 @@ export function SidebarAccount({
         // The visible name and email name the link, so speech input can use what is on screen.
         children: (
           <>
-            <Avatar name={name} email={email} image={image} />
+            <Avatar name={name} email={email} image={image} size="md" tone="solid" letters={2} />
             <span className="flex min-w-0 flex-col">
               <span className="truncate text-sm font-medium">
                 <span className="sr-only">{profileLabel}: </span>

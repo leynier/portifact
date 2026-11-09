@@ -9,7 +9,9 @@ import {
   DetailList,
   LoadingState,
   PageHeader,
+  PageSection,
   Panel,
+  SectionedPage,
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
@@ -34,7 +36,7 @@ import { AccessBadge, offeredActions, StateBadge } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { AccessLog } from "./access-log.tsx";
-import { AccessSettings } from "./access-settings.tsx";
+import { CommentSettings, SharingSettings } from "./access-settings.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
 
@@ -154,9 +156,43 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
 
   const optional = (iso: string | null) => (iso ? formatDate(iso, true) : t("detail.notSet"));
   const actions = offeredActions(artifact.state);
+  // Keeping it online sits with its dates; what takes it offline or away is the danger zone.
+  const keep = actions.filter((kind) => kind === "renew" || kind === "restore");
+  const remove = actions.filter((kind) => kind === "archive" || kind === "delete");
+  const failed = action.isError ? (
+    <Callout
+      tone="error"
+      title={t("detail.actionFailed.title")}
+      icon={<CircleAlert className="size-5" />}
+    >
+      {errorMessage(t, action.error)}
+    </Callout>
+  ) : null;
+  const failedHere = (kinds: LifecycleAction[]) =>
+    action.variables !== undefined && kinds.includes(action.variables) ? failed : null;
+  const actionButton = (kind: LifecycleAction) => (
+    <Button
+      key={kind}
+      intent={kind === "renew" || kind === "restore" ? "primary" : "secondary"}
+      icon={ACTION_ICONS[kind]}
+      busy={action.isPending && action.variables === kind}
+      disabled={action.isPending}
+      onClick={() => (kind === "delete" ? setConfirmingDelete(true) : action.mutate(kind))}
+    >
+      {t(`detail.${kind}`)}
+    </Button>
+  );
 
   const servable = artifact.state === "active";
   const editable = artifact.state === "active" || artifact.state === "draft";
+
+  const sections = [
+    { id: "overview", label: t("detail.section.overview") },
+    { id: "sharing", label: t("detail.section.sharing") },
+    { id: "comments", label: t("detail.section.comments") },
+    { id: "activity", label: t("detail.section.activity") },
+    { id: "danger", label: t("detail.section.danger") },
+  ];
 
   return (
     <>
@@ -231,102 +267,104 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
         </div>
       ) : null}
 
-      <div className="grid items-start gap-6 lg:grid-cols-3">
-        <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
-          <AccessSettings artifact={artifact} />
-          <AccessLog artifact={artifact} />
-        </div>
+      <SectionedPage label={t("detail.sectionsNav")} sections={sections}>
+        <PageSection id="overview" title={t("detail.section.overview")}>
+          <div className="grid items-start gap-6 xl:grid-cols-2">
+            <Panel
+              headingLevel={3}
+              title={t("detail.facts")}
+              description={
+                keep.length > 0
+                  ? t(keep.includes("restore") ? "detail.restore.body" : "detail.keepOnline.body")
+                  : undefined
+              }
+              actions={keep.length > 0 ? keep.map(actionButton) : undefined}
+            >
+              <div className="flex flex-col gap-4">
+                {failedHere(keep)}
+                <DetailList
+                  layout="stacked"
+                  framed={false}
+                  items={[
+                    { term: t("detail.type"), detail: t(`type.${artifact.type}`) },
+                    { term: t("detail.state"), detail: <StateBadge state={artifact.state} /> },
+                    { term: t("detail.access"), detail: t(`access.${artifact.accessMode}`) },
+                    { term: t("detail.created"), detail: formatDate(artifact.createdAt, true) },
+                    { term: t("detail.updated"), detail: formatDate(artifact.updatedAt, true) },
+                    { term: t("detail.expires"), detail: optional(artifact.expiresAt) },
+                    ...(artifact.archivedAt
+                      ? [
+                          {
+                            term: t("detail.archived"),
+                            detail: formatDate(artifact.archivedAt, true),
+                          },
+                          { term: t("detail.purge"), detail: optional(artifact.purgeAt) },
+                        ]
+                      : []),
+                  ]}
+                />
+              </div>
+            </Panel>
 
-        <div className="flex min-w-0 flex-col gap-6">
-          <Panel title={t("detail.facts")}>
-            <DetailList
-              layout="stacked"
-              framed={false}
-              items={[
-                { term: t("detail.type"), detail: t(`type.${artifact.type}`) },
-                { term: t("detail.state"), detail: <StateBadge state={artifact.state} /> },
-                { term: t("detail.access"), detail: t(`access.${artifact.accessMode}`) },
-                { term: t("detail.created"), detail: formatDate(artifact.createdAt, true) },
-                { term: t("detail.updated"), detail: formatDate(artifact.updatedAt, true) },
-                { term: t("detail.expires"), detail: optional(artifact.expiresAt) },
-                ...(artifact.archivedAt
-                  ? [
-                      {
-                        term: t("detail.archived"),
-                        detail: formatDate(artifact.archivedAt, true),
-                      },
-                      { term: t("detail.purge"), detail: optional(artifact.purgeAt) },
-                    ]
-                  : []),
-              ]}
-            />
-          </Panel>
-
-          <Panel title={t("content.title")} description={t("detail.versions.body")}>
-            <div className="flex flex-col items-start gap-2">
-              <Link
-                to="/artifacts/$artifactId/history"
-                params={{ artifactId: artifact.id }}
-                className={buttonClasses()}
-              >
-                <History aria-hidden="true" className="size-4" />
-                {t("content.history")}
-              </Link>
-              {artifact.type !== "site" && servable ? (
+            <Panel
+              headingLevel={3}
+              title={t("content.title")}
+              description={t("detail.versions.body")}
+            >
+              <div className="flex flex-wrap gap-2">
                 <Link
-                  to="/artifacts/$artifactId/edit"
+                  to="/artifacts/$artifactId/history"
                   params={{ artifactId: artifact.id }}
                   className={buttonClasses()}
                 >
-                  <FilePen aria-hidden="true" className="size-4" />
-                  {t("content.edit")}
+                  <History aria-hidden="true" className="size-4" />
+                  {t("content.history")}
                 </Link>
-              ) : null}
-            </div>
-          </Panel>
-
-          <Panel
-            title={t("detail.comments.title")}
-            description={servable ? t("detail.comments.body") : t("detail.comments.unavailable")}
-          >
-            <p className="text-sm">{t(`list.annotations.${artifact.annotations}`)}</p>
-          </Panel>
-
-          <Panel title={t("detail.actions")} description={t("detail.lifecycleHint")}>
-            {action.isError ? (
-              <div className="mb-4">
-                <Callout
-                  tone="error"
-                  title={t("detail.actionFailed.title")}
-                  icon={<CircleAlert className="size-5" />}
-                >
-                  {errorMessage(t, action.error)}
-                </Callout>
-              </div>
-            ) : null}
-            {actions.length === 0 ? (
-              <p className="text-sm text-text-muted">{t("detail.noActions")}</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {actions.map((kind) => (
-                  <Button
-                    key={kind}
-                    intent={kind === "renew" || kind === "restore" ? "primary" : "secondary"}
-                    icon={ACTION_ICONS[kind]}
-                    busy={action.isPending && action.variables === kind}
-                    disabled={action.isPending}
-                    onClick={() =>
-                      kind === "delete" ? setConfirmingDelete(true) : action.mutate(kind)
-                    }
+                {artifact.type !== "site" && servable ? (
+                  <Link
+                    to="/artifacts/$artifactId/edit"
+                    params={{ artifactId: artifact.id }}
+                    className={buttonClasses()}
                   >
-                    {t(`detail.${kind}`)}
-                  </Button>
-                ))}
+                    <FilePen aria-hidden="true" className="size-4" />
+                    {t("content.edit")}
+                  </Link>
+                ) : null}
               </div>
-            )}
-          </Panel>
-        </div>
-      </div>
+            </Panel>
+          </div>
+        </PageSection>
+
+        <PageSection id="sharing" title={t("detail.section.sharing")}>
+          <SharingSettings artifact={artifact} />
+        </PageSection>
+
+        <PageSection
+          id="comments"
+          title={t("detail.section.comments")}
+          description={servable ? t("detail.comments.body") : t("detail.comments.unavailable")}
+        >
+          <CommentSettings artifact={artifact} />
+        </PageSection>
+
+        <PageSection id="activity" title={t("detail.section.activity")}>
+          <AccessLog artifact={artifact} />
+        </PageSection>
+
+        <PageSection
+          id="danger"
+          title={t("detail.section.danger")}
+          description={remove.length > 0 ? t("detail.danger.body") : undefined}
+          tone="danger"
+        >
+          {failedHere(remove)}
+          {remove.length === 0 ? (
+            <p className="text-sm text-text-muted">{t("detail.noActions")}</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">{remove.map(actionButton)}</div>
+          )}
+        </PageSection>
+      </SectionedPage>
 
       <ConfirmDialog
         open={confirmingDelete}

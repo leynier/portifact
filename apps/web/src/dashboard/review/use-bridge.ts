@@ -5,13 +5,13 @@
 // confirm here. The frame receives targets and short labels, never bodies, emails or tokens.
 //
 // The page's own scripts share the bridge's window, so they can send whatever the bridge can.
-// Its messages are hints for the frame's part of the screen: results and activations count
-// only for markers this viewer sent, a `status` makes the screen ask the API instead of
+// Its messages are hints for the frame's part of the screen: results and selections count
+// only for threads this viewer highlighted on that page, a `status` makes the screen ask the API instead of
 // trusting it, and the threads, their state and the ability to comment always come from the API.
 import {
   type BridgePage,
   type FrameRect,
-  type MarkerResolution,
+  type HighlightResolution,
   newInstanceNonce,
   type RefusalReason,
   readBridgeMessage,
@@ -46,7 +46,11 @@ export interface BridgeEvents {
   onSelectionRect(rect: FrameRect | null): void;
   onRefused(reason: RefusalReason): void;
   onPickEnded(): void;
-  onActivate(id: string): void;
+  /**
+   * The reader clicked the page: the threads highlighted there, innermost first, or none. Only
+   * IDs this viewer sent to the page get through.
+   */
+  onSelect(ids: string[]): void;
   /** The frame's page reported a status; the screen should check the API's state. */
   onStatus(): void;
 }
@@ -54,7 +58,7 @@ export interface BridgeEvents {
 export interface BridgeConnection {
   state: BridgeState;
   page: BridgePage | null;
-  resolutions: ReadonlyMap<string, MarkerResolution>;
+  resolutions: ReadonlyMap<string, HighlightResolution>;
   /** Sends to the current page load; dropped while not connected. */
   send(body: ViewerBody): void;
   /** Call from the frame's `load` event: a new page load starts a new handshake. */
@@ -69,7 +73,7 @@ export function useBridge(
 ): BridgeConnection {
   const [state, setState] = useState<BridgeState>("connecting");
   const [page, setPage] = useState<BridgePage | null>(null);
-  const [resolutions, setResolutions] = useState<ReadonlyMap<string, MarkerResolution>>(
+  const [resolutions, setResolutions] = useState<ReadonlyMap<string, HighlightResolution>>(
     () => new Map(),
   );
   const nonce = useRef<string | null>(null);
@@ -78,14 +82,16 @@ export function useBridge(
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   /** Whether the frame answered (`ready` or `pong`) since its last load. */
   const answered = useRef(false);
-  /** IDs of the markers last sent: results and activations for others are ignored. */
+  /** IDs of the threads last highlighted: results and selections for others are ignored. */
   const marked = useRef(new Set<string>());
 
   const send = useCallback(
     (body: ViewerBody) => {
       const target = frame.current?.contentWindow;
       if (!origin || !target || nonce.current === null) return;
-      if (body.type === "markers") marked.current = new Set(body.markers.map((m) => m.id));
+      if (body.type === "highlights") {
+        marked.current = new Set(body.highlights.map((highlight) => highlight.id));
+      }
       target.postMessage(viewerEnvelope(nonce.current, body), origin);
     },
     [frame, origin],
@@ -148,8 +154,8 @@ export function useBridge(
             ),
           );
           return;
-        case "activate":
-          if (marked.current.has(message.id)) handlers.current.onActivate(message.id);
+        case "select":
+          handlers.current.onSelect(message.ids.filter((id) => marked.current.has(id)));
           return;
         case "pong":
           answered.current = true;

@@ -21,7 +21,9 @@ describe("Avatar", () => {
   });
 
   it("is decorative and shows the initials without a picture", async () => {
-    const { container } = render(<Avatar name="Ada Lovelace" email="ada@example.com" size="md" />);
+    const { container } = render(
+      <Avatar name="Ada Lovelace" email="ada@example.com" size="lg" tone="solid" letters={2} />,
+    );
     const avatar = container.firstElementChild as HTMLElement;
     expect(avatar.getAttribute("aria-hidden")).toBe("true");
     expect(avatar.textContent).toBe("AL");

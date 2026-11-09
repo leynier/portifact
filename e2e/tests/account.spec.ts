@@ -116,12 +116,16 @@ test("phones get a drawer instead of the sidebar, and no account page scrolls si
     );
     expect(overflow, `${path} scrolls sideways`).toBe(0);
   }
-  // Browser sessions are cards on a phone, not a table.
+  // Browser sessions stack as cards on a phone: each row is a flex card, not a table row.
   await open(page, "/profile", "Profile");
-  await expect(
-    page.getByRole("list", { name: "Browsers signed in to your account" }),
-  ).toBeVisible();
-  await expect(page.getByRole("table")).toBeHidden();
+  const sessions = page.getByRole("table", { name: "Browsers signed in to your account" });
+  await expect(sessions).toBeVisible();
+  expect(
+    await sessions
+      .getByRole("row")
+      .nth(1)
+      .evaluate((row) => getComputedStyle(row).display),
+  ).toBe("flex");
 });
 
 test("the defaults for new artifacts are saved for the account", async ({ page, context }) => {

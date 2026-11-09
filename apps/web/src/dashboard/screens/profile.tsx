@@ -22,7 +22,7 @@ export function ProfileScreen() {
       <PageHeader title={t("profile.title")} description={t("profile.description")} />
       <Section id="profile" title={t("profile.details")}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
-          <Avatar name={name} email={email} size="md" />
+          <Avatar name={name} email={email} size="lg" tone="solid" letters={2} />
           <div className="min-w-0 flex-1">
             <DetailList
               framed={false}

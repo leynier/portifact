@@ -36,21 +36,30 @@ test("the artifact list searches and filters from the keyboard, and keeps them i
   // Focus stays in the form after a search.
   await expect(search).toBeFocused();
 
-  await page.getByRole("combobox", { name: "Type" }).selectOption("markdown");
-  await page.getByRole("button", { name: "Search", exact: true }).click();
+  // A filter applies as soon as it is chosen, here from the keyboard: open, type, Enter.
+  const type = page.getByRole("combobox", { name: "Type" });
+  await type.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("listbox", { name: "Type" })).toBeVisible();
+  await page.keyboard.type("mark");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("listbox", { name: "Type" })).toBeHidden();
+  await expect(type).toBeFocused();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/?search=launch&type=markdown`);
   await expect(table.getByRole("row")).toHaveCount(2);
   await expect(table.getByRole("link", { name: "Launch notes", exact: true })).toBeVisible();
 
   // The URL carries the filters to a new load, and back returns to the earlier search.
   await page.reload();
-  await expect(page.getByRole("combobox", { name: "Type" })).toHaveValue("markdown");
+  await expect(page.getByRole("combobox", { name: "Type" })).toContainText("Markdown");
   await expect(table.getByRole("row")).toHaveCount(2);
   await page.goBack();
   await expect(table.getByRole("row")).toHaveCount(3);
 
   await page.getByRole("button", { name: "Clear filters" }).click();
-  await page.getByRole("combobox", { name: "Access" }).selectOption("public");
-  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page).toHaveURL(`${APP_ORIGIN}/`);
+  await page.getByRole("combobox", { name: "Access" }).click();
+  await page.getByRole("option", { name: "Public" }).click();
   await expect(table.getByRole("row")).toHaveCount(2);
   await expect(table.getByRole("link", { name: "Budget", exact: true })).toBeVisible();
 });
@@ -86,7 +95,8 @@ test("the viewer filters comments by author and exports them as Markdown", async
 
   // The filters and export sit in a collapsed disclosure in the sidebar.
   await page.getByText("Filter and export", { exact: true }).click();
-  await page.getByRole("combobox", { name: "Author" }).selectOption({ label: "You" });
+  await page.getByRole("combobox", { name: "Author" }).click();
+  await page.getByRole("option", { name: "You", exact: true }).click();
   await expect(page.getByText("Showing 1 of 2 comment threads")).toBeVisible();
   await expect(page.getByText("Owner note")).toBeVisible();
   await expect(page.getByText("Reviewer note")).toBeHidden();

@@ -127,21 +127,16 @@ describe("browser sessions", () => {
     expect(rows[1]?.textContent).toContain("Nov 7, 2026");
   });
 
-  it("gives phones one card per browser instead of a table", async () => {
+  it("stacks each browser as a card on phones, with the column names above the dates", async () => {
     renderDashboard("/profile", server);
-    const cards = await screen.findByRole("list", { name: "Browsers signed in to your account" });
-    const items = within(cards).getAllByRole("listitem");
-    expect(items.map((item) => item.firstElementChild?.textContent)).toEqual([
-      "Firefox on LinuxThis browser",
+    const table = await screen.findByRole("table", { name: "Browsers signed in to your account" });
+    const cells = within(within(table).getAllByRole("row")[2] as HTMLElement).getAllByRole("cell");
+    expect(cells.map((cell) => cell.firstElementChild?.textContent)).toEqual([
       "Safari on iOS",
-      "Unknown browser",
+      "Last active",
+      "Signed out on",
     ]);
-    expect(
-      within(items[1] as HTMLElement)
-        .getAllByRole("term")
-        .map((term) => term.textContent),
-    ).toEqual(["Last active", "Signed out on"]);
-    expect(items[1]?.textContent).toContain("Nov 7, 2026");
+    expect(cells[1]?.textContent).toContain("Nov 7, 2026");
   });
 
   it("signs out the other sessions only after confirming, and announces how many", async () => {

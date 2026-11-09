@@ -6,14 +6,17 @@
 // frame next to the reader's selection, or in the sidebar. Thread bodies, quotes and names are
 // untrusted text and are only ever rendered as text. Anonymous visitors of a public artifact see
 // the artifact itself in the frame and are asked to sign in to read and add comments.
-import { type FrameRect, placeNear, type RefusalReason, visibleRect } from "@portifact/bridge";
 import {
-  AnnotationBody,
-  type AnnotationMessageView,
+  BRIDGE_LIMITS,
+  type FrameRect,
+  placeNear,
+  type RefusalReason,
+  visibleRect,
+} from "@portifact/bridge";
+import {
   type AnnotationTarget,
   type AnnotationThreadView,
   type AnnotationVersionFilter,
-  HUMAN_VERIFICATION_REQUIRED,
   REVIEW_SESSION,
   type ReviewStart,
   type ReviewTabStart,
@@ -21,17 +24,21 @@ import {
 } from "@portifact/contracts";
 import { viewerHash, viewerPath } from "@portifact/domain";
 import {
+  Avatar,
   Badge,
   Button,
   buttonClasses,
   Callout,
-  ConfirmDialog,
   Disclosure,
   Floating,
   FloatingPanel,
   FrameOverlay,
+  IconButton,
+  IconLink,
   LiveRegion,
   LoadingState,
+  Menu,
+  type MenuItem,
   type OverlayPoint,
   type OverlaySize,
   PageHeader,
@@ -46,8 +53,6 @@ import { useLocation, useParams, useSearch } from "@tanstack/react-router";
 import {
   AppWindow,
   CircleAlert,
-  CircleCheck,
-  CircleDot,
   Crosshair,
   Download,
   ExternalLink,
@@ -55,18 +60,13 @@ import {
   Info,
   LayoutGrid,
   Link2,
-  LocateFixed,
   LogIn,
-  MapPinOff,
   MessageSquare,
   MessageSquarePlus,
-  Pencil,
   RefreshCw,
-  Reply,
-  RotateCcw,
   Send,
   Settings,
-  Trash2,
+  UserRound,
 } from "lucide-react";
 import {
   type KeyboardEvent,
@@ -82,15 +82,10 @@ import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
-import { MessageContent, TargetSummary } from "../review/thread-parts.tsx";
+import { ActionError, bodyError, humanRefusal, ThreadCard } from "../review/thread-card.tsx";
+import { TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
-import {
-  applyThread,
-  dropThread,
-  type ThreadsState,
-  threadsQuery,
-  useThreads,
-} from "../review/use-threads.ts";
+import { applyThread, type ThreadsState, threadsQuery, useThreads } from "../review/use-threads.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
@@ -258,13 +253,15 @@ function startsOpen(): boolean {
 interface LayoutProps {
   info: ViewerInfo;
   target: Target;
-  /** What the bar's account control is: the dashboard, or signing in. */
+  /** What the bar's account control is: the dashboard and the account, or signing in. */
   account: { kind: "signed-in" } | { kind: "anonymous"; here: string };
   frame: ReactNode;
   /** The sidebar's content; null shows no sidebar and no toggle. */
   sidebar: ReactNode | null;
   sidebarOpen: boolean;
   onSidebar(open: boolean): void;
+  /** Open threads on the current version, shown on the comments toggle. */
+  openCount?: number | undefined;
 }
 
 /** The bar, the frame and the sidebar, the same for every visitor. */
@@ -276,9 +273,25 @@ function ViewerLayout({
   sidebar,
   sidebarOpen,
   onSidebar,
+  openCount,
 }: LayoutProps) {
   const t = useT();
   const announce = useAnnounce();
+  const { api } = useDashboard();
+  const signedIn = useQuery({
+    queryKey: ACCOUNT_QUERY,
+    queryFn: () => api.account(),
+    enabled: account.kind === "signed-in",
+  });
+  const toggle = useRef<HTMLButtonElement>(null);
+  const aside = useRef<HTMLElement>(null);
+  /** Set when the toggle opened the sidebar where it covers the artifact: focus moves into it. */
+  const focusSidebar = useRef(false);
+  useEffect(() => {
+    if (!sidebarOpen || !focusSidebar.current) return;
+    focusSidebar.current = false;
+    aside.current?.focus();
+  }, [sidebarOpen]);
   const link = pageUrl(info.origin, target);
   const copyLink = async () => {
     try {
@@ -289,6 +302,54 @@ function ViewerLayout({
       announce(t("viewer.copyFailed", { url: link }));
     }
   };
+  // Full page loads: the dashboard gets its own policy, not the viewer's narrow frame-src.
+  const settings =
+    info.role === "owner"
+      ? {
+          href: `/artifacts/${encodeURIComponent(info.artifactId)}`,
+          label: t("viewer.manage"),
+          icon: <Settings className="size-4" />,
+        }
+      : {
+          href: `/report?${new URLSearchParams({ artifact: info.artifactId })}`,
+          label: t("review.report"),
+          icon: <Flag className="size-4" />,
+        };
+  const email = signedIn.data?.email ?? "";
+  const overflowItems: MenuItem[] = [
+    {
+      id: "copy",
+      label: t("viewer.copyLink"),
+      icon: <Link2 className="size-4" />,
+      onSelect: () => void copyLink(),
+    },
+    { id: "settings", ...settings },
+    ...(account.kind === "signed-in"
+      ? [
+          {
+            id: "dashboard",
+            label: t("viewer.dashboard"),
+            href: "/",
+            icon: <LayoutGrid className="size-4" />,
+          },
+          {
+            id: "account",
+            label: t("viewer.account"),
+            href: "/account",
+            icon: <UserRound className="size-4" />,
+          },
+        ]
+      : [
+          {
+            id: "sign-in",
+            label: t("viewer.signIn"),
+            href: loginUrl(account.here),
+            icon: <LogIn className="size-4" />,
+          },
+        ]),
+  ];
+  const narrow = () =>
+    typeof window.matchMedia === "function" && !window.matchMedia(WIDE_SCREEN).matches;
   return (
     <ViewerShell
       skipLinkLabel={t("viewer.skipLink")}
@@ -309,64 +370,77 @@ function ViewerLayout({
       }}
       actions={
         <>
-          <Button
-            intent="ghost"
-            size="sm"
+          <IconButton
+            label={t("viewer.copyLink")}
             icon={<Link2 className="size-4" />}
             onClick={() => void copyLink()}
-          >
-            {t("viewer.copyLink")}
-          </Button>
-          {info.role === "owner" ? (
-            // Full page loads: the dashboard gets its own policy, not the viewer's narrow frame-src.
-            <a
-              href={`/artifacts/${encodeURIComponent(info.artifactId)}`}
-              className={buttonClasses({ intent: "ghost", size: "sm" })}
-            >
-              <Settings aria-hidden="true" className="size-4" />
-              {t("viewer.manage")}
-            </a>
-          ) : (
-            <a
-              href={`/report?${new URLSearchParams({ artifact: info.artifactId })}`}
-              className={buttonClasses({ intent: "ghost", size: "sm" })}
-            >
-              <Flag aria-hidden="true" className="size-4" />
-              {t("review.report")}
-            </a>
-          )}
-          {sidebar !== null ? (
-            <Button
-              size="sm"
-              icon={<MessageSquare className="size-4" />}
-              aria-expanded={sidebarOpen}
-              aria-controls={SIDEBAR_ID}
-              onClick={() => onSidebar(!sidebarOpen)}
-            >
-              {t("viewer.comments")}
-            </Button>
-          ) : null}
-          {account.kind === "signed-in" ? (
-            <a href="/" className={buttonClasses({ intent: "ghost", size: "sm" })}>
-              <LayoutGrid aria-hidden="true" className="size-4" />
-              {t("viewer.dashboard")}
-            </a>
-          ) : (
-            <a
-              href={loginUrl(account.here)}
-              className={buttonClasses({ intent: "primary", size: "sm" })}
-            >
-              <LogIn aria-hidden="true" className="size-4" />
-              {t("viewer.signIn")}
-            </a>
-          )}
+          />
+          <IconLink label={settings.label} icon={settings.icon} href={settings.href} />
         </>
+      }
+      toggle={
+        sidebar !== null ? (
+          <Button
+            ref={toggle}
+            size="sm"
+            icon={<MessageSquare className="size-4" />}
+            aria-pressed={sidebarOpen}
+            aria-controls={sidebarOpen ? SIDEBAR_ID : undefined}
+            count={
+              openCount
+                ? { value: openCount, label: t("viewer.comments.open", { count: openCount }) }
+                : undefined
+            }
+            onClick={() => {
+              focusSidebar.current = !sidebarOpen && narrow();
+              onSidebar(!sidebarOpen);
+            }}
+          >
+            <span className="max-sm:sr-only">{t("viewer.comments")}</span>
+          </Button>
+        ) : null
+      }
+      overflow={<Menu label={t("viewer.more")} items={overflowItems} size="sm" />}
+      account={
+        account.kind === "signed-in" ? (
+          <>
+            <IconLink
+              label={t("viewer.dashboard")}
+              icon={<LayoutGrid className="size-4" />}
+              href="/"
+            />
+            <IconLink
+              label={t("viewer.account")}
+              icon={<Avatar name={email || "?"} />}
+              href="/account"
+              align="end"
+            />
+          </>
+        ) : (
+          <a
+            href={loginUrl(account.here)}
+            className={buttonClasses({ intent: "primary", size: "sm" })}
+          >
+            <LogIn aria-hidden="true" className="size-4" />
+            {t("viewer.signIn")}
+          </a>
+        )
       }
       frameLabel={t("viewer.frame.label")}
       frame={frame}
       sidebar={
         sidebar !== null && sidebarOpen
-          ? { id: SIDEBAR_ID, label: t("review.comments.heading"), content: sidebar }
+          ? {
+              id: SIDEBAR_ID,
+              label: t("review.comments.heading"),
+              content: sidebar,
+              closeLabel: t("viewer.closeComments"),
+              ref: aside,
+              onClose: () => {
+                onSidebar(false);
+                setTimeout(() => toggle.current?.focus(), 0);
+              },
+            }
           : undefined
       }
     />
@@ -631,7 +705,7 @@ function ReviewSession({
   // An inline draft that does not fit beside its selection becomes a bottom sheet, for good.
   const [unplaced, setUnplaced] = useState(false);
   const [picking, setPicking] = useState(false);
-  const [active, setActive] = useState<string | null>(null);
+  const [selection, setSelection] = useState<ThreadSelection>(NO_SELECTION);
   const items = useRef(new Map<string, HTMLElement>());
   // The page shares the bridge's window and can post what the bridge posts, so these refs, not
   // the page, decide when its selection or element may fill in a comment: an element only
@@ -709,44 +783,58 @@ function ReviewSession({
       // The page can forge a status: the API says what really holds for comments.
       void threads.refetch();
     },
-    onActivate(id) {
-      setActive(id);
+    onSelect(ids) {
+      // Only threads this panel shows count; the hook already dropped IDs never sent to the page.
+      const known = ids.filter((id) => numbers.has(id) && shown.some((thread) => thread.id === id));
+      if (known.length === 0) {
+        setSelection((current) => (current.fromFrame ? NO_SELECTION : current));
+        return;
+      }
+      setSelection({ ids: known, fromFrame: true });
       setSidebarOpen(true);
-      const number = numbers.get(id);
-      if (number !== undefined) announce(t("review.thread.activated", { number }));
-      // After the sidebar renders, so the thread exists to take focus.
-      setTimeout(() => items.current.get(id)?.focus(), 0);
+      const list = known.map((id) => numbers.get(id)).join(", ");
+      // A polite announcement, not the toast: a click in the artifact must not cover the threads.
+      setHint(
+        known.length === 1
+          ? t("review.thread.activated", { number: list })
+          : t("review.thread.activatedMany", { numbers: list }),
+      );
+      // Scrolled into view after the sidebar renders; focus stays in the artifact.
+      setTimeout(() => {
+        const first = known[0];
+        const card = first ? items.current.get(first) : undefined;
+        card?.scrollIntoView?.({ block: "nearest" });
+      }, 0);
     },
   });
 
-  // The frame only gets targets and short labels for the threads of the page it shows.
+  // The frame only gets the targets of the threads of the page it shows, never bodies or names.
   const { send, state, page } = bridge;
-  const markerKey = JSON.stringify([
+  const highlighted = shown
+    .filter((thread) => thread.current)
+    .filter((thread) => thread.target.anchor.kind !== "document")
+    .filter((thread) => thread.target.path === page?.path)
+    .slice(0, BRIDGE_LIMITS.highlightsMax);
+  const highlightKey = JSON.stringify([
     state,
     page?.path,
-    active,
-    shown.map((thread) => [thread.id, thread.revision, thread.current]),
+    selection.ids,
+    highlighted.map((thread) => [thread.id, thread.revision]),
   ]);
-  // markerKey summarizes what the effect sends, so it runs only when that changes.
+  // highlightKey summarizes what the effect sends, so it runs only when that changes.
   useEffect(() => {
     if (state !== "connected" || !data || !page) return;
-    // Only the version in the frame has places in it, and only threads the filters show.
-    const markers = shown
-      .filter((thread) => thread.current)
-      .filter((thread) => thread.target.anchor.kind !== "document")
-      .filter((thread) => thread.target.path === page.path)
-      .slice(0, 200)
-      .map((thread) => {
-        const number = String(numbers.get(thread.id) ?? 0);
-        return {
-          id: thread.id,
-          label: number,
-          name: t("review.marker.name", { number }),
-          target: thread.target,
-        };
-      });
-    send({ type: "markers", markers, active });
-  }, [markerKey]);
+    const ids = new Set(highlighted.map((thread) => thread.id));
+    send({
+      type: "highlights",
+      highlights: highlighted.map((thread) => ({ id: thread.id, target: thread.target })),
+      selected: selection.ids.filter((id) => ids.has(id)),
+    });
+  }, [highlightKey]);
+  const hover = (id: string | null) => {
+    if (state !== "connected") return;
+    send({ type: "hover", id: id && highlighted.some((thread) => thread.id === id) ? id : null });
+  };
 
   const path = page?.path ?? start.entrypoint;
 
@@ -781,9 +869,9 @@ function ReviewSession({
     // The inline composer goes away with focus inside it: back to the artifact the reader was in.
     if (inline) frame.current?.focus();
   };
-  const show = (id: string) => {
-    setActive(id);
-    send({ type: "focus", id });
+  const select = (id: string, show: boolean) => {
+    setSelection({ ids: [id], fromFrame: false });
+    if (show) send({ type: "focus", id });
   };
 
   // Where the browser keeps no session in the frame, a public artifact is still shown as it is,
@@ -831,7 +919,7 @@ function ReviewSession({
                 humanNeeded={humanNeeded}
                 onDone={(thread) => {
                   closeDraft();
-                  if (thread) setActive(thread.id);
+                  if (thread) setSelection({ ids: [thread.id], fromFrame: false });
                 }}
               />
             </FloatingPanel>
@@ -896,7 +984,7 @@ function ReviewSession({
           humanNeeded={humanNeeded}
           onDone={(thread) => {
             closeDraft();
-            if (thread) setActive(thread.id);
+            if (thread) setSelection({ ids: [thread.id], fromFrame: false });
           }}
         />
       ) : null}
@@ -906,11 +994,13 @@ function ReviewSession({
         shown={shown}
         filtered={filter.status !== "all" || filter.author !== "all"}
         numbers={numbers}
-        active={active}
+        selection={selection}
         resolutions={bridge.resolutions}
         path={path}
         located={state === "connected"}
-        onShow={show}
+        onSelect={select}
+        onHover={hover}
+        onClearSelection={() => setSelection(NO_SELECTION)}
         register={(id, element) => {
           if (element) items.current.set(id, element);
           else items.current.delete(id);
@@ -939,6 +1029,7 @@ function ReviewSession({
       sidebar={sidebar}
       sidebarOpen={sidebarOpen}
       onSidebar={setSidebarOpen}
+      openCount={data?.threads.filter((thread) => thread.current && thread.state === "open").length}
     />
   );
 }
@@ -1131,30 +1222,6 @@ function ModeNotice({ artifactId, state }: { artifactId: string; state: ThreadsS
     </>
   );
 }
-
-function ActionError({ error }: { error: unknown }) {
-  const t = useT();
-  return (
-    <Callout
-      tone="error"
-      title={t("review.actionFailed.title")}
-      icon={<CircleAlert className="size-5" />}
-    >
-      {errorMessage(t, error)}
-    </Callout>
-  );
-}
-
-/** The validation of a comment body, with this screen's messages. */
-function bodyError(t: T, value: string) {
-  if (AnnotationBody.safeParse(value).success) return undefined;
-  const message = value.trim() === "" ? t("review.composer.empty") : t("review.composer.invalid");
-  return { fields: { body: message } };
-}
-
-/** Whether an error is the API's refusal for the human check, which the check itself explains. */
-const humanRefusal = (error: unknown) =>
-  error instanceof ApiFailure && error.code === HUMAN_VERIFICATION_REQUIRED;
 
 /**
  * Posting a new thread on `target`: the human check when the visitor still needs it, one
@@ -1492,6 +1559,15 @@ function CommentTools({
   );
 }
 
+/** The threads the reader selected, and whether a click in the artifact chose them. */
+interface ThreadSelection {
+  /** Primary first: the innermost or most recent thread at the place clicked. */
+  ids: string[];
+  fromFrame: boolean;
+}
+
+const NO_SELECTION: ThreadSelection = { ids: [], fromFrame: false };
+
 interface ThreadListProps {
   start: ReviewStart;
   threads: ThreadsQuery;
@@ -1499,15 +1575,26 @@ interface ThreadListProps {
   shown: AnnotationThreadView[];
   filtered: boolean;
   numbers: Map<string, number>;
-  active: string | null;
+  selection: ThreadSelection;
   resolutions: ReadonlyMap<string, { confidence: string }>;
   path: string;
   located: boolean;
-  onShow(id: string): void;
+  onSelect(id: string, show: boolean): void;
+  onHover(id: string | null): void;
+  onClearSelection(): void;
   register(id: string, element: HTMLElement | null): void;
 }
 
-function ThreadList({ threads, shown, filtered, numbers, ...rest }: ThreadListProps) {
+function ThreadList({
+  start,
+  threads,
+  shown,
+  filtered,
+  numbers,
+  selection,
+  onClearSelection,
+  ...rest
+}: ThreadListProps) {
   const t = useT();
   if (threads.isPending) return <LoadingState label={t("review.comments.loading")} />;
   if (threads.isError && !threads.data) {
@@ -1528,6 +1615,36 @@ function ThreadList({ threads, shown, filtered, numbers, ...rest }: ThreadListPr
   }
   const data = threads.data;
   if (!data) return null;
+  const visible = threads.isPlaceholderData ? [] : shown;
+  // Several threads chosen by one click in the artifact are shown together, first.
+  const byId = new Map(visible.map((thread) => [thread.id, thread]));
+  const group =
+    selection.fromFrame && selection.ids.length > 1
+      ? selection.ids.flatMap((id) => byId.get(id) ?? [])
+      : [];
+  const grouped = new Set(group.map((thread) => thread.id));
+  const card = (thread: AnnotationThreadView) => (
+    <ThreadCard
+      key={thread.id}
+      artifactId={start.artifactId}
+      thread={thread}
+      number={numbers.get(thread.id) ?? 0}
+      state={data}
+      selection={
+        selection.ids[0] === thread.id
+          ? "primary"
+          : selection.ids.includes(thread.id)
+            ? "selected"
+            : null
+      }
+      resolution={rest.resolutions.get(thread.id)}
+      path={rest.path}
+      located={rest.located}
+      onSelect={rest.onSelect}
+      onHover={rest.onHover}
+      register={rest.register}
+    />
+  );
   return (
     <>
       {threads.isError ? (
@@ -1543,16 +1660,24 @@ function ThreadList({ threads, shown, filtered, numbers, ...rest }: ThreadListPr
           filtered,
         })}
       </p>
-      <ol className="flex flex-col gap-4">
-        {(threads.isPlaceholderData ? [] : shown).map((thread) => (
-          <ThreadItem
-            key={thread.id}
-            thread={thread}
-            number={numbers.get(thread.id) ?? 0}
-            state={data}
-            {...rest}
-          />
-        ))}
+      {group.length > 1 ? (
+        <section
+          aria-labelledby="viewer-selected-threads"
+          className="flex flex-col gap-3 rounded-lg border border-border-strong bg-surface p-2"
+        >
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h3 id="viewer-selected-threads" className="text-sm font-semibold">
+              {t("review.group.heading", { count: group.length })}
+            </h3>
+            <Button intent="link" size="inline" onClick={onClearSelection}>
+              {t("review.group.clear")}
+            </Button>
+          </div>
+          <ol className="flex flex-col gap-3">{group.map(card)}</ol>
+        </section>
+      ) : null}
+      <ol className="flex flex-col gap-3">
+        {visible.filter((thread) => !grouped.has(thread.id)).map(card)}
       </ol>
     </>
   );
@@ -1567,443 +1692,4 @@ function countMessage(
   if (!state.filtered) return t("review.comments.count", { count: state.total });
   if (state.shown === 0) return t("review.comments.noMatch");
   return t("review.comments.filteredCount", { shown: state.shown, count: state.total });
-}
-
-function ThreadItem({
-  start,
-  thread,
-  number,
-  state,
-  active,
-  resolutions,
-  path,
-  located,
-  onShow,
-  register,
-}: Omit<ThreadListProps, "threads" | "numbers" | "shown" | "filtered"> & {
-  thread: AnnotationThreadView;
-  number: number;
-  state: ThreadsState;
-}) {
-  const t = useT();
-  const announce = useAnnounce();
-  const queryClient = useQueryClient();
-  const { api } = useDashboard();
-  const [replying, setReplying] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const ref = useCallback(
-    (element: HTMLElement | null) => register(thread.id, element),
-    [register, thread.id],
-  );
-
-  const toggle = useMutation({
-    mutationFn: () =>
-      api.setThreadState(
-        start.artifactId,
-        thread.id,
-        thread.state === "open" ? "resolved" : "open",
-      ),
-    onSuccess: (updated) => {
-      applyThread(queryClient, start.artifactId, updated);
-      announce(
-        t(
-          updated.state === "resolved"
-            ? "review.thread.resolvedDone"
-            : "review.thread.reopenedDone",
-          {
-            number,
-          },
-        ),
-      );
-    },
-  });
-  const remove = useMutation({
-    mutationFn: () => api.deleteThread(start.artifactId, thread.id),
-    onSuccess: () => {
-      setConfirmingDelete(false);
-      dropThread(queryClient, start.artifactId, thread.id);
-      announce(t("review.thread.deletedDone", { number }));
-    },
-    onError: () => setConfirmingDelete(false),
-  });
-
-  const owner = state.role === "owner";
-  const writable = state.annotations === "open" && thread.current;
-  const canResolve = owner ? state.annotations !== "off" : thread.own && writable;
-  const resolution = resolutions.get(thread.id);
-  const kind = thread.target.anchor.kind;
-  const elsewhere = kind !== "document" && thread.target.path !== path;
-  const orphaned = !elsewhere && resolution?.confidence === "orphaned";
-  const showable =
-    located &&
-    thread.current &&
-    kind !== "document" &&
-    !elsewhere &&
-    resolution !== undefined &&
-    !orphaned;
-  const titleId = `thread-${thread.id}-title`;
-
-  return (
-    <li>
-      <article
-        ref={ref}
-        tabIndex={-1}
-        aria-labelledby={titleId}
-        aria-current={active === thread.id ? "true" : undefined}
-        className="flex flex-col gap-3 rounded-lg border border-border bg-canvas p-4 shadow-sm current-item:border-text current-item:shadow-raised"
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 id={titleId} className="text-base font-semibold">
-            {t("review.thread.title", { number })}
-          </h3>
-          {thread.state === "open" ? (
-            <Badge icon={<CircleDot className="size-3.5" />}>{t("review.thread.open")}</Badge>
-          ) : (
-            <Badge emphasis="quiet" icon={<CircleCheck className="size-3.5" />}>
-              {t("review.thread.resolved")}
-            </Badge>
-          )}
-          {orphaned ? (
-            <Badge emphasis="strong" icon={<MapPinOff className="size-3.5" />}>
-              {t("review.thread.orphaned")}
-            </Badge>
-          ) : null}
-          {elsewhere ? (
-            <Badge emphasis="quiet">
-              {t("review.thread.otherPage", { path: thread.target.path })}
-            </Badge>
-          ) : null}
-          {thread.current ? null : (
-            <Badge emphasis="quiet">{t("review.thread.otherVersion")}</Badge>
-          )}
-        </div>
-        <TargetSummary target={thread.target} />
-        <ol className="flex flex-col gap-3">
-          {thread.messages.map((message) => (
-            <MessageItem
-              key={message.id}
-              artifactId={start.artifactId}
-              message={message}
-              owner={owner}
-              writable={writable}
-            />
-          ))}
-        </ol>
-        {toggle.isError ? <ActionError error={toggle.error} /> : null}
-        {remove.isError ? <ActionError error={remove.error} /> : null}
-        <div className="flex flex-wrap gap-2">
-          {showable ? (
-            <Button
-              size="sm"
-              icon={<LocateFixed className="size-4" />}
-              onClick={() => onShow(thread.id)}
-            >
-              {t("review.thread.show")}
-            </Button>
-          ) : null}
-          {writable ? (
-            <Button
-              size="sm"
-              icon={<Reply className="size-4" />}
-              aria-expanded={replying}
-              onClick={() => setReplying((open) => !open)}
-            >
-              {t("review.thread.reply")}
-            </Button>
-          ) : null}
-          {canResolve ? (
-            <Button
-              size="sm"
-              icon={
-                thread.state === "open" ? (
-                  <CircleCheck className="size-4" />
-                ) : (
-                  <RotateCcw className="size-4" />
-                )
-              }
-              busy={toggle.isPending}
-              onClick={() => toggle.mutate()}
-            >
-              {t(thread.state === "open" ? "review.thread.resolve" : "review.thread.reopen")}
-            </Button>
-          ) : null}
-          {owner ? (
-            <Button
-              size="sm"
-              icon={<Trash2 className="size-4" />}
-              onClick={() => setConfirmingDelete(true)}
-            >
-              {t("review.thread.delete")}
-            </Button>
-          ) : null}
-        </div>
-        {replying && writable ? (
-          <ReplyForm
-            artifactId={start.artifactId}
-            threadId={thread.id}
-            byOwner={thread.byOwner}
-            number={number}
-            humanNeeded={state.humanCheck}
-            onDone={() => setReplying(false)}
-          />
-        ) : null}
-      </article>
-      <ConfirmDialog
-        open={confirmingDelete}
-        title={t("review.thread.confirmDelete.title", { number })}
-        confirmLabel={t("review.thread.confirmDelete.confirm")}
-        cancelLabel={t("review.thread.confirmDelete.cancel")}
-        confirmIcon={<Trash2 className="size-4" />}
-        busy={remove.isPending}
-        onConfirm={() => remove.mutate()}
-        onCancel={() => setConfirmingDelete(false)}
-      >
-        {t("review.thread.confirmDelete.body")}
-      </ConfirmDialog>
-    </li>
-  );
-}
-
-function MessageItem({
-  artifactId,
-  message,
-  owner,
-  writable,
-}: {
-  artifactId: string;
-  message: AnnotationMessageView;
-  owner: boolean;
-  /** Whether the thread takes changes: comments open and the thread on the current version. */
-  writable: boolean;
-}) {
-  const t = useT();
-  const [editing, setEditing] = useState(false);
-  const editButton = useRef<HTMLButtonElement>(null);
-  const editable = writable && message.own && message.state === "visible";
-  const announce = useAnnounce();
-  const queryClient = useQueryClient();
-  const { api } = useDashboard();
-  const moderate = useMutation({
-    mutationFn: (action: "hide" | "unhide" | "delete") =>
-      api.moderateMessage(artifactId, message.id, action),
-    onSuccess: (result) => {
-      if (result.thread) applyThread(queryClient, artifactId, result.thread);
-      else dropThread(queryClient, artifactId, result.threadId);
-      announce(t("review.message.moderated"));
-    },
-  });
-  const stopEditing = () => {
-    setEditing(false);
-    // Back to the control that opened the form, after it renders again.
-    setTimeout(() => editButton.current?.focus(), 0);
-  };
-  if (editing && editable) {
-    return (
-      <li className="flex flex-col gap-1">
-        <EditForm artifactId={artifactId} message={message} onDone={stopEditing} />
-      </li>
-    );
-  }
-  return (
-    <li className="flex flex-col gap-1">
-      <MessageContent message={message} />
-      {editable ? (
-        <div className="flex flex-wrap gap-3">
-          <Button
-            ref={editButton}
-            intent="link"
-            size="inline"
-            icon={<Pencil className="size-3.5" />}
-            onClick={() => setEditing(true)}
-          >
-            {t("review.message.edit")}
-          </Button>
-        </div>
-      ) : null}
-      {moderate.isError ? <ActionError error={moderate.error} /> : null}
-      {owner && !message.own && message.state !== "deleted" ? (
-        <div className="flex flex-wrap gap-3">
-          <Button
-            intent="link"
-            size="inline"
-            busy={moderate.isPending && moderate.variables !== "delete"}
-            onClick={() => moderate.mutate(message.state === "hidden" ? "unhide" : "hide")}
-          >
-            {t(message.state === "hidden" ? "review.message.unhide" : "review.message.hide")}
-          </Button>
-          <Button
-            intent="link"
-            size="inline"
-            busy={moderate.isPending && moderate.variables === "delete"}
-            onClick={() => moderate.mutate("delete")}
-          >
-            {t("review.message.delete")}
-          </Button>
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
-function ReplyForm({
-  artifactId,
-  threadId,
-  byOwner,
-  number,
-  humanNeeded,
-  onDone,
-}: {
-  artifactId: string;
-  threadId: string;
-  /** The owner started the thread, so every reader who sees comments sees the reply. */
-  byOwner: boolean;
-  number: number;
-  humanNeeded: boolean;
-  onDone(): void;
-}) {
-  const t = useT();
-  const announce = useAnnounce();
-  const queryClient = useQueryClient();
-  const { api } = useDashboard();
-  const human = useHumanCheck(humanNeeded);
-  const reply = useMutation({
-    mutationFn: (body: string) =>
-      human.post((key, token) => api.reply(artifactId, threadId, body, key, token)),
-    onSuccess: (thread) => {
-      if (!thread) return;
-      applyThread(queryClient, artifactId, thread);
-      announce(t("review.reply.posted"));
-      onDone();
-    },
-  });
-  const form = useAppForm({
-    defaultValues: { body: "" },
-    validationLogic: revalidateLogic(),
-    validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) =>
-      reply.mutateAsync(value.body).then(
-        () => {},
-        () => {},
-      ),
-  });
-  return (
-    <div className="flex flex-col gap-2">
-      {reply.isError && !humanRefusal(reply.error) ? <ActionError error={reply.error} /> : null}
-      <form.AppForm>
-        <form.Form label={t("review.reply.label", { number })}>
-          <div className="flex flex-col gap-2">
-            <form.AppField name="body">
-              {(field) => (
-                <field.TextAreaField
-                  label={t("review.reply.body")}
-                  description={byOwner ? t("review.reply.hint.owner") : undefined}
-                  rows={3}
-                  autoFocus
-                />
-              )}
-            </form.AppField>
-            {human.field}
-            <div className="flex flex-wrap gap-2">
-              <form.SubmitButton icon={<Send className="size-4" />} busy={reply.isPending}>
-                {t("review.reply.submit")}
-              </form.SubmitButton>
-              <Button onClick={onDone}>{t("review.composer.cancel")}</Button>
-            </div>
-          </div>
-        </form.Form>
-      </form.AppForm>
-    </div>
-  );
-}
-
-/**
- * Editing one of your own messages in place. The edit names the revision it started from, so an
- * edit made elsewhere meanwhile is a conflict, never overwritten: the latest text is loaded and
- * the reader saves again.
- */
-function EditForm({
-  artifactId,
-  message,
-  onDone,
-}: {
-  artifactId: string;
-  message: AnnotationMessageView;
-  onDone(): void;
-}) {
-  const t = useT();
-  const announce = useAnnounce();
-  const queryClient = useQueryClient();
-  const { api } = useDashboard();
-  // The revision the reader is editing; it moves only when they see the newer text.
-  const revision = useRef(message.revision);
-  const edit = useMutation({
-    mutationFn: (body: string) =>
-      api.editMessage(artifactId, message.id, { body, revision: revision.current }),
-    onSuccess: (result) => {
-      if ("thread" in result && result.thread === null) {
-        // Saved in a thread the reader no longer sees: the owner narrowed who sees comments.
-        dropThread(queryClient, artifactId, result.threadId);
-        announce(t("review.message.edited.hidden"));
-      } else {
-        applyThread(queryClient, artifactId, result as AnnotationThreadView);
-        announce(t("review.message.edited.done"));
-      }
-      onDone();
-    },
-    onError: async (error) => {
-      if (error instanceof ApiFailure && error.code === "version_conflict") {
-        await queryClient.invalidateQueries({ queryKey: threadsQuery(artifactId) });
-      }
-    },
-  });
-  const conflict = edit.error instanceof ApiFailure && edit.error.code === "version_conflict";
-  useEffect(() => {
-    // After a conflict, the next save starts from the text the reader now sees.
-    if (conflict) revision.current = message.revision;
-  }, [conflict, message.revision]);
-  const form = useAppForm({
-    defaultValues: { body: message.body ?? "" },
-    validationLogic: revalidateLogic(),
-    validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) =>
-      edit.mutateAsync(value.body).then(
-        () => {},
-        () => {},
-      ),
-  });
-  return (
-    <div className="flex flex-col gap-2">
-      {conflict ? (
-        <Callout title={t("review.actionFailed.title")} icon={<Info className="size-5" />}>
-          {t("review.message.editConflict")}
-        </Callout>
-      ) : edit.isError ? (
-        <ActionError error={edit.error} />
-      ) : null}
-      <form.AppForm>
-        <form.Form label={t("review.message.editLabel")}>
-          <div className="flex flex-col gap-2">
-            <form.AppField name="body">
-              {(field) => (
-                <field.TextAreaField
-                  label={t("review.message.editBody")}
-                  rows={3}
-                  compact
-                  autoFocus
-                />
-              )}
-            </form.AppField>
-            <div className="flex flex-wrap gap-2">
-              <form.SubmitButton size="sm" busy={edit.isPending}>
-                {t("review.message.editSave")}
-              </form.SubmitButton>
-              <Button size="sm" onClick={onDone}>
-                {t("review.composer.cancel")}
-              </Button>
-            </div>
-          </div>
-        </form.Form>
-      </form.AppForm>
-    </div>
-  );
 }

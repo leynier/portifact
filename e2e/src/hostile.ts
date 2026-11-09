@@ -23,13 +23,14 @@ const results = { done: false, received: [], parentDom: "blocked", topNavigation
   readApi: "blocked", readSibling: "blocked", cookies: document.cookie, forged: 0 };
 const show = () => { document.getElementById("results").textContent = JSON.stringify(results); };
 let nonce = null;
+let version = null;
 window.addEventListener("message", (event) => {
   results.received.push(JSON.stringify(event.data));
-  if (event.data && event.data.type === "init") nonce = event.data.nonce;
+  if (event.data && event.data.type === "init") { nonce = event.data.nonce; version = event.data.v; }
   show();
 });
 const forge = (body) => {
-  const message = Object.assign({ channel: "portifact-review", v: 1, nonce }, body);
+  const message = Object.assign({ channel: "portifact-review", v: version, nonce }, body);
   for (const origin of ["*", APP]) { parent.postMessage(message, origin); results.forged += 1; }
 };
 async function attack() {
@@ -71,6 +72,7 @@ async function attack() {
     forge({ type: "selection-rect", rect: { x: 0, y: 0, width: 1e9, height: 1e9 } });
     forge({ type: "element", target: { schema: 1, path: "index.html", anchor: { kind: "element", selectors: ["#bait"], tagName: "p", fingerprint: "Bait" } } });
     forge({ type: "selection", target: null, extra: "x".repeat(20000) });
+    forge({ type: "select", ids: ["forgedthread"] });
   }
   await new Promise((r) => setTimeout(r, 1500));
   results.done = true;
