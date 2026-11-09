@@ -17,6 +17,12 @@ export interface LocaleInfo {
 export const LOCALES = [
   { code: "en", name: "English", dir: "ltr" },
   { code: "es", name: "Español", dir: "ltr" },
+  { code: "pt-BR", name: "Português (Brasil)", dir: "ltr" },
+  { code: "fr", name: "Français", dir: "ltr" },
+  { code: "de", name: "Deutsch", dir: "ltr" },
+  { code: "ru", name: "Русский", dir: "ltr" },
+  { code: "ja", name: "日本語", dir: "ltr" },
+  { code: "zh-CN", name: "简体中文", dir: "ltr" },
 ] as const satisfies readonly LocaleInfo[];
 
 export type LocaleCode = (typeof LOCALES)[number]["code"];

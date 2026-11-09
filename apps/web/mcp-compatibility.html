@@ -48,8 +48,10 @@
       <section id="matrix" aria-labelledby="matrix-heading" class="mt-12 scroll-mt-8">
         <h2 id="matrix-heading" class="text-xl font-semibold tracking-tight" data-i18n="mcp.matrix.title">Tested clients</h2>
         <p class="mt-4 leading-7" data-i18n="mcp.matrix.intro">Each client listed, published, read back and deleted a document. All three sign in with OAuth and PKCE and identify themselves with a published client metadata document.</p>
-        <table class="mt-4 w-full text-left text-sm leading-6">
-          <caption class="sr-only" data-i18n="mcp.matrix.caption">MCP clients tested with Portifact</caption>
+        <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: the table scrolls sideways on narrow screens, and a scrolling region must be reachable by keyboard -->
+        <section class="mt-4 overflow-x-auto rounded-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" tabindex="0" aria-labelledby="matrix-caption">
+        <table class="w-full text-left text-sm leading-6">
+          <caption id="matrix-caption" class="sr-only" data-i18n="mcp.matrix.caption">MCP clients tested with Portifact</caption>
           <thead><tr><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.client">Client</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.version">Version</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.protocol">Protocol</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.moreAccess">When a tool needs more access</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold" data-i18n="mcp.matrix.status">Status</th></tr></thead>
           <tbody>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Claude.ai</th><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.claudeAiVersion">Web, November 2026</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.notRecorded">Not recorded</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.claudeAiMoreAccess">Asks you to allow it in the browser</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.works">Works</td></tr>
@@ -57,6 +59,7 @@
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Codex CLI</th><td class="border-b border-border py-2 pr-4 align-top">0.167.0</td><td class="border-b border-border py-2 pr-4 align-top">2025-06-18</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.codexMoreAccess">Fails the call; sign in again with the scopes you need</td><td class="border-b border-border py-2 pr-4 align-top" data-i18n="mcp.matrix.works">Works</td></tr>
           </tbody>
         </table>
+        </section>
       </section>
 
       <section id="claude-ai" aria-labelledby="claude-ai-heading" class="mt-12 scroll-mt-8">

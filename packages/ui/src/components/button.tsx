@@ -3,7 +3,9 @@ import type { ButtonHTMLAttributes, ReactNode, Ref } from "react";
 
 /** Classes of the button variants, also used by links that look like buttons. */
 export const buttonClasses = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 font-medium whitespace-nowrap no-underline transition duration-150 select-none disabled:opacity-55 motion-safe:active:translate-y-px",
+  // Labels stay on one line while they fit; a label longer than its container (a long
+  // translation on a narrow screen) wraps inside the button instead of overflowing the page.
+  "inline-flex max-w-full shrink-0 items-center justify-center gap-2 text-center font-medium text-balance no-underline transition duration-150 select-none disabled:opacity-55 motion-safe:active:translate-y-px",
   {
     variants: {
       intent: {
@@ -25,16 +27,16 @@ export const buttonClasses = cva(
           "rounded-sm bg-surface-inverse text-text-inverse shadow-float hover:opacity-85 disabled:hover:opacity-55",
         // Looks like an empty field and opens a form in place, such as a thread's reply box.
         field:
-          "w-full justify-start rounded-sm border border-border bg-canvas font-normal text-text-muted hover:border-border-strong hover:text-text",
+          "w-full justify-start rounded-sm border border-border bg-canvas text-left font-normal text-text-muted hover:border-border-strong hover:text-text",
       },
       size: {
-        md: "h-10 px-4 text-sm",
-        sm: "h-8 px-3 text-sm",
+        md: "min-h-10 px-4 py-1.5 text-sm",
+        sm: "min-h-8 px-3 py-1 text-sm",
         inline: "text-sm",
       },
     },
     compoundVariants: [
-      { intent: "link", class: "h-auto px-0" },
+      { intent: "link", class: "min-h-0 px-0 py-0" },
       { intent: "ghost", size: "md", class: "px-3" },
       { intent: "ghost", size: "sm", class: "px-2" },
       { intent: "field", size: "sm", class: "px-2.5" },

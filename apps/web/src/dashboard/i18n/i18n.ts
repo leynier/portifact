@@ -18,6 +18,12 @@ export type CatalogLoaders = { readonly [code in LocaleCode]: () => Promise<Cata
 export const CATALOG_LOADERS: CatalogLoaders = {
   en: async () => en,
   es: () => import("./es.ts").then((module) => module.es),
+  "pt-BR": () => import("./pt-br.ts").then((module) => module.ptBR),
+  fr: () => import("./fr.ts").then((module) => module.fr),
+  de: () => import("./de.ts").then((module) => module.de),
+  ru: () => import("./ru.ts").then((module) => module.ru),
+  ja: () => import("./ja.ts").then((module) => module.ja),
+  "zh-CN": () => import("./zh-cn.ts").then((module) => module.zhCN),
 };
 
 /** An i18n instance with a catalog already loaded: English unless another is given. */

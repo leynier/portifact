@@ -30,6 +30,7 @@ import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
 import {
   BRIDGE_PATH,
+  bannerLocale,
   bridgeScript,
   cspNonce,
   injectBridge,
@@ -476,7 +477,11 @@ async function serveWithBridge(
   if (!object) return message(503, PAGES.fileUnavailable);
   const response = new Response(object.body, { status: 200, headers });
   if (session.mode === "tab") {
-    return injectReviewBanner(response, REVIEW_SESSION.tabSessionTtlSeconds / 60);
+    return injectReviewBanner(
+      response,
+      REVIEW_SESSION.tabSessionTtlSeconds / 60,
+      bannerLocale(request.headers.get("Accept-Language")),
+    );
   }
   return injectBridge(response, {
     appOrigin: env.APP_ORIGIN,

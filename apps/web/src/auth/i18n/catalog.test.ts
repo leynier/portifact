@@ -12,6 +12,9 @@ import type { AuthCatalog } from "./types.ts";
 
 const SAMPLE = "SAMPLE42";
 
+/** A sentence's full stop: the Latin period, or the ideographic one of Chinese and Japanese. */
+const FULL_STOP = /[.。]$/;
+
 function parse(html: string): Document {
   return new DOMParser().parseFromString(html, "text/html");
 }
@@ -99,7 +102,7 @@ describe.each(languages)("the %s catalog", (_code, load) => {
     }
   });
 
-  it("ends a text with a period only when the English does", async () => {
+  it("ends a text with a full stop (. or 。) only when the English does", async () => {
     const { page, messages } = await load();
     const translated = new Map(texts(messages, "messages"));
     const pairs: [string, string, string][] = [
@@ -115,7 +118,7 @@ describe.each(languages)("the %s catalog", (_code, load) => {
       ]),
     ];
     for (const [key, source, text] of pairs) {
-      expect(text.trim().endsWith("."), key).toBe(source.trim().endsWith("."));
+      expect(FULL_STOP.test(text.trim()), key).toBe(source.trim().endsWith("."));
     }
   });
 

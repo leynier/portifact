@@ -1,5 +1,6 @@
 // Sample renderings of every email, for scripts/preview.ts and the tests. A new email adds its
 // samples here, so `bun run --cwd packages/emails preview` always shows all of them.
+import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
 import type { EmailContent } from "./message.ts";
@@ -25,21 +26,24 @@ const notice = {
   archiveMonths: 6,
 };
 
+/** Every language besides English, each previewed in every user-facing email. */
+const TRANSLATED = LOCALE_CODES.filter((locale) => locale !== DEFAULT_LOCALE);
+
 export function previews(): Preview[] {
   return [
     {
       name: "sign-in-code",
       email: signInCodeEmail({ email: "ada@example.com", code: "482913", expiresInMinutes: 5 }),
     },
-    {
-      name: "sign-in-code-es",
+    ...TRANSLATED.map((locale) => ({
+      name: `sign-in-code-${locale.toLowerCase()}`,
       email: signInCodeEmail({
         email: "ada@example.com",
         code: "482913",
         expiresInMinutes: 5,
-        locale: "es",
+        locale,
       }),
-    },
+    })),
     {
       name: "budget-alert",
       email: budgetAlertEmail({
@@ -79,5 +83,16 @@ export function previews(): Preview[] {
         artifacts: [noticeArtifact("k7d2qm4xab", "Q3 launch plan", 70)],
       }),
     },
+    ...TRANSLATED.map((locale) => ({
+      name: `expiry-notice-${locale.toLowerCase()}`,
+      email: expiryNoticeEmail({
+        ...notice,
+        locale,
+        artifacts: [
+          noticeArtifact("k7d2qm4xab", "Q3 launch plan", 50),
+          noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
+        ],
+      }),
+    })),
   ];
 }

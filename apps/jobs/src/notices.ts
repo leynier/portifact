@@ -1,7 +1,9 @@
 // The expiry notice sender of the jobs Worker (docs/operations.md, "Expiry notices"): renders the
 // email with packages/emails, with links to each artifact, its page in the dashboard to renew it
-// and the settings page to turn the notices off, and sends it through Cloudflare Email Service.
+// and the settings page to turn the notices off, in the owner's language (English when they chose
+// none), and sends it through Cloudflare Email Service.
 import { LIMITS } from "@portifact/contracts";
+import type { LocaleCode } from "@portifact/contracts/locales";
 import { expiryNoticeEmail } from "@portifact/emails";
 import {
   type ExpiringArtifact,
@@ -25,6 +27,7 @@ export const NOTICE_SENDER = { email: "noreply@portifact.com", name: "Portifact"
 export function noticeEmail(
   env: Pick<NoticeEnv, "APP_ORIGIN" | "CONTENT_DOMAIN">,
   artifacts: ExpiringArtifact[],
+  locale: LocaleCode | null = null,
 ) {
   return expiryNoticeEmail({
     artifacts: artifacts.map((artifact) => ({
@@ -36,14 +39,15 @@ export function noticeEmail(
     settingsUrl: `${env.APP_ORIGIN}/settings`,
     activeDays: LIMITS.activeDays,
     archiveMonths: LIMITS.archiveMonths,
+    locale: locale ?? undefined,
   });
 }
 
 export function expiryNotifierFromEnv(env: NoticeEnv): ExpiryNotifier {
   return {
-    async send({ to, artifacts }) {
+    async send({ to, artifacts, locale }) {
       try {
-        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...noticeEmail(env, artifacts) });
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...noticeEmail(env, artifacts, locale) });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

@@ -14,11 +14,7 @@ import {
   recordEmailsSent,
   suppressEmail,
 } from "../src/email.ts";
-import {
-  type ExpiringArtifact,
-  type ExpiryNotifier,
-  scheduleExpiryNotices,
-} from "../src/expiry-notices.ts";
+import { type ExpiryNotifier, scheduleExpiryNotices } from "../src/expiry-notices.ts";
 import { archiveArtifact, renewArtifact } from "../src/lifecycle.ts";
 import { runMaintenance } from "../src/maintenance.ts";
 import { runJob } from "../src/outbox.ts";
@@ -35,7 +31,7 @@ async function expiring(ownerId: string, left: number) {
 
 /** A notifier that records what it was asked to send, or fails with `error`. */
 function fakeNotifier(error?: Error) {
-  const sent: { to: string; artifacts: ExpiringArtifact[] }[] = [];
+  const sent: Parameters<ExpiryNotifier["send"]>[0][] = [];
   const notifier: ExpiryNotifier = {
     async send(notice) {
       if (error) throw error;
@@ -196,6 +192,7 @@ describe("the expiry_notice job", () => {
           { id: ids[1], name: "Plan", expiresAt: NOW + DAY },
           { id: ids[0], name: "Plan", expiresAt: NOW + 2 * DAY },
         ],
+        locale: null,
       },
     ]);
     expect(await emailsSentInCycle(db(), NOW + HOUR)).toBe(1);
@@ -237,6 +234,14 @@ describe("the expiry_notice job", () => {
     const { notifier, sent } = fakeNotifier();
     expect(await runJob(db(), env.ARTIFACTS, message(job), NOW + HOUR, { notifier })).toBe("stale");
     expect(sent).toHaveLength(0);
+  });
+
+  it("passes on the owner's language, as chosen when the job runs", async () => {
+    const { owner, job } = await scheduled();
+    await updateAccountSettings(db(), { userId: owner.id, update: { locale: "ja" }, now: NOW });
+    const { notifier, sent } = fakeNotifier();
+    expect(await runJob(db(), env.ARTIFACTS, message(job), NOW, { notifier })).toBe("done");
+    expect(sent.map((notice) => notice.locale)).toEqual(["ja"]);
   });
 
   it("respects an opt-out made after the notice was scheduled", async () => {
