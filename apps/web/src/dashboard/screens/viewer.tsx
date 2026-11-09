@@ -44,6 +44,7 @@ import {
   PageHeader,
   Select,
   type SelectOption,
+  ThemedImage,
   Toast,
   ViewerShell,
 } from "@portifact/ui";
@@ -386,10 +387,14 @@ function ViewerLayout({
       skipLinkLabel={t("viewer.skipLink")}
       brand={
         <a href="/" aria-label={t("viewer.brand")} className="no-underline">
-          <picture>
-            <source media="(prefers-color-scheme: dark)" srcSet={symbolDark} />
-            <img src={symbol} alt="" width={32} height={32} className="size-8" />
-          </picture>
+          <ThemedImage
+            src={symbol}
+            darkSrc={symbolDark}
+            alt=""
+            width={32}
+            height={32}
+            className="size-8"
+          />
         </a>
       }
       artifact={{

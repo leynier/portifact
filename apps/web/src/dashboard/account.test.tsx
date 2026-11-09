@@ -382,7 +382,7 @@ describe("section guides", () => {
     [
       "/settings",
       "Settings sections",
-      ["Defaults for new artifacts", "Email notices", "Your data", "Danger zone"],
+      ["Appearance", "Defaults for new artifacts", "Email notices", "Your data", "Danger zone"],
     ],
   ])("%s links each of its sections from an On this page guide", async (path, name, labels) => {
     const { container } = renderDashboard(path, server);

@@ -1,16 +1,26 @@
 // @vitest-environment happy-dom
+
+import { THEME_STORAGE_KEY } from "@portifact/contracts/theme";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultsChange } from "./screens/settings.tsx";
 import { type FakeServer, fakeServer, renderDashboard } from "./test-support.tsx";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 let server: FakeServer;
 beforeEach(() => {
   server = fakeServer([]);
+  window.localStorage.removeItem(THEME_STORAGE_KEY);
+  document.documentElement.removeAttribute("data-theme");
 });
+
+const radio = (scope: HTMLElement, name: string) =>
+  within(scope).getByRole("radio", { name }) as HTMLInputElement;
 
 const BUILT_IN = {
   defaultAccessMode: "restricted",
@@ -55,7 +65,13 @@ describe("settings page", () => {
     await defaults();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
-    ).toEqual(["Defaults for new artifacts", "Email notices", "Your data", "Danger zone"]);
+    ).toEqual([
+      "Appearance",
+      "Defaults for new artifacts",
+      "Email notices",
+      "Your data",
+      "Danger zone",
+    ]);
     expect(await axeViolations(container)).toEqual([]);
   });
 
@@ -238,5 +254,45 @@ describe("defaultsChange", () => {
         defaultCommentVisibility: "everyone",
       }),
     ).toEqual({ defaultAccessMode: "public", defaultCommentVisibility: "everyone" });
+  });
+});
+
+describe("appearance", () => {
+  it("chooses the theme for this browser, and the sidebar's quick switch and the logo follow", async () => {
+    const { container } = renderDashboard("/settings", server);
+    const section = await screen.findByRole("region", { name: "Appearance" });
+    expect(section.textContent).toContain("Artifacts keep the look their creators gave them");
+    const group = within(section).getByRole("group", { name: "Theme" });
+    expect(radio(group, "System").checked).toBe(true);
+
+    fireEvent.click(radio(group, "Dark"));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("dark");
+    const groups = screen.getAllByRole("group", { name: "Theme" });
+    expect(groups.length).toBeGreaterThanOrEqual(2);
+    for (const each of groups) expect(radio(each, "Dark").checked).toBe(true);
+    // The logo shows its dark version whatever the operating system prefers.
+    for (const source of container.querySelectorAll("picture source")) {
+      expect(source.getAttribute("media")).toBe("all");
+    }
+
+    fireEvent.click(radio(group, "System"));
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("switches from the sidebar too, also when the browser blocks storage", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    renderDashboard("/", server);
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    expect(nav).toBeTruthy();
+    const [quick] = screen.getAllByRole("group", { name: "Theme" });
+    if (!quick) throw new Error("no quick theme switch");
+    fireEvent.click(radio(quick, "Light"));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(radio(quick, "Light").checked).toBe(true);
   });
 });
