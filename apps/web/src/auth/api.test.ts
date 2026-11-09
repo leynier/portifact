@@ -1,4 +1,4 @@
-import { OAuthScope } from "@portifact/contracts";
+import { CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { browserApi, currentUserEmail, field } from "./api.ts";
 import { messages } from "./messages.ts";
@@ -54,8 +54,8 @@ describe("browser API", () => {
 });
 
 describe("scope descriptions", () => {
-  it("describes every product scope and offline access in plain language", () => {
-    expect(DESCRIBED_SCOPES).toEqual([...OAuthScope.options, "offline_access"]);
+  it("describes every product scope, the CLI's credentials scope and offline access in plain language", () => {
+    expect(DESCRIBED_SCOPES).toEqual([...OAuthScope.options, CREDENTIALS_SCOPE, "offline_access"]);
     for (const line of describeScopes(DESCRIBED_SCOPES.join(" "))) {
       expect(line).not.toMatch(/[:_]/);
       expect(line).not.toMatch(/\.$/);
