@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { axeViolations } from "../testing/axe.ts";
 import { ViewerShell } from "./viewer-shell.tsx";
@@ -11,12 +11,7 @@ function shell(withSidebar = true) {
     <ViewerShell
       skipLinkLabel="Skip to the artifact"
       brand={<a href="https://portifact.com">Portifact</a>}
-      caption={{
-        link: <a href="https://k7d2qm4xab.portifact.dev/">https://k7d2qm4xab.portifact.dev/</a>,
-        title: "Launch plan",
-        details: <span>Version 3</span>,
-        notice: "Published by a user, not by Portifact",
-      }}
+      artifact={{ title: "Launch plan", details: <span>Version 3</span> }}
       actions={<button type="button">Copy link</button>}
       frameLabel="Artifact"
       frame={<iframe title="Launch plan" src="about:blank" />}
@@ -28,18 +23,19 @@ function shell(withSidebar = true) {
 }
 
 describe("ViewerShell", () => {
-  it("keeps the artifact's name out of the bar, attached to the frame with its origin", () => {
+  it("names the artifact and its version in the bar, after the mark, as plain text", () => {
     shell();
     const bar = screen.getByRole("banner");
     expect(bar.textContent).toContain("Portifact");
-    expect(bar.textContent).not.toContain("Launch plan");
-    expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
-    const main = screen.getByRole("main", { name: "Artifact" });
     const heading = screen.getByRole("heading", { level: 1, name: "Launch plan" });
-    expect(main.contains(heading)).toBe(true);
-    expect(main.textContent).toContain("k7d2qm4xab.portifact.dev");
-    expect(main.textContent).toContain("Published by a user, not by Portifact");
-    expect(main.textContent).toContain("Version 3");
+    expect(bar.contains(heading)).toBe(true);
+    expect(heading.getAttribute("title")).toBe("Launch plan");
+    expect(bar.textContent).toContain("Version 3");
+    expect(within(bar).getByRole("button", { name: "Copy link" })).toBeTruthy();
+    // The frame's panel holds only the frame: no caption row above it.
+    const main = screen.getByRole("main", { name: "Artifact" });
+    expect(main.textContent).toBe("");
+    expect(within(main).getByTitle("Launch plan")).toBeTruthy();
   });
 
   it("skips to the focusable artifact region and labels the comments sidebar", () => {

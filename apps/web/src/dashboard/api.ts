@@ -27,6 +27,7 @@ import {
   DocumentPreview,
   type DocumentPreviewRequest,
   type DownloadKind,
+  type EditMessageRequest,
   type ErrorCode,
   LifecycleResult,
   PreparedPublish,
@@ -158,6 +159,12 @@ export interface DashboardApi {
     artifactId: string,
     threadId: string,
     state: "open" | "resolved",
+  ): Promise<AnnotationThreadView>;
+  /** Edits your own message, from the revision you saw; another revision is a conflict. */
+  editMessage(
+    artifactId: string,
+    messageId: string,
+    request: EditMessageRequest,
   ): Promise<AnnotationThreadView>;
   moderateMessage(
     artifactId: string,
@@ -425,6 +432,14 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/${action}`,
         AnnotationThreadView,
         "POST",
+      );
+    },
+    editMessage(artifactId, messageId, request) {
+      return call(
+        `${annotationsPath(artifactId)}/messages/${encodeURIComponent(messageId)}`,
+        AnnotationThreadView,
+        "PATCH",
+        request,
       );
     },
     moderateMessage(artifactId, messageId, action) {

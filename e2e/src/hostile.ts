@@ -65,6 +65,10 @@ async function attack() {
   while (nonce === null && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
   if (nonce !== null) {
     forge({ type: "selection", target: { schema: 1, path: "index.html", anchor: { kind: "document" } } });
+    // Rectangles meant to draw the viewer's Comment control over its bar or sidebar.
+    forge({ type: "selection", target: { schema: 1, path: "index.html", anchor: { kind: "document" } }, rect: { x: -999999, y: -999999, width: 1000000, height: 1000000 } });
+    forge({ type: "selection-rect", rect: { x: Number.NaN, y: -5000, width: 1, height: 1 } });
+    forge({ type: "selection-rect", rect: { x: 0, y: 0, width: 1e9, height: 1e9 } });
     forge({ type: "element", target: { schema: 1, path: "index.html", anchor: { kind: "element", selectors: ["#bait"], tagName: "p", fingerprint: "Bait" } } });
     forge({ type: "selection", target: null, extra: "x".repeat(20000) });
   }

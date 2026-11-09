@@ -14,6 +14,7 @@ import {
 } from "@portifact/anchors";
 import { ANCHOR_SCHEMA_VERSION, type Anchor, AnnotationTarget } from "@portifact/contracts";
 import { bridgeEnvelope, readViewerMessage } from "./channel.ts";
+import { frameRect } from "./geometry.ts";
 import { type Box, createOverlay } from "./overlay.ts";
 import {
   type BridgeBody,
@@ -52,6 +53,8 @@ export const SELECTION_SETTLE_MS = 250;
 export const ROUTE_POLL_MS = 500;
 /** How long after the page changes the bridge redraws markers. */
 export const REDRAW_SETTLE_MS = 300;
+/** How often, at most, the bridge reports that the offered selection moved. */
+export const RECT_THROTTLE_MS = 50;
 
 /** The page's SPA route, when it is a route the contracts accept. */
 export function currentRoute(location: Pick<Location, "pathname" | "hash">): string | undefined {
@@ -80,6 +83,9 @@ export function startBridge(
   let selectionTimer: ReturnType<typeof setTimeout> | undefined;
   let redrawTimer: ReturnType<typeof setTimeout> | undefined;
   let reportedSelection = false;
+  /** What the viewer was last told the reader offers to comment on, to follow it as it moves. */
+  let offered: Range | Element | null = null;
+  let rectTimer: ReturnType<typeof setTimeout> | undefined;
   const drawn = new Map<string, HTMLElement>();
 
   const page = () => ({ path: config.path, ...(route === undefined ? {} : { route }) });
@@ -129,6 +135,7 @@ export function startBridge(
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       if (reportedSelection) send({ type: "selection", target: null });
       reportedSelection = false;
+      if (!(offered instanceof window.Element)) offered = null;
       return;
     }
     const range = selection.getRangeAt(0);
@@ -142,7 +149,30 @@ export function startBridge(
     const target = await targetFor(doc, created.value);
     if (!target) return refuse("too_large");
     reportedSelection = true;
-    send({ type: "selection", target });
+    offered = range.cloneRange();
+    const rect = frameRect(range.getBoundingClientRect());
+    send({ type: "selection", target, ...(rect ? { rect } : {}) });
+  };
+
+  // Where the offered selection or element is drawn, so the viewer's "Comment" control follows
+  // it while the page scrolls or resizes.
+
+  const reportRect = () => {
+    rectTimer = undefined;
+    if (nonce === null || !offered) return;
+    const connected =
+      offered instanceof window.Element
+        ? offered.isConnected
+        : offered.startContainer.isConnected && offered.endContainer.isConnected;
+    send({
+      type: "selection-rect",
+      rect: connected ? frameRect(offered.getBoundingClientRect()) : null,
+    });
+  };
+
+  const onMove = () => {
+    if (!offered || rectTimer !== undefined) return;
+    rectTimer = setTimeout(reportRect, RECT_THROTTLE_MS);
   };
 
   const onSelectionChange = () => {
@@ -180,8 +210,11 @@ export function startBridge(
     if (!created.ok) refuse(created.reason);
     else {
       const target = await targetFor(doc, created.value);
-      if (target) send({ type: "element", target });
-      else refuse("too_large");
+      if (target) {
+        offered = element;
+        const rect = frameRect(element.getBoundingClientRect());
+        send({ type: "element", target, ...(rect ? { rect } : {}) });
+      } else refuse("too_large");
     }
     send({ type: "pick-ended" });
   };
@@ -307,6 +340,7 @@ export function startBridge(
       case "clear-selection":
         window.getSelection()?.removeAllRanges();
         reportedSelection = false;
+        offered = null;
         return;
       case "ping":
         send({ type: "pong" });
@@ -326,6 +360,9 @@ export function startBridge(
   window.addEventListener("click", onClick, true);
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("resize", scheduleRedraw);
+  window.addEventListener("resize", onMove);
+  // Capturing, so scrolling inside any scrollable element of the page counts too.
+  window.addEventListener("scroll", onMove, true);
 
   parent.postMessage(
     {
@@ -343,6 +380,7 @@ export function startBridge(
     stop() {
       clearTimeout(selectionTimer);
       clearTimeout(redrawTimer);
+      clearTimeout(rectTimer);
       clearInterval(routeTimer);
       observer.disconnect();
       window.removeEventListener("message", onMessage);
@@ -351,6 +389,8 @@ export function startBridge(
       window.removeEventListener("click", onClick, true);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("resize", scheduleRedraw);
+      window.removeEventListener("resize", onMove);
+      window.removeEventListener("scroll", onMove, true);
       overlay.remove();
     },
   };

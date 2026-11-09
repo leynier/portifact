@@ -335,12 +335,14 @@ describe("portifact annotations list and show", () => {
       "annotations",
       "currentVersionId",
       "role",
+      "humanCheck",
       "threads",
       "removed",
       "cursor",
     ]);
     expect(page.threads).toHaveLength(52);
     expect(page.role).toBe("owner");
+    expect(page.humanCheck).toBe(false);
     expect(
       server.requests.slice(before).filter((r) => r.path.endsWith("/annotations")),
     ).toHaveLength(2);

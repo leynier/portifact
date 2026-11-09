@@ -149,6 +149,8 @@ export interface SubmitButtonProps {
   busy?: boolean;
   disabled?: boolean;
   intent?: "primary" | "secondary";
+  /** `sm` for compact forms, such as a composer floating over content. */
+  size?: "md" | "sm";
 }
 
 /** The submit button, busy while the form submits. */
@@ -158,6 +160,7 @@ function SubmitButton({
   busy = false,
   disabled,
   intent = "primary",
+  size = "md",
 }: SubmitButtonProps) {
   const form = useFormContext();
   return (
@@ -166,6 +169,7 @@ function SubmitButton({
         <Button
           type="submit"
           intent={intent}
+          size={size}
           icon={icon}
           busy={submitting || busy}
           disabled={disabled}

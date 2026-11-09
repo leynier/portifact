@@ -5,6 +5,7 @@ import {
   type Bridge,
   type BridgeWindow,
   currentRoute,
+  RECT_THROTTLE_MS,
   REDRAW_SETTLE_MS,
   ROUTE_POLL_MS,
   SELECTION_SETTLE_MS,
@@ -257,6 +258,108 @@ describe("selection", () => {
   });
 });
 
+describe("where the offered selection is drawn", () => {
+  /** Makes every range and element report `rect` as its client rectangle. */
+  const spies: { mockRestore(): void }[] = [];
+  function drawAt(rect: { left: number; top: number; width: number; height: number }) {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+    const box = () => DOMRect.fromRect({ x: rect.left, y: rect.top, ...rect });
+    spies.push(
+      vi.spyOn(Range.prototype, "getBoundingClientRect").mockImplementation(box),
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(box),
+    );
+  }
+
+  afterEach(() => {
+    for (const spy of spies.splice(0)) spy.mockRestore();
+  });
+
+  it("sends the selection's rectangle in the frame's viewport, in whole pixels", async () => {
+    drawAt({ left: 10.4, top: 20.6, width: 100.2, height: 18 });
+    start("<p>Hello world</p>");
+    fromViewer({ type: "init" });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection")[0]?.rect).toEqual({ x: 10, y: 21, width: 100, height: 18 });
+  });
+
+  it("follows the selection while the page scrolls or resizes, at most once per interval", async () => {
+    drawAt({ left: 10, top: 300, width: 80, height: 18 });
+    start("<p>Hello world</p>");
+    fromViewer({ type: "init" });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    drawAt({ left: 10, top: 120, width: 80, height: 18 });
+    window.dispatchEvent(new Event("scroll"));
+    document.querySelector("p")?.dispatchEvent(new Event("scroll"));
+    window.dispatchEvent(new Event("resize"));
+    await settle(RECT_THROTTLE_MS);
+    expect(sentOf("selection-rect")).toEqual([
+      expect.objectContaining({ nonce: NONCE, rect: { x: 10, y: 120, width: 80, height: 18 } }),
+    ]);
+  });
+
+  it("stops following once the selection is gone or the viewer cleared it", async () => {
+    start("<p>Hello world</p>");
+    fromViewer({ type: "init" });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    fromViewer({ type: "clear-selection" });
+    window.dispatchEvent(new Event("scroll"));
+    await settle(RECT_THROTTLE_MS);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event("selectionchange"));
+    await settle(SELECTION_SETTLE_MS);
+    window.dispatchEvent(new Event("scroll"));
+    await settle(RECT_THROTTLE_MS);
+    expect(sentOf("selection-rect")).toEqual([]);
+  });
+
+  it("reports nothing before the handshake and no rectangle for a selection the page removed", async () => {
+    start("<p>Hello world</p>");
+    window.dispatchEvent(new Event("scroll"));
+    await settle(RECT_THROTTLE_MS);
+    fromViewer({ type: "init" });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    document.body.innerHTML = "<p>Replaced</p>";
+    window.dispatchEvent(new Event("scroll"));
+    await settle(RECT_THROTTLE_MS);
+    expect(sentOf("selection-rect")).toEqual([expect.objectContaining({ rect: null })]);
+  });
+
+  it("sends the picked element's rectangle and follows it", async () => {
+    drawAt({ left: 40, top: 60, width: 120, height: 32 });
+    start('<main><button id="buy" type="button">Buy now</button></main>');
+    fromViewer({ type: "init" });
+    fromViewer({ type: "pick", active: true, hint: "Pick" });
+    const button = document.querySelector("#buy") as HTMLElement;
+    button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle(0);
+    expect(sentOf("element")[0]?.rect).toEqual({ x: 40, y: 60, width: 120, height: 32 });
+    drawAt({ left: 40, top: 10, width: 120, height: 32 });
+    window.dispatchEvent(new Event("scroll"));
+    await settle(RECT_THROTTLE_MS);
+    expect(sentOf("selection-rect").at(-1)?.rect).toEqual({ x: 40, y: 10, width: 120, height: 32 });
+  });
+
+  it("keeps rectangles within the protocol's bounds whatever the layout reports", async () => {
+    drawAt({ left: -5e9, top: 5e9, width: 5e9, height: 3 });
+    start("<p>Hello world</p>");
+    fromViewer({ type: "init" });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection")[0]?.rect).toEqual({
+      x: -1_000_000,
+      y: 1_000_000,
+      width: 1_000_000,
+      height: 3,
+    });
+  });
+});
+
 describe("element mode", () => {
   it("picks the clicked element without letting the page see the click", async () => {
     start('<main><button id="buy" type="button">Buy now</button></main>');
@@ -493,6 +596,7 @@ describe("lifecycle", () => {
     bridge = undefined;
     expect(document.querySelector("portifact-review")).toBeNull();
     fromViewer({ type: "init" });
+    window.dispatchEvent(new Event("scroll"));
     expect(parent.sent).toHaveLength(1);
   });
 

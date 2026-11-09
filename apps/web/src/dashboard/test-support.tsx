@@ -918,6 +918,7 @@ function reviewRoute(
       annotations: store.mode,
       currentVersionId: store.currentVersionId,
       role: store.role,
+      humanCheck: store.role === "participant" && (store.humanChecks ?? 0) > 0,
       threads: store.threads.filter((t) => t.seq > since && scoped(t)).map(view),
       removed: since > 0 ? store.deleted.filter((d) => d.seq > since).map((d) => d.id) : [],
       cursor: String(store.seq),
@@ -1002,6 +1003,20 @@ function reviewRoute(
       thread.state = action === "resolve" ? "resolved" : "open";
       touch(thread);
       return Response.json(view(thread));
+    }
+  }
+  const edited = /^\/messages\/([^/]+)$/.exec(rest);
+  if (edited && method === "PATCH") {
+    for (const t of store.threads) {
+      const message = t.messages.find((m) => m.id === edited[1]);
+      if (!message) continue;
+      if (!message.own || message.state !== "visible") return apiError("forbidden", 403);
+      if (message.revision !== body?.revision) return apiError("version_conflict", 409);
+      message.body = String(body?.body);
+      message.revision += 1;
+      message.editedAt = NOW;
+      touch(t);
+      return Response.json(view(t));
     }
   }
   const moderation = /^\/messages\/([^/]+)\/moderation$/.exec(rest);

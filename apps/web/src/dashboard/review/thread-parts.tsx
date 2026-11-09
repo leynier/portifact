@@ -6,8 +6,17 @@ import { EyeOff } from "lucide-react";
 import type { ReactNode } from "react";
 import { useFormatDate, useT } from "../context.tsx";
 
-/** What the thread points at: the whole page, an element or a quote. */
-export function TargetSummary({ target }: { target: AnnotationTarget }) {
+/**
+ * What the thread points at: the whole page, an element or a quote. `compact` keeps a long quote
+ * to two lines, for a composer floating over the artifact.
+ */
+export function TargetSummary({
+  target,
+  compact = false,
+}: {
+  target: AnnotationTarget;
+  compact?: boolean;
+}) {
   const t = useT();
   const { anchor } = target;
   if (anchor.kind === "document") {
@@ -20,7 +29,9 @@ export function TargetSummary({ target }: { target: AnnotationTarget }) {
       <div className="text-sm">
         <p className="text-text-muted">{t("review.target.element", { tag: anchor.tagName })}</p>
         {anchor.fingerprint ? (
-          <blockquote className="mt-1 border-l-2 border-border-strong pl-3 break-words">
+          <blockquote
+            className={`mt-1 border-l-2 border-border-strong pl-3 break-words ${compact ? "line-clamp-2" : ""}`}
+          >
             {anchor.fingerprint}
           </blockquote>
         ) : null}
@@ -30,7 +41,9 @@ export function TargetSummary({ target }: { target: AnnotationTarget }) {
   return (
     <figure className="text-sm">
       <figcaption className="sr-only">{t("review.target.quote")}</figcaption>
-      <blockquote className="border-l-2 border-border-strong pl-3 break-words">
+      <blockquote
+        className={`border-l-2 border-border-strong pl-3 break-words ${compact ? "line-clamp-2" : ""}`}
+      >
         {anchor.quote.exact}
       </blockquote>
     </figure>

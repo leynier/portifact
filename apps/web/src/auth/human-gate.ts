@@ -26,6 +26,8 @@ export interface HumanGate {
    * call starts a fresh challenge.
    */
   take(): Promise<string | undefined>;
+  /** Removes the challenge and settles any wait with no token; the gate can start again later. */
+  stop(): void;
 }
 
 export function humanGate(
@@ -85,6 +87,11 @@ export function humanGate(
   return {
     prepare() {
       if (!remove) start();
+    },
+    stop() {
+      spend();
+      failed = false;
+      settleAll(undefined);
     },
     take() {
       if (!widget) return Promise.resolve(undefined);
