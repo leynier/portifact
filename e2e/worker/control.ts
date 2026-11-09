@@ -14,6 +14,8 @@ import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
 import { setContentClockOffset } from "./clock.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
+/** Where the e2e Worker keeps the last email sent to each address, in the local bucket. */
+export const MAIL_PREFIX = "e2e-mail/";
 export type E2eEnv = AppEnv & ContentEnv;
 
 const DAY = 86_400_000;
@@ -315,6 +317,15 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     const { artifactId, offsetMs } = input as ClockInput;
     setContentClockOffset(artifactId, offsetMs);
     return Response.json({ artifactId, offsetMs });
+  }
+
+  // The last email the app sent to an address (worker/index.ts keeps it), for sign-in codes.
+  if (path === "/mail") {
+    const { to } = input as { to: string };
+    const object = await env.ARTIFACTS.get(`${MAIL_PREFIX}${to.toLowerCase()}`);
+    return object
+      ? new Response(object.body, { headers: { "content-type": "application/json" } })
+      : Response.json({ error: "no email" }, { status: 404 });
   }
 
   if (path === "/sql") {

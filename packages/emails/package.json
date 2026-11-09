@@ -1,0 +1,26 @@
+{
+  "name": "@portifact/emails",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Branded HTML and plain-text emails: sign-in codes and budget alerts.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage",
+    "preview": "node --experimental-transform-types --no-warnings scripts/preview.ts"
+  },
+  "dependencies": {
+    "@portifact/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "parse5": "^8.1.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

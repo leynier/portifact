@@ -128,6 +128,8 @@ describe("budget run", () => {
   it("formats an email without protection", () => {
     const email = alertEmail([], { projectedUsd: 25, level: "alert25", actions: [] });
     expect(email.text).toContain("Protection in effect: none.");
+    expect(email.html).toContain("Protection in effect");
+    expect(email.html).toContain("US$25.00");
   });
 });
 
@@ -144,12 +146,13 @@ describe("budget notifier", () => {
       BUDGET_ALERT_TO: "ops@example.test",
       BUDGET_ALERT_FROM: "budget@example.test",
     });
-    await notifier?.send({ subject: "S", text: "T" });
+    await notifier?.send({ subject: "S", text: "T", html: "<p>H</p>" });
     expect(send).toHaveBeenCalledWith({
       from: { email: "budget@example.test", name: "Portifact budget" },
       to: "ops@example.test",
       subject: "S",
       text: "T",
+      html: "<p>H</p>",
     });
   });
 });

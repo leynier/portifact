@@ -134,6 +134,14 @@ describe("portifact.com", () => {
     expect(response.status).toBe(200);
   });
 
+  it("serves the wordmarks the emails load", async () => {
+    for (const path of ["/brand/wordmark.png", "/brand/wordmark-dark.png"]) {
+      const response = await get(`https://portifact.com${path}`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/png");
+    }
+  });
+
   it("returns 404 for unknown paths", async () => {
     const response = await get("https://portifact.com/does-not-exist");
     expect(response.status).toBe(404);

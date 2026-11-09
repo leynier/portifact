@@ -15,6 +15,9 @@ const repoFiles: Record<string, string> = {
   "favicon.svg": repoFile("assets/brand/favicon-32.svg"),
   "favicon.ico": repoFile("assets/brand/favicon.ico"),
   "brand/symbol.png": repoFile("assets/brand/symbol.png"),
+  // The wordmarks the emails load (packages/emails/src/theme.ts).
+  "brand/wordmark.png": repoFile("assets/brand/wordmark.png"),
+  "brand/wordmark-dark.png": repoFile("assets/brand/wordmark-dark.png"),
   "third-party-notices.txt": repoFile("third-party-notices.md"),
 };
 

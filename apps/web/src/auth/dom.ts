@@ -30,15 +30,20 @@ export function setFieldError(
   else input.removeAttribute("aria-describedby");
 }
 
+/** Where a summary's text goes: its `[data-message]` child, next to the icon, or itself. */
+function messageOf(summary: HTMLElement): HTMLElement {
+  return summary.querySelector<HTMLElement>("[data-message]") ?? summary;
+}
+
 /** Shows the error summary at the top of the page and moves focus to it. */
 export function showSummary(summary: HTMLElement, message: string): void {
-  summary.textContent = message;
+  messageOf(summary).textContent = message;
   summary.hidden = false;
   summary.focus();
 }
 
 export function hideSummary(summary: HTMLElement): void {
-  summary.textContent = "";
+  messageOf(summary).textContent = "";
   summary.hidden = true;
 }
 

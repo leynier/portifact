@@ -3,6 +3,7 @@
 // Collector and notifier are injected so every path is tested with fakes.
 import type { Db } from "@portifact/db";
 import { budgetCycle, type PlatformMetrics } from "@portifact/domain";
+import { budgetAlertEmail } from "@portifact/emails";
 import {
   type AnalyticsStatus,
   type BudgetAlert,
@@ -17,6 +18,7 @@ import type { AnalyticsCollector } from "./analytics.ts";
 export interface BudgetEmail {
   subject: string;
   text: string;
+  html: string;
 }
 
 export interface BudgetNotifier {
@@ -57,28 +59,12 @@ export interface BudgetRunResult {
   notified: number;
 }
 
-const usd = (value: number) => `US$${value.toFixed(2)}`;
-
-/** The alert email: what was crossed, what protection applies and how to look closer. */
+/** The alert email (packages/emails): what was crossed, what protection applies and how to look closer. */
 export function alertEmail(
   alerts: BudgetAlert[],
   result: { projectedUsd: number; level: string; actions: string[] },
 ): BudgetEmail {
-  return {
-    subject: `Portifact budget: projected ${usd(result.projectedUsd)} this cycle (${result.level})`,
-    text: [
-      `Projected spend this cycle: ${usd(result.projectedUsd)}.`,
-      `Level: ${result.level}.`,
-      `Protection in effect: ${result.actions.length > 0 ? result.actions.join(", ") : "none"}.`,
-      "",
-      "New alerts:",
-      ...alerts.map(
-        (a) => `- ${a.kind} at ${usd(a.projectedUsd)} (${new Date(a.createdAt).toISOString()})`,
-      ),
-      "",
-      "Details and override: bun run --cwd apps/jobs operator budget",
-    ].join("\n"),
-  };
+  return budgetAlertEmail({ alerts, ...result });
 }
 
 function merge(d1: PlatformMetrics, measured: Partial<PlatformMetrics>): PlatformMetrics {

@@ -88,6 +88,26 @@ export async function setContentClock(artifactId: string, offsetMs: number): Pro
   await control("/clock", { artifactId, offsetMs });
 }
 
+export interface SentEmail {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/** The last email the app sent to `to`, waiting briefly for it to arrive. */
+export async function lastEmail(to: string): Promise<SentEmail> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try {
+      return await control<SentEmail>("/mail", { to });
+    } catch (error) {
+      if (Date.now() > deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+}
+
 export function sql<T>(query: string, params: (string | number | null)[] = []): Promise<T[]> {
   return control<T[]>("/sql", { query, params });
 }
