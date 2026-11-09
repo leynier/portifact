@@ -7,6 +7,15 @@ const overlaps = (a: Box, b: Box) =>
 describe("marker position", () => {
   const size = { width: 24, height: 24 };
 
+  it("sits in the gutter left of the quote's block, where it covers no text at all", () => {
+    // A quote that starts mid-line: the gutter keeps the words before it uncovered too.
+    const first = { x: 420, y: 100, width: 160, height: 20 };
+    const at = markerPosition([first], size, 200);
+    expect(at).toEqual({ x: 200 - 24 - MARKER_GAP, y: 98 });
+    // No gutter (the block starts at the page's edge): fall back to the quote's own margin.
+    expect(markerPosition([first], size, 10)).toEqual({ x: 420 - 24 - MARKER_GAP, y: 98 });
+  });
+
   it("sits in the margin before the quote's first line, centred on it", () => {
     const first = { x: 200, y: 100, width: 160, height: 20 };
     const at = markerPosition([first], size);

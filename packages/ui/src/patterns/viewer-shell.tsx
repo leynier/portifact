@@ -63,7 +63,7 @@ export function ViewerShell({
         >
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-canvas shadow-sm">
             <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2">
-              <div className="min-w-0 max-w-full shrink basis-72">{caption.link}</div>
+              <div className="min-w-0 max-w-full">{caption.link}</div>
               <h1 className="min-w-0 truncate text-sm font-normal">
                 <span aria-hidden="true">“</span>
                 {caption.title}

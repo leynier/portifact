@@ -8,6 +8,7 @@ import {
   contentRequests,
   createUser,
   expect,
+  lastEmail,
   publish,
   signIn,
   sql,
@@ -181,6 +182,21 @@ test("an anonymous visitor of a public artifact reads it in the viewer and is as
   await expect(page).toHaveURL(
     `${APP_ORIGIN}/login?${new URLSearchParams({ next: `/view/${artifactId}` })}`,
   );
+
+  // Signing in with an email code on the login page comes back to the same view, now with the
+  // comments and a review session in the frame.
+  const reader = await createUser("Reader");
+  await page.getByLabel("Email address").fill(reader.email);
+  await page.getByLabel("Email address").press("Enter");
+  await expect(page.getByLabel("6-digit code")).toBeFocused();
+  const code = /^\d{6}$/m.exec((await lastEmail(reader.email)).text)?.[0] ?? "";
+  await page.getByLabel("6-digit code").fill(code);
+  await page.getByLabel("6-digit code").press("Enter");
+  await expect(page).toHaveURL(`${APP_ORIGIN}/view/${artifactId}`);
+  await expect(
+    page.getByRole("banner").getByRole("link", { name: "Your artifacts" }),
+  ).toBeVisible();
+  await expect(sidebar.getByRole("button", { name: "Comment on the page" })).toBeVisible();
 });
 
 test("a protected artifact opens in the viewer once the reader signed in, on the page of the link", async ({

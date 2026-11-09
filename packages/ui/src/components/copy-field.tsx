@@ -23,7 +23,8 @@ export interface CopyFieldProps {
   kind?: "value" | "command";
   /**
    * One slim row for a bar or a caption: the label is kept for assistive technology only and the
-   * copy button is small. The value must be clear without the visible label, such as a URL.
+   * copy button is small. The value must be clear without the visible label, such as a URL, and
+   * is never cut short: it wraps, so an origin is always shown whole.
    */
   compact?: boolean;
 }
@@ -77,7 +78,7 @@ export function CopyField({
         <div
           className={
             compact
-              ? "flex h-8 min-w-0 items-center gap-2 rounded-sm border border-border bg-surface px-2.5 font-mono text-xs"
+              ? "flex min-h-8 min-w-0 items-center gap-2 rounded-sm border border-border bg-surface px-2.5 py-1 font-mono text-xs"
               : "flex min-h-10 min-w-0 flex-1 basis-60 items-center gap-2 rounded-sm border border-border bg-surface px-3 py-2 font-mono text-sm"
           }
         >
@@ -87,14 +88,7 @@ export function CopyField({
             </span>
           ) : null}
           {href ? (
-            <a
-              href={href}
-              className={
-                compact
-                  ? "min-w-0 truncate underline-offset-4"
-                  : "min-w-0 break-all underline-offset-4"
-              }
-            >
+            <a href={href} className="min-w-0 break-all underline-offset-4">
               {value}
             </a>
           ) : (
