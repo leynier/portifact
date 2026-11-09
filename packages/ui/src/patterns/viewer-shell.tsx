@@ -46,8 +46,8 @@ export interface ViewerShellProps {
 
 /**
  * Page frame of the viewer with the Portifact bar: a slim bar with Portifact's mark, the
- * artifact's name and version as plain text past a divider, and the controls; the artifact in a
- * bordered panel on the backdrop, so its content never reads as part of the bar; and an optional
+ * artifact's name and version as plain text past a divider, and the controls; the artifact edge
+ * to edge below the bar's border and shadow, which keep it apart from the bar; and an optional
  * comments sidebar. The page itself never scrolls; the frame and the sidebar scroll on their own.
  * On narrow screens the bar keeps the mark, the name, the comments toggle and an overflow menu,
  * and the sidebar covers the artifact instead of squeezing it.
@@ -100,11 +100,9 @@ export function ViewerShell({
           id="artifact"
           tabIndex={-1}
           aria-label={frameLabel}
-          className="flex min-h-0 min-w-0 flex-1 flex-col p-2 focus:outline-none sm:p-3"
+          className="flex min-h-0 min-w-0 flex-1 flex-col focus:outline-none"
         >
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border-strong bg-canvas shadow-sm">
-            {frame}
-          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-canvas">{frame}</div>
         </main>
         {sidebar ? (
           <aside

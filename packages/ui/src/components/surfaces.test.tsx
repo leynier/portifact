@@ -376,6 +376,23 @@ describe("variants added with the redesign", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it("centers a larger spinner over the label, or covers its area while loading", async () => {
+    const { container, rerender } = render(
+      <LoadingState layout="centered" label="Loading the artifact" />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Loading the artifact");
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.className).toContain("justify-center");
+    expect(root.className).not.toContain("absolute");
+    expect(root.querySelector('[aria-hidden="true"] svg')).not.toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+
+    rerender(<LoadingState layout="cover" label="Connecting to the page" />);
+    const cover = container.firstElementChild as HTMLElement;
+    expect(cover.className).toContain("absolute inset-0");
+    expect(screen.getByRole("status").textContent).toBe("Connecting to the page");
+  });
+
   it("leads a dangerous confirmation with a warning icon, hidden from assistive technology", async () => {
     HTMLDialogElement.prototype.showModal ??= function showModal(this: HTMLDialogElement) {
       this.open = true;
