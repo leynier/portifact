@@ -30,18 +30,28 @@ export function themeLabels(t: ReturnType<typeof useT>) {
   return { system: t("theme.system"), light: t("theme.light"), dark: t("theme.dark") };
 }
 
-/** The quick theme switch above the account: icons only, stacked in the collapsed rail. */
-function QuickTheme() {
+/**
+ * The quick preferences above the account: the theme switch (icons only) and the language in one
+ * row. The collapsed rail keeps only the theme, stacked; the language stays on the settings page.
+ */
+function QuickPreferences() {
   const t = useT();
   const collapsed = useSidebarCollapsed();
+  const theme = (
+    <ThemeSwitcher
+      legend={t("theme.legend")}
+      labels={themeLabels(t)}
+      compact
+      orientation={collapsed ? "vertical" : "horizontal"}
+    />
+  );
+  if (collapsed) return <div className="flex justify-center">{theme}</div>;
   return (
-    <div className={collapsed ? "flex justify-center" : ""}>
-      <ThemeSwitcher
-        legend={t("theme.legend")}
-        labels={themeLabels(t)}
-        compact
-        orientation={collapsed ? "vertical" : "horizontal"}
-      />
+    <div className="flex items-center gap-2">
+      <div className="shrink-0">{theme}</div>
+      <div className="flex min-w-0 flex-1 justify-end">
+        <LanguageChoice variant="sidebar" />
+      </div>
     </div>
   );
 }
@@ -182,7 +192,7 @@ export function Shell() {
       navigation={navigation}
       account={
         <div className="flex flex-col gap-3">
-          <QuickTheme />
+          <QuickPreferences />
           {account.data ? (
             <SidebarAccount
               name={account.data.name}
@@ -192,7 +202,6 @@ export function Shell() {
               signOutLabel={t("shell.signOut")}
               signingOut={signOut.isPending}
               onSignOut={() => signOut.mutate()}
-              extra={<LanguageChoice variant="compact" />}
             />
           ) : (
             <span className="text-sm text-text-muted">{t("shell.loadingAccount")}</span>

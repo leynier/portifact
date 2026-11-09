@@ -89,6 +89,18 @@ test("choosing Dark in the dashboard's settings applies at once and survives a r
   expect(await background(page)).toBe(DARK);
   await expect(page.locator("picture source").first()).toHaveAttribute("media", "all");
 
+  // The sidebar's theme switch and language choice share one row, and every theme choice shows
+  // the pointer, like any control that acts on click.
+  const sidebar = page.getByRole("banner");
+  const quickTheme = await sidebar.getByRole("group", { name: "Theme" }).boundingBox();
+  const language = await sidebar.getByRole("combobox", { name: "Language" }).boundingBox();
+  const middle = (box: typeof quickTheme) => (box?.y ?? 0) + (box?.height ?? 0) / 2;
+  expect(Math.abs(middle(quickTheme) - middle(language))).toBeLessThanOrEqual(4);
+  for (const name of ["System", "Light", "Dark"]) {
+    const option = sidebar.getByRole("radio", { name }).locator("xpath=ancestor::label[1]");
+    expect(await option.evaluate((label) => getComputedStyle(label).cursor)).toBe("pointer");
+  }
+
   // The quick switch in the sidebar changes it back.
   await choose(groups.first(), "Light");
   await expect.poll(() => background(page)).toBe(LIGHT);
