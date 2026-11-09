@@ -233,6 +233,8 @@ describe("dashboard API client", () => {
       indexable: false,
       embeddable: false,
       bar: true,
+      commentVisibility: "owner",
+      readerCommentVisibility: [],
       policyGeneration: 3,
     };
     const { api, calls } = client(() => Response.json(policy));

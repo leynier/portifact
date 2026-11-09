@@ -122,6 +122,7 @@ export async function list(
       annotations: page.annotations,
       currentVersionId: page.currentVersionId,
       role: page.role,
+      commentScope: page.commentScope,
       threads,
       removed,
       cursor: page.cursor,
@@ -134,6 +135,7 @@ export async function list(
     io.stdout(threads.map(formatThread).join("\n"));
   }
   if (removed.length > 0) io.stdout(`${text.removed(removed)}\n`);
+  if (page.commentScope === "own") io.stderr(`${text.ownScope}\n`);
   io.stderr(`${text.listCursor(artifactId, page.cursor)}\n`);
 }
 

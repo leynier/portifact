@@ -41,7 +41,12 @@ async function shared(ownerId: string, readers: { email: string }[]) {
   await updateAccess(db(), {
     ownerId,
     artifactId: published.artifactId,
-    change: { mode: "restricted", addReaders: readers.map((r) => r.email.toLowerCase()) },
+    // Every reader sees every thread, so readers can answer each other's threads.
+    change: {
+      mode: "restricted",
+      addReaders: readers.map((r) => r.email.toLowerCase()),
+      commentVisibility: "everyone",
+    },
     now: NOW,
   });
   await setAnnotationMode(db(), {

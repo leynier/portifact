@@ -551,6 +551,8 @@ describe("access control through the API", () => {
       indexable: false,
       embeddable: false,
       bar: true,
+      commentVisibility: "owner",
+      readerCommentVisibility: [],
       policyGeneration: 1,
     });
     const added = await c.call(path, patch({ addReaders: ["Ana@Example.test"] }));
@@ -568,6 +570,32 @@ describe("access control through the API", () => {
       readers: [],
       policyGeneration: 3,
     });
+    // Who sees comments and a reader's exception go through the same route, without moving the
+    // generation; an exception for an address not on the list is refused.
+    const comments = await c.call(
+      path,
+      patch({
+        commentVisibility: "everyone",
+        addReaders: ["bo@example.test"],
+        readerCommentVisibility: [{ email: "Bo@Example.test", commentVisibility: "own" }],
+      }),
+    );
+    expect(await comments.json()).toMatchObject({
+      commentVisibility: "everyone",
+      readers: ["bo@example.test"],
+      readerCommentVisibility: [{ email: "bo@example.test", commentVisibility: "own" }],
+      policyGeneration: 4,
+    });
+    const onlyComments = await c.call(path, patch({ commentVisibility: "owner" }));
+    expect(await onlyComments.json()).toMatchObject({
+      commentVisibility: "owner",
+      policyGeneration: 4,
+    });
+    const unlisted = await c.call(
+      path,
+      patch({ readerCommentVisibility: [{ email: "cy@example.test", commentVisibility: "all" }] }),
+    );
+    expect(unlisted.status).toBe(400);
   });
 
   it("keeps a new account from making an artifact public", async () => {

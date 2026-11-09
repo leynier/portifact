@@ -1,6 +1,6 @@
 // Threads of the version under review, refreshed incrementally: the first load reads every page,
-// later refreshes send the cursor and apply only what changed, and a change of mode or current
-// version starts over. The owner may ask for another version's threads or all of them; each
+// later refreshes send the cursor and apply only what changed, and a change of mode, current
+// version or the caller's comment scope (which threads they may see) starts over. The owner may ask for another version's threads or all of them; each
 // choice is its own query. Bodies, quotes and names in threads are untrusted text; they are only
 // ever rendered as text.
 import type {
@@ -9,6 +9,7 @@ import type {
   AnnotationsState,
   AnnotationThreadView,
   AnnotationVersionFilter,
+  CommentScope,
 } from "@portifact/contracts";
 import {
   keepPreviousData,
@@ -24,6 +25,8 @@ export interface ThreadsState {
   annotations: AnnotationsState;
   currentVersionId: string | null;
   role: AnnotationRole;
+  /** Which threads the caller sees: all, or only their own and the owner's. */
+  commentScope: CommentScope;
   /** Which version's threads these are: `current`, `all` or a version ID. */
   version: AnnotationVersionFilter;
   /** Oldest first, so a thread keeps its number. */
@@ -57,7 +60,8 @@ export async function loadThreads(
     if (
       previous &&
       (page.annotations !== previous.annotations ||
-        page.currentVersionId !== previous.currentVersionId)
+        page.currentVersionId !== previous.currentVersionId ||
+        page.commentScope !== previous.commentScope)
     ) {
       return loadThreads(api, artifactId, version);
     }
@@ -69,6 +73,7 @@ export async function loadThreads(
     annotations: page.annotations,
     currentVersionId: page.currentVersionId,
     role: page.role,
+    commentScope: page.commentScope,
     version,
     threads: [...threads.values()].sort(byCreation),
     cursor: page.cursor,

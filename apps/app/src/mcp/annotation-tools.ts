@@ -101,7 +101,7 @@ export function registerAnnotationTools(
     "list_annotations",
     {
       title: "List annotations",
-      description: `List the annotation threads of an artifact the user owns or can open, with their messages, in change order. Keep calling with the returned cursor while hasMore is true. Later, the same cursor returns only threads that changed, and removed lists the IDs of threads to drop. Start again without a cursor when currentVersionId or annotations differ from what you hold. ${UNTRUSTED}`,
+      description: `List the annotation threads of an artifact the user owns or can open, with their messages, in change order. Only threads the user may see are listed: the owner sees all; with commentScope own, a reader sees only the threads they started and the threads the owner started. Keep calling with the returned cursor while hasMore is true. Later, the same cursor returns only threads that changed, and removed lists the IDs of threads to drop. Start again without a cursor when currentVersionId, annotations or commentScope differ from what you hold. ${UNTRUSTED}`,
       inputSchema: ListAnnotationsInput,
       outputSchema: AnnotationPage,
       annotations: READ_ONLY,
@@ -156,7 +156,7 @@ export function registerAnnotationTools(
     "export_annotations",
     {
       title: "Export annotations",
-      description: `Export every annotation thread of an artifact at once, with IDs, targets, visible author names, versions and states, to hand the feedback to the user or to plan changes. With format markdown the text content is one Markdown document. ${UNTRUSTED}`,
+      description: `Export every annotation thread the user may see on an artifact at once (the owner gets all), with IDs, targets, visible author names, versions and states, to hand the feedback to the user or to plan changes. With format markdown the text content is one Markdown document. ${UNTRUSTED}`,
       inputSchema: ExportAnnotationsInput,
       outputSchema: AnnotationExport,
       annotations: READ_ONLY,

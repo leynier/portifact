@@ -746,6 +746,7 @@ function ReviewSession({
         <Composer
           key={draft.id}
           start={start}
+          owner={data?.role === "owner"}
           target={draft.target}
           onDone={(thread) => {
             closeDraft();
@@ -1007,10 +1008,13 @@ function bodyError(t: T, value: string) {
 
 function Composer({
   start,
+  owner,
   target: initialTarget,
   onDone,
 }: {
   start: ReviewStart;
+  /** Who can read a new thread differs: every reader sees the owner's threads. */
+  owner: boolean;
   target: AnnotationTarget;
   onDone(thread: AnnotationThreadView | null): void;
 }) {
@@ -1068,7 +1072,7 @@ function Composer({
               {(field) => (
                 <field.TextAreaField
                   label={t("review.composer.body")}
-                  description={t("review.composer.hint")}
+                  description={t(owner ? "review.composer.hint.owner" : "review.composer.hint")}
                   autoFocus
                 />
               )}

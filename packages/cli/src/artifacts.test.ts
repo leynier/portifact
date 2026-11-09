@@ -443,10 +443,12 @@ describe("portifact access", () => {
     const artifact = seed({
       access: {
         mode: "restricted",
-        readers: ["ana@example.test"],
+        readers: ["ana@example.test", "bo@example.test"],
         indexable: false,
         embeddable: true,
         bar: true,
+        commentVisibility: "owner",
+        readerCommentVisibility: [{ email: "bo@example.test", commentVisibility: "all" }],
       },
     });
 
@@ -455,7 +457,8 @@ describe("portifact access", () => {
     expect(text.stdout).toBe(
       [
         "Access         restricted",
-        "Readers        ana@example.test",
+        "Readers        ana@example.test, bo@example.test (sees all comments)",
+        "Comments       owner (each reader sees their own threads and yours)",
         "Indexable      no",
         "Embeddable     yes",
         "Portifact bar  on",
@@ -467,12 +470,78 @@ describe("portifact access", () => {
     expect(json(output)).toEqual({
       artifactId: artifact.id,
       mode: "restricted",
-      readers: ["ana@example.test"],
+      readers: ["ana@example.test", "bo@example.test"],
       indexable: false,
       embeddable: true,
       bar: true,
+      commentVisibility: "owner",
+      readerCommentVisibility: [{ email: "bo@example.test", commentVisibility: "all" }],
       policyGeneration: 1,
     });
+  });
+
+  it("chooses who sees comments and rejects anything but owner or everyone", async () => {
+    h.signIn();
+    const artifact = seed();
+
+    const everyone = await h.invoke("access", "comments", artifact.id, "everyone");
+    expect(everyone.code).toBe(0);
+    expect(everyone.stdout).toContain("Comments       everyone (every reader sees every thread)\n");
+    expect(JSON.parse(requests("PATCH", /\/access$/)[0]?.body ?? "")).toEqual({
+      commentVisibility: "everyone",
+    });
+    expect(server.api.artifacts.get(artifact.id)?.access.commentVisibility).toBe("everyone");
+
+    const wrong = await h.invoke("access", "comments", artifact.id, "readers", "--json");
+    expect(wrong.code).toBe(2);
+    expect(json(wrong).error.message).toContain("Use owner or everyone.");
+    expect(requests("PATCH", /\/access$/)).toHaveLength(1);
+  });
+
+  it("sets and clears one reader's exception, refusing a bad value or address before any request", async () => {
+    h.signIn();
+    const artifact = seed();
+    await h.invoke("access", "add", artifact.id, "ana@example.test");
+
+    const all = await h.invoke("access", "reader-comments", artifact.id, "Ana@Example.test", "all");
+    expect(all.code).toBe(0);
+    expect(all.stdout).toContain("Readers        ana@example.test (sees all comments)\n");
+    expect(JSON.parse(requests("PATCH", /\/access$/)[1]?.body ?? "")).toEqual({
+      readerCommentVisibility: [{ email: "ana@example.test", commentVisibility: "all" }],
+    });
+    const own = await h.invoke(
+      "access",
+      "reader-comments",
+      artifact.id,
+      "ana@example.test",
+      "own",
+      "--json",
+    );
+    expect(json(own)).toMatchObject({
+      readerCommentVisibility: [{ email: "ana@example.test", commentVisibility: "own" }],
+    });
+    const inherit = await h.invoke(
+      "access",
+      "reader-comments",
+      artifact.id,
+      "ana@example.test",
+      "inherit",
+    );
+    expect(inherit.stdout).toContain("Readers        ana@example.test\n");
+
+    const before = requests("PATCH", /\/access$/).length;
+    const bad = await h.invoke(
+      "access",
+      "reader-comments",
+      artifact.id,
+      "ana@example.test",
+      "some",
+    );
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toContain("Use all, own or inherit.");
+    const badEmail = await h.invoke("access", "reader-comments", artifact.id, "ana", "all");
+    expect(badEmail.code).toBe(2);
+    expect(requests("PATCH", /\/access$/)).toHaveLength(before);
   });
 
   it("turns the Portifact bar off and on", async () => {
@@ -573,6 +642,8 @@ describe("portifact access", () => {
         indexable: false,
         embeddable: false,
         bar: true,
+        commentVisibility: "owner",
+        readerCommentVisibility: [],
       },
     });
 

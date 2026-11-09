@@ -24,6 +24,8 @@ export interface FakeAnnotationState {
   deleted: { id: string; artifactId: string; seq: number }[];
   /** The caller's role; a participant cannot moderate or change the mode. */
   role: "owner" | "participant";
+  /** Which threads the caller sees; the fake lists every thread whatever it says. */
+  commentScope: "all" | "own";
   /** Every request body the API received, by route, to check what the CLI sent. */
   bodies: unknown[];
 }
@@ -53,6 +55,7 @@ export function createFakeAnnotations(
     threads: new Map(),
     deleted: [],
     role: "owner",
+    commentScope: "all",
     bodies: [],
   };
 
@@ -149,6 +152,7 @@ export function createFakeAnnotations(
         annotations: state.modes.get(artifact.id) ?? "off",
         currentVersionId: artifact.currentVersionId,
         role: state.role,
+        commentScope: state.commentScope,
         threads: page.map(view),
         removed,
         cursor: String(changed.length > limit ? last : Math.max(last, seq)),

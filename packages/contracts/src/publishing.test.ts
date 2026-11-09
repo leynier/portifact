@@ -145,6 +145,45 @@ describe("publishing contracts", () => {
     }
   });
 
+  it("accepts who sees comments and one exception per reader, lowercased", () => {
+    expect(AccessUpdate.parse({ commentVisibility: "everyone" })).toEqual({
+      commentVisibility: "everyone",
+    });
+    expect(AccessUpdate.safeParse({ commentVisibility: "readers" }).success).toBe(false);
+    expect(
+      AccessUpdate.parse({
+        readerCommentVisibility: [{ email: "Ana@Example.COM", commentVisibility: "inherit" }],
+      }),
+    ).toEqual({
+      readerCommentVisibility: [{ email: "ana@example.com", commentVisibility: "inherit" }],
+    });
+    for (const value of ["all", "own", "inherit"]) {
+      expect(
+        AccessUpdate.safeParse({
+          readerCommentVisibility: [{ email: "a@x.test", commentVisibility: value }],
+        }).success,
+      ).toBe(true);
+    }
+    expect(
+      AccessUpdate.safeParse({
+        readerCommentVisibility: [{ email: "a@x.test", commentVisibility: "everyone" }],
+      }).success,
+    ).toBe(false);
+    const twice = AccessUpdate.safeParse({
+      readerCommentVisibility: [
+        { email: "a@x.test", commentVisibility: "all" },
+        { email: "A@x.test", commentVisibility: "own" },
+      ],
+    });
+    expect(twice.error?.issues[0]?.message).toBe("Send one comment visibility per reader.");
+    const many = Array.from({ length: LIMITS.readersPerChange + 1 }, (_, i) => ({
+      email: `r${i}@x.test`,
+      commentVisibility: "all",
+    }));
+    expect(AccessUpdate.safeParse({ readerCommentVisibility: many }).success).toBe(false);
+    expect(AccessUpdate.safeParse({ readerCommentVisibility: many.slice(1) }).success).toBe(true);
+  });
+
   it("lists each artifact with its activity and refuses impossible figures", () => {
     const item = {
       id: "k7d2qm4xab",

@@ -13,9 +13,11 @@ import {
   checkHumanVerdict,
   checkResolve,
   checkThreadWritable,
+  commentScope,
   messageBodyVisible,
   moderationTransition,
   needsHumanCheck,
+  threadInScope,
   threadVisible,
 } from "./annotations.ts";
 
@@ -176,6 +178,34 @@ describe("thread and message rules", () => {
       true,
     );
     expect(messageBodyVisible("owner", "u_a", { authorId: "u_a", state: "deleted" })).toBe(false);
+  });
+});
+
+describe("comment visibility", () => {
+  // role, artifact setting, the reader's exception -> scope
+  const table: [AnnotationRole, "owner" | "everyone", "all" | "own" | null, "all" | "own"][] = [
+    ["owner", "owner", null, "all"],
+    ["owner", "everyone", null, "all"],
+    ["owner", "owner", "own", "all"],
+    ["owner", "everyone", "own", "all"],
+    ["participant", "owner", null, "own"],
+    ["participant", "everyone", null, "all"],
+    ["participant", "owner", "all", "all"],
+    ["participant", "owner", "own", "own"],
+    ["participant", "everyone", "own", "own"],
+    ["participant", "everyone", "all", "all"],
+  ];
+  it.each(table)("%s with %s and exception %s sees %s", (role, visibility, exception, scope) => {
+    expect(commentScope(role, visibility, exception)).toBe(scope);
+  });
+
+  it("limits `own` to the caller's threads and the owner's, with every reply", () => {
+    expect(threadInScope("own", "ana", "olga", "ana")).toBe(true);
+    expect(threadInScope("own", "ana", "olga", "olga")).toBe(true);
+    expect(threadInScope("own", "ana", "olga", "bea")).toBe(false);
+    expect(threadInScope("all", "ana", "olga", "bea")).toBe(true);
+    // The owner's scope is always all, so the owner sees a reader's thread.
+    expect(threadInScope(commentScope("owner", "owner", null), "olga", "olga", "bea")).toBe(true);
   });
 });
 

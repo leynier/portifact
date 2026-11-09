@@ -4,7 +4,7 @@
 // instructions to follow.
 import { z } from "zod";
 import { AnnotationTarget } from "./anchors.ts";
-import { AnnotationsState, ArtifactId, ArtifactType } from "./core.ts";
+import { AnnotationsState, ArtifactId, ArtifactType, CommentScope } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
 import { ANNOTATION_LIMITS } from "./limits.ts";
 
@@ -187,14 +187,19 @@ export type AnnotationRole = z.infer<typeof AnnotationRole>;
 
 /**
  * A page of threads in change order. Keep requesting with `cursor` while `hasMore` is true;
- * later, the same `cursor` returns only what changed. When `currentVersionId` or
- * `annotations` differ from what the client holds, it starts again without a cursor.
+ * later, the same `cursor` returns only what changed. When `currentVersionId`, `annotations`
+ * or `commentScope` differ from what the client holds, it starts again without a cursor.
  */
 export const AnnotationPage = z.object({
   artifactId: ArtifactId,
   annotations: AnnotationsState,
   currentVersionId: z.string().nullable(),
   role: AnnotationRole,
+  /**
+   * Which threads the caller sees: `all`, or only their `own` and the owner's (the owner always
+   * sees all). Threads outside it are never listed, counted or named in `removed`.
+   */
+  commentScope: CommentScope,
   threads: z.array(AnnotationThreadView),
   /** Threads the client should drop: deleted, or no longer visible or matching the filter. */
   removed: z.array(z.string()),

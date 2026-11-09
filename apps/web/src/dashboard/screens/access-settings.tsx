@@ -1,15 +1,18 @@
 // The access section of the artifact page (plan section 6, "Acceso"): the three modes with who
-// each lets in, the reader list, indexing and embedding. The API applies the rules (account age
-// for public, the reader cap, the policy generation); this explains them and shows its answers.
+// each lets in, the reader list, indexing, embedding and who sees the comments (plan section 8,
+// with an exception per reader). The API applies the rules (account age for public, the reader
+// cap, the policy generation); this explains them and shows its answers.
 import {
   type AccessMode,
   type AccessPolicyView,
   type AccessUpdate,
   type ArtifactSummary,
+  type CommentVisibility,
   Email,
   LIMITS,
+  type ReaderCommentVisibility,
 } from "@portifact/contracts";
-import { Button, Callout, LoadingState, Panel } from "@portifact/ui";
+import { Button, Callout, LoadingState, Panel, Select } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Info, RefreshCw, Save, UserMinus, UserPlus, UsersRound } from "lucide-react";
@@ -23,6 +26,7 @@ export const accessQuery = (artifactId: string) => ["artifact", artifactId, "acc
 
 const DAY_MS = 86_400_000;
 const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
+const COMMENT_VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
 
 /** When the account may first make an artifact public, or null when that is not known. */
 export function publicAvailableFrom(account: Account | null | undefined): Date | null {
@@ -148,7 +152,7 @@ function AccessEditor({
         ) : null}
         <SettingsForm
           // Start over from the server's values whenever they change, such as after a conflict.
-          key={`${policy.mode}:${policy.indexable}:${policy.embeddable}:${policy.bar}`}
+          key={`${policy.mode}:${policy.indexable}:${policy.embeddable}:${policy.bar}:${policy.commentVisibility}`}
           policy={policy}
           disabled={suspended}
           busy={settings.isPending}
@@ -189,6 +193,7 @@ interface SettingsValues {
   indexable: boolean;
   embeddable: boolean;
   bar: boolean;
+  commentVisibility: CommentVisibility;
 }
 
 /** The fields that differ from the current policy, or undefined when nothing changed. */
@@ -201,6 +206,9 @@ export function settingsChange(
     ...(values.indexable === policy.indexable ? {} : { indexable: values.indexable }),
     ...(values.embeddable === policy.embeddable ? {} : { embeddable: values.embeddable }),
     ...(values.bar === policy.bar ? {} : { bar: values.bar }),
+    ...(values.commentVisibility === policy.commentVisibility
+      ? {}
+      : { commentVisibility: values.commentVisibility }),
   };
   return Object.keys(update).length > 0 ? update : undefined;
 }
@@ -230,6 +238,7 @@ function SettingsForm({
       indexable: policy.indexable,
       embeddable: policy.embeddable,
       bar: policy.bar,
+      commentVisibility: policy.commentVisibility,
     } as SettingsValues,
     onSubmit: ({ value }) => onSave(settingsChange(policy, value)),
   });
@@ -296,6 +305,22 @@ function SettingsForm({
               )}
             </form.AppField>
           </div>
+          <div className="flex flex-col gap-2">
+            <form.AppField name="commentVisibility">
+              {(field) => (
+                <field.RadioGroupField
+                  legend={t("accessSettings.comments.legend")}
+                  options={COMMENT_VISIBILITIES.map((value) => ({
+                    value,
+                    label: t(`accessSettings.comments.${value}`),
+                    description: t(`accessSettings.comments.${value}.hint`),
+                  }))}
+                  disabled={disabled}
+                />
+              )}
+            </form.AppField>
+            <p className="text-sm text-text-muted">{t("accessSettings.comments.exceptions")}</p>
+          </div>
           <div>
             <form.SubmitButton icon={<Save className="size-4" />} busy={busy} disabled={disabled}>
               {t("accessSettings.save")}
@@ -333,6 +358,7 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
         </p>
       </div>
       <p className="mt-1 text-sm text-text-muted">{t("readers.hint")}</p>
+      <p className="mt-1 text-sm text-text-muted">{t("readers.comments.hint")}</p>
       {error ? (
         <div className="mt-4">
           <Callout
@@ -356,7 +382,15 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
         >
           {policy.readers.map((email) => (
             <li key={email} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
-              <span className="min-w-0 text-sm break-all">{email}</span>
+              <span className="min-w-0 flex-1 text-sm break-all">{email}</span>
+              <div className="w-56 max-w-full">
+                <ReaderComments
+                  email={email}
+                  policy={policy}
+                  disabled={disabled || pending !== undefined}
+                  onChange={onChange}
+                />
+              </div>
               <Button
                 intent="ghost"
                 size="sm"
@@ -384,6 +418,46 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
         />
       </div>
     </section>
+  );
+}
+
+/** One reader's exception to who sees comments, sent as soon as it changes. */
+function ReaderComments({
+  email,
+  policy,
+  disabled,
+  onChange,
+}: {
+  email: string;
+  policy: AccessPolicyView;
+  disabled: boolean;
+  onChange: ReadersProps["onChange"];
+}) {
+  const t = useT();
+  const current: ReaderCommentVisibility =
+    policy.readerCommentVisibility.find((entry) => entry.email === email)?.commentVisibility ??
+    "inherit";
+  const label = (choice: ReaderCommentVisibility) =>
+    choice === "inherit"
+      ? t(`readers.comments.inherit.${policy.commentVisibility}`)
+      : t(`readers.comments.${choice}`);
+  return (
+    <Select<ReaderCommentVisibility>
+      label={t("readers.comments.label", { email })}
+      labelVisible={false}
+      value={current}
+      options={(["inherit", "all", "own"] as const).map((value) => ({
+        value,
+        label: label(value),
+      }))}
+      disabled={disabled}
+      onChange={(choice) =>
+        onChange(
+          { readerCommentVisibility: [{ email, commentVisibility: choice }] },
+          t("readers.comments.changed", { email, choice: label(choice) }),
+        )
+      }
+    />
   );
 }
 

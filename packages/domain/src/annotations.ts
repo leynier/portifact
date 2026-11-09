@@ -1,7 +1,13 @@
 // Annotation rules (plan section 8, "Permisos", and section 2 for the limits). Pure decisions
 // over the artifact's effective state, its annotations mode and the caller's role; the services
 // apply them with D1 and re-check the same conditions inside the write transaction.
-import { ANNOTATION_LIMITS, type AnnotationsState, type ArtifactState } from "@portifact/contracts";
+import {
+  ANNOTATION_LIMITS,
+  type AnnotationsState,
+  type ArtifactState,
+  type CommentScope,
+  type CommentVisibility,
+} from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
 
 /** `owner` manages the artifact; `participant` can read it through its access policy. */
@@ -87,6 +93,36 @@ export function threadVisible(
   currentVersionId: string | null,
 ): boolean {
   return role === "owner" || threadVersionId === currentVersionId;
+}
+
+/**
+ * Which threads a caller sees (plan section 8, decision of 2026-11-08 on visibility). The owner
+ * sees all. A reader follows their exception on the reader list when they have one (matched by
+ * verified address), and otherwise the artifact's setting: `everyone` shows all threads and
+ * `owner` only their own and the owner's.
+ */
+export function commentScope(
+  role: AnnotationRole,
+  visibility: CommentVisibility,
+  readerException: CommentScope | null,
+): CommentScope {
+  if (role === "owner") return "all";
+  if (readerException !== null) return readerException;
+  return visibility === "everyone" ? "all" : "own";
+}
+
+/**
+ * Whether a thread is within the caller's scope: with `own`, the threads the caller or the
+ * owner started, with every reply in them whoever wrote it. A reply never makes someone else's
+ * thread visible to its writer. A thread outside the scope answers like a missing one.
+ */
+export function threadInScope(
+  scope: CommentScope,
+  viewerId: string,
+  ownerId: string,
+  threadAuthorId: string,
+): boolean {
+  return scope === "all" || threadAuthorId === viewerId || threadAuthorId === ownerId;
 }
 
 /** New messages and edits go only to threads of the current version. */

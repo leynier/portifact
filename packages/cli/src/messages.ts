@@ -100,6 +100,11 @@ export const messages = {
   readersOnlyWhenRestricted: (mode: string) =>
     `Note: access is ${mode}, so the reader list applies only after \`portifact access set <id> restricted\`.`,
   accessChanged: (id: string) => `Updated access to ${id}.`,
+  commentVisibility: {
+    owner: "owner (each reader sees their own threads and yours)",
+    everyone: "everyone (every reader sees every thread)",
+  },
+  readerSees: { all: "sees all comments", own: "sees own and yours" },
 
   // Versions.
   versionsEmpty: (id: string) => `${id} has no published versions.`,
@@ -155,6 +160,10 @@ export const messages = {
       `${JSON.stringify(value)} is not an access mode. Use restricted, authenticated or public.`,
     invalidBarState: (value: string) =>
       `${JSON.stringify(value)} is not a Portifact bar state. Use on or off.`,
+    invalidCommentVisibility: (value: string) =>
+      `${JSON.stringify(value)} is not a comment visibility. Use owner or everyone.`,
+    invalidReaderCommentVisibility: (value: string) =>
+      `${JSON.stringify(value)} is not a reader's comment visibility. Use all, own or inherit.`,
     invalidEmail: (value: string) => `${JSON.stringify(value)} is not a valid email address.`,
     tooManyReaders: (max: number) => `Add or remove at most ${max} readers at a time.`,
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,
@@ -256,6 +265,8 @@ export const annotationMessages = {
       ? `${id} has no threads to show. Annotations are off; turn them on with \`portifact annotations set ${id} open\`.`
       : `${id} has no threads yet.`,
   removed: (ids: readonly string[]) => `Removed since the cursor: ${ids.join(", ")}`,
+  ownScope:
+    "You see only the threads you started and the threads the owner started; the owner chooses who sees the rest.",
   listCursor: (id: string, cursor: string) =>
     `Only changes later: run \`portifact annotations list ${id} --cursor ${cursor}\`.`,
   threadHeader: (id: string, state: string, path: string, version: string | null) =>

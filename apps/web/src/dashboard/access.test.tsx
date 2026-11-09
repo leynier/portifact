@@ -20,6 +20,8 @@ const POLICY: AccessPolicyView = {
   indexable: false,
   embeddable: false,
   bar: true,
+  commentVisibility: "owner",
+  readerCommentVisibility: [],
   policyGeneration: 4,
 };
 
@@ -96,6 +98,63 @@ describe("access settings", () => {
     expect(radio("Anyone signed in to Portifact").checked).toBe(true);
     const facts = screen.getByRole("region", { name: "Details" });
     await waitFor(() => expect(facts.textContent).toContain("Anyone signed in to Portifact"));
+  });
+
+  it("explains who sees comments, defaults to the owner and saves a change to everyone", async () => {
+    const { container } = renderDashboard(PATH, server);
+    const region = await accessRegion();
+    await within(region).findByRole("group", { name: "Who sees comments" });
+    const ownerOnly = radio("Only you, and each person their own");
+    expect(ownerOnly.checked).toBe(true);
+    expect(region.textContent).toContain(
+      "Each person sees the threads they started and the threads you started",
+    );
+    expect(region.textContent).toContain("You can make an exception for a person you added");
+    fireEvent.click(radio("Everyone who can open the artifact"));
+    save();
+    await screen.findByText(/Access saved/);
+    expect(server.bodies.at(-1)).toEqual({ commentVisibility: "everyone" });
+    expect(server.access[ID]?.commentVisibility).toBe("everyone");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("sets and clears one reader's exception from the list, following the artifact's default", async () => {
+    const { container } = renderDashboard(PATH, server);
+    await accessRegion();
+    const select = (await screen.findByRole("combobox", {
+      name: "Comments ana@example.com sees",
+    })) as HTMLSelectElement;
+    expect(select.value).toBe("inherit");
+    expect(select.selectedOptions[0]?.textContent).toBe("Default: own and yours");
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.change(select, { target: { value: "all" } });
+    await screen.findByText("ana@example.com now sees: All comments.");
+    expect(server.bodies.at(-1)).toEqual({
+      readerCommentVisibility: [{ email: "ana@example.com", commentVisibility: "all" }],
+    });
+    expect(server.access[ID]?.readerCommentVisibility).toEqual([
+      { email: "ana@example.com", commentVisibility: "all" },
+    ]);
+    await waitFor(() => expect(select.value).toBe("all"));
+
+    fireEvent.change(select, { target: { value: "inherit" } });
+    await screen.findByText("ana@example.com now sees: Default: own and yours.");
+    expect(server.access[ID]?.readerCommentVisibility).toEqual([]);
+  });
+
+  it("names the everyone default in a reader's menu when comments are open to all", async () => {
+    server.access[ID] = { ...POLICY, commentVisibility: "everyone" };
+    renderDashboard(PATH, server);
+    const select = (await screen.findByRole("combobox", {
+      name: "Comments ana@example.com sees",
+    })) as HTMLSelectElement;
+    expect(select.selectedOptions[0]?.textContent).toBe("Default: all comments");
+    fireEvent.change(select, { target: { value: "own" } });
+    await screen.findByText("ana@example.com now sees: Only own and yours.");
+    expect(server.access[ID]?.readerCommentVisibility).toEqual([
+      { email: "ana@example.com", commentVisibility: "own" },
+    ]);
   });
 
   it("does not send anything when nothing changed", async () => {
@@ -318,13 +377,23 @@ describe("access helpers", () => {
       indexable: false,
       embeddable: true,
       bar: true,
+      commentVisibility: "owner" as const,
+      readerCommentVisibility: [],
       policyGeneration: 1,
     };
+    const same = { mode: "restricted", indexable: false, embeddable: true, bar: true } as const;
+    expect(settingsChange(policy, { ...same, commentVisibility: "owner" })).toBe(undefined);
+    expect(settingsChange(policy, { ...same, commentVisibility: "everyone" })).toEqual({
+      commentVisibility: "everyone",
+    });
     expect(
-      settingsChange(policy, { mode: "restricted", indexable: false, embeddable: true, bar: true }),
-    ).toBe(undefined);
-    expect(
-      settingsChange(policy, { mode: "public", indexable: true, embeddable: false, bar: true }),
+      settingsChange(policy, {
+        mode: "public",
+        indexable: true,
+        embeddable: false,
+        bar: true,
+        commentVisibility: "owner",
+      }),
     ).toEqual({
       mode: "public",
       indexable: true,
@@ -336,6 +405,7 @@ describe("access helpers", () => {
         indexable: false,
         embeddable: true,
         bar: false,
+        commentVisibility: "owner",
       }),
     ).toEqual({ bar: false });
   });

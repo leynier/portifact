@@ -335,12 +335,15 @@ describe("portifact annotations list and show", () => {
       "annotations",
       "currentVersionId",
       "role",
+      "commentScope",
       "threads",
       "removed",
       "cursor",
     ]);
     expect(page.threads).toHaveLength(52);
     expect(page.role).toBe("owner");
+    expect(page.commentScope).toBe("all");
+    expect(result.stderr).not.toContain("You see only the threads you started");
     expect(
       server.requests.slice(before).filter((r) => r.path.endsWith("/annotations")),
     ).toHaveLength(2);
@@ -414,6 +417,18 @@ describe("portifact annotations list and show", () => {
     expect((await h.invoke("annotations", "list", open.id)).stdout).toContain(
       "has no threads yet.",
     );
+  });
+
+  it("tells a reader who sees only their own threads and the owner's", async () => {
+    const artifact = reviewed();
+    server.annotations.role = "participant";
+    server.annotations.commentScope = "own";
+    const text = await h.invoke("annotations", "list", artifact.id);
+    expect(text.stderr).toContain(
+      "You see only the threads you started and the threads the owner started; the owner chooses who sees the rest.",
+    );
+    const output = await h.invoke("annotations", "list", artifact.id, "--json");
+    expect(json(output)).toMatchObject({ role: "participant", commentScope: "own" });
   });
 });
 

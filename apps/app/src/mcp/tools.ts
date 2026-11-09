@@ -12,6 +12,7 @@ import {
 } from "@modelcontextprotocol/server";
 import {
   AccessPolicyView,
+  AccessUpdate,
   ArtifactList,
   ArtifactRef,
   ArtifactSummary,
@@ -23,6 +24,7 @@ import {
   ListArtifactsInput,
   type OAuthScope,
   PublishDocumentInput,
+  SetCommentVisibilityInput,
   SetPortifactBarInput,
 } from "@portifact/contracts";
 import { createDb, type Db } from "@portifact/db";
@@ -61,8 +63,9 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ["archive_artifact", "artifacts:write"],
   ["restore_artifact", "artifacts:write"],
   ["delete_artifact", "artifacts:delete"],
-  // The bar is part of the access policy (PATCH /api/v1/artifacts/:id/access).
+  // The bar and who sees comments are part of the access policy (PATCH /api/v1/artifacts/:id/access).
   ["set_portifact_bar", "artifacts:share"],
+  ["set_comment_visibility", "artifacts:share"],
 ]);
 
 export const SERVER_INSTRUCTIONS = [
@@ -331,6 +334,46 @@ export function createPortifactServer(context: ToolContext): McpServer {
       const body = AccessPolicyView.parse(result.value);
       return success(
         `The Portifact bar of ${args.artifactId} is ${body.bar ? "on" : "off"}.`,
+        body,
+      );
+    },
+  );
+
+  register(
+    "set_comment_visibility",
+    {
+      title: "Choose who sees comments",
+      description:
+        "Choose who sees the comment threads of the user's artifact. With owner (the default), each reader sees only the threads they started and the threads the owner started, with every reply in them; with everyone, every reader sees every thread. The owner always sees all. readerCommentVisibility sets exceptions for readers already on the reader list: all, own, or inherit to drop the exception. Widening who sees comments shows readers what other readers wrote: confirm with the user first. Returns the access policy.",
+      inputSchema: SetCommentVisibilityInput,
+      outputSchema: AccessPolicyView,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args: SetCommentVisibilityInput) => {
+      // The same validation as the API's body: at least one change and one entry per reader.
+      const change = AccessUpdate.safeParse({
+        commentVisibility: args.commentVisibility,
+        readerCommentVisibility: args.readerCommentVisibility,
+      });
+      if (!change.success) {
+        return failure("invalid_input", change.error.issues[0]?.message ?? "Invalid change.");
+      }
+      const result = await updateAccess(db, {
+        ownerId: context.userId,
+        artifactId: args.artifactId,
+        change: change.data,
+        now: context.now(),
+      });
+      if (!result.ok) return failure(result.code, result.message);
+      const body = AccessPolicyView.parse(result.value);
+      const exceptions = body.readerCommentVisibility.length;
+      return success(
+        `Comments on ${args.artifactId} are visible to ${body.commentVisibility === "owner" ? "the owner and, for each thread, the reader who started it" : "everyone who can open it"}, with ${exceptions} reader exception(s).`,
         body,
       );
     },

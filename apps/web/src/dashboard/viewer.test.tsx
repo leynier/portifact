@@ -409,6 +409,37 @@ describe("review viewer", () => {
     expect(server.requests.at(-1)?.path).toBe(`/api/v1/artifacts/${ID}/annotations?cursor=2`);
   });
 
+  it("starts over when the caller's comment scope changes, dropping threads it no longer shows", async () => {
+    const { queryClient } = await open();
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    expect(screen.getByText("Secret feedback for the owner")).toBeTruthy();
+    // The owner narrowed who sees comments: the server lists fewer threads and a new scope.
+    store.commentScope = "own";
+    store.threads.splice(0, 1);
+    store.seq += 1;
+    await act(() => queryClient.invalidateQueries({ queryKey: ["annotations", ID] }));
+    await waitFor(() => expect(screen.queryByText("Secret feedback for the owner")).toBeNull());
+    expect(server.requests.at(-1)?.path).toBe(`/api/v1/artifacts/${ID}/annotations`);
+  });
+
+  it.each([
+    [
+      "participant",
+      "The owner of this artifact can read it; the owner chooses whether other readers can too.",
+    ],
+    ["owner", "Everyone who can open this artifact can read it."],
+  ] as const)("tells the %s who can read a new comment", async (role, note) => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.role = role;
+    await open();
+    const nonce = await connect();
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET });
+    fireEvent.click(await screen.findByRole("button", { name: "Comment on the selection" }));
+    expect(screen.getByRole("form", { name: "New comment" }).textContent).toContain(note);
+  });
+
   it("renders bodies and quotes as text, never as markup", async () => {
     const store = server.annotations[ID];
     store?.threads.push({

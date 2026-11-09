@@ -157,6 +157,10 @@ test("a hostile artifact cannot read the viewer, act as the visitor or forge a c
     files: { "index.html": hostilePage(artifactOrigin(secret.artifactId), secret.artifactId) },
   });
   // Someone else's comment on the hostile artifact: the viewer shows it, the frame must not get it.
+  // The attacker lets every reader see every thread, so the victim's viewer lists it.
+  await sql("UPDATE artifacts SET comment_visibility = 'everyone' WHERE id = ?", [
+    hostile.artifactId,
+  ]);
   await control("/thread", {
     userId: carol.userId,
     artifactId: hostile.artifactId,
