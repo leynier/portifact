@@ -20,6 +20,8 @@ const POLICY: AccessPolicyView = {
   indexable: false,
   embeddable: false,
   bar: true,
+  commentVisibility: "owner",
+  readerCommentVisibility: [],
   policyGeneration: 4,
 };
 
@@ -98,6 +100,93 @@ describe("access settings", () => {
     await waitFor(() => expect(facts.textContent).toContain("Anyone signed in to Portifact"));
   });
 
+  it("explains who sees comments, defaults to the owner and saves a change to everyone", async () => {
+    const { container } = renderDashboard(PATH, server);
+    const region = await accessRegion();
+    await within(region).findByRole("group", { name: "Who sees comments" });
+    const ownerOnly = radio("Only you, and each person their own");
+    expect(ownerOnly.checked).toBe(true);
+    expect(region.textContent).toContain(
+      "Each person sees the threads they started and the threads you started",
+    );
+    expect(region.textContent).toContain("You can make an exception for a person you added");
+    fireEvent.click(radio("Everyone who can open the artifact"));
+    save();
+    // Widening is retroactive, so it is confirmed first; cancelling sends nothing.
+    const dialog = await screen.findByRole("dialog", { name: "Show every comment to everyone?" });
+    expect(dialog.textContent).toContain(
+      "Comments already written become visible to everyone who can open the artifact",
+    );
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(patches()).toEqual([]);
+    save();
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: "Show every comment to everyone?" }),
+      ).getByRole("button", { name: "Show all comments" }),
+    );
+    await screen.findByText(/Access saved/);
+    expect(server.bodies.at(-1)).toEqual({ commentVisibility: "everyone" });
+    expect(server.access[ID]?.commentVisibility).toBe("everyone");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("sets and clears one reader's exception from the list, following the artifact's default", async () => {
+    const { container } = renderDashboard(PATH, server);
+    await accessRegion();
+    const select = (await screen.findByRole("combobox", {
+      name: "Comments ana@example.com sees",
+    })) as HTMLSelectElement;
+    expect(select.value).toBe("inherit");
+    expect(select.selectedOptions[0]?.textContent).toBe("Default: own and yours");
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.change(select, { target: { value: "all" } });
+    // Showing one reader every comment is retroactive too: confirmed first, cancel keeps it.
+    const dialog = await screen.findByRole("dialog", {
+      name: "Show ana@example.com every comment?",
+    });
+    expect(dialog.textContent).toContain("including comments already written");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(patches()).toEqual([]);
+    expect(select.value).toBe("inherit");
+    fireEvent.change(select, { target: { value: "all" } });
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: "Show ana@example.com every comment?" }),
+      ).getByRole("button", { name: "Show all comments" }),
+    );
+    await screen.findByText("ana@example.com now sees: All comments.");
+    expect(server.bodies.at(-1)).toEqual({
+      readerCommentVisibility: [{ email: "ana@example.com", commentVisibility: "all" }],
+    });
+    expect(server.access[ID]?.readerCommentVisibility).toEqual([
+      { email: "ana@example.com", commentVisibility: "all" },
+    ]);
+    await waitFor(() => expect(select.value).toBe("all"));
+
+    fireEvent.change(select, { target: { value: "inherit" } });
+    await screen.findByText("ana@example.com now sees: Default: own and yours.");
+    expect(server.access[ID]?.readerCommentVisibility).toEqual([]);
+  });
+
+  it("names the everyone default in a reader's menu when comments are open to all", async () => {
+    server.access[ID] = { ...POLICY, commentVisibility: "everyone" };
+    renderDashboard(PATH, server);
+    const select = (await screen.findByRole("combobox", {
+      name: "Comments ana@example.com sees",
+    })) as HTMLSelectElement;
+    expect(select.selectedOptions[0]?.textContent).toBe("Default: all comments");
+    // Narrowing needs no confirmation.
+    fireEvent.change(select, { target: { value: "own" } });
+    await screen.findByText("ana@example.com now sees: Only own and yours.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(server.access[ID]?.readerCommentVisibility).toEqual([
+      { email: "ana@example.com", commentVisibility: "own" },
+    ]);
+  });
+
   it("does not send anything when nothing changed", async () => {
     renderDashboard(PATH, server);
     await screen.findByRole("group", { name: "Who can open this artifact" });
@@ -108,14 +197,14 @@ describe("access settings", () => {
     expect(patches()).toEqual([]);
   });
 
-  it("keeps public unavailable during the account's first 7 days and says from when", async () => {
-    server.createdAt = new Date(Date.now() - 2 * DAY).toISOString();
+  it("keeps public unavailable during the account's first 15 minutes and says from when", async () => {
+    server.createdAt = new Date(Date.now() - 2 * 60_000).toISOString();
     const { container } = renderDashboard(PATH, server);
     await screen.findByRole("group", { name: "Who can open this artifact" });
     const publicMode = radio("Public: anyone with the link");
     expect(publicMode.disabled).toBe(true);
     const hint = document.getElementById(publicMode.getAttribute("aria-describedby") ?? "");
-    expect(hint?.textContent).toMatch(/Available from .+\. New accounts wait 7 days/);
+    expect(hint?.textContent).toMatch(/Available from .+\. New accounts wait 15 minutes/);
     expect(await axeViolations(container)).toEqual([]);
   });
 
@@ -144,7 +233,7 @@ describe("access settings", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Access was not saved");
     expect(alert.textContent).toContain(
-      "New accounts can make an artifact public 7 days after they are created.",
+      "New accounts can make an artifact public 15 minutes after they are created.",
     );
     // The choice stays, so the user can change it without starting over.
     expect(radio("Public: anyone with the link").checked).toBe(true);
@@ -160,7 +249,12 @@ describe("access settings", () => {
     await screen.findByRole("group", { name: "Who can open this artifact" });
     fireEvent.click(radio("Public: anyone with the link"));
     save();
-    expect((await screen.findByRole("alert")).textContent).toContain("from Jan 17, 2026.");
+    // The wait is minutes long, so the refusal names the time too.
+    const expected = new Intl.DateTimeFormat("en", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date("2026-01-10T12:15:00.000Z"));
+    expect((await screen.findByRole("alert")).textContent).toContain(`from ${expected}.`);
   });
 
   it("loads the current policy after a conflict and asks to check it and try again", async () => {
@@ -302,13 +396,13 @@ describe("reader list", () => {
 });
 
 describe("access helpers", () => {
-  it("dates public access 7 days after the account was created, when known", () => {
+  it("dates public access 15 minutes after the account was created, when known", () => {
     expect(publicAvailableFrom(null)).toBeNull();
     expect(publicAvailableFrom({ email: "a", name: "", createdAt: null })).toBeNull();
     expect(publicAvailableFrom({ email: "a", name: "", createdAt: "garbage" })).toBeNull();
     expect(
       publicAvailableFrom({ email: "a", name: "", createdAt: "2026-11-01T00:00:00.000Z" }),
-    ).toEqual(new Date("2026-11-08T00:00:00.000Z"));
+    ).toEqual(new Date("2026-11-01T00:15:00.000Z"));
   });
 
   it("sends only the settings that differ", () => {
@@ -318,13 +412,23 @@ describe("access helpers", () => {
       indexable: false,
       embeddable: true,
       bar: true,
+      commentVisibility: "owner" as const,
+      readerCommentVisibility: [],
       policyGeneration: 1,
     };
+    const same = { mode: "restricted", indexable: false, embeddable: true, bar: true } as const;
+    expect(settingsChange(policy, { ...same, commentVisibility: "owner" })).toBe(undefined);
+    expect(settingsChange(policy, { ...same, commentVisibility: "everyone" })).toEqual({
+      commentVisibility: "everyone",
+    });
     expect(
-      settingsChange(policy, { mode: "restricted", indexable: false, embeddable: true, bar: true }),
-    ).toBe(undefined);
-    expect(
-      settingsChange(policy, { mode: "public", indexable: true, embeddable: false, bar: true }),
+      settingsChange(policy, {
+        mode: "public",
+        indexable: true,
+        embeddable: false,
+        bar: true,
+        commentVisibility: "owner",
+      }),
     ).toEqual({
       mode: "public",
       indexable: true,
@@ -336,6 +440,7 @@ describe("access helpers", () => {
         indexable: false,
         embeddable: true,
         bar: false,
+        commentVisibility: "owner",
       }),
     ).toEqual({ bar: false });
   });

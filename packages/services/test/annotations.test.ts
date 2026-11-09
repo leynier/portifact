@@ -95,9 +95,16 @@ interface World {
   version: string;
 }
 
-/** An active restricted artifact with one reader and annotations open. */
+/**
+ * An active restricted artifact with one reader and annotations open. Comments are visible to
+ * the owner only by default, like a new artifact; `comments: "everyone"` shows every thread.
+ */
 async function world(
-  options: { annotations?: "off" | "open" | "locked"; state?: "active" | "suspended" } = {},
+  options: {
+    annotations?: "off" | "open" | "locked";
+    state?: "active" | "suspended";
+    comments?: "owner" | "everyone";
+  } = {},
 ): Promise<World> {
   const owner = await user();
   const reader = await user();
@@ -112,6 +119,7 @@ async function world(
       name: "Plan",
       state: options.state ?? "active",
       annotations: options.annotations ?? "open",
+      commentVisibility: options.comments ?? "owner",
       expiresAt: NOW + 30 * DAY,
       createdAt: NOW,
       updatedAt: NOW,
@@ -291,6 +299,34 @@ describe("human check on first comments", () => {
     expect(await thread(w, ownerOfOwn, recording("passed").check)).toMatchObject({
       code: "human_verification_required",
     });
+  });
+
+  it("tells the list whether the caller's next comment needs a check, never for the owner", async () => {
+    const w = await world();
+    const hint = async (userId: string) => {
+      const page = await list(w, userId);
+      return page.ok ? page.value.humanCheck : undefined;
+    };
+    expect(await hint(w.owner)).toBe(false);
+    expect(await hint(w.reader)).toBe(true);
+    const first = await thread(w, w.reader, HUMAN, NOW - 30 * MINUTE);
+    if (!first.ok) throw new Error(first.code);
+    expect(await hint(w.reader)).toBe(true);
+    for (let i = 1; i < ANNOTATION_LIMITS.humanCheckedComments; i++) {
+      expect(
+        code(
+          await replyToAnnotationThread(db(), {
+            humanCheck: HUMAN,
+            userId: w.reader,
+            artifactId: w.id,
+            threadId: first.value.id,
+            body: `Reply ${i}`,
+            now: NOW - 20 * MINUTE + i * MINUTE,
+          }),
+        ),
+      ).toBe("ok");
+    }
+    expect(await hint(w.reader)).toBe(false);
   });
 
   it("never asks the owner, whatever client they use", async () => {
@@ -606,7 +642,7 @@ describe("replies, edits and deletion", () => {
       });
 
     const edited = await edit(w.reader, 1);
-    expect(edited.ok && edited.value.messages[0]).toMatchObject({
+    expect(edited.ok && "messages" in edited.value && edited.value.messages[0]).toMatchObject({
       body: "Edited",
       revision: 2,
       editedAt: new Date(NOW + 5).toISOString(),
@@ -749,7 +785,7 @@ describe("replies, edits and deletion", () => {
 
 describe("moderation and resolution", () => {
   it("hides a message from other visitors but not from its author or the owner", async () => {
-    const w = await world();
+    const w = await world({ comments: "everyone" });
     const other = await user();
     await db().insert(schema.artifactReaders).values({ artifactId: w.id, email: other.email });
     const thread = await started(w, w.reader, "Spam?");
@@ -808,7 +844,8 @@ describe("moderation and resolution", () => {
     const events = await db()
       .select({ kind: schema.annotationEvents.kind })
       .from(schema.annotationEvents)
-      .where(eq(schema.annotationEvents.threadId, thread.id));
+      .where(eq(schema.annotationEvents.threadId, thread.id))
+      .orderBy(schema.annotationEvents.id);
     expect(events.map((e) => e.kind)).toEqual([
       "thread_created",
       "message_hidden",
@@ -852,7 +889,7 @@ describe("moderation and resolution", () => {
   });
 
   it("lets the owner or the thread's author resolve and reopen it", async () => {
-    const w = await world();
+    const w = await world({ comments: "everyone" });
     const other = await user();
     await db().insert(schema.artifactReaders).values({ artifactId: w.id, email: other.email });
     const thread = await started(w, w.reader);
@@ -1632,7 +1669,8 @@ describe("concurrency", () => {
       racing(async () => {}, removeAfter),
       { userId: w.reader, artifactId: w.id, messageId, now: NOW },
     );
-    expect(deleted).toMatchObject({ code: "not_found" });
+    // The deletion applied; the thread is gone, so the answer carries no thread.
+    expect(deleted).toEqual({ ok: true, value: { threadId: thread.id, thread: null } });
 
     const other = await started(w, w.reader, "Two");
     await replyToAnnotationThread(db(), {
@@ -1668,7 +1706,7 @@ describe("concurrency", () => {
 
 describe("export", () => {
   it("exports what the caller can see, with the untrusted-data notice", async () => {
-    const w = await world();
+    const w = await world({ comments: "everyone" });
     const other = await user();
     await db().insert(schema.artifactReaders).values({ artifactId: w.id, email: other.email });
     const thread = await started(
@@ -1749,5 +1787,429 @@ describe("export", () => {
       now: NOW,
     });
     expect(exported.ok && exported.value.threads[0]?.author).toBeNull();
+  });
+});
+
+describe("comment visibility", () => {
+  async function secondReader(w: World, exception: "all" | "own" | null = null) {
+    const other = await user();
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: w.id, email: other.email, commentVisibility: exception });
+    return other.id;
+  }
+  const setVisibility = (w: World, change: Parameters<typeof updateAccess>[1]["change"]) =>
+    updateAccess(db(), { ownerId: w.owner, artifactId: w.id, change, now: NOW });
+  const ids = async (w: World, userId: string) => {
+    const page = await list(w, userId);
+    if (!page.ok) throw new Error(page.code);
+    return page.value.threads.map((thread) => thread.id).sort();
+  };
+  const get = (w: World, userId: string, threadId: string) =>
+    getAnnotationThread(db(), { userId, artifactId: w.id, threadId, now: NOW });
+
+  it("shows each reader only their threads and the owner's by default; the owner sees all", async () => {
+    const w = await world();
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const hers = await started(w, bea, "Hers");
+    const owners = await started(w, w.owner, "From the owner");
+
+    expect(await ids(w, w.reader)).toEqual([mine.id, owners.id].sort());
+    expect(await ids(w, bea)).toEqual([hers.id, owners.id].sort());
+    expect(await ids(w, w.owner)).toEqual([mine.id, hers.id, owners.id].sort());
+    const page = await list(w, w.reader);
+    expect(page.ok && page.value.commentScope).toBe("own");
+    const ownerPage = await list(w, w.owner);
+    expect(ownerPage.ok && ownerPage.value.commentScope).toBe("all");
+    // Threads the owner started are marked: every reader sees them and their replies.
+    expect(page.ok && Object.fromEntries(page.value.threads.map((t) => [t.id, t.byOwner]))).toEqual(
+      { [mine.id]: false, [owners.id]: true },
+    );
+  });
+
+  it("answers a hidden thread by ID exactly like a missing one, for reads and every write", async () => {
+    const w = await world();
+    const bea = await secondReader(w);
+    const hers = await started(w, bea, "Hers");
+    const messageId = hers.messages[0]?.id ?? "";
+    const missing = await get(w, w.reader, crypto.randomUUID());
+    expect(missing).toEqual({ ok: false, code: "not_found", message: "Thread not found." });
+    expect(await get(w, w.reader, hers.id)).toEqual(missing);
+
+    const reply = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: w.reader,
+      artifactId: w.id,
+      threadId: hers.id,
+      body: "Sneaky",
+      now: NOW,
+    });
+    expect(reply).toEqual(missing);
+    const resolve = await setAnnotationThreadState(db(), {
+      userId: w.reader,
+      artifactId: w.id,
+      threadId: hers.id,
+      state: "resolved",
+      now: NOW,
+    });
+    expect(resolve).toEqual(missing);
+    const missingMessage = { ok: false, code: "not_found", message: "Message not found." };
+    expect(
+      await editAnnotationMessage(db(), {
+        userId: w.reader,
+        artifactId: w.id,
+        messageId,
+        body: "x",
+        revision: 1,
+        now: NOW,
+      }),
+    ).toEqual(missingMessage);
+    expect(
+      await deleteOwnAnnotationMessage(db(), {
+        userId: w.reader,
+        artifactId: w.id,
+        messageId,
+        now: NOW,
+      }),
+    ).toEqual(missingMessage);
+    const [row] = await db()
+      .select()
+      .from(schema.annotationThreads)
+      .where(eq(schema.annotationThreads.id, hers.id));
+    expect(row).toMatchObject({ messageCount: 1, state: "open", revision: 1 });
+  });
+
+  it("shows a reader every reply in their thread, the owner's and other readers' included", async () => {
+    const w = await world({ comments: "everyone" });
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    for (const userId of [w.owner, bea]) {
+      const reply = await replyToAnnotationThread(db(), {
+        humanCheck: HUMAN,
+        userId,
+        artifactId: w.id,
+        threadId: mine.id,
+        body: `Reply from ${userId === w.owner ? "owner" : "bea"}`,
+        now: NOW,
+      });
+      expect(reply.ok).toBe(true);
+    }
+    // Narrowed afterwards: the thread stays the reader's with all its replies, and Bea, who
+    // replied in it, no longer sees it, so her own reply there answers as missing too.
+    expect((await setVisibility(w, { commentVisibility: "owner" })).ok).toBe(true);
+    const seen = await get(w, w.reader, mine.id);
+    expect(seen.ok && seen.value.messages.map((message) => message.body)).toEqual([
+      "Mine",
+      "Reply from owner",
+      "Reply from bea",
+    ]);
+    expect(code(await get(w, bea, mine.id))).toBe("not_found");
+    expect(await ids(w, bea)).toEqual([]);
+  });
+
+  it("lets a reader edit and delete their own reply in a thread they no longer see, without showing it", async () => {
+    const w = await world({ comments: "everyone" });
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const replied = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: bea,
+      artifactId: w.id,
+      threadId: mine.id,
+      body: "My address is 1 Main St",
+      now: NOW,
+    });
+    const beaReply = replied.ok ? (replied.value.messages[1]?.id ?? "") : "";
+    expect((await setVisibility(w, { commentVisibility: "owner" })).ok).toBe(true);
+
+    const edited = await editAnnotationMessage(db(), {
+      userId: bea,
+      artifactId: w.id,
+      messageId: beaReply,
+      body: "Redacted",
+      revision: 1,
+      now: NOW,
+    });
+    expect(edited).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
+    const deleted = await deleteOwnAnnotationMessage(db(), {
+      userId: bea,
+      artifactId: w.id,
+      messageId: beaReply,
+      now: NOW,
+    });
+    expect(deleted).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
+    const seen = await get(w, w.reader, mine.id);
+    expect(seen.ok && seen.value.messages.map((m) => m.state)).toEqual(["visible", "deleted"]);
+    // Someone else's message in that thread still answers as missing.
+    const readerMessage = seen.ok ? (seen.value.messages[0]?.id ?? "") : "";
+    expect(
+      await deleteOwnAnnotationMessage(db(), {
+        userId: bea,
+        artifactId: w.id,
+        messageId: readerMessage,
+        now: NOW,
+      }),
+    ).toEqual({ ok: false, code: "not_found", message: "Message not found." });
+  });
+
+  it("deletes one's own reply even when the owner narrows visibility while the request runs", async () => {
+    const w = await world({ comments: "everyone" });
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const replied = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: bea,
+      artifactId: w.id,
+      threadId: mine.id,
+      body: "Oops",
+      now: NOW,
+    });
+    const beaReply = replied.ok ? (replied.value.messages[1]?.id ?? "") : "";
+    const narrow = () => setVisibility(w, { commentVisibility: "owner" });
+    const deleted = await deleteOwnAnnotationMessage(racing(narrow), {
+      userId: bea,
+      artifactId: w.id,
+      messageId: beaReply,
+      now: NOW,
+    });
+    expect(deleted).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
+    const [message] = await db()
+      .select()
+      .from(schema.annotationMessages)
+      .where(eq(schema.annotationMessages.id, beaReply));
+    expect(message).toMatchObject({ state: "deleted", body: null });
+  });
+
+  it("uses indexes, not scans of the events, for a reader's own-scope list", async () => {
+    const w = await world();
+    await started(w, w.reader, "Mine");
+    const statements: string[] = [];
+    const recording = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (query: string) => {
+            statements.push(query);
+            return target.prepare(query);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const page = await list(w, w.reader, { cursor: encodeAnnotationCursor(0) });
+    expect(page.ok).toBe(true);
+    await listAnnotations(createDb(recording), {
+      userId: w.reader,
+      artifactId: w.id,
+      limit: 25,
+      version: "current",
+      cursor: encodeAnnotationCursor(1),
+      now: NOW,
+    });
+    // The own-scope filter on events (`eventScopeFilter`), not other queries that count events.
+    const scoped = statements.filter((query) => query.includes("as created"));
+    expect(scoped.length).toBeGreaterThan(0);
+    for (const query of scoped) {
+      const params = (query.match(/\?/g) ?? []).map(() => w.id);
+      const plan = await env.DB.prepare(`explain query plan ${query}`)
+        .bind(...params)
+        .all<{ detail: string }>();
+      const steps = plan.results.map((row) => row.detail);
+      expect(
+        steps.filter((step) => step.startsWith("SCAN")),
+        query,
+      ).toEqual([]);
+      expect(steps, query).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("annotation_events_artifact_kind_actor_idx"),
+        ]),
+      );
+    }
+  });
+
+  it("exports to each caller what they can see; the owner gets every thread", async () => {
+    const w = await world();
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const hers = await started(w, bea, "Hers");
+    const exported = async (userId: string) => {
+      const result = await exportAnnotations(db(), {
+        userId,
+        artifactId: w.id,
+        version: "current",
+        now: NOW,
+      });
+      if (!result.ok) throw new Error(result.code);
+      return result.value.threads.map((thread) => thread.id).sort();
+    };
+    expect(await exported(w.reader)).toEqual([mine.id]);
+    expect(await exported(bea)).toEqual([hers.id]);
+    expect(await exported(w.owner)).toEqual([mine.id, hers.id].sort());
+  });
+
+  it("keeps hidden threads out of refresh pages, removals and the cursor", async () => {
+    const w = await world();
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const first = await list(w, w.reader);
+    if (!first.ok) throw new Error(first.code);
+
+    const hers = await started(w, bea, "Hers");
+    await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: hers.id,
+      body: "Answer to Bea",
+      now: NOW,
+    });
+    await deleteAnnotationThread(db(), {
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: hers.id,
+      now: NOW,
+    });
+    const quiet = await list(w, w.reader, { cursor: first.value.cursor });
+    expect(quiet.ok && quiet.value).toMatchObject({
+      threads: [],
+      removed: [],
+      cursor: first.value.cursor,
+    });
+
+    await deleteAnnotationThread(db(), {
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: mine.id,
+      now: NOW,
+    });
+    const after = await list(w, w.reader, { cursor: first.value.cursor });
+    expect(after.ok && after.value.removed).toEqual([mine.id]);
+    // The owner, who sees everything, gets both removals.
+    const ownerFirst = await list(w, w.owner, { cursor: encodeAnnotationCursor(1) });
+    expect(ownerFirst.ok && ownerFirst.value.removed.sort()).toEqual([mine.id, hers.id].sort());
+  });
+
+  it("lets the owner show all threads to one reader while the rest see their own", async () => {
+    const w = await world();
+    const bea = await secondReader(w, "all");
+    const mine = await started(w, w.reader, "Mine");
+    const hers = await started(w, bea, "Hers");
+    expect(await ids(w, bea)).toEqual([mine.id, hers.id].sort());
+    expect(await ids(w, w.reader)).toEqual([mine.id]);
+    // Bea can reply to the reader's thread; the reader still does not see Bea's.
+    const reply = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: bea,
+      artifactId: w.id,
+      threadId: mine.id,
+      body: "Seen it",
+      now: NOW,
+    });
+    expect(reply.ok).toBe(true);
+    expect(code(await get(w, w.reader, hers.id))).toBe("not_found");
+  });
+
+  it("lets the owner limit one reader to their own threads while everyone else sees all", async () => {
+    const w = await world({ comments: "everyone" });
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const hers = await started(w, bea, "Hers");
+    const [reader] = await db().select().from(schema.users).where(eq(schema.users.id, w.reader));
+    const email = reader?.email ?? "";
+    expect(await ids(w, w.reader)).toEqual([mine.id, hers.id].sort());
+
+    const narrowed = await setVisibility(w, {
+      readerCommentVisibility: [{ email, commentVisibility: "own" }],
+    });
+    expect(narrowed.ok && narrowed.value.readerCommentVisibility).toEqual([
+      { email, commentVisibility: "own" },
+    ]);
+    expect(await ids(w, w.reader)).toEqual([mine.id]);
+    expect(await ids(w, bea)).toEqual([mine.id, hers.id].sort());
+    const page = await list(w, w.reader);
+    expect(page.ok && page.value.commentScope).toBe("own");
+
+    await setVisibility(w, { readerCommentVisibility: [{ email, commentVisibility: "inherit" }] });
+    expect(await ids(w, w.reader)).toEqual([mine.id, hers.id].sort());
+  });
+
+  it("applies an exception to a listed, verified address in any access mode, and only to it", async () => {
+    const w = await world();
+    const bea = await secondReader(w);
+    const stranger = w.stranger;
+    const unverified = await user(false);
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: w.id, email: unverified.email, commentVisibility: "all" });
+    const [reader] = await db().select().from(schema.users).where(eq(schema.users.id, w.reader));
+    await setVisibility(w, {
+      mode: "authenticated",
+      readerCommentVisibility: [{ email: reader?.email ?? "", commentVisibility: "all" }],
+    });
+    const hers = await started(w, bea, "Hers");
+    const theirs = await started(w, stranger, "From any account");
+    // The listed reader sees every thread even though the artifact is open to every account.
+    expect(await ids(w, w.reader)).toEqual([hers.id, theirs.id].sort());
+    // Any other account follows the artifact's setting.
+    expect(await ids(w, stranger)).toEqual([theirs.id]);
+    // An unverified address never matches the list, so its exception does not apply.
+    expect(await ids(w, unverified.id)).toEqual([]);
+  });
+
+  it("refuses a reply when the owner narrows who sees comments after the request read the thread", async () => {
+    const w = await world({ comments: "everyone" });
+    const bea = await secondReader(w);
+    const hers = await started(w, bea, "Hers");
+    const narrow = () => setVisibility(w, { commentVisibility: "owner" });
+    const lost = await replyToAnnotationThread(racing(narrow), {
+      humanCheck: HUMAN,
+      userId: w.reader,
+      artifactId: w.id,
+      threadId: hers.id,
+      body: "In flight",
+      now: NOW,
+    });
+    expect(lost).toEqual({ ok: false, code: "not_found", message: "Thread not found." });
+    const [row] = await db()
+      .select()
+      .from(schema.annotationThreads)
+      .where(eq(schema.annotationThreads.id, hers.id));
+    expect(row?.messageCount).toBe(1);
+  });
+
+  it("still applies an author's edit in another reader's thread when their exception is dropped in between", async () => {
+    const w = await world();
+    const bea = await secondReader(w, "all");
+    const mine = await started(w, w.reader, "Mine");
+    const reply = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: bea,
+      artifactId: w.id,
+      threadId: mine.id,
+      body: "Hello",
+      now: NOW,
+    });
+    const messageId = reply.ok ? (reply.value.messages[1]?.id ?? "") : "";
+    const [beaUser] = await db().select().from(schema.users).where(eq(schema.users.id, bea));
+    const drop = () =>
+      setVisibility(w, {
+        readerCommentVisibility: [{ email: beaUser?.email ?? "", commentVisibility: "inherit" }],
+      });
+    const lost = await editAnnotationMessage(racing(drop), {
+      userId: bea,
+      artifactId: w.id,
+      messageId,
+      body: "Edited",
+      revision: 1,
+      now: NOW,
+    });
+    // The author keeps control of their words; they just no longer see the thread.
+    expect(lost).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
+    const [message] = await db()
+      .select()
+      .from(schema.annotationMessages)
+      .where(eq(schema.annotationMessages.id, messageId));
+    expect(message?.body).toBe("Edited");
   });
 });

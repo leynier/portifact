@@ -148,6 +148,20 @@
       "when": 1794179995709,
       "tag": "0020_artifact_bar",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1794189127909,
+      "tag": "0021_comment_visibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1794191171636,
+      "tag": "0022_comment_visibility_index",
+      "breakpoints": true
     }
   ]
 }

@@ -31,7 +31,7 @@ Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard
 
 Annotation must be fully possible without a mouse:
 
-- Text selected with the keyboard (Shift plus arrow keys) can be annotated through a visible "Comment" control or a documented shortcut.
+- Text selected with the keyboard (Shift plus arrow keys) can be annotated through a visible "Comment" control. In the viewer it appears next to the selection, a polite announcement says so, and it is the next stop in the tab order after the artifact frame; its composer takes focus, saves with Enter (Shift+Enter adds a line), cancels with Escape and returns focus to the frame.
 - In `site` artifacts, a keyboard mode lets the user move through selectable elements and choose one; the highlighted target is announced.
 - Annotation markers are focusable, have an accessible name that includes the quoted text, and open their thread on Enter.
 - The threads panel is a landmark region, navigable with headings and lists, and new replies are announced politely.
@@ -41,7 +41,7 @@ Annotation must be fully possible without a mouse:
 
 - The Markdown viewer outputs semantic HTML: real headings, lists, tables with header cells, code blocks and links with meaningful text. Images keep the author's alt text; missing alt text is flagged to the creator in the dashboard.
 - The TXT viewer keeps line numbers out of the text read by screen readers and the copy buffer.
-- The viewer gives the artifact iframe an accessible title and does not trap focus inside it. Its bar is the page's `banner` with the artifact's name as the only `h1`, a skip link jumps to the artifact region, the comments sidebar is a labelled `complementary` landmark, and its toggle states `aria-expanded` and `aria-controls`. Selecting text in the artifact never moves focus out of it.
+- The viewer gives the artifact iframe an accessible title and does not trap focus inside it. Its bar is the page's `banner` with the artifact's name as the only `h1` (plain text after the mark), a skip link jumps to the artifact region, the comments sidebar is a labelled `complementary` landmark, and its toggle states `aria-expanded` and `aria-controls`. Selecting text in the artifact never moves focus out of it.
 - The bridge injected into sites adds no focusable elements, landmarks or announcements unless review mode is active, and it never changes the site's own semantics.
 
 ## CLI

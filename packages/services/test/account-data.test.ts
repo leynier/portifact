@@ -41,7 +41,12 @@ async function shared(ownerId: string, readers: { email: string }[]) {
   await updateAccess(db(), {
     ownerId,
     artifactId: published.artifactId,
-    change: { mode: "restricted", addReaders: readers.map((r) => r.email.toLowerCase()) },
+    // Every reader sees every thread, so readers can answer each other's threads.
+    change: {
+      mode: "restricted",
+      addReaders: readers.map((r) => r.email.toLowerCase()),
+      commentVisibility: "everyone",
+    },
     now: NOW,
   });
   await setAnnotationMode(db(), {
@@ -174,6 +179,39 @@ describe("exporting the account", () => {
     expect(data.commentsElsewhere).toHaveLength(1);
     expect(data.commentsElsewhere[0]?.messages.map((m) => m.body)).toEqual(["Owner elsewhere"]);
     expect(JSON.stringify(data)).not.toContain(other.email);
+  });
+
+  it("keeps only the target, path and own words of a thread elsewhere the account no longer sees", async () => {
+    const owner = await user("Owner");
+    const starter = await user("Starter");
+    const replier = await user("Replier");
+    const theirs = await shared(owner.id, [starter, replier]);
+    const started = await thread(theirs.artifactId, theirs.versionId, starter.id, "Question");
+    await reply(theirs.artifactId, started.id, replier.id, "My answer");
+    const own = await thread(theirs.artifactId, theirs.versionId, replier.id, "My own topic");
+    // The owner narrows who sees comments: the replier no longer sees the starter's thread.
+    await updateAccess(db(), {
+      ownerId: owner.id,
+      artifactId: theirs.artifactId,
+      change: { commentVisibility: "owner" },
+      now: NOW,
+    });
+
+    const exported = await exportAccount(db(), { userId: replier.id, now: NOW });
+    if (!exported.ok) throw new Error(exported.code);
+    const data = AccountExport.parse(exported.value);
+    const hidden = data.commentsElsewhere.find((t) => t.id === started.id);
+    expect(hidden).toEqual({
+      id: started.id,
+      artifactId: theirs.artifactId,
+      versionId: theirs.versionId,
+      path: "index.html",
+      target: expect.anything(),
+      messages: [expect.objectContaining({ body: "My answer", own: true })],
+    });
+    // A thread the account still sees keeps its state and date.
+    const visible = data.commentsElsewhere.find((t) => t.id === own.id);
+    expect(visible).toMatchObject({ state: "open", createdAt: expect.any(String) });
   });
 
   it("shows why an artifact is suspended", async () => {

@@ -173,7 +173,7 @@ export const en = {
     "Anyone with the link who signs in to Portifact, with any account.",
   "accessSettings.mode.public": "Anyone with the link, without signing in.",
   "accessSettings.mode.publicFrom":
-    "Available from {date}. New accounts wait {days} days before making an artifact public.",
+    "Available from {date}. New accounts wait {minutes} minutes before making an artifact public.",
   "accessSettings.indexable.label": "Let search engines list it",
   "accessSettings.indexable.hint": "Only applies while the artifact is public.",
   "accessSettings.embeddable.label": "Let other sites embed it",
@@ -182,6 +182,20 @@ export const en = {
   "accessSettings.bar.label": "Show the Portifact bar",
   "accessSettings.bar.hint":
     "Links open in Portifact's viewer, with the bar on top and the comments beside the artifact. Turn it off for apps and pages that need the whole window; the link then opens the artifact alone.",
+  "accessSettings.comments.legend": "Who sees comments",
+  "accessSettings.comments.owner": "Only you, and each person their own",
+  "accessSettings.comments.owner.hint":
+    "Each person sees the threads they started and the threads you started, with every reply in them. You see every thread.",
+  "accessSettings.comments.everyone": "Everyone who can open the artifact",
+  "accessSettings.comments.everyone.hint":
+    "Everyone who can open the artifact sees every thread and can reply to it.",
+  "accessSettings.comments.exceptions":
+    "You can make an exception for a person you added, in the list below.",
+  "accessSettings.comments.confirm.title": "Show every comment to everyone?",
+  "accessSettings.comments.confirm.body":
+    "Comments already written become visible to everyone who can open the artifact, not only new ones.",
+  "accessSettings.comments.confirm.action": "Show all comments",
+  "accessSettings.cancel": "Cancel",
   "accessSettings.save": "Save access",
   "accessSettings.saved":
     "Access saved. Anyone who can no longer open the artifact loses access within a minute.",
@@ -190,9 +204,9 @@ export const en = {
   "accessSettings.conflict":
     "Access changed somewhere else meanwhile. The latest settings are shown now; check them and try again.",
   "accessSettings.tooNew":
-    "New accounts can make an artifact public {days} days after they are created, from {date}.",
+    "New accounts can make an artifact public {minutes} minutes after they are created, from {date}.",
   "accessSettings.tooNewNoDate":
-    "New accounts can make an artifact public {days} days after they are created.",
+    "New accounts can make an artifact public {minutes} minutes after they are created.",
   "accessSettings.readersFull":
     "An artifact can list at most {max} people. Remove someone to add another.",
 
@@ -213,6 +227,17 @@ export const en = {
   "readers.duplicate": "{email} is already on the list.",
   "readers.full": "The list is full: an artifact can have at most {max} people.",
   "readers.failed.title": "The list was not changed",
+  "readers.comments.label": "Comments {email} sees",
+  "readers.comments.inherit.owner": "Default: own and yours",
+  "readers.comments.inherit.everyone": "Default: all comments",
+  "readers.comments.all": "All comments",
+  "readers.comments.own": "Only own and yours",
+  "readers.comments.hint":
+    "The menu beside each person chooses which comments they see. It applies whenever they sign in with that address, in any access mode.",
+  "readers.comments.changed": "{email} now sees: {choice}.",
+  "readers.comments.confirm.title": "Show {email} every comment?",
+  "readers.comments.confirm.body":
+    "{email} will see every thread on this artifact, including comments already written by other people.",
 
   "account.title": "Account",
   "account.description": "How you sign in, where you are signed in and which apps can act for you.",
@@ -564,11 +589,10 @@ export const en = {
   "viewer.skipLink": "Skip to the artifact",
   "viewer.brand": "Portifact",
   "viewer.version": "Version {number}",
-  "viewer.userContent": "Published by a user, not by Portifact",
   "viewer.withoutBar": "Open without the Portifact bar",
   "viewer.copyLink": "Copy link",
-  "viewer.link": "Artifact link",
   "viewer.copied": "Link copied.",
+  "viewer.copyFailed": "The link could not be copied: {url}",
   "viewer.manage": "Manage",
   "viewer.comments": "Comments",
   "viewer.signIn": "Sign in",
@@ -663,27 +687,37 @@ export const en = {
     "Click an element to comment on it, or Tab to it and press Enter. Escape cancels.",
   "review.pick.started":
     "Select an element in the artifact. Press Escape in the artifact to cancel.",
-  "review.selection.label": "Selected text",
-  "review.selection.comment": "Comment on the selection",
-  "review.selection.received": "Text selected in the artifact. You can comment on it.",
+  "review.selection.comment": "Comment",
+  "review.selection.received":
+    "Text selected in the artifact. Use the Comment button after the artifact to comment on it.",
+  "review.element.received":
+    "Element selected in the artifact. Use the Comment button after the artifact to comment on it.",
+  "review.inline.label": "Comment on the selection",
+  "review.inline.hint": "Enter saves, Shift+Enter adds a line, Escape cancels.",
+  "review.message.edited.hidden":
+    "Your message was saved. You no longer see its thread: the owner changed who sees comments.",
+  "review.inline.submit": "Save",
   "review.refused.quote_too_long": "The selection is too long to quote. Select less text.",
   "review.refused.no_selector":
     "That element cannot be found again later. Select some of its text instead.",
   "review.refused.other": "That selection cannot be used for a comment.",
   "review.composer.label": "New comment",
   "review.composer.body": "Comment",
-  "review.composer.hint": "Plain text. Everyone who can open this artifact can read it.",
+  "review.composer.hint":
+    "Plain text. The owner of this artifact can read it; the owner chooses whether other readers can too.",
+  "review.composer.hint.owner": "Plain text. Everyone who can open this artifact can read it.",
   "review.composer.submit": "Post comment",
   "review.composer.cancel": "Cancel",
   "review.composer.empty": "Write a comment.",
   "review.composer.invalid": "The comment is too long or holds characters that are not allowed.",
   "review.composer.posted": "Comment posted.",
-  "review.humanCheck.label": "Confirm you are human",
   "review.humanCheck.body":
-    "Your first comments on other people's artifacts need this check. Complete it, then post again.",
+    "One quick check that you are human before your comment is posted. It is posted as soon as the check is done.",
+  "review.humanCheck.needed": "One quick check that you are human before your comment is posted.",
+  "review.humanCheck.retry":
+    "The check that you are human did not go through. Complete it, then save again.",
   "review.humanCheck.unavailable":
-    "The check could not load on this page. Reload the page and try again.",
-  "review.humanCheck.missing": "Complete the check first, then post again.",
+    "The check that you are human could not load on this page. Reload the page and try again.",
   "review.report": "Report this artifact",
   "review.target.general": "General comment on {path}",
   "review.target.element": "Element {tag}",
@@ -718,8 +752,17 @@ export const en = {
   "review.message.unhide": "Show again",
   "review.message.delete": "Delete",
   "review.message.moderated": "Message updated.",
+  "review.message.edit": "Edit",
+  "review.message.editLabel": "Edit your message",
+  "review.message.editBody": "Message",
+  "review.message.editSave": "Save",
+  "review.message.edited.done": "Message edited.",
+  "review.message.editConflict":
+    "This message changed somewhere else meanwhile. The latest version is shown; edit it again.",
   "review.reply.label": "Reply to thread {number}",
   "review.reply.body": "Reply",
+  "review.reply.hint.owner":
+    "The owner started this thread, so everyone who can see the comments sees your reply.",
   "review.reply.submit": "Post reply",
   "review.reply.posted": "Reply posted.",
   "review.actionFailed.title": "The action did not finish",

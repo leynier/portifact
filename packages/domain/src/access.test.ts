@@ -62,15 +62,17 @@ describe("canManage", () => {
 describe("checkAccessChange", () => {
   const created = new Date("2026-11-01T00:00:00Z");
 
-  it("blocks public access during the first 7 days of an account", () => {
-    expect(checkAccessChange("public", created, new Date("2026-11-07T23:59:59Z"))).toMatchObject({
+  it("blocks public access during the first 15 minutes of an account", () => {
+    expect(
+      checkAccessChange("public", created, new Date("2026-11-01T00:14:59.999Z")),
+    ).toMatchObject({
       ok: false,
       code: "account_too_new_for_public",
     });
   });
 
-  it("allows public access from day 7", () => {
-    expect(checkAccessChange("public", created, new Date("2026-11-08T00:00:00Z"))).toEqual(GRANTED);
+  it("allows public access from minute 15", () => {
+    expect(checkAccessChange("public", created, new Date("2026-11-01T00:15:00Z"))).toEqual(GRANTED);
   });
 
   it("never blocks private modes", () => {

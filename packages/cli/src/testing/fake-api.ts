@@ -18,6 +18,8 @@ import {
   ArtifactListFilters,
   type ArtifactSummary,
   type ArtifactType,
+  type CommentScope,
+  type CommentVisibility,
   ERROR_STATUS,
   type ErrorCode,
   IdempotencyKey,
@@ -52,6 +54,8 @@ export interface FakeArtifact {
     indexable: boolean;
     embeddable: boolean;
     bar: boolean;
+    commentVisibility: CommentVisibility;
+    readerCommentVisibility: { email: string; commentVisibility: CommentScope }[];
   };
   policyGeneration: number;
   /** Set when the operator suspended it; the summary then says `suspended` with the reason. */
@@ -247,7 +251,15 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         purgeAt: null,
         createdAt: now,
         updatedAt: now,
-        access: { mode: "restricted", readers: [], indexable: false, embeddable: false, bar: true },
+        access: {
+          mode: "restricted",
+          readers: [],
+          indexable: false,
+          embeddable: false,
+          bar: true,
+          commentVisibility: "owner",
+          readerCommentVisibility: [],
+        },
         policyGeneration: 1,
         ...overrides,
       };
@@ -763,7 +775,15 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       createdAt: now,
       updatedAt: now,
       // New artifacts are private to their owner.
-      access: { mode: "restricted", readers: [], indexable: false, embeddable: false, bar: true },
+      access: {
+        mode: "restricted",
+        readers: [],
+        indexable: false,
+        embeddable: false,
+        bar: true,
+        commentVisibility: "owner",
+        readerCommentVisibility: [],
+      },
       policyGeneration: 1,
     };
     artifact.name = session.name;
@@ -903,12 +923,26 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       const readers = new Set(artifact.access.readers);
       for (const reader of change.addReaders ?? []) readers.add(reader);
       for (const reader of change.removeReaders ?? []) readers.delete(reader);
+      const exceptions = new Map(
+        artifact.access.readerCommentVisibility
+          .filter((entry) => readers.has(entry.email))
+          .map((entry) => [entry.email, entry.commentVisibility]),
+      );
+      for (const entry of change.readerCommentVisibility ?? []) {
+        if (!readers.has(entry.email)) return error("invalid_input", "Not a reader.");
+        if (entry.commentVisibility === "inherit") exceptions.delete(entry.email);
+        else exceptions.set(entry.email, entry.commentVisibility);
+      }
       artifact.access = {
         mode: change.mode ?? artifact.access.mode,
         readers: [...readers].sort(),
         indexable: change.indexable ?? artifact.access.indexable,
         embeddable: change.embeddable ?? artifact.access.embeddable,
         bar: change.bar ?? artifact.access.bar,
+        commentVisibility: change.commentVisibility ?? artifact.access.commentVisibility,
+        readerCommentVisibility: [...exceptions]
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([email, commentVisibility]) => ({ email, commentVisibility })),
       };
       artifact.policyGeneration += 1;
     }

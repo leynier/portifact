@@ -4,7 +4,7 @@
 // instructions to follow.
 import { z } from "zod";
 import { AnnotationTarget } from "./anchors.ts";
-import { AnnotationsState, ArtifactId, ArtifactType } from "./core.ts";
+import { AnnotationsState, ArtifactId, ArtifactType, CommentScope } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
 import { ANNOTATION_LIMITS } from "./limits.ts";
 
@@ -167,6 +167,11 @@ export const AnnotationThreadView = z.object({
   state: AnnotationThreadState,
   author: AnnotationAuthor.nullable(),
   own: z.boolean(),
+  /**
+   * Whether the artifact's owner started it: such a thread, and every reply in it, is seen by
+   * every reader who can read the comments, whatever who-sees-comments says.
+   */
+  byOwner: z.boolean(),
   revision: z.int().min(1),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -182,19 +187,40 @@ export const AnnotationDeleteResult = z.object({
 });
 export type AnnotationDeleteResult = z.infer<typeof AnnotationDeleteResult>;
 
+/**
+ * After editing one's own message: the thread, or `{ threadId, thread: null }` when the author no
+ * longer sees the thread (the owner narrowed who sees comments after they wrote in it).
+ */
+export const AnnotationEditResult = z.union([
+  AnnotationThreadView,
+  z.object({ threadId: z.string(), thread: z.null() }),
+]);
+export type AnnotationEditResult = z.infer<typeof AnnotationEditResult>;
+
 export const AnnotationRole = z.enum(["owner", "participant"]);
 export type AnnotationRole = z.infer<typeof AnnotationRole>;
 
 /**
  * A page of threads in change order. Keep requesting with `cursor` while `hasMore` is true;
- * later, the same `cursor` returns only what changed. When `currentVersionId` or
- * `annotations` differ from what the client holds, it starts again without a cursor.
+ * later, the same `cursor` returns only what changed. When `currentVersionId`, `annotations`
+ * or `commentScope` differ from what the client holds, it starts again without a cursor.
  */
 export const AnnotationPage = z.object({
   artifactId: ArtifactId,
   annotations: AnnotationsState,
   currentVersionId: z.string().nullable(),
   role: AnnotationRole,
+  /**
+   * Which threads the caller sees: `all`, or only their `own` and the owner's (the owner always
+   * sees all). Threads outside it are never listed, counted or named in `removed`.
+   */
+  commentScope: CommentScope,
+  /**
+   * Whether the caller's next comment here needs a solved human check (docs/security.md, "Human
+   * check"): a participant's first comments on other people's artifacts. Never for the owner. A
+   * hint for clients that can show the challenge in advance; the write decides again.
+   */
+  humanCheck: z.boolean(),
   threads: z.array(AnnotationThreadView),
   /** Threads the client should drop: deleted, or no longer visible or matching the filter. */
   removed: z.array(z.string()),

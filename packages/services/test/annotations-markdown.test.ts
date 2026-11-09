@@ -47,6 +47,7 @@ const thread = {
   state: "open" as const,
   author,
   own: false,
+  byOwner: false,
   revision: 1,
   createdAt: AT,
   updatedAt: AT,

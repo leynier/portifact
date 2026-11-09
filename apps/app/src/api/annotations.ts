@@ -6,6 +6,7 @@
 import {
   ANNOTATION_LIMITS,
   AnnotationDeleteResult,
+  AnnotationEditResult,
   AnnotationExport,
   AnnotationExportQuery,
   AnnotationListQuery,
@@ -230,7 +231,7 @@ export function annotationRoutes(
         now: now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
-      return c.json(AnnotationThreadView.parse(result.value));
+      return c.json(AnnotationEditResult.parse(result.value));
     }),
   );
 

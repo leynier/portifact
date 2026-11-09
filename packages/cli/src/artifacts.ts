@@ -8,9 +8,11 @@ import {
   ArtifactList,
   type ArtifactListFilters,
   ArtifactSummary,
+  CommentVisibility,
   Email,
   LIMITS,
   LifecycleResult,
+  ReaderCommentVisibility,
 } from "@portifact/contracts";
 import { callApi } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
@@ -190,6 +192,8 @@ export async function showAccess(
 export type AccessChange =
   | { kind: "mode"; mode: string }
   | { kind: "bar"; state: string }
+  | { kind: "comments"; visibility: string }
+  | { kind: "reader-comments"; email: string; visibility: string }
   | { kind: "add" | "remove"; emails: readonly string[] };
 
 export async function changeAccess(
@@ -229,6 +233,29 @@ function accessUpdate(change: AccessChange): AccessUpdate {
     }
     return { bar: change.state === "on" };
   }
+  if (change.kind === "comments") {
+    const visibility = CommentVisibility.safeParse(change.visibility);
+    if (!visibility.success) {
+      throw new CliError(
+        "invalid_input",
+        messages.errors.invalidCommentVisibility(change.visibility),
+      );
+    }
+    return { commentVisibility: visibility.data };
+  }
+  if (change.kind === "reader-comments") {
+    const email = Email.safeParse(change.email.trim());
+    if (!email.success)
+      throw new CliError("invalid_input", messages.errors.invalidEmail(change.email));
+    const visibility = ReaderCommentVisibility.safeParse(change.visibility);
+    if (!visibility.success) {
+      throw new CliError(
+        "invalid_input",
+        messages.errors.invalidReaderCommentVisibility(change.visibility),
+      );
+    }
+    return { readerCommentVisibility: [{ email: email.data, commentVisibility: visibility.data }] };
+  }
   if (change.emails.length > LIMITS.readersPerChange) {
     throw new CliError("invalid_input", messages.errors.tooManyReaders(LIMITS.readersPerChange));
   }
@@ -250,10 +277,18 @@ function writeAccess(
     writeJson(io, { artifactId, ...policy });
     return;
   }
+  const exceptions = new Map(
+    policy.readerCommentVisibility.map((entry) => [entry.email, entry.commentVisibility]),
+  );
+  const reader = (email: string) => {
+    const exception = exceptions.get(email);
+    return exception === undefined ? email : `${email} (${messages.readerSees[exception]})`;
+  };
   io.stdout(
     table([
       ["Access", policy.mode],
-      ["Readers", policy.readers.length > 0 ? policy.readers.join(", ") : "none"],
+      ["Readers", policy.readers.length > 0 ? policy.readers.map(reader).join(", ") : "none"],
+      ["Comments", messages.commentVisibility[policy.commentVisibility]],
       ["Indexable", policy.indexable ? "yes" : "no"],
       ["Embeddable", policy.embeddable ? "yes" : "no"],
       ["Portifact bar", policy.bar ? "on" : "off"],

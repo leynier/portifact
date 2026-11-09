@@ -72,6 +72,14 @@ export const artifacts = sqliteTable(
     suspensionReason: text("suspension_reason", { enum: ABUSE_REASONS }),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull().default(sql`(unixepoch() * 1000)`),
+    /**
+     * Who sees the annotation threads (plan section 8, "Permisos"): `owner` shows each reader
+     * only the threads they or the owner started; `everyone` shows every thread to every
+     * reader. The owner always sees everything. Readers on the list can override it.
+     */
+    commentVisibility: text("comment_visibility", { enum: ["owner", "everyone"] })
+      .notNull()
+      .default("owner"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
@@ -82,7 +90,10 @@ export const artifacts = sqliteTable(
   ],
 );
 
-/** Email addresses allowed to read a `restricted` artifact. */
+/**
+ * Email addresses allowed to read a `restricted` artifact, with their exception to who sees the
+ * comments.
+ */
 export const artifactReaders = sqliteTable(
   "artifact_readers",
   {
@@ -91,6 +102,12 @@ export const artifactReaders = sqliteTable(
       .references(() => artifacts.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     createdAt: createdAt(),
+    /**
+     * This reader's exception to the artifact's `comment_visibility`: `all` threads or only
+     * their `own` and the owner's. Null inherits the artifact's setting. It applies to whoever
+     * signs in with this verified address, in every access mode.
+     */
+    commentVisibility: text("comment_visibility", { enum: ["all", "own"] }),
   },
   (t) => [
     primaryKey({ columns: [t.artifactId, t.email] }),
@@ -763,6 +780,14 @@ export const annotationEvents = sqliteTable(
     index("annotation_events_artifact_id_idx").on(t.artifactId, t.id),
     index("annotation_events_actor_at_idx").on(t.actorId, t.at),
     index("annotation_events_artifact_at_idx").on(t.artifactId, t.at),
+    // Threads a reader with the `own` comment scope sees, by who created them: the refresh of
+    // every such reader (the default) looks them up on each poll.
+    index("annotation_events_artifact_kind_actor_idx").on(
+      t.artifactId,
+      t.kind,
+      t.actorId,
+      t.threadId,
+    ),
   ],
 );
 

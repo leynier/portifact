@@ -6,7 +6,7 @@
 // comments on other people's artifacts in small batches and leaves an `account` tombstone.
 import { type AccountExport, FRESH_SESSION_MS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
-import { fail, ok, type Result } from "@portifact/domain";
+import { commentScope, fail, ok, type Result, threadInScope } from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
@@ -130,6 +130,7 @@ export async function exportAccount(
         .orderBy(asc(schema.annotationThreads.createdAt))),
     );
   }
+  const shown = await threadsInScope(db, user, elsewhere);
 
   const messages = new Map<string, MessageRow[]>();
   for (const ids of chunks([...ownThreads, ...elsewhere].map((thread) => thread.id))) {
@@ -225,8 +226,66 @@ export async function exportAccount(
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
     })),
-    commentsElsewhere: elsewhere.map((thread) => threadView(thread, true)),
+    // A thread the account no longer sees keeps only where it points and the account's words.
+    commentsElsewhere: elsewhere.map((thread) => {
+      const { state: _state, createdAt: _createdAt, ...rest } = threadView(thread, true);
+      return shown.has(thread.id) ? threadView(thread, true) : rest;
+    }),
   });
+}
+
+/**
+ * The threads on other people's artifacts that the account sees now, by the same comment scope
+ * the annotation services apply (`commentScope` in the domain): its own, the owner's, or all.
+ */
+async function threadsInScope(
+  db: Db,
+  user: { id: string; email: string; emailVerified: boolean },
+  threads: readonly ThreadRow[],
+): Promise<Set<string>> {
+  const artifactIds = [...new Set(threads.map((thread) => thread.artifactId))];
+  const artifacts = new Map<string, { ownerId: string; commentVisibility: "owner" | "everyone" }>();
+  const exceptions = new Map<string, "all" | "own">();
+  const email = user.emailVerified ? user.email.toLowerCase() : null;
+  for (const ids of chunks(artifactIds)) {
+    for (const row of await db
+      .select({
+        id: schema.artifacts.id,
+        ownerId: schema.artifacts.ownerId,
+        commentVisibility: schema.artifacts.commentVisibility,
+      })
+      .from(schema.artifacts)
+      .where(inArray(schema.artifacts.id, ids))) {
+      artifacts.set(row.id, row);
+    }
+    if (email === null) continue;
+    for (const row of await db
+      .select({
+        artifactId: schema.artifactReaders.artifactId,
+        commentVisibility: schema.artifactReaders.commentVisibility,
+      })
+      .from(schema.artifactReaders)
+      .where(
+        and(
+          inArray(schema.artifactReaders.artifactId, ids),
+          eq(schema.artifactReaders.email, email),
+        ),
+      )) {
+      if (row.commentVisibility !== null) exceptions.set(row.artifactId, row.commentVisibility);
+    }
+  }
+  const shown = new Set<string>();
+  for (const thread of threads) {
+    const artifact = artifacts.get(thread.artifactId);
+    if (!artifact) continue;
+    const scope = commentScope(
+      "participant",
+      artifact.commentVisibility,
+      exceptions.get(thread.artifactId) ?? null,
+    );
+    if (threadInScope(scope, user.id, artifact.ownerId, thread.authorId)) shown.add(thread.id);
+  }
+  return shown;
 }
 
 export interface DeletionRequest {

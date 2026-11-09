@@ -2,16 +2,18 @@
 // an artifact's page lands here: a slim bar says it is a Portifact artifact, the page runs
 // isolated in a sandboxed iframe on its own origin, with the bridge when the visitor is signed
 // in, and the comments sidebar sits beside it. Comments are written, confirmed and posted here,
-// through the annotations API, by the signed-in account. Thread bodies, quotes and names are
+// through the annotations API, by the signed-in account: in a composer the viewer draws over the
+// frame next to the reader's selection, or in the sidebar. Thread bodies, quotes and names are
 // untrusted text and are only ever rendered as text. Anonymous visitors of a public artifact see
 // the artifact itself in the frame and are asked to sign in to read and add comments.
-import type { RefusalReason } from "@portifact/bridge";
+import { type FrameRect, placeNear, type RefusalReason, visibleRect } from "@portifact/bridge";
 import {
   AnnotationBody,
   type AnnotationMessageView,
   type AnnotationTarget,
   type AnnotationThreadView,
   type AnnotationVersionFilter,
+  HUMAN_VERIFICATION_REQUIRED,
   REVIEW_SESSION,
   type ReviewStart,
   type ReviewTabStart,
@@ -24,9 +26,14 @@ import {
   buttonClasses,
   Callout,
   ConfirmDialog,
-  CopyField,
   Disclosure,
+  Floating,
+  FloatingPanel,
+  FrameOverlay,
+  LiveRegion,
   LoadingState,
+  type OverlayPoint,
+  type OverlaySize,
   PageHeader,
   Select,
   type SelectOption,
@@ -47,11 +54,13 @@ import {
   Flag,
   Info,
   LayoutGrid,
+  Link2,
   LocateFixed,
   LogIn,
   MapPinOff,
   MessageSquare,
   MessageSquarePlus,
+  Pencil,
   RefreshCw,
   Reply,
   RotateCcw,
@@ -59,7 +68,14 @@ import {
   Settings,
   Trash2,
 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import symbol from "../../../../../assets/brand/symbol.svg";
 import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
@@ -92,6 +108,12 @@ const SIDEBAR_ID = "viewer-comments";
 
 /** The sidebar starts open where it fits beside the artifact. */
 const WIDE_SCREEN = "(min-width: 64rem)";
+
+/** Below this width the inline composer is a bottom sheet instead of a panel by the selection. */
+const NARROW_SCREEN = "(max-width: 40rem)";
+
+/** Space between a selection and the controls the viewer draws next to it, in CSS pixels. */
+const ANCHOR_GAP = 6;
 
 /** The search of `/view/<id>`: the page of the artifact to open, if not its root. */
 export interface ViewerSearch {
@@ -258,6 +280,15 @@ function ViewerLayout({
   const t = useT();
   const announce = useAnnounce();
   const link = pageUrl(info.origin, target);
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      announce(t("viewer.copied"));
+    } catch {
+      // The toast shows the link, so it can still be copied by hand.
+      announce(t("viewer.copyFailed", { url: link }));
+    }
+  };
   return (
     <ViewerShell
       skipLinkLabel={t("viewer.skipLink")}
@@ -269,28 +300,23 @@ function ViewerLayout({
           </picture>
         </a>
       }
-      caption={{
-        // The artifact's own link, so its origin is always in sight next to its name.
-        link: (
-          <CopyField
-            compact
-            label={t("viewer.link")}
-            value={link}
-            href={link}
-            copyLabel={t("viewer.copyLink")}
-            copiedLabel={t("copy.copied")}
-            onCopied={() => announce(t("viewer.copied"))}
-            onCopyFailed={() => announce(t("copy.failed"))}
-          />
-        ),
+      artifact={{
+        // The publisher's name for it, as plain text: never styled as a Portifact heading.
         title: info.name,
         details: (
           <Badge emphasis="quiet">{t("viewer.version", { number: info.versionNumber })}</Badge>
         ),
-        notice: t("viewer.userContent"),
       }}
       actions={
         <>
+          <Button
+            intent="ghost"
+            size="sm"
+            icon={<Link2 className="size-4" />}
+            onClick={() => void copyLink()}
+          >
+            {t("viewer.copyLink")}
+          </Button>
           {info.role === "owner" ? (
             // Full page loads: the dashboard gets its own policy, not the viewer's narrow frame-src.
             <a
@@ -503,10 +529,57 @@ function SignedInViewer({ info, target }: { info: ViewerInfo; target: Target }) 
 type ThreadsQuery = ReturnType<typeof useThreads>;
 
 /**
- * What a new comment points at, chosen in the frame or here. Each draft has its own `id`, so its
- * composer starts fresh and keeps the target it opened with.
+ * What the reader selected in the frame (text, or an element they picked), which the viewer
+ * offers to comment on with a "Comment" control drawn next to it. `rect` and `drawn` only place
+ * that control; the frame reports them and the viewer clamps them to the frame.
  */
-type Draft = { id: number; target: AnnotationTarget } | null;
+interface Offer {
+  target: AnnotationTarget;
+  /** Where the bridge last said it is drawn in the frame, if it said. */
+  rect: FrameRect | null;
+  /** False once the bridge said it is no longer drawn, such as scrolled out of the frame. */
+  drawn: boolean;
+}
+
+/**
+ * What a new comment points at, chosen in the frame or here. Each draft has its own `id`, so its
+ * composer starts fresh and keeps the target it opened with. An inline draft is written in a
+ * panel next to the selection, placed by the rectangle it had when the reader opened it.
+ */
+type Draft = {
+  id: number;
+  target: AnnotationTarget;
+  inline: { rect: FrameRect | null } | null;
+} | null;
+
+/** Whether `query` matches now, following changes. */
+function useMediaQuery(query: string): boolean {
+  const supported = typeof window.matchMedia === "function";
+  const [matches, setMatches] = useState(() => supported && window.matchMedia(query).matches);
+  useEffect(() => {
+    if (!supported) return;
+    const list = window.matchMedia(query);
+    const update = () => setMatches(list.matches);
+    update();
+    list.addEventListener?.("change", update);
+    return () => list.removeEventListener?.("change", update);
+  }, [query, supported]);
+  return matches;
+}
+
+/**
+ * Where the "Comment" control goes: next to the selection's visible part, hidden when none of it
+ * is in the frame. A selection reported without a rectangle gets the frame's bottom right corner.
+ */
+function pillPlacement(offer: Offer, size: OverlaySize, area: OverlaySize): OverlayPoint | null {
+  if (!offer.drawn) return null;
+  if (!offer.rect) {
+    const corner = { x: area.width - size.width - 12, y: area.height - size.height - 12 };
+    return corner.x >= 0 && corner.y >= 0 ? corner : null;
+  }
+  const anchor = visibleRect(offer.rect, area);
+  return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+}
 
 /** Which threads the panel shows, besides the version: by status and by author. */
 interface ThreadFilter {
@@ -550,8 +623,13 @@ function ReviewSession({
   const announce = useAnnounce();
   const frame = useRef<HTMLIFrameElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(startsOpen);
-  const [selection, setSelection] = useState<AnnotationTarget | null>(null);
+  const [offer, setOfferState] = useState<Offer | null>(null);
   const [draft, setDraftState] = useState<Draft>(null);
+  const narrow = useMediaQuery(NARROW_SCREEN);
+  // Selection hints go to screen readers only: a toast for every selection would cover the page.
+  const [hint, setHint] = useState("");
+  // An inline draft that does not fit beside its selection becomes a bottom sheet, for good.
+  const [unplaced, setUnplaced] = useState(false);
   const [picking, setPicking] = useState(false);
   const [active, setActive] = useState<string | null>(null);
   const items = useRef(new Map<string, HTMLElement>());
@@ -561,9 +639,18 @@ function ReviewSession({
   const drafting = useRef(false);
   const awaitingPick = useRef(false);
   const draftIds = useRef(0);
-  const setDraft = (next: AnnotationTarget | null) => {
+  const offered = useRef(false);
+  const setOffer = (next: Offer | null) => {
+    offered.current = next !== null;
+    setOfferState(next);
+  };
+  const setDraft = (
+    next: AnnotationTarget | null,
+    inline: { rect: FrameRect | null } | null = null,
+  ) => {
     drafting.current = next !== null;
-    setDraftState(next ? { id: ++draftIds.current, target: next } : null);
+    setUnplaced(false);
+    setDraftState(next ? { id: ++draftIds.current, target: next, inline } : null);
   };
   const stopPicking = () => {
     awaitingPick.current = false;
@@ -586,20 +673,31 @@ function ReviewSession({
   const canComment = mode === "open" && !outdated;
 
   const bridge = useBridge(frame, start.origin, start.sessionTag, {
-    onSelection(selected) {
+    // The page can forge any of these: a selection only offers a comment the reader still writes
+    // and saves here, and nothing the frame sends counts while a comment is open.
+    onSelection(selected, rect) {
       if (drafting.current) return;
-      setSelection(selected);
-      if (selected && canComment) {
-        // The offer to comment lives in the sidebar, so it opens; focus stays in the artifact.
-        setSidebarOpen(true);
-        announce(t("review.selection.received"));
+      if (!selected || !canComment) {
+        setOffer(null);
+        return;
       }
+      // Focus stays in the artifact; the "Comment" control follows the frame in the tab order.
+      if (!offered.current) setHint(t("review.selection.received"));
+      setOffer({ target: selected, rect, drawn: true });
     },
-    onElement(picked) {
+    onElement(picked, rect) {
       if (!awaitingPick.current || drafting.current) return;
       stopPicking();
-      setSidebarOpen(true);
-      setDraft(picked);
+      if (!canComment) return;
+      setHint(t("review.element.received"));
+      setOffer({ target: picked, rect, drawn: true });
+    },
+    onSelectionRect(rect) {
+      // Only moves the control of what is offered; never a target, and never an open comment.
+      if (drafting.current || !offered.current) return;
+      setOfferState((current) =>
+        current ? { ...current, rect: rect ?? current.rect, drawn: rect !== null } : current,
+      );
     },
     onRefused(reason: RefusalReason) {
       announce(refusalMessage(t, reason));
@@ -652,12 +750,22 @@ function ReviewSession({
 
   const path = page?.path ?? start.entrypoint;
 
-  // Element mode ends wherever the frame stops being a connected bridge.
+  // Element mode and the offer end wherever the frame stops being a connected bridge.
   useEffect(() => {
-    if (state !== "connected") stopPicking();
+    if (state === "connected") return;
+    stopPicking();
+    setOffer(null);
   }, [state]);
 
-  const startGeneral = () => setDraft({ schema: 1, path, anchor: { kind: "document" } });
+  const startGeneral = () => {
+    setOffer(null);
+    setDraft({ schema: 1, path, anchor: { kind: "document" } });
+  };
+  const startInline = () => {
+    if (!offer) return;
+    setDraft(offer.target, { rect: offer.drawn ? offer.rect : null });
+    setOffer(null);
+  };
   const togglePick = () => {
     const next = !picking;
     awaitingPick.current = next;
@@ -666,9 +774,12 @@ function ReviewSession({
     if (next) announce(t("review.pick.started"));
   };
   const closeDraft = () => {
+    const inline = draft?.inline !== null && draft !== null;
     setDraft(null);
-    setSelection(null);
+    setOffer(null);
     send({ type: "clear-selection" });
+    // The inline composer goes away with focus inside it: back to the artifact the reader was in.
+    if (inline) frame.current?.focus();
   };
   const show = (id: string) => {
     setActive(id);
@@ -679,6 +790,55 @@ function ReviewSession({
   // without review tools; a protected one cannot be, so the frame keeps the notice.
   const plain = state === "unavailable" && info.accessMode === "public";
   const src = plain ? pageUrl(info.origin, target) : withTarget(start.url, target);
+
+  const humanNeeded = data?.humanCheck ?? false;
+  const sheet = narrow || unplaced;
+  // Drawn by this page over the frame, never inside the artifact's document, and clipped to the
+  // frame's box: what the frame reports can move these controls but never out of the frame.
+  const layer =
+    canComment && (offer || draft?.inline) ? (
+      <>
+        {offer && !draft ? (
+          <Floating place={(size, area) => pillPlacement(offer, size, area)}>
+            <Button
+              intent="floating"
+              size="sm"
+              icon={<MessageSquarePlus className="size-4" />}
+              onClick={startInline}
+            >
+              {t("review.selection.comment")}
+            </Button>
+          </Floating>
+        ) : null}
+        {draft?.inline ? (
+          <Floating
+            key={draft.id}
+            sheet={sheet}
+            place={(size, area) => {
+              const rect = draft.inline?.rect;
+              const anchor = rect ? visibleRect(rect, area) : null;
+              return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+            }}
+            onPlaced={(placed) => {
+              if (!placed) setUnplaced(true);
+            }}
+          >
+            <FloatingPanel label={t("review.inline.label")} sheet={sheet}>
+              <InlineComposer
+                start={start}
+                owner={data?.role === "owner"}
+                target={draft.target}
+                humanNeeded={humanNeeded}
+                onDone={(thread) => {
+                  closeDraft();
+                  if (thread) setActive(thread.id);
+                }}
+              />
+            </FloatingPanel>
+          </Floating>
+        ) : null}
+      </>
+    ) : null;
 
   const frameArea = (
     <>
@@ -698,7 +858,10 @@ function ReviewSession({
           </Callout>
         ) : null}
       </div>
-      <ArtifactFrame info={info} src={src} frame={frame} onLoad={bridge.onFrameLoad} />
+      <FrameOverlay layer={layer}>
+        <LiveRegion message={hint} />
+        <ArtifactFrame info={info} src={src} frame={frame} onLoad={bridge.onFrameLoad} />
+      </FrameOverlay>
     </>
   );
 
@@ -724,29 +887,13 @@ function ReviewSession({
           ) : null}
         </div>
       ) : null}
-      {canComment && selection && !draft ? (
-        <div className="flex flex-col gap-2 rounded-lg border border-border bg-canvas p-4 shadow-sm">
-          <p className="text-sm font-medium">
-            <span className="selection-band px-1.5">{t("review.selection.label")}</span>
-          </p>
-          <TargetSummary target={selection} />
-          <div>
-            <Button
-              size="sm"
-              intent="primary"
-              icon={<MessageSquarePlus className="size-4" />}
-              onClick={() => setDraft(selection)}
-            >
-              {t("review.selection.comment")}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-      {canComment && draft ? (
+      {canComment && draft && !draft.inline ? (
         <Composer
           key={draft.id}
           start={start}
+          owner={data?.role === "owner"}
           target={draft.target}
+          humanNeeded={humanNeeded}
           onDone={(thread) => {
             closeDraft();
             if (thread) setActive(thread.id);
@@ -1005,40 +1152,41 @@ function bodyError(t: T, value: string) {
   return { fields: { body: message } };
 }
 
-function Composer({
-  start,
-  target: initialTarget,
-  onDone,
-}: {
-  start: ReviewStart;
-  target: AnnotationTarget;
-  onDone(thread: AnnotationThreadView | null): void;
-}) {
+/** Whether an error is the API's refusal for the human check, which the check itself explains. */
+const humanRefusal = (error: unknown) =>
+  error instanceof ApiFailure && error.code === HUMAN_VERIFICATION_REQUIRED;
+
+/**
+ * Posting a new thread on `target`: the human check when the visitor still needs it, one
+ * idempotency key per comment (a new one after a refusal), and the thread applied to the list.
+ */
+function useCreateThread(
+  start: ReviewStart,
+  target: AnnotationTarget,
+  humanNeeded: boolean,
+  onDone: (thread: AnnotationThreadView) => void,
+) {
   const t = useT();
-  // Frozen when the composer opens: nothing the frame sends later can retarget the comment.
-  const [target] = useState(initialTarget);
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
-  // One key per comment, so a retried post never creates a second thread; a post refused for
-  // the human check gets a new one with the solved token.
-  const human = useHumanCheck();
+  const human = useHumanCheck(humanNeeded);
   const post = useMutation({
     mutationFn: (body: string) =>
-      api.createThread(
-        start.artifactId,
-        {
-          versionId: start.versionId,
-          target,
-          body,
-          ...(human.token === undefined ? {} : { turnstileToken: human.token }),
-        },
-        human.key,
+      human.post((key, token) =>
+        api.createThread(
+          start.artifactId,
+          {
+            versionId: start.versionId,
+            target,
+            body,
+            ...(token === undefined ? {} : { turnstileToken: token }),
+          },
+          key,
+        ),
       ),
-    onError: (error) => {
-      human.failed(error);
-    },
     onSuccess: async (thread) => {
+      if (!thread) return;
       applyThread(queryClient, start.artifactId, thread);
       announce(t("review.composer.posted"));
       onDone(thread);
@@ -1050,17 +1198,42 @@ function Composer({
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
     onSubmit: ({ value }) =>
-      human.ready()
-        ? post.mutateAsync(value.body).then(
-            () => {},
-            () => {},
-          )
-        : undefined,
+      post.mutateAsync(value.body).then(
+        () => {},
+        () => {},
+      ),
   });
+  const error =
+    post.isError && !humanRefusal(post.error) ? <ActionError error={post.error} /> : null;
+  return { form, post, human, error };
+}
+
+/** Who can read a new thread: every reader sees the owner's threads; a reader's, the owner. */
+const visibilityHint = (owner: boolean) =>
+  owner ? "review.composer.hint.owner" : "review.composer.hint";
+
+/** The sidebar's composer: general comments on the page the frame shows. */
+function Composer({
+  start,
+  owner,
+  target: initialTarget,
+  humanNeeded,
+  onDone,
+}: {
+  start: ReviewStart;
+  owner: boolean;
+  target: AnnotationTarget;
+  humanNeeded: boolean;
+  onDone(thread: AnnotationThreadView | null): void;
+}) {
+  const t = useT();
+  // Frozen when the composer opens: nothing the frame sends later can retarget the comment.
+  const [target] = useState(initialTarget);
+  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone);
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border-strong p-3">
       <TargetSummary target={target} />
-      {post.isError ? <ActionError error={post.error} /> : null}
+      {error}
       <form.AppForm>
         <form.Form label={t("review.composer.label")}>
           <div className="flex flex-col gap-3">
@@ -1068,7 +1241,7 @@ function Composer({
               {(field) => (
                 <field.TextAreaField
                   label={t("review.composer.body")}
-                  description={t("review.composer.hint")}
+                  description={t(visibilityHint(owner))}
                   autoFocus
                 />
               )}
@@ -1079,6 +1252,103 @@ function Composer({
                 {t("review.composer.submit")}
               </form.SubmitButton>
               <Button onClick={() => onDone(null)}>{t("review.composer.cancel")}</Button>
+            </div>
+          </div>
+        </form.Form>
+      </form.AppForm>
+    </div>
+  );
+}
+
+/**
+ * Enter submits the text area's form and Shift+Enter adds a line, except while an input method
+ * is composing text; Escape calls `onEscape`.
+ */
+function submitOnEnter(onEscape: () => void) {
+  return (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onEscape();
+      return;
+    }
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
+  };
+}
+
+/**
+ * The composer drawn next to the reader's selection: a text area, Cancel and Save. Enter saves,
+ * Shift+Enter adds a line and Escape cancels, from anywhere in it.
+ */
+function InlineComposer({
+  start,
+  owner,
+  target: initialTarget,
+  humanNeeded,
+  onDone,
+}: {
+  start: ReviewStart;
+  /** Who can read a new thread differs: every reader sees the owner's threads. */
+  owner: boolean;
+  target: AnnotationTarget;
+  humanNeeded: boolean;
+  onDone(thread: AnnotationThreadView | null): void;
+}) {
+  const t = useT();
+  const [target] = useState(initialTarget);
+  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone);
+  const panel = useRef<HTMLDivElement>(null);
+  const cancel = useRef(() => onDone(null));
+  cancel.current = () => onDone(null);
+  useEffect(() => {
+    // Escape on its buttons too, not only in the text area.
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (!panel.current?.contains(document.activeElement)) return;
+      event.preventDefault();
+      cancel.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  useEffect(() => {
+    // Not `autoFocus`: the panel is placed (and so made visible) only after it mounts, and a
+    // hidden field cannot take focus. Once more on the next frame, after a switch to a sheet.
+    const focus = () => {
+      const box = panel.current?.querySelector("textarea");
+      if (box && document.activeElement !== box) box.focus();
+    };
+    focus();
+    const frame = requestAnimationFrame(focus);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  return (
+    <div ref={panel} className="flex flex-col gap-3">
+      <TargetSummary target={target} compact />
+      {error}
+      <form.AppForm>
+        <form.Form label={t("review.composer.label")}>
+          <div className="flex flex-col gap-3">
+            <form.AppField name="body">
+              {(field) => (
+                <field.TextAreaField
+                  label={t("review.composer.body")}
+                  description={`${t(visibilityHint(owner))} ${t("review.inline.hint")}`}
+                  rows={3}
+                  compact
+                  onKeyDown={submitOnEnter(() => onDone(null))}
+                />
+              )}
+            </form.AppField>
+            {human.field}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button size="sm" onClick={() => onDone(null)}>
+                {t("review.composer.cancel")}
+              </Button>
+              <form.SubmitButton size="sm" busy={post.isPending}>
+                {t("review.inline.submit")}
+              </form.SubmitButton>
             </div>
           </div>
         </form.Form>
@@ -1415,6 +1685,7 @@ function ThreadItem({
               artifactId={start.artifactId}
               message={message}
               owner={owner}
+              writable={writable}
             />
           ))}
         </ol>
@@ -1470,7 +1741,9 @@ function ThreadItem({
           <ReplyForm
             artifactId={start.artifactId}
             threadId={thread.id}
+            byOwner={thread.byOwner}
             number={number}
+            humanNeeded={state.humanCheck}
             onDone={() => setReplying(false)}
           />
         ) : null}
@@ -1495,12 +1768,18 @@ function MessageItem({
   artifactId,
   message,
   owner,
+  writable,
 }: {
   artifactId: string;
   message: AnnotationMessageView;
   owner: boolean;
+  /** Whether the thread takes changes: comments open and the thread on the current version. */
+  writable: boolean;
 }) {
   const t = useT();
+  const [editing, setEditing] = useState(false);
+  const editButton = useRef<HTMLButtonElement>(null);
+  const editable = writable && message.own && message.state === "visible";
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
@@ -1513,9 +1792,34 @@ function MessageItem({
       announce(t("review.message.moderated"));
     },
   });
+  const stopEditing = () => {
+    setEditing(false);
+    // Back to the control that opened the form, after it renders again.
+    setTimeout(() => editButton.current?.focus(), 0);
+  };
+  if (editing && editable) {
+    return (
+      <li className="flex flex-col gap-1">
+        <EditForm artifactId={artifactId} message={message} onDone={stopEditing} />
+      </li>
+    );
+  }
   return (
     <li className="flex flex-col gap-1">
       <MessageContent message={message} />
+      {editable ? (
+        <div className="flex flex-wrap gap-3">
+          <Button
+            ref={editButton}
+            intent="link"
+            size="inline"
+            icon={<Pencil className="size-3.5" />}
+            onClick={() => setEditing(true)}
+          >
+            {t("review.message.edit")}
+          </Button>
+        </div>
+      ) : null}
       {moderate.isError ? <ActionError error={moderate.error} /> : null}
       {owner && !message.own && message.state !== "deleted" ? (
         <div className="flex flex-wrap gap-3">
@@ -1544,25 +1848,29 @@ function MessageItem({
 function ReplyForm({
   artifactId,
   threadId,
+  byOwner,
   number,
+  humanNeeded,
   onDone,
 }: {
   artifactId: string;
   threadId: string;
+  /** The owner started the thread, so every reader who sees comments sees the reply. */
+  byOwner: boolean;
   number: number;
+  humanNeeded: boolean;
   onDone(): void;
 }) {
   const t = useT();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
-  const human = useHumanCheck();
+  const human = useHumanCheck(humanNeeded);
   const reply = useMutation({
-    mutationFn: (body: string) => api.reply(artifactId, threadId, body, human.key, human.token),
-    onError: (error) => {
-      human.failed(error);
-    },
+    mutationFn: (body: string) =>
+      human.post((key, token) => api.reply(artifactId, threadId, body, key, token)),
     onSuccess: (thread) => {
+      if (!thread) return;
       applyThread(queryClient, artifactId, thread);
       announce(t("review.reply.posted"));
       onDone();
@@ -1573,21 +1881,26 @@ function ReplyForm({
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
     onSubmit: ({ value }) =>
-      human.ready()
-        ? reply.mutateAsync(value.body).then(
-            () => {},
-            () => {},
-          )
-        : undefined,
+      reply.mutateAsync(value.body).then(
+        () => {},
+        () => {},
+      ),
   });
   return (
     <div className="flex flex-col gap-2">
-      {reply.isError ? <ActionError error={reply.error} /> : null}
+      {reply.isError && !humanRefusal(reply.error) ? <ActionError error={reply.error} /> : null}
       <form.AppForm>
         <form.Form label={t("review.reply.label", { number })}>
           <div className="flex flex-col gap-2">
             <form.AppField name="body">
-              {(field) => <field.TextAreaField label={t("review.reply.body")} rows={3} autoFocus />}
+              {(field) => (
+                <field.TextAreaField
+                  label={t("review.reply.body")}
+                  description={byOwner ? t("review.reply.hint.owner") : undefined}
+                  rows={3}
+                  autoFocus
+                />
+              )}
             </form.AppField>
             {human.field}
             <div className="flex flex-wrap gap-2">
@@ -1595,6 +1908,98 @@ function ReplyForm({
                 {t("review.reply.submit")}
               </form.SubmitButton>
               <Button onClick={onDone}>{t("review.composer.cancel")}</Button>
+            </div>
+          </div>
+        </form.Form>
+      </form.AppForm>
+    </div>
+  );
+}
+
+/**
+ * Editing one of your own messages in place. The edit names the revision it started from, so an
+ * edit made elsewhere meanwhile is a conflict, never overwritten: the latest text is loaded and
+ * the reader saves again.
+ */
+function EditForm({
+  artifactId,
+  message,
+  onDone,
+}: {
+  artifactId: string;
+  message: AnnotationMessageView;
+  onDone(): void;
+}) {
+  const t = useT();
+  const announce = useAnnounce();
+  const queryClient = useQueryClient();
+  const { api } = useDashboard();
+  // The revision the reader is editing; it moves only when they see the newer text.
+  const revision = useRef(message.revision);
+  const edit = useMutation({
+    mutationFn: (body: string) =>
+      api.editMessage(artifactId, message.id, { body, revision: revision.current }),
+    onSuccess: (result) => {
+      if ("thread" in result && result.thread === null) {
+        // Saved in a thread the reader no longer sees: the owner narrowed who sees comments.
+        dropThread(queryClient, artifactId, result.threadId);
+        announce(t("review.message.edited.hidden"));
+      } else {
+        applyThread(queryClient, artifactId, result as AnnotationThreadView);
+        announce(t("review.message.edited.done"));
+      }
+      onDone();
+    },
+    onError: async (error) => {
+      if (error instanceof ApiFailure && error.code === "version_conflict") {
+        await queryClient.invalidateQueries({ queryKey: threadsQuery(artifactId) });
+      }
+    },
+  });
+  const conflict = edit.error instanceof ApiFailure && edit.error.code === "version_conflict";
+  useEffect(() => {
+    // After a conflict, the next save starts from the text the reader now sees.
+    if (conflict) revision.current = message.revision;
+  }, [conflict, message.revision]);
+  const form = useAppForm({
+    defaultValues: { body: message.body ?? "" },
+    validationLogic: revalidateLogic(),
+    validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
+    onSubmit: ({ value }) =>
+      edit.mutateAsync(value.body).then(
+        () => {},
+        () => {},
+      ),
+  });
+  return (
+    <div className="flex flex-col gap-2">
+      {conflict ? (
+        <Callout title={t("review.actionFailed.title")} icon={<Info className="size-5" />}>
+          {t("review.message.editConflict")}
+        </Callout>
+      ) : edit.isError ? (
+        <ActionError error={edit.error} />
+      ) : null}
+      <form.AppForm>
+        <form.Form label={t("review.message.editLabel")}>
+          <div className="flex flex-col gap-2">
+            <form.AppField name="body">
+              {(field) => (
+                <field.TextAreaField
+                  label={t("review.message.editBody")}
+                  rows={3}
+                  compact
+                  autoFocus
+                />
+              )}
+            </form.AppField>
+            <div className="flex flex-wrap gap-2">
+              <form.SubmitButton size="sm" busy={edit.isPending}>
+                {t("review.message.editSave")}
+              </form.SubmitButton>
+              <Button size="sm" onClick={onDone}>
+                {t("review.composer.cancel")}
+              </Button>
             </div>
           </div>
         </form.Form>

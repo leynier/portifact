@@ -20,7 +20,7 @@ function newId(): string {
   return id;
 }
 
-async function owner(ageDays: number): Promise<string> {
+async function owner(ageDays: number, ageMinutes = 0): Promise<string> {
   const id = `u_${crypto.randomUUID()}`;
   await db()
     .insert(schema.users)
@@ -29,7 +29,7 @@ async function owner(ageDays: number): Promise<string> {
       name: "",
       email: `${id}@example.test`,
       emailVerified: true,
-      createdAt: new Date(NOW - ageDays * DAY),
+      createdAt: new Date(NOW - ageDays * DAY - ageMinutes * 60_000),
       updatedAt: new Date(NOW),
     });
   return id;
@@ -65,6 +65,8 @@ describe("access policy", () => {
         indexable: false,
         embeddable: false,
         bar: true,
+        commentVisibility: "owner",
+        readerCommentVisibility: [],
         policyGeneration: 1,
       },
     });
@@ -98,6 +100,8 @@ describe("access policy", () => {
       indexable: true,
       embeddable: true,
       bar: false,
+      commentVisibility: "owner",
+      readerCommentVisibility: [],
       policyGeneration: 3,
     });
   });
@@ -124,6 +128,75 @@ describe("access policy", () => {
     expect(both.ok && both.value).toMatchObject({ bar: false, policyGeneration: 2 });
   });
 
+  it("chooses who sees comments without moving the generation, so sessions go on", async () => {
+    const ownerId = await owner(30);
+    const artifactId = await artifact(ownerId);
+    const everyone = await updateAccess(db(), {
+      ownerId,
+      artifactId,
+      change: { commentVisibility: "everyone" },
+      now: NOW,
+    });
+    expect(everyone.ok && everyone.value).toMatchObject({
+      commentVisibility: "everyone",
+      policyGeneration: 1,
+    });
+    const back = await updateAccess(db(), {
+      ownerId,
+      artifactId,
+      change: { commentVisibility: "owner" },
+      now: NOW,
+    });
+    expect(back.ok && back.value).toMatchObject({
+      commentVisibility: "owner",
+      policyGeneration: 1,
+    });
+  });
+
+  it("keeps an exception per reader: with the reader it is added, inherit drops it, removal too", async () => {
+    const ownerId = await owner(30);
+    const artifactId = await artifact(ownerId);
+    const change = (c: Parameters<typeof updateAccess>[1]["change"]) =>
+      updateAccess(db(), { ownerId, artifactId, change: c, now: NOW });
+
+    const unlisted = await change({
+      readerCommentVisibility: [{ email: "a@example.test", commentVisibility: "all" }],
+    });
+    expect(unlisted).toMatchObject({ ok: false, code: "invalid_input" });
+
+    const added = await change({
+      addReaders: ["a@example.test", "b@example.test"],
+      readerCommentVisibility: [
+        { email: "a@example.test", commentVisibility: "all" },
+        { email: "b@example.test", commentVisibility: "own" },
+      ],
+    });
+    expect(added.ok && added.value.readerCommentVisibility).toEqual([
+      { email: "a@example.test", commentVisibility: "all" },
+      { email: "b@example.test", commentVisibility: "own" },
+    ]);
+    // Adding readers moves the generation; exceptions alone do not.
+    const generation = added.ok ? added.value.policyGeneration : 0;
+    const inherited = await change({
+      readerCommentVisibility: [{ email: "b@example.test", commentVisibility: "inherit" }],
+    });
+    expect(inherited.ok && inherited.value).toMatchObject({
+      readerCommentVisibility: [{ email: "a@example.test", commentVisibility: "all" }],
+      policyGeneration: generation,
+    });
+    // An exception cannot go with a reader removed in the same change.
+    const removing = await change({
+      removeReaders: ["a@example.test"],
+      readerCommentVisibility: [{ email: "a@example.test", commentVisibility: "own" }],
+    });
+    expect(removing).toMatchObject({ ok: false, code: "invalid_input" });
+    const removed = await change({ removeReaders: ["a@example.test"] });
+    expect(removed.ok && removed.value.readerCommentVisibility).toEqual([]);
+    // Added again later, the reader follows the artifact's setting.
+    const again = await change({ addReaders: ["a@example.test"] });
+    expect(again.ok && again.value.readerCommentVisibility).toEqual([]);
+  });
+
   it("lets a reader be added and removed in one change, keeping the addition", async () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);
@@ -137,7 +210,7 @@ describe("access policy", () => {
   });
 
   it("keeps new accounts from going public but lets them narrow access", async () => {
-    const young = await owner(2);
+    const young = await owner(0, LIMITS.publicAccessMinAccountAgeMinutes - 1);
     const artifactId = await artifact(young);
     expect(
       await updateAccess(db(), {
@@ -156,7 +229,7 @@ describe("access policy", () => {
       }),
     ).toMatchObject({ ok: true });
 
-    const old = await owner(LIMITS.publicAccessMinAccountAgeDays);
+    const old = await owner(0, LIMITS.publicAccessMinAccountAgeMinutes);
     const other = await artifact(old);
     expect(
       await updateAccess(db(), {
@@ -279,5 +352,25 @@ describe("access policy", () => {
     expect(events).toMatchObject([
       { event: "access_changed", details: { mode: "authenticated", added: 0, removed: 0 } },
     ]);
+    await updateAccess(db(), {
+      ownerId,
+      artifactId,
+      change: {
+        commentVisibility: "everyone",
+        addReaders: ["a@example.test"],
+        readerCommentVisibility: [{ email: "a@example.test", commentVisibility: "own" }],
+      },
+      now: NOW,
+    });
+    const later = await db()
+      .select()
+      .from(schema.lifecycleEvents)
+      .where(eq(schema.lifecycleEvents.artifactId, artifactId));
+    expect(later.at(-1)?.details).toEqual({
+      added: 1,
+      removed: 0,
+      commentVisibility: "everyone",
+      readerExceptions: 1,
+    });
   });
 });

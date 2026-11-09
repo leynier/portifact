@@ -354,6 +354,75 @@ describe("API and MCP parity", () => {
     expect(denied.headers.get("www-authenticate")).toContain('scope="artifacts:share"');
   });
 
+  it("who sees comments changes with the same policy, errors and scope", async () => {
+    const SHARE = "artifacts:read artifacts:write artifacts:share offline_access";
+    const b = await both("parity-comments@example.test", SHARE);
+    const publish = async (name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type: "text", name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const viaApi = await publish("api");
+    const viaMcp = await publish("mcp");
+    const patch = (id: string, change: Record<string, unknown>) =>
+      b.apiCall(`/api/v1/artifacts/${id}/access`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(change),
+      });
+    for (const id of [viaApi, viaMcp]) {
+      expect((await fromApi(await patch(id, { addReaders: ["Ana@Example.test"] }))).ok).toBe(true);
+    }
+    const changes = [
+      { commentVisibility: "everyone" },
+      { readerCommentVisibility: [{ email: "ana@example.test", commentVisibility: "own" }] },
+      {
+        commentVisibility: "owner",
+        readerCommentVisibility: [{ email: "ANA@example.test", commentVisibility: "all" }],
+      },
+      { readerCommentVisibility: [{ email: "ana@example.test", commentVisibility: "inherit" }] },
+      // Refused alike: a reader who is not on the list, and no change at all.
+      { readerCommentVisibility: [{ email: "bea@example.test", commentVisibility: "all" }] },
+      {},
+    ];
+    for (const change of changes) {
+      const apiResult = await fromApi(await patch(viaApi, change));
+      const mcpResult = fromTool(
+        await b.tool("set_comment_visibility", { artifactId: viaMcp, ...change }),
+      );
+      expect(mcpResult, JSON.stringify(change)).toEqual(apiResult);
+    }
+    const last = await fromApi(await b.apiCall(`/api/v1/artifacts/${viaApi}/access`));
+    expect(last.body).toMatchObject({ commentVisibility: "owner", readerCommentVisibility: [] });
+
+    const other = await both("parity-comments-other@example.test", SHARE);
+    const missing = fromTool(
+      await other.tool("set_comment_visibility", {
+        artifactId: viaMcp,
+        commentVisibility: "everyone",
+      }),
+    );
+    expect(missing).toEqual(
+      await fromApi(
+        await other.apiCall(`/api/v1/artifacts/${viaApi}/access`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ commentVisibility: "everyone" }),
+        }),
+      ),
+    );
+    expect(missing.body).toMatchObject({ error: { code: "not_found" } });
+
+    const reader = await mcpToken(b.h, "parity-comments@example.test", "artifacts:read");
+    const denied = await rawCall(b.h, reader, "set_comment_visibility", {
+      artifactId: viaMcp,
+      commentVisibility: "everyone",
+    });
+    expect(denied.status).toBe(403);
+    expect(denied.headers.get("www-authenticate")).toContain('scope="artifacts:share"');
+  });
+
   it("draws the same permission boundary for each scope", async () => {
     const b = await both("parity-scope@example.test", "artifacts:read offline_access");
     const apiDenied = await b.apiCall("/api/v1/artifacts/abcdefghij", { method: "DELETE" });
@@ -1079,6 +1148,106 @@ describe("API and MCP parity for annotations", () => {
     expect(markdown.structuredContent).toEqual(
       await (await owner.apiCall(`${base}/export?state=open`)).json(),
     );
+  });
+
+  it("hides another reader's threads the same way: list, get by ID, export and cursor", async () => {
+    const { owner, reader, id, versionId, base } = await reviewed("parity-visibility");
+    const other = await both("parity-visibility-other@example.test", EVERY);
+    const elsewhere = fromTool(
+      await owner.tool("publish_document", { type: "markdown", name: "Else", content: "# Else" }),
+    ).body as { artifactId: string };
+    await pastHumanCheck(["parity-visibility-other@example.test"], elsewhere.artifactId);
+    await owner.apiCall(
+      `/api/v1/artifacts/${id}/access`,
+      json("PATCH", { addReaders: ["parity-visibility-other@example.test"] }),
+    );
+    await owner.apiCall(`${base}/mode`, json("PUT", { mode: "open" }));
+    const mine = await apiThread(reader, base, versionId, "Mine");
+    const hers = await apiThread(other, base, versionId, "Hers");
+
+    const listed = await fromApi(await reader.apiCall(base));
+    expect(fromTool(await reader.tool("list_annotations", { artifactId: id }))).toEqual(listed);
+    expect(listed.body).toMatchObject({ commentScope: "own", threads: [{ id: mine.id }] });
+    const hidden = await fromApi(await reader.apiCall(`${base}/threads/${hers.id}`));
+    expect(
+      fromTool(await reader.tool("get_thread", { artifactId: id, threadId: hers.id })),
+    ).toEqual(hidden);
+    expect(hidden).toEqual(await fromApi(await reader.apiCall(`${base}/threads/missing`)));
+    const exported = await fromApi(await reader.apiCall(`${base}/export`));
+    const exportedTool = fromTool(await reader.tool("export_annotations", { artifactId: id }));
+    const withoutTime = (result: { body: unknown }) => ({
+      ...(result.body as Record<string, unknown>),
+      exportedAt: null,
+    });
+    expect(withoutTime(exportedTool)).toEqual(withoutTime(exported));
+    expect((exported.body as { threads: { id: string }[] }).threads.map((t) => t.id)).toEqual([
+      mine.id,
+    ]);
+
+    // Another reader's activity moves nobody else's cursor.
+    const cursor = (listed.body as { cursor: string }).cursor;
+    nextMinute();
+    await other.apiCall(
+      `${base}/threads/${hers.id}/messages`,
+      json("POST", { body: "More" }, crypto.randomUUID()),
+    );
+    const refreshed = await fromApi(
+      await reader.apiCall(`${base}?${new URLSearchParams({ cursor })}`),
+    );
+    expect(fromTool(await reader.tool("list_annotations", { artifactId: id, cursor }))).toEqual(
+      refreshed,
+    );
+    expect(refreshed.body).toMatchObject({ threads: [], removed: [], cursor });
+
+    // Replies written while every reader saw every thread stay the reader's to edit and delete
+    // after the owner narrows it again; both give no thread.
+    await owner.apiCall(
+      `/api/v1/artifacts/${id}/access`,
+      json("PATCH", { commentVisibility: "everyone" }),
+    );
+    const replies: string[] = [];
+    for (const body of ["Via API", "Via MCP"]) {
+      nextMinute();
+      const replied = await reader.apiCall(
+        `${base}/threads/${hers.id}/messages`,
+        json("POST", { body }, crypto.randomUUID()),
+      );
+      const view = await replied.json<Thread>();
+      replies.push(view.messages.at(-1)?.id ?? "");
+    }
+    await owner.apiCall(
+      `/api/v1/artifacts/${id}/access`,
+      json("PATCH", { commentVisibility: "owner" }),
+    );
+    nextMinute();
+    const editedApi = await fromApi(
+      await reader.apiCall(
+        `${base}/messages/${replies[0]}`,
+        json("PATCH", { body: "Redacted", revision: 1 }),
+      ),
+    );
+    const editedMcp = fromTool(
+      await reader.tool("edit_annotation", {
+        artifactId: id,
+        messageId: replies[1],
+        body: "Redacted",
+        revision: 1,
+      }),
+    );
+    expect(editedMcp).toEqual(editedApi);
+    expect(editedApi).toEqual({ ok: true, body: { threadId: hers.id, thread: null } });
+    const deletedApi = await fromApi(
+      await reader.apiCall(`${base}/messages/${replies[0]}`, { method: "DELETE" }),
+    );
+    const deletedMcp = fromTool(
+      await reader.tool("delete_annotation", {
+        artifactId: id,
+        messageId: replies[1],
+        confirm: replies[1],
+      }),
+    );
+    expect(deletedMcp).toEqual(deletedApi);
+    expect(deletedApi).toEqual({ ok: true, body: { threadId: hers.id, thread: null } });
   });
 
   it("deletes, moderates and deletes threads the same way", async () => {

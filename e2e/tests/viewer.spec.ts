@@ -14,7 +14,8 @@ import {
   sql,
   test,
 } from "../src/fixtures.ts";
-import { APP_ORIGIN, artifactOrigin, REVIEW_COOKIE } from "../src/hosts.ts";
+import { APP_HOST, APP_ORIGIN, artifactOrigin, REVIEW_COOKIE } from "../src/hosts.ts";
+import { TURNSTILE_MODE_COOKIE } from "../src/turnstile-fake.ts";
 
 const QUOTE = "Hello brave new world";
 
@@ -47,7 +48,7 @@ async function threadsBy(userId: string) {
 }
 
 for (const artifact of ARTIFACTS) {
-  test(`a ${artifact.type} artifact opened by its link shows the bar, and selected text becomes a comment in the sidebar`, async ({
+  test(`a ${artifact.type} artifact opened by its link shows the bar, and selected text is commented inline and edited`, async ({
     page,
     context,
     engine,
@@ -60,13 +61,12 @@ for (const artifact of ARTIFACTS) {
     await expect(page).toHaveURL(`${APP_ORIGIN}/view/${artifactId}`);
     const bar = page.getByRole("banner");
     await expect(bar.getByRole("link", { name: "Manage" })).toBeVisible();
-    // The name is the publisher's, shown by the frame with its origin, never beside the mark.
-    await expect(bar.getByText(artifact.name)).toHaveCount(0);
-    const region = page.getByRole("main", { name: "Artifact" });
-    await expect(region.getByRole("heading", { level: 1, name: artifact.name })).toBeVisible();
-    await expect(region.getByText(`${artifactId}.portifact-content.test`)).toBeVisible();
-    await expect(region.getByText("Published by a user, not by Portifact")).toBeVisible();
-    await expect(region.getByText("Version 1")).toBeVisible();
+    // The bar names the artifact and its version and copies its link; no caption row remains.
+    await expect(bar.getByRole("heading", { level: 1, name: artifact.name })).toBeVisible();
+    await expect(bar.getByText("Version 1")).toBeVisible();
+    await expect(bar.getByRole("button", { name: "Copy link" })).toBeVisible();
+    await expect(page.getByText(`${artifactId}.portifact-content.test`)).toHaveCount(0);
+    await expect(page.getByText("Published by a user, not by Portifact")).toHaveCount(0);
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     await expect(sidebar).toBeVisible();
 
@@ -86,7 +86,8 @@ for (const artifact of ARTIFACTS) {
 
     const frame = await artifactFrame(page, artifactId);
     await expect(frame.getByText(QUOTE).first()).toBeVisible();
-    // Select the quote in the artifact itself; the sidebar offers a comment, nothing is posted.
+    // Select the quote in the artifact itself; a Comment control appears next to it, drawn by the
+    // viewer over the frame, and nothing is posted.
     await frame.evaluate((quote) => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       for (let node = walker.nextNode(); node; node = walker.nextNode()) {
@@ -102,15 +103,44 @@ for (const artifact of ARTIFACTS) {
         return;
       }
     }, QUOTE);
-    await sidebar.getByRole("button", { name: "Comment on the selection" }).click();
+    const offer = page.getByRole("button", { name: "Comment", exact: true });
+    await expect(offer).toBeVisible();
+    const offerBox = await offer.boundingBox();
+    const frameBox = await page.locator("iframe").boundingBox();
+    // In the page's coordinates, like the others: Playwright maps boxes out of frames.
+    const quoteBox = await frame.getByText(QUOTE).first().boundingBox();
+    if (!offerBox || !frameBox || !quoteBox) throw new Error("no layout");
+    // Next to the selection, inside the frame: just below the quote's line.
+    expect(offerBox.y).toBeGreaterThan(quoteBox.y);
+    expect(offerBox.y).toBeLessThan(quoteBox.y + quoteBox.height + 60);
+    expect(offerBox.x).toBeGreaterThanOrEqual(frameBox.x);
+    expect(offerBox.x + offerBox.width).toBeLessThanOrEqual(frameBox.x + frameBox.width);
     expect(await threadsBy(owner.userId)).toHaveLength(0);
-    await sidebar.getByRole("textbox", { name: "Comment" }).fill("Say hello to the old world too");
-    await sidebar.getByRole("button", { name: "Post comment" }).click();
+    await offer.click();
+    const composer = page.getByRole("region", { name: "Comment on the selection" });
+    const box = composer.getByRole("textbox", { name: "Comment" });
+    await expect(box).toBeFocused();
+    await box.fill("Say hello to the old world too");
+    await box.press("Enter");
     await expect(sidebar.getByText("1 comment thread")).toBeVisible();
+    await expect(composer).toBeHidden();
     const [thread] = await threadsBy(owner.userId);
     expect(JSON.parse(thread?.target ?? "{}")).toMatchObject({
       anchor: { kind: "text", quote: { exact: QUOTE } },
     });
+
+    // Edit the comment from the sidebar.
+    const article = sidebar.getByRole("article", { name: "Thread 1" });
+    await article.getByRole("button", { name: "Edit" }).click();
+    await article.getByRole("textbox", { name: "Message" }).fill("Say hello to the old world");
+    await article.getByRole("button", { name: "Save" }).click();
+    await expect(article.getByText("Say hello to the old world", { exact: true })).toBeVisible();
+    await expect(article.getByText(/Edited/)).toBeVisible();
+    const [message] = await sql<{ body: string; revision: number }>(
+      "SELECT body, revision FROM annotation_messages WHERE author_id = ?",
+      [owner.userId],
+    );
+    expect(message).toEqual({ body: "Say hello to the old world", revision: 2 });
     // The thread is located in the artifact, so the sidebar can point at it.
     await expect(
       sidebar.getByRole("article", { name: "Thread 1" }).getByRole("button", {
@@ -119,6 +149,74 @@ for (const artifact of ARTIFACTS) {
     ).toBeVisible();
   });
 }
+
+/** Selects `quote` in the frame's page as a reader would, so the bridge reports it. */
+async function selectQuote(frame: Awaited<ReturnType<typeof artifactFrame>>, quote: string) {
+  await frame.evaluate((text) => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.textContent?.indexOf(text) ?? -1;
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + text.length);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      return;
+    }
+  }, quote);
+}
+
+test("a visitor's first inline comments pass the human check invisibly, or in the composer when asked", async ({
+  page,
+  context,
+  engine,
+}) => {
+  test.skip(!engine.reviewWorks, "the frame keeps no review session in this configuration");
+  const owner = await createUser("Owner");
+  const visitor = await createUser("Visitor");
+  const { artifactId } = await publish({
+    ownerId: owner.userId,
+    accessMode: "public",
+    ...SITE,
+  });
+  await signIn(context, visitor);
+  await page.goto(`${APP_ORIGIN}/view/${artifactId}`);
+  const frame = await artifactFrame(page, artifactId);
+  await expect(frame.getByText(QUOTE).first()).toBeVisible();
+  await expect(page.getByText("Connecting to the page")).toBeHidden();
+  const composer = page.getByRole("region", { name: "Comment on the selection" });
+
+  // Most visitors never see the check: it ran while they wrote, and Save posts at once.
+  await selectQuote(frame, QUOTE);
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await composer.getByRole("textbox", { name: "Comment" }).fill("First thought");
+  await composer.getByRole("button", { name: "Save" }).click();
+  await expect(composer).toBeHidden();
+  await expect(page.getByText("Verify you are human")).toHaveCount(0);
+  await expect(page.getByText("1 comment thread")).toBeVisible();
+
+  // When Cloudflare asks for an interaction, the challenge shows inside the composer, and the
+  // comment is posted as soon as it is solved.
+  await context.addCookies([
+    { name: TURNSTILE_MODE_COOKIE, value: "interactive", domain: APP_HOST, path: "/" },
+  ]);
+  await selectQuote(frame, QUOTE);
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await composer.getByRole("textbox", { name: "Comment" }).fill("Second thought");
+  await expect(composer.getByText(/quick check that you are human/)).toBeVisible();
+  await composer.getByRole("button", { name: "Save" }).click();
+  // Solving it posts the comment, which closes the composer at once.
+  await composer.getByRole("checkbox", { name: /Verify you are human/ }).click();
+  await expect(composer).toBeHidden();
+  await expect(page.getByText("2 comment threads")).toBeVisible();
+  const posted = await sql<{ id: string }>(
+    "SELECT id FROM annotation_threads WHERE author_id = ?",
+    [visitor.userId],
+  );
+  expect(posted).toHaveLength(2);
+});
 
 test("the viewer keeps the page, query and fragment of the link it was opened with", async ({
   page,

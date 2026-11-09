@@ -175,7 +175,13 @@ export const AccountExport = z.object({
     signInMethods: z.array(z.object({ provider: z.string(), connectedAt: Iso })),
   }),
   artifacts: z.array(ExportArtifact),
-  /** Threads on other people's artifacts where the account wrote, with only its own messages. */
-  commentsElsewhere: z.array(ExportThread),
+  /**
+   * Threads on other people's artifacts where the account wrote, with only its own messages.
+   * A thread the account no longer sees (the owner narrowed who sees comments) has no `state`
+   * or `createdAt`: only where it points and the account's words.
+   */
+  commentsElsewhere: z.array(
+    ExportThread.extend({ state: ExportThread.shape.state.optional(), createdAt: Iso.optional() }),
+  ),
 });
 export type AccountExport = z.infer<typeof AccountExport>;
