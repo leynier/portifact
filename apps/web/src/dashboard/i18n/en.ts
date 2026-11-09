@@ -31,6 +31,16 @@ export const en = {
   "shell.capacity.publishing":
     "New uploads are paused for now, and new comments may be too. Your artifacts stay online, and you can still read, export, delete, renew and reduce access.",
 
+  "language.title": "Language",
+  "language.hint":
+    "The language of the dashboard, the sign-in pages and the emails Portifact sends you.",
+  "language.label": "Language",
+  "language.description": "Saved in your account, so your other devices use it too.",
+  "language.changed": "The dashboard is now in English.",
+  "language.loadFailed": "The language could not be loaded. Check your connection and try again.",
+  "language.saveFailed":
+    "The language changed in this browser, but your account could not save it. Try again later.",
+
   "list.title": "Artifacts",
   "list.description": "Everything you published. The list refreshes while this tab is open.",
   "list.loading": "Loading your artifacts",
@@ -938,3 +948,10 @@ export const en = {
 } as const;
 
 export type MessageId = keyof typeof en;
+
+/**
+ * A translation of the dashboard: every message ID, and nothing else. A catalog written as
+ * `export const xx = { ... } satisfies Catalog` fails the typecheck when a key is missing or
+ * unknown.
+ */
+export type Catalog = { readonly [id in MessageId]: string };

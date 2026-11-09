@@ -20,6 +20,8 @@ import { describedBy, FieldError } from "./fields.tsx";
 export interface SelectOption<T extends string = string> {
   value: T;
   label: string;
+  /** The language of the label when it differs from the page's, such as a language's own name. */
+  lang?: string;
 }
 
 export interface SelectProps<T extends string = string> {
@@ -327,7 +329,10 @@ export function Select<T extends string = string>({
           {label}
         </span>
       ) : null}
-      <span className={`min-w-0 truncate ${compact && active ? "font-semibold" : ""}`}>
+      <span
+        lang={selected?.lang}
+        className={`min-w-0 truncate ${compact && active ? "font-semibold" : ""}`}
+      >
         {selected?.label ?? ""}
       </span>
       <ChevronDown
@@ -362,6 +367,7 @@ export function Select<T extends string = string>({
                   id={optionId(index)}
                   role="option"
                   aria-selected={chosen}
+                  lang={option.lang}
                   data-active={current && keyboard ? "" : undefined}
                   // Keep focus on the trigger, so it never leaves the control while choosing.
                   onPointerDown={(event) => event.preventDefault()}

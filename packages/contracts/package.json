@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./terms-version": "./src/terms-version.ts",
     "./human-check": "./src/human-check.ts",
-    "./email-delivery": "./src/email-delivery.ts"
+    "./email-delivery": "./src/email-delivery.ts",
+    "./locales": "./src/locales.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

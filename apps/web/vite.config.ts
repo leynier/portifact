@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+import { sitePages } from "./src/i18n/site-build.ts";
 
 const repoFile = (path: string) => fileURLToPath(new URL(`../../${path}`, import.meta.url));
 
@@ -57,7 +58,7 @@ const pages = [
 ];
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), repoAssets()],
+  plugins: [react(), tailwindcss(), repoAssets(), sitePages()],
   server: { fs: { allow: ["../.."] } },
   build: {
     outDir: "dist",

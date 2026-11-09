@@ -221,6 +221,8 @@ The owner of an artifact sees who opened it (plan sections 11 and 13): the verif
 - Requests that register service worker scripts are blocked.
 - Dashboard and viewer pages cannot be framed by user content (`frame-ancestors 'none'`, `X-Frame-Options: DENY`).
 
+- Languages (docs/design.md, "Languages") add no cookie and no credential: the choice lives in each origin's `localStorage` (`portifact.locale`) and the account's `locale` setting (session-only `PATCH /api/v1/account/settings`, validated against `LOCALES`, no CHECK so a language can be added without a migration; unknown stored codes read as no choice). `?lang=` only selects among the listed languages and is removed from the address bar. The sign-in route reads `Accept-Language` only to pick the email's language from the same list. Translations are repository files: the auth pages insert catalog messages as markup at runtime and the build does the same for the static pages, so a catalog is code and must never hold user or external input. The static pages keep the same headers and CSP in every language (`/es/` through the assets, the documents through `legalPage`).
+
 ### Untrusted content
 
 - Markdown is rendered by `packages/render` with markdown-it and `html: false`: raw HTML is shown as literal text, never parsed, and there is no MDX and no user plugins. Links and images keep only `http`, `https` and `mailto` URLs (plus paths on the artifact), checked with the WHATWG URL parser so `//host`, `/\host` and embedded tabs resolve as a browser resolves them. Links to other origins get `rel="nofollow noopener noreferrer"`. Remote images are off unless the document opts in; when off they become links. TXT is always escaped inside `<pre>`.

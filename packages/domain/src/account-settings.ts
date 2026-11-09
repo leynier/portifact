@@ -1,5 +1,6 @@
 // The owner's defaults for new artifacts: which access, comments, comment visibility and bar a
 // publish gives an artifact it creates. Existing artifacts never change when the defaults do.
+// The account's language lives with them; it changes nothing about artifacts.
 import type { AccountSettings, AccountSettingsUpdate } from "@portifact/contracts";
 import { checkAccessChange } from "./access.ts";
 import { ok, type Result } from "./result.ts";
@@ -10,6 +11,7 @@ export const BUILT_IN_SETTINGS: AccountSettings = {
   defaultAnnotations: "off",
   defaultCommentVisibility: "owner",
   defaultBar: true,
+  locale: null,
 };
 
 /**
@@ -27,6 +29,8 @@ export function changeSettings(
     defaultAnnotations: update.defaultAnnotations ?? current.defaultAnnotations,
     defaultCommentVisibility: update.defaultCommentVisibility ?? current.defaultCommentVisibility,
     defaultBar: update.defaultBar ?? current.defaultBar,
+    // null is a choice of its own (follow the browser), so only a missing field keeps the old one.
+    locale: update.locale === undefined ? current.locale : update.locale,
   };
   if (next.defaultAccessMode !== current.defaultAccessMode) {
     const allowed = checkAccessChange(next.defaultAccessMode, accountCreatedAt, now);

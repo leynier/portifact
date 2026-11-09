@@ -3,14 +3,16 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Portifact: share what your agent built</title>
+    <title data-i18n="landing.meta.title">Portifact: share what your agent built</title>
     <meta
       name="description"
+      data-i18n-content="landing.meta.description"
       content="Publish HTML, Markdown and text with a private link, decide who can open it, and collect feedback your coding agent can act on. Open source."
     />
-    <meta property="og:title" content="Portifact: share what your agent built" />
+    <meta property="og:title" data-i18n-content="landing.meta.title" content="Portifact: share what your agent built" />
     <meta
       property="og:description"
+      data-i18n-content="landing.meta.ogDescription"
       content="Publish HTML, Markdown and text with a private link, decide who can open it, and collect feedback your coding agent can act on."
     />
     <meta property="og:type" content="website" />
@@ -24,47 +26,52 @@
     <a
       href="#main"
       class="sr-only z-50 rounded-sm bg-surface-inverse px-3 py-2 text-text-inverse focus:not-sr-only focus:fixed focus:top-4 focus:left-4"
+      data-i18n="landing.skipLink"
       >Skip to content</a
     >
 
     <header class="sticky top-0 z-40 border-b border-border bg-canvas/85 backdrop-blur">
       <div class="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-4 sm:px-6">
-        <a href="/" class="shrink-0 no-underline" aria-label="Portifact home">
+        <a href="/" class="shrink-0 no-underline" aria-label="Portifact home" data-i18n-aria-label="landing.header.homeLabel">
           <picture>
             <source media="(prefers-color-scheme: dark)" srcset="../../assets/brand/wordmark-dark.svg" />
             <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-7 w-auto" />
           </picture>
         </a>
-        <nav aria-label="Main" class="hidden md:block">
+        <nav aria-label="Main" data-i18n-aria-label="landing.header.navLabel" class="hidden md:block">
           <ul class="flex items-center gap-7 text-sm">
-            <li><a href="#interfaces" class="text-text-muted no-underline hover:text-text">Product</a></li>
-            <li><a href="#review" class="text-text-muted no-underline hover:text-text">Review</a></li>
-            <li><a href="#access" class="text-text-muted no-underline hover:text-text">Access</a></li>
-            <li><a href="#security" class="text-text-muted no-underline hover:text-text">Security</a></li>
-            <li><a href="#faq" class="text-text-muted no-underline hover:text-text">FAQ</a></li>
+            <li><a href="#interfaces" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.product">Product</a></li>
+            <li><a href="#review" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.review">Review</a></li>
+            <li><a href="#access" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.access">Access</a></li>
+            <li><a href="#security" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.security">Security</a></li>
+            <li><a href="#faq" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.faq">FAQ</a></li>
           </ul>
         </nav>
         <div class="flex items-center gap-2 sm:gap-3">
+          <div data-language-switcher="menu"></div>
           <a
             href="https://github.com/leynier/portifact/stargazers"
             class="inline-flex h-9 items-center justify-center gap-2 rounded-sm border border-border px-2.5 text-sm text-text-muted no-underline transition-colors hover:border-border-strong hover:text-text sm:px-3"
           >
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="size-4 shrink-0"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
-            <span class="sr-only sm:not-sr-only">Star on GitHub</span>
+            <span class="sr-only sm:not-sr-only" data-i18n="landing.header.star">Star on GitHub</span>
           </a>
           <a
             href="https://app.portifact.com/"
             class="inline-flex h-9 items-center justify-center rounded-sm border border-border-strong px-3 text-sm font-medium text-text no-underline transition-colors hover:bg-surface-hover"
+            data-i18n="landing.header.signIn"
             >Sign in</a
           >
           <a
             href="#install"
             class="inline-flex h-9 items-center rounded-sm bg-surface-inverse px-4 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85"
+            data-i18n="landing.header.install"
             >Install</a
           >
         </div>
       </div>
     </header>
+    <div data-locale-suggestions></div>
 
     <main id="main">
       <!-- Hero -->
@@ -75,35 +82,36 @@
             href="#status"
             class="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-canvas py-1 pr-3 pl-1 text-xs text-text-muted no-underline hover:border-border-strong hover:text-text sm:text-sm"
           >
-            <span class="shrink-0 rounded-full border border-dashed border-border-strong px-2 py-0.5 font-medium whitespace-nowrap text-text">Early release</span>
-            <span class="truncate"><span class="sm:hidden">See what works today</span><span class="hidden sm:inline">Publish, share and review available today</span></span>
+            <span class="shrink-0 rounded-full border border-dashed border-border-strong px-2 py-0.5 font-medium whitespace-nowrap text-text" data-i18n="landing.hero.badge">Early release</span>
+            <span class="truncate"><span class="sm:hidden" data-i18n="landing.hero.statusShort">See what works today</span><span class="hidden sm:inline" data-i18n="landing.hero.statusLong">Publish, share and review available today</span></span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-3.5 shrink-0"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
           </a>
           <h1 id="hero-title" class="mx-auto mt-7 max-w-4xl text-4xl leading-tight font-semibold tracking-tighter text-balance sm:text-5xl sm:leading-none lg:text-6xl">
-            <span class="sr-only">Share what your agent built. Get feedback it can act on</span>
+            <span class="sr-only" data-i18n="landing.hero.spoken">Share what your agent built. Get feedback it can act on</span>
             <span aria-hidden="true">
-              <span class="block">Share what your agent built</span>
+              <span class="block" data-i18n="landing.hero.titleLead">Share what your agent built</span>
               <span data-typewriter class="grid text-text-muted sm:mt-1">
-                <span data-typewriter-phrase class="invisible col-start-1 row-start-1">Get feedback it can act on<span class="typing-caret"></span></span>
-                <span data-typewriter-phrase class="invisible col-start-1 row-start-1">Keep it private by default<span class="typing-caret"></span></span>
-                <span data-typewriter-phrase class="invisible col-start-1 row-start-1">Review it line by line<span class="typing-caret"></span></span>
-                <span data-typewriter-phrase class="invisible col-start-1 row-start-1">Restore it any time<span class="typing-caret"></span></span>
-                <span class="col-start-1 row-start-1"><span data-typewriter-text>Get feedback it can act on</span><span data-typewriter-caret class="typing-caret bg-text transition-opacity motion-safe:animate-blink motion-reduce:hidden data-settled:animate-none data-settled:opacity-0"></span></span>
+                <span data-typewriter-phrase data-i18n="landing.hero.phrase1" class="invisible col-start-1 row-start-1">Get feedback it can act on<span class="typing-caret"></span></span>
+                <span data-typewriter-phrase data-i18n="landing.hero.phrase2" class="invisible col-start-1 row-start-1">Keep it private by default<span class="typing-caret"></span></span>
+                <span data-typewriter-phrase data-i18n="landing.hero.phrase3" class="invisible col-start-1 row-start-1">Review it line by line<span class="typing-caret"></span></span>
+                <span data-typewriter-phrase data-i18n="landing.hero.phrase4" class="invisible col-start-1 row-start-1">Restore it any time<span class="typing-caret"></span></span>
+                <span class="col-start-1 row-start-1"><span data-typewriter-text data-i18n="landing.hero.typed">Get feedback it can act on</span><span data-typewriter-caret class="typing-caret bg-text transition-opacity motion-safe:animate-blink motion-reduce:hidden data-settled:animate-none data-settled:opacity-0"></span></span>
               </span>
             </span>
           </h1>
-          <p class="mx-auto mt-5 max-w-3xl text-lg text-text-muted text-pretty">Publish the plans, reports and prototypes your coding agent produces with a private link, choose exactly who can open them, and collect comments pinned to the exact sentence or element. Your agent reads the threads and revises.</p>
+          <p class="mx-auto mt-5 max-w-3xl text-lg text-text-muted text-pretty" data-i18n="landing.hero.lead">Publish the plans, reports and prototypes your coding agent produces with a private link, choose exactly who can open them, and collect comments pinned to the exact sentence or element. Your agent reads the threads and revises.</p>
           <div class="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <a
               href="https://app.portifact.com/"
               class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-sm bg-surface-inverse px-6 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85 sm:w-auto"
             >
-              Sign in
+              <span data-i18n="landing.hero.signIn">Sign in</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </a>
             <a
               href="https://github.com/leynier/portifact"
               class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-sm border border-border bg-canvas px-6 text-sm font-medium text-text no-underline transition-colors hover:border-border-strong sm:w-auto"
+              data-i18n="landing.hero.readCode"
               >Read the code on GitHub</a
             >
           </div>
@@ -111,7 +119,7 @@
 
         <figure class="relative mx-auto mt-12 max-w-6xl px-4 sm:mt-14 sm:px-6">
           <div class="grid grid-cols-1 items-center gap-4 rounded-lg border border-border bg-surface p-3 shadow-float sm:p-4 lg:grid-cols-12 lg:gap-5 lg:p-5">
-            <div role="img" aria-label="A terminal runs portifact publish on report.html with the name Billing migration. The CLI lists the file, uploads it, makes the new version current and prints the private URL on portifact.dev and the date it expires." class="flex h-full flex-col overflow-hidden rounded-md border border-terminal-border bg-terminal text-left text-terminal-text lg:col-span-4">
+            <div role="img" data-i18n-aria-label="landing.hero.terminalLabel" aria-label="A terminal runs portifact publish on report.html with the name Billing migration. The CLI lists the file, uploads it, makes the new version current and prints the private URL on portifact.dev and the date it expires." class="flex h-full flex-col overflow-hidden rounded-md border border-terminal-border bg-terminal text-left text-terminal-text lg:col-span-4">
               <div class="flex items-center gap-1.5 border-b border-terminal-border px-4 py-3">
                 <span class="size-2.5 rounded-full bg-terminal-border"></span>
                 <span class="size-2.5 rounded-full bg-terminal-border"></span>
@@ -130,14 +138,14 @@ Expires: 2026-12-09 09:05 UTC</span><!-- /shots:hero-terminal --></pre>
             </div>
             <picture class="block min-w-0 overflow-hidden rounded-md border border-border motion-safe:animate-rise motion-safe:animate-delay-12 lg:col-span-8">
               <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="./src/assets/landing/hero-viewer-dark.webp 1100w, ./src/assets/landing/hero-viewer-dark@2x.webp 2200w" sizes="(min-width: 1024px) 700px, 100vw" />
-              <img src="./src/assets/landing/hero-viewer-light.webp" srcset="./src/assets/landing/hero-viewer-light.webp 1100w, ./src/assets/landing/hero-viewer-light@2x.webp 2200w" sizes="(min-width: 1024px) 700px, 100vw" width="1100" height="680" alt="The Portifact viewer showing the Billing migration report. The Portifact bar at the top has the artifact&#39;s name, version 1 and a Comments button with one thread. In the report, the sentence Writes switch over only after seven days without errors is highlighted, and the comments sidebar shows Ana Lopez&#39;s question about it with the owner&#39;s reply." decoding="async" fetchpriority="high" class="block h-auto w-full" />
+              <img src="./src/assets/landing/hero-viewer-light.webp" srcset="./src/assets/landing/hero-viewer-light.webp 1100w, ./src/assets/landing/hero-viewer-light@2x.webp 2200w" sizes="(min-width: 1024px) 700px, 100vw" width="1100" height="680" data-i18n-alt="landing.hero.screenshotAlt" alt="The Portifact viewer showing the Billing migration report. The Portifact bar at the top has the artifact&#39;s name, version 1 and a Comments button with one thread. In the report, the sentence Writes switch over only after seven days without errors is highlighted, and the comments sidebar shows Ana Lopez&#39;s question about it with the owner&#39;s reply." decoding="async" fetchpriority="high" class="block h-auto w-full" />
             </picture>
           </div>
-          <figcaption class="mt-4 text-center text-sm text-text-muted">Publish from the terminal, review in the browser. Open source under AGPL-3.0.</figcaption>
+          <figcaption class="mt-4 text-center text-sm text-text-muted" data-i18n="landing.hero.caption">Publish from the terminal, review in the browser. Open source under AGPL-3.0.</figcaption>
         </figure>
 
         <div id="agents" class="mx-auto max-w-6xl px-4 pt-16 pb-20 sm:px-6 sm:pb-24">
-          <p id="agents-title" class="text-center font-mono text-xs tracking-widest text-text-muted uppercase">Works with the agents you already use</p>
+          <p id="agents-title" class="text-center font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.agents.title">Works with the agents you already use</p>
           <ul class="mt-6 grid grid-cols-2 gap-2 text-sm font-medium text-text-muted sm:grid-cols-3 sm:text-base lg:grid-cols-6" aria-labelledby="agents-title">
             <li class="flex min-w-0 items-center justify-center gap-2 px-2 py-2"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="size-4.5 shrink-0"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z" /></svg><span class="truncate">Claude Code</span></li>
             <li class="flex min-w-0 items-center justify-center gap-2 px-2 py-2"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="size-4.5 shrink-0"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z" /></svg><span class="truncate">Codex</span></li>
@@ -152,7 +160,7 @@ Expires: 2026-12-09 09:05 UTC</span><!-- /shots:hero-terminal --></pre>
             <li class="flex min-w-0 items-center justify-center gap-2 px-2 py-2"><svg viewBox="48 46 333 333" fill="currentColor" aria-hidden="true" class="size-4.5 shrink-0"><path d="M70 159.333V91.3471C70 88.3592 71.594 85.5983 74.1816 84.1044L133.043 50.1205C135.631 48.6265 138.819 48.6265 141.407 50.1205L200.269 84.1044C202.856 85.5983 204.45 88.3592 204.45 91.3471V126.068C204.708 137.606 210.806 148.734 221.531 154.926C232.256 161.117 244.942 160.834 255.063 155.289L285.132 137.929C287.719 136.435 290.907 136.435 293.495 137.929L352.357 171.913C354.944 173.406 356.538 176.167 356.538 179.155V247.123C356.538 250.111 354.944 252.872 352.357 254.366L293.495 288.35C290.907 289.844 287.719 289.844 285.132 288.35L255.306 271.13C245.146 265.456 232.344 265.117 221.534 271.358C210.809 277.55 204.711 288.678 204.453 300.215V334.926C204.453 337.914 202.859 340.675 200.271 342.169L141.41 376.153C138.822 377.647 135.634 377.647 133.046 376.153L74.1845 342.169C71.5969 340.675 70.0028 337.914 70.0028 334.926V266.959C70.0029 263.971 71.5969 261.21 74.1845 259.716L133.046 225.732C135.634 224.238 138.822 224.238 141.41 225.732L171.547 243.132C181.656 248.638 194.306 248.906 205.005 242.729C215.815 236.488 221.922 225.231 222.088 213.595C221.83 202.057 215.732 189.737 205.008 183.545C194.283 177.353 181.597 177.636 171.476 183.181L141.269 200.72C138.67 202.229 135.461 202.228 132.864 200.716L74.1576 166.562C71.5835 165.065 70 162.311 70 159.333Z" /></svg><span class="truncate">Devin</span></li>
             <li class="flex min-w-0 items-center justify-center gap-2 px-2 py-2"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="size-4.5 shrink-0"><path d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z" /></svg><span class="truncate">Antigravity</span></li>
           </ul>
-          <p class="mt-5 text-center text-sm text-text-muted text-pretty">The CLI and the agent skill work in all of them. The remote MCP server works in clients that support OAuth sign-in and is tested with Claude.ai, Claude Code and Codex CLI. <a href="/mcp-compatibility" class="text-text hover:no-underline">See MCP compatibility</a></p>
+          <p class="mt-5 text-center text-sm text-text-muted text-pretty" data-i18n="landing.agents.note">The CLI and the agent skill work in all of them. The remote MCP server works in clients that support OAuth sign-in and is tested with Claude.ai, Claude Code and Codex CLI. <a href="/mcp-compatibility" class="text-text hover:no-underline">See MCP compatibility</a></p>
         </div>
       </section>
 
@@ -160,23 +168,23 @@ Expires: 2026-12-09 09:05 UTC</span><!-- /shots:hero-terminal --></pre>
       <section id="interfaces" class="border-y border-border bg-backdrop" aria-labelledby="interfaces-title">
         <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
           <div class="max-w-2xl">
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Three ways in</p>
-            <h2 id="interfaces-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">One set of rules, wherever you work</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">The CLI, the remote MCP server and the web dashboard sit on the same domain layer. An operation runs the same permission checks, quotas, states and errors wherever you start it, so your agent and your team always see the same thing.</p>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.interfaces.eyebrow">Three ways in</p>
+            <h2 id="interfaces-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.interfaces.title">One set of rules, wherever you work</h2>
+            <p class="mt-4 text-lg text-text-muted text-pretty" data-i18n="landing.interfaces.lead">The CLI, the remote MCP server and the web dashboard sit on the same domain layer. An operation runs the same permission checks, quotas, states and errors wherever you start it, so your agent and your team always see the same thing.</p>
           </div>
 
-          <div class="mt-10 grid w-full grid-cols-3 gap-1 rounded-md border border-border bg-canvas p-1 sm:inline-grid sm:w-auto" role="tablist" aria-label="Ways to use Portifact">
+          <div class="mt-10 grid w-full grid-cols-3 gap-1 rounded-md border border-border bg-canvas p-1 sm:inline-grid sm:w-auto" role="tablist" data-i18n-aria-label="landing.interfaces.tabsLabel" aria-label="Ways to use Portifact">
             <button type="button" role="tab" id="tab-cli" aria-controls="panel-cli" aria-selected="true" class="inline-flex items-center justify-center gap-2 rounded-sm px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:text-text aria-selected:bg-surface-inverse aria-selected:text-text-inverse sm:px-5">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" /></svg>
               CLI
             </button>
             <button type="button" role="tab" id="tab-mcp" aria-controls="panel-mcp" aria-selected="false" tabindex="-1" class="inline-flex items-center justify-center gap-2 rounded-sm px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:text-text aria-selected:bg-surface-inverse aria-selected:text-text-inverse sm:px-5">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4" /></svg>
-              <span>MCP<span class="hidden sm:inline"> for agents</span></span>
+              <span data-i18n="landing.interfaces.tabMcp">MCP<span class="hidden sm:inline"> for agents</span></span>
             </button>
             <button type="button" role="tab" id="tab-dashboard" aria-controls="panel-dashboard" aria-selected="false" tabindex="-1" class="inline-flex items-center justify-center gap-2 rounded-sm px-3 py-2 text-sm font-medium text-text-muted transition-colors hover:text-text aria-selected:bg-surface-inverse aria-selected:text-text-inverse sm:px-5">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16M9 10h12" /></svg>
-              Dashboard
+              <span data-i18n="landing.interfaces.tabDashboard">Dashboard</span>
             </button>
           </div>
 
@@ -184,17 +192,17 @@ Expires: 2026-12-09 09:05 UTC</span><!-- /shots:hero-terminal --></pre>
           <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs make a panel without focusable content focusable -->
           <div role="tabpanel" id="panel-cli" aria-labelledby="tab-cli" tabindex="0" class="mt-8 grid grid-cols-1 items-center gap-10 rounded-md lg:grid-cols-12">
             <div class="lg:col-span-5">
-              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span>Available</p>
-              <h3 class="mt-4 text-2xl font-semibold tracking-tight">For you and your scripts</h3>
-              <p class="mt-3 text-text-muted text-pretty">One self-contained binary for macOS, Linux and Windows. Publish a file, a folder or a ZIP, share it and pull the feedback back, from your shell or from any agent with a terminal. Run <code class="font-mono text-text">portifact login</code> to sign in.</p>
+              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span><span data-i18n="landing.common.available">Available</span></p>
+              <h3 class="mt-4 text-2xl font-semibold tracking-tight" data-i18n="landing.interfaces.cli.title">For you and your scripts</h3>
+              <p class="mt-3 text-text-muted text-pretty" data-i18n="landing.interfaces.cli.body">One self-contained binary for macOS, Linux and Windows. Publish a file, a folder or a ZIP, share it and pull the feedback back, from your shell or from any agent with a terminal. Run <code class="font-mono text-text">portifact login</code> to sign in.</p>
               <ul class="mt-6 space-y-3 text-sm">
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Stable <code class="font-mono">--json</code> output and non-interactive flags</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Shows the file list before uploading and skips secrets, <code class="font-mono">.git</code> and <code class="font-mono">node_modules</code></span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Signs in with a device code and keeps credentials in the system keychain</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Versions, rollback and private sources only you can pull back</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.cli.json">Stable <code class="font-mono">--json</code> output and non-interactive flags</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.cli.preview">Shows the file list before uploading and skips secrets, <code class="font-mono">.git</code> and <code class="font-mono">node_modules</code></span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.cli.signIn">Signs in with a device code and keeps credentials in the system keychain</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.cli.versions">Versions, rollback and private sources only you can pull back</span></li>
               </ul>
             </div>
-            <div class="lg:col-span-7" role="img" aria-label="A terminal session with the CLI output: portifact publish lists the prototype folder&#39;s three files, uploads them and prints the private URL and expiry, portifact access add shares it with two email addresses, and portifact annotations export saves every review thread as Markdown in feedback.md.">
+            <div class="lg:col-span-7" role="img" data-i18n-aria-label="landing.interfaces.cli.terminalLabel" aria-label="A terminal session with the CLI output: portifact publish lists the prototype folder&#39;s three files, uploads them and prints the private URL and expiry, portifact access add shares it with two email addresses, and portifact annotations export saves every review thread as Markdown in feedback.md.">
               <div class="overflow-hidden rounded-md border border-terminal-border bg-terminal text-terminal-text shadow-float">
                 <div class="flex items-center gap-1.5 border-b border-terminal-border px-4 py-3">
                   <span class="size-2.5 rounded-full bg-terminal-border"></span>
@@ -236,23 +244,23 @@ Portifact bar  on
           <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs make a panel without focusable content focusable -->
           <div role="tabpanel" id="panel-mcp" aria-labelledby="tab-mcp" tabindex="0" hidden class="mt-8 grid grid-cols-1 items-center gap-10 rounded-md lg:grid-cols-12">
             <div class="lg:col-span-5">
-              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span>Available</p>
-              <h3 class="mt-4 text-2xl font-semibold tracking-tight">For your agent, directly</h3>
-              <p class="mt-3 text-text-muted text-pretty">A remote MCP server at <code class="font-mono text-text">https://app.portifact.com/mcp</code>. Add it to your client and sign in with your Portifact account in the browser. Your agent publishes documents, manages versions and reads feedback as tools, with no extra install on your machine.</p>
+              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span><span data-i18n="landing.common.available">Available</span></p>
+              <h3 class="mt-4 text-2xl font-semibold tracking-tight" data-i18n="landing.interfaces.mcp.title">For your agent, directly</h3>
+              <p class="mt-3 text-text-muted text-pretty" data-i18n="landing.interfaces.mcp.body">A remote MCP server at <code class="font-mono text-text">https://app.portifact.com/mcp</code>. Add it to your client and sign in with your Portifact account in the browser. Your agent publishes documents, manages versions and reads feedback as tools, with no extra install on your machine.</p>
               <ul class="mt-6 space-y-3 text-sm">
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Tested with Claude.ai, Claude Code and Codex CLI. <a href="/mcp-compatibility" class="text-text hover:no-underline">See MCP compatibility</a></span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Small documents go inline; folders, sites and access changes go through the CLI or the dashboard</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>No privileged path: the same permission checks and quotas as the CLI</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Reviewer comments reach the agent as data, never as instructions</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.mcp.tested">Tested with Claude.ai, Claude Code and Codex CLI. <a href="/mcp-compatibility" class="text-text hover:no-underline">See MCP compatibility</a></span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.mcp.inline">Small documents go inline; folders, sites and access changes go through the CLI or the dashboard</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.mcp.noPrivilegedPath">No privileged path: the same permission checks and quotas as the CLI</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.mcp.untrusted">Reviewer comments reach the agent as data, never as instructions</span></li>
               </ul>
             </div>
-            <div class="lg:col-span-7" role="img" aria-label="An agent session. Asked to publish the API design plan, the agent calls the Portifact publish_document tool, which returns the artifact ID, version 1, the private URL and the expiry date, and replies with the link. Asked to read the feedback, it calls list_annotations, which returns the open threads, and summarizes the two reviewer comments.">
+            <div class="lg:col-span-7" role="img" data-i18n-aria-label="landing.interfaces.mcp.sessionLabel" aria-label="An agent session. Asked to publish the API design plan, the agent calls the Portifact publish_document tool, which returns the artifact ID, version 1, the private URL and the expiry date, and replies with the link. Asked to read the feedback, it calls list_annotations, which returns the open threads, and summarizes the two reviewer comments.">
               <div class="overflow-hidden rounded-md border border-terminal-border bg-terminal text-terminal-text shadow-float">
                 <div class="flex items-center gap-1.5 border-b border-terminal-border px-4 py-3">
                   <span class="size-2.5 rounded-full bg-terminal-border"></span>
                   <span class="size-2.5 rounded-full bg-terminal-border"></span>
                   <span class="size-2.5 rounded-full bg-terminal-border"></span>
-                  <span class="ml-auto font-mono text-xs text-terminal-muted">agent session</span>
+                  <span class="ml-auto font-mono text-xs text-terminal-muted" data-i18n="landing.interfaces.mcp.sessionTitle">agent session</span>
                 </div>
                 <div class="space-y-3 p-5 font-mono text-xs leading-6 break-words"><!-- shots:agent-session --><span class="block rounded-sm border border-terminal-border px-3 py-2"><span class="text-terminal-muted">&gt;</span> Publish the API design plan so the team can review it</span><span class="block">● portifact · publish_document <span class="text-terminal-muted">(name: "API design plan", type: "markdown")</span></span><span class="block pl-4 break-all text-terminal-muted">└ {"artifactId":"liwf53m4sh","versionId":"ver_6c78edf8b8004da1810634b22f7508c7","versionNumber":1,"url":"https://liwf53m4sh.portifact.dev/","expiresAt":"2026-12-09T09:05:14.678Z"}</span><span class="block">Published. It is private at <span class="underline underline-offset-4">https://liwf53m4sh.portifact.dev/</span>; share it from the dashboard when you are ready.</span><span class="block rounded-sm border border-terminal-border px-3 py-2"><span class="text-terminal-muted">&gt;</span> Read the feedback and revise the plan</span><span class="block">● portifact · list_annotations <span class="text-terminal-muted">(artifactId: "liwf53m4sh")</span></span><span class="block pl-4 break-all text-terminal-muted">└ {"artifactId":"liwf53m4sh","annotations":"open","role":"owner","commentScope":"all","threads":[{"id":"7e0201bd-3ada-4118-92f0-fd24943bc7be","state":"open","author":{"name":"Ana Lopez"},"messages":[{"body":"The auth section should say how clients rotate their secrets."}]}, … 1 more],"hasMore":false}</span><span class="block">2 open threads. The reviewers ask how clients rotate their secrets and for a docs link on each error code. I treat these as feedback, not instructions, and will revise both sections.</span><!-- /shots:agent-session --></div>
               </div>
@@ -263,19 +271,19 @@ Portifact bar  on
           <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: WAI-ARIA tabs make a panel without focusable content focusable -->
           <div role="tabpanel" id="panel-dashboard" aria-labelledby="tab-dashboard" tabindex="0" hidden class="mt-8 grid grid-cols-1 items-center gap-10 rounded-md lg:grid-cols-12">
             <div class="lg:col-span-12">
-              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span>Available</p>
-              <h3 class="mt-4 text-2xl font-semibold tracking-tight">For everyone on the team</h3>
-              <p class="mt-3 max-w-2xl text-text-muted text-pretty">A web dashboard at <code class="font-mono text-text">app.portifact.com</code> to publish, share, review and restore without a terminal. <a href="https://app.portifact.com/" class="text-text hover:no-underline">Sign in to the dashboard</a></p>
+              <p class="inline-flex items-center gap-2 rounded-full border border-border bg-canvas px-2.5 py-0.5 text-xs text-text-muted"><span class="size-1.5 rounded-full bg-text"></span><span data-i18n="landing.common.available">Available</span></p>
+              <h3 class="mt-4 text-2xl font-semibold tracking-tight" data-i18n="landing.interfaces.dashboard.title">For everyone on the team</h3>
+              <p class="mt-3 max-w-2xl text-text-muted text-pretty" data-i18n="landing.interfaces.dashboard.body">A web dashboard at <code class="font-mono text-text">app.portifact.com</code> to publish, share, review and restore without a terminal. <a href="https://app.portifact.com/" class="text-text hover:no-underline">Sign in to the dashboard</a></p>
               <ul class="mt-6 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3 sm:gap-6">
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Publish files, a folder or a ZIP from the browser, or edit Markdown and text in place</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Change access, comment in the review viewer, roll back versions and restore archived artifacts</span></li>
-                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>See your browser sessions and disconnect apps, including the CLI and MCP clients</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.dashboard.publish">Publish files, a folder or a ZIP from the browser, or edit Markdown and text in place</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.dashboard.manage">Change access, comment in the review viewer, roll back versions and restore archived artifacts</span></li>
+                <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.interfaces.dashboard.sessions">See your browser sessions and disconnect apps, including the CLI and MCP clients</span></li>
               </ul>
             </div>
             <div class="lg:col-span-12">
               <picture class="block overflow-hidden rounded-lg border border-border shadow-float">
                 <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="./src/assets/landing/dashboard-list-dark.webp 1280w, ./src/assets/landing/dashboard-list-dark@2x.webp 2560w" sizes="(min-width: 1152px) 1104px, 100vw" />
-                <img src="./src/assets/landing/dashboard-list-light.webp" srcset="./src/assets/landing/dashboard-list-light.webp 1280w, ./src/assets/landing/dashboard-list-light@2x.webp 2560w" sizes="(min-width: 1152px) 1104px, 100vw" width="1280" height="650" alt="The Portifact dashboard&#39;s artifact list, with a search box and filters for state, type, access and comments. Four artifacts are listed: API design plan, Markdown, open to signed-in users; Checkout prototype and Billing migration, sites restricted to the people they are shared with; and Release notes, public text. Each row shows its state, expiry date, size and recent activity, such as open comment threads." decoding="async" loading="lazy" class="block h-auto w-full" />
+                <img src="./src/assets/landing/dashboard-list-light.webp" srcset="./src/assets/landing/dashboard-list-light.webp 1280w, ./src/assets/landing/dashboard-list-light@2x.webp 2560w" sizes="(min-width: 1152px) 1104px, 100vw" width="1280" height="650" data-i18n-alt="landing.interfaces.dashboard.screenshotAlt" alt="The Portifact dashboard&#39;s artifact list, with a search box and filters for state, type, access and comments. Four artifacts are listed: API design plan, Markdown, open to signed-in users; Checkout prototype and Billing migration, sites restricted to the people they are shared with; and Release notes, public text. Each row shows its state, expiry date, size and recent activity, such as open comment threads." decoding="async" loading="lazy" class="block h-auto w-full" />
               </picture>
             </div>
           </div>
@@ -286,43 +294,43 @@ Portifact bar  on
       <section id="how" aria-labelledby="how-title">
         <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
           <div class="max-w-2xl">
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">How it works</p>
-            <h2 id="how-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">From agent output to feedback, in one loop</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">No zip files, screenshots or pasted walls of text. The work stays where it was made, and the comments come back to the agent that made it.</p>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.how.eyebrow">How it works</p>
+            <h2 id="how-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.how.title">From agent output to feedback, in one loop</h2>
+            <p class="mt-4 text-lg text-text-muted text-pretty" data-i18n="landing.how.lead">No zip files, screenshots or pasted walls of text. The work stays where it was made, and the comments come back to the agent that made it.</p>
           </div>
           <ol class="relative mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <li class="flex flex-col rounded-md border border-border bg-surface-raised p-5">
               <span class="flex size-8 items-center justify-center rounded-full border border-border-strong font-mono text-sm font-semibold">1</span>
-              <h3 class="mt-5 font-semibold">Your agent writes</h3>
-              <p class="mt-2 text-sm text-text-muted">A plan, a progress report or a prototype lands on disk as HTML, Markdown or text.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.how.write.title">Your agent writes</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.how.write.body">A plan, a progress report or a prototype lands on disk as HTML, Markdown or text.</p>
               <code class="mt-auto block truncate pt-5 font-mono text-xs text-text-muted">report.html</code>
             </li>
             <li class="flex flex-col rounded-md border border-border bg-surface-raised p-5">
               <span class="flex size-8 items-center justify-center rounded-full border border-border-strong font-mono text-sm font-semibold">2</span>
-              <h3 class="mt-5 font-semibold">Publish it</h3>
-              <p class="mt-2 text-sm text-text-muted">One command or one tool call returns a private URL on its own origin.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.how.publish.title">Publish it</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.how.publish.body">One command or one tool call returns a private URL on its own origin.</p>
               <code class="mt-auto block truncate pt-5 font-mono text-xs text-text-muted">portifact publish</code>
             </li>
             <li class="flex flex-col rounded-md border border-border bg-surface-raised p-5">
               <span class="flex size-8 items-center justify-center rounded-full border border-border-strong font-mono text-sm font-semibold">3</span>
-              <h3 class="mt-5 font-semibold">Share it</h3>
-              <p class="mt-2 text-sm text-text-muted">Open it to the people who should see it, and nobody else.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.how.share.title">Share it</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.how.share.body">Open it to the people who should see it, and nobody else.</p>
               <code class="mt-auto block truncate pt-5 font-mono text-xs text-text-muted">portifact access add</code>
             </li>
             <li class="flex flex-col rounded-md border border-border bg-surface-raised p-5">
               <span class="flex size-8 items-center justify-center rounded-full border border-border-strong font-mono text-sm font-semibold">4</span>
-              <h3 class="mt-5 font-semibold">Collect comments</h3>
-              <p class="mt-2 text-sm text-text-muted">Reviewers select a sentence or an element and start a thread on it.</p>
-              <code class="mt-auto block truncate pt-5 font-mono text-xs text-text-muted">review mode</code>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.how.collect.title">Collect comments</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.how.collect.body">Reviewers select a sentence or an element and start a thread on it.</p>
+              <code class="mt-auto block truncate pt-5 font-mono text-xs text-text-muted" data-i18n="landing.how.collect.label">review mode</code>
             </li>
             <li class="flex flex-col rounded-md border border-text bg-surface-inverse p-5 text-text-inverse sm:col-span-2 lg:col-span-1">
               <span class="flex size-8 items-center justify-center rounded-full bg-canvas font-mono text-sm font-semibold text-text">5</span>
-              <h3 class="mt-5 font-semibold">Your agent revises</h3>
-              <p class="mt-2 text-sm opacity-80">It exports the threads, applies the changes and publishes again at the same URL.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.how.revise.title">Your agent revises</h3>
+              <p class="mt-2 text-sm opacity-80" data-i18n="landing.how.revise.body">It exports the threads, applies the changes and publishes again at the same URL.</p>
               <code class="mt-auto block truncate pt-5 font-mono text-xs opacity-80">annotations export</code>
             </li>
           </ol>
-          <p class="mt-6 text-sm text-text-muted">The steps show CLI commands, and the dashboard does each of them too. Through MCP your agent publishes documents and reads the threads; changing access stays with the CLI and the dashboard.</p>
+          <p class="mt-6 text-sm text-text-muted" data-i18n="landing.how.note">The steps show CLI commands, and the dashboard does each of them too. Through MCP your agent publishes documents and reads the threads; changing access stays with the CLI and the dashboard.</p>
         </div>
       </section>
 
@@ -330,67 +338,67 @@ Portifact bar  on
       <section id="access" class="border-y border-border bg-backdrop" aria-labelledby="access-title">
         <div class="mx-auto grid grid-cols-1 max-w-6xl items-center gap-14 px-4 py-20 sm:px-6 sm:py-28 lg:grid-cols-2">
           <div>
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Access control</p>
-            <h2 id="access-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Private until you decide otherwise</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">Every new artifact starts visible only to you. Widen the circle one step at a time, and narrow it again whenever you want.</p>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.access.eyebrow">Access control</p>
+            <h2 id="access-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.access.title">Private until you decide otherwise</h2>
+            <p class="mt-4 text-lg text-text-muted text-pretty" data-i18n="landing.access.lead">Every new artifact starts visible only to you. Widen the circle one step at a time, and narrow it again whenever you want.</p>
             <dl class="mt-8 divide-y divide-border border-y border-border">
               <div class="flex gap-4 py-4">
                 <dt class="flex w-28 shrink-0 items-center gap-2 font-semibold">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
-                  Private
+                  <span data-i18n="landing.access.private.name">Private</span>
                 </dt>
-                <dd class="text-text-muted">Only you. The default for every new artifact.</dd>
+                <dd class="text-text-muted" data-i18n="landing.access.private.description">Only you. The default for every new artifact.</dd>
               </div>
               <div class="flex gap-4 py-4">
                 <dt class="flex w-28 shrink-0 items-center gap-2 font-semibold">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>
-                  Email list
+                  <span data-i18n="landing.access.emailList.name">Email list</span>
                 </dt>
-                <dd class="text-text-muted">The people you name, after they confirm their address.</dd>
+                <dd class="text-text-muted" data-i18n="landing.access.emailList.description">The people you name, after they confirm their address.</dd>
               </div>
               <div class="flex gap-4 py-4">
                 <dt class="flex w-28 shrink-0 items-center gap-2 font-semibold">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6" /></svg>
-                  Signed in
+                  <span data-i18n="landing.access.signedIn.name">Signed in</span>
                 </dt>
-                <dd class="text-text-muted">Anyone with a Portifact account.</dd>
+                <dd class="text-text-muted" data-i18n="landing.access.signedIn.description">Anyone with a Portifact account.</dd>
               </div>
               <div class="flex gap-4 py-4">
                 <dt class="flex w-28 shrink-0 items-center gap-2 font-semibold">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" /></svg>
-                  Public
+                  <span data-i18n="landing.access.public.name">Public</span>
                 </dt>
-                <dd class="text-text-muted">Anyone with the link. Still not indexed unless you allow it. New accounts can choose it 15 minutes after signing up.</dd>
+                <dd class="text-text-muted" data-i18n="landing.access.public.description">Anyone with the link. Still not indexed unless you allow it. New accounts can choose it 15 minutes after signing up.</dd>
               </div>
             </dl>
-            <p class="mt-6 text-sm text-text-muted">Publishing a new version keeps the current access. An update never widens the audience.</p>
+            <p class="mt-6 text-sm text-text-muted" data-i18n="landing.access.note">Publishing a new version keeps the current access. An update never widens the audience.</p>
           </div>
 
           <figure>
-            <div role="img" aria-label="Four nested circles of access. The innermost is Private, only you. Around it the email list, then everyone signed in, and on the outside the public." class="rounded-lg border border-dashed border-border-strong bg-canvas p-3 sm:p-5">
+            <div role="img" data-i18n-aria-label="landing.access.diagramLabel" aria-label="Four nested circles of access. The innermost is Private, only you. Around it the email list, then everyone signed in, and on the outside the public." class="rounded-lg border border-dashed border-border-strong bg-canvas p-3 sm:p-5">
               <div class="flex items-center justify-between gap-2 px-1 pb-3 text-xs sm:text-sm">
-                <span class="flex items-center gap-2 font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" /></svg>Public</span>
-                <span class="text-text-muted">anyone with the link</span>
+                <span class="flex items-center gap-2 font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18" /></svg><span data-i18n="landing.access.public.name">Public</span></span>
+                <span class="text-text-muted" data-i18n="landing.access.public.hint">anyone with the link</span>
               </div>
               <div class="rounded-md border border-border-strong bg-surface p-3 sm:p-5">
                 <div class="flex items-center justify-between gap-2 px-1 pb-3 text-xs sm:text-sm">
-                  <span class="flex items-center gap-2 font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6" /></svg>Signed in</span>
-                  <span class="text-text-muted">any account</span>
+                  <span class="flex items-center gap-2 font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0"><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6.5 6.5 0 0 1 3.5 6" /></svg><span data-i18n="landing.access.signedIn.name">Signed in</span></span>
+                  <span class="text-text-muted" data-i18n="landing.access.signedIn.hint">any account</span>
                 </div>
                 <div class="rounded-md border border-border-strong bg-surface-raised p-3 sm:p-5">
                   <div class="flex items-center justify-between gap-2 px-1 pb-3 text-xs sm:text-sm">
-                    <span class="flex items-center gap-2 font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>Email list</span>
-                    <span class="hidden text-text-muted sm:inline">people you name</span>
+                    <span class="flex items-center gap-2 font-semibold"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-4 shrink-0"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg><span data-i18n="landing.access.emailList.name">Email list</span></span>
+                    <span class="hidden text-text-muted sm:inline" data-i18n="landing.access.emailList.hint">people you name</span>
                   </div>
                   <div class="flex flex-wrap gap-1.5 px-1 pb-4 font-mono text-xs">
                     <span class="rounded-full border border-border px-2 py-0.5">ana@example.com</span>
                     <span class="rounded-full border border-border px-2 py-0.5">marco@example.com</span>
-                    <span class="rounded-full border border-dashed border-border-strong px-2 py-0.5 text-text-muted">+ add</span>
+                    <span class="rounded-full border border-dashed border-border-strong px-2 py-0.5 text-text-muted" data-i18n="landing.access.emailList.add">+ add</span>
                   </div>
                   <div class="flex flex-col items-center gap-2 rounded-md bg-surface-inverse px-4 py-8 text-center text-text-inverse sm:py-10">
                     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" class="size-6"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
-                    <span class="text-lg font-semibold">Private</span>
-                    <span class="rounded-full border border-current px-2 py-0.5 text-xs">Default · only you</span>
+                    <span class="text-lg font-semibold" data-i18n="landing.access.private.name">Private</span>
+                    <span class="rounded-full border border-current px-2 py-0.5 text-xs" data-i18n="landing.access.private.hint">Default · only you</span>
                   </div>
                 </div>
               </div>
@@ -403,21 +411,21 @@ Portifact bar  on
       <section id="review" aria-labelledby="review-title">
         <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
           <div class="max-w-2xl">
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Review and annotations</p>
-            <h2 id="review-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Feedback pinned to the exact thing it is about</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">Turn on review mode and reviewers comment right on the artifact. Your agent gets every thread with its anchor, ready to act on.</p>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.review.eyebrow">Review and annotations</p>
+            <h2 id="review-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.review.title">Feedback pinned to the exact thing it is about</h2>
+            <p class="mt-4 text-lg text-text-muted text-pretty" data-i18n="landing.review.lead">Turn on review mode and reviewers comment right on the artifact. Your agent gets every thread with its anchor, ready to act on.</p>
           </div>
 
           <figure class="mt-12">
             <picture class="block overflow-hidden rounded-lg border border-border shadow-float">
               <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="./src/assets/landing/review-viewer-dark.webp 1200w, ./src/assets/landing/review-viewer-dark@2x.webp 2400w" sizes="(min-width: 1152px) 1104px, 100vw" />
-              <img src="./src/assets/landing/review-viewer-light.webp" srcset="./src/assets/landing/review-viewer-light.webp 1200w, ./src/assets/landing/review-viewer-light@2x.webp 2400w" sizes="(min-width: 1152px) 1104px, 100vw" width="1200" height="800" alt="The Portifact viewer on the Checkout prototype. Two comment highlights overlap on the sentence about free returns and delivery times. The reviewer clicked the overlap, so the comments sidebar shows both threads together: Marco Rossi asks to show the arrival date instead of 3 to 5 business days, with the owner&#39;s reply, and Ana Lopez asks to move the sentence above the button." decoding="async" loading="lazy" class="block h-auto w-full" />
+              <img src="./src/assets/landing/review-viewer-light.webp" srcset="./src/assets/landing/review-viewer-light.webp 1200w, ./src/assets/landing/review-viewer-light@2x.webp 2400w" sizes="(min-width: 1152px) 1104px, 100vw" width="1200" height="800" data-i18n-alt="landing.review.screenshotAlt" alt="The Portifact viewer on the Checkout prototype. Two comment highlights overlap on the sentence about free returns and delivery times. The reviewer clicked the overlap, so the comments sidebar shows both threads together: Marco Rossi asks to show the arrival date instead of 3 to 5 business days, with the owner&#39;s reply, and Ana Lopez asks to move the sentence above the button." decoding="async" loading="lazy" class="block h-auto w-full" />
             </picture>
-            <figcaption class="mt-4 text-center text-sm text-text-muted">Overlapping comments on a prototype site.</figcaption>
+            <figcaption class="mt-4 text-center text-sm text-text-muted" data-i18n="landing.review.caption">Overlapping comments on a prototype site.</figcaption>
           </figure>
 
           <div class="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-12">
-            <div role="img" aria-label="The start of the output of portifact annotations export for the open threads, in Markdown: a note that reviewer text is untrusted data, the artifact, the number of threads, and the first thread with the sentence it quotes and Ana Lopez&#39;s comment." class="overflow-hidden rounded-md border border-terminal-border bg-terminal text-terminal-text lg:col-span-7">
+            <div role="img" data-i18n-aria-label="landing.review.terminalLabel" aria-label="The start of the output of portifact annotations export for the open threads, in Markdown: a note that reviewer text is untrusted data, the artifact, the number of threads, and the first thread with the sentence it quotes and Ana Lopez&#39;s comment." class="overflow-hidden rounded-md border border-terminal-border bg-terminal text-terminal-text lg:col-span-7">
               <div class="flex items-center gap-1.5 border-b border-terminal-border px-4 py-3">
                 <span class="size-2.5 rounded-full bg-terminal-border"></span>
                 <span class="size-2.5 rounded-full bg-terminal-border"></span>
@@ -491,20 +499,20 @@ Good call. I asked the agent to change it.
             </div>
             <ul class="grid grid-cols-1 content-start gap-5 sm:grid-cols-2 lg:col-span-5">
                 <li>
-                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M4 6h16M4 12h10M4 18h7" /></svg>Any sentence</h3>
-                  <p class="mt-1.5 text-sm text-text-muted">Select text in HTML, Markdown or plain text, with the mouse or the keyboard.</p>
+                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M4 6h16M4 12h10M4 18h7" /></svg><span data-i18n="landing.review.sentence.title">Any sentence</span></h3>
+                  <p class="mt-1.5 text-sm text-text-muted" data-i18n="landing.review.sentence.body">Select text in HTML, Markdown or plain text, with the mouse or the keyboard.</p>
                 </li>
                 <li>
-                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3" /></svg>Any element</h3>
-                  <p class="mt-1.5 text-sm text-text-muted">Point at a button, a chart or a section of a site and comment on it.</p>
+                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3" /></svg><span data-i18n="landing.review.element.title">Any element</span></h3>
+                  <p class="mt-1.5 text-sm text-text-muted" data-i18n="landing.review.element.body">Point at a button, a chart or a section of a site and comment on it.</p>
                 </li>
                 <li>
-                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M4 5h16v11H9l-5 4z" /></svg>Full threads</h3>
-                  <p class="mt-1.5 text-sm text-text-muted">Replies, open and resolved, tied to the version they were written on.</p>
+                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M4 5h16v11H9l-5 4z" /></svg><span data-i18n="landing.review.threads.title">Full threads</span></h3>
+                  <p class="mt-1.5 text-sm text-text-muted" data-i18n="landing.review.threads.body">Replies, open and resolved, tied to the version they were written on.</p>
                 </li>
                 <li>
-                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14" /></svg>Export for agents</h3>
-                  <p class="mt-1.5 text-sm text-text-muted">JSON or Markdown, read as data, never as instructions to follow.</p>
+                  <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M12 4v11m-5-5 5 5 5-5M5 20h14" /></svg><span data-i18n="landing.review.export.title">Export for agents</span></h3>
+                  <p class="mt-1.5 text-sm text-text-muted" data-i18n="landing.review.export.body">JSON or Markdown, read as data, never as instructions to follow.</p>
                 </li>
               </ul>
             </div>
@@ -515,41 +523,41 @@ Good call. I asked the agent to change it.
       <section id="lifecycle" class="border-y border-border bg-backdrop" aria-labelledby="lifecycle-title">
         <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
           <div class="max-w-2xl">
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Lifecycle</p>
-            <h2 id="lifecycle-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Online while it matters, recoverable after</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">Agents produce a lot. Portifact keeps the active work online and moves the rest out of the way without losing it.</p>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.lifecycle.eyebrow">Lifecycle</p>
+            <h2 id="lifecycle-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.lifecycle.title">Online while it matters, recoverable after</h2>
+            <p class="mt-4 text-lg text-text-muted text-pretty" data-i18n="landing.lifecycle.lead">Agents produce a lot. Portifact keeps the active work online and moves the rest out of the way without losing it.</p>
           </div>
           <figure class="mt-12">
-            <div role="img" aria-label="Timeline. An artifact is online for 30 days, and every update restarts the 30 days. Then it is archived for six months, during which you can restore it. After that it is deleted.">
+            <div role="img" data-i18n-aria-label="landing.lifecycle.timelineLabel" aria-label="Timeline. An artifact is online for 30 days, and every update restarts the 30 days. Then it is archived for six months, during which you can restore it. After that it is deleted.">
               <div class="flex justify-between pb-3 font-mono text-xs text-text-muted">
-                <span>Last update</span>
-                <span class="hidden sm:inline">Restore any time while archived</span>
-                <span>7 months later</span>
+                <span data-i18n="landing.lifecycle.timeline.lastUpdate">Last update</span>
+                <span class="hidden sm:inline" data-i18n="landing.lifecycle.timeline.restore">Restore any time while archived</span>
+                <span data-i18n="landing.lifecycle.timeline.end">7 months later</span>
               </div>
               <div class="flex h-16 overflow-hidden rounded-md border border-border-strong text-xs sm:text-sm">
                 <div class="flex w-1/3 flex-col justify-center bg-surface-inverse px-3 text-text-inverse sm:px-4">
-                  <span class="font-semibold">Online</span>
-                  <span class="opacity-80">30 days</span>
+                  <span class="font-semibold" data-i18n="landing.lifecycle.timeline.online">Online</span>
+                  <span class="opacity-80" data-i18n="landing.lifecycle.timeline.onlineDuration">30 days</span>
                 </div>
                 <div class="bg-hatch flex flex-1 items-center border-l border-border-strong px-3 sm:px-4">
-                  <span class="rounded-sm border border-border-strong bg-canvas px-2 py-1"><span class="font-semibold">Archived</span> <span class="text-text-muted">· 6 months</span></span>
+                  <span class="rounded-sm border border-border-strong bg-canvas px-2 py-1"><span class="font-semibold" data-i18n="landing.lifecycle.timeline.archived">Archived</span> <span class="text-text-muted" data-i18n="landing.lifecycle.timeline.archivedDuration">· 6 months</span></span>
                 </div>
-                <div class="flex w-14 items-center justify-center border-l border-dashed border-border-strong bg-canvas text-text-muted sm:w-24">Deleted</div>
+                <div class="flex w-14 items-center justify-center border-l border-dashed border-border-strong bg-canvas text-text-muted sm:w-24" data-i18n="landing.lifecycle.timeline.deleted">Deleted</div>
               </div>
             </div>
           </figure>
           <ol class="mt-10 grid grid-cols-1 gap-8 sm:grid-cols-3">
             <li class="border-t border-text pt-5">
-              <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4" /></svg>30 days online, renewed on update</h3>
-              <p class="mt-2 text-sm text-text-muted">Each new version restarts the clock, so work in progress never disappears mid-review.</p>
+              <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4" /></svg><span data-i18n="landing.lifecycle.online.title">30 days online, renewed on update</span></h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.lifecycle.online.body">Each new version restarts the clock, so work in progress never disappears mid-review.</p>
             </li>
             <li class="border-t border-border-strong pt-5">
-              <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11h14V8M10 12h4" /></svg>Archived for six months</h3>
-              <p class="mt-2 text-sm text-text-muted">Expired artifacts go offline and stop counting as active, with their threads kept.</p>
+              <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><rect x="3" y="4" width="18" height="4" rx="1" /><path d="M5 8v11h14V8M10 12h4" /></svg><span data-i18n="landing.lifecycle.archived.title">Archived for six months</span></h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.lifecycle.archived.body">Expired artifacts go offline and stop counting as active, with their threads kept.</p>
             </li>
             <li class="border-t border-dashed border-border-strong pt-5">
-              <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" /></svg>Restore in one step</h3>
-              <p class="mt-2 text-sm text-text-muted">Bring it back from the CLI, your agent or the dashboard, at the same URL.</p>
+              <h3 class="flex items-center gap-2 font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" /></svg><span data-i18n="landing.lifecycle.restore.title">Restore in one step</span></h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.lifecycle.restore.body">Bring it back from the CLI, your agent or the dashboard, at the same URL.</p>
             </li>
           </ol>
         </div>
@@ -559,44 +567,44 @@ Good call. I asked the agent to change it.
       <section id="security" class="bg-terminal text-terminal-text" aria-labelledby="security-title">
         <div class="mx-auto grid grid-cols-1 max-w-6xl items-center gap-14 px-4 py-20 sm:px-6 sm:py-28 lg:grid-cols-2">
           <div>
-            <p class="font-mono text-xs tracking-widest text-terminal-muted uppercase">Security</p>
-            <h2 id="security-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Every artifact in its own sandbox</h2>
-            <p class="mt-4 text-lg text-terminal-muted text-pretty">Agents write JavaScript. Portifact assumes any published page could be hostile and keeps it away from your account.</p>
+            <p class="font-mono text-xs tracking-widest text-terminal-muted uppercase" data-i18n="landing.security.eyebrow">Security</p>
+            <h2 id="security-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.security.title">Every artifact in its own sandbox</h2>
+            <p class="mt-4 text-lg text-terminal-muted text-pretty" data-i18n="landing.security.lead">Agents write JavaScript. Portifact assumes any published page could be hostile and keeps it away from your account.</p>
             <ul class="mt-8 space-y-5">
               <li class="flex gap-4">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-1 size-5 shrink-0"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z" /></svg>
                 <div>
-                  <h3 class="font-semibold">A separate origin per artifact</h3>
-                  <p class="mt-1 text-sm text-terminal-muted">User content lives on its own subdomain of <code class="font-mono">portifact.dev</code>. Your session, tokens and the API live on <code class="font-mono">portifact.com</code>.</p>
+                  <h3 class="font-semibold" data-i18n="landing.security.origin.title">A separate origin per artifact</h3>
+                  <p class="mt-1 text-sm text-terminal-muted" data-i18n="landing.security.origin.body">User content lives on its own subdomain of <code class="font-mono">portifact.dev</code>. Your session, tokens and the API live on <code class="font-mono">portifact.com</code>.</p>
                 </div>
               </li>
               <li class="flex gap-4">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-1 size-5 shrink-0"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 21 12a10.6 10.6 0 0 1-2.4 3.2M6.6 6.6A10.6 10.6 0 0 0 3 12a10 10 0 0 0 12.4 5.4" /></svg>
                 <div>
-                  <h3 class="font-semibold">Quiet by default</h3>
-                  <p class="mt-1 text-sm text-terminal-muted">Not indexed by search engines and not embeddable in other sites unless you allow it.</p>
+                  <h3 class="font-semibold" data-i18n="landing.security.quiet.title">Quiet by default</h3>
+                  <p class="mt-1 text-sm text-terminal-muted" data-i18n="landing.security.quiet.body">Not indexed by search engines and not embeddable in other sites unless you allow it.</p>
                 </div>
               </li>
               <li class="flex gap-4">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-1 size-5 shrink-0"><path d="m5 12 5 5 9-10" /></svg>
                 <div>
-                  <h3 class="font-semibold">Verified installs, available today</h3>
-                  <p class="mt-1 text-sm text-terminal-muted">The installer checks every download against SHA-256 checksums, and releases carry signed build provenance you can verify with <code class="font-mono whitespace-nowrap">gh attestation verify</code>.</p>
+                  <h3 class="font-semibold" data-i18n="landing.security.installs.title">Verified installs, available today</h3>
+                  <p class="mt-1 text-sm text-terminal-muted" data-i18n="landing.security.installs.body">The installer checks every download against SHA-256 checksums, and releases carry signed build provenance you can verify with <code class="font-mono whitespace-nowrap">gh attestation verify</code>.</p>
                 </div>
               </li>
             </ul>
           </div>
 
           <figure>
-            <div role="img" aria-label="Diagram. On one side portifact.com holds the dashboard, the API, the MCP server, sessions and tokens. On the other side each artifact runs on its own portifact.dev subdomain. A wall between them blocks cookies, credentials and API access." class="grid grid-cols-1 gap-3 font-mono text-xs sm:text-sm md:grid-cols-11 md:items-stretch">
+            <div role="img" data-i18n-aria-label="landing.security.diagramLabel" aria-label="Diagram. On one side portifact.com holds the dashboard, the API, the MCP server, sessions and tokens. On the other side each artifact runs on its own portifact.dev subdomain. A wall between them blocks cookies, credentials and API access." class="grid grid-cols-1 gap-3 font-mono text-xs sm:text-sm md:grid-cols-11 md:items-stretch">
               <div class="rounded-md border border-terminal-border p-4 md:col-span-5">
                 <p class="font-semibold">portifact.com</p>
-                <p class="mt-1 text-terminal-muted">trusted</p>
+                <p class="mt-1 text-terminal-muted" data-i18n="landing.security.diagram.trusted">trusted</p>
                 <div class="mt-4 space-y-2">
-                  <p class="rounded-sm border border-terminal-border px-3 py-2">Dashboard</p>
-                  <p class="rounded-sm border border-terminal-border px-3 py-2">API and MCP</p>
-                  <p class="rounded-sm border border-terminal-border px-3 py-2">Sessions and tokens</p>
-                  <p class="rounded-sm border border-terminal-border px-3 py-2">Review viewer</p>
+                  <p class="rounded-sm border border-terminal-border px-3 py-2" data-i18n="landing.security.diagram.dashboard">Dashboard</p>
+                  <p class="rounded-sm border border-terminal-border px-3 py-2" data-i18n="landing.security.diagram.api">API and MCP</p>
+                  <p class="rounded-sm border border-terminal-border px-3 py-2" data-i18n="landing.security.diagram.sessions">Sessions and tokens</p>
+                  <p class="rounded-sm border border-terminal-border px-3 py-2" data-i18n="landing.security.diagram.viewer">Review viewer</p>
                 </div>
               </div>
               <div class="flex items-center justify-center gap-3 md:col-span-1 md:flex-col">
@@ -608,12 +616,12 @@ Good call. I asked the agent to change it.
               </div>
               <div class="rounded-md border border-dashed border-terminal-muted p-4 md:col-span-5">
                 <p class="font-semibold">*.portifact.dev</p>
-                <p class="mt-1 text-terminal-muted">user content only</p>
+                <p class="mt-1 text-terminal-muted" data-i18n="landing.security.diagram.userContent">user content only</p>
                 <div class="mt-4 space-y-2">
                   <p class="truncate rounded-sm bg-terminal-border px-3 py-2">k7d2qm4x</p>
                   <p class="truncate rounded-sm bg-terminal-border px-3 py-2">r8f3za1c</p>
                   <p class="truncate rounded-sm bg-terminal-border px-3 py-2">p2n9wd6v</p>
-                  <p class="px-3 py-2 text-terminal-muted">no credentials here</p>
+                  <p class="px-3 py-2 text-terminal-muted" data-i18n="landing.security.diagram.noCredentials">no credentials here</p>
                 </div>
               </div>
             </div>
@@ -625,8 +633,8 @@ Good call. I asked the agent to change it.
       <section id="use-cases" aria-labelledby="use-cases-title">
         <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
           <div class="max-w-2xl">
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Use cases</p>
-            <h2 id="use-cases-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Made for the things agents make</h2>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.useCases.eyebrow">Use cases</p>
+            <h2 id="use-cases-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.useCases.title">Made for the things agents make</h2>
           </div>
           <ul class="mt-12 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <li class="rounded-md border border-border p-5">
@@ -636,8 +644,8 @@ Good call. I asked the agent to change it.
                 <div class="flex items-center gap-2"><span class="size-3 rounded-xs border border-text-muted"></span><span class="bg-highlight h-3 w-2/3 rounded-xs"></span><span class="size-3.5 rounded-full bg-surface-inverse"></span></div>
                 <div class="flex items-center gap-2"><span class="size-3 rounded-xs border border-text-muted"></span><span class="h-1.5 w-2/5 rounded-full bg-border-strong"></span></div>
               </div>
-              <h3 class="mt-5 font-semibold">Implementation plans</h3>
-              <p class="mt-2 text-sm text-text-muted">Review the plan and flag the risky step before the agent writes any code.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.useCases.plans.title">Implementation plans</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.useCases.plans.body">Review the plan and flag the risky step before the agent writes any code.</p>
             </li>
             <li class="rounded-md border border-border p-5">
               <div class="flex h-32 items-end gap-2 rounded-sm bg-surface px-5 pb-5" aria-hidden="true">
@@ -648,8 +656,8 @@ Good call. I asked the agent to change it.
                 <span class="h-16 flex-1 rounded-t-xs bg-border-strong"></span>
                 <span class="h-20 flex-1 rounded-t-xs bg-text"></span>
               </div>
-              <h3 class="mt-5 font-semibold">Progress reports</h3>
-              <p class="mt-2 text-sm text-text-muted">Send stakeholders a link instead of a screenshot, and keep it current with each run.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.useCases.reports.title">Progress reports</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.useCases.reports.body">Send stakeholders a link instead of a screenshot, and keep it current with each run.</p>
             </li>
             <li class="rounded-md border border-border p-5">
               <div class="flex h-32 items-center justify-center rounded-sm bg-surface px-5" aria-hidden="true">
@@ -660,8 +668,8 @@ Good call. I asked the agent to change it.
                   <span class="block h-5 rounded-xs bg-surface-inverse outline-1 outline-offset-2 outline-text outline-dashed"></span>
                 </div>
               </div>
-              <h3 class="mt-5 font-semibold">Prototypes</h3>
-              <p class="mt-2 text-sm text-text-muted">Publish a working HTML prototype with its CSS and JavaScript and let people click through it.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.useCases.prototypes.title">Prototypes</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.useCases.prototypes.body">Publish a working HTML prototype with its CSS and JavaScript and let people click through it.</p>
             </li>
             <li class="rounded-md border border-border p-5">
               <div class="flex h-32 items-center justify-center gap-2 rounded-sm bg-surface px-5 font-mono text-xs" aria-hidden="true">
@@ -669,8 +677,8 @@ Good call. I asked the agent to change it.
                 <span class="flex h-20 flex-1 flex-col items-center justify-center gap-1 rounded-sm border-2 border-text bg-surface-raised font-semibold">B<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="size-3.5"><path d="m5 12 5 5 9-10" /></svg></span>
                 <span class="flex h-16 flex-1 items-center justify-center rounded-sm border border-dashed border-border-strong text-text-muted">C</span>
               </div>
-              <h3 class="mt-5 font-semibold">Design alternatives</h3>
-              <p class="mt-2 text-sm text-text-muted">Put three options side by side, collect opinions on each and let the agent build the winner.</p>
+              <h3 class="mt-5 font-semibold" data-i18n="landing.useCases.designs.title">Design alternatives</h3>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.useCases.designs.body">Put three options side by side, collect opinions on each and let the agent build the winner.</p>
             </li>
           </ul>
         </div>
@@ -680,22 +688,22 @@ Good call. I asked the agent to change it.
       <section id="install" class="border-y border-border bg-backdrop" aria-labelledby="install-title">
         <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
           <div class="max-w-2xl">
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Install</p>
-            <h2 id="install-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Set it up in a minute</h2>
-            <p class="mt-4 text-lg text-text-muted text-pretty">Install the CLI and the agent skill, then sign in with <code class="font-mono text-text">portifact login</code>. You can also connect the MCP server to your agent or use the dashboard in the browser.</p>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.install.eyebrow">Install</p>
+            <h2 id="install-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.install.title">Set it up in a minute</h2>
+            <p class="mt-4 text-lg text-text-muted text-pretty" data-i18n="landing.install.lead">Install the CLI and the agent skill, then sign in with <code class="font-mono text-text">portifact login</code>. You can also connect the MCP server to your agent or use the dashboard in the browser.</p>
           </div>
 
           <div class="mt-12 grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div class="flex flex-col rounded-lg border border-border-strong bg-surface-raised p-5 sm:p-6">
               <div class="flex flex-wrap items-center gap-2">
-                <h3 class="text-lg font-semibold">Let your agent set it up</h3>
-                <span class="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted">Recommended</span>
+                <h3 class="text-lg font-semibold" data-i18n="landing.install.agent.title">Let your agent set it up</h3>
+                <span class="rounded-full border border-border px-2 py-0.5 text-xs text-text-muted" data-i18n="landing.install.agent.recommended">Recommended</span>
               </div>
-              <p class="mt-2 text-sm text-text-muted">Paste this into Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot or any coding agent with a terminal. It installs the CLI for your operating system and teaches the agent how to use Portifact.</p>
+              <p class="mt-2 text-sm text-text-muted" data-i18n="landing.install.agent.body">Paste this into Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot or any coding agent with a terminal. It installs the CLI for your operating system and teaches the agent how to use Portifact.</p>
               <div class="mt-5 rounded-md border border-border bg-surface">
                 <div class="flex items-center justify-between gap-3 px-4 py-3">
                   <div class="min-w-0">
-                    <p class="text-sm font-medium">Prompt for your agent</p>
+                    <p class="text-sm font-medium" data-i18n="landing.install.agent.promptTitle">Prompt for your agent</p>
                     <p class="truncate text-xs text-text-muted">Install Portifact for me and set up its agent skill</p>
                   </div>
                   <button
@@ -703,11 +711,12 @@ Good call. I asked the agent to change it.
                     class="inline-flex h-9 shrink-0 items-center rounded-sm bg-surface-inverse px-3 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85"
                     data-copy-target="agent-prompt"
                     data-copy-status="copy-status"
+                  data-i18n="landing.install.agent.copyPrompt"
                   >Copy prompt</button>
                 </div>
                 <details class="group border-t border-border">
                   <summary class="flex items-center justify-between gap-3 rounded-sm px-4 py-3 text-sm text-text-muted hover:text-text marker-none">
-                    <span><span class="group-open:hidden">Read the prompt before you paste it</span><span class="hidden group-open:inline">Hide the prompt</span></span>
+                    <span><span class="group-open:hidden" data-i18n="landing.install.agent.showPrompt">Read the prompt before you paste it</span><span class="hidden group-open:inline" data-i18n="landing.install.agent.hidePrompt">Hide the prompt</span></span>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-180"><path d="m6 9 6 6 6-6" /></svg>
                   </summary>
                   <pre class="overflow-x-auto border-t border-border px-4 py-4 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap sm:text-sm"><code id="agent-prompt">Install Portifact for me and set up its agent skill.
@@ -727,79 +736,79 @@ Good call. I asked the agent to change it.
                 </details>
               </div>
               <ol class="mt-6 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">1</span><span>Detects your system and architecture</span></li>
-                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">2</span><span>Installs the CLI and verifies its checksum</span></li>
-                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">3</span><span>Checks it with <code class="font-mono">portifact --version</code></span></li>
-                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">4</span><span>Adds the Portifact skill to your agent</span></li>
+                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">1</span><span data-i18n="landing.install.agent.step1">Detects your system and architecture</span></li>
+                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">2</span><span data-i18n="landing.install.agent.step2">Installs the CLI and verifies its checksum</span></li>
+                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">3</span><span data-i18n="landing.install.agent.step3">Checks it with <code class="font-mono">portifact --version</code></span></li>
+                <li class="flex gap-3"><span class="flex size-6 shrink-0 items-center justify-center rounded-full border border-border-strong font-mono text-xs">4</span><span data-i18n="landing.install.agent.step4">Adds the Portifact skill to your agent</span></li>
               </ol>
-              <p class="mt-auto pt-6 text-xs text-text-muted">The prompt tells your agent to stop if checksum verification fails and to ask you before anything that needs administrator rights.</p>
+              <p class="mt-auto pt-6 text-xs text-text-muted" data-i18n="landing.install.agent.note">The prompt tells your agent to stop if checksum verification fails and to ask you before anything that needs administrator rights.</p>
             </div>
 
             <div class="flex flex-col gap-4 rounded-lg border border-border bg-surface-raised p-5 sm:p-6">
-              <h3 class="text-lg font-semibold">Or install it yourself</h3>
+              <h3 class="text-lg font-semibold" data-i18n="landing.install.manual.title">Or install it yourself</h3>
               <div class="rounded-md border border-border bg-surface">
                 <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-2 text-xs text-text-muted">
-                  <span>macOS and Linux</span>
-                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="install-unix" data-copy-status="copy-status">Copy</button>
+                  <span data-i18n="landing.install.manual.unix">macOS and Linux</span>
+                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="install-unix" data-copy-status="copy-status" data-i18n="landing.install.copy">Copy</button>
                 </div>
                 <pre class="px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap sm:text-sm"><code id="install-unix">curl -fsSL https://portifact.com/install | bash</code></pre>
               </div>
               <div class="rounded-md border border-border bg-surface">
                 <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-2 text-xs text-text-muted">
                   <span>Windows PowerShell</span>
-                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="install-windows" data-copy-status="copy-status">Copy</button>
+                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="install-windows" data-copy-status="copy-status" data-i18n="landing.install.copy">Copy</button>
                 </div>
                 <pre class="px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap sm:text-sm"><code id="install-windows">irm https://portifact.com/install.ps1 | iex</code></pre>
               </div>
               <div class="rounded-md border border-border bg-surface">
                 <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-2 text-xs text-text-muted">
-                  <span>Teach your agent</span>
-                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="install-skill" data-copy-status="copy-status">Copy</button>
+                  <span data-i18n="landing.install.manual.skill">Teach your agent</span>
+                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="install-skill" data-copy-status="copy-status" data-i18n="landing.install.copy">Copy</button>
                 </div>
                 <pre class="px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap sm:text-sm"><code id="install-skill">npx skills add leynier/portifact</code></pre>
               </div>
-              <p class="text-xs text-text-muted">One executable for Linux (glibc and Alpine), macOS and Windows on x64 and arm64. No Node, no Bun, no runtime to manage.</p>
+              <p class="text-xs text-text-muted" data-i18n="landing.install.manual.note">One executable for Linux (glibc and Alpine), macOS and Windows on x64 and arm64. No Node, no Bun, no runtime to manage.</p>
             </div>
           </div>
 
           <div class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
             <div id="connect-mcp" class="flex flex-col gap-4 rounded-lg border border-border bg-surface-raised p-5 sm:p-6">
-              <h3 class="text-lg font-semibold">Connect the MCP server</h3>
-              <p class="text-sm text-text-muted">Add this server address to any MCP client that supports remote servers with OAuth. Your client opens the browser so you can sign in with your Portifact account and choose what it may do.</p>
+              <h3 class="text-lg font-semibold" data-i18n="landing.install.mcp.title">Connect the MCP server</h3>
+              <p class="text-sm text-text-muted" data-i18n="landing.install.mcp.body">Add this server address to any MCP client that supports remote servers with OAuth. Your client opens the browser so you can sign in with your Portifact account and choose what it may do.</p>
               <div class="rounded-md border border-border bg-surface">
                 <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-2 text-xs text-text-muted">
-                  <span>Server address</span>
-                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="mcp-url" data-copy-status="copy-status">Copy</button>
+                  <span data-i18n="landing.install.mcp.address">Server address</span>
+                  <button type="button" class="rounded-sm px-2 py-1 text-sm font-medium text-text hover:bg-selection" data-copy-target="mcp-url" data-copy-status="copy-status" data-i18n="landing.install.copy">Copy</button>
                 </div>
                 <pre class="px-4 py-3 font-mono text-xs break-all whitespace-pre-wrap sm:text-sm"><code id="mcp-url">https://app.portifact.com/mcp</code></pre>
               </div>
-              <p class="text-sm text-text-muted">The first sign-in only lets your agent see your artifacts; the client asks again when a tool needs more, such as publishing. Setup steps for Claude.ai, Claude Code and Codex CLI are on the <a href="/mcp-compatibility" class="text-text hover:no-underline">MCP compatibility page</a>.</p>
+              <p class="text-sm text-text-muted" data-i18n="landing.install.mcp.note">The first sign-in only lets your agent see your artifacts; the client asks again when a tool needs more, such as publishing. Setup steps for Claude.ai, Claude Code and Codex CLI are on the <a href="/mcp-compatibility" class="text-text hover:no-underline">MCP compatibility page</a>.</p>
             </div>
 
             <div class="flex flex-col gap-4 rounded-lg border border-border bg-surface-raised p-5 sm:p-6">
-              <h3 class="text-lg font-semibold">Or use the dashboard</h3>
-              <p class="text-sm text-text-muted">Sign in at <code class="font-mono text-text">app.portifact.com</code> with Google, GitHub or a code sent to your email. Publish, change access, review threads, roll back versions and restore archived artifacts without a terminal.</p>
+              <h3 class="text-lg font-semibold" data-i18n="landing.install.dashboard.title">Or use the dashboard</h3>
+              <p class="text-sm text-text-muted" data-i18n="landing.install.dashboard.body">Sign in at <code class="font-mono text-text">app.portifact.com</code> with Google, GitHub or a code sent to your email. Publish, change access, review threads, roll back versions and restore archived artifacts without a terminal.</p>
               <div class="mt-auto">
-                <a href="https://app.portifact.com/" class="inline-flex h-10 items-center rounded-sm bg-surface-inverse px-4 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85">Sign in to the dashboard</a>
+                <a href="https://app.portifact.com/" class="inline-flex h-10 items-center rounded-sm bg-surface-inverse px-4 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85" data-i18n="landing.common.signInToDashboard">Sign in to the dashboard</a>
               </div>
             </div>
           </div>
           <p id="copy-status" class="sr-only" role="status" aria-live="polite"></p>
 
           <div id="status" class="mt-16">
-            <h3 class="text-lg font-semibold">What works today</h3>
+            <h3 class="text-lg font-semibold" data-i18n="landing.status.title">What works today</h3>
             <ul class="mt-5 grid grid-cols-1 gap-px overflow-hidden rounded-md border border-border bg-border sm:grid-cols-2">
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Installer for macOS, Linux and Windows</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Signed releases with checksums</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Agent skill</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Publish HTML sites, Markdown and text</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Versions, rollback and private sources</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Access control</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Archive and restore</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Annotations and review</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span><a href="/mcp-compatibility" class="text-text hover:no-underline">MCP server</a></span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Web dashboard</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
-              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span>Access logs for your artifacts</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg>Available</span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.installer">Installer for macOS, Linux and Windows</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.signedReleases">Signed releases with checksums</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.skill">Agent skill</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.publish">Publish HTML sites, Markdown and text</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.versions">Versions, rollback and private sources</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.access">Access control</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.archive">Archive and restore</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.annotations">Annotations and review</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.mcp"><a href="/mcp-compatibility" class="text-text hover:no-underline">MCP server</a></span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.dashboard">Web dashboard</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
+              <li class="flex items-center justify-between gap-4 bg-surface-raised px-4 py-3 text-sm"><span data-i18n="landing.status.accessLogs">Access logs for your artifacts</span><span class="inline-flex shrink-0 items-center gap-1.5 font-medium"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.common.available">Available</span></span></li>
             </ul>
           </div>
         </div>
@@ -808,42 +817,42 @@ Good call. I asked the agent to change it.
       <!-- Free tier and open source -->
       <div class="mx-auto grid grid-cols-1 max-w-6xl gap-6 px-4 py-20 sm:px-6 sm:py-28 lg:grid-cols-2">
         <section id="free" class="rounded-lg border border-border bg-canvas p-6 shadow-sm sm:p-8" aria-labelledby="free-title">
-          <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Free tier</p>
-          <h2 id="free-title" class="mt-3 text-3xl font-semibold tracking-tight">Room for real work</h2>
-          <p class="mt-3 text-text-muted">The limits every account has today. They may be tuned as Portifact grows.</p>
+          <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.free.eyebrow">Free tier</p>
+          <h2 id="free-title" class="mt-3 text-3xl font-semibold tracking-tight" data-i18n="landing.free.title">Room for real work</h2>
+          <p class="mt-3 text-text-muted" data-i18n="landing.free.lead">The limits every account has today. They may be tuned as Portifact grows.</p>
           <dl class="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
-              <dt class="text-sm text-text-muted">active artifacts</dt>
+              <dt class="text-sm text-text-muted" data-i18n="landing.free.activeArtifacts">active artifacts</dt>
               <dd class="text-3xl font-semibold tracking-tight sm:text-4xl">50</dd>
             </div>
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
-              <dt class="text-sm text-text-muted">per artifact</dt>
+              <dt class="text-sm text-text-muted" data-i18n="landing.free.perArtifact">per artifact</dt>
               <dd class="text-3xl font-semibold tracking-tight sm:text-4xl">250 MB</dd>
             </div>
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
-              <dt class="text-sm text-text-muted">per account</dt>
+              <dt class="text-sm text-text-muted" data-i18n="landing.free.perAccount">per account</dt>
               <dd class="text-3xl font-semibold tracking-tight sm:text-4xl">2.5 GB</dd>
             </div>
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
-              <dt class="text-sm text-text-muted">publishes per day</dt>
+              <dt class="text-sm text-text-muted" data-i18n="landing.free.publishesPerDay">publishes per day</dt>
               <dd class="text-3xl font-semibold tracking-tight sm:text-4xl">100</dd>
             </div>
           </dl>
         </section>
 
         <section id="open-source" class="flex flex-col rounded-lg border border-border bg-canvas p-6 shadow-sm sm:p-8" aria-labelledby="open-source-title">
-          <p class="font-mono text-xs tracking-widest text-text-muted uppercase">Open source</p>
-          <h2 id="open-source-title" class="mt-3 text-3xl font-semibold tracking-tight">Built in the open</h2>
-          <p class="mt-3 text-text-muted">Portifact is licensed under the GNU AGPL v3.0. Read the code, follow the progress and report issues on GitHub.</p>
+          <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.openSource.eyebrow">Open source</p>
+          <h2 id="open-source-title" class="mt-3 text-3xl font-semibold tracking-tight" data-i18n="landing.openSource.title">Built in the open</h2>
+          <p class="mt-3 text-text-muted" data-i18n="landing.openSource.lead">Portifact is licensed under the GNU AGPL v3.0. Read the code, follow the progress and report issues on GitHub.</p>
           <ul class="mt-8 space-y-3 text-sm">
-            <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Releases signed with build provenance and SHA-256 checksums</span></li>
-            <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Tests with coverage thresholds on every change</span></li>
-            <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span>Runs on Cloudflare Workers, D1 and R2</span></li>
+            <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.openSource.provenance">Releases signed with build provenance and SHA-256 checksums</span></li>
+            <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.openSource.tests">Tests with coverage thresholds on every change</span></li>
+            <li class="flex gap-3"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="mt-0.5 size-4 shrink-0"><path d="m5 12 5 5 9-10" /></svg><span data-i18n="landing.openSource.platform">Runs on Cloudflare Workers, D1 and R2</span></li>
           </ul>
           <div class="mt-auto flex flex-wrap gap-3 pt-8">
-            <a href="https://github.com/leynier/portifact" class="inline-flex h-10 items-center rounded-sm bg-surface-inverse px-4 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85">View on GitHub</a>
-            <a href="https://github.com/leynier/portifact/releases" class="inline-flex h-10 items-center rounded-sm border border-border px-4 text-sm font-medium no-underline transition-colors hover:border-border-strong">Releases</a>
-            <a href="https://github.com/leynier/portifact/security" class="inline-flex h-10 items-center rounded-sm border border-border px-4 text-sm font-medium no-underline transition-colors hover:border-border-strong">Security policy</a>
+            <a href="https://github.com/leynier/portifact" class="inline-flex h-10 items-center rounded-sm bg-surface-inverse px-4 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85" data-i18n="landing.openSource.viewOnGitHub">View on GitHub</a>
+            <a href="https://github.com/leynier/portifact/releases" class="inline-flex h-10 items-center rounded-sm border border-border px-4 text-sm font-medium no-underline transition-colors hover:border-border-strong" data-i18n="landing.openSource.releases">Releases</a>
+            <a href="https://github.com/leynier/portifact/security" class="inline-flex h-10 items-center rounded-sm border border-border px-4 text-sm font-medium no-underline transition-colors hover:border-border-strong" data-i18n="landing.openSource.securityPolicy">Security policy</a>
           </div>
         </section>
       </div>
@@ -852,38 +861,38 @@ Good call. I asked the agent to change it.
       <section id="faq" class="border-t border-border" aria-labelledby="faq-title">
         <div class="mx-auto grid grid-cols-1 max-w-6xl gap-10 px-4 py-20 sm:px-6 sm:py-28 lg:grid-cols-12">
           <div class="lg:col-span-4">
-            <p class="font-mono text-xs tracking-widest text-text-muted uppercase">FAQ</p>
-            <h2 id="faq-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Questions, answered</h2>
-            <p class="mt-4 text-text-muted">Something missing? <a href="https://github.com/leynier/portifact/issues" class="text-text">Open an issue on GitHub</a>.</p>
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.faq.eyebrow">FAQ</p>
+            <h2 id="faq-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.faq.title">Questions, answered</h2>
+            <p class="mt-4 text-text-muted" data-i18n="landing.faq.missing">Something missing? <a href="https://github.com/leynier/portifact/issues" class="text-text">Open an issue on GitHub</a>.</p>
           </div>
           <div class="divide-y divide-border border-y border-border lg:col-span-8">
             <details class="group">
-              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Can I use Portifact today?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Yes. Publishing, access control, versions, archive and restore, annotations with the review viewer, the MCP server and the dashboard all work today. Sign in with <code class="font-mono">portifact login</code>, connect the MCP server or sign in at <a href="https://app.portifact.com/" class="text-text">app.portifact.com</a>. Portifact is early, so expect rough edges and limits that may change.</p>
+              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none"><span data-i18n="landing.faq.today.question">Can I use Portifact today?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
+              <p class="pb-5 text-text-muted" data-i18n="landing.faq.today.answer">Yes. Publishing, access control, versions, archive and restore, annotations with the review viewer, the MCP server and the dashboard all work today. Sign in with <code class="font-mono">portifact login</code>, connect the MCP server or sign in at <a href="https://app.portifact.com/" class="text-text">app.portifact.com</a>. Portifact is early, so expect rough edges and limits that may change.</p>
             </details>
             <details class="group">
-              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Which agents does it work with?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Any coding agent with a terminal can run the CLI. The skill installs into Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode and other agents. The remote MCP server works in clients that support OAuth sign-in and is tested with Claude.ai, Claude Code and Codex CLI; see <a href="/mcp-compatibility" class="text-text">MCP compatibility</a>.</p>
+              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none"><span data-i18n="landing.faq.agents.question">Which agents does it work with?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
+              <p class="pb-5 text-text-muted" data-i18n="landing.faq.agents.answer">Any coding agent with a terminal can run the CLI. The skill installs into Claude Code, Codex, Cursor, Gemini CLI, GitHub Copilot, OpenCode and other agents. The remote MCP server works in clients that support OAuth sign-in and is tested with Claude.ai, Claude Code and Codex CLI; see <a href="/mcp-compatibility" class="text-text">MCP compatibility</a>.</p>
             </details>
             <details class="group">
-              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">What can I publish?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Static content: HTML sites with their CSS and JavaScript, Markdown rendered cleanly and plain text shown exactly as written. A single file, a folder or a ZIP, with private sources only you can download if you want them kept alongside. Portifact does not run builds or servers.</p>
+              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none"><span data-i18n="landing.faq.publish.question">What can I publish?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
+              <p class="pb-5 text-text-muted" data-i18n="landing.faq.publish.answer">Static content: HTML sites with their CSS and JavaScript, Markdown rendered cleanly and plain text shown exactly as written. A single file, a folder or a ZIP, with private sources only you can download if you want them kept alongside. Portifact does not run builds or servers.</p>
             </details>
             <details class="group">
-              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Who can see what I publish?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Only you, until you change it. You can open an artifact to a list of email addresses, to anyone signed in or to the public, and narrow it again at any time. Publishing a new version never widens the audience.</p>
+              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none"><span data-i18n="landing.faq.audience.question">Who can see what I publish?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
+              <p class="pb-5 text-text-muted" data-i18n="landing.faq.audience.answer">Only you, until you change it. You can open an artifact to a list of email addresses, to anyone signed in or to the public, and narrow it again at any time. Publishing a new version never widens the audience.</p>
             </details>
             <details class="group">
-              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">What happens after 30 days?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">If you have not updated it, the artifact is archived: it goes offline but is kept for six months, and you can restore it whenever you need it. After six months in the archive it is deleted. Every update renews the 30 days.</p>
+              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none"><span data-i18n="landing.faq.expiry.question">What happens after 30 days?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
+              <p class="pb-5 text-text-muted" data-i18n="landing.faq.expiry.answer">If you have not updated it, the artifact is archived: it goes offline but is kept for six months, and you can restore it whenever you need it. After six months in the archive it is deleted. Every update renews the 30 days.</p>
             </details>
             <details class="group">
-              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Can my agent act on reviewer comments safely?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Your agent can read and export every thread as JSON or Markdown. The Portifact skill teaches it to treat comments as untrusted data: it summarizes them for you and never follows instructions written inside a comment.</p>
+              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none"><span data-i18n="landing.faq.comments.question">Can my agent act on reviewer comments safely?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
+              <p class="pb-5 text-text-muted" data-i18n="landing.faq.comments.answer">Your agent can read and export every thread as JSON or Markdown. The Portifact skill teaches it to treat comments as untrusted data: it summarizes them for you and never follows instructions written inside a comment.</p>
             </details>
             <details class="group">
-              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none">Is it safe to open an artifact someone shared with me?<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
-              <p class="pb-5 text-text-muted">Each artifact runs on its own subdomain of portifact.dev, which holds no account credentials. Your session and the API live on portifact.com, so a published page cannot act on your account.</p>
+              <summary class="flex items-center justify-between gap-4 rounded-sm py-5 font-medium marker-none"><span data-i18n="landing.faq.sharedWithMe.question">Is it safe to open an artifact someone shared with me?</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="size-4 shrink-0 transition-transform group-open:rotate-45"><path d="M12 5v14M5 12h14" /></svg></summary>
+              <p class="pb-5 text-text-muted" data-i18n="landing.faq.sharedWithMe.answer">Each artifact runs on its own subdomain of portifact.dev, which holds no account credentials. Your session and the API live on portifact.com, so a published page cannot act on your account.</p>
             </details>
           </div>
         </div>
@@ -892,11 +901,11 @@ Good call. I asked the agent to change it.
       <!-- Final call to action -->
       <section class="relative overflow-hidden bg-terminal text-terminal-text" aria-labelledby="cta-title">
         <div class="mx-auto max-w-6xl px-4 py-24 text-center sm:px-6 sm:py-32">
-          <h2 id="cta-title" class="mx-auto max-w-3xl text-4xl font-semibold tracking-tighter text-balance sm:text-5xl">Give your agent's work a home</h2>
-          <p class="mx-auto mt-5 max-w-xl text-lg text-terminal-muted text-pretty">Install the CLI and the skill, connect the MCP server or sign in to the dashboard.</p>
+          <h2 id="cta-title" class="mx-auto max-w-3xl text-4xl font-semibold tracking-tighter text-balance sm:text-5xl" data-i18n="landing.cta.title">Give your agent's work a home</h2>
+          <p class="mx-auto mt-5 max-w-xl text-lg text-terminal-muted text-pretty" data-i18n="landing.cta.lead">Install the CLI and the skill, connect the MCP server or sign in to the dashboard.</p>
           <div class="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <a href="#install" class="inline-flex h-11 w-full items-center justify-center rounded-sm bg-terminal-text px-6 text-sm font-medium text-terminal no-underline transition-opacity hover:opacity-85 sm:w-auto">Install Portifact</a>
-            <a href="https://app.portifact.com/" class="inline-flex h-11 w-full items-center justify-center rounded-sm border border-terminal-border px-6 text-sm font-medium text-terminal-text no-underline transition-colors hover:border-terminal-muted sm:w-auto">Sign in to the dashboard</a>
+            <a href="#install" class="inline-flex h-11 w-full items-center justify-center rounded-sm bg-terminal-text px-6 text-sm font-medium text-terminal no-underline transition-opacity hover:opacity-85 sm:w-auto" data-i18n="landing.cta.install">Install Portifact</a>
+            <a href="https://app.portifact.com/" class="inline-flex h-11 w-full items-center justify-center rounded-sm border border-terminal-border px-6 text-sm font-medium text-terminal-text no-underline transition-colors hover:border-terminal-muted sm:w-auto" data-i18n="landing.common.signInToDashboard">Sign in to the dashboard</a>
           </div>
         </div>
       </section>
@@ -909,34 +918,35 @@ Good call. I asked the agent to change it.
             <source media="(prefers-color-scheme: dark)" srcset="../../assets/brand/wordmark-dark.svg" />
             <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-7 w-auto" />
           </picture>
-          <p class="mt-4 max-w-xs text-sm text-text-muted">Share what your agent built. Open source under the GNU AGPL v3.0.</p>
+          <p class="mt-4 max-w-xs text-sm text-text-muted" data-i18n="landing.footer.tagline">Share what your agent built. Open source under the GNU AGPL v3.0.</p>
+          <div data-language-switcher="list" class="mt-6"></div>
         </div>
-        <nav aria-label="Product" class="md:col-span-2">
-          <h2 class="text-sm font-semibold">Product</h2>
+        <nav data-i18n-aria-label="landing.footer.product" aria-label="Product" class="md:col-span-2">
+          <h2 class="text-sm font-semibold" data-i18n="landing.footer.product">Product</h2>
           <ul class="mt-4 space-y-2.5 text-sm">
-            <li><a href="#interfaces" class="text-text-muted no-underline hover:text-text hover:underline">Three ways in</a></li>
-            <li><a href="#review" class="text-text-muted no-underline hover:text-text hover:underline">Review</a></li>
-            <li><a href="#install" class="text-text-muted no-underline hover:text-text hover:underline">Install</a></li>
-            <li><a href="#faq" class="text-text-muted no-underline hover:text-text hover:underline">FAQ</a></li>
+            <li><a href="#interfaces" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.interfaces">Three ways in</a></li>
+            <li><a href="#review" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.nav.review">Review</a></li>
+            <li><a href="#install" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.install">Install</a></li>
+            <li><a href="#faq" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.faq">FAQ</a></li>
           </ul>
         </nav>
-        <nav aria-label="Project" class="md:col-span-2">
-          <h2 class="text-sm font-semibold">Project</h2>
+        <nav data-i18n-aria-label="landing.footer.project" aria-label="Project" class="md:col-span-2">
+          <h2 class="text-sm font-semibold" data-i18n="landing.footer.project">Project</h2>
           <ul class="mt-4 space-y-2.5 text-sm">
             <li><a href="https://github.com/leynier/portifact" class="text-text-muted no-underline hover:text-text hover:underline">GitHub</a></li>
-            <li><a href="https://github.com/leynier/portifact/releases" class="text-text-muted no-underline hover:text-text hover:underline">Releases</a></li>
-            <li><a href="https://github.com/leynier/portifact/security" class="text-text-muted no-underline hover:text-text hover:underline">Security</a></li>
-            <li><a href="https://github.com/leynier/portifact/blob/develop/license" class="text-text-muted no-underline hover:text-text hover:underline">License</a></li>
-            <li><a href="/third-party-notices" class="text-text-muted no-underline hover:text-text hover:underline">Third-party notices</a></li>
+            <li><a href="https://github.com/leynier/portifact/releases" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.releases">Releases</a></li>
+            <li><a href="https://github.com/leynier/portifact/security" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.security">Security</a></li>
+            <li><a href="https://github.com/leynier/portifact/blob/develop/license" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.license">License</a></li>
+            <li><a href="/third-party-notices" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.notices">Third-party notices</a></li>
           </ul>
         </nav>
-        <nav aria-label="Legal" class="md:col-span-3">
-          <h2 class="text-sm font-semibold">Legal</h2>
+        <nav data-i18n-aria-label="landing.footer.legal" aria-label="Legal" class="md:col-span-3">
+          <h2 class="text-sm font-semibold" data-i18n="landing.footer.legal">Legal</h2>
           <ul class="mt-4 space-y-2.5 text-sm">
-            <li><a href="/terms" class="text-text-muted no-underline hover:text-text hover:underline">Terms of Service</a></li>
-            <li><a href="/privacy" class="text-text-muted no-underline hover:text-text hover:underline">Privacy Policy</a></li>
-            <li><a href="/acceptable-use" class="text-text-muted no-underline hover:text-text hover:underline">Acceptable Use Policy</a></li>
-            <li><a href="https://app.portifact.com/report" class="text-text-muted no-underline hover:text-text hover:underline">Report an artifact</a></li>
+            <li><a href="/terms" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.terms">Terms of Service</a></li>
+            <li><a href="/privacy" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.privacy">Privacy Policy</a></li>
+            <li><a href="/acceptable-use" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.acceptableUse">Acceptable Use Policy</a></li>
+            <li><a href="https://app.portifact.com/report" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.report">Report an artifact</a></li>
             <li><a href="mailto:abuse@portifact.com" class="text-text-muted no-underline hover:text-text hover:underline">abuse@portifact.com</a></li>
           </ul>
         </nav>

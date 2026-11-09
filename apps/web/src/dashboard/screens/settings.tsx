@@ -18,22 +18,32 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { publicAvailableFrom } from "./access-settings.tsx";
 import { AccountData, DeleteAccount, Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
+import { LanguageChoice, SETTINGS_QUERY } from "./language.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
 
-export const SETTINGS_QUERY = ["account", "settings"] as const;
+export { SETTINGS_QUERY } from "./language.tsx";
 
 const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
 const ANNOTATIONS: readonly DefaultAnnotations[] = ["off", "open"];
 const VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
+
+/** The settings this form saves; the language has its own control and is never sent here. */
+const DEFAULT_KEYS = [
+  "defaultAccessMode",
+  "defaultAnnotations",
+  "defaultCommentVisibility",
+  "defaultBar",
+] as const satisfies readonly (keyof AccountSettings)[];
 
 /** The fields that differ from the saved defaults, or undefined when nothing changed. */
 export function defaultsChange(
   saved: AccountSettings,
   values: AccountSettings,
 ): AccountSettingsUpdate | undefined {
-  const entries = (Object.keys(values) as (keyof AccountSettings)[])
-    .filter((key) => values[key] !== saved[key])
-    .map((key) => [key, values[key]]);
+  const entries = DEFAULT_KEYS.filter((key) => values[key] !== saved[key]).map((key) => [
+    key,
+    values[key],
+  ]);
   return entries.length > 0 ? (Object.fromEntries(entries) as AccountSettingsUpdate) : undefined;
 }
 
@@ -48,11 +58,15 @@ export function SettingsScreen() {
         label={t("settings.sectionsNav")}
         title={t("sections.title")}
         sections={[
+          { id: "language", label: t("language.title") },
           { id: "defaults", label: t("settings.defaults.title") },
           { id: "data", label: t("account.data.title") },
           { id: "delete", label: t("settings.danger.title") },
         ]}
       >
+        <Section id="language" title={t("language.title")} hint={t("language.hint")}>
+          <LanguageChoice variant="field" />
+        </Section>
         <ArtifactDefaults />
         <AccountData />
         <DeleteAccount email={account?.email ?? ""} />
@@ -74,7 +88,8 @@ function ArtifactDefaults() {
       >
         {(saved) => (
           // A new form when the saved values change, so it never shows stale choices.
-          <DefaultsForm key={JSON.stringify(saved)} saved={saved} />
+          // The language is saved elsewhere on the page, so a new one keeps unsaved defaults.
+          <DefaultsForm key={JSON.stringify({ ...saved, locale: null })} saved={saved} />
         )}
       </Loaded>
     </Section>

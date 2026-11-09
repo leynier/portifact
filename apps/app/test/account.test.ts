@@ -342,6 +342,7 @@ describe("account settings", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      locale: null,
     });
     const saved = await change(h, cookie, { defaultAnnotations: "open", defaultBar: false });
     expect(saved.status).toBe(200);
@@ -350,8 +351,24 @@ describe("account settings", () => {
       defaultAnnotations: "open",
       defaultCommentVisibility: "owner",
       defaultBar: false,
+      locale: null,
     });
     expect(await (await settings(h, cookie)).json()).toMatchObject({ defaultBar: false });
+  });
+
+  it("keeps the account's language, and null goes back to the browser's", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("settings-locale@example.test");
+    const saved = await change(h, cookie, { locale: "es" });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ locale: "es", defaultBar: true });
+    expect(await (await settings(h, cookie)).json()).toMatchObject({ locale: "es" });
+    const exported = await h.request("/api/v1/account/export", dashboard(cookie));
+    expect(
+      (await exported.json<{ account: { settings: unknown } }>()).account.settings,
+    ).toMatchObject({ locale: "es" });
+    const cleared = await change(h, cookie, { locale: null });
+    expect(await cleared.json()).toMatchObject({ locale: null });
   });
 
   it("refuses invalid changes without saving anything", async () => {
@@ -363,6 +380,9 @@ describe("account settings", () => {
       { defaultAccessMode: "everyone" },
       { defaultBar: "yes" },
       { defaultBar: false, userId: "someone-else" },
+      { locale: "xx" },
+      { locale: "es-MX" },
+      { locale: 1 },
     ]) {
       const response = await change(h, cookie, body);
       expect(response.status, JSON.stringify(body)).toBe(400);

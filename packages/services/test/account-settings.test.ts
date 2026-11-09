@@ -12,6 +12,7 @@ const OPEN_DEFAULTS = {
   defaultAnnotations: "open",
   defaultCommentVisibility: "everyone",
   defaultBar: false,
+  locale: null,
 } as const;
 
 async function newAccount(): Promise<string> {
@@ -162,6 +163,42 @@ describe("defaults on new artifacts", () => {
   });
 });
 
+describe("the account's language", () => {
+  it("is saved, kept by later changes and cleared with null", async () => {
+    const { id } = await user();
+    const saved = await updateAccountSettings(db(), {
+      userId: id,
+      update: { locale: "es" },
+      now: NOW,
+    });
+    expect(saved).toEqual({ ok: true, value: { ...BUILT_IN_SETTINGS, locale: "es" } });
+    expect((await settingsRow(id))?.locale).toBe("es");
+    await updateAccountSettings(db(), { userId: id, update: { defaultBar: false }, now: NOW });
+    expect(await getAccountSettings(db(), { userId: id })).toMatchObject({
+      ok: true,
+      value: { locale: "es", defaultBar: false },
+    });
+    await updateAccountSettings(db(), { userId: id, update: { locale: null }, now: NOW });
+    expect((await settingsRow(id))?.locale).toBeNull();
+  });
+
+  it("reads a stored language that is no longer offered as no choice", async () => {
+    const { id } = await user();
+    await db().insert(schema.accountSettings).values({ userId: id, locale: "xx", updatedAt: NOW });
+    expect(await getAccountSettings(db(), { userId: id })).toEqual({
+      ok: true,
+      value: BUILT_IN_SETTINGS,
+    });
+  });
+
+  it("never changes the policy of new artifacts", async () => {
+    const id = await newAccount();
+    await updateAccountSettings(db(), { userId: id, update: { locale: "es" }, now: NOW });
+    const { artifactId } = await publishSite(id);
+    expect((await artifactRow(artifactId))?.accessMode).toBe("restricted");
+  });
+});
+
 describe("settings in the account's data", () => {
   it("are part of the export", async () => {
     const { id } = await user();
@@ -170,6 +207,12 @@ describe("settings in the account's data", () => {
     await updateAccountSettings(db(), { userId: id, update: OPEN_DEFAULTS, now: NOW });
     const after = await exportAccount(db(), { userId: id, now: NOW });
     expect(after.ok && after.value.account.settings).toEqual(OPEN_DEFAULTS);
+    await updateAccountSettings(db(), { userId: id, update: { locale: "es" }, now: NOW });
+    const localized = await exportAccount(db(), { userId: id, now: NOW });
+    expect(localized.ok && localized.value.account.settings).toEqual({
+      ...OPEN_DEFAULTS,
+      locale: "es",
+    });
   });
 
   it("go with the account when it is deleted", async () => {

@@ -1,5 +1,6 @@
 // Same-origin calls from the auth pages to Better Auth under /api/auth. The browser sends the
-// session cookie and the Origin header, which the Worker checks on every mutation.
+// session cookie and the Origin header, which the Worker checks on every mutation, and the
+// page's language, which the Worker writes its emails in.
 
 export interface ApiResponse {
   status: number;
@@ -19,12 +20,25 @@ export interface PageLocation {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
-export function browserApi(fetchImpl: FetchLike): Api {
+export interface BrowserApiOptions {
+  /**
+   * The page's language, sent as `Accept-Language` on every call so the Worker writes what it
+   * sends (the sign-in code email) in the language the reader sees.
+   */
+  locale?: string;
+}
+
+export function browserApi(fetchImpl: FetchLike, options: BrowserApiOptions = {}): Api {
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "content-type": "application/json",
+  };
+  if (options.locale) headers["accept-language"] = options.locale;
   const call = async (path: string, init: RequestInit): Promise<ApiResponse> => {
     try {
       const response = await fetchImpl(`/api/auth${path}`, {
         credentials: "same-origin",
-        headers: { accept: "application/json", "content-type": "application/json" },
+        headers,
         ...init,
       });
       const text = await response.text();

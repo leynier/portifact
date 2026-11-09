@@ -38,6 +38,11 @@ export {
   type IconLinkProps,
   iconButtonClasses,
 } from "./components/icon-button.tsx";
+export {
+  type Language,
+  LanguageSwitcher,
+  type LanguageSwitcherProps,
+} from "./components/language-switcher.tsx";
 export { LiveRegion } from "./components/live-region.tsx";
 export { LoadingState, type LoadingStateProps } from "./components/loading-state.tsx";
 export { Menu, type MenuItem, type MenuProps } from "./components/menu.tsx";

@@ -22,6 +22,22 @@ describe("browser API", () => {
     expect(seen[1]?.init?.method).toBe("GET");
   });
 
+  it("sends the page's language so the Worker writes its emails in it", async () => {
+    const headers: Headers[] = [];
+    const record = async (_url: string, init?: RequestInit) => {
+      headers.push(new Headers(init?.headers));
+      return Response.json({ success: true });
+    };
+    const spanish = browserApi(record, { locale: "es" });
+    await spanish.post("/email-otp/send-verification-otp", { email: "a@example.test" });
+    await spanish.get("/get-session");
+    expect(headers.map((sent) => sent.get("accept-language"))).toEqual(["es", "es"]);
+    expect(headers[0]?.get("content-type")).toBe("application/json");
+
+    await browserApi(record).get("/get-session");
+    expect(headers[2]?.has("accept-language")).toBe(false);
+  });
+
   it("returns a null body when the response is not JSON", async () => {
     const api = browserApi(async () => new Response("not json", { status: 502 }));
     expect(await api.get("/x")).toEqual({ status: 502, body: null });

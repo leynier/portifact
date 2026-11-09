@@ -114,6 +114,74 @@ describe("portifact.com", () => {
     expect((await get("https://portifact.com/mcp-compatibility")).status).toBe(200);
   });
 
+  it("serves the landing in Spanish at /es/ with the same headers as the English one", async () => {
+    const english = await get("https://portifact.com/");
+    const spanish = await get("https://portifact.com/es/");
+    expect(spanish.status).toBe(200);
+    expect(spanish.headers.get("content-type")).toContain("text/html");
+    for (const header of [
+      "content-security-policy",
+      "x-frame-options",
+      "x-content-type-options",
+      "referrer-policy",
+      "strict-transport-security",
+    ]) {
+      expect(spanish.headers.get(header), header).toBe(english.headers.get(header));
+    }
+    const html = await spanish.text();
+    expect(html).toMatch(/<html lang="es"[\s>]/);
+    expect(html).toContain('<link rel="canonical" href="https://portifact.com/es/">');
+    expect(html).toContain('<link rel="alternate" hreflang="en" href="https://portifact.com/">');
+    expect(html).toContain('<link rel="alternate" hreflang="es" href="https://portifact.com/es/">');
+    expect(html).toContain('href="/es/terms"');
+    expect(html).toContain('href="https://app.portifact.com/?lang=es"');
+    expect(html).not.toContain("data-i18n");
+    for (const [, url] of html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)) {
+      expect((await get(`https://portifact.com${url}`)).status, url).toBe(200);
+    }
+    // The English page names its Spanish alternate and never sends anyone there by itself.
+    const englishHtml = await english.text();
+    expect(englishHtml).toContain(
+      '<link rel="alternate" hreflang="es" href="https://portifact.com/es/">',
+    );
+    expect(english.status).toBe(200);
+  });
+
+  it("sends /es to /es/, where the Spanish landing lives", async () => {
+    const response = await get("https://portifact.com/es");
+    expect([301, 307, 308]).toContain(response.status);
+    expect(new URL(response.headers.get("location") ?? "", "https://portifact.com").pathname).toBe(
+      "/es/",
+    );
+  });
+
+  it("serves the Spanish documents with the strict page headers, legal texts kept in English", async () => {
+    for (const path of [
+      "/es/terms",
+      "/es/privacy",
+      "/es/acceptable-use",
+      "/es/mcp-compatibility",
+    ]) {
+      const response = await get(`https://portifact.com${path}`);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("content-security-policy"), path).toBe(PAGE_CSP);
+      expect(response.headers.get("cache-control"), path).toBe("no-cache");
+      expect(response.headers.get("x-frame-options"), path).toBe("DENY");
+      const html = await response.text();
+      expect(html, path).toMatch(/<html lang="es"[\s>]/);
+    }
+    const terms = await (await get("https://portifact.com/es/terms")).text();
+    expect(terms).toMatch(/<main[^>]* lang="en"/);
+    expect(terms).toContain(">Terms of Service</h1>");
+    expect(terms).toContain("data-legal-note");
+    expect(terms).toContain('<link rel="canonical" href="https://portifact.com/terms">');
+    expect(terms).toContain(`<time datetime="${TERMS_VERSION}">`);
+  });
+
+  it("keeps the Spanish pages off the app host", async () => {
+    expect((await get("https://app.portifact.com/es/terms")).status).toBe(404);
+  });
+
   it("serves the third-party notices as plain text with the strict page headers", async () => {
     const response = await get("https://portifact.com/third-party-notices");
     expect(response.status).toBe(200);

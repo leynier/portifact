@@ -67,14 +67,14 @@ describe("landing page", () => {
 
   it("gives the hero heading one stable, complete name and hides the animated line", () => {
     const h1 = /<h1\b[^>]*>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? "";
-    const spoken = /<span class="sr-only">([^<]+)<\/span>/.exec(h1)?.[1];
+    const spoken = /<span class="sr-only"[^>]*>([^<]+)<\/span>/.exec(h1)?.[1];
     const phrases = [...h1.matchAll(/<span data-typewriter-phrase\b[^>]*>([^<]+)</g)].map(
       (match) => match[1] ?? "",
     );
-    const initial = /<span data-typewriter-text>([^<]*)<\/span>/.exec(h1)?.[1];
+    const initial = /<span data-typewriter-text\b[^>]*>([^<]*)<\/span>/.exec(h1)?.[1];
 
     expect(spoken).toBe(`Share what your agent built. ${phrases[0]}`);
-    expect(h1.replace(/<span class="sr-only">[^<]*<\/span>/, "")).toMatch(
+    expect(h1.replace(/<span class="sr-only"[^>]*>[^<]*<\/span>/, "")).toMatch(
       /^\s*<span aria-hidden="true">[\s\S]*<\/span>\s*$/,
     );
     expect(phrases.length).toBeGreaterThanOrEqual(3);

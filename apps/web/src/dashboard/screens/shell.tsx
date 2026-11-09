@@ -16,6 +16,7 @@ import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
 import { AnnounceContext, useDashboard, useT } from "../context.tsx";
+import { LanguageChoice, useAccountLocale } from "./language.tsx";
 import { useUsage } from "./usage.tsx";
 
 export const ACCOUNT_QUERY = ["account"] as const;
@@ -54,6 +55,7 @@ export function Shell() {
   const onArtifactPage = /^\/(artifacts|review)\//.test(location.pathname);
 
   const account = useQuery({ queryKey: ACCOUNT_QUERY, queryFn: () => api.account() });
+  useAccountLocale();
   useEffect(() => {
     if (account.data === null) leave(loginUrl(here));
   }, [account.data, here, leave]);
@@ -156,6 +158,7 @@ export function Shell() {
             signOutLabel={t("shell.signOut")}
             signingOut={signOut.isPending}
             onSignOut={() => signOut.mutate()}
+            extra={<LanguageChoice variant="compact" />}
           />
         ) : (
           <span className="text-sm text-text-muted">{t("shell.loadingAccount")}</span>

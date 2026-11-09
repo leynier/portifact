@@ -6,6 +6,7 @@ import {
   TURNSTILE_ORIGIN,
   TURNSTILE_SITE_KEY_META,
 } from "@portifact/contracts";
+import { isLocale } from "@portifact/contracts/locales";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { Hono } from "hono";
@@ -36,6 +37,9 @@ import { readRoutes } from "./read.ts";
  * the public abuse report form.
  */
 export const AUTH_PAGES = ["/login", "/device", "/consent", "/report"] as const;
+
+/** The query parameter through which a link asks a page for a language (apps/web, src/i18n). */
+export const LOCALE_PARAM = "lang";
 
 /** The dashboard SPA, built by apps/web as dashboard.html and served on this host only. */
 export const DASHBOARD_PAGE = "/dashboard";
@@ -329,7 +333,11 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       if (!(await sessionUserFor(c.env)(c.req.raw))) {
         const url = new URL(c.req.url);
         const next = `${url.pathname}${url.search}`;
-        return c.redirect(`/login?${new URLSearchParams({ next })}`, 302);
+        const login = new URLSearchParams({ next });
+        // A language asked for on the way in (the landing's links) applies to the login page too.
+        const lang = url.searchParams.get(LOCALE_PARAM);
+        if (isLocale(lang)) login.set(LOCALE_PARAM, lang);
+        return c.redirect(`/login?${login}`, 302);
       }
       return withSiteKey(
         trustedPage(

@@ -3,12 +3,15 @@
 // happy-dom has no layout, so contrast is left to the token tests and the end-to-end suite.
 import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import { axeViolations } from "@portifact/ui/testing";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HumanCheckCallbacks, HumanCheckWidget } from "../human-check/turnstile.ts";
 import { setupReport } from "../report/report.ts";
 import { setupConsent } from "./consent.ts";
 import { setupDevice } from "./device.ts";
+import { en } from "./i18n/en.ts";
+import { localizeAuthPage } from "./i18n/i18n.ts";
 import { setupLogin } from "./login.ts";
+import { messages } from "./messages.ts";
 import {
   element,
   type FakeApi,
@@ -103,6 +106,36 @@ describe("login page accessibility", () => {
     open("login");
     await setupLogin(document, pageEnv(api, fakeLocation()));
     expect(element("terms-update").hidden).toBe(false);
+    await expectAccessible();
+  });
+});
+
+describe("localized pages accessibility", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    Object.assign(messages, en);
+  });
+
+  it("has no violations on the Spanish login page with its language switcher", async () => {
+    vi.spyOn(window.history, "replaceState").mockImplementation(() => undefined);
+    open("login");
+    const shown = await localizeAuthPage(document, {
+      url: `${ORIGIN}/login?lang=es`,
+      storage: () => null,
+      languages: [],
+    });
+    expect(shown).toBe("es");
+    expect(document.querySelector('[data-locale-link="es"]')?.getAttribute("aria-current")).toBe(
+      "true",
+    );
+    await setupLogin(document, pageEnv(api, fakeLocation()));
+    await expectAccessible();
+
+    element<HTMLInputElement>("email").value = "nope";
+    submit(element<HTMLFormElement>("email-form"));
+    await settle();
+    expect(element("email-error").textContent).toBe(messages.emailInvalid);
+    expect(messages.emailInvalid).not.toBe(en.emailInvalid);
     await expectAccessible();
   });
 });

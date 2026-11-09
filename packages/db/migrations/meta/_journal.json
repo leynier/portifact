@@ -176,6 +176,13 @@
       "when": 1794233170873,
       "tag": "0024_cli_credentials_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1794234934077,
+      "tag": "0025_account_locale",
+      "breakpoints": true
     }
   ]
 }

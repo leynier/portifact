@@ -15,6 +15,8 @@ describe("BUILT_IN_SETTINGS", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      // No language chosen: pages and emails follow the browser.
+      locale: null,
     });
   });
 });
@@ -61,6 +63,31 @@ describe("changeSettings", () => {
   });
 });
 
+describe("changeSettings and the language", () => {
+  it("keeps the language when an update does not name it", () => {
+    const current = { ...BUILT_IN_SETTINGS, locale: "es" as const };
+    expect(changeSettings(current, { defaultBar: false }, fresh, NOW)).toMatchObject({
+      ok: true,
+      value: { locale: "es", defaultBar: false },
+    });
+  });
+
+  it("sets a language, and null goes back to following the browser", () => {
+    const chosen = changeSettings(BUILT_IN_SETTINGS, { locale: "es" }, fresh, NOW);
+    expect(chosen).toMatchObject({ ok: true, value: { locale: "es" } });
+    const current = { ...BUILT_IN_SETTINGS, locale: "es" as const };
+    expect(changeSettings(current, { locale: null }, fresh, NOW)).toMatchObject({
+      ok: true,
+      value: { locale: null },
+    });
+  });
+
+  it("changes the language of an account too new for public without touching access", () => {
+    const result = changeSettings(BUILT_IN_SETTINGS, { locale: "es" }, fresh, NOW);
+    expect(result).toMatchObject({ ok: true, value: { defaultAccessMode: "restricted" } });
+  });
+});
+
 describe("newArtifactPolicy", () => {
   it("copies the defaults onto the new artifact", () => {
     expect(
@@ -70,6 +97,7 @@ describe("newArtifactPolicy", () => {
           defaultAnnotations: "open",
           defaultCommentVisibility: "everyone",
           defaultBar: false,
+          locale: "es",
         },
         fresh,
         NOW,

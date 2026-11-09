@@ -933,6 +933,10 @@ export const accountSettings = sqliteTable(
       .notNull()
       .default("owner"),
     defaultBar: integer("default_bar", { mode: "boolean" }).notNull().default(true),
+    // The account's language (a code of LOCALES in @portifact/contracts); null follows the
+    // browser. No CHECK: adding a language must not need a migration, and reads drop codes
+    // that are no longer listed.
+    locale: text("locale"),
     updatedAt: timestamp("updated_at").notNull(),
   },
   (t) => [

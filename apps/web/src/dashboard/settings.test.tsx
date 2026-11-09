@@ -17,6 +17,7 @@ const BUILT_IN = {
   defaultAnnotations: "off",
   defaultCommentVisibility: "owner",
   defaultBar: true,
+  locale: null,
 } as const;
 
 async function defaults() {
@@ -41,7 +42,7 @@ describe("settings page", () => {
     await defaults();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
-    ).toEqual(["Defaults for new artifacts", "Your data", "Danger zone"]);
+    ).toEqual(["Language", "Defaults for new artifacts", "Your data", "Danger zone"]);
     expect(await axeViolations(container)).toEqual([]);
   });
 

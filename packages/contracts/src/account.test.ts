@@ -86,6 +86,7 @@ describe("account contracts", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      locale: null,
     };
     expect(AccountSettings.parse(settings)).toEqual(settings);
     expect(AccountSettings.safeParse({ ...settings, defaultAnnotations: "locked" }).success).toBe(
@@ -97,5 +98,22 @@ describe("account contracts", () => {
     expect(AccountSettingsUpdate.safeParse({ defaultBar: true, ownerId: "u_1" }).success).toBe(
       false,
     );
+  });
+
+  it("takes a supported language or null as the account's language, and nothing else", () => {
+    const settings = {
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "off",
+      defaultCommentVisibility: "owner",
+      defaultBar: true,
+      locale: "es",
+    };
+    expect(AccountSettings.parse(settings)).toEqual(settings);
+    expect(AccountSettings.safeParse({ ...settings, locale: undefined }).success).toBe(false);
+    expect(AccountSettings.safeParse({ ...settings, locale: "es-MX" }).success).toBe(false);
+    expect(AccountSettingsUpdate.parse({ locale: "es" })).toEqual({ locale: "es" });
+    expect(AccountSettingsUpdate.parse({ locale: null })).toEqual({ locale: null });
+    expect(AccountSettingsUpdate.safeParse({ locale: "xx" }).success).toBe(false);
+    expect(AccountSettingsUpdate.safeParse({ locale: "ES" }).success).toBe(false);
   });
 });
