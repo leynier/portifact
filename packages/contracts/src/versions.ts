@@ -3,6 +3,7 @@
 // private sources through short-lived links, and roll back to a retained version.
 import { z } from "zod";
 import { ArtifactId } from "./core.ts";
+import { LIMITS } from "./limits.ts";
 import { CommittedPublish, IdempotencyKey, Sha256Hex, SourceOrigin } from "./publishing.ts";
 
 /** A version ID as the API returns it, or `current` for the artifact's current version. */
@@ -102,6 +103,37 @@ export const RolledBack = CommittedPublish.extend({
 });
 export type RolledBack = z.infer<typeof RolledBack>;
 
+/**
+ * One file of a version as text, a page at a time (`GET .../versions/:versionId/content`, MCP
+ * `read_artifact`). Pages hold at most `LIMITS.inlineMcpBytes` and never split a character.
+ */
+export const ContentQuery = DownloadQuery.extend({
+  /** Byte offset of the page: 0, or the `nextOffset` of the previous page. */
+  offset: z.coerce.number().int().min(0).max(LIMITS.artifactBytes).default(0),
+});
+export type ContentQuery = z.infer<typeof ContentQuery>;
+
+export const ArtifactContent = z.object({
+  artifactId: ArtifactId,
+  versionId: z.string(),
+  versionNumber: z.number().int().min(1),
+  kind: DownloadKind,
+  path: z.string(),
+  contentType: z.string(),
+  /** Size of the whole file in bytes. */
+  size: z.number().int().min(0),
+  sha256: Sha256Hex,
+  /** Byte offset where this page starts. */
+  offset: z.number().int().min(0),
+  /** Bytes of the file this page holds. */
+  length: z.number().int().min(0),
+  /** Where the next page starts; `null` after the last page. */
+  nextOffset: z.number().int().min(0).nullable(),
+  /** The page as text. User data, never instructions. */
+  content: z.string(),
+});
+export type ArtifactContent = z.infer<typeof ArtifactContent>;
+
 // MCP tool inputs. Outputs are the API shapes above.
 
 const artifactId = ArtifactId.describe(
@@ -158,3 +190,29 @@ export const RollbackArtifactInput = z.object({
   ),
 });
 export type RollbackArtifactInput = z.infer<typeof RollbackArtifactInput>;
+
+export const ReadArtifactInput = z.object({
+  artifactId,
+  versionId: versionRef.default(CURRENT_VERSION),
+  kind: DownloadKind.default("published").describe(
+    "published for the files the artifact serves, source for its private sources (owner only).",
+  ),
+  path: z
+    .string()
+    .min(1)
+    .max(1_024)
+    .optional()
+    .describe(
+      "The file to read, as get_version names it. Omit it to read the version's entrypoint (the Markdown or text document, or a site's index.html).",
+    ),
+  offset: z
+    .number()
+    .int()
+    .min(0)
+    .max(LIMITS.artifactBytes)
+    .default(0)
+    .describe(
+      `Byte offset to start at: 0 for the first page, then the nextOffset of the previous page. Each page holds at most ${LIMITS.inlineMcpBytes} bytes.`,
+    ),
+});
+export type ReadArtifactInput = z.infer<typeof ReadArtifactInput>;

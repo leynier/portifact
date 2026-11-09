@@ -4,6 +4,7 @@
 // scope of the tool it calls, before the SDK sees it; MCP has no privileged path.
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { LIMITS } from "@portifact/contracts";
+import type { MultipartConfig } from "@portifact/domain";
 import { Hono } from "hono";
 import type { Presigner } from "../api/presign.ts";
 import { MCP_BASELINE_SCOPES } from "../auth/config.ts";
@@ -24,6 +25,8 @@ export interface McpDeps {
   presigner(env: Env): Presigner;
   /** Turnstile's siteverify transport, for the human check of new comments. */
   siteverify(env: Env): FetchLike;
+  /** Threshold and part size of multipart uploads, as for the API; undefined for the defaults. */
+  multipart?(env: Env): MultipartConfig | undefined;
   now(): number;
 }
 
@@ -55,6 +58,7 @@ export function mcpRoutes(deps: McpDeps) {
           userId: principal.userId,
           now: deps.now,
           presigner: deps.presigner(c.env),
+          multipart: deps.multipart?.(c.env),
           humanCheck: humanCheck(c.env, deps.siteverify(c.env), c.req.raw, undefined),
         }),
       { legacy: "stateless", maxRequestBodySize: MAX_REQUEST_BYTES },

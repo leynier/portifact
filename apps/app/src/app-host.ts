@@ -317,6 +317,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       resource: (env) => resources(env).mcp,
       presigner: presignerFor,
       siteverify: (env) => depsFor(env).siteverify,
+      multipart: (env) => depsFor(env).multipart,
       now: () => Date.now(),
     }),
   );
