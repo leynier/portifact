@@ -26,6 +26,8 @@ export interface FakeAnnotationState {
   role: "owner" | "participant";
   /** Which threads the caller sees; the fake lists every thread whatever it says. */
   commentScope: "all" | "own";
+  /** Threads the caller wrote in but no longer sees: editing or deleting there gives no thread. */
+  outOfScope: Set<string>;
   /** Every request body the API received, by route, to check what the CLI sent. */
   bodies: unknown[];
 }
@@ -56,6 +58,7 @@ export function createFakeAnnotations(
     deleted: [],
     role: "owner",
     commentScope: "all",
+    outOfScope: new Set(),
     bodies: [],
   };
 
@@ -242,6 +245,7 @@ export function createFakeAnnotations(
           state: "open" as const,
           author: { id: userId(), name: "Ada", image: null },
           own: true,
+          byOwner: state.role === "owner",
           revision: 1,
           createdAt: iso(),
           updatedAt: iso(),
@@ -309,12 +313,19 @@ export function createFakeAnnotations(
         target.revision += 1;
         target.editedAt = iso();
         touch(thread);
+        if (state.outOfScope.has(thread.id)) {
+          return { status: 200, body: { threadId: thread.id, thread: null } };
+        }
         return { status: 200, body: view(thread) };
       }
       if (method === "DELETE" && !parts[2]) {
         if (!target.own) return error("forbidden", "You can only delete your own messages.");
         target.state = "deleted";
         target.body = null;
+        if (state.outOfScope.has(thread.id)) {
+          touch(thread);
+          return { status: 200, body: { threadId: thread.id, thread: null } };
+        }
         return afterRemoval(thread);
       }
       if (method === "POST" && parts[2]) {

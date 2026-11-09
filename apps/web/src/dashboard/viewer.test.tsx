@@ -474,6 +474,27 @@ describe("thread actions", () => {
     await within(thread).findByRole("button", { name: "Resolve" });
   });
 
+  it("says in the reply box when every reader sees the thread: the owner started it", async () => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.role = "participant";
+    const first = store.threads[0];
+    if (first) first.byOwner = true;
+    await open();
+    const ownerThread = screen.getByRole("article", { name: "Thread 1" });
+    fireEvent.click(within(ownerThread).getByRole("button", { name: "Reply" }));
+    const form = within(ownerThread).getByRole("form", { name: "Reply to thread 1" });
+    expect(within(form).getByRole("textbox", { name: "Reply" })).toBeTruthy();
+    expect(form.textContent).toContain(
+      "The owner started this thread, so everyone who can see the comments sees your reply.",
+    );
+    const other = screen.getByRole("article", { name: "Thread 2" });
+    fireEvent.click(within(other).getByRole("button", { name: "Reply" }));
+    expect(
+      within(other).getByRole("form", { name: "Reply to thread 2" }).textContent,
+    ).not.toContain("The owner started this thread");
+  });
+
   it("lets the owner hide and delete other people's messages, and delete threads after confirming", async () => {
     await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });

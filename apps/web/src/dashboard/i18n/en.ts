@@ -191,6 +191,11 @@ export const en = {
     "Everyone who can open the artifact sees every thread and can reply to it.",
   "accessSettings.comments.exceptions":
     "You can make an exception for a person you added, in the list below.",
+  "accessSettings.comments.confirm.title": "Show every comment to everyone?",
+  "accessSettings.comments.confirm.body":
+    "Comments already written become visible to everyone who can open the artifact, not only new ones.",
+  "accessSettings.comments.confirm.action": "Show all comments",
+  "accessSettings.cancel": "Cancel",
   "accessSettings.save": "Save access",
   "accessSettings.saved":
     "Access saved. Anyone who can no longer open the artifact loses access within a minute.",
@@ -230,6 +235,9 @@ export const en = {
   "readers.comments.hint":
     "The menu beside each person chooses which comments they see. It applies whenever they sign in with that address, in any access mode.",
   "readers.comments.changed": "{email} now sees: {choice}.",
+  "readers.comments.confirm.title": "Show {email} every comment?",
+  "readers.comments.confirm.body":
+    "{email} will see every thread on this artifact, including comments already written by other people.",
 
   "account.title": "Account",
   "account.description": "How you sign in, where you are signed in and which apps can act for you.",
@@ -739,6 +747,8 @@ export const en = {
   "review.message.moderated": "Message updated.",
   "review.reply.label": "Reply to thread {number}",
   "review.reply.body": "Reply",
+  "review.reply.hint.owner":
+    "The owner started this thread, so everyone who can see the comments sees your reply.",
   "review.reply.submit": "Post reply",
   "review.reply.posted": "Reply posted.",
   "review.actionFailed.title": "The action did not finish",

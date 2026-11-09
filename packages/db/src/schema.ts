@@ -780,6 +780,14 @@ export const annotationEvents = sqliteTable(
     index("annotation_events_artifact_id_idx").on(t.artifactId, t.id),
     index("annotation_events_actor_at_idx").on(t.actorId, t.at),
     index("annotation_events_artifact_at_idx").on(t.artifactId, t.at),
+    // Threads a reader with the `own` comment scope sees, by who created them: the refresh of
+    // every such reader (the default) looks them up on each poll.
+    index("annotation_events_artifact_kind_actor_idx").on(
+      t.artifactId,
+      t.kind,
+      t.actorId,
+      t.threadId,
+    ),
   ],
 );
 

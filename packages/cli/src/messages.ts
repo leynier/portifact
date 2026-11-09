@@ -288,7 +288,8 @@ export const annotationMessages = {
       unhide: `Message ${messageId} is visible again.`,
       delete: `Deleted message ${messageId}.`,
     })[action] ?? `Message ${messageId}: ${action}.`,
-  threadGone: (threadId: string) => `Thread ${threadId} has no messages left and is gone.`,
+  threadGone: (threadId: string) =>
+    `You no longer see thread ${threadId}: the owner limited who sees comments, or it is gone.`,
   deletedThread: (threadId: string) => `Deleted thread ${threadId} and all its messages.`,
   exported: (id: string, format: string, out: string) =>
     `Exported the annotations of ${id} as ${format === "json" ? "JSON" : "Markdown"} to ${out}.`,

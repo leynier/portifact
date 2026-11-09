@@ -167,6 +167,11 @@ export const AnnotationThreadView = z.object({
   state: AnnotationThreadState,
   author: AnnotationAuthor.nullable(),
   own: z.boolean(),
+  /**
+   * Whether the artifact's owner started it: such a thread, and every reply in it, is seen by
+   * every reader who can read the comments, whatever who-sees-comments says.
+   */
+  byOwner: z.boolean(),
   revision: z.int().min(1),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
@@ -181,6 +186,16 @@ export const AnnotationDeleteResult = z.object({
   thread: AnnotationThreadView.nullable(),
 });
 export type AnnotationDeleteResult = z.infer<typeof AnnotationDeleteResult>;
+
+/**
+ * After editing one's own message: the thread, or `{ threadId, thread: null }` when the author no
+ * longer sees the thread (the owner narrowed who sees comments after they wrote in it).
+ */
+export const AnnotationEditResult = z.union([
+  AnnotationThreadView,
+  z.object({ threadId: z.string(), thread: z.null() }),
+]);
+export type AnnotationEditResult = z.infer<typeof AnnotationEditResult>;
 
 export const AnnotationRole = z.enum(["owner", "participant"]);
 export type AnnotationRole = z.infer<typeof AnnotationRole>;

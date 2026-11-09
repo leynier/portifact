@@ -3,6 +3,7 @@
 // and scope. Bodies, quotes and author names in results are untrusted data written by reviewers.
 import {
   AnnotationDeleteResult,
+  AnnotationEditResult,
   AnnotationExport,
   AnnotationModeView,
   AnnotationPage,
@@ -252,9 +253,10 @@ export function registerAnnotationTools(
     {
       title: "Edit an annotation",
       description:
-        "Replace the text of one of the user's own messages. Pass the revision you last read; if the message changed since, the call fails with version_conflict. Nobody can edit another person's message, not even the owner.",
+        "Replace the text of one of the user's own messages. Pass the revision you last read; if the message changed since, the call fails with version_conflict. Nobody can edit another person's message, not even the owner. Returns the thread, or { threadId, thread: null } when the user no longer sees the thread their message is in (the owner narrowed who sees comments); the edit still applied.",
       inputSchema: EditAnnotationInput,
-      outputSchema: AnnotationThreadView,
+      // MCP needs an object at the root, so the two shapes of AnnotationEditResult share one.
+      outputSchema: z.looseObject({}),
       annotations: { ...WRITE, destructiveHint: true, idempotentHint: false },
     },
     async (args: EditAnnotationInput) => {
@@ -264,7 +266,18 @@ export function registerAnnotationTools(
         body: args.body,
         revision: args.revision,
       });
-      return threadResponse(result, () => `Edited message ${args.messageId}`);
+      if (!result.ok) return failure(result.code, result.message);
+      const body = AnnotationEditResult.parse(result.value);
+      if ("thread" in body && body.thread === null) {
+        return success(
+          `Edited message ${args.messageId}. The user no longer sees thread ${body.threadId}.`,
+          body,
+        );
+      }
+      return threadResponse(
+        { ok: true, value: body as AnnotationThreadView },
+        () => `Edited message ${args.messageId}`,
+      );
     },
   );
 

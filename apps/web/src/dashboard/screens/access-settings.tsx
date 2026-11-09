@@ -12,11 +12,20 @@ import {
   LIMITS,
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
-import { Button, Callout, LoadingState, Panel, Select } from "@portifact/ui";
+import { Button, Callout, ConfirmDialog, LoadingState, Panel, Select } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Info, RefreshCw, Save, UserMinus, UserPlus, UsersRound } from "lucide-react";
-import type { ReactNode } from "react";
+import {
+  CircleAlert,
+  Eye,
+  Info,
+  RefreshCw,
+  Save,
+  UserMinus,
+  UserPlus,
+  UsersRound,
+} from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
@@ -132,6 +141,15 @@ function AccessEditor({
   const suspended = artifact.state === "suspended";
   const settings = useAccessChange(artifact.id);
   const readers = useAccessChange(artifact.id);
+  // A change that shows every comment to everyone waits here for the owner's confirmation.
+  const [widening, setWidening] = useState<AccessUpdate | null>(null);
+  const saveSettings = async (update: AccessUpdate) => {
+    // On failure the callout above, an alert, says why.
+    await settings.mutateAsync(update).then(
+      () => announce(t("accessSettings.saved")),
+      () => {},
+    );
+  };
 
   return (
     <div className="flex flex-col gap-8">
@@ -161,13 +179,30 @@ function AccessEditor({
               announce(t("accessSettings.unchanged"));
               return;
             }
-            // On failure the callout above, an alert, says why.
-            await settings.mutateAsync(update).then(
-              () => announce(t("accessSettings.saved")),
-              () => {},
-            );
+            // Widening is retroactive: every comment already written becomes visible.
+            if (update.commentVisibility === "everyone") {
+              setWidening(update);
+              return;
+            }
+            await saveSettings(update);
           }}
         />
+        <ConfirmDialog
+          open={widening !== null}
+          title={t("accessSettings.comments.confirm.title")}
+          confirmLabel={t("accessSettings.comments.confirm.action")}
+          cancelLabel={t("accessSettings.cancel")}
+          confirmIcon={<Eye className="size-4" />}
+          busy={settings.isPending}
+          onConfirm={() => {
+            const update = widening;
+            setWidening(null);
+            if (update) void saveSettings(update);
+          }}
+          onCancel={() => setWidening(null)}
+        >
+          {t("accessSettings.comments.confirm.body")}
+        </ConfirmDialog>
       </div>
       <Readers
         policy={policy}
@@ -434,6 +469,7 @@ function ReaderComments({
   onChange: ReadersProps["onChange"];
 }) {
   const t = useT();
+  const [widening, setWidening] = useState<ReaderCommentVisibility | null>(null);
   const current: ReaderCommentVisibility =
     policy.readerCommentVisibility.find((entry) => entry.email === email)?.commentVisibility ??
     "inherit";
@@ -441,23 +477,46 @@ function ReaderComments({
     choice === "inherit"
       ? t(`readers.comments.inherit.${policy.commentVisibility}`)
       : t(`readers.comments.${choice}`);
+  const sees = (choice: ReaderCommentVisibility) =>
+    choice === "inherit" ? (policy.commentVisibility === "everyone" ? "all" : "own") : choice;
+  const send = (choice: ReaderCommentVisibility) =>
+    onChange(
+      { readerCommentVisibility: [{ email, commentVisibility: choice }] },
+      t("readers.comments.changed", { email, choice: label(choice) }),
+    );
   return (
-    <Select<ReaderCommentVisibility>
-      label={t("readers.comments.label", { email })}
-      labelVisible={false}
-      value={current}
-      options={(["inherit", "all", "own"] as const).map((value) => ({
-        value,
-        label: label(value),
-      }))}
-      disabled={disabled}
-      onChange={(choice) =>
-        onChange(
-          { readerCommentVisibility: [{ email, commentVisibility: choice }] },
-          t("readers.comments.changed", { email, choice: label(choice) }),
-        )
-      }
-    />
+    <>
+      <Select<ReaderCommentVisibility>
+        label={t("readers.comments.label", { email })}
+        labelVisible={false}
+        value={current}
+        options={(["inherit", "all", "own"] as const).map((value) => ({
+          value,
+          label: label(value),
+        }))}
+        disabled={disabled}
+        onChange={(choice) => {
+          // Showing every comment is retroactive, so it waits for a confirmation.
+          if (sees(choice) === "all" && sees(current) === "own") setWidening(choice);
+          else void send(choice);
+        }}
+      />
+      <ConfirmDialog
+        open={widening !== null}
+        title={t("readers.comments.confirm.title", { email })}
+        confirmLabel={t("accessSettings.comments.confirm.action")}
+        cancelLabel={t("accessSettings.cancel")}
+        confirmIcon={<Eye className="size-4" />}
+        onConfirm={() => {
+          const choice = widening;
+          setWidening(null);
+          if (choice) void send(choice);
+        }}
+        onCancel={() => setWidening(null)}
+      >
+        {t("readers.comments.confirm.body", { email })}
+      </ConfirmDialog>
+    </>
   );
 }
 

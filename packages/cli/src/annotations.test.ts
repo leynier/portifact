@@ -432,6 +432,43 @@ describe("portifact annotations list and show", () => {
   });
 });
 
+describe("portifact annotations on a thread the reader no longer sees", () => {
+  it("edits and deletes the reader's own message and says the thread is not visible", async () => {
+    const artifact = reviewed();
+    const thread = await startThread(artifact);
+    server.annotations.outOfScope.add(thread.id);
+    const messageId = thread.messages[0]?.id ?? "";
+    const edited = await h.invoke(
+      "annotations",
+      "edit",
+      artifact.id,
+      messageId,
+      "--body-file",
+      await bodyFile("Redacted"),
+      "--revision",
+      "1",
+    );
+    expect(edited.code).toBe(0);
+    expect(edited.stdout).toBe(
+      `Edited message ${messageId}.\nYou no longer see thread ${thread.id}: the owner limited who sees comments, or it is gone.\n`,
+    );
+    const json_ = await h.invoke(
+      "annotations",
+      "edit",
+      artifact.id,
+      messageId,
+      "--body-file",
+      await bodyFile("Again"),
+      "--revision",
+      "2",
+      "--json",
+    );
+    expect(json(json_)).toEqual({ threadId: thread.id, thread: null });
+    const deleted = await h.invoke("annotations", "delete", artifact.id, messageId, "--yes");
+    expect(deleted.stdout).toContain(`You no longer see thread ${thread.id}`);
+  });
+});
+
 describe("portifact annotations reply, edit, resolve and reopen", () => {
   it("replies, edits by revision and changes the thread state", async () => {
     const artifact = reviewed();
@@ -510,7 +547,9 @@ describe("portifact annotations delete, moderate and delete-thread", () => {
     const deleted = await h.invoke("annotations", "delete", artifact.id, messageId, "--yes");
     expect(deleted.code).toBe(0);
     expect(deleted.stdout).toContain(`Deleted message ${messageId}.`);
-    expect(deleted.stdout).toContain(`Thread ${thread.id} has no messages left and is gone.`);
+    expect(deleted.stdout).toContain(
+      `You no longer see thread ${thread.id}: the owner limited who sees comments, or it is gone.`,
+    );
   });
 
   it("deletes after typing delete at the prompt and cancels otherwise", async () => {
@@ -751,6 +790,7 @@ describe("text formatting", () => {
     state: "open" as const,
     author: null,
     own: false,
+    byOwner: false,
     revision: 1,
     createdAt: "2026-11-08T12:00:00.000Z",
     updatedAt: "2026-11-08T12:00:00.000Z",

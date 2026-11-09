@@ -1198,6 +1198,56 @@ describe("API and MCP parity for annotations", () => {
       refreshed,
     );
     expect(refreshed.body).toMatchObject({ threads: [], removed: [], cursor });
+
+    // Replies written while every reader saw every thread stay the reader's to edit and delete
+    // after the owner narrows it again; both give no thread.
+    await owner.apiCall(
+      `/api/v1/artifacts/${id}/access`,
+      json("PATCH", { commentVisibility: "everyone" }),
+    );
+    const replies: string[] = [];
+    for (const body of ["Via API", "Via MCP"]) {
+      nextMinute();
+      const replied = await reader.apiCall(
+        `${base}/threads/${hers.id}/messages`,
+        json("POST", { body }, crypto.randomUUID()),
+      );
+      const view = await replied.json<Thread>();
+      replies.push(view.messages.at(-1)?.id ?? "");
+    }
+    await owner.apiCall(
+      `/api/v1/artifacts/${id}/access`,
+      json("PATCH", { commentVisibility: "owner" }),
+    );
+    nextMinute();
+    const editedApi = await fromApi(
+      await reader.apiCall(
+        `${base}/messages/${replies[0]}`,
+        json("PATCH", { body: "Redacted", revision: 1 }),
+      ),
+    );
+    const editedMcp = fromTool(
+      await reader.tool("edit_annotation", {
+        artifactId: id,
+        messageId: replies[1],
+        body: "Redacted",
+        revision: 1,
+      }),
+    );
+    expect(editedMcp).toEqual(editedApi);
+    expect(editedApi).toEqual({ ok: true, body: { threadId: hers.id, thread: null } });
+    const deletedApi = await fromApi(
+      await reader.apiCall(`${base}/messages/${replies[0]}`, { method: "DELETE" }),
+    );
+    const deletedMcp = fromTool(
+      await reader.tool("delete_annotation", {
+        artifactId: id,
+        messageId: replies[1],
+        confirm: replies[1],
+      }),
+    );
+    expect(deletedMcp).toEqual(deletedApi);
+    expect(deletedApi).toEqual({ ok: true, body: { threadId: hers.id, thread: null } });
   });
 
   it("deletes, moderates and deletes threads the same way", async () => {

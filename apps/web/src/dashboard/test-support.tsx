@@ -281,6 +281,7 @@ export function fakeThread(
     state: "open",
     author: { id: "u-bea", name: "Bea", image: null },
     own: false,
+    byOwner: false,
     revision: 1,
     createdAt: NOW,
     updatedAt: NOW,

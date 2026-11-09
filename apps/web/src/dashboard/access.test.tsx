@@ -112,6 +112,20 @@ describe("access settings", () => {
     expect(region.textContent).toContain("You can make an exception for a person you added");
     fireEvent.click(radio("Everyone who can open the artifact"));
     save();
+    // Widening is retroactive, so it is confirmed first; cancelling sends nothing.
+    const dialog = await screen.findByRole("dialog", { name: "Show every comment to everyone?" });
+    expect(dialog.textContent).toContain(
+      "Comments already written become visible to everyone who can open the artifact",
+    );
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(patches()).toEqual([]);
+    save();
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: "Show every comment to everyone?" }),
+      ).getByRole("button", { name: "Show all comments" }),
+    );
     await screen.findByText(/Access saved/);
     expect(server.bodies.at(-1)).toEqual({ commentVisibility: "everyone" });
     expect(server.access[ID]?.commentVisibility).toBe("everyone");
@@ -129,6 +143,20 @@ describe("access settings", () => {
     expect(await axeViolations(container)).toEqual([]);
 
     fireEvent.change(select, { target: { value: "all" } });
+    // Showing one reader every comment is retroactive too: confirmed first, cancel keeps it.
+    const dialog = await screen.findByRole("dialog", {
+      name: "Show ana@example.com every comment?",
+    });
+    expect(dialog.textContent).toContain("including comments already written");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(patches()).toEqual([]);
+    expect(select.value).toBe("inherit");
+    fireEvent.change(select, { target: { value: "all" } });
+    fireEvent.click(
+      within(
+        await screen.findByRole("dialog", { name: "Show ana@example.com every comment?" }),
+      ).getByRole("button", { name: "Show all comments" }),
+    );
     await screen.findByText("ana@example.com now sees: All comments.");
     expect(server.bodies.at(-1)).toEqual({
       readerCommentVisibility: [{ email: "ana@example.com", commentVisibility: "all" }],
@@ -150,8 +178,10 @@ describe("access settings", () => {
       name: "Comments ana@example.com sees",
     })) as HTMLSelectElement;
     expect(select.selectedOptions[0]?.textContent).toBe("Default: all comments");
+    // Narrowing needs no confirmation.
     fireEvent.change(select, { target: { value: "own" } });
     await screen.findByText("ana@example.com now sees: Only own and yours.");
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(server.access[ID]?.readerCommentVisibility).toEqual([
       { email: "ana@example.com", commentVisibility: "own" },
     ]);

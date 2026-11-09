@@ -614,7 +614,7 @@ describe("replies, edits and deletion", () => {
       });
 
     const edited = await edit(w.reader, 1);
-    expect(edited.ok && edited.value.messages[0]).toMatchObject({
+    expect(edited.ok && "messages" in edited.value && edited.value.messages[0]).toMatchObject({
       body: "Edited",
       revision: 2,
       editedAt: new Date(NOW + 5).toISOString(),
@@ -1640,7 +1640,8 @@ describe("concurrency", () => {
       racing(async () => {}, removeAfter),
       { userId: w.reader, artifactId: w.id, messageId, now: NOW },
     );
-    expect(deleted).toMatchObject({ code: "not_found" });
+    // The deletion applied; the thread is gone, so the answer carries no thread.
+    expect(deleted).toEqual({ ok: true, value: { threadId: thread.id, thread: null } });
 
     const other = await started(w, w.reader, "Two");
     await replyToAnnotationThread(db(), {
@@ -1792,6 +1793,10 @@ describe("comment visibility", () => {
     expect(page.ok && page.value.commentScope).toBe("own");
     const ownerPage = await list(w, w.owner);
     expect(ownerPage.ok && ownerPage.value.commentScope).toBe("all");
+    // Threads the owner started are marked: every reader sees them and their replies.
+    expect(page.ok && Object.fromEntries(page.value.threads.map((t) => [t.id, t.byOwner]))).toEqual(
+      { [mine.id]: false, [owners.id]: true },
+    );
   });
 
   it("answers a hidden thread by ID exactly like a missing one, for reads and every write", async () => {
@@ -1871,18 +1876,126 @@ describe("comment visibility", () => {
       "Reply from bea",
     ]);
     expect(code(await get(w, bea, mine.id))).toBe("not_found");
-    const beaReply = seen.ok ? seen.value.messages[2]?.id : undefined;
-    expect(
-      code(
-        await deleteOwnAnnotationMessage(db(), {
-          userId: bea,
-          artifactId: w.id,
-          messageId: beaReply ?? "",
-          now: NOW,
-        }),
-      ),
-    ).toBe("not_found");
     expect(await ids(w, bea)).toEqual([]);
+  });
+
+  it("lets a reader edit and delete their own reply in a thread they no longer see, without showing it", async () => {
+    const w = await world({ comments: "everyone" });
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const replied = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: bea,
+      artifactId: w.id,
+      threadId: mine.id,
+      body: "My address is 1 Main St",
+      now: NOW,
+    });
+    const beaReply = replied.ok ? (replied.value.messages[1]?.id ?? "") : "";
+    expect((await setVisibility(w, { commentVisibility: "owner" })).ok).toBe(true);
+
+    const edited = await editAnnotationMessage(db(), {
+      userId: bea,
+      artifactId: w.id,
+      messageId: beaReply,
+      body: "Redacted",
+      revision: 1,
+      now: NOW,
+    });
+    expect(edited).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
+    const deleted = await deleteOwnAnnotationMessage(db(), {
+      userId: bea,
+      artifactId: w.id,
+      messageId: beaReply,
+      now: NOW,
+    });
+    expect(deleted).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
+    const seen = await get(w, w.reader, mine.id);
+    expect(seen.ok && seen.value.messages.map((m) => m.state)).toEqual(["visible", "deleted"]);
+    // Someone else's message in that thread still answers as missing.
+    const readerMessage = seen.ok ? (seen.value.messages[0]?.id ?? "") : "";
+    expect(
+      await deleteOwnAnnotationMessage(db(), {
+        userId: bea,
+        artifactId: w.id,
+        messageId: readerMessage,
+        now: NOW,
+      }),
+    ).toEqual({ ok: false, code: "not_found", message: "Message not found." });
+  });
+
+  it("deletes one's own reply even when the owner narrows visibility while the request runs", async () => {
+    const w = await world({ comments: "everyone" });
+    const bea = await secondReader(w);
+    const mine = await started(w, w.reader, "Mine");
+    const replied = await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: bea,
+      artifactId: w.id,
+      threadId: mine.id,
+      body: "Oops",
+      now: NOW,
+    });
+    const beaReply = replied.ok ? (replied.value.messages[1]?.id ?? "") : "";
+    const narrow = () => setVisibility(w, { commentVisibility: "owner" });
+    const deleted = await deleteOwnAnnotationMessage(racing(narrow), {
+      userId: bea,
+      artifactId: w.id,
+      messageId: beaReply,
+      now: NOW,
+    });
+    expect(deleted).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
+    const [message] = await db()
+      .select()
+      .from(schema.annotationMessages)
+      .where(eq(schema.annotationMessages.id, beaReply));
+    expect(message).toMatchObject({ state: "deleted", body: null });
+  });
+
+  it("uses indexes, not scans of the events, for a reader's own-scope list", async () => {
+    const w = await world();
+    await started(w, w.reader, "Mine");
+    const statements: string[] = [];
+    const recording = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (query: string) => {
+            statements.push(query);
+            return target.prepare(query);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const page = await list(w, w.reader, { cursor: encodeAnnotationCursor(0) });
+    expect(page.ok).toBe(true);
+    await listAnnotations(createDb(recording), {
+      userId: w.reader,
+      artifactId: w.id,
+      limit: 25,
+      version: "current",
+      cursor: encodeAnnotationCursor(1),
+      now: NOW,
+    });
+    const scoped = statements.filter((query) => query.includes("thread_created"));
+    expect(scoped.length).toBeGreaterThan(0);
+    for (const query of scoped) {
+      const params = (query.match(/\?/g) ?? []).map(() => w.id);
+      const plan = await env.DB.prepare(`explain query plan ${query}`)
+        .bind(...params)
+        .all<{ detail: string }>();
+      const steps = plan.results.map((row) => row.detail);
+      expect(
+        steps.filter((step) => step.startsWith("SCAN")),
+        query,
+      ).toEqual([]);
+      expect(steps, query).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("annotation_events_artifact_kind_actor_idx"),
+        ]),
+      );
+    }
   });
 
   it("exports to each caller what they can see; the owner gets every thread", async () => {
@@ -2035,7 +2148,7 @@ describe("comment visibility", () => {
     expect(row?.messageCount).toBe(1);
   });
 
-  it("refuses an edit in another reader's thread when the reader's exception is dropped in between", async () => {
+  it("still applies an author's edit in another reader's thread when their exception is dropped in between", async () => {
     const w = await world();
     const bea = await secondReader(w, "all");
     const mine = await started(w, w.reader, "Mine");
@@ -2061,11 +2174,12 @@ describe("comment visibility", () => {
       revision: 1,
       now: NOW,
     });
-    expect(code(lost)).toBe("not_found");
+    // The author keeps control of their words; they just no longer see the thread.
+    expect(lost).toEqual({ ok: true, value: { threadId: mine.id, thread: null } });
     const [message] = await db()
       .select()
       .from(schema.annotationMessages)
       .where(eq(schema.annotationMessages.id, messageId));
-    expect(message?.body).toBe("Hello");
+    expect(message?.body).toBe("Edited");
   });
 });

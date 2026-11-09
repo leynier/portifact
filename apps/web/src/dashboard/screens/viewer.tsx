@@ -1474,6 +1474,7 @@ function ThreadItem({
           <ReplyForm
             artifactId={start.artifactId}
             threadId={thread.id}
+            byOwner={thread.byOwner}
             number={number}
             onDone={() => setReplying(false)}
           />
@@ -1548,11 +1549,14 @@ function MessageItem({
 function ReplyForm({
   artifactId,
   threadId,
+  byOwner,
   number,
   onDone,
 }: {
   artifactId: string;
   threadId: string;
+  /** The owner started the thread, so every reader who sees comments sees the reply. */
+  byOwner: boolean;
   number: number;
   onDone(): void;
 }) {
@@ -1591,7 +1595,14 @@ function ReplyForm({
         <form.Form label={t("review.reply.label", { number })}>
           <div className="flex flex-col gap-2">
             <form.AppField name="body">
-              {(field) => <field.TextAreaField label={t("review.reply.body")} rows={3} autoFocus />}
+              {(field) => (
+                <field.TextAreaField
+                  label={t("review.reply.body")}
+                  description={byOwner ? t("review.reply.hint.owner") : undefined}
+                  rows={3}
+                  autoFocus
+                />
+              )}
             </form.AppField>
             {human.field}
             <div className="flex flex-wrap gap-2">

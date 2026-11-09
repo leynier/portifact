@@ -23,6 +23,7 @@ import {
   ANNOTATION_LIMITS,
   type AnnotationAuthor,
   type AnnotationDeleteResult,
+  type AnnotationEditResult,
   type AnnotationExport,
   type AnnotationMessageView,
   type AnnotationPage,
@@ -262,6 +263,52 @@ async function findMessage(db: Db, loaded: Authorized, messageId: string) {
   if (!message) return undefined;
   const thread = await findThread(db, loaded, message.threadId);
   return thread ? { message, thread } : undefined;
+}
+
+/**
+ * One's own message, whatever the scope of its thread: an author can always edit and delete
+ * their words (plan section 8), also in a thread they no longer see. Anyone else's message
+ * needs its thread in scope, so the answer for it stays that of a missing one.
+ */
+async function findOwnMessage(db: Db, loaded: Authorized, messageId: string) {
+  const [message] = await db
+    .select()
+    .from(schema.annotationMessages)
+    .where(
+      and(
+        eq(schema.annotationMessages.id, messageId),
+        eq(schema.annotationMessages.artifactId, loaded.artifact.id),
+      ),
+    )
+    .limit(1);
+  if (!message) return undefined;
+  if (message.authorId !== loaded.viewerId) return findMessage(db, loaded, messageId);
+  const [thread] = await db
+    .select()
+    .from(schema.annotationThreads)
+    .where(eq(schema.annotationThreads.id, message.threadId))
+    .limit(1);
+  if (!thread || !threadVisible(loaded.role, thread.versionId, loaded.artifact.currentVersionId)) {
+    return undefined;
+  }
+  return { message, thread };
+}
+
+/**
+ * The thread after a change to one's own message, or `null` when the caller does not see it (any
+ * more). The caller is loaded again, so a visibility change that landed meanwhile counts.
+ */
+async function threadIfVisible(
+  db: Db,
+  input: AnnotationActor,
+  threadId: string,
+): Promise<Result<AnnotationDeleteResult>> {
+  const authorized = await authorize(db, input, "read");
+  const loaded = authorized.ok ? authorized.value : undefined;
+  const thread = loaded ? await findThread(db, loaded, threadId) : undefined;
+  if (!loaded || !thread) return ok({ threadId, thread: null });
+  const [view] = await threadViews(db, loaded, loaded.viewerId, [thread]);
+  return ok({ threadId, thread: view as AnnotationThreadView });
 }
 
 // Guards evaluated inside the write batch
@@ -698,18 +745,21 @@ export async function replyToAnnotationThread(
   );
 }
 
-/** Edits one's own message, based on the message revision the client holds. */
+/**
+ * Edits one's own message, based on the message revision the client holds. The author may edit
+ * it even in a thread they no longer see; the answer is then `{ threadId, thread: null }`.
+ */
 export async function editAnnotationMessage(
   db: Db,
   input: AnnotationActor & { messageId: string; body: string; revision: number },
-): Promise<Result<AnnotationThreadView>> {
+): Promise<Result<AnnotationEditResult>> {
   const bodyBytes = utf8Length(input.body);
   const writeId = crypto.randomUUID();
   return guardedWrite(
     async () => {
       const loaded = await authorize(db, input, "participate");
       if (!loaded.ok) return loaded;
-      const found = await findMessage(db, loaded.value, input.messageId);
+      const found = await findOwnMessage(db, loaded.value, input.messageId);
       if (!found) return missingMessage();
       const editable = checkEditMessage(input.userId, found.message);
       if (!editable.ok) return editable;
@@ -729,7 +779,8 @@ export async function editAnnotationMessage(
     },
     ({ loaded, threadId }) => {
       const m = schema.annotationMessages;
-      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(threadId)} and ${scopeGuard(loaded, threadId)} and ${rateGuard(input.userId, loaded.artifact.id, input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.authorId} = ${input.userId} and ${m.state} = 'visible' and ${m.revision} = ${input.revision})`;
+      // Authorship, not the thread's scope: the author edits their own words wherever they are.
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(threadId)} and ${rateGuard(input.userId, loaded.artifact.id, input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.authorId} = ${input.userId} and ${m.state} = 'visible' and ${m.revision} = ${input.revision})`;
       return runClaimed(db, [
         claim(
           db,
@@ -756,11 +807,19 @@ export async function editAnnotationMessage(
         touchThread(db, threadId, writeId, input.now),
       ]);
     },
-    ({ loaded, threadId }) => threadResult(db, loaded, input.userId, threadId),
+    async ({ threadId }) => {
+      const result = await threadIfVisible(db, input, threadId);
+      if (!result.ok) return result;
+      const { threadId: id, thread } = result.value;
+      return ok<AnnotationEditResult>(thread ?? { threadId: id, thread: null });
+    },
   );
 }
 
-/** Deletes one's own message. A thread left without live messages is removed. */
+/**
+ * Deletes one's own message, also in a thread the author no longer sees (then the answer's
+ * `thread` is `null`). A thread left without live messages is removed.
+ */
 export async function deleteOwnAnnotationMessage(
   db: Db,
   input: AnnotationActor & { messageId: string },
@@ -833,7 +892,10 @@ async function removeMessage(
     async () => {
       const loaded = await authorize(db, input, action);
       if (!loaded.ok) return loaded;
-      const found = await findMessage(db, loaded.value, input.messageId);
+      const found =
+        action === "delete_own"
+          ? await findOwnMessage(db, loaded.value, input.messageId)
+          : await findMessage(db, loaded.value, input.messageId);
       if (!found) return missingMessage();
       if (action === "delete_own") {
         const allowed = checkDeleteOwnMessage(input.userId, found.message);
@@ -857,9 +919,9 @@ async function removeMessage(
       const th = schema.annotationThreads;
       const others = sql`exists (select 1 from ${m} where ${m.threadId} = ${found.thread.id} and ${m.id} <> ${input.messageId} and ${m.state} <> 'deleted')`;
       const guard = sql`${artifactGuard(loaded, action, input.now)} and exists (select 1 from ${m} where ${m.id} = ${input.messageId} and ${m.state} <> 'deleted') and ${removesThread ? sql`not ${others}` : others}${
-        loaded.role === "participant"
-          ? sql` and ${currentThreadGuard(found.thread.id)} and ${scopeGuard(loaded, found.thread.id)}`
-          : sql``
+        // A participant only deletes their own message (checked above, and authors never
+        // change), so the thread's scope does not matter here.
+        loaded.role === "participant" ? sql` and ${currentThreadGuard(found.thread.id)}` : sql``
       }`;
       const event: Claim = {
         artifactId: loaded.artifact.id,
@@ -892,9 +954,7 @@ async function removeMessage(
       if (removesThread && found.message.state !== "deleted") {
         return ok({ threadId: found.thread.id, thread: null });
       }
-      const view = await threadResult(db, loaded, input.userId, found.thread.id);
-      if (!view.ok) return view;
-      return ok({ threadId: found.thread.id, thread: view.value });
+      return threadIfVisible(db, input, found.thread.id);
     },
   );
 }
@@ -1236,6 +1296,7 @@ async function threadViews(
     state: thread.state,
     author: authors.get(thread.authorId) ?? null,
     own: thread.authorId === viewerId,
+    byOwner: thread.authorId === loaded.artifact.ownerId,
     revision: thread.revision,
     createdAt: iso(thread.createdAt),
     updatedAt: iso(thread.updatedAt),
