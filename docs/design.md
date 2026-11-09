@@ -40,7 +40,7 @@ Adding any other hue requires changing this section first, in a separate change 
 
 Semantic surfaces: `backdrop` (behind panels), `canvas` (panels, inputs and published documents), `surface` (subtle fills), `surface-raised`, `surface-hover` and `surface-inverse`. The token tests require body text at 7:1 and muted text at 4.5:1 on every surface and on the selection band, in both themes.
 
-The `terminal`, `terminal-text`, `terminal-muted` and `terminal-border` tokens draw terminal and agent-session mocks, and dark bands such as the landing page's security section. They stay dark in both themes, so use them only where a dark surface is the point.
+The `terminal`, `terminal-text`, `terminal-muted` and `terminal-border` tokens draw terminal and agent-session blocks, and dark bands such as the landing page's security section. They stay dark in both themes, so use them only where a dark surface is the point.
 
 ## Motion and patterns
 
@@ -57,6 +57,12 @@ Pattern utilities (`selection-band`, `bg-dot-grid`, `bg-hatch`, `bg-highlight` f
 The base layer gives every enabled `button`, `[role="button"]`, `[role="tab"]`, `[role="option"]`, `summary` and `label[for]` the pointer cursor, which Tailwind v4 preflight no longer sets. Do not add `cursor-pointer` to those elements in apps.
 
 Brand and client icons, such as the supported-agents strip on the landing page, are inline SVG with `fill="currentColor"`, so they take a token text color and never show brand colors.
+
+## Landing page
+
+The landing page (`apps/web/index.html`) shows the product as it is, never as a drawing. Product screens (the hero's viewer, the review section's viewer and the dashboard tab's artifact list) are screenshots of the real app, and terminal and agent-session blocks are text with the real output. `bun run landing:shots` makes both: it starts the e2e stack, publishes and shares made-up example artifacts with the real CLI (signed in through the device page), has example reviewers comment in the real viewer, captures each screen in light and dark at 2x and writes WebP files at 1x and 2x into `apps/web/src/assets/landing/` (Vite hashes them under `/assets/`), and writes the CLI transcripts into `index.html` between `<!-- shots:<name> -->` and `<!-- /shots:<name> -->` markers, with the stack's hosts shown as `portifact.com` and `portifact.dev`. The script is `e2e/shots/landing.shots.ts`, its example content `e2e/shots/demo.ts`. Re-run it in the same change as any visible change to the viewer, the dashboard's artifact list, the CLI output of `publish`, `access` or `annotations export`, or the MCP tool results, and review the images before committing them.
+
+Each screenshot is a `<picture>` with a `prefers-color-scheme: dark` source, `srcset` with the 1x and 2x widths and `sizes`, explicit `width` and `height` (the screenshot's size in CSS pixels, `SHOTS` in the script), `decoding="async"`, `loading="lazy"` except the hero's (`fetchpriority="high"`), and an `alt` that describes what the image shows; `apps/web/src/landing.test.ts` checks all of it against the files' real dimensions. Terminal blocks stay `role="img"` with an `aria-label` that summarizes the output. Diagrams that are not product UI (access circles, lifecycle timeline, the origin wall) stay drawn in HTML; keep their facts in line with `LIMITS` and the product.
 
 ## Writing style
 

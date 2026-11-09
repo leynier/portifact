@@ -8,7 +8,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json && tsc -p worker/tsconfig.json",
     "browsers": "playwright install chromium firefox webkit",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "shots": "playwright test -c shots/playwright.config.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.0.0",

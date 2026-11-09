@@ -15,7 +15,7 @@ The project is in its initial build. Some commands and paths below are planned a
 | `docs/plan.md`                                         | Always, for product scope and decisions. It is the source of truth, written in Spanish, and kept only in the maintainer's local checkout (not committed). If it is missing, ask the maintainer before assuming scope.                                                                                 |
 | [docs/security.md](docs/security.md)                   | Touching auth, sessions, cookies, access control, content delivery, uploads, annotations, MCP or anything served on `portifact.dev`.                                                                                                                                                                  |
 | [docs/testing.md](docs/testing.md)                     | Writing or changing any code. Every change ships with tests.                                                                                                                                                                                                                                          |
-| [docs/design.md](docs/design.md)                       | Touching any UI: dashboard, the viewer with the Portifact bar, Markdown/TXT viewers or the annotation bridge.                                                                                                                                                                                         |
+| [docs/design.md](docs/design.md)                       | Touching any UI: dashboard, the viewer with the Portifact bar, Markdown/TXT viewers, the annotation bridge or the landing page.                                                                                                                                                                       |
 | [docs/accessibility.md](docs/accessibility.md)         | Touching any UI or CLI output. Accessibility is part of done.                                                                                                                                                                                                                                         |
 | [docs/anchors.md](docs/anchors.md)                     | Touching annotation targets, text normalization, the review bridge selection or anything that creates or resolves anchors.                                                                                                                                                                            |
 | [docs/releasing.md](docs/releasing.md)                 | Touching branches, versions, CI, release workflows, build scripts or installers.                                                                                                                                                                                                                      |
@@ -47,7 +47,7 @@ packages/ui          Design system: tokens, React components and patterns, the f
 skills/              Agent skills for using Portifact, installable with npx skills
 assets/brand/        Logo, symbol and favicons (monochrome); usage rules in docs/design.md
 scripts/             Build, versioning, installer, CI-scope, third-party notices and validation scripts; a workspace whose pure logic is unit tested
-e2e/                 Playwright end-to-end suite and its test-only Worker that serves both Workers over one local D1 and R2
+e2e/                 Playwright end-to-end suite and its test-only Worker that serves both Workers over one local D1 and R2; shots/ makes the landing page's screenshots and CLI transcripts on the same stack
 spikes/              Phase 0 prototypes with their own tests; never deployed or imported by apps and packages
 ```
 
@@ -70,6 +70,7 @@ bun run --cwd packages/ui sync-tokens   # regenerate tokens-css.ts after editing
 bun run --cwd packages/emails preview   # render every email to /tmp/portifact-email-previews (.html and .txt) for review
 bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit with third-party cookies blocked (see docs/testing.md); CI's e2e job runs it too
 bun run test:mutation  # Stryker on domain, anchors, contracts, render and services, one package at a time (slow; see docs/testing.md)
+bun run landing:shots  # regenerate the landing page's product screenshots and CLI transcripts from the real app on the e2e stack (docs/design.md, "Landing page")
 bun run test:load      # load and concurrency scenarios against the local e2e Worker, or staging with --app-url (never production)
 bun run spike:review-cookies   # Playwright review-cookie spike; not part of bun run test (see spikes/review-cookies)
 bun run --cwd apps/jobs operator <command>   # operator tool: reports, suspensions, storage-report, export-tombstones, apply-tombstones, budget state and override, email-suppressions and lift-email-suppression (deploy credentials; --local for wrangler dev state, --config <file> for a scratch database in a backup drill); docs/operations.md
