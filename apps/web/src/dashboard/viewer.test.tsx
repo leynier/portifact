@@ -58,7 +58,20 @@ const ELEMENT_TARGET: AnnotationTarget = {
 let frameWindow: { postMessage: ReturnType<typeof vi.fn> };
 let server: FakeServer;
 
+/** happy-dom lays nothing out: the frame's layer and what floats in it get these sizes. */
+const LAYER = { width: 800, height: 600 };
+const FLOATING = { width: 100, height: 32 };
+const LAYOUT = {
+  clientWidth: LAYER.width,
+  clientHeight: LAYER.height,
+  offsetWidth: FLOATING.width,
+  offsetHeight: FLOATING.height,
+};
+
 beforeEach(() => {
+  for (const [name, value] of Object.entries(LAYOUT)) {
+    Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
+  }
   frameWindow = { postMessage: vi.fn() };
   Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
     configurable: true,
@@ -91,6 +104,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.useRealTimers();
   Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+  for (const name of Object.keys(LAYOUT)) Reflect.deleteProperty(HTMLElement.prototype, name);
 });
 
 /** Delivers a message to the viewer as if `source` posted it from `origin`. */
@@ -122,6 +136,27 @@ const filterTools = () =>
 
 const fromBridge = (nonce: string, body: Record<string, unknown>) =>
   deliver({ channel: REVIEW_CHANNEL, v: 1, nonce, ...body });
+
+const RECT = { x: 120, y: 200, width: 240, height: 18 };
+
+/** The "Comment" control the viewer draws next to the reader's selection, once it is shown. */
+const pill = () => screen.findByRole("button", { name: "Comment" });
+
+/** Where a floating control was placed in the frame's layer, or null while it is hidden. */
+function placement(element: HTMLElement): { x: number; y: number } | null {
+  // The floating wrapper is the only element positioned at runtime.
+  const floating = element.closest<HTMLElement>("[style]");
+  if (!floating || floating.style.visibility !== "visible") return null;
+  const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(floating.style.transform);
+  return match ? { x: Number(match[1]), y: Number(match[2]) } : null;
+}
+
+/** Selects text in the frame (as the bridge reports it) and opens the inline composer. */
+async function commentInline(nonce: string, rect: Record<string, number> = RECT) {
+  fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect });
+  fireEvent.click(await pill());
+  return screen.getByRole("region", { name: "Comment on the selection" });
+}
 
 async function open() {
   const view = renderDashboard(PATH, server);
@@ -202,28 +237,40 @@ describe("review viewer", () => {
       window,
     );
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(screen.queryByRole("button", { name: "Comment on the selection" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Comment" })).toBeNull();
     expect(sent().filter((s) => s.message.type === "init")).toHaveLength(1);
     expect(server.requests.some((r) => r.path.endsWith("/threads"))).toBe(false);
   });
 
-  it("turns a selection into a comment only after the reader writes and confirms it", async () => {
+  it("turns a selection into a comment only after the reader writes and saves it", async () => {
     await open();
     const nonce = await connect();
-    fromBridge(nonce, { type: "selection", target: TEXT_TARGET });
-    const offer = await screen.findByRole("button", { name: "Comment on the selection" });
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT });
+    const offer = await pill();
+    // Next to the selection: below it, aligned with its left edge, inside the frame.
+    expect(placement(offer)).toEqual({ x: 120, y: 224 });
     expect(server.requests.some((r) => r.path.endsWith("/threads"))).toBe(false);
+    // Focus stays in the artifact; the control is announced, not focused.
+    expect(document.activeElement).not.toBe(offer);
+    expect(await screen.findByText(/Use the Comment button after the artifact/)).toBeTruthy();
 
     fireEvent.click(offer);
-    const form = screen.getByRole("form", { name: "New comment" });
-    fireEvent.click(within(form).getByRole("button", { name: "Post comment" }));
+    expect(screen.queryByRole("button", { name: "Comment" })).toBeNull();
+    const panel = screen.getByRole("region", { name: "Comment on the selection" });
+    expect(placement(panel)).toEqual({ x: 120, y: 224 });
+    expect(within(panel).getByText("brave new world")).toBeTruthy();
+    const form = within(panel).getByRole("form", { name: "New comment" });
+    const box = within(form).getByRole("textbox", { name: "Comment" });
+    expect(document.activeElement).toBe(box);
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
     await within(form).findByText("Write a comment.");
     expect(server.requests.some((r) => r.path.endsWith("/threads"))).toBe(false);
 
-    fireEvent.change(within(form).getByRole("textbox", { name: "Comment" }), {
-      target: { value: "Rename this" },
-    });
-    fireEvent.click(within(form).getByRole("button", { name: "Post comment" }));
+    fireEvent.change(box, { target: { value: "Rename this" } });
+    // Shift+Enter is a new line, Enter saves.
+    fireEvent.keyDown(box, { key: "Enter", shiftKey: true });
+    expect(server.requests.some((r) => r.path.endsWith("/threads"))).toBe(false);
+    fireEvent.keyDown(box, { key: "Enter" });
     await screen.findByText("3 comment threads");
     expect(screen.getByText("Rename this")).toBeTruthy();
     expect(server.bodies.at(-1)).toEqual({
@@ -232,10 +279,143 @@ describe("review viewer", () => {
       body: "Rename this",
     });
     expect(screen.queryByRole("form", { name: "New comment" })).toBeNull();
-    expect(
-      sent().at(-1)?.message.type === "markers" ||
-        sent().some((s) => s.message.type === "clear-selection"),
-    ).toBe(true);
+    expect(sent().some((s) => s.message.type === "clear-selection")).toBe(true);
+    // Back in the artifact, and the new thread is the current one in the sidebar and the page.
+    expect(document.activeElement?.tagName).toBe("IFRAME");
+    await waitFor(() => expect(sent().at(-1)?.message).toMatchObject({ type: "markers" }));
+    const markers = sent().at(-1)?.message as Extract<ViewerMessage, { type: "markers" }>;
+    expect(markers.active).toBe(markers.markers.at(-1)?.id);
+  });
+
+  it("cancels the inline comment with Escape or Cancel, and returns to the artifact", async () => {
+    await open();
+    const nonce = await connect();
+    let panel = await commentInline(nonce);
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Comment" }), {
+      target: { value: "Never mind" },
+    });
+    fireEvent.keyDown(within(panel).getByRole("textbox", { name: "Comment" }), { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "Comment on the selection" })).toBeNull();
+    expect(document.activeElement?.tagName).toBe("IFRAME");
+    expect(sent().at(-1)?.message).toMatchObject({ type: "clear-selection" });
+
+    panel = await commentInline(nonce);
+    // Escape works from its buttons too.
+    const cancel = within(panel).getByRole("button", { name: "Cancel" });
+    cancel.focus();
+    fireEvent.keyDown(cancel, { key: "Escape" });
+    expect(screen.queryByRole("region", { name: "Comment on the selection" })).toBeNull();
+
+    panel = await commentInline(nonce);
+    fireEvent.click(within(panel).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("region", { name: "Comment on the selection" })).toBeNull();
+    expect(server.requests.some((r) => r.path.endsWith("/threads"))).toBe(false);
+  });
+
+  it("keeps the Comment control inside the frame whatever rectangle the page reports", async () => {
+    await open();
+    const nonce = await connect();
+    const select = (rect: unknown) =>
+      fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect });
+    // Partly outside: clamped to the frame's visible box.
+    select({ x: -400, y: -50, width: 500, height: 80 });
+    expect(placement(await pill())).toEqual({ x: 0, y: 36 });
+    // Near the bottom right: above it, never past the frame's edges.
+    select({ x: 790, y: 590, width: 300, height: 300 });
+    await waitFor(async () => expect(placement(await pill())).toEqual({ x: 700, y: 552 }));
+    // Wholly outside the frame (scrolled away, or a lie): hidden.
+    select({ x: 10, y: 5_000, width: 10, height: 10 });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Comment" })).toBeNull());
+    // Values the protocol refuses drop the message: the last offer stays as it was.
+    for (const rect of [
+      { x: Number.NaN, y: 0, width: 1, height: 1 },
+      { x: 0, y: 0, width: -1, height: 1 },
+      { x: 0, y: 2_000_000, width: 1, height: 1 },
+    ]) {
+      fromBridge(nonce, { type: "selection-rect", rect });
+    }
+    expect(screen.queryByRole("button", { name: "Comment" })).toBeNull();
+    // A selection reported without a rectangle still gets the control, in the frame's corner.
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET });
+    expect(placement(await pill())).toEqual({ x: 688, y: 556 });
+  });
+
+  it("follows the selection as the frame scrolls, hides it once it is gone, and never moves an open comment", async () => {
+    await open();
+    const nonce = await connect();
+    // A rectangle without an offer does nothing.
+    fromBridge(nonce, { type: "selection-rect", rect: RECT });
+    expect(screen.queryByRole("button", { name: "Comment" })).toBeNull();
+
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT });
+    await pill();
+    fromBridge(nonce, { type: "selection-rect", rect: { ...RECT, y: 40 } });
+    await waitFor(async () => expect(placement(await pill())).toEqual({ x: 120, y: 64 }));
+    fromBridge(nonce, { type: "selection-rect", rect: null });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Comment" })).toBeNull());
+    fromBridge(nonce, { type: "selection-rect", rect: { ...RECT, y: 300 } });
+    expect(placement(await pill())).toEqual({ x: 120, y: 324 });
+    fromBridge(nonce, { type: "selection", target: null });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Comment" })).toBeNull());
+
+    const panel = await commentInline(nonce);
+    expect(placement(panel)).toEqual({ x: 120, y: 224 });
+    fromBridge(nonce, { type: "selection-rect", rect: { ...RECT, y: 10 } });
+    fromBridge(nonce, { type: "selection", target: null });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(placement(panel)).toEqual({ x: 120, y: 224 });
+    expect(screen.getByRole("region", { name: "Comment on the selection" })).toBe(panel);
+  });
+
+  it("writes the inline comment in a bottom sheet on narrow screens", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query.includes("max-width"),
+          media: query,
+          addEventListener() {},
+          removeEventListener() {},
+        }) as unknown as MediaQueryList,
+    );
+    // The sidebar starts closed on a narrow screen; the bar and the frame are there.
+    const { container } = renderDashboard(PATH, server);
+    await screen.findByTitle("Launch plan, published with Portifact");
+    await waitFor(() =>
+      expect(server.requests.some((r) => r.path.endsWith("/annotations"))).toBe(true),
+    );
+    const nonce = await connect();
+    const panel = await commentInline(nonce);
+    const sheet = panel.closest<HTMLElement>("[style]");
+    expect(sheet?.style.transform).toBe("");
+    expect(sheet?.style.visibility).toBe("visible");
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Comment" }), {
+      target: { value: "From my phone" },
+    });
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(server.bodies.at(-1)).toMatchObject({ body: "From my phone", target: TEXT_TARGET }),
+    );
+  });
+
+  it("writes in a bottom sheet when the composer does not fit beside the selection", async () => {
+    await open();
+    const nonce = await connect();
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT });
+    const offer = await pill();
+    // Taller than the frame: there is no place for it next to the selection.
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get: () => LAYER.height + 100,
+    });
+    fireEvent.click(offer);
+    const panel = screen.getByRole("region", { name: "Comment on the selection" });
+    await waitFor(() =>
+      expect(panel.closest<HTMLElement>("[style]")?.style.visibility).toBe("visible"),
+    );
+    expect(panel.closest<HTMLElement>("[style]")?.style.transform).toBe("");
+    expect(document.activeElement).toBe(within(panel).getByRole("textbox", { name: "Comment" }));
   });
 
   it("posts general comments on the page the frame shows, with an idempotency key", async () => {
@@ -271,8 +451,9 @@ describe("review viewer", () => {
     fireEvent.click(pick);
     expect(pick.getAttribute("aria-pressed")).toBe("true");
     expect(sent().at(-1)?.message).toMatchObject({ type: "pick", active: true });
-    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET });
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET, rect: RECT });
     fromBridge(nonce, { type: "pick-ended" });
+    fireEvent.click(await pill());
     await screen.findByRole("form", { name: "New comment" });
     expect(screen.getByText("Element button")).toBeTruthy();
     expect(screen.getByText("Buy now")).toBeTruthy();
@@ -288,6 +469,7 @@ describe("review viewer", () => {
     fromBridge(nonce, { type: "pick-ended" });
     fromBridge(nonce, { type: "element", target: ELEMENT_TARGET });
     await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.queryByRole("button", { name: "Comment" })).toBeNull();
     expect(screen.queryByRole("form", { name: "New comment" })).toBeNull();
     expect(screen.queryByText("Element button")).toBeNull();
     expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
@@ -296,8 +478,7 @@ describe("review viewer", () => {
   it("keeps the target of an open comment when the page sends another one", async () => {
     await open();
     const nonce = await connect();
-    fromBridge(nonce, { type: "selection", target: TEXT_TARGET });
-    fireEvent.click(await screen.findByRole("button", { name: "Comment on the selection" }));
+    await commentInline(nonce);
     const form = screen.getByRole("form", { name: "New comment" });
     fireEvent.change(within(form).getByRole("textbox", { name: "Comment" }), {
       target: { value: "Rename this" },
@@ -308,7 +489,8 @@ describe("review viewer", () => {
     fromBridge(nonce, { type: "selection", target: { ...TEXT_TARGET, path: "other.html" } });
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(screen.queryByText("Element button")).toBeNull();
-    fireEvent.click(within(form).getByRole("button", { name: "Post comment" }));
+    expect(screen.queryByRole("button", { name: "Comment" })).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
     await screen.findByText("3 comment threads");
     expect(server.bodies.at(-1)).toEqual({
       versionId: "v1",
@@ -435,8 +617,11 @@ describe("review viewer", () => {
     store.role = role;
     await open();
     const nonce = await connect();
-    fromBridge(nonce, { type: "selection", target: TEXT_TARGET });
-    fireEvent.click(await screen.findByRole("button", { name: "Comment on the selection" }));
+    // In the inline composer next to the selection, and in the sidebar's general comment.
+    const panel = await commentInline(nonce);
+    expect(within(panel).getByRole("form", { name: "New comment" }).textContent).toContain(note);
+    fireEvent.click(within(panel).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Comment on the page" }));
     expect(screen.getByRole("form", { name: "New comment" }).textContent).toContain(note);
   });
 
@@ -493,6 +678,106 @@ describe("thread actions", () => {
     expect(
       within(other).getByRole("form", { name: "Reply to thread 2" }).textContent,
     ).not.toContain("The owner started this thread");
+  });
+
+  it("edits your own message in place, marks it edited and sends the revision it started from", async () => {
+    const store = server.annotations[ID];
+    const own = fakeMessage({ id: "m-own", own: true, body: "Frist draft", revision: 2 });
+    store?.threads[0]?.messages.push(own);
+    const { container } = await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    // Only your own messages can be edited; the owner moderates other people's.
+    expect(within(thread).getAllByRole("button", { name: "Edit" })).toHaveLength(1);
+    const edit = within(thread).getByRole("button", { name: "Edit" });
+    fireEvent.click(edit);
+    const form = within(thread).getByRole("form", { name: "Edit your message" });
+    const box = within(form).getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    expect(box.value).toBe("Frist draft");
+    expect(document.activeElement).toBe(box);
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.change(box, { target: { value: "First draft" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await within(thread).findByText("First draft");
+    expect(server.requests).toContainEqual({
+      method: "PATCH",
+      path: `/api/v1/artifacts/${ID}/annotations/messages/m-own`,
+    });
+    expect(server.bodies.at(-1)).toEqual({ body: "First draft", revision: 2 });
+    expect(within(thread).getByText(/Edited/)).toBeTruthy();
+    await screen.findByText("Message edited.");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(thread).getByRole("button", { name: "Edit" })),
+    );
+  });
+
+  it("drops the thread when an edit lands in a thread the reader no longer sees", async () => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.role = "participant";
+    store.threads[0]?.messages.push(fakeMessage({ id: "m-own", own: true, body: "Mine" }));
+    // The owner narrowed who sees comments after the viewer loaded the thread.
+    store.outOfScope = [store.threads[0]?.id ?? ""];
+    await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    fireEvent.click(within(thread).getByRole("button", { name: "Edit" }));
+    const form = within(thread).getByRole("form", { name: "Edit your message" });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), {
+      target: { value: "Redacted" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await screen.findByText(
+      "Your message was saved. You no longer see its thread: the owner changed who sees comments.",
+    );
+    await waitFor(() => expect(screen.queryByText("Secret feedback for the owner")).toBeNull());
+    expect(server.bodies.at(-1)).toEqual({ body: "Redacted", revision: 1 });
+  });
+
+  it("cancels an edit, and reloads the message when it changed elsewhere meanwhile", async () => {
+    const store = server.annotations[ID];
+    const own = fakeMessage({ id: "m-own", own: true, body: "Old text", revision: 1 });
+    store?.threads[0]?.messages.push(own);
+    await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    fireEvent.click(within(thread).getByRole("button", { name: "Edit" }));
+    fireEvent.click(within(thread).getByRole("button", { name: "Cancel" }));
+    expect(within(thread).queryByRole("form", { name: "Edit your message" })).toBeNull();
+    expect(within(thread).getByText("Old text")).toBeTruthy();
+
+    fireEvent.click(within(thread).getByRole("button", { name: "Edit" }));
+    // Edited from the CLI meanwhile.
+    own.body = "Text from the CLI";
+    own.revision = 2;
+    if (store?.threads[0]) {
+      store.seq += 1;
+      store.threads[0].seq = store.seq;
+    }
+    const form = within(thread).getByRole("form", { name: "Edit your message" });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), {
+      target: { value: "My text" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await within(thread).findByText(/changed somewhere else meanwhile/);
+    expect(server.bodies.at(-1)).toEqual({ body: "My text", revision: 1 });
+    // The conflict loads the latest version, and saving again starts from it.
+    await waitFor(() =>
+      expect(server.requests.filter((r) => r.path.includes("/annotations?cursor"))).not.toEqual([]),
+    );
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(server.bodies.at(-1)).toEqual({ body: "My text", revision: 2 }));
+    await within(thread).findByText("My text");
+  });
+
+  it("offers no edit on hidden messages, other versions or while comments are locked", async () => {
+    const store = server.annotations[ID];
+    if (!store) throw new Error("missing");
+    store.threads[0]?.messages.push(
+      fakeMessage({ id: "m-hidden", own: true, state: "hidden", body: "Hidden mine" }),
+    );
+    store.threads[1]?.messages.push(fakeMessage({ id: "m-own2", own: true, body: "Mine" }));
+    store.mode = "locked";
+    await open();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
   it("lets the owner hide and delete other people's messages, and delete threads after confirming", async () => {
@@ -904,15 +1189,31 @@ describe("review states", () => {
   });
 
   describe("human check of a visitor's first comments", () => {
-    /** A widget that records its instances and lets the test solve them. */
+    /** A widget that records its instances and lets the test solve them or ask for interaction. */
     function fakeWidget() {
-      const instances: { solve(token: string): void; reset(): void; removed: boolean }[] = [];
+      const instances: {
+        appearance: string | undefined;
+        solve(token: string): void;
+        reset(): void;
+        interact(visible: boolean): void;
+        removed: boolean;
+      }[] = [];
       const widget: HumanCheckWidget = {
-        render(container, callbacks) {
+        render(container, callbacks, options) {
           const marker = document.createElement("p");
           marker.textContent = "Turnstile challenge";
+          marker.hidden = true;
           container.append(marker);
-          const instance = { solve: callbacks.onToken, reset: callbacks.onReset, removed: false };
+          const instance = {
+            appearance: options?.appearance,
+            solve: callbacks.onToken,
+            reset: callbacks.onReset,
+            interact(visible: boolean) {
+              marker.hidden = !visible;
+              callbacks.onInteractive?.(visible);
+            },
+            removed: false,
+          };
           instances.push(instance);
           return () => {
             instance.removed = true;
@@ -930,70 +1231,118 @@ describe("review states", () => {
       store.humanChecks = checks;
     }
 
-    async function writeComment(text: string) {
+    function startComment(text: string) {
       fireEvent.click(screen.getByRole("button", { name: "Comment on the page" }));
       fireEvent.change(screen.getByRole("textbox", { name: "Comment" }), {
         target: { value: text },
       });
-      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
     }
+
+    const post = () => fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
 
     const threadKeys = () =>
       server.idempotencyKeys.filter((k) => k.path.endsWith("/threads")).map((k) => k.key);
 
-    it("shows the check when the API asks for it, then posts with the token and a new key", async () => {
+    it("runs the check invisibly while the visitor writes and posts with its token", async () => {
       asVisitor(1);
       const fake = fakeWidget();
-      const { container } = renderDashboard(PATH, server, { humanCheck: fake.widget });
+      renderDashboard(PATH, server, { humanCheck: fake.widget });
       await screen.findByRole("heading", { name: "Thread 1" });
-      await writeComment("First note");
-      const group = await screen.findByRole("group", { name: "Confirm you are human" });
-      expect(within(group).getByText("Turnstile challenge")).toBeTruthy();
-      expect(screen.getByText(/need a quick check that you are human/)).toBeTruthy();
-      expect(fake.instances).toHaveLength(1);
-
-      // Posting before solving it says what is missing and sends nothing.
-      const sentBefore = server.requests.length;
-      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
-      expect(await within(group).findByRole("alert")).toBeTruthy();
-      expect(server.requests.length).toBe(sentBefore);
-
+      startComment("First note");
+      await waitFor(() => expect(fake.instances).toHaveLength(1));
+      expect(fake.instances[0]?.appearance).toBe("interaction-only");
       act(() => fake.instances[0]?.solve("solved-1"));
-      await waitFor(() => expect(within(group).queryByRole("alert")).toBeNull());
-      Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
-      expect(await axeViolations(container)).toEqual([]);
-      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
+      // Nothing about the check shows on the normal path.
+      expect(screen.queryByText(/quick check that you are human/)).toBeNull();
+      expect(screen.getByText("Turnstile challenge").hidden).toBe(true);
+      post();
       await screen.findByText("3 comment threads");
       expect(server.bodies.at(-1)).toMatchObject({
         body: "First note",
         turnstileToken: "solved-1",
       });
-      const [refused, accepted] = threadKeys();
-      expect(refused).toMatch(/^[0-9a-f-]{36}$/);
-      expect(accepted).toMatch(/^[0-9a-f-]{36}$/);
-      expect(accepted).not.toBe(refused);
+      expect(threadKeys()).toHaveLength(1);
+      expect(screen.queryByRole("alert")).toBeNull();
       expect(fake.instances[0]?.removed).toBe(true);
     });
 
-    it("offers a fresh challenge when a solved token is refused or expires", async () => {
+    it("shows the challenge in the composer only when Cloudflare asks, and posts once it is solved", async () => {
+      asVisitor(1);
+      const fake = fakeWidget();
+      const { container } = renderDashboard(PATH, server, { humanCheck: fake.widget });
+      await screen.findByRole("heading", { name: "Thread 1" });
+      const nonce = await connect();
+      const panel = await commentInline(nonce);
+      fireEvent.change(within(panel).getByRole("textbox", { name: "Comment" }), {
+        target: { value: "Inline note" },
+      });
+      await waitFor(() => expect(fake.instances).toHaveLength(1));
+      act(() => fake.instances[0]?.interact(true));
+      expect(within(panel).getByText(/quick check that you are human/)).toBeTruthy();
+      expect(within(panel).getByText("Turnstile challenge").hidden).toBe(false);
+      Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+      expect(await axeViolations(container)).toEqual([]);
+
+      // Saving waits for the visitor; nothing is sent until the challenge is solved.
+      const before = server.requests.length;
+      fireEvent.click(within(panel).getByRole("button", { name: "Save" }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(server.requests.length).toBe(before);
+      act(() => {
+        fake.instances[0]?.interact(false);
+        fake.instances[0]?.solve("solved-2");
+      });
+      await screen.findByText("3 comment threads");
+      expect(server.bodies.at(-1)).toMatchObject({
+        body: "Inline note",
+        turnstileToken: "solved-2",
+      });
+      expect(screen.queryByRole("region", { name: "Comment on the selection" })).toBeNull();
+    });
+
+    it("starts the check and retries once with a new key when the API asks for one unexpectedly", async () => {
+      asVisitor(0);
+      const fake = fakeWidget();
+      renderDashboard(PATH, server, { humanCheck: fake.widget });
+      await screen.findByRole("heading", { name: "Thread 1" });
+      expect(fake.instances).toEqual([]);
+      // The hint said no check; the server decides otherwise when the comment is posted.
+      const store = server.annotations[ID];
+      if (store) store.humanChecks = 1;
+      startComment("Surprise");
+      post();
+      await waitFor(() => expect(fake.instances).toHaveLength(1));
+      act(() => fake.instances[0]?.solve("solved-3"));
+      await screen.findByText("3 comment threads");
+      const [refused, accepted] = threadKeys();
+      expect(accepted).toMatch(/^[0-9a-f-]{36}$/);
+      expect(accepted).not.toBe(refused);
+      expect(server.bodies.at(-1)).toMatchObject({ body: "Surprise", turnstileToken: "solved-3" });
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("says calmly when the check did not go through, and lets the visitor save again", async () => {
       asVisitor(1);
       const fake = fakeWidget();
       renderDashboard(PATH, server, { humanCheck: fake.widget });
       await screen.findByRole("heading", { name: "Thread 1" });
-      await writeComment("First note");
-      await screen.findByRole("group", { name: "Confirm you are human" });
-      act(() => fake.instances[0]?.solve("rejected-token"));
-      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
-      await waitFor(() => expect(fake.instances).toHaveLength(2));
-      expect(fake.instances[0]?.removed).toBe(true);
-      expect(server.bodies.at(-1)).toMatchObject({ turnstileToken: "rejected-token" });
-
-      act(() => {
-        fake.instances[1]?.solve("solved-2");
-        fake.instances[1]?.reset();
-      });
-      fireEvent.click(screen.getByRole("button", { name: "Post comment" }));
-      expect(await screen.findByText("Complete the check first, then post again.")).toBeTruthy();
+      startComment("First note");
+      await waitFor(() => expect(fake.instances).toHaveLength(1));
+      act(() => fake.instances[0]?.solve("rejected-1"));
+      post();
+      await waitFor(() => expect(fake.instances.length).toBeGreaterThan(1));
+      act(() => fake.instances.at(-1)?.solve("rejected-2"));
+      expect(await screen.findByText(/did not go through/)).toBeTruthy();
+      expect(screen.queryByText("The action did not finish")).toBeNull();
+      expect(server.bodies.slice(-2)).toMatchObject([
+        { turnstileToken: "rejected-1" },
+        { turnstileToken: "rejected-2" },
+      ]);
+      // Saving again runs a fresh challenge.
+      post();
+      await waitFor(() => expect(fake.instances.length).toBeGreaterThan(2));
+      act(() => fake.instances.at(-1)?.solve("solved-4"));
+      await screen.findByText("3 comment threads");
     });
 
     it("sends the token with a reply too, and says when the check cannot load", async () => {
@@ -1006,17 +1355,23 @@ describe("review states", () => {
         target: { value: "Agreed" },
       });
       fireEvent.click(within(form).getByRole("button", { name: "Post reply" }));
-      const group = await within(form).findByRole("group", { name: "Confirm you are human" });
-      expect(within(group).getByText(/could not load/)).toBeTruthy();
+      expect(await within(form).findByText(/could not load/)).toBeTruthy();
     });
 
-    it("posts a visitor's later comments without any check", async () => {
-      asVisitor(0);
+    it("never runs the check for the owner, or for a visitor past their first comments", async () => {
       const fake = fakeWidget();
       renderDashboard(PATH, server, { humanCheck: fake.widget });
       await screen.findByRole("heading", { name: "Thread 1" });
-      await writeComment("Later note");
+      startComment("Owner note");
+      post();
       await screen.findByText("3 comment threads");
+      cleanup();
+      asVisitor(0);
+      renderDashboard(PATH, server, { humanCheck: fake.widget });
+      await screen.findByRole("heading", { name: "Thread 1" });
+      startComment("Later note");
+      post();
+      await screen.findByText("4 comment threads");
       expect(fake.instances).toEqual([]);
       expect(server.bodies.at(-1)).not.toHaveProperty("turnstileToken");
     });
@@ -1040,35 +1395,35 @@ describe("the viewer's bar and visitors", () => {
     if (listed) listed.accessMode = "public";
   }
 
-  it("shows the bar and caption: the version, sharing and the owner's settings", async () => {
+  it("names the artifact and its version in the bar and copies its link, with no caption row", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await open();
     const bar = screen.getByRole("banner");
-    const region = screen.getByRole("main", { name: "Artifact" });
-    expect(within(region).getByText("Version 1")).toBeTruthy();
+    expect(within(bar).getByRole("heading", { level: 1, name: "Launch plan" })).toBeTruthy();
+    expect(within(bar).getByText("Version 1")).toBeTruthy();
     expect(within(bar).getByRole("link", { name: "Manage" }).getAttribute("href")).toBe(
       `/artifacts/${ID}`,
     );
     expect(within(bar).queryByRole("link", { name: "Report this artifact" })).toBeNull();
-    // The artifact's own link is copied from the caption, beside its name.
-    fireEvent.click(within(region).getByRole("button", { name: "Copy link" }));
+    // One button copies the artifact's own link; the link itself is not shown as a field.
+    fireEvent.click(within(bar).getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${ORIGIN}/`));
     await screen.findByText("Link copied.");
+    const region = screen.getByRole("main", { name: "Artifact" });
+    expect(within(region).queryByText(`${ORIGIN}/`)).toBeNull();
+    expect(within(region).queryByRole("heading")).toBeNull();
+    expect(screen.queryByText("Published by a user, not by Portifact")).toBeNull();
     Reflect.deleteProperty(navigator, "clipboard");
   });
 
-  it("says whose page it is: the artifact's origin and a user-content notice by the frame, not the bar", async () => {
+  it("shows the link in the toast when the browser refuses the clipboard", async () => {
+    const writeText = vi.fn(() => Promise.reject(new Error("denied")));
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await open();
-    expect(within(screen.getByRole("banner")).queryByText("Launch plan")).toBeNull();
-    const region = screen.getByRole("main", { name: "Artifact" });
-    expect(within(region).getByRole("heading", { level: 1, name: "Launch plan" })).toBeTruthy();
-    expect(
-      within(region)
-        .getByRole("link", { name: `${ORIGIN}/` })
-        .getAttribute("href"),
-    ).toBe(`${ORIGIN}/`);
-    expect(within(region).getByText("Published by a user, not by Portifact")).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("banner")).getByRole("button", { name: "Copy link" }));
+    expect(await screen.findByText(`The link could not be copied: ${ORIGIN}/`)).toBeTruthy();
+    Reflect.deleteProperty(navigator, "clipboard");
   });
 
   it("collapses and reopens the comments sidebar from the bar", async () => {

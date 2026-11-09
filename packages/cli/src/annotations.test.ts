@@ -336,6 +336,7 @@ describe("portifact annotations list and show", () => {
       "currentVersionId",
       "role",
       "commentScope",
+      "humanCheck",
       "threads",
       "removed",
       "cursor",
@@ -344,6 +345,7 @@ describe("portifact annotations list and show", () => {
     expect(page.role).toBe("owner");
     expect(page.commentScope).toBe("all");
     expect(result.stderr).not.toContain("You see only the threads you started");
+    expect(page.humanCheck).toBe(false);
     expect(
       server.requests.slice(before).filter((r) => r.path.endsWith("/annotations")),
     ).toHaveLength(2);

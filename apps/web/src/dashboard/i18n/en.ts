@@ -589,11 +589,10 @@ export const en = {
   "viewer.skipLink": "Skip to the artifact",
   "viewer.brand": "Portifact",
   "viewer.version": "Version {number}",
-  "viewer.userContent": "Published by a user, not by Portifact",
   "viewer.withoutBar": "Open without the Portifact bar",
   "viewer.copyLink": "Copy link",
-  "viewer.link": "Artifact link",
   "viewer.copied": "Link copied.",
+  "viewer.copyFailed": "The link could not be copied: {url}",
   "viewer.manage": "Manage",
   "viewer.comments": "Comments",
   "viewer.signIn": "Sign in",
@@ -688,9 +687,16 @@ export const en = {
     "Click an element to comment on it, or Tab to it and press Enter. Escape cancels.",
   "review.pick.started":
     "Select an element in the artifact. Press Escape in the artifact to cancel.",
-  "review.selection.label": "Selected text",
-  "review.selection.comment": "Comment on the selection",
-  "review.selection.received": "Text selected in the artifact. You can comment on it.",
+  "review.selection.comment": "Comment",
+  "review.selection.received":
+    "Text selected in the artifact. Use the Comment button after the artifact to comment on it.",
+  "review.element.received":
+    "Element selected in the artifact. Use the Comment button after the artifact to comment on it.",
+  "review.inline.label": "Comment on the selection",
+  "review.inline.hint": "Enter saves, Shift+Enter adds a line, Escape cancels.",
+  "review.message.edited.hidden":
+    "Your message was saved. You no longer see its thread: the owner changed who sees comments.",
+  "review.inline.submit": "Save",
   "review.refused.quote_too_long": "The selection is too long to quote. Select less text.",
   "review.refused.no_selector":
     "That element cannot be found again later. Select some of its text instead.",
@@ -705,12 +711,13 @@ export const en = {
   "review.composer.empty": "Write a comment.",
   "review.composer.invalid": "The comment is too long or holds characters that are not allowed.",
   "review.composer.posted": "Comment posted.",
-  "review.humanCheck.label": "Confirm you are human",
   "review.humanCheck.body":
-    "Your first comments on other people's artifacts need this check. Complete it, then post again.",
+    "One quick check that you are human before your comment is posted. It is posted as soon as the check is done.",
+  "review.humanCheck.needed": "One quick check that you are human before your comment is posted.",
+  "review.humanCheck.retry":
+    "The check that you are human did not go through. Complete it, then save again.",
   "review.humanCheck.unavailable":
-    "The check could not load on this page. Reload the page and try again.",
-  "review.humanCheck.missing": "Complete the check first, then post again.",
+    "The check that you are human could not load on this page. Reload the page and try again.",
   "review.report": "Report this artifact",
   "review.target.general": "General comment on {path}",
   "review.target.element": "Element {tag}",
@@ -745,6 +752,13 @@ export const en = {
   "review.message.unhide": "Show again",
   "review.message.delete": "Delete",
   "review.message.moderated": "Message updated.",
+  "review.message.edit": "Edit",
+  "review.message.editLabel": "Edit your message",
+  "review.message.editBody": "Message",
+  "review.message.editSave": "Save",
+  "review.message.edited.done": "Message edited.",
+  "review.message.editConflict":
+    "This message changed somewhere else meanwhile. The latest version is shown; edit it again.",
   "review.reply.label": "Reply to thread {number}",
   "review.reply.body": "Reply",
   "review.reply.hint.owner":

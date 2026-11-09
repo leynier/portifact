@@ -124,6 +124,7 @@ export async function list(
       currentVersionId: page.currentVersionId,
       role: page.role,
       commentScope: page.commentScope,
+      humanCheck: page.humanCheck,
       threads,
       removed,
       cursor: page.cursor,

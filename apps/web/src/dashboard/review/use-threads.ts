@@ -27,6 +27,8 @@ export interface ThreadsState {
   role: AnnotationRole;
   /** Which threads the caller sees: all, or only their own and the owner's. */
   commentScope: CommentScope;
+  /** Whether the visitor's next comment needs the human check, so the viewer can start it early. */
+  humanCheck: boolean;
   /** Which version's threads these are: `current`, `all` or a version ID. */
   version: AnnotationVersionFilter;
   /** Oldest first, so a thread keeps its number. */
@@ -74,6 +76,7 @@ export async function loadThreads(
     currentVersionId: page.currentVersionId,
     role: page.role,
     commentScope: page.commentScope,
+    humanCheck: page.humanCheck,
     version,
     threads: [...threads.values()].sort(byCreation),
     cursor: page.cursor,

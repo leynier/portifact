@@ -215,6 +215,12 @@ export const AnnotationPage = z.object({
    * sees all). Threads outside it are never listed, counted or named in `removed`.
    */
   commentScope: CommentScope,
+  /**
+   * Whether the caller's next comment here needs a solved human check (docs/security.md, "Human
+   * check"): a participant's first comments on other people's artifacts. Never for the owner. A
+   * hint for clients that can show the challenge in advance; the write decides again.
+   */
+  humanCheck: z.boolean(),
   threads: z.array(AnnotationThreadView),
   /** Threads the client should drop: deleted, or no longer visible or matching the filter. */
   removed: z.array(z.string()),

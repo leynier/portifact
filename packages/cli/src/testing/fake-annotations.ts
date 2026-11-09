@@ -156,6 +156,7 @@ export function createFakeAnnotations(
         currentVersionId: artifact.currentVersionId,
         role: state.role,
         commentScope: state.commentScope,
+        humanCheck: false,
         threads: page.map(view),
         removed,
         cursor: String(changed.length > limit ? last : Math.max(last, seq)),
