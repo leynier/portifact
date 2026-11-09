@@ -2,6 +2,8 @@
 // retained versions, read a manifest, get short-lived download links and roll back. The MCP
 // tools build their results with the presenters here, so both return the same bodies.
 import {
+  ArtifactContent,
+  ContentQuery,
   DownloadQuery,
   IdempotencyKey,
   ListQuery,
@@ -16,11 +18,13 @@ import {
 import { createDb, type Db } from "@portifact/db";
 import {
   type DownloadPlan,
+  type FilePage,
   getVersionDownload,
   getVersionManifest,
   hashRequest,
   listVersions,
   type RollbackOutcome,
+  readVersionFile,
   rollbackArtifact,
   runIdempotent,
   type StoredResponse,
@@ -94,6 +98,10 @@ export async function versionDownload(
       }),
     ),
   });
+}
+
+export function artifactContent(page: FilePage): ArtifactContent {
+  return ArtifactContent.parse(page);
 }
 
 export function rolledBack(env: Env, outcome: RollbackOutcome): RolledBack {
@@ -187,6 +195,32 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(await versionDownload(deps.presigner(c.env), result.value, now));
+    }),
+  );
+
+  // One text file of a version, inline and a page at a time; the same files a download allows.
+  api.get(
+    "/api/v1/artifacts/:artifactId/versions/:versionId/content",
+    guarded("artifacts:read", async (c, userId) => {
+      const versionId = versionRef(c);
+      const query = ContentQuery.safeParse({
+        kind: c.req.query("kind"),
+        path: c.req.query("path"),
+        offset: c.req.query("offset"),
+      });
+      if (!versionId.success) return error(c, "invalid_input", "Invalid version id.");
+      if (!query.success) {
+        return error(c, "invalid_input", "kind must be published or source, offset a byte offset.");
+      }
+      const result = await readVersionFile(createDb(c.env.DB), c.env.ARTIFACTS, {
+        userId,
+        artifactId: c.req.param("artifactId") as string,
+        versionId: versionId.data,
+        ...query.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(artifactContent(result.value));
     }),
   );
 
