@@ -39,15 +39,33 @@ const app = createWorker((env) => ({
   siteverify: fakeSiteverify,
 }));
 
+/**
+ * The site's preference cookie is shared under `Domain=portifact.com`; on the stand-in host the
+ * browser would refuse that domain, so it gets the stand-in's own (`PREFERENCE_DOMAINS`).
+ */
+function siteCookies(response: Response): Response {
+  const cookies = response.headers.getSetCookie();
+  if (cookies.length === 0) return response;
+  const rewritten = new Response(response.body, response);
+  rewritten.headers.delete("Set-Cookie");
+  for (const cookie of cookies) {
+    rewritten.headers.append(
+      "Set-Cookie",
+      cookie.replace("Domain=portifact.com", `Domain=${SITE_HOST}`),
+    );
+  }
+  return rewritten;
+}
+
 export default {
-  fetch(request, env, ctx) {
+  async fetch(request, env, ctx) {
     const host = new URL(request.url).hostname;
     if (host === CONTROL_HOST) return control(request, env);
     // The site host plays portifact.com, which the app Worker serves by that exact name.
     if (host === SITE_HOST) {
       const url = new URL(request.url);
       url.hostname = "portifact.com";
-      return app.fetch(new Request(url, request), env, ctx);
+      return siteCookies(await app.fetch(new Request(url, request), env, ctx));
     }
     if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) {
       // Like the content Worker's own fetch: traffic and access log batches after the response.

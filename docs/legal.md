@@ -49,6 +49,8 @@ The Privacy Policy describes the access log (what is recorded, that only the art
 
 New accounts also need a solved human check (Cloudflare Turnstile, `__Host-pf_human`), enforced next to the acceptance in the same `user.create.before` hook; see "Human check" in [security.md](security.md). The Privacy Policy lists it under what is collected, the cookie table and Cloudflare's processing; keep them in sync if the check changes.
 
+The Privacy Policy lists the two preference cookies (`__Secure-pf_theme`, `__Secure-pf_lang`) that `portifact.com` and `app.portifact.com` share, and says they never reach `portifact.dev`; keep it in sync with "Cookies and sessions" in [security.md](security.md). They were added on the version of 2026-11-08 without a new `TERMS_VERSION`: they are strictly functional, hold only the theme or language the visitor chose and no identifier, are set only when the visitor chooses, and change no one's rights.
+
 `terms_version` and `terms_accepted_at` are Better Auth `additionalFields` with `input: false`, so no request body can set them; `get-session` returns them to the login page.
 
 Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.

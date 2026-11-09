@@ -1,6 +1,7 @@
 // The language choice of the dashboard: a select whose options are each language's own name,
 // marked with its `lang` so screen readers pronounce it right. The static pages draw the same
 // choice as links (`@portifact/ui/language-links`), because they have no script to run a select.
+import type { ReactNode } from "react";
 import { Select } from "./select.tsx";
 
 export interface Language<T extends string = string> {
@@ -18,6 +19,8 @@ export interface LanguageSwitcherProps<T extends string = string> {
   /** `field` with the label above (settings), or `compact` for a toolbar or a sidebar. */
   variant?: "field" | "compact" | undefined;
   disabled?: boolean | undefined;
+  /** For `compact` in tight spaces: an icon shown instead of the visible label. */
+  icon?: ReactNode;
 }
 
 export function LanguageSwitcher<T extends string>({
@@ -28,6 +31,7 @@ export function LanguageSwitcher<T extends string>({
   onChange,
   variant = "field",
   disabled,
+  icon,
 }: LanguageSwitcherProps<T>) {
   return (
     <Select
@@ -42,6 +46,8 @@ export function LanguageSwitcher<T extends string>({
       onChange={onChange}
       variant={variant}
       disabled={disabled}
+      icon={icon}
+      labelVisible={icon === undefined}
     />
   );
 }

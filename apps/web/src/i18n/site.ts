@@ -104,6 +104,16 @@ function renderHead(document: Document, page: SitePage, locale: LocaleCode): voi
   ogLocale?.setAttribute("content", locale.replace("-", "_"));
 }
 
+/**
+ * A link that chooses a language: the page in it with `?lang=`, which the Worker keeps as the
+ * visitor's choice before it sends them to the page without the parameter
+ * (apps/app/src/site-language.ts). Without it, a visitor with an earlier choice would be sent
+ * back to that language.
+ */
+export function choiceHref(path: string, locale: LocaleCode): string {
+  return `${sitePath(path, locale)}?${LOCALE_PARAM}=${locale}`;
+}
+
 function renderSwitchers(
   document: Document,
   page: SitePage,
@@ -113,7 +123,7 @@ function renderSwitchers(
   const links = LOCALE_CODES.map((code) => ({
     code,
     name: localeInfo(code).name,
-    href: sitePath(page.path, code),
+    href: choiceHref(page.path, code),
     current: code === locale,
   }));
   for (const slot of document.querySelectorAll("[data-language-switcher]")) {
@@ -133,7 +143,7 @@ function renderSuggestions(document: Document, page: SitePage, locale: LocaleCod
       .map((code) => {
         const { chrome } = SITE_CATALOGS[code];
         const { dir } = localeInfo(code);
-        const href = sitePath(page.path, code);
+        const href = choiceHref(page.path, code);
         return `<div data-locale-suggestion="${code}" lang="${code}" dir="${dir}" role="region" aria-label="${escapeAttribute(chrome.suggestion)}" class="border-b border-border bg-surface" hidden><div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-4 py-2.5 text-sm sm:px-6"><p>${chrome.suggestion} <a href="${href}" hreflang="${code}" data-locale-link="${code}" class="font-medium text-text">${chrome.suggestionAction}</a></p><button type="button" data-locale-dismiss class="rounded-sm px-2 py-1 text-text-muted underline underline-offset-4 hover:text-text">${chrome.suggestionDismiss}</button></div></div>`;
       })
       .join("");

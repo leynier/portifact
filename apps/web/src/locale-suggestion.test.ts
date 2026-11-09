@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { LOCALE_COOKIE } from "@portifact/contracts/preferences";
 import { beforeEach, describe, expect, it } from "vitest";
 import { LOCALE_STORAGE_KEY, type StorageSource } from "./i18n/preference.ts";
 import {
@@ -73,6 +74,17 @@ describe("setupLocaleSuggestion", () => {
     link?.addEventListener("click", (event) => event.preventDefault());
     link?.click();
     expect(storage.values.get(LOCALE_STORAGE_KEY)).toBe("es");
+    // In the cookie the app reads too.
+    expect(document.cookie).toContain(`${LOCALE_COOKIE}=es`);
+  });
+
+  it("follows a language chosen in the app, through the shared cookie", () => {
+    // biome-ignore lint/suspicious/noDocumentCookie: the test plays the browser's own cookie jar
+    document.cookie = `${LOCALE_COOKIE}=en; Path=/; Secure`;
+    expect(
+      setupLocaleSuggestion(document, { storage: memory().source, languages: ["es"] }),
+    ).toBeUndefined();
+    expect(note().hidden).toBe(true);
   });
 
   it("hides the note for good once dismissed, moving focus to the content", () => {
