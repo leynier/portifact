@@ -112,6 +112,21 @@ describe("landing page", () => {
     expect(header.indexOf("app.portifact.com/")).toBeLessThan(header.indexOf('href="#install"'));
   });
 
+  it("leads the hero with sign-in to the app and keeps the install section reachable", () => {
+    const hero = /<section[^>]*aria-labelledby="hero-title"[\s\S]*?<figure\b/.exec(html)?.[0] ?? "";
+    const primary = /<a\s+href="([^"]+)"[^>]*bg-surface-inverse[\s\S]*?<\/a>/.exec(hero);
+    expect(primary?.[1]).toBe("https://app.portifact.com/");
+    expect(primary?.[0].replace(/<[^>]+>/g, "").trim()).toBe("Sign in");
+    expect(hero).not.toContain('href="#install"');
+    expect(html).toContain('<section id="install"');
+  });
+
+  it("describes the screenshots and transcripts without calling them real", () => {
+    const captions = [...html.matchAll(/<figcaption\b[\s\S]*?<\/figcaption>/g)].map((m) => m[0]);
+    const labels = [...html.matchAll(/(?:aria-label|alt)="([^"]*)"/g)].map((m) => m[1]);
+    for (const text of [...captions, ...labels]) expect(text).not.toMatch(/\breal\b/i);
+  });
+
   it("links the star button in the top bar to the repository stargazers", () => {
     const header = /<header\b[\s\S]*?<\/header>/.exec(html)?.[0] ?? "";
     const star =
