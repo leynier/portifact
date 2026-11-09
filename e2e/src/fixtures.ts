@@ -95,16 +95,25 @@ export interface SentEmail {
   html: string;
 }
 
-/** The last email the app sent to `to`, waiting briefly for it to arrive. */
+/**
+ * The last email the app sent to `to`, waiting briefly for it to arrive. Reading it gives back the
+ * per-IP sign-in code budget: every browser of the stack shares one address, and the code limit
+ * per IP (`OTP_LIMITS.perIp`, 20 an hour) would otherwise run out across the projects of a run,
+ * leaving the last one (WebKit in CI) refused with 429 and no email to read.
+ */
 export async function lastEmail(to: string): Promise<SentEmail> {
   const deadline = Date.now() + 10_000;
-  for (;;) {
-    try {
-      return await control<SentEmail>("/mail", { to });
-    } catch (error) {
-      if (Date.now() > deadline) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 200));
+  try {
+    for (;;) {
+      try {
+        return await control<SentEmail>("/mail", { to });
+      } catch (error) {
+        if (Date.now() > deadline) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
     }
+  } finally {
+    await sql("delete from rate_limits where key like 'otp:ip:%'");
   }
 }
 
