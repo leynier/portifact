@@ -20,9 +20,9 @@ export function Disclosure({ summary, children, defaultOpen = false, onToggle }:
     <details
       open={defaultOpen}
       onToggle={(event) => onToggle?.(event.currentTarget.open)}
-      className="group rounded-md border border-border"
+      className="group rounded-md border border-border bg-canvas"
     >
-      <summary className="flex items-center gap-2 px-4 py-3 text-sm font-medium marker-none">
+      <summary className="flex items-center gap-2 rounded-md px-4 py-3 text-sm font-medium marker-none hover:bg-surface">
         <span
           aria-hidden="true"
           className="inline-flex text-text-muted motion-safe:transition-transform group-open:rotate-90"

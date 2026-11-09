@@ -837,7 +837,7 @@ describe("review states", () => {
 
   it("links to the viewer from the artifact page", async () => {
     renderDashboard(`/artifacts/${ID}`, server);
-    const link = await screen.findByRole("link", { name: "Open in the viewer" });
+    const link = await screen.findByRole("link", { name: "Review and comment" });
     expect(link.getAttribute("href")).toBe(PATH);
   });
 

@@ -39,7 +39,7 @@ test("the artifact list searches and filters from the keyboard, and keeps them i
   await page.getByRole("combobox", { name: "Type" }).selectOption("markdown");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(table.getByRole("row")).toHaveCount(2);
-  await expect(table.getByRole("link", { name: "Launch notes" })).toBeVisible();
+  await expect(table.getByRole("link", { name: "Launch notes", exact: true })).toBeVisible();
 
   // The URL carries the filters to a new load, and back returns to the earlier search.
   await page.reload();
@@ -52,7 +52,7 @@ test("the artifact list searches and filters from the keyboard, and keeps them i
   await page.getByRole("combobox", { name: "Access" }).selectOption("public");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(table.getByRole("row")).toHaveCount(2);
-  await expect(table.getByRole("link", { name: "Budget" })).toBeVisible();
+  await expect(table.getByRole("link", { name: "Budget", exact: true })).toBeVisible();
 });
 
 test("the review viewer filters comments by author and exports them as Markdown", async ({

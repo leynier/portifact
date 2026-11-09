@@ -130,6 +130,7 @@
         "@portifact/db": "workspace:*",
         "@portifact/services": "workspace:*",
         "@types/node": "catalog:",
+        "axe-core": "catalog:",
         "typescript": "catalog:",
         "wrangler": "^4.0.0",
       },

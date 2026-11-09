@@ -1,12 +1,15 @@
 import type { ArtifactSummary } from "@portifact/contracts";
 import {
   Button,
+  backLinkClasses,
   buttonClasses,
   Callout,
   ConfirmDialog,
+  CopyField,
   DetailList,
   LoadingState,
   PageHeader,
+  Panel,
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
@@ -16,6 +19,7 @@ import {
   ArrowLeft,
   Ban,
   CircleAlert,
+  ExternalLink,
   FilePen,
   History,
   MessageSquareText,
@@ -26,7 +30,7 @@ import {
 import { type ReactNode, useState } from "react";
 import { ApiFailure, type LifecycleAction } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
-import { offeredActions, StateBadge } from "../presentation.tsx";
+import { AccessBadge, offeredActions, StateBadge } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { AccessLog } from "./access-log.tsx";
@@ -58,7 +62,7 @@ export function ArtifactDetailScreen() {
 
   const back = (
     <p className="mb-4 text-sm">
-      <Link to="/" className="inline-flex items-center gap-1">
+      <Link to="/" className={backLinkClasses}>
         <ArrowLeft aria-hidden="true" className="size-4" />
         {t("detail.back")}
       </Link>
@@ -69,7 +73,7 @@ export function ArtifactDetailScreen() {
     return (
       <>
         {back}
-        <LoadingState label={t("detail.loading")} />
+        <LoadingState label={t("detail.loading")} skeleton={3} />
       </>
     );
   }
@@ -151,21 +155,69 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   const optional = (iso: string | null) => (iso ? formatDate(iso, true) : t("detail.notSet"));
   const actions = offeredActions(artifact.state);
 
+  const servable = artifact.state === "active";
+  const editable = artifact.state === "active" || artifact.state === "draft";
+
   return (
     <>
-      <PageHeader title={artifact.name} description={<StateBadge state={artifact.state} />} />
-      {artifact.state === "active" ? (
-        <p className="mb-6">
-          {/* A full page load, so the viewer gets its own policy (frames of this artifact only). */}
-          <a
-            href={`/view/${encodeURIComponent(artifact.id)}`}
-            className={buttonClasses({ intent: "secondary" })}
-          >
-            <MessageSquareText aria-hidden="true" className="size-4" />
-            {t("review.open")}
-          </a>
-        </p>
-      ) : null}
+      <PageHeader
+        title={artifact.name}
+        meta={
+          <>
+            <StateBadge state={artifact.state} />
+            <AccessBadge mode={artifact.accessMode} />
+          </>
+        }
+        actions={
+          <>
+            {editable ? (
+              <Link
+                to="/artifacts/$artifactId/publish"
+                params={{ artifactId: artifact.id }}
+                className={buttonClasses()}
+              >
+                <Upload aria-hidden="true" className="size-4" />
+                {t("content.publishVersion")}
+              </Link>
+            ) : null}
+            {servable ? (
+              // A full page load, so the viewer gets its own policy (frames of this artifact only).
+              <a
+                href={`/view/${encodeURIComponent(artifact.id)}`}
+                className={buttonClasses({ intent: "primary" })}
+              >
+                <MessageSquareText aria-hidden="true" className="size-4" />
+                {t("review.open")}
+              </a>
+            ) : null}
+          </>
+        }
+      />
+
+      <div className="mb-8">
+        <CopyField
+          label={t("detail.link")}
+          value={artifact.url}
+          href={artifact.url}
+          copyLabel={t("detail.copyLink")}
+          copiedLabel={t("copy.copied")}
+          onCopied={() => announce(t("detail.linkCopied"))}
+          onCopyFailed={() => announce(t("copy.failed"))}
+          actions={
+            servable ? (
+              <a
+                href={artifact.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonClasses({ intent: "ghost" })}
+              >
+                <ExternalLink aria-hidden="true" className="size-4" />
+                {t("detail.open")}
+              </a>
+            ) : null
+          }
+        />
+      </div>
 
       {artifact.suspension ? (
         <div className="mb-8">
@@ -179,112 +231,102 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
         </div>
       ) : null}
 
-      <section aria-labelledby="facts-heading">
-        <h2 id="facts-heading" className="mb-3 text-lg font-semibold">
-          {t("detail.facts")}
-        </h2>
-        <DetailList
-          items={[
-            {
-              term: t("detail.url"),
-              detail: (
-                <a href={artifact.url} className="font-mono break-all">
-                  {artifact.url}
-                </a>
-              ),
-            },
-            { term: t("detail.type"), detail: t(`type.${artifact.type}`) },
-            { term: t("detail.state"), detail: <StateBadge state={artifact.state} /> },
-            { term: t("detail.access"), detail: t(`access.${artifact.accessMode}`) },
-            { term: t("detail.created"), detail: formatDate(artifact.createdAt, true) },
-            { term: t("detail.updated"), detail: formatDate(artifact.updatedAt, true) },
-            { term: t("detail.expires"), detail: optional(artifact.expiresAt) },
-            ...(artifact.archivedAt
-              ? [
-                  { term: t("detail.archived"), detail: formatDate(artifact.archivedAt, true) },
-                  { term: t("detail.purge"), detail: optional(artifact.purgeAt) },
-                ]
-              : []),
-          ]}
-        />
-      </section>
-
-      <section aria-labelledby="content-heading" className="mt-8">
-        <h2 id="content-heading" className="mb-3 text-lg font-semibold">
-          {t("content.title")}
-        </h2>
-        <div className="flex flex-wrap gap-3">
-          {artifact.state === "active" || artifact.state === "draft" ? (
-            <Link
-              to="/artifacts/$artifactId/publish"
-              params={{ artifactId: artifact.id }}
-              className={buttonClasses()}
-            >
-              <Upload aria-hidden="true" className="size-4" />
-              {t("content.publishVersion")}
-            </Link>
-          ) : null}
-          {artifact.type !== "site" && artifact.state === "active" ? (
-            <Link
-              to="/artifacts/$artifactId/edit"
-              params={{ artifactId: artifact.id }}
-              className={buttonClasses()}
-            >
-              <FilePen aria-hidden="true" className="size-4" />
-              {t("content.edit")}
-            </Link>
-          ) : null}
-          <Link
-            to="/artifacts/$artifactId/history"
-            params={{ artifactId: artifact.id }}
-            className={buttonClasses()}
-          >
-            <History aria-hidden="true" className="size-4" />
-            {t("content.history")}
-          </Link>
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="flex min-w-0 flex-col gap-6 lg:col-span-2">
+          <AccessSettings artifact={artifact} />
+          <AccessLog artifact={artifact} />
         </div>
-      </section>
 
-      <AccessSettings artifact={artifact} />
+        <div className="flex min-w-0 flex-col gap-6">
+          <Panel title={t("detail.facts")}>
+            <DetailList
+              layout="stacked"
+              framed={false}
+              items={[
+                { term: t("detail.type"), detail: t(`type.${artifact.type}`) },
+                { term: t("detail.state"), detail: <StateBadge state={artifact.state} /> },
+                { term: t("detail.access"), detail: t(`access.${artifact.accessMode}`) },
+                { term: t("detail.created"), detail: formatDate(artifact.createdAt, true) },
+                { term: t("detail.updated"), detail: formatDate(artifact.updatedAt, true) },
+                { term: t("detail.expires"), detail: optional(artifact.expiresAt) },
+                ...(artifact.archivedAt
+                  ? [
+                      {
+                        term: t("detail.archived"),
+                        detail: formatDate(artifact.archivedAt, true),
+                      },
+                      { term: t("detail.purge"), detail: optional(artifact.purgeAt) },
+                    ]
+                  : []),
+              ]}
+            />
+          </Panel>
 
-      <AccessLog artifact={artifact} />
-
-      <section aria-labelledby="actions-heading" className="mt-8">
-        <h2 id="actions-heading" className="mb-3 text-lg font-semibold">
-          {t("detail.actions")}
-        </h2>
-        {action.isError ? (
-          <div className="mb-4">
-            <Callout
-              tone="error"
-              title={t("detail.actionFailed.title")}
-              icon={<CircleAlert className="size-5" />}
-            >
-              {errorMessage(t, action.error)}
-            </Callout>
-          </div>
-        ) : null}
-        {actions.length === 0 ? (
-          <p className="text-sm text-text-muted">{t("detail.noActions")}</p>
-        ) : (
-          <div className="flex flex-wrap gap-3">
-            {actions.map((kind) => (
-              <Button
-                key={kind}
-                intent={kind === "renew" || kind === "restore" ? "primary" : "secondary"}
-                icon={ACTION_ICONS[kind]}
-                busy={action.isPending && action.variables === kind}
-                disabled={action.isPending}
-                onClick={() =>
-                  kind === "delete" ? setConfirmingDelete(true) : action.mutate(kind)
-                }
+          <Panel title={t("content.title")} description={t("detail.versions.body")}>
+            <div className="flex flex-col items-start gap-2">
+              <Link
+                to="/artifacts/$artifactId/history"
+                params={{ artifactId: artifact.id }}
+                className={buttonClasses()}
               >
-                {t(`detail.${kind}`)}
-              </Button>
-            ))}
-          </div>
-        )}
-      </section>
+                <History aria-hidden="true" className="size-4" />
+                {t("content.history")}
+              </Link>
+              {artifact.type !== "site" && servable ? (
+                <Link
+                  to="/artifacts/$artifactId/edit"
+                  params={{ artifactId: artifact.id }}
+                  className={buttonClasses()}
+                >
+                  <FilePen aria-hidden="true" className="size-4" />
+                  {t("content.edit")}
+                </Link>
+              ) : null}
+            </div>
+          </Panel>
+
+          <Panel
+            title={t("detail.comments.title")}
+            description={servable ? t("detail.comments.body") : t("detail.comments.unavailable")}
+          >
+            <p className="text-sm">{t(`list.annotations.${artifact.annotations}`)}</p>
+          </Panel>
+
+          <Panel title={t("detail.actions")} description={t("detail.lifecycleHint")}>
+            {action.isError ? (
+              <div className="mb-4">
+                <Callout
+                  tone="error"
+                  title={t("detail.actionFailed.title")}
+                  icon={<CircleAlert className="size-5" />}
+                >
+                  {errorMessage(t, action.error)}
+                </Callout>
+              </div>
+            ) : null}
+            {actions.length === 0 ? (
+              <p className="text-sm text-text-muted">{t("detail.noActions")}</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {actions.map((kind) => (
+                  <Button
+                    key={kind}
+                    intent={kind === "renew" || kind === "restore" ? "primary" : "secondary"}
+                    icon={ACTION_ICONS[kind]}
+                    busy={action.isPending && action.variables === kind}
+                    disabled={action.isPending}
+                    onClick={() =>
+                      kind === "delete" ? setConfirmingDelete(true) : action.mutate(kind)
+                    }
+                  >
+                    {t(`detail.${kind}`)}
+                  </Button>
+                ))}
+              </div>
+            )}
+          </Panel>
+        </div>
+      </div>
 
       <ConfirmDialog
         open={confirmingDelete}
@@ -292,6 +334,7 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
         confirmLabel={t("detail.confirmDelete.confirm")}
         cancelLabel={t("detail.confirmDelete.cancel")}
         confirmIcon={ACTION_ICONS.delete}
+        tone="danger"
         busy={action.isPending}
         onConfirm={() => action.mutate("delete")}
         onCancel={() => setConfirmingDelete(false)}

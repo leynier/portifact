@@ -18,7 +18,7 @@ export function PreviewFrame({ title, html }: PreviewFrameProps) {
       sandbox=""
       srcDoc={html}
       referrerPolicy="no-referrer"
-      className="h-128 w-full rounded-md border border-border bg-canvas"
+      className="h-128 w-full rounded-lg border border-border bg-canvas"
     />
   );
 }
