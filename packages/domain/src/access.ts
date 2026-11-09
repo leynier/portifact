@@ -1,7 +1,7 @@
 import { type AccessMode, LIMITS } from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
 
 export interface AccessPolicy {
   mode: AccessMode;
@@ -38,7 +38,7 @@ export function canManage(policy: AccessPolicy, viewer: Viewer | null): Result<t
   return ok(true);
 }
 
-/** New accounts cannot make artifacts public during their first days (abuse protection). */
+/** New accounts cannot make artifacts public during their first minutes (abuse protection). */
 export function checkAccessChange(
   mode: AccessMode,
   accountCreatedAt: Date,
@@ -46,10 +46,10 @@ export function checkAccessChange(
 ): Result<true> {
   if (mode !== "public") return ok(true);
   const ageMs = now.getTime() - accountCreatedAt.getTime();
-  if (ageMs < LIMITS.publicAccessMinAccountAgeDays * DAY_MS) {
+  if (ageMs < LIMITS.publicAccessMinAccountAgeMinutes * MINUTE_MS) {
     return fail(
       "account_too_new_for_public",
-      `Accounts can make artifacts public after ${LIMITS.publicAccessMinAccountAgeDays} days.`,
+      `Accounts can make artifacts public ${LIMITS.publicAccessMinAccountAgeMinutes} minutes after they are created.`,
     );
   }
   return ok(true);

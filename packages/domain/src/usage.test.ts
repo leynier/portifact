@@ -123,17 +123,17 @@ describe("usageBlocks", () => {
     ]);
   });
 
-  it("stops public access during the account's first seven days", () => {
-    const createdAt = NOW - DAY;
+  it("stops public access during the account's first 15 minutes", () => {
+    const createdAt = NOW - 60_000;
     expect(usageBlocks({ ...quiet, accountCreatedAt: createdAt })).toEqual([
       {
         reason: "account_too_new_for_public",
         stops: "public_access",
-        message: expect.stringContaining("7 days"),
-        until: createdAt + 7 * DAY,
+        message: expect.stringContaining("15 minutes"),
+        until: createdAt + 15 * 60_000,
       },
     ]);
-    expect(usageBlocks({ ...quiet, accountCreatedAt: NOW - 7 * DAY })).toEqual([]);
+    expect(usageBlocks({ ...quiet, accountCreatedAt: NOW - 15 * 60_000 })).toEqual([]);
   });
 });
 
@@ -167,7 +167,7 @@ describe("dates", () => {
     );
   });
 
-  it("allows public access seven days after sign-up", () => {
-    expect(publicAccessFrom(0)).toBe(7 * DAY);
+  it("allows public access 15 minutes after sign-up", () => {
+    expect(publicAccessFrom(0)).toBe(15 * 60_000);
   });
 });

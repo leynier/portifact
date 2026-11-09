@@ -84,7 +84,7 @@ Only in versions whose `--help` lists these commands. Every command takes `--jso
 Only in versions whose `--help` lists `access`. Every command takes `--json` and prints `{"artifactId","mode","readers","indexable","embeddable","policyGeneration"}`, plus `"bar"` in versions whose `portifact access --help` lists `bar`.
 
 - `portifact access <id>` shows the current policy. Use it to report the access mode after publishing.
-- `portifact access set <id> restricted|authenticated|public`: `restricted` is the owner plus listed readers, `authenticated` is anyone signed in to Portifact, `public` is anyone with the link. Accounts in their first 7 days cannot make an artifact public (`account_too_new_for_public`, exit 7).
+- `portifact access set <id> restricted|authenticated|public`: `restricted` is the owner plus listed readers, `authenticated` is anyone signed in to Portifact, `public` is anyone with the link. Accounts in their first 15 minutes cannot make an artifact public (`account_too_new_for_public`, exit 7).
 - `portifact access add <id> <email>...` and `access remove <id> <email>...` change the reader list (at most 100 addresses at a time). Readers only matter while the mode is `restricted`.
 - In versions whose `portifact access --help` lists `bar`, `portifact access bar <id> on|off` turns the Portifact bar on or off. On (the default), the artifact's link opens in Portifact's viewer, with the bar on top and the comments beside the artifact; off, the link opens the artifact alone, full screen. Turn it off only when the user asks, for example for an app or a page that needs the whole window. It never changes who can open the artifact.
 
