@@ -70,6 +70,8 @@ for (const scheme of ["light", "dark"] as const) {
 
     // The collapsed sidebar, and on a phone the open drawer.
     await page.goto(`${APP_ORIGIN}/`);
+    await page.getByRole("heading", { level: 1 }).waitFor();
+    await expect(page.getByText(/^Loading/)).toHaveCount(0);
     await page.getByRole("button", { name: "Collapse sidebar" }).click();
     expect(await violations(page), `the collapsed sidebar in the ${scheme} theme`).toEqual([]);
     await page.getByRole("button", { name: "Expand sidebar" }).click();

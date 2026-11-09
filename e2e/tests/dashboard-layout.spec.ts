@@ -216,6 +216,10 @@ test("wide screens use the room: the page starts at the sidebar and the section 
   await page.keyboard.press("Home");
   await expect(nav.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "true");
   await page.keyboard.press("End");
+  // WebKit's End does not always reach the bottom when a section has focus; a wheel scroll over
+  // the content finishes the trip the way a person would.
+  await page.mouse.move(900, 450);
+  await page.mouse.wheel(0, 20_000);
   await expect(nav.getByRole("link", { name: "Danger zone" })).toHaveAttribute(
     "aria-current",
     "true",
