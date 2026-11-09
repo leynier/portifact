@@ -140,11 +140,12 @@ async function sidewaysOverflow(page: Page): Promise<string[]> {
 }
 
 /**
- * Widens every glyph, so the check does not depend on the fonts of the machine running it: CI's
- * fallback fonts are wider than a developer's. Static pages refuse inline styles, so the tests
- * that use it bypass the CSP.
+ * A wide font where the machine has one (DejaVu Sans, Verdana) with every glyph widened, so the
+ * check does not depend on the fonts of the machine running it: CI's fallback fonts are wider
+ * than a developer's. Static pages refuse inline styles, so the tests that use it bypass the CSP.
  */
-const WIDER_TEXT = "*, *::before, *::after { letter-spacing: 0.08em !important; }";
+const WIDER_TEXT =
+  "*, *::before, *::after { font-family: 'DejaVu Sans', Verdana, sans-serif !important; letter-spacing: 0.08em !important; }";
 
 test("the landing offers every language and goes to Japanese and German without overflowing", async ({
   page,
