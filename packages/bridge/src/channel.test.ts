@@ -1,3 +1,4 @@
+import type { AnnotationTarget } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   bridgeEnvelope,
@@ -7,7 +8,7 @@ import {
   readViewerMessage,
   viewerEnvelope,
 } from "./channel.ts";
-import { BRIDGE_LIMITS, REVIEW_CHANNEL } from "./protocol.ts";
+import { BRIDGE_LIMITS, REVIEW_CHANNEL, REVIEW_PROTOCOL } from "./protocol.ts";
 
 const VIEWER = "https://app.portifact.com";
 const ARTIFACT = "https://k7d2qm4xab.portifact.dev";
@@ -15,7 +16,7 @@ const NONCE = "n".repeat(22);
 const frame = { name: "frame" };
 const parent = { name: "parent" };
 
-const target = {
+const target: AnnotationTarget = {
   schema: 1,
   path: "index.html",
   anchor: {
@@ -45,7 +46,7 @@ describe("bridge messages, as the viewer reads them", () => {
   it("accepts a ready message without a nonce, only from the frame's exact origin and window", () => {
     const ready = {
       channel: REVIEW_CHANNEL,
-      v: 1,
+      v: REVIEW_PROTOCOL,
       type: "ready",
       page: { path: "index.html" },
       sessionTag: "Ses5ionTag_0123456789-",
@@ -84,12 +85,15 @@ describe("bridge messages, as the viewer reads them", () => {
   });
 
   it("refuses forged shapes: unknown keys, wrong channel, unsafe targets and bad types", () => {
-    const base = bridgeEnvelope(NONCE, { type: "activate", id: "t1" });
+    const base = bridgeEnvelope(NONCE, { type: "select", ids: ["t1"] });
     for (const forged of [
       { ...base, extra: true },
       { ...base, channel: "other" },
-      { ...base, v: 2 },
-      { ...base, id: "../x" },
+      { ...base, v: 1 },
+      { ...base, ids: ["../x"] },
+      { ...base, ids: "t1" },
+      { ...base, ids: Array.from({ length: BRIDGE_LIMITS.highlightsMax + 1 }, (_, i) => `t${i}`) },
+      { ...base, type: "activate", id: "t1" },
       { ...base, type: "post-comment", body: "hi" },
       bridgeEnvelope(NONCE, {
         type: "selection",
@@ -140,12 +144,12 @@ describe("bridge messages, as the viewer reads them", () => {
       expect(accepted({ type: "element", target, rect: hostile })).toBeNull();
     }
     // A rectangle never travels without the nonce of the current handshake.
-    const unbound = { channel: REVIEW_CHANNEL, v: 1, type: "selection-rect", rect };
+    const unbound = { channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "selection-rect", rect };
     expect(readBridgeMessage(fromFrame(unbound), viewerExpects())).toBeNull();
   });
 
   it("refuses messages over the size limit and data that is not plain JSON", () => {
-    const results = Array.from({ length: BRIDGE_LIMITS.markersMax }, (_, i) => ({
+    const results = Array.from({ length: BRIDGE_LIMITS.highlightsMax }, (_, i) => ({
       id: `${"t".repeat(60)}${String(i).padStart(4, "0")}`,
       confidence: "orphaned",
       reason: "not_found",
@@ -188,23 +192,29 @@ describe("viewer messages, as the bridge reads them", () => {
     expect(readViewerMessage(fromViewer(focus, VIEWER, frame), bridgeExpects(NONCE))).toBeNull();
   });
 
-  it("refuses markers beyond the limit", () => {
-    const markers = Array.from({ length: BRIDGE_LIMITS.markersMax + 1 }, (_, i) => ({
+  it("refuses highlights beyond the limit and the old marker shape", () => {
+    const highlights = Array.from({ length: BRIDGE_LIMITS.highlightsMax + 1 }, (_, i) => ({
       id: `t${i}`,
-      label: String(i),
-      name: `Thread ${i}`,
       target,
     }));
-    const message = viewerEnvelope(NONCE, { type: "markers", markers, active: null } as never);
+    const message = viewerEnvelope(NONCE, { type: "highlights", highlights, selected: [] });
     expect(readViewerMessage(fromViewer(message), bridgeExpects(NONCE))).toBeNull();
     const fits = viewerEnvelope(NONCE, {
-      type: "markers",
-      markers: markers.slice(0, 3),
-      active: "t1",
-    } as never);
-    expect(readViewerMessage(fromViewer(fits), bridgeExpects(NONCE))).toMatchObject({
-      type: "markers",
+      type: "highlights",
+      highlights: highlights.slice(0, 3),
+      selected: ["t1", "t2"],
     });
+    expect(readViewerMessage(fromViewer(fits), bridgeExpects(NONCE))).toEqual(fits);
+    const labelled = viewerEnvelope(NONCE, {
+      type: "highlights",
+      highlights: [{ id: "t1", label: "1", target }],
+      selected: [],
+    } as never);
+    expect(readViewerMessage(fromViewer(labelled), bridgeExpects(NONCE))).toBeNull();
+    const hover = viewerEnvelope(NONCE, { type: "hover", id: null });
+    expect(readViewerMessage(fromViewer(hover), bridgeExpects(NONCE))).toEqual(hover);
+    const badHover = viewerEnvelope(NONCE, { type: "hover", id: "../x" } as never);
+    expect(readViewerMessage(fromViewer(badHover), bridgeExpects(NONCE))).toBeNull();
   });
 });
 

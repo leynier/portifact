@@ -11,13 +11,16 @@ export const buttonClasses = cva(
         primary:
           "rounded-sm bg-surface-inverse text-text-inverse shadow-sm hover:opacity-85 disabled:hover:opacity-55",
         secondary:
-          "rounded-sm border border-border-strong bg-canvas text-text hover:bg-surface-hover disabled:hover:bg-canvas",
+          "rounded-sm border border-border-strong bg-canvas text-text hover:bg-surface-hover disabled:hover:bg-canvas aria-pressed:border-text aria-pressed:bg-surface-hover",
         // Quiet actions in toolbars, rows and navigation; the label and icon carry them.
         ghost: "rounded-sm text-text hover:bg-surface-hover disabled:hover:bg-transparent",
         link: "text-text underline underline-offset-4 hover:decoration-2",
         // Floats over content, such as the "Comment" control next to a selection in the viewer.
         floating:
           "rounded-sm bg-surface-inverse text-text-inverse shadow-float hover:opacity-85 disabled:hover:opacity-55",
+        // Looks like an empty field and opens a form in place, such as a thread's reply box.
+        field:
+          "w-full justify-start rounded-sm border border-border bg-canvas font-normal text-text-muted hover:border-border-strong hover:text-text",
       },
       size: {
         md: "h-10 px-4 text-sm",
@@ -29,6 +32,7 @@ export const buttonClasses = cva(
       { intent: "link", class: "h-auto px-0" },
       { intent: "ghost", size: "md", class: "px-3" },
       { intent: "ghost", size: "sm", class: "px-2" },
+      { intent: "field", size: "sm", class: "px-2.5" },
     ],
     defaultVariants: { intent: "secondary", size: "md" },
   },
@@ -48,6 +52,11 @@ export interface ButtonProps
    * a spinner alone never tells anyone what happens.
    */
   busy?: boolean;
+  /**
+   * A count shown after the label, such as open threads. `label` is what screen readers hear
+   * instead of the bare number, for example "(3 open)".
+   */
+  count?: { value: number; label: string } | undefined;
 }
 
 export function Button({
@@ -57,6 +66,7 @@ export function Button({
   busy = false,
   disabled,
   type = "button",
+  count,
   children,
   ...rest
 }: ButtonProps) {
@@ -77,6 +87,17 @@ export function Button({
         </span>
       ) : null}
       {children}
+      {count ? (
+        <>
+          <span
+            aria-hidden="true"
+            className="inline-flex h-5 min-w-5 items-center justify-center rounded-xs bg-surface-inverse px-1 text-xs font-semibold text-text-inverse tabular-nums"
+          >
+            {count.value}
+          </span>
+          <span className="sr-only"> {count.label}</span>
+        </>
+      ) : null}
     </button>
   );
 }

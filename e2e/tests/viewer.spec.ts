@@ -3,6 +3,8 @@
 // in a sandboxed frame and the comments sidebar, for HTML sites, Markdown and plain text. See
 // "The viewer" in docs/security.md.
 
+import { mkdir } from "node:fs/promises";
+import type { Frame, Page } from "@playwright/test";
 import {
   artifactFrame,
   contentRequests,
@@ -129,9 +131,10 @@ for (const artifact of ARTIFACTS) {
       anchor: { kind: "text", quote: { exact: QUOTE } },
     });
 
-    // Edit the comment from the sidebar.
+    // Edit the comment from the sidebar, through the message's menu.
     const article = sidebar.getByRole("article", { name: "Thread 1" });
-    await article.getByRole("button", { name: "Edit" }).click();
+    await article.getByRole("button", { name: "More actions for the message from You" }).click();
+    await page.getByRole("menuitem", { name: "Edit" }).click();
     await article.getByRole("textbox", { name: "Message" }).fill("Say hello to the old world");
     await article.getByRole("button", { name: "Save" }).click();
     await expect(article.getByText("Say hello to the old world", { exact: true })).toBeVisible();
@@ -216,6 +219,155 @@ test("a visitor's first inline comments pass the human check invisibly, or in th
     [visitor.userId],
   );
   expect(posted).toHaveLength(2);
+});
+
+/** Where `text` is drawn in the frame, in the page's coordinates. */
+async function textBox(page: Page, frame: Frame, text: string) {
+  const inFrame = await frame.evaluate((quote) => {
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const at = node.textContent?.indexOf(quote) ?? -1;
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + quote.length);
+      const rect = range.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }
+    return null;
+  }, text);
+  const frameBox = await page.locator("iframe").boundingBox();
+  if (!inFrame || !frameBox) throw new Error("no layout");
+  return { ...inFrame, x: frameBox.x + inFrame.x, y: frameBox.y + inFrame.y };
+}
+
+/** Comments inline on `quote`, as the reader would: select it, Comment, type and save. */
+async function commentOn(page: Page, frame: Frame, quote: string, body: string) {
+  await selectQuote(frame, quote);
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  const composer = page.getByRole("region", { name: "Comment on the selection" });
+  await composer.getByRole("textbox", { name: "Comment" }).fill(body);
+  await composer.getByRole("button", { name: "Save" }).click();
+  await expect(composer).toBeHidden();
+}
+
+/** Screenshots for review, only when PORTIFACT_SHOTS names a folder. */
+async function shoot(page: Page, name: string) {
+  const folder = process.env.PORTIFACT_SHOTS;
+  if (!folder) return;
+  await mkdir(folder, { recursive: true });
+  // Colors ease for 150 ms after a theme change.
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${folder}/${name}.png` });
+}
+
+test("overlapping comments are layered highlights: a click selects every thread under it, which are replied to, resolved and edited", async ({
+  page,
+  context,
+  engine,
+  browserName,
+}) => {
+  test.skip(!engine.reviewWorks, "the frame keeps no review session in this configuration");
+  const owner = await createUser("Owner");
+  const { artifactId } = await publish({ ownerId: owner.userId, ...SITE });
+  await signIn(context, owner);
+  await page.goto(`${APP_ORIGIN}/view/${artifactId}`);
+  const frame = await artifactFrame(page, artifactId);
+  await expect(frame.getByText(QUOTE).first()).toBeVisible();
+  await expect(page.getByText("Connecting to the page")).toBeHidden();
+  const sidebar = page.getByRole("complementary", { name: "Comments" });
+
+  // Two threads on the same text: the whole sentence, and one word inside it.
+  await commentOn(page, frame, "brave new world", "The whole phrase reads well");
+  await commentOn(page, frame, "new", "Is new the right word?");
+  await expect(sidebar.getByText("2 comment threads")).toBeVisible();
+  // No numbered markers over the text: nothing of Portifact's to tab to in the artifact.
+  await expect(frame.locator("portifact-review")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: /Open thread/ })).toHaveCount(0);
+
+  // A click on the overlap selects both threads, shown together, the inner one first.
+  const word = await textBox(page, frame, "new");
+  await page.mouse.click(word.x + word.width / 2, word.y + word.height / 2);
+  const group = sidebar.getByRole("region", { name: "2 threads on the text you clicked" });
+  await expect(group).toBeVisible();
+  const cards = group.getByRole("article");
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toHaveAttribute("aria-labelledby", /title$/);
+  await expect(cards.nth(0)).toHaveAccessibleName("Thread 2");
+  await expect(cards.nth(0)).toHaveAttribute("aria-current", "true");
+  await expect(cards.nth(1)).toHaveAccessibleName("Thread 1");
+  await shoot(page, `${browserName}-desktop-light-overlap`);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await shoot(page, `${browserName}-desktop-dark-overlap`);
+  await page.emulateMedia({ colorScheme: "light" });
+
+  // A click on the sentence outside the word selects only the outer thread.
+  const brave = await textBox(page, frame, "brave");
+  await page.mouse.click(brave.x + brave.width / 2, brave.y + brave.height / 2);
+  await expect(group).toBeHidden();
+  await expect(sidebar.getByRole("article", { name: "Thread 1" })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+
+  // Reply in the outer thread from its reply field.
+  const outer = sidebar.getByRole("article", { name: "Thread 1" });
+  await outer.getByRole("button", { name: "Reply" }).click();
+  await outer.getByRole("textbox", { name: "Reply" }).fill("Agreed");
+  await outer.getByRole("button", { name: "Post reply" }).click();
+  await expect(outer.getByText("Agreed", { exact: true })).toBeVisible();
+
+  // Resolve the inner thread from its icon button; it folds.
+  const inner = sidebar.getByRole("article", { name: "Thread 2" });
+  await inner.getByRole("button", { name: "Resolve" }).click();
+  await expect(inner.getByText("Resolved")).toBeVisible();
+  await expect(inner.getByRole("button", { name: "Reopen" })).toBeVisible();
+
+  // Edit the outer thread's first message through its menu.
+  await outer
+    .getByRole("button", { name: "More actions for the message from You" })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: "Edit" }).click();
+  await outer.getByRole("textbox", { name: "Message" }).fill("The whole phrase reads very well");
+  await outer.getByRole("button", { name: "Save" }).click();
+  await expect(outer.getByText("The whole phrase reads very well")).toBeVisible();
+  await expect(outer.getByText(/Edited/)).toBeVisible();
+  const bodies = await sql<{ body: string }>(
+    "SELECT body FROM annotation_messages WHERE author_id = ? ORDER BY created_at",
+    [owner.userId],
+  );
+  expect(bodies.map((row) => row.body)).toEqual([
+    "The whole phrase reads very well",
+    "Is new the right word?",
+    "Agreed",
+  ]);
+
+  // On a phone, the bar keeps the toggle and a menu, and comments open over the artifact.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.reload();
+  const phoneFrame = await artifactFrame(page, artifactId);
+  await expect(page.getByText("Connecting to the page")).toBeHidden();
+  const bar = page.getByRole("banner");
+  await expect(bar.getByRole("button", { name: /^Comments/ })).toBeVisible();
+  await expect(bar.getByRole("button", { name: "More" })).toBeVisible();
+  await expect(bar.getByRole("button", { name: "Copy link" })).toBeHidden();
+  await expect(sidebar).toBeHidden();
+  await shoot(page, `${browserName}-mobile-light-artifact`);
+  // A click on the overlap opens the comments over the artifact, with both threads together.
+  const phoneWord = await textBox(page, phoneFrame, "new");
+  await page.mouse.click(phoneWord.x + phoneWord.width / 2, phoneWord.y + phoneWord.height / 2);
+  await expect(sidebar).toBeVisible();
+  await expect(
+    sidebar.getByRole("region", { name: "2 threads on the text you clicked" }),
+  ).toBeVisible();
+  await shoot(page, `${browserName}-mobile-light-overlap`);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await shoot(page, `${browserName}-mobile-dark-overlap`);
+  await page.emulateMedia({ colorScheme: "light" });
+  await sidebar.getByRole("button", { name: "Close comments" }).click();
+  await expect(sidebar).toBeHidden();
+  await expect(bar.getByRole("button", { name: /^Comments/ })).toBeFocused();
 });
 
 test("the viewer keeps the page, query and fragment of the link it was opened with", async ({

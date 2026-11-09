@@ -12,7 +12,7 @@ import {
   startBridge,
 } from "./bridge.ts";
 import { viewerEnvelope } from "./channel.ts";
-import type { BridgeMessage, ViewerBody } from "./protocol.ts";
+import { type BridgeMessage, REVIEW_PROTOCOL, type ViewerBody } from "./protocol.ts";
 
 const VIEWER = "https://app.portifact.com";
 const NONCE = "abcdefghijklmnopqrstuv";
@@ -139,7 +139,7 @@ describe("handshake", () => {
         origin: VIEWER,
         message: {
           channel: "portifact-review",
-          v: 1,
+          v: REVIEW_PROTOCOL,
           type: "ready",
           page: { path: "index.html", route: "/" },
           sessionTag: SESSION_TAG,
@@ -156,7 +156,7 @@ describe("handshake", () => {
     fromViewer({ type: "ping" }, "x".repeat(22));
     fromViewer({ type: "ping" });
     expect(sentOf("pong")).toEqual([
-      { channel: "portifact-review", v: 1, nonce: NONCE, type: "pong" },
+      { channel: "portifact-review", v: REVIEW_PROTOCOL, nonce: NONCE, type: "pong" },
     ]);
   });
 
@@ -170,7 +170,7 @@ describe("handshake", () => {
     expect(sentOf("location")).toEqual([
       {
         channel: "portifact-review",
-        v: 1,
+        v: REVIEW_PROTOCOL,
         nonce: NONCE,
         type: "location",
         page: { path: "index.html", route: "/" },
@@ -183,9 +183,9 @@ describe("handshake", () => {
     fromViewer({ type: "init" });
     const other = "zyxwvutsrqponmlkjihgfe";
     fromViewer({ type: "init" }, other);
-    fromViewer({ type: "markers", markers: [], active: null }, other);
+    fromViewer({ type: "highlights", highlights: [], selected: [] }, other);
     expect(sentOf("resolved")).toHaveLength(0);
-    fromViewer({ type: "markers", markers: [], active: null });
+    fromViewer({ type: "highlights", highlights: [], selected: [] });
     expect(sentOf("resolved")).toHaveLength(1);
     expect(parent.sent.every((entry) => entry.origin === VIEWER)).toBe(true);
     expect(
@@ -439,8 +439,43 @@ describe("element mode", () => {
   });
 });
 
-describe("markers", () => {
-  it("draws markers with labels from the viewer and reports where each was found", async () => {
+/**
+ * Lays text out on one line, 10 pixels per character and 20 high, starting at the left edge:
+ * happy-dom has no layout, and hit-testing needs boxes.
+ */
+function layOutText() {
+  const rectOf = (range: Range) => {
+    const left = range.startOffset * 10;
+    const width = (range.endOffset - range.startOffset) * 10;
+    return new DOMRect(left, 0, width, 20);
+  };
+  const lists = vi.spyOn(Range.prototype, "getClientRects").mockImplementation(function (
+    this: Range,
+  ) {
+    return [rectOf(this)] as unknown as DOMRectList;
+  });
+  const bounds = vi.spyOn(Range.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: Range,
+  ) {
+    return rectOf(this);
+  });
+  return () => {
+    lists.mockRestore();
+    bounds.mockRestore();
+  };
+}
+
+/** A pointer click at a point of the page, as the browser sends it (`detail` 1). */
+function clickAt(x: number, y: number, target: Element = document.body) {
+  target.dispatchEvent(
+    new MouseEvent("click", { bubbles: true, cancelable: true, clientX: x, clientY: y, detail: 1 }),
+  );
+}
+
+const highlightsOf = () => [...(bridge?.overlay.querySelectorAll<HTMLElement>(".highlight") ?? [])];
+
+describe("highlights", () => {
+  it("highlights each thread from the viewer, without markers, and reports where each was found", async () => {
     start('<p id="intro">Hello brave new world</p><p>Second paragraph</p>');
     fromViewer({ type: "init" });
     const text = await textTarget("brave new");
@@ -469,14 +504,14 @@ describe("markers", () => {
     };
     const elsewhere: AnnotationTarget = { ...text, path: "about.html" };
     fromViewer({
-      type: "markers",
-      active: "t2",
-      markers: [
-        { id: "t1", label: "1", name: "Open thread 1", target: text },
-        { id: "t2", label: "2", name: "Open thread 2", target: element },
-        { id: "t3", label: "3", name: "Open thread 3", target: lost },
-        { id: "t4", label: "4", name: "Open thread 4", target: general },
-        { id: "t5", label: "5", name: "Open thread 5", target: elsewhere },
+      type: "highlights",
+      selected: ["t2"],
+      highlights: [
+        { id: "t1", target: text },
+        { id: "t2", target: element },
+        { id: "t3", target: lost },
+        { id: "t4", target: general },
+        { id: "t5", target: elsewhere },
       ],
     });
     expect(sentOf("resolved")[0]?.results).toEqual([
@@ -485,30 +520,160 @@ describe("markers", () => {
       { id: "t3", confidence: "orphaned", reason: "not_found" },
       { id: "t4", confidence: "exact" },
     ]);
-    const buttons = [...(bridge?.overlay.querySelectorAll("button") ?? [])];
-    expect(buttons.map((b) => [b.textContent, b.getAttribute("aria-label")])).toEqual([
-      ["1", "Open thread 1"],
-      ["2", "Open thread 2"],
-    ]);
-    expect(buttons[1]?.getAttribute("aria-current")).toBe("true");
-    expect(bridge?.overlay.querySelectorAll(".highlight").length).toBeGreaterThan(0);
-    expect(bridge?.overlay.querySelectorAll(".element")).toHaveLength(1);
-
-    buttons[0]?.click();
-    expect(sentOf("activate")).toMatchObject([{ id: "t1" }]);
+    // Nothing in the page to tab to or click: the sidebar is the keyboard path.
+    expect(bridge?.overlay.querySelectorAll("button, [tabindex]")).toHaveLength(0);
+    expect(highlightsOf().length).toBeGreaterThan(0);
+    expect(highlightsOf().every((h) => h.dataset.state === undefined)).toBe(true);
+    const outline = bridge?.overlay.querySelector<HTMLElement>(".element");
+    expect(outline?.dataset.state).toBe("primary");
   });
 
-  it("orphans markers recorded on another SPA route", async () => {
+  it("layers overlapping threads and emphasizes the selected ones, the first one most", async () => {
+    const restore = layOutText();
+    start("<p>Hello brave new world</p>");
+    fromViewer({ type: "init" });
+    const outer = await textTarget("brave new world");
+    const inner = await textTarget("new");
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [
+        { id: "outer", target: outer },
+        { id: "inner", target: inner },
+      ],
+    });
+    const [first, second] = highlightsOf();
+    // One translucent box per thread: where they overlap, the page shows both layers.
+    expect([first?.style.left, first?.style.width]).toEqual(["60px", "150px"]);
+    expect([second?.style.left, second?.style.width]).toEqual(["120px", "30px"]);
+
+    fromViewer({
+      type: "highlights",
+      selected: ["inner", "outer"],
+      highlights: [
+        { id: "outer", target: outer },
+        { id: "inner", target: inner },
+      ],
+    });
+    expect(highlightsOf().map((h) => h.dataset.state)).toEqual(["selected", "primary"]);
+    restore();
+  });
+
+  it("reports every thread under a click, innermost first, and only real clicks", async () => {
+    const restore = layOutText();
+    start("<p>Hello brave new world</p>");
+    fromViewer({ type: "init" });
+    const outer = await textTarget("brave new world");
+    const inner = await textTarget("new");
+    const same = await textTarget("new");
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [
+        { id: "outer", target: outer },
+        { id: "inner", target: inner },
+        { id: "later", target: same },
+      ],
+    });
+    // On "new": three threads; the two equal ones newest first, then the wider one.
+    clickAt(125, 10, document.querySelector("p") as Element);
+    expect(sentOf("select").at(-1)?.ids).toEqual(["later", "inner", "outer"]);
+    // On "brave": only the outer thread.
+    clickAt(65, 10);
+    expect(sentOf("select").at(-1)?.ids).toEqual(["outer"]);
+    // Outside every highlight, with nothing selected: no message.
+    const before = sentOf("select").length;
+    clickAt(5, 10);
+    expect(sentOf("select")).toHaveLength(before);
+    // A keyboard activation is not a click on a place.
+    document.body.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, clientX: 125, clientY: 10, detail: 0 }),
+    );
+    expect(sentOf("select")).toHaveLength(before);
+    // Ending a text selection is not a click on a place either.
+    select(textOf("p"), 0, textOf("p"), 5);
+    clickAt(125, 10);
+    expect(sentOf("select")).toHaveLength(before);
+    window.getSelection()?.removeAllRanges();
+
+    // With threads selected, a click outside them clears the selection.
+    fromViewer({
+      type: "highlights",
+      selected: ["outer"],
+      highlights: [{ id: "outer", target: outer }],
+    });
+    clickAt(5, 10);
+    expect(sentOf("select").at(-1)?.ids).toEqual([]);
+    restore();
+  });
+
+  it("lets the page keep its clicks, and reports nothing while picking or before the handshake", async () => {
+    const restore = layOutText();
+    start('<p>Hello brave <a href="#x">new</a> world</p>');
+    const link = document.querySelector("a") as HTMLAnchorElement;
+    const heard = vi.fn();
+    link.addEventListener("click", (event) => heard(event.defaultPrevented));
+    clickAt(5, 10, link);
+    expect(sentOf("select")).toHaveLength(0);
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [{ id: "t1", target: await textTarget("Hello") }],
+    });
+    clickAt(5, 10, link);
+    expect(sentOf("select").at(-1)?.ids).toEqual(["t1"]);
+    expect(heard).toHaveBeenLastCalledWith(false);
+    fromViewer({ type: "pick", active: true, hint: "Pick" });
+    const count = sentOf("select").length;
+    clickAt(5, 10);
+    await settle(0);
+    expect(sentOf("select")).toHaveLength(count);
+    restore();
+  });
+
+  it("outlines the thread the reader points at in the sidebar, across redraws", async () => {
+    start("<p>Hello brave new world</p>");
+    fromViewer({ type: "init" });
+    const highlights = [
+      { id: "t1", target: await textTarget("brave") },
+      { id: "t2", target: await textTarget("world") },
+    ];
+    fromViewer({ type: "highlights", selected: [], highlights });
+    fromViewer({ type: "hover", id: "t2" });
+    expect(highlightsOf().map((h) => h.dataset.hovered !== undefined)).toEqual([false, true]);
+    fromViewer({ type: "highlights", selected: ["t1"], highlights });
+    expect(highlightsOf().map((h) => h.dataset.hovered !== undefined)).toEqual([false, true]);
+    fromViewer({ type: "hover", id: "t1" });
+    expect(highlightsOf().map((h) => h.dataset.hovered !== undefined)).toEqual([true, false]);
+    fromViewer({ type: "hover", id: null });
+    expect(highlightsOf().some((h) => h.dataset.hovered !== undefined)).toBe(false);
+  });
+
+  it("scrolls to a thread's highlight the viewer asks for, and ignores unknown ones", async () => {
+    start("<p>Hello brave new world</p>");
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [{ id: "t1", target: await textTarget("brave") }],
+    });
+    const scrolled = vi.fn();
+    const [first] = highlightsOf();
+    if (first) first.scrollIntoView = scrolled;
+    fromViewer({ type: "focus", id: "t1" });
+    expect(scrolled).toHaveBeenCalledWith({ block: "center" });
+    fromViewer({ type: "focus", id: "missing" });
+    expect(scrolled).toHaveBeenCalledTimes(1);
+  });
+
+  it("orphans highlights recorded on another SPA route", async () => {
     window.history.replaceState(null, "", "/app#/settings");
     start("<p>Hello brave new world</p>");
     fromViewer({ type: "init" });
     expect(sentOf("location")[0]?.page).toEqual({ path: "index.html", route: "/app#/settings" });
     const text = { ...(await textTarget("brave")), route: "/app#/home" };
-    fromViewer({
-      type: "markers",
-      active: null,
-      markers: [{ id: "t1", label: "1", name: "Open thread 1", target: text }],
-    });
+    fromViewer({ type: "highlights", selected: [], highlights: [{ id: "t1", target: text }] });
     expect(sentOf("resolved")[0]?.results).toEqual([
       { id: "t1", confidence: "orphaned", reason: "route_mismatch" },
     ]);
@@ -518,11 +683,7 @@ describe("markers", () => {
     start("<p>Hello brave new world</p>");
     fromViewer({ type: "init" });
     const text = await textTarget("brave");
-    fromViewer({
-      type: "markers",
-      active: null,
-      markers: [{ id: "t1", label: "1", name: "Open thread 1", target: text }],
-    });
+    fromViewer({ type: "highlights", selected: [], highlights: [{ id: "t1", target: text }] });
     document.querySelector("p")?.replaceChildren("Something else entirely");
     await settle(REDRAW_SETTLE_MS);
     expect(sentOf("resolved").at(-1)?.results).toEqual([
@@ -557,34 +718,14 @@ describe("markers", () => {
     expect(sentOf("element")[0]?.target.route).toBe("/shop#/cart");
   });
 
-  it("resolves markers against the route the page is on when they arrive", async () => {
+  it("resolves highlights against the route the page is on when they arrive", async () => {
     window.history.replaceState(null, "", "/shop#/home");
     start("<p>Hello brave new world</p>");
     fromViewer({ type: "init" });
     const text = { ...(await textTarget("brave")), route: "/shop#/about" };
     window.history.replaceState(null, "", "/shop#/about");
-    fromViewer({
-      type: "markers",
-      active: null,
-      markers: [{ id: "t1", label: "1", name: "Open thread 1", target: text }],
-    });
+    fromViewer({ type: "highlights", selected: [], highlights: [{ id: "t1", target: text }] });
     expect(sentOf("resolved")[0]?.results).toEqual([{ id: "t1", confidence: "exact" }]);
-  });
-
-  it("focuses a marker the viewer asks for", async () => {
-    start("<p>Hello brave new world</p>");
-    fromViewer({ type: "init" });
-    const text = await textTarget("brave");
-    fromViewer({
-      type: "markers",
-      active: null,
-      markers: [{ id: "t1", label: "1", name: "Open thread 1", target: text }],
-    });
-    fromViewer({ type: "focus", id: "t1" });
-    const button = bridge?.overlay.querySelector("button");
-    expect(button?.getAttribute("aria-current")).toBe("true");
-    fromViewer({ type: "focus", id: "missing" });
-    expect(bridge?.overlay.querySelector('[aria-current="true"]')).toBeNull();
   });
 });
 

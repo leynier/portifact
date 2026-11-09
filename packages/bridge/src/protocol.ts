@@ -4,20 +4,21 @@
 // as the bridge and can send anything the bridge can. The viewer therefore never acts on a
 // message by itself (a selection only offers a comment that the user writes and confirms), and
 // it never sends tokens, email addresses or thread bodies to the frame: only the targets needed
-// to draw markers and short labels for them.
+// to highlight each thread's text, and short labels.
 import { AnchorPath, AnchorRoute, AnnotationTarget } from "@portifact/contracts";
 import { z } from "zod";
 
 /** Identifies Portifact review messages among whatever else a page posts. */
 export const REVIEW_CHANNEL = "portifact-review";
-export const REVIEW_PROTOCOL = 1;
+/** 2: threads are highlights without numbered markers, and a click reports every thread under it. */
+export const REVIEW_PROTOCOL = 2;
 
 export const BRIDGE_LIMITS = {
   /** A bridge message holds at most one target (8 KiB) plus its envelope. */
   bridgeMessageMaxBytes: 16 * 1024,
-  /** Viewer messages carry up to `markersMax` targets. */
+  /** Viewer messages carry up to `highlightsMax` targets. */
   viewerMessageMaxBytes: 2 * 1024 * 1024,
-  markersMax: 200,
+  highlightsMax: 200,
   idMaxLength: 64,
   labelMaxLength: 128,
   /** Largest coordinate or size a frame rectangle may hold, in CSS pixels. */
@@ -34,8 +35,8 @@ export const InstanceNonce = z.string().regex(/^[A-Za-z0-9_-]{22,64}$/, "Invalid
  */
 export const SessionTag = z.string().regex(/^[A-Za-z0-9_-]{22}$/, "Invalid session tag");
 
-/** Thread IDs used as marker IDs. */
-export const MarkerId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "Invalid marker id");
+/** Thread IDs, which name each thread's highlight. */
+export const HighlightId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "Invalid highlight id");
 
 const Label = z.string().min(1).max(BRIDGE_LIMITS.labelMaxLength);
 
@@ -74,12 +75,12 @@ export const RefusalReason = z.enum([
 ]);
 export type RefusalReason = z.infer<typeof RefusalReason>;
 
-export const MarkerResolution = z.strictObject({
-  id: MarkerId,
+export const HighlightResolution = z.strictObject({
+  id: HighlightId,
   confidence: z.enum(["exact", "fuzzy", "orphaned"]),
   reason: z.enum(["not_found", "ambiguous", "route_mismatch"]).optional(),
 });
-export type MarkerResolution = z.infer<typeof MarkerResolution>;
+export type HighlightResolution = z.infer<typeof HighlightResolution>;
 
 const envelope = { channel: z.literal(REVIEW_CHANNEL), v: z.literal(REVIEW_PROTOCOL) };
 const bound = { ...envelope, nonce: InstanceNonce };
@@ -134,43 +135,54 @@ export const BridgeMessage = z.discriminatedUnion("type", [
   z.strictObject({ ...bound, type: z.literal("refused"), reason: RefusalReason }),
   /** Element mode ended in the page (Escape or a pick). */
   z.strictObject({ ...bound, type: z.literal("pick-ended") }),
-  /** Where each marker of this page was found. */
+  /** Where each highlight of this page was found. */
   z.strictObject({
     ...bound,
     type: z.literal("resolved"),
-    results: z.array(MarkerResolution).max(BRIDGE_LIMITS.markersMax),
+    results: z.array(HighlightResolution).max(BRIDGE_LIMITS.highlightsMax),
   }),
-  /** The reader activated a marker in the page. */
-  z.strictObject({ ...bound, type: z.literal("activate"), id: MarkerId }),
+  /**
+   * The reader clicked the page: the threads whose highlight covers the point, innermost (the
+   * smallest highlighted area) first, or none when the click was outside every highlight. The
+   * viewer selects only threads it sent to this page and ignores every other ID.
+   */
+  z.strictObject({
+    ...bound,
+    type: z.literal("select"),
+    ids: z.array(HighlightId).max(BRIDGE_LIMITS.highlightsMax),
+  }),
   /** The answer to `ping`: this bridge instance still runs in the frame. */
   z.strictObject({ ...bound, type: z.literal("pong") }),
 ]);
 export type BridgeMessage = z.infer<typeof BridgeMessage>;
 
-export const Marker = z.strictObject({
-  id: MarkerId,
-  /** Short visible label, such as the thread's number. */
-  label: Label,
-  /** Accessible name of the marker's button, such as "Open thread 3". */
-  name: Label,
+/** One thread to highlight in the page: its ID and where it points. */
+export const Highlight = z.strictObject({
+  id: HighlightId,
   target: AnnotationTarget,
 });
-export type Marker = z.infer<typeof Marker>;
+export type Highlight = z.infer<typeof Highlight>;
 
 /** Viewer to bridge. */
 export const ViewerMessage = z.discriminatedUnion("type", [
   /** Binds this bridge instance to a nonce; every later message carries it. */
   z.strictObject({ ...bound, type: z.literal("init") }),
+  /**
+   * The threads to highlight on the page. Their highlights are layered, so text several threads
+   * cover is drawn darker. `selected` are drawn emphasized, the first one most.
+   */
   z.strictObject({
     ...bound,
-    type: z.literal("markers"),
-    markers: z.array(Marker).max(BRIDGE_LIMITS.markersMax),
-    /** The marker to show as active, if any. */
-    active: MarkerId.nullable(),
+    type: z.literal("highlights"),
+    highlights: z.array(Highlight).max(BRIDGE_LIMITS.highlightsMax),
+    selected: z.array(HighlightId).max(BRIDGE_LIMITS.highlightsMax),
   }),
+  /** The thread the reader points at in the sidebar, outlined in the page; null for none. */
+  z.strictObject({ ...bound, type: z.literal("hover"), id: HighlightId.nullable() }),
   /** Starts or stops element mode; `hint` is the instruction shown in the page. */
   z.strictObject({ ...bound, type: z.literal("pick"), active: z.boolean(), hint: Label }),
-  z.strictObject({ ...bound, type: z.literal("focus"), id: MarkerId }),
+  /** Scrolls the page to a thread's highlight ("Show in the artifact"). */
+  z.strictObject({ ...bound, type: z.literal("focus"), id: HighlightId }),
   z.strictObject({ ...bound, type: z.literal("clear-selection") }),
   /** Sent after each load of the frame: a page of the artifact answers with `pong`. */
   z.strictObject({ ...bound, type: z.literal("ping") }),

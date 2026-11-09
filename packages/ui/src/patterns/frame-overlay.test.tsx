@@ -3,7 +3,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Button } from "../components/button.tsx";
 import { axeViolations } from "../testing/axe.ts";
-import { Floating, FloatingPanel, FrameOverlay } from "./frame-overlay.tsx";
+import { Floating, FloatingPanel, FrameOverlay, keyboardInset } from "./frame-overlay.tsx";
 
 const LAYOUT = { clientWidth: 800, clientHeight: 600, offsetWidth: 100, offsetHeight: 32 };
 
@@ -126,6 +126,51 @@ describe("FrameOverlay and Floating", () => {
     expect(wrapperOf(region)?.style.transform).toBe("");
     expect(place).not.toHaveBeenCalled();
     expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("kept");
+  });
+
+  it("keeps a sheet above the on-screen keyboard and follows it as it opens", () => {
+    const listeners = new Map<string, () => void>();
+    const visual = {
+      height: 700,
+      offsetTop: 0,
+      addEventListener: (type: string, listener: () => void) => listeners.set(type, listener),
+      removeEventListener: (type: string) => listeners.delete(type),
+    };
+    vi.stubGlobal("visualViewport", visual);
+    vi.stubGlobal("innerHeight", 700);
+    const { unmount } = render(
+      <FrameOverlay
+        layer={
+          <Floating place={() => null} sheet>
+            <FloatingPanel label="Comment on the selection" sheet>
+              <textarea aria-label="Comment" />
+            </FloatingPanel>
+          </Floating>
+        }
+      >
+        <iframe title="Artifact" src="about:blank" />
+      </FrameOverlay>,
+    );
+    const wrapper = wrapperOf(screen.getByRole("region", { name: "Comment on the selection" }));
+    expect(wrapper?.style.bottom).toBe("0px");
+    expect(wrapper?.style.maxHeight).toBe("700px");
+    // The keyboard takes the lower 300 pixels.
+    visual.height = 400;
+    act(() => listeners.get("resize")?.());
+    expect(wrapper?.style.bottom).toBe("300px");
+    expect(wrapper?.style.maxHeight).toBe("400px");
+    unmount();
+    expect(listeners.size).toBe(0);
+    vi.unstubAllGlobals();
+  });
+
+  it("measures the keyboard from the visual viewport, and nothing without one", () => {
+    expect(keyboardInset(800, null)).toBe(0);
+    expect(keyboardInset(800, { height: 800, offsetTop: 0 })).toBe(0);
+    expect(keyboardInset(800, { height: 500, offsetTop: 0 })).toBe(300);
+    // Scrolled within the layout viewport: only what is below the visible part counts.
+    expect(keyboardInset(800, { height: 500, offsetTop: 100 })).toBe(200);
+    expect(keyboardInset(800, { height: 900, offsetTop: 0 })).toBe(0);
   });
 
   it("renders the frame alone without a layer, and has no axe violations", async () => {
