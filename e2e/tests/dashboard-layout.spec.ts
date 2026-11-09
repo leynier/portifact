@@ -157,3 +157,23 @@ test.describe("on a phone", () => {
     expect(await axeViolations(page)).toEqual([]);
   });
 });
+
+test("on a laptop screen the list fits without scrolling sideways, actions included", async ({
+  page,
+  context,
+}) => {
+  const owner = await createUser("Laptop");
+  await publish({ ownerId: owner.userId, name: "Quarterly planning notes", files: PAGE });
+  await signIn(context, owner);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${APP_ORIGIN}/`);
+  const row = page.getByRole("row").filter({ hasText: "Quarterly planning notes" });
+  const review = row.getByRole("link", { name: "Review and comment on Quarterly planning notes" });
+  await expect(review).toBeVisible();
+  // The table's frame scrolls sideways when the columns do not fit, hiding the row's actions.
+  const overflow = await page.getByRole("table").evaluate((table) => {
+    const frame = table.parentElement as HTMLElement;
+    return frame.scrollWidth - frame.clientWidth;
+  });
+  expect(overflow).toBeLessThanOrEqual(0);
+});

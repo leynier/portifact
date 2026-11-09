@@ -220,7 +220,7 @@ export function ArtifactListScreen() {
               {artifacts.map((artifact) => (
                 <TableRow key={artifact.id} linked>
                   <TableCell>
-                    <span className="flex min-w-52 items-center gap-3">
+                    <span className="flex min-w-44 items-center gap-3">
                       <TypeIcon type={artifact.type} />
                       <span className="flex min-w-0 flex-col">
                         <Link
@@ -312,18 +312,18 @@ function ActivityCell({ artifact }: { artifact: ArtifactListItem }) {
   const { activity } = artifact;
   return (
     <>
-      <span className="block whitespace-nowrap">
+      <span className="block min-w-32">
         {t("list.updated", { date: formatDate(artifact.updatedAt) })}
       </span>
       {artifact.annotations !== "off" || activity.openThreads > 0 ? (
         <span
-          className={`block whitespace-nowrap ${activity.openThreads > 0 ? "font-semibold" : "text-text-muted"}`}
+          className={`block min-w-32 ${activity.openThreads > 0 ? "font-semibold" : "text-text-muted"}`}
         >
           {t("list.openThreads", { count: activity.openThreads })}
         </span>
       ) : null}
       {activity.lastAnnotationAt ? (
-        <span className="block whitespace-nowrap text-text-muted">
+        <span className="block min-w-32 text-text-muted">
           {t("list.lastComment", { date: formatDate(activity.lastAnnotationAt) })}
         </span>
       ) : null}
