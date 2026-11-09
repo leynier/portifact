@@ -15,7 +15,7 @@ import {
   REGISTRATION_SCOPES,
 } from "./config.ts";
 import type { AuthDeps } from "./deps.ts";
-import { deliverSignInCode } from "./email.ts";
+import { deliverSignInCode, emailLocale } from "./email.ts";
 import { humanHooks } from "./human.ts";
 import { inProcessIntrospection } from "./introspection.ts";
 import { termsHooks } from "./terms.ts";
@@ -160,11 +160,12 @@ export function createAuth(env: Env, deps: AuthDeps) {
         expiresIn: OTP_LIMITS.codeTtlSeconds,
         allowedAttempts: OTP_LIMITS.allowedAttempts,
         storeOTP: "hashed",
-        sendVerificationOTP: async ({ email, otp }) => {
+        sendVerificationOTP: async ({ email, otp }, context) => {
           await deliverSignInCode(createDb(env.DB), deps.email, {
             email,
             code: otp,
             now: Date.now,
+            locale: emailLocale(context?.request?.headers ?? context?.headers),
           });
         },
       }),

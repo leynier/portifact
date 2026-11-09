@@ -3,7 +3,9 @@
 // counted for the budget, and a refusal because of Email Service's suppression list is recorded
 // in Portifact's own list (docs/security.md, "Identity").
 import { OTP_LIMITS } from "@portifact/contracts";
+import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import type { Db } from "@portifact/db";
+import { negotiateLocale, parseAcceptLanguage } from "@portifact/domain/locale";
 import { signInCodeEmail as renderSignInCode } from "@portifact/emails";
 import {
   isRecipientSuppressed,
@@ -57,10 +59,10 @@ export function cloudflareEmailSender(binding: SendEmail): EmailSender {
 export async function deliverSignInCode(
   db: Db,
   sender: EmailSender,
-  input: { email: string; code: string; now: () => number },
+  input: { email: string; code: string; now: () => number; locale?: LocaleCode | undefined },
 ): Promise<void> {
   try {
-    await sender.send(signInCodeEmail(input.email, input.code));
+    await sender.send(signInCodeEmail(input.email, input.code, input.locale));
   } catch (error) {
     if (error instanceof RecipientSuppressedError) {
       await suppressEmail(db, { email: input.email, reason: "provider", now: input.now() });
@@ -70,8 +72,19 @@ export async function deliverSignInCode(
   await recordEmailsSent(db, input.now());
 }
 
-/** The sign-in code email (packages/emails): the code, its expiry and the "ignore it" line. */
-export function signInCodeEmail(to: string, code: string): EmailMessage {
+/**
+ * The sign-in code email (packages/emails): the code, its expiry and the "ignore it" line, in
+ * the language of the sign-in page that asked for it.
+ */
+export function signInCodeEmail(to: string, code: string, locale?: LocaleCode): EmailMessage {
   const expiresInMinutes = Math.round(OTP_LIMITS.codeTtlSeconds / 60);
-  return { to, ...renderSignInCode({ email: to, code, expiresInMinutes }) };
+  return { to, ...renderSignInCode({ email: to, code, expiresInMinutes, locale }) };
+}
+
+/**
+ * The language of a sign-in email: the login page sends its own language as `Accept-Language`,
+ * and any other client gets its browser's first supported language, or English.
+ */
+export function emailLocale(headers: Headers | undefined): LocaleCode {
+  return negotiateLocale(parseAcceptLanguage(headers?.get("accept-language"))) ?? DEFAULT_LOCALE;
 }

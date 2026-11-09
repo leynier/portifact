@@ -3,24 +3,13 @@
 // `/__portifact/report` path of every artifact origin links here.
 import type { ApiResponse, PageLocation } from "../auth/api.ts";
 import { byId, hideSummary, setFieldError, showSummary, whileBusy } from "../auth/dom.ts";
+import { messages } from "../auth/messages.ts";
 
 export interface ReportEnv {
   /** Sends the report as JSON to `/api/v1/reports` on this origin. */
   send(body: unknown): Promise<ApiResponse>;
   location: PageLocation;
 }
-
-export const reportMessages = {
-  artifactRequired: "Enter the artifact's address or ID.",
-  artifactInvalid: "Enter an address like https://abcdefghij.portifact.dev/ or a 10-character ID.",
-  reasonRequired: "Choose what is wrong with the artifact.",
-  detailsInvalid: "Remove control characters or shorten the details.",
-  emailInvalid: "Enter a valid email address, or leave it empty.",
-  rateLimited: "Too many reports from here. Try again later or write to abuse@portifact.com.",
-  network: "Portifact could not be reached. Check your connection and try again.",
-  failed: "The report could not be sent. Try again or write to abuse@portifact.com.",
-  sent: "Report sent.",
-} as const;
 
 const ID_PATTERN = /^[a-z2-7]{10}$/;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -73,10 +62,10 @@ export function setupReport(doc: Document, env: ReportEnv): void {
       details: details.value.trim(),
       email: email.value.trim(),
     };
-    if (!values.artifact) return fail("artifact", reportMessages.artifactRequired);
-    if (!values.reason) return fail("reason", reportMessages.reasonRequired);
+    if (!values.artifact) return fail("artifact", messages.report.artifactRequired);
+    if (!values.reason) return fail("reason", messages.report.reasonRequired);
     if (values.email && !EMAIL_PATTERN.test(values.email)) {
-      return fail("email", reportMessages.emailInvalid);
+      return fail("email", messages.report.emailInvalid);
     }
     void whileBusy(button, async () => {
       const response = await env.send({
@@ -89,20 +78,20 @@ export function setupReport(doc: Document, env: ReportEnv): void {
         form.hidden = true;
         const done = byId(doc, "done");
         done.hidden = false;
-        status.textContent = reportMessages.sent;
+        status.textContent = messages.report.sent;
         byId(doc, "done-heading").focus();
         return;
       }
-      if (response.status === 0) return showSummary(summary, reportMessages.network);
-      if (response.status === 429) return showSummary(summary, reportMessages.rateLimited);
+      if (response.status === 0) return showSummary(summary, messages.report.network);
+      if (response.status === 429) return showSummary(summary, messages.report.rateLimited);
       if (response.status === 400) {
         const field = invalidField(response.body);
-        if (field === "details") return fail("details", reportMessages.detailsInvalid);
-        if (field === "email") return fail("email", reportMessages.emailInvalid);
-        if (field === "reason") return fail("reason", reportMessages.reasonRequired);
-        return fail("artifact", reportMessages.artifactInvalid);
+        if (field === "details") return fail("details", messages.report.detailsInvalid);
+        if (field === "email") return fail("email", messages.report.emailInvalid);
+        if (field === "reason") return fail("reason", messages.report.reasonRequired);
+        return fail("artifact", messages.report.artifactInvalid);
       }
-      showSummary(summary, reportMessages.failed);
+      showSummary(summary, messages.report.failed);
     });
   });
 }

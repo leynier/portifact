@@ -296,6 +296,11 @@ export interface SidebarAccountProps {
   signOutLabel: string;
   signingOut?: boolean;
   onSignOut(): void;
+  /**
+   * A control shown above the account in the open sidebar, such as the language choice. The
+   * collapsed rail leaves it out; the same choice stays on the settings page.
+   */
+  extra?: ReactNode;
 }
 
 /**
@@ -312,6 +317,7 @@ export function SidebarAccount({
   signOutLabel,
   signingOut = false,
   onSignOut,
+  extra,
 }: SidebarAccountProps) {
   const { collapsed } = useContext(Placement);
   const shown = name.trim() || email.split("@")[0] || email;
@@ -343,7 +349,7 @@ export function SidebarAccount({
       </div>
     );
   }
-  return (
+  const row = (
     <div className="flex items-center gap-1">
       {renderProfileLink({
         className:
@@ -363,6 +369,13 @@ export function SidebarAccount({
         ),
       })}
       {signOut}
+    </div>
+  );
+  if (!extra) return row;
+  return (
+    <div className="flex flex-col gap-3">
+      {extra}
+      {row}
     </div>
   );
 }

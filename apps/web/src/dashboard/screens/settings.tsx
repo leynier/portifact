@@ -19,18 +19,22 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { publicAvailableFrom } from "./access-settings.tsx";
 import { AccountData, DeleteAccount, Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
+import { LanguageChoice, SETTINGS_QUERY } from "./language.tsx";
 import { ACCOUNT_QUERY, themeLabels } from "./shell.tsx";
 
-export const SETTINGS_QUERY = ["account", "settings"] as const;
+export { SETTINGS_QUERY } from "./language.tsx";
 
 const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
 const ANNOTATIONS: readonly DefaultAnnotations[] = ["off", "open"];
 const VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
 
-/** The defaults for new artifacts: every setting but the email notices. */
-type Defaults = Omit<AccountSettings, "expiryNotices">;
+/**
+ * The defaults for new artifacts: every setting but the email notices and the language, which
+ * have their own controls on this page.
+ */
+type Defaults = Omit<AccountSettings, "expiryNotices" | "locale">;
 
-function defaultsOf({ expiryNotices: _, ...defaults }: AccountSettings): Defaults {
+function defaultsOf({ expiryNotices: _, locale: __, ...defaults }: AccountSettings): Defaults {
   return defaults;
 }
 
@@ -56,6 +60,7 @@ export function SettingsScreen() {
         label={t("settings.sectionsNav")}
         title={t("sections.title")}
         sections={[
+          { id: "language", label: t("language.title") },
           { id: "appearance", label: t("settings.appearance.title") },
           { id: "defaults", label: t("settings.defaults.title") },
           { id: "notices", label: t("settings.notices.title") },
@@ -63,6 +68,9 @@ export function SettingsScreen() {
           { id: "delete", label: t("settings.danger.title") },
         ]}
       >
+        <Section id="language" title={t("language.title")} hint={t("language.hint")}>
+          <LanguageChoice variant="field" />
+        </Section>
         <Appearance />
         <ArtifactDefaults />
         <EmailNotices />
@@ -101,7 +109,7 @@ function ArtifactDefaults() {
         {(saved) => {
           const defaults = defaultsOf(saved);
           // A new form when the saved defaults change, so it never shows stale choices; saving
-          // the email notices leaves unsaved choices here alone.
+          // the email notices or the language leaves unsaved choices here alone.
           return <DefaultsForm key={JSON.stringify(defaults)} saved={defaults} />;
         }}
       </Loaded>

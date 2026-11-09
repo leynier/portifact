@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./document-css": "./src/viewers/document-css.ts",
     "./forms": "./src/forms/index.tsx",
+    "./language-links": "./src/static/language-links.ts",
     "./testing": "./src/testing/axe.ts",
     "./tokens": "./src/tokens/tokens.ts",
     "./theme": "./src/theme/theme.ts",

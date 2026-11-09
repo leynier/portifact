@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 // A relative import, so Vite bundles the TypeScript source into the config.
 import { THEME_SCRIPT } from "../../packages/contracts/src/theme.ts";
+import { sitePages } from "./src/i18n/site-build.ts";
 
 const repoFile = (path: string) => fileURLToPath(new URL(`../../${path}`, import.meta.url));
 
@@ -70,7 +71,7 @@ const pages = [
 ];
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), repoAssets(), themeScript()],
+  plugins: [react(), tailwindcss(), repoAssets(), themeScript(), sitePages()],
   server: { fs: { allow: ["../.."] } },
   build: {
     outDir: "dist",

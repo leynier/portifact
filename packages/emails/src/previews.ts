@@ -32,6 +32,15 @@ export function previews(): Preview[] {
       email: signInCodeEmail({ email: "ada@example.com", code: "482913", expiresInMinutes: 5 }),
     },
     {
+      name: "sign-in-code-es",
+      email: signInCodeEmail({
+        email: "ada@example.com",
+        code: "482913",
+        expiresInMinutes: 5,
+        locale: "es",
+      }),
+    },
+    {
       name: "budget-alert",
       email: budgetAlertEmail({
         alerts: [

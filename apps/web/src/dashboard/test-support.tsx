@@ -1,5 +1,6 @@
 // Test support for the dashboard: an in-memory /api/v1 and session endpoint behind the real
 // API client, and a renderer with memory history. Only used by tests.
+import type { I18n } from "@lingui/core";
 import {
   type AccessLogEntry,
   type AccessLogView,
@@ -37,6 +38,7 @@ import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
 import { createI18n } from "./i18n/i18n.ts";
+import type { LocaleOptions } from "./locale.tsx";
 import { inProcessBuilder } from "./publish/builder.ts";
 import type { SavedFile } from "./publish/download.ts";
 import { sha256OfBlob } from "./publish/hash.ts";
@@ -364,6 +366,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       defaultCommentVisibility: "owner",
       defaultBar: true,
       expiryNotices: true,
+      locale: null,
     },
     usage: usageView(),
     accessLogs: {},
@@ -1125,10 +1128,30 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
   return Response.json(policy);
 }
 
+/** Browser storage for the language choice, in memory, or one that refuses every access. */
+export function localeStorage(blocked = false) {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem(key: string) {
+      if (blocked) throw new DOMException("blocked", "SecurityError");
+      return values.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      if (blocked) throw new DOMException("blocked", "SecurityError");
+      values.set(key, value);
+    },
+  };
+  return { values, source: () => storage };
+}
+
 export function renderDashboard(
   path: string,
   server: FakeServer,
-  options: { humanCheck?: HumanCheckWidget | null } = {},
+  options: {
+    humanCheck?: HumanCheckWidget | null;
+    locale?: LocaleOptions;
+    i18n?: I18n;
+  } = {},
 ) {
   const left: string[] = [];
   const saved: SavedFile[] = [];
@@ -1152,9 +1175,10 @@ export function renderDashboard(
         },
         humanCheck: options.humanCheck ?? null,
       }}
-      i18n={createI18n()}
+      i18n={options.i18n ?? createI18n()}
       queryClient={queryClient}
       router={router}
+      locale={options.locale ?? { storage: localeStorage().source }}
     />,
   );
   return { ...view, left, saved, router, queryClient };

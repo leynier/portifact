@@ -28,6 +28,7 @@ const BUILT_IN = {
   defaultCommentVisibility: "owner",
   defaultBar: true,
   expiryNotices: true,
+  locale: null,
 } as const;
 
 const { expiryNotices: _, ...DEFAULTS } = BUILT_IN;
@@ -66,6 +67,7 @@ describe("settings page", () => {
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
     ).toEqual([
+      "Language",
       "Appearance",
       "Defaults for new artifacts",
       "Email notices",
