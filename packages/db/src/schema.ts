@@ -63,6 +63,12 @@ export const artifacts = sqliteTable(
     /** Bumped on every lifecycle transition so stale maintenance jobs cannot act. */
     lifecycleGeneration: integer("lifecycle_generation").notNull().default(1),
     expiresAt: timestamp("expires_at"),
+    /**
+     * The expiry the owner was last emailed about (plan section 10, expiry notices) and when. A
+     * publish or renewal sets a new `expires_at`, so the notice is due again only for the new one.
+     */
+    expiryNoticeFor: timestamp("expiry_notice_for"),
+    expiryNoticeAt: timestamp("expiry_notice_at"),
     archivedAt: timestamp("archived_at"),
     purgeAt: timestamp("purge_at"),
     /**
@@ -508,6 +514,7 @@ export const OUTBOX_TOPICS = [
   "delete_objects",
   "abort_multipart",
   "erase_access_events",
+  "expiry_notice",
 ] as const;
 
 /**
@@ -912,7 +919,8 @@ export const emailCounters = sqliteTable(
 
 /**
  * The owner's defaults for new artifacts (packages/domain/src/account-settings.ts), applied when
- * `preparePublish` creates an artifact; existing artifacts never change. A missing row means the
+ * `preparePublish` creates an artifact; existing artifacts never change. It also holds whether the
+ * owner gets expiry notices. A missing row means the
  * built-in defaults, the same as the columns' defaults. Removed with the user by the foreign key.
  */
 export const accountSettings = sqliteTable(
@@ -933,6 +941,8 @@ export const accountSettings = sqliteTable(
       .notNull()
       .default("owner"),
     defaultBar: integer("default_bar", { mode: "boolean" }).notNull().default(true),
+    /** Email the owner before their artifacts expire; on unless they turn it off. */
+    expiryNotices: integer("expiry_notices", { mode: "boolean" }).notNull().default(true),
     // The account's language (a code of LOCALES in @portifact/contracts); null follows the
     // browser. No CHECK: adding a language must not need a migration, and reads drop codes
     // that are no longer listed.

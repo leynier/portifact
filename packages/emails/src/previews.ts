@@ -1,6 +1,7 @@
 // Sample renderings of every email, for scripts/preview.ts and the tests. A new email adds its
 // samples here, so `bun run --cwd packages/emails preview` always shows all of them.
 import { budgetAlertEmail } from "./budget-alert.ts";
+import { expiryNoticeEmail } from "./expiry-notice.ts";
 import type { EmailContent } from "./message.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 
@@ -10,6 +11,19 @@ export interface Preview {
 }
 
 const CREATED_AT = Date.UTC(2026, 10, 8, 12, 0, 0);
+const HOUR = 3_600_000;
+
+const noticeArtifact = (id: string, name: string, hoursLeft: number) => ({
+  name,
+  url: `https://${id}.portifact.dev/`,
+  renewUrl: `https://app.portifact.com/artifacts/${id}`,
+  expiresAt: CREATED_AT + hoursLeft * HOUR,
+});
+const notice = {
+  settingsUrl: "https://app.portifact.com/settings",
+  activeDays: 30,
+  archiveMonths: 6,
+};
 
 export function previews(): Preview[] {
   return [
@@ -45,6 +59,24 @@ export function previews(): Preview[] {
         projectedUsd: 25,
         level: "alert25",
         actions: [],
+      }),
+    },
+    {
+      name: "expiry-notice",
+      email: expiryNoticeEmail({
+        ...notice,
+        artifacts: [
+          noticeArtifact("k7d2qm4xab", "Q3 launch plan", 50),
+          noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
+          noticeArtifact("z9w3hj6mef", "API prototype", 71),
+        ],
+      }),
+    },
+    {
+      name: "expiry-notice-one",
+      email: expiryNoticeEmail({
+        ...notice,
+        artifacts: [noticeArtifact("k7d2qm4xab", "Q3 launch plan", 70)],
       }),
     },
   ];

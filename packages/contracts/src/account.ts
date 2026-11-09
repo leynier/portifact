@@ -98,6 +98,8 @@ export const AccountSettings = z.object({
   defaultCommentVisibility: CommentVisibility,
   /** The Portifact bar on new artifacts. */
   defaultBar: z.boolean(),
+  /** Email the owner before their artifacts expire (one email per account, grouped). */
+  expiryNotices: z.boolean(),
   /**
    * The language the account chose for the dashboard and the emails; null follows each
    * browser's languages.
@@ -113,6 +115,7 @@ export const AccountSettingsUpdate = z
     defaultAnnotations: DefaultAnnotations.optional(),
     defaultCommentVisibility: CommentVisibility.optional(),
     defaultBar: z.boolean().optional(),
+    expiryNotices: z.boolean().optional(),
     /** A language of the locale list, or null to follow the browser again. */
     locale: Locale.nullable().optional(),
   })

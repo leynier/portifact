@@ -1,6 +1,7 @@
 import { type DefaultTreeAdapterMap, parse } from "parse5";
 import { describe, expect, it } from "vitest";
 import { budgetAlertEmail } from "./budget-alert.ts";
+import { expiryNoticeEmail, formatExpiry } from "./expiry-notice.ts";
 import { escapeHtml, renderEmail } from "./layout.ts";
 import { previews } from "./previews.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
@@ -177,17 +178,34 @@ describe("email layout", () => {
         { kind: "code", label: "<l>", value: "<v>" },
         { kind: "command", value: "<cmd>" },
         { kind: "facts", rows: [{ label: "<k>", value: "<w>" }] },
-        { kind: "list", items: ["<i>"] },
+        { kind: "list", items: ["<i>", ["<j>", { strong: "<m>" }, { href: "u'v", text: "<n>" }]] },
       ],
     });
     const tags = new Set(elements(html).map((e) => e.tagName));
     // None of the injected tags became an element (the layout itself uses none of them).
-    for (const injected of ["t", "h", "f", "b", "c", "l", "v", "cmd", "k", "w", "i"]) {
+    for (const injected of [
+      "t",
+      "h",
+      "f",
+      "b",
+      "c",
+      "l",
+      "v",
+      "cmd",
+      "k",
+      "w",
+      "i",
+      "j",
+      "m",
+      "n",
+    ]) {
       expect(tags.has(injected)).toBe(false);
     }
     expect(bodyText(html)).toContain("<a><b><c>");
     expect(html).toContain("&lt;cmd&gt;");
     expect(html).toContain('href="x&quot; y"');
+    expect(html).toContain('href="u&#39;v"');
+    expect(bodyText(html)).toContain("<j><m><n>");
     const link = elements(html).find((e) => e.tagName === "a" && textOf(e) === "<c>");
     expect(attr(link as Element, "href")).toBe('x" y');
   });
@@ -231,6 +249,90 @@ describe("budget alert email", () => {
   });
 });
 
+describe("expiry notice email", () => {
+  const AT = Date.UTC(2026, 10, 11, 9, 5);
+  const artifact = (id: string, name: string, expiresAt = AT) => ({
+    name,
+    url: `https://${id}.portifact.dev/`,
+    renewUrl: `https://app.portifact.com/artifacts/${id}`,
+    expiresAt,
+  });
+  const base = {
+    settingsUrl: "https://app.portifact.com/settings",
+    activeDays: 30,
+    archiveMonths: 6,
+  };
+  const two = expiryNoticeEmail({
+    ...base,
+    artifacts: [artifact("k7d2qm4xab", "Plan"), artifact("p4n8rt2vcd", "Notes", AT + 86_400_000)],
+  });
+
+  it("formats expiries in UTC with the weekday and a 24-hour clock", () => {
+    expect(formatExpiry(AT)).toBe("Wed, Nov 11, 2026, 09:05 UTC");
+    expect(formatExpiry(Date.UTC(2026, 10, 11, 23, 59))).toBe("Wed, Nov 11, 2026, 23:59 UTC");
+  });
+
+  it("counts the artifacts in the subject and heading, never naming them there", () => {
+    expect(two.subject).toBe("2 of your Portifact artifacts expire soon");
+    expect(two.subject).not.toContain("Plan");
+    const one = expiryNoticeEmail({ ...base, artifacts: [artifact("k7d2qm4xab", "Plan")] });
+    expect(one.subject).toBe("Your Portifact artifact expires soon");
+    expect(bodyText(one.html)).toContain("An artifact expires soon");
+    expect(bodyText(two.html)).toContain("2 artifacts expire soon");
+  });
+
+  it("lists each artifact with its expiry, its address and a renew link", () => {
+    const visible = bodyText(two.html);
+    expect(visible).toContain("Plan expires Wed, Nov 11, 2026, 09:05 UTC.");
+    expect(visible).toContain("Notes expires Thu, Nov 12, 2026, 09:05 UTC.");
+    expect(visible).toContain("k7d2qm4xab.portifact.dev");
+    const links = elements(two.html)
+      .filter((e) => e.tagName === "a")
+      .map((e) => [textOf(e), attr(e, "href")]);
+    expect(links).toContainEqual(["k7d2qm4xab.portifact.dev", "https://k7d2qm4xab.portifact.dev/"]);
+    expect(links).toContainEqual(["Renew", "https://app.portifact.com/artifacts/p4n8rt2vcd"]);
+    expect(links).toContainEqual(["Settings", "https://app.portifact.com/settings"]);
+    expect(visible).toContain("another 30 days");
+    expect(visible).toContain("restore it from the dashboard for 6 months");
+  });
+
+  it("puts the soonest expiry in the preview text", () => {
+    const preheader = elements(two.html).find(
+      (e) => e.tagName === "div" && attr(e, "style")?.includes("display: none"),
+    ) as Element;
+    expect(textOf(preheader)).toBe(
+      "Renew before Wed, Nov 11, 2026, 09:05 UTC to keep them online.",
+    );
+  });
+
+  it("has a plain-text alternative with every artifact and the opt-out", () => {
+    expect(two.text).toContain(
+      "- Plan\n  Expires Wed, Nov 11, 2026, 09:05 UTC\n  https://k7d2qm4xab.portifact.dev/\n  Renew: https://app.portifact.com/artifacts/k7d2qm4xab",
+    );
+    expect(two.text).toContain("- Notes");
+    expect(two.text).toContain(
+      "Turn off expiry notices in your settings: https://app.portifact.com/settings",
+    );
+    expect(two.text).not.toMatch(/<[a-z]/i);
+  });
+
+  it("escapes names and keeps each on one line", () => {
+    const hostile = expiryNoticeEmail({
+      ...base,
+      artifacts: [
+        artifact("k7d2qm4xab", "<script>x</script>\n- Fake\r\n  Renew: https://evil.test"),
+      ],
+    });
+    expect(elements(hostile.html).some((e) => e.tagName === "script")).toBe(false);
+    expect(bodyText(hostile.html)).toContain("<script>x</script> - Fake Renew: https://evil.test");
+    const lines = hostile.text.split("\n");
+    expect(lines.filter((line) => line.startsWith("- "))).toHaveLength(1);
+    expect(lines.filter((line) => line.startsWith("  Renew: "))).toEqual([
+      "  Renew: https://app.portifact.com/artifacts/k7d2qm4xab",
+    ]);
+  });
+});
+
 describe("previews", () => {
   it("cover every email with HTML and text", () => {
     const names = previews().map((p) => p.name);
@@ -239,6 +341,8 @@ describe("previews", () => {
       "sign-in-code-es",
       "budget-alert",
       "budget-alert-no-protection",
+      "expiry-notice",
+      "expiry-notice-one",
     ]);
     for (const { email } of previews()) {
       expect(email.html.startsWith("<!doctype html>")).toBe(true);

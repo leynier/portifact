@@ -342,6 +342,7 @@ describe("account settings", () => {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      expiryNotices: true,
       locale: null,
     });
     const saved = await change(h, cookie, { defaultAnnotations: "open", defaultBar: false });
@@ -351,9 +352,12 @@ describe("account settings", () => {
       defaultAnnotations: "open",
       defaultCommentVisibility: "owner",
       defaultBar: false,
+      expiryNotices: true,
       locale: null,
     });
     expect(await (await settings(h, cookie)).json()).toMatchObject({ defaultBar: false });
+    const off = await change(h, cookie, { expiryNotices: false });
+    expect(await off.json()).toMatchObject({ defaultBar: false, expiryNotices: false });
   });
 
   it("keeps the account's language, and null goes back to the browser's", async () => {
@@ -379,6 +383,7 @@ describe("account settings", () => {
       { defaultAnnotations: "locked" },
       { defaultAccessMode: "everyone" },
       { defaultBar: "yes" },
+      { expiryNotices: "no" },
       { defaultBar: false, userId: "someone-else" },
       { locale: "xx" },
       { locale: "es-MX" },

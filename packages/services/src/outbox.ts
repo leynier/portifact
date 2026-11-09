@@ -14,6 +14,7 @@ import { type AccessDb, type Db, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
+import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
 
@@ -115,21 +116,26 @@ export async function relayOutbox(
  */
 export type JobOutcome = "done" | "stale" | "pending";
 
-/**
- * Runs one queued job. Safe to run again or concurrently with the same message. `access` is the
- * access log database, which `erase_access_events` jobs need; the jobs Worker always passes it.
- */
+/** What some jobs need besides D1 and R2; the jobs Worker always passes both. */
+export interface JobDeps {
+  /** The access log database, for `erase_access_events` jobs. */
+  access?: AccessDb | undefined;
+  /** Sends `expiry_notice` emails. */
+  notifier?: ExpiryNotifier | undefined;
+}
+
+/** Runs one queued job. Safe to run again or concurrently with the same message. */
 export async function runJob(
   db: Db,
   bucket: R2Bucket,
   message: JobMessage,
   now: number,
-  access?: AccessDb,
+  deps: JobDeps = {},
 ): Promise<JobOutcome> {
   const [row] = await db.select().from(schema.outbox).where(eq(schema.outbox.id, message.id));
   // Done by an earlier delivery, by the request itself or by a scheduled scan.
   if (!row) return "done";
-  const outcome = await runRow(db, bucket, row, now, access);
+  const outcome = await runRow(db, bucket, row, now, deps);
   if (outcome !== "pending") {
     await db.delete(schema.outbox).where(eq(schema.outbox.id, row.id));
   }
@@ -141,7 +147,7 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  access: AccessDb | undefined,
+  { access, notifier }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -161,6 +167,9 @@ async function runRow(
       const { kind } = EraseAccessEventsPayload.parse(row.payload);
       return eraseAccessEvents(access, kind, row.subject ?? "");
     }
+    case "expiry_notice":
+      if (!notifier) throw new Error("expiry_notice needs the notifier");
+      return sendExpiryNotice(db, row, now, notifier);
   }
 }
 

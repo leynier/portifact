@@ -1,5 +1,6 @@
 // The settings page (`/settings`): the defaults new artifacts start with (applied by the publish
-// service for every client), the data export and, in the danger zone, account deletion.
+// service for every client), the expiry notice emails, the data export and, in the danger zone,
+// account deletion.
 import {
   type AccessMode,
   type AccountSettings,
@@ -27,23 +28,24 @@ const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
 const ANNOTATIONS: readonly DefaultAnnotations[] = ["off", "open"];
 const VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
 
-/** The settings this form saves; the language has its own control and is never sent here. */
-const DEFAULT_KEYS = [
-  "defaultAccessMode",
-  "defaultAnnotations",
-  "defaultCommentVisibility",
-  "defaultBar",
-] as const satisfies readonly (keyof AccountSettings)[];
+/**
+ * The defaults for new artifacts: every setting but the email notices and the language, which
+ * have their own controls on this page.
+ */
+type Defaults = Omit<AccountSettings, "expiryNotices" | "locale">;
+
+function defaultsOf({ expiryNotices: _, locale: __, ...defaults }: AccountSettings): Defaults {
+  return defaults;
+}
 
 /** The fields that differ from the saved defaults, or undefined when nothing changed. */
 export function defaultsChange(
-  saved: AccountSettings,
-  values: AccountSettings,
+  saved: Defaults,
+  values: Defaults,
 ): AccountSettingsUpdate | undefined {
-  const entries = DEFAULT_KEYS.filter((key) => values[key] !== saved[key]).map((key) => [
-    key,
-    values[key],
-  ]);
+  const entries = (Object.keys(values) as (keyof Defaults)[])
+    .filter((key) => values[key] !== saved[key])
+    .map((key) => [key, values[key]]);
   return entries.length > 0 ? (Object.fromEntries(entries) as AccountSettingsUpdate) : undefined;
 }
 
@@ -61,6 +63,7 @@ export function SettingsScreen() {
           { id: "language", label: t("language.title") },
           { id: "appearance", label: t("settings.appearance.title") },
           { id: "defaults", label: t("settings.defaults.title") },
+          { id: "notices", label: t("settings.notices.title") },
           { id: "data", label: t("account.data.title") },
           { id: "delete", label: t("settings.danger.title") },
         ]}
@@ -70,6 +73,7 @@ export function SettingsScreen() {
         </Section>
         <Appearance />
         <ArtifactDefaults />
+        <EmailNotices />
         <AccountData />
         <DeleteAccount email={account?.email ?? ""} />
       </SectionedPage>
@@ -102,17 +106,18 @@ function ArtifactDefaults() {
         loading={t("settings.defaults.loading")}
         error={t("settings.defaults.error")}
       >
-        {(saved) => (
-          // A new form when the saved values change, so it never shows stale choices.
-          // The language is saved elsewhere on the page, so a new one keeps unsaved defaults.
-          <DefaultsForm key={JSON.stringify({ ...saved, locale: null })} saved={saved} />
-        )}
+        {(saved) => {
+          const defaults = defaultsOf(saved);
+          // A new form when the saved defaults change, so it never shows stale choices; saving
+          // the email notices or the language leaves unsaved choices here alone.
+          return <DefaultsForm key={JSON.stringify(defaults)} saved={defaults} />;
+        }}
       </Loaded>
     </Section>
   );
 }
 
-function DefaultsForm({ saved }: { saved: AccountSettings }) {
+function DefaultsForm({ saved }: { saved: Defaults }) {
   const t = useT();
   const formatDate = useFormatDate();
   const announce = useAnnounce();
@@ -231,6 +236,81 @@ function DefaultsForm({ saved }: { saved: AccountSettings }) {
           <div>
             <form.SubmitButton icon={<Save className="size-4" />} busy={save.isPending}>
               {t("settings.defaults.save")}
+            </form.SubmitButton>
+          </div>
+        </div>
+      </form.Form>
+    </form.AppForm>
+  );
+}
+
+function EmailNotices() {
+  const t = useT();
+  const { api } = useDashboard();
+  const settings = useQuery({ queryKey: SETTINGS_QUERY, queryFn: () => api.accountSettings() });
+  return (
+    <Section id="notices" title={t("settings.notices.title")} hint={t("settings.notices.hint")}>
+      <Loaded
+        query={settings}
+        loading={t("settings.defaults.loading")}
+        error={t("settings.defaults.error")}
+      >
+        {(saved) => <NoticesForm key={String(saved.expiryNotices)} saved={saved.expiryNotices} />}
+      </Loaded>
+    </Section>
+  );
+}
+
+function NoticesForm({ saved }: { saved: boolean }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const queryClient = useQueryClient();
+  const { api } = useDashboard();
+
+  const save = useMutation({
+    mutationFn: (expiryNotices: boolean) => api.updateAccountSettings({ expiryNotices }),
+    onSuccess: (next) => {
+      queryClient.setQueryData(SETTINGS_QUERY, next);
+      announce(t("settings.notices.saved"));
+    },
+  });
+
+  const form = useAppForm({
+    defaultValues: { expiryNotices: saved },
+    validationLogic: revalidateLogic(),
+    onSubmit: async ({ value }) => {
+      if (value.expiryNotices === saved) {
+        announce(t("settings.notices.unchanged"));
+        return;
+      }
+      await save.mutateAsync(value.expiryNotices).catch(() => undefined);
+    },
+  });
+
+  return (
+    <form.AppForm>
+      <form.Form label={t("settings.notices.title")}>
+        <div className="flex flex-col gap-6">
+          {save.isError ? (
+            <Callout
+              tone="error"
+              title={t("settings.notices.failed")}
+              icon={<CircleAlert className="size-5" />}
+            >
+              {errorMessage(t, save.error)}
+            </Callout>
+          ) : null}
+          <form.AppField name="expiryNotices">
+            {(field) => (
+              <field.CheckboxField
+                label={t("settings.notices.expiry.label")}
+                description={t("settings.notices.expiry.hint")}
+              />
+            )}
+          </form.AppField>
+          <div>
+            <form.SubmitButton icon={<Save className="size-4" />} busy={save.isPending}>
+              {t("settings.notices.save")}
             </form.SubmitButton>
           </div>
         </div>

@@ -2,6 +2,7 @@
 // payloads of outbox rows, and the tombstone markers the operator exports before restoring a
 // backup and applies after it (docs/operations.md).
 import { z } from "zod";
+import { LIMITS } from "./limits.ts";
 
 export const OutboxTopic = z.enum([
   "purge_artifact",
@@ -9,6 +10,7 @@ export const OutboxTopic = z.enum([
   "delete_objects",
   "abort_multipart",
   "erase_access_events",
+  "expiry_notice",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -32,6 +34,24 @@ export const EraseAccessEventsPayload = z.strictObject({
   kind: z.enum(["artifact", "user"]),
 });
 export type EraseAccessEventsPayload = z.infer<typeof EraseAccessEventsPayload>;
+
+/**
+ * Payload of an `expiry_notice` job (its subject is the owner): the artifacts it tells the owner
+ * about, each with the expiry it was scheduled for. The job skips an artifact whose expiry changed
+ * since (renewed or published again) or that is no longer active.
+ */
+export const ExpiryNoticePayload = z.strictObject({
+  artifacts: z
+    .array(
+      z.strictObject({
+        id: z.string().min(1).max(200),
+        expiresAt: z.number().int().nonnegative(),
+      }),
+    )
+    .min(1)
+    .max(LIMITS.activeArtifacts),
+});
+export type ExpiryNoticePayload = z.infer<typeof ExpiryNoticePayload>;
 
 /** One purged or deleted artifact or account that a restored backup must not bring back. */
 export const TombstoneMarker = z.strictObject({

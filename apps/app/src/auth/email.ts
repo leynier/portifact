@@ -7,7 +7,14 @@ import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import type { Db } from "@portifact/db";
 import { negotiateLocale, parseAcceptLanguage } from "@portifact/domain/locale";
 import { signInCodeEmail as renderSignInCode } from "@portifact/emails";
-import { recordEmailsSent, suppressEmail } from "@portifact/services";
+import {
+  isRecipientSuppressed,
+  RecipientSuppressedError,
+  recordEmailsSent,
+  suppressEmail,
+} from "@portifact/services";
+
+export { RecipientSuppressedError };
 
 export interface EmailMessage {
   to: string;
@@ -21,24 +28,6 @@ export interface EmailSender {
 }
 
 export const SENDER = { email: "noreply@portifact.com", name: "Portifact" } as const;
-
-/** Email Service refused the send because its suppression list holds the recipient. */
-export class RecipientSuppressedError extends Error {
-  constructor() {
-    super("email recipient suppressed");
-    this.name = "RecipientSuppressedError";
-  }
-}
-
-/** Cloudflare's binding rejects with `E_RECIPIENT_SUPPRESSED`, as a code or in the message. */
-function isRecipientSuppressed(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const { code, message } = error as { code?: unknown; message?: unknown };
-  return (
-    code === "E_RECIPIENT_SUPPRESSED" ||
-    (typeof message === "string" && message.includes("E_RECIPIENT_SUPPRESSED"))
-  );
-}
 
 /** Sends through Cloudflare Email Service (the `send_email` binding). */
 export function cloudflareEmailSender(binding: SendEmail): EmailSender {

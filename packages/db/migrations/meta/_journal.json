@@ -180,8 +180,15 @@
     {
       "idx": 25,
       "version": "6",
-      "when": 1794234934077,
-      "tag": "0025_account_locale",
+      "when": 1794234140595,
+      "tag": "0025_expiry_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1794236428041,
+      "tag": "0026_account_locale",
       "breakpoints": true
     }
   ]

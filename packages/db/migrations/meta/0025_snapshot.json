@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7d39f175-104d-4bef-96d0-0835e483e9b2",
+  "id": "099b3ca7-2329-47a8-a76f-7679bba315dd",
   "prevId": "17149ba2-16fe-4688-928b-25e162e53c5c",
   "tables": {
     "abuse_reports": {
@@ -149,12 +149,13 @@
           "autoincrement": false,
           "default": true
         },
-        "locale": {
-          "name": "locale",
-          "type": "text",
+        "expiry_notices": {
+          "name": "expiry_notices",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
         },
         "updated_at": {
           "name": "updated_at",
@@ -877,6 +878,20 @@
         },
         "expires_at": {
           "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expiry_notice_for": {
+          "name": "expiry_notice_for",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expiry_notice_at": {
+          "name": "expiry_notice_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

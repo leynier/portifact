@@ -389,7 +389,7 @@ export const es = {
   "settings.title": "Configuración",
   "settings.sectionsNav": "Secciones de configuración",
   "settings.description":
-    "Tu idioma, cómo se ve Portifact, cómo empiezan los artifacts nuevos, tus datos y la eliminación de tu cuenta.",
+    "Tu idioma, cómo se ve Portifact, cómo empiezan los artifacts nuevos, los correos que recibes, tus datos y la eliminación de tu cuenta.",
   "settings.appearance.title": "Apariencia",
   "settings.appearance.hint":
     "Cómo se ve Portifact en este navegador. Sistema sigue la configuración de tu dispositivo. Los artifacts conservan el aspecto que les dieron sus creadores.",
@@ -414,6 +414,17 @@ export const es = {
   "settings.defaults.unchanged":
     "Nada que guardar: tus valores predeterminados ya están configurados así.",
   "settings.defaults.failed": "No se guardaron tus valores predeterminados",
+  "settings.notices.title": "Avisos por correo",
+  "settings.notices.hint":
+    "Los artifacts dejan de servirse 30 días después de la última vez que los publicas o renuevas. Portifact puede recordártelo unos días antes.",
+  "settings.notices.expiry.label": "Envíame un correo antes de que venzan mis artifacts",
+  "settings.notices.expiry.hint":
+    "Como máximo un correo al día, con cada artifact que vence en los próximos 3 días y un enlace para renovar cada uno.",
+  "settings.notices.save": "Guardar avisos por correo",
+  "settings.notices.saved": "Avisos por correo guardados.",
+  "settings.notices.unchanged":
+    "Nada que guardar: tus avisos por correo ya están configurados así.",
+  "settings.notices.failed": "No se guardaron tus avisos por correo",
   "settings.danger.title": "Zona de peligro",
   "settings.danger.hint": "Estas acciones no se pueden deshacer.",
   "account.data.title": "Tus datos",
