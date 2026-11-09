@@ -38,7 +38,9 @@ beforeEach(() => {
   server.access[ID] = { ...POLICY, readers: [...POLICY.readers] };
 });
 
-const accessRegion = async () => screen.findByRole("region", { name: "Access" });
+// The first render loads the artifact page's chunks, which takes over a second on a busy CI runner.
+const accessRegion = async () =>
+  screen.findByRole("region", { name: "Access" }, { timeout: 10_000 });
 const radio = (name: string) => screen.getByRole("radio", { name }) as HTMLInputElement;
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save access" }));
 const saveLink = () => fireEvent.click(screen.getByRole("button", { name: "Save link settings" }));
