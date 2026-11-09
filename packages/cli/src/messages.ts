@@ -130,6 +130,18 @@ export const messages = {
   usageBlocksHeader: "Blocked now:",
   usageBlock: (message: string, until: string | null) =>
     `  ${message}${until === null ? "" : ` Lifts ${formatDate(until)}.`}`,
+
+  // Tokens.
+  tokensEmpty: "No app holds tokens for your account.",
+  tokensUnnamed: "Unnamed app",
+  tokensNote:
+    "Each ID is an app: revoking it ends every token it holds for your account, on every device. `portifact-cli` is this CLI on all your devices.",
+  confirmRevoke: (name: string, id: string, current: boolean) =>
+    `This revokes every token ${JSON.stringify(name)} (${id}) holds for your account, on every device, and its approval.${current ? " That includes this CLI, so you will be signed out here too." : ""}\nType "revoke" to confirm: `,
+  revokedToken: (id: string) =>
+    `Revoked the tokens of ${id}. It has to ask for your approval again to reconnect.`,
+  revokedSelf: (origin: string) =>
+    `Revoked the CLI's tokens on every device and signed out of ${origin} here. Run \`portifact login\` to sign in again.`,
   pulled: (count: number, bytes: number, version: number, id: string, out: string) =>
     `Downloaded ${count} ${plural(count, "file", "files")} (${formatBytes(bytes)}) of version ${version} of ${id} into ${out}.`,
   historyAdded: (count: number, first: number, last: number, id: string, out: string) =>
@@ -156,6 +168,13 @@ export const messages = {
       "PORTIFACT_APP_ORIGIN must be an https origin, or http on localhost, without a user name or password.",
     missingScope:
       "This device's session does not allow that action. Run `portifact login` to sign in again.",
+    invalidTokenId: (value: string) =>
+      `${JSON.stringify(value)} is not a token ID. Run \`portifact tokens list\` to see them.`,
+    tokenNotFound: (id: string) =>
+      `No app with the ID ${JSON.stringify(id)} holds tokens for your account. Run \`portifact tokens list\` to see them.`,
+    revokeConfirmationRequired: (id: string) =>
+      `Revoking disconnects the app on every device. Run \`portifact tokens revoke ${id} --yes\` to confirm without a prompt.`,
+    revokeCancelled: 'Nothing was revoked: the confirmation was not "revoke".',
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
     invalidMode: (value: string) =>

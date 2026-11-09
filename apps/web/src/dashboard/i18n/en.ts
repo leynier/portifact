@@ -494,6 +494,7 @@ export const en = {
   "scope.annotations:read": "Read comments on your artifacts",
   "scope.annotations:write": "Write and reply to comments as you",
   "scope.annotations:moderate": "Resolve, hide and delete comments on your artifacts",
+  "scope.credentials:manage": "See the apps connected to your account and disconnect them",
   "scope.offline_access": "Stay connected until you disconnect it",
   "scope.unknown": "Use the permission {name}",
 

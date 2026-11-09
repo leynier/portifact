@@ -42,6 +42,7 @@ describe("identity schema and seeded OAuth data", () => {
       "annotations:read",
       "annotations:write",
       "annotations:moderate",
+      "credentials:manage",
       "offline_access",
     ]);
     const links = await db()

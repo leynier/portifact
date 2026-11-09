@@ -15,6 +15,7 @@ import { r2Presigner } from "./api/presign.ts";
 import { reportRoutes } from "./api/reports.ts";
 import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
+import { tokenRoutes } from "./api/tokens.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
 import type { AuthDeps } from "./auth/deps.ts";
@@ -274,6 +275,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       signOutOthers: (env) => async (request) => {
         await authFor(env).api.revokeOtherSessions({ headers: request.headers });
       },
+      now: () => Date.now(),
+    }),
+  );
+  app.route(
+    "/",
+    tokenRoutes({
+      introspect: introspectFor,
+      resource: (env) => resources(env).api,
       now: () => Date.now(),
     }),
   );
