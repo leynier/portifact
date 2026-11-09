@@ -116,6 +116,10 @@ async function connect(page: { path: string; route?: string } = { path: "index.h
   return init?.message.nonce as string;
 }
 
+/** The "Filter and export" disclosure of the sidebar. */
+const filterTools = () =>
+  screen.getByText(/^Filter and export/).closest("details") as HTMLDetailsElement;
+
 const fromBridge = (nonce: string, body: Record<string, unknown>) =>
   deliver({ channel: REVIEW_CHANNEL, v: 1, nonce, ...body });
 
@@ -529,7 +533,11 @@ describe("comment filters and export", () => {
     const { container } = await open();
     await connect();
     await waitFor(() => expect(lastMarkers()).toEqual(["t1", "t3"]));
-    const tools = screen.getByRole("region", { name: "Filter and export" });
+    // Collapsed by default, so the threads come first in the sidebar.
+    const tools = filterTools();
+    expect(tools.open).toBe(false);
+    fireEvent.click(within(tools).getByText("Filter and export"));
+    expect(tools.open).toBe(true);
     expect(
       within(tools)
         .getAllByRole("option")
@@ -540,6 +548,8 @@ describe("comment filters and export", () => {
 
     choose("Status", "resolved");
     expect(headings()).toEqual(["Thread 3"]);
+    // The summary says filters are on while the disclosure is closed.
+    expect(within(tools).getByText("Filter and export (filters on)")).toBeTruthy();
     expect(screen.getByText("Showing 1 of 4 comment threads").getAttribute("role")).toBe("status");
     await waitFor(() => expect(lastMarkers()).toEqual(["t3"]));
 
@@ -635,7 +645,7 @@ describe("comment filters and export", () => {
       code: "capacity_unavailable",
     });
     fireEvent.click(screen.getByRole("button", { name: "Export as JSON" }));
-    const tools = screen.getByRole("region", { name: "Filter and export" });
+    const tools = filterTools();
     expect((await within(tools).findByRole("alert")).textContent).toContain(
       "Portifact is at capacity right now",
     );
@@ -983,14 +993,14 @@ describe("the viewer's bar and visitors", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await open();
     const bar = screen.getByRole("banner");
-    expect(
-      within(screen.getByRole("main", { name: "Artifact" })).getByText("Version 1"),
-    ).toBeTruthy();
+    const region = screen.getByRole("main", { name: "Artifact" });
+    expect(within(region).getByText("Version 1")).toBeTruthy();
     expect(within(bar).getByRole("link", { name: "Manage" }).getAttribute("href")).toBe(
       `/artifacts/${ID}`,
     );
     expect(within(bar).queryByRole("link", { name: "Report this artifact" })).toBeNull();
-    fireEvent.click(within(bar).getByRole("button", { name: "Copy link" }));
+    // The artifact's own link is copied from the caption, beside its name.
+    fireEvent.click(within(region).getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${ORIGIN}/`));
     await screen.findByText("Link copied.");
     Reflect.deleteProperty(navigator, "clipboard");
@@ -1001,7 +1011,11 @@ describe("the viewer's bar and visitors", () => {
     expect(within(screen.getByRole("banner")).queryByText("Launch plan")).toBeNull();
     const region = screen.getByRole("main", { name: "Artifact" });
     expect(within(region).getByRole("heading", { level: 1, name: "Launch plan" })).toBeTruthy();
-    expect(within(region).getByText(`${ID}.portifact.dev`)).toBeTruthy();
+    expect(
+      within(region)
+        .getByRole("link", { name: `${ORIGIN}/` })
+        .getAttribute("href"),
+    ).toBe(`${ORIGIN}/`);
     expect(within(region).getByText("Published by a user, not by Portifact")).toBeTruthy();
   });
 

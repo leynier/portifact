@@ -12,7 +12,7 @@ function shell(withSidebar = true) {
       skipLinkLabel="Skip to the artifact"
       brand={<a href="https://portifact.com">Portifact</a>}
       caption={{
-        origin: "k7d2qm4xab.portifact.dev",
+        link: <a href="https://k7d2qm4xab.portifact.dev/">https://k7d2qm4xab.portifact.dev/</a>,
         title: "Launch plan",
         details: <span>Version 3</span>,
         notice: "Published by a user, not by Portifact",

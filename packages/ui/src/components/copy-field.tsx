@@ -21,6 +21,11 @@ export interface CopyFieldProps {
   actions?: ReactNode;
   /** `command` prefixes the value with a prompt, for a shell command. */
   kind?: "value" | "command";
+  /**
+   * One slim row for a bar or a caption: the label is kept for assistive technology only and the
+   * copy button is small. The value must be clear without the visible label, such as a URL.
+   */
+  compact?: boolean;
 }
 
 const COPIED_MS = 2000;
@@ -39,6 +44,7 @@ export function CopyField({
   onCopyFailed,
   actions,
   kind = "value",
+  compact = false,
 }: CopyFieldProps) {
   const id = useId();
   const [copied, setCopied] = useState(false);
@@ -59,19 +65,36 @@ export function CopyField({
   };
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <span id={`${id}-label`} className="text-xs text-text-muted">
+    <div className={compact ? "flex min-w-0 flex-col" : "flex flex-col gap-1.5"}>
+      <span id={`${id}-label`} className={compact ? "sr-only" : "text-xs text-text-muted"}>
         {label}
       </span>
-      <div className="flex flex-wrap items-stretch gap-2">
-        <div className="flex min-h-10 min-w-0 flex-1 basis-60 items-center gap-2 rounded-sm border border-border bg-surface px-3 py-2 font-mono text-sm">
+      <div
+        className={
+          compact ? "flex min-w-0 items-center gap-1.5" : "flex flex-wrap items-stretch gap-2"
+        }
+      >
+        <div
+          className={
+            compact
+              ? "flex h-8 min-w-0 items-center gap-2 rounded-sm border border-border bg-surface px-2.5 font-mono text-xs"
+              : "flex min-h-10 min-w-0 flex-1 basis-60 items-center gap-2 rounded-sm border border-border bg-surface px-3 py-2 font-mono text-sm"
+          }
+        >
           {kind === "command" ? (
             <span aria-hidden="true" className="text-text-muted select-none">
               $
             </span>
           ) : null}
           {href ? (
-            <a href={href} className="min-w-0 break-all underline-offset-4">
+            <a
+              href={href}
+              className={
+                compact
+                  ? "min-w-0 truncate underline-offset-4"
+                  : "min-w-0 break-all underline-offset-4"
+              }
+            >
               {value}
             </a>
           ) : (
@@ -83,7 +106,9 @@ export function CopyField({
             type="button"
             aria-describedby={`${id}-label`}
             onClick={() => void copy()}
-            className={buttonClasses({ intent: "secondary" })}
+            className={buttonClasses(
+              compact ? { intent: "ghost", size: "sm" } : { intent: "secondary" },
+            )}
           >
             <span aria-hidden="true" className="inline-flex">
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}

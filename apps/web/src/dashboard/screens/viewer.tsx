@@ -24,11 +24,13 @@ import {
   buttonClasses,
   Callout,
   ConfirmDialog,
-  LiveRegion,
+  CopyField,
+  Disclosure,
   LoadingState,
   PageHeader,
   Select,
   type SelectOption,
+  Toast,
   ViewerShell,
 } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
@@ -44,7 +46,7 @@ import {
   ExternalLink,
   Flag,
   Info,
-  Link2,
+  LayoutGrid,
   LocateFixed,
   LogIn,
   MapPinOff,
@@ -212,7 +214,7 @@ export function ViewerScreen() {
   return (
     <AnnounceContext.Provider value={announce}>
       {content}
-      <LiveRegion message={announcement} />
+      <Toast message={announcement} dismissLabel={t("shell.dismiss")} />
     </AnnounceContext.Provider>
   );
 }
@@ -256,15 +258,6 @@ function ViewerLayout({
   const t = useT();
   const announce = useAnnounce();
   const link = pageUrl(info.origin, target);
-  const copy = () => {
-    const done = () => announce(t("viewer.copied"));
-    const failed = () => announce(t("viewer.copyFailed", { link }));
-    if (!navigator.clipboard) {
-      failed();
-      return;
-    }
-    navigator.clipboard.writeText(link).then(done, failed);
-  };
   return (
     <ViewerShell
       skipLinkLabel={t("viewer.skipLink")}
@@ -277,7 +270,19 @@ function ViewerLayout({
         </a>
       }
       caption={{
-        origin: new URL(info.origin).host,
+        // The artifact's own link, so its origin is always in sight next to its name.
+        link: (
+          <CopyField
+            compact
+            label={t("viewer.link")}
+            value={link}
+            href={link}
+            copyLabel={t("viewer.copyLink")}
+            copiedLabel={t("copy.copied")}
+            onCopied={() => announce(t("viewer.copied"))}
+            onCopyFailed={() => announce(t("copy.failed"))}
+          />
+        ),
         title: info.name,
         details: (
           <Badge emphasis="quiet">{t("viewer.version", { number: info.versionNumber })}</Badge>
@@ -286,14 +291,11 @@ function ViewerLayout({
       }}
       actions={
         <>
-          <Button size="sm" icon={<Link2 className="size-4" />} onClick={copy}>
-            {t("viewer.copyLink")}
-          </Button>
           {info.role === "owner" ? (
             // Full page loads: the dashboard gets its own policy, not the viewer's narrow frame-src.
             <a
               href={`/artifacts/${encodeURIComponent(info.artifactId)}`}
-              className={buttonClasses({ size: "sm" })}
+              className={buttonClasses({ intent: "ghost", size: "sm" })}
             >
               <Settings aria-hidden="true" className="size-4" />
               {t("viewer.manage")}
@@ -301,7 +303,7 @@ function ViewerLayout({
           ) : (
             <a
               href={`/report?${new URLSearchParams({ artifact: info.artifactId })}`}
-              className={buttonClasses({ intent: "link", size: "inline" })}
+              className={buttonClasses({ intent: "ghost", size: "sm" })}
             >
               <Flag aria-hidden="true" className="size-4" />
               {t("review.report")}
@@ -319,7 +321,8 @@ function ViewerLayout({
             </Button>
           ) : null}
           {account.kind === "signed-in" ? (
-            <a href="/" className={buttonClasses({ intent: "link", size: "inline" })}>
+            <a href="/" className={buttonClasses({ intent: "ghost", size: "sm" })}>
+              <LayoutGrid aria-hidden="true" className="size-4" />
               {t("viewer.dashboard")}
             </a>
           ) : (
@@ -722,8 +725,10 @@ function ReviewSession({
         </div>
       ) : null}
       {canComment && selection && !draft ? (
-        <div className="flex flex-col gap-2 rounded-md border border-border-strong p-3">
-          <p className="text-sm font-medium">{t("review.selection.label")}</p>
+        <div className="flex flex-col gap-2 rounded-lg border border-border bg-canvas p-4 shadow-sm">
+          <p className="text-sm font-medium">
+            <span className="selection-band px-1.5">{t("review.selection.label")}</span>
+          </p>
           <TargetSummary target={selection} />
           <div>
             <Button
@@ -1158,59 +1163,62 @@ function CommentTools({
       })),
   ];
   return (
-    <section
-      aria-labelledby="review-tools-heading"
-      className="flex flex-col gap-3 rounded-md border border-border p-3"
+    // Collapsed by default: reading and writing comments come first in the sidebar.
+    <Disclosure
+      summary={
+        filter.status === "all" && filter.author === "all" && version === "current"
+          ? t("review.filter.heading")
+          : t("review.filter.headingActive")
+      }
     >
-      <h3 id="review-tools-heading" className="text-base font-semibold">
-        {t("review.filter.heading")}
-      </h3>
-      <Select
-        label={t("review.filter.status")}
-        value={filter.status}
-        options={[
-          { value: "all", label: t("review.filter.status.all") },
-          { value: "open", label: t("review.filter.status.open") },
-          { value: "resolved", label: t("review.filter.status.resolved") },
-        ]}
-        onChange={(status) => onFilter({ ...filter, status })}
-      />
-      <Select
-        label={t("review.filter.author")}
-        value={filter.author}
-        options={authors}
-        onChange={(author) => onFilter({ ...filter, author })}
-      />
-      {owner ? (
+      <div className="flex flex-col gap-3">
         <Select
-          label={t("review.filter.version")}
-          description={t("review.filter.version.hint")}
-          value={version}
-          options={versionOptions}
-          onChange={onVersion}
+          label={t("review.filter.status")}
+          value={filter.status}
+          options={[
+            { value: "all", label: t("review.filter.status.all") },
+            { value: "open", label: t("review.filter.status.open") },
+            { value: "resolved", label: t("review.filter.status.resolved") },
+          ]}
+          onChange={(status) => onFilter({ ...filter, status })}
         />
-      ) : null}
-      <p className="text-sm text-text-muted">{t("review.export.hint")}</p>
-      {exporter.isError ? <ActionError error={exporter.error} /> : null}
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          icon={<Download className="size-4" />}
-          busy={exporter.isPending && exporter.variables === "json"}
-          onClick={() => exporter.mutate("json")}
-        >
-          {t("review.export.json")}
-        </Button>
-        <Button
-          size="sm"
-          icon={<Download className="size-4" />}
-          busy={exporter.isPending && exporter.variables === "markdown"}
-          onClick={() => exporter.mutate("markdown")}
-        >
-          {t("review.export.markdown")}
-        </Button>
+        <Select
+          label={t("review.filter.author")}
+          value={filter.author}
+          options={authors}
+          onChange={(author) => onFilter({ ...filter, author })}
+        />
+        {owner ? (
+          <Select
+            label={t("review.filter.version")}
+            description={t("review.filter.version.hint")}
+            value={version}
+            options={versionOptions}
+            onChange={onVersion}
+          />
+        ) : null}
+        <p className="text-sm text-text-muted">{t("review.export.hint")}</p>
+        {exporter.isError ? <ActionError error={exporter.error} /> : null}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            icon={<Download className="size-4" />}
+            busy={exporter.isPending && exporter.variables === "json"}
+            onClick={() => exporter.mutate("json")}
+          >
+            {t("review.export.json")}
+          </Button>
+          <Button
+            size="sm"
+            icon={<Download className="size-4" />}
+            busy={exporter.isPending && exporter.variables === "markdown"}
+            onClick={() => exporter.mutate("markdown")}
+          >
+            {t("review.export.markdown")}
+          </Button>
+        </div>
       </div>
-    </section>
+    </Disclosure>
   );
 }
 
@@ -1372,7 +1380,7 @@ function ThreadItem({
         tabIndex={-1}
         aria-labelledby={titleId}
         aria-current={active === thread.id ? "true" : undefined}
-        className="flex flex-col gap-3 rounded-md border border-border p-3 current-item:border-2 current-item:border-text"
+        className="flex flex-col gap-3 rounded-lg border border-border bg-canvas p-4 shadow-sm current-item:border-text current-item:shadow-raised"
       >
         <div className="flex flex-wrap items-center gap-2">
           <h3 id={titleId} className="text-base font-semibold">

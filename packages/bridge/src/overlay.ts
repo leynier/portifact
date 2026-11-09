@@ -14,6 +14,39 @@ export interface Box {
   height: number;
 }
 
+/** A marker's size before it is laid out: `--pf-space-6`. */
+const MARKER_SIZE = 24;
+
+/** Space between a marker and the quote it points at, in CSS pixels. */
+export const MARKER_GAP = 4;
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/**
+ * Where a thread's marker goes so it never covers the quoted text: in the margin before the
+ * quote's first line, else above that line, else below the whole quote. Each place is taken only
+ * if it stays on the page and clears every box of the quote.
+ */
+export function markerPosition(
+  boxes: readonly Box[],
+  size: { width: number; height: number },
+): { x: number; y: number } {
+  const [first] = boxes;
+  if (!first) return { x: 0, y: 0 };
+  const bottom = Math.max(...boxes.map((box) => box.y + box.height));
+  const candidates = [
+    { x: first.x - size.width - MARKER_GAP, y: first.y + (first.height - size.height) / 2 },
+    { x: first.x, y: first.y - size.height - MARKER_GAP },
+  ];
+  for (const at of candidates) {
+    const box = { ...at, ...size };
+    if (at.x >= 0 && at.y >= 0 && !boxes.some((quoted) => overlaps(box, quoted))) return at;
+  }
+  return { x: first.x, y: bottom + MARKER_GAP };
+}
+
 const OVERLAY_CSS = `${TOKENS_CSS.replaceAll(":root", ":host")}
 :host { all: initial; }
 .highlight {
@@ -147,14 +180,20 @@ export function createOverlay(document: Document, onActivate: (id: string) => vo
       button.textContent = label;
       button.setAttribute("aria-label", name);
       if (active) button.setAttribute("aria-current", "true");
-      button.style.setProperty("left", `${Math.max(0, first.x - 12)}px`);
-      button.style.setProperty("top", `${Math.max(0, first.y - 12)}px`);
       button.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
         onActivate(id);
       });
       markers.append(button);
+      // Measured once it is in the overlay; the token size stands in where nothing is laid out.
+      const measured = button.getBoundingClientRect();
+      const at = markerPosition(boxes, {
+        width: measured.width || MARKER_SIZE,
+        height: measured.height || MARKER_SIZE,
+      });
+      button.style.setProperty("left", `${at.x}px`);
+      button.style.setProperty("top", `${at.y}px`);
       return button;
     },
     pick(box, hint) {

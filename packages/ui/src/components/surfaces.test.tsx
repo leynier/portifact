@@ -202,6 +202,30 @@ describe("CopyField", () => {
   });
 });
 
+describe("CopyField, compact", () => {
+  it("keeps its label for assistive technology only and copies with a small button", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const { container } = render(
+      <CopyField
+        compact
+        label="Artifact link"
+        value="https://a.portifact.dev/docs"
+        href="https://a.portifact.dev/docs"
+        copyLabel="Copy link"
+        copiedLabel="Copied"
+      />,
+    );
+    const label = screen.getByText("Artifact link");
+    expect(label.className).toContain("sr-only");
+    const button = screen.getByRole("button", { name: "Copy link" });
+    expect(document.getElementById(button.getAttribute("aria-describedby") ?? "")).toBe(label);
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(button);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://a.portifact.dev/docs"));
+  });
+});
+
 describe("Steps", () => {
   it("marks the current step and says which are done", async () => {
     const { container } = render(
