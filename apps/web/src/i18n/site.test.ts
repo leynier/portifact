@@ -8,7 +8,14 @@ import { axeViolations } from "@portifact/ui/testing";
 import { describe, expect, it } from "vitest";
 import { collectMessages, localizeDocument, markupOf, stripMarkers } from "./markers.ts";
 import { SITE_CATALOGS } from "./site/catalogs.ts";
-import { localePrefix, localizedFile, SITE_PAGES, type SitePage, sitePath } from "./site.ts";
+import {
+  choiceHref,
+  localePrefix,
+  localizedFile,
+  SITE_PAGES,
+  type SitePage,
+  sitePath,
+} from "./site.ts";
 import { renderSiteHtml, sitePageForPath } from "./site-build.ts";
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -84,7 +91,7 @@ describe.each(LOCALE_CODES.filter((code) => code !== "en"))("the %s pages", (cod
         expect(links.map((link) => link.textContent)).toEqual(LOCALES.map((l) => l.name));
         expect(links.map((link) => link.getAttribute("lang"))).toEqual([...LOCALE_CODES]);
         expect(nav.querySelector('a[aria-current="true"]')?.getAttribute("href")).toBe(
-          `${prefix}${sitePage.path}`,
+          `${prefix}${sitePage.path}?lang=${code}`,
         );
       }
       expect(document.documentElement.outerHTML).not.toContain("data-i18n");
@@ -141,8 +148,9 @@ describe("renderSiteHtml", () => {
     expect(switchers.length).toBeGreaterThanOrEqual(2);
     for (const nav of switchers) {
       const current = nav.querySelector('a[aria-current="true"]');
-      expect(current?.getAttribute("href")).toBe("/");
-      expect(nav.querySelector('a[hreflang="es"]')?.getAttribute("href")).toBe("/es/");
+      // Each link is a choice the Worker keeps before it drops the parameter.
+      expect(current?.getAttribute("href")).toBe("/?lang=en");
+      expect(nav.querySelector('a[hreflang="es"]')?.getAttribute("href")).toBe("/es/?lang=es");
       expect(nav.querySelector('a[hreflang="es"]')?.getAttribute("lang")).toBe("es");
       expect(nav.querySelector('a[hreflang="es"]')?.textContent).toBe("Español");
     }
@@ -150,7 +158,7 @@ describe("renderSiteHtml", () => {
     const note = document.querySelector('[data-locale-suggestion="es"]');
     expect(note?.hasAttribute("hidden")).toBe(true);
     expect(note?.getAttribute("lang")).toBe("es");
-    expect(note?.querySelector("a")?.getAttribute("href")).toBe("/es/");
+    expect(note?.querySelector("a")?.getAttribute("href")).toBe("/es/?lang=es");
     expect(document.querySelector("[data-i18n]")).toBeNull();
     expect(document.documentElement.outerHTML).not.toContain("data-i18n");
   });
@@ -273,6 +281,8 @@ describe("site paths", () => {
     expect(sitePath("/", "es")).toBe("/es/");
     expect(sitePath("/terms", "es")).toBe("/es/terms");
     expect(sitePath("/terms", "en")).toBe("/terms");
+    expect(choiceHref("/", "pt-BR")).toBe("/pt-br/?lang=pt-BR");
+    expect(choiceHref("/terms", "en")).toBe("/terms?lang=en");
     expect(localizedFile(LANDING, "es")).toBe("es/index.html");
     expect(localizedFile(TERMS, "en")).toBe("terms.html");
   });

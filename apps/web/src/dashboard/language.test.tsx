@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+
+import { LOCALE_COOKIE } from "@portifact/contracts/preferences";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -62,6 +64,8 @@ describe("choosing the language", () => {
     expect(document.documentElement.lang).toBe("es");
     expect(document.title).toBe("Configuración · Portifact");
     expect(storage.values.get(LOCALE_STORAGE_KEY)).toBe("es");
+    // The landing follows the same choice through the shared cookie.
+    expect(document.cookie).toContain(`${LOCALE_COOKIE}=es`);
     await waitFor(() => expect(server.settings.locale).toBe("es"));
     expect(server.requests).toContainEqual({
       method: "PATCH",
@@ -105,6 +109,8 @@ describe("choosing the language", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Artifacts" })).toBeTruthy();
     await waitFor(() => expect(document.documentElement.lang).toBe("es"));
     expect(storage.values.get(LOCALE_STORAGE_KEY)).toBe("es");
+    // The account's language becomes this browser's shared choice, so the landing follows it.
+    expect(document.cookie).toContain(`${LOCALE_COOKIE}=es`);
     // Nothing is sent back: the account already holds the choice.
     expect(server.bodies.some((body) => JSON.stringify(body).includes("locale"))).toBe(false);
   });

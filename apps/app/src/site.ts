@@ -4,6 +4,7 @@ import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { Hono } from "hono";
 import { AUTH_PAGES, DASHBOARD_PAGE, PAGE_CSP } from "./app-host.ts";
 import type { Env } from "./env.ts";
+import { languageRedirect, sitePageLocale } from "./site-language.ts";
 
 const REPO = "leynier/portifact";
 export const SITE_HOST = "portifact.com";
@@ -63,6 +64,17 @@ export function createSite() {
       return c.redirect(url.toString(), 301);
     }
     await next();
+  });
+
+  // A visitor who chose a language is sent to the page in it (src/site-language.ts). The pages
+  // themselves then depend on the cookie too, so caches keep one copy per cookie.
+  site.use("*", async (c, next) => {
+    const redirect = languageRedirect(c.req.raw);
+    if (redirect) return redirect;
+    await next();
+    if (!sitePageLocale(new URL(c.req.url).pathname)) return;
+    c.res = new Response(c.res.body, c.res);
+    c.res.headers.append("Vary", "Cookie");
   });
 
   for (const [path, asset] of Object.entries(installers)) {

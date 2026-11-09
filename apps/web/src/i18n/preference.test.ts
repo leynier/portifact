@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
+import { LOCALE_COOKIE, preferenceCookie } from "@portifact/contracts/preferences";
 import { describe, expect, it } from "vitest";
 import {
   applyDocumentLocale,
+  browserCookies,
+  type CookieSource,
   LOCALE_STORAGE_KEY,
   localeParam,
   pageLocale,
@@ -35,6 +38,36 @@ const blocked: StorageSource = () => ({
 const throwing: StorageSource = () => {
   throw new DOMException("blocked", "SecurityError");
 };
+
+/** A page's cookies: what it writes, and what it reads back (the last value of each name). */
+function cookieJar(initial = "", hostname = "app.portifact.com") {
+  const writes: string[] = [];
+  const values = new Map<string, string>();
+  for (const pair of initial.split("; ").filter(Boolean)) {
+    const [name = "", value = ""] = pair.split("=");
+    values.set(name, value);
+  }
+  const source: CookieSource = () => ({
+    hostname,
+    read: () => [...values].map(([name, value]) => `${name}=${value}`).join("; "),
+    write: (cookie) => {
+      writes.push(cookie);
+      const [name = "", value = ""] = (cookie.split("; ")[0] ?? "").split("=");
+      values.set(name, value);
+    },
+  });
+  return { writes, source };
+}
+
+const refusedCookies: CookieSource = () => ({
+  hostname: "app.portifact.com",
+  read: () => {
+    throw new DOMException("blocked", "SecurityError");
+  },
+  write: () => {
+    throw new DOMException("blocked", "SecurityError");
+  },
+});
 
 const PAGE = "https://app.portifact.com/login?next=%2F";
 
@@ -72,6 +105,21 @@ describe("pageLocale", () => {
     expect(kept.values.get(LOCALE_STORAGE_KEY)).toBe("xx");
   });
 
+  it("orders ?lang=, the shared cookie, this origin's storage, then the browser", () => {
+    const kept = memory({ [LOCALE_STORAGE_KEY]: "fr" });
+    const cookies = cookieJar(`${LOCALE_COOKIE}=de`);
+    const sources = { storage: kept.source, cookies: cookies.source, languages: ["ja"] };
+    expect(pageLocale({ ...sources, url: PAGE })).toBe("de");
+    expect(pageLocale({ ...sources, url: `${PAGE}&lang=es` })).toBe("es");
+    // The parameter is the new choice, shared with the landing.
+    expect(cookies.writes).toEqual([preferenceCookie(LOCALE_COOKIE, "es", "app.portifact.com")]);
+    expect(pageLocale({ ...sources, url: PAGE })).toBe("es");
+    expect(pageLocale({ ...sources, cookies: () => null, url: PAGE })).toBe("es");
+    expect(
+      pageLocale({ url: PAGE, storage: () => null, cookies: () => null, languages: ["ja"] }),
+    ).toBe("ja");
+  });
+
   it("still resolves a language when storage is blocked", () => {
     for (const storage of [blocked, throwing, () => null]) {
       expect(pageLocale({ url: `${PAGE}&lang=es`, storage, languages: ["en"] })).toBe("es");
@@ -81,17 +129,45 @@ describe("pageLocale", () => {
 });
 
 describe("kept choice", () => {
-  it("is written and read back", () => {
+  it("is written to the shared cookie and storage, and read back", () => {
     const kept = memory();
-    expect(storeLocale(kept.source, "es")).toBe(true);
-    expect(readStoredLocale(kept.source)).toBe("es");
+    const cookies = cookieJar();
+    expect(storeLocale(kept.source, "es", cookies.source)).toBe(true);
+    expect(cookies.writes).toEqual([preferenceCookie(LOCALE_COOKIE, "es", "app.portifact.com")]);
+    expect(kept.values.get(LOCALE_STORAGE_KEY)).toBe("es");
+    expect(readStoredLocale(kept.source, cookies.source)).toBe("es");
+  });
+
+  it("prefers the shared cookie, set on the other host, over this origin's storage", () => {
+    const kept = memory({ [LOCALE_STORAGE_KEY]: "fr" });
+    expect(readStoredLocale(kept.source, cookieJar(`a=1; ${LOCALE_COOKIE}=de`).source)).toBe("de");
+    expect(readStoredLocale(kept.source, cookieJar(`${LOCALE_COOKIE}=xx`).source)).toBe("fr");
+    expect(readStoredLocale(kept.source, refusedCookies)).toBe("fr");
+    expect(readStoredLocale(kept.source, () => null)).toBe("fr");
+  });
+
+  it("keeps the choice in whichever the browser allows", () => {
+    const cookies = cookieJar();
+    expect(storeLocale(blocked, "ja", cookies.source)).toBe(true);
+    expect(readStoredLocale(blocked, cookies.source)).toBe("ja");
+    const kept = memory();
+    expect(storeLocale(kept.source, "ja", refusedCookies)).toBe(true);
+    expect(readStoredLocale(kept.source, refusedCookies)).toBe("ja");
   });
 
   it("reports a refused write instead of throwing", () => {
-    expect(storeLocale(blocked, "es")).toBe(false);
-    expect(storeLocale(throwing, "es")).toBe(false);
-    expect(storeLocale(() => null, "es")).toBe(false);
-    expect(readStoredLocale(blocked)).toBeUndefined();
+    expect(storeLocale(blocked, "es", refusedCookies)).toBe(false);
+    expect(storeLocale(throwing, "es", () => null)).toBe(false);
+    expect(storeLocale(() => null, "es", refusedCookies)).toBe(false);
+    expect(readStoredLocale(blocked, refusedCookies)).toBeUndefined();
+  });
+
+  it("uses this page's cookies by default", () => {
+    const jar = browserCookies();
+    expect(jar?.hostname).toBe(window.location.hostname);
+    expect(storeLocale(() => null, "fr")).toBe(true);
+    expect(document.cookie).toContain(`${LOCALE_COOKIE}=fr`);
+    expect(readStoredLocale(() => null)).toBe("fr");
   });
 });
 
