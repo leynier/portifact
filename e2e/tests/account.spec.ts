@@ -179,6 +179,7 @@ test("settings and profile have a section guide, a compact menu on phones", asyn
   const settings = page.getByRole("navigation", { name: "Settings sections" });
   await expect(settings.getByRole("link")).toHaveText([
     "Defaults for new artifacts",
+    "Email notices",
     "Your data",
     "Danger zone",
   ]);
