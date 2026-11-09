@@ -270,9 +270,9 @@ export function AppShell({
         tabIndex={-1}
         className={`focus:outline-none ${collapsed ? "md:pl-16" : "md:pl-sidebar"}`}
       >
-        {/* Aligned to the sidebar and capped by `max-w-page`, so wide screens do not leave a column
-            floating between two empty gutters. */}
-        <div className="w-full max-w-page px-4 py-8 sm:px-8 lg:px-10 lg:py-10">{children}</div>
+        {/* The page column takes every pixel next to the sidebar, with no cap: wide screens get
+            wider tables and more panels per row, never empty gutters. Prose keeps its own measure. */}
+        <div className="w-full px-4 py-8 sm:px-8 lg:px-10 lg:py-10">{children}</div>
       </main>
     </div>
   );
