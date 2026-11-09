@@ -9,6 +9,8 @@ import {
   defaultRuntime,
   launchDetached,
   nodeFileBody,
+  PROCESS_OUTPUT_LIMIT,
+  runProcess,
 } from "./runtime.ts";
 
 describe("defaultConfigDir", () => {
@@ -50,11 +52,47 @@ describe("launchDetached", () => {
   });
 });
 
+describe("runProcess", () => {
+  const node = process.execPath;
+
+  it("passes arguments without a shell and returns the exit code and standard output", async () => {
+    const result = await runProcess(
+      node,
+      [
+        "-e",
+        "process.stdout.write(process.argv[1] + process.env.PF_TEST); process.exit(3)",
+        "$(x)",
+      ],
+      { timeoutMs: 10_000, env: { PF_TEST: "!" } },
+    );
+    expect(result).toEqual({ code: 3, stdout: "$(x)!" });
+  });
+
+  it("keeps at most the output limit", async () => {
+    const result = await runProcess(
+      node,
+      ["-e", `process.stdout.write("a".repeat(${PROCESS_OUTPUT_LIMIT + 10}))`],
+      { timeoutMs: 10_000 },
+    );
+    expect(result.stdout).toHaveLength(PROCESS_OUTPUT_LIMIT);
+  });
+
+  it("rejects when the program is not installed or runs past the timeout", async () => {
+    await expect(
+      runProcess("portifact-no-such-program", [], { timeoutMs: 10_000 }),
+    ).rejects.toThrow();
+    await expect(
+      runProcess(node, ["-e", "setTimeout(() => {}, 10000)"], { timeoutMs: 100 }),
+    ).rejects.toThrow("timed out");
+  });
+});
+
 describe("defaultRuntime", () => {
   it("reads the process environment and has no OS credential store outside Bun", async () => {
     const runtime = defaultRuntime();
     expect(runtime.env).toBe(process.env);
     expect(runtime.secrets).toBeUndefined();
+    expect(runtime.process).toBe(runProcess);
     const before = runtime.now();
     await runtime.sleep(1);
     expect(runtime.now()).toBeGreaterThanOrEqual(before);
