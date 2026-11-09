@@ -9,7 +9,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { BRIDGE_TIMEOUT_MS } from "./review/use-bridge.ts";
-import { FRAME_SANDBOX, REVIEW_TAB_LINK_MS } from "./screens/review.tsx";
+import { FRAME_SANDBOX, REVIEW_TAB_LINK_MS } from "./screens/viewer.tsx";
 import {
   artifact,
   type FakeServer,
@@ -22,7 +22,7 @@ import {
 
 const ID = "k7d2qm4xab";
 const ORIGIN = `https://${ID}.portifact.dev`;
-const PATH = `/review/${ID}`;
+const PATH = `/view/${ID}`;
 const CODE_URL = `${ORIGIN}/__portifact/review?code=${"c".repeat(43)}`;
 const SESSION_TAG = "s".repeat(22);
 
@@ -116,12 +116,16 @@ async function connect(page: { path: string; route?: string } = { path: "index.h
   return init?.message.nonce as string;
 }
 
+/** The "Filter and export" disclosure of the sidebar. */
+const filterTools = () =>
+  screen.getByText(/^Filter and export/).closest("details") as HTMLDetailsElement;
+
 const fromBridge = (nonce: string, body: Record<string, unknown>) =>
   deliver({ channel: REVIEW_CHANNEL, v: 1, nonce, ...body });
 
 async function open() {
   const view = renderDashboard(PATH, server);
-  await screen.findByRole("heading", { level: 1, name: "Review Launch plan" });
+  await screen.findByRole("heading", { level: 1, name: "Launch plan" });
   await screen.findByRole("heading", { name: "Thread 1" });
   return view;
 }
@@ -133,12 +137,12 @@ describe("review viewer", () => {
       method: "POST",
       path: `/api/v1/artifacts/${ID}/review`,
     });
-    const frame = screen.getByTitle("Launch plan, the version under review") as HTMLIFrameElement;
+    const frame = screen.getByTitle("Launch plan, published with Portifact") as HTMLIFrameElement;
     expect(frame.getAttribute("src")).toBe(CODE_URL);
     expect(frame.getAttribute("sandbox")).toBe(FRAME_SANDBOX);
     expect(FRAME_SANDBOX).not.toContain("allow-top-navigation");
     expect(frame.getAttribute("referrerpolicy")).toBe("no-referrer");
-    expect(document.title).toBe("Review Launch plan · Portifact");
+    expect(document.title).toBe("Launch plan · Portifact");
     expect(screen.getByText("2 comment threads")).toBeTruthy();
     expect(screen.getByText("Secret feedback for the owner")).toBeTruthy();
     expect(screen.getByText("brave new world")).toBeTruthy();
@@ -529,7 +533,11 @@ describe("comment filters and export", () => {
     const { container } = await open();
     await connect();
     await waitFor(() => expect(lastMarkers()).toEqual(["t1", "t3"]));
-    const tools = screen.getByRole("region", { name: "Filter and export" });
+    // Collapsed by default, so the threads come first in the sidebar.
+    const tools = filterTools();
+    expect(tools.open).toBe(false);
+    fireEvent.click(within(tools).getByText("Filter and export"));
+    expect(tools.open).toBe(true);
     expect(
       within(tools)
         .getAllByRole("option")
@@ -540,6 +548,8 @@ describe("comment filters and export", () => {
 
     choose("Status", "resolved");
     expect(headings()).toEqual(["Thread 3"]);
+    // The summary says filters are on while the disclosure is closed.
+    expect(within(tools).getByText("Filter and export (filters on)")).toBeTruthy();
     expect(screen.getByText("Showing 1 of 4 comment threads").getAttribute("role")).toBe("status");
     await waitFor(() => expect(lastMarkers()).toEqual(["t3"]));
 
@@ -635,7 +645,7 @@ describe("comment filters and export", () => {
       code: "capacity_unavailable",
     });
     fireEvent.click(screen.getByRole("button", { name: "Export as JSON" }));
-    const tools = screen.getByRole("region", { name: "Filter and export" });
+    const tools = filterTools();
     expect((await within(tools).findByRole("alert")).textContent).toContain(
       "Portifact is at capacity right now",
     );
@@ -692,7 +702,7 @@ describe("review states", () => {
   it("withdraws a prepared review tab link before its code expires", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await open();
-    fireEvent.load(screen.getByTitle("Launch plan, the version under review"));
+    fireEvent.load(screen.getByTitle("Launch plan, published with Portifact"));
     await act(() => vi.advanceTimersByTimeAsync(BRIDGE_TIMEOUT_MS));
     await screen.findByText("The page does not answer the review tools");
     fireEvent.click(screen.getByRole("button", { name: "Prepare a review tab" }));
@@ -744,7 +754,7 @@ describe("review states", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await open();
     const nonce = await connect();
-    const frame = screen.getByTitle("Launch plan, the version under review");
+    const frame = screen.getByTitle("Launch plan, published with Portifact");
     // A new page of the artifact answers the viewer's check: still connected.
     fireEvent.load(frame);
     const ping = sent().at(-1)?.message;
@@ -778,7 +788,7 @@ describe("review states", () => {
   it("stops waiting for a page that never answers", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await open();
-    fireEvent.load(screen.getByTitle("Launch plan, the version under review"));
+    fireEvent.load(screen.getByTitle("Launch plan, published with Portifact"));
     await act(() => vi.advanceTimersByTimeAsync(BRIDGE_TIMEOUT_MS));
     await screen.findByText("The page does not answer the review tools");
   });
@@ -804,11 +814,16 @@ describe("review states", () => {
     await screen.findByRole("button", { name: "Comment on the page" });
     expect(server.bodies.at(-1)).toEqual({ mode: "open" });
 
+    // Readers get no sidebar while comments are off; the bar and the artifact stay.
     cleanup();
     store.mode = "off";
     store.role = "participant";
+    server.requests.length = 0;
     renderDashboard(PATH, server);
-    await screen.findByText("Comments could not be loaded");
+    await screen.findByTitle("Launch plan, published with Portifact");
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Comments" })).toBeNull();
+    expect(server.requests.some((r) => r.path.includes("/annotations"))).toBe(false);
   });
 
   it("shows locked comments as read-only", async () => {
@@ -823,13 +838,14 @@ describe("review states", () => {
     expect(screen.queryByRole("button", { name: "Comment on the page" })).toBeNull();
   });
 
-  it("says an artifact cannot be reviewed like a missing one", async () => {
+  it("says an artifact cannot be opened like a missing one", async () => {
     delete server.reviews[ID];
-    renderDashboard(PATH, server);
-    await screen.findByRole("heading", { level: 1, name: "This artifact cannot be reviewed" });
+    const view = renderDashboard(PATH, server);
+    await screen.findByRole("heading", { level: 1, name: "This artifact cannot be opened" });
+    expect(view.left).toEqual([]);
   });
 
-  it("links to the review from the artifact page", async () => {
+  it("links to the viewer from the artifact page", async () => {
     renderDashboard(`/artifacts/${ID}`, server);
     const link = await screen.findByRole("link", { name: "Review and comment" });
     expect(link.getAttribute("href")).toBe(PATH);
@@ -963,5 +979,171 @@ describe("review states", () => {
     await open();
     const link = screen.getByRole("link", { name: "Report this artifact" });
     expect(link.getAttribute("href")).toBe(`/report?artifact=${ID}`);
+  });
+});
+
+describe("the viewer's bar and visitors", () => {
+  function makePublic() {
+    const listed = server.artifacts.find((a) => a.id === ID);
+    if (listed) listed.accessMode = "public";
+  }
+
+  it("shows the bar and caption: the version, sharing and the owner's settings", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    await open();
+    const bar = screen.getByRole("banner");
+    const region = screen.getByRole("main", { name: "Artifact" });
+    expect(within(region).getByText("Version 1")).toBeTruthy();
+    expect(within(bar).getByRole("link", { name: "Manage" }).getAttribute("href")).toBe(
+      `/artifacts/${ID}`,
+    );
+    expect(within(bar).queryByRole("link", { name: "Report this artifact" })).toBeNull();
+    // The artifact's own link is copied from the caption, beside its name.
+    fireEvent.click(within(region).getByRole("button", { name: "Copy link" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${ORIGIN}/`));
+    await screen.findByText("Link copied.");
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("says whose page it is: the artifact's origin and a user-content notice by the frame, not the bar", async () => {
+    await open();
+    expect(within(screen.getByRole("banner")).queryByText("Launch plan")).toBeNull();
+    const region = screen.getByRole("main", { name: "Artifact" });
+    expect(within(region).getByRole("heading", { level: 1, name: "Launch plan" })).toBeTruthy();
+    expect(
+      within(region)
+        .getByRole("link", { name: `${ORIGIN}/` })
+        .getAttribute("href"),
+    ).toBe(`${ORIGIN}/`);
+    expect(within(region).getByText("Published by a user, not by Portifact")).toBeTruthy();
+  });
+
+  it("collapses and reopens the comments sidebar from the bar", async () => {
+    await open();
+    const toggle = screen.getByRole("button", { name: "Comments" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-controls")).toBe("viewer-comments");
+    expect(screen.getByRole("complementary", { name: "Comments" }).id).toBe("viewer-comments");
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("complementary", { name: "Comments" })).toBeTruthy();
+  });
+
+  it("opens review on the page and fragment the link names, and only on the artifact", async () => {
+    renderDashboard(`${PATH}?path=${encodeURIComponent("/docs/a.html?x=1")}#intro`, server);
+    const frame = (await screen.findByTitle(
+      "Launch plan, published with Portifact",
+    )) as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe(`${CODE_URL}&to=%2Fdocs%2Fa.html%3Fx%3D1#intro`);
+    cleanup();
+    for (const path of ["//evil.example/", "/__portifact/review/end", "https://evil.example/"]) {
+      renderDashboard(`${PATH}?path=${encodeURIComponent(path)}`, server);
+      const safe = (await screen.findByTitle(
+        "Launch plan, published with Portifact",
+      )) as HTMLIFrameElement;
+      expect(safe.getAttribute("src"), path).toBe(CODE_URL);
+      cleanup();
+    }
+  });
+
+  it("shows a reader the report link instead of the owner's settings", async () => {
+    const store = server.annotations[ID];
+    if (store) store.role = "participant";
+    await open();
+    const bar = screen.getByRole("banner");
+    expect(within(bar).queryByRole("link", { name: "Manage" })).toBeNull();
+    expect(
+      within(bar).getByRole("link", { name: "Report this artifact" }).getAttribute("href"),
+    ).toBe(`/report?artifact=${ID}`);
+  });
+
+  it("shows anonymous visitors of a public artifact the artifact itself and asks them to sign in", async () => {
+    makePublic();
+    server.email = null;
+    const { container } = renderDashboard(
+      `${PATH}?path=${encodeURIComponent("/docs/")}#part`,
+      server,
+    );
+    const frame = (await screen.findByTitle(
+      "Launch plan, published with Portifact",
+    )) as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe(`${ORIGIN}/docs/#part`);
+    expect(frame.getAttribute("sandbox")).toBe(FRAME_SANDBOX);
+    const sidebar = screen.getByRole("complementary", { name: "Comments" });
+    const signIn = within(sidebar).getByRole("link", { name: "Sign in to comment" });
+    expect(signIn.getAttribute("href")).toBe(
+      `/login?${new URLSearchParams({ next: `${PATH}?path=%2Fdocs%2F` })}`,
+    );
+    expect(within(screen.getByRole("banner")).getByRole("link", { name: "Sign in" })).toBeTruthy();
+    // No review session, no threads: nothing names an anonymous visitor.
+    expect(server.requests.some((r) => r.path.includes("/review"))).toBe(false);
+    expect(server.requests.some((r) => r.path.includes("/annotations"))).toBe(false);
+    expect(screen.queryByText("Secret feedback for the owner")).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("hides the sidebar from anonymous visitors while comments are off", async () => {
+    makePublic();
+    server.email = null;
+    const store = server.annotations[ID];
+    if (store) store.mode = "off";
+    renderDashboard(PATH, server);
+    await screen.findByTitle("Launch plan, published with Portifact");
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Comments" })).toBeNull();
+  });
+
+  it("sends anonymous visitors of an artifact they cannot see to sign in, back to the same view", async () => {
+    server.email = null;
+    const view = renderDashboard(`${PATH}?path=%2Fdocs`, server);
+    await waitFor(() =>
+      expect(view.left).toEqual([
+        `/login?${new URLSearchParams({ next: `${PATH}?path=%2Fdocs` })}`,
+      ]),
+    );
+  });
+
+  it("offers the artifact without the bar where the frame keeps no review session", async () => {
+    renderDashboard(`${PATH}?path=${encodeURIComponent("/docs/a.html?x=1")}#intro`, server);
+    await screen.findByTitle("Launch plan, published with Portifact");
+    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    const link = await screen.findByRole("link", { name: "Open without the Portifact bar" });
+    expect(link.getAttribute("href")).toBe(
+      `${ORIGIN}/__portifact/raw?to=%2Fdocs%2Fa.html%3Fx%3D1#intro`,
+    );
+  });
+
+  it("shows a public artifact as it is where the browser keeps no review session in the frame", async () => {
+    makePublic();
+    await open();
+    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    const frame = screen.getByTitle("Launch plan, published with Portifact") as HTMLIFrameElement;
+    await waitFor(() => expect(frame.getAttribute("src")).toBe(`${ORIGIN}/`));
+    expect(screen.getByText("Review tools are not available in this browser")).toBeTruthy();
+  });
+});
+
+describe("when the review session cannot start", () => {
+  it("still shows a public artifact as it is, with a retry, and a protected one only the notice", async () => {
+    server.fail("POST", `/api/v1/artifacts/${ID}/review`, { status: 429, code: "rate_limited" }, 2);
+    const listed = server.artifacts.find((a) => a.id === ID);
+    if (listed) listed.accessMode = "public";
+    renderDashboard(PATH, server);
+    await screen.findByText("Comments could not be connected to the artifact");
+    const frame = screen.getByTitle("Launch plan, published with Portifact") as HTMLIFrameElement;
+    expect(frame.getAttribute("src")).toBe(`${ORIGIN}/`);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    cleanup();
+
+    if (listed) listed.accessMode = "restricted";
+    renderDashboard(PATH, server);
+    await screen.findByText("Comments could not be connected to the artifact");
+    expect(screen.queryByTitle("Launch plan, published with Portifact")).toBeNull();
+    // The bar is not a security boundary: the artifact itself stays one click away.
+    const raw = screen.getByRole("link", { name: "Open without the Portifact bar" });
+    expect(raw.getAttribute("href")).toBe(`${ORIGIN}/__portifact/raw`);
   });
 });

@@ -230,6 +230,11 @@ export const AccessPolicyView = z.object({
   readers: z.array(z.string()),
   indexable: z.boolean(),
   embeddable: z.boolean(),
+  /**
+   * The Portifact bar: top-level visits to the artifact's pages open in the viewer on
+   * app.portifact.com, with the bar and the comments sidebar. Off, they get the artifact itself.
+   */
+  bar: z.boolean(),
   /** Increases on every change; read sessions issued before it stop working. */
   policyGeneration: z.number().int().min(1),
 });
@@ -241,6 +246,7 @@ export const AccessUpdate = z
     mode: AccessMode.optional(),
     indexable: z.boolean().optional(),
     embeddable: z.boolean().optional(),
+    bar: z.boolean().optional(),
     addReaders: z.array(Email).max(LIMITS.readersPerChange).optional(),
     removeReaders: z.array(Email).max(LIMITS.readersPerChange).optional(),
   })

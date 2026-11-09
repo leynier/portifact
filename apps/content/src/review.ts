@@ -22,6 +22,7 @@ import type { Db } from "@portifact/db";
 import { endReviewSession, redeemReviewHandoff, refreshReviewSession } from "@portifact/services";
 import { cookieValue, seal, setCookie, unseal, usableSecret } from "./cookies.ts";
 import type { ServableArtifact } from "./read-session.ts";
+import { returnPath } from "./viewer.ts";
 
 export const REVIEW_COOKIE = "__Host-pf_review";
 export const REVIEW_TAB_COOKIE = "__Host-pf_review_tab";
@@ -362,9 +363,12 @@ export async function handleReviewExchange(
   if (!redeemed.ok) return failed;
   const session = redeemed.value;
   const channel = kind === "tab" ? TAB : FRAME;
+  const check = new URL(kind === "tab" ? REVIEW_TAB_CHECK_PATH : REVIEW_CHECK_PATH, request.url);
+  const to = returnPath(request);
+  if (to !== "/") check.searchParams.set("to", to);
   return {
     kind: "redirect",
-    location: `${new URL(request.url).origin}${kind === "tab" ? REVIEW_TAB_CHECK_PATH : REVIEW_CHECK_PATH}`,
+    location: check.toString(),
     setCookies: [
       await claimsCookie(
         channel,
@@ -386,7 +390,7 @@ export async function handleReviewExchange(
 
 /**
  * `/__portifact/review/check` and `/__portifact/review/tab/check`: the exchange's redirect lands
- * here. With the cookie, review starts at the artifact's root; without it the browser dropped
+ * here. With the cookie, review starts at the page in `to` (the root by default); without it the browser dropped
  * the cookie, and the page says so (posting it to the viewer when framed).
  */
 export async function handleReviewCheck(
@@ -403,7 +407,8 @@ export async function handleReviewCheck(
     ? await readClaims(channel, request, secret, artifactId, now)
     : null;
   if (!claims) return { kind: "status", status: "unavailable", httpStatus: 409, setCookies: [] };
-  return { kind: "redirect", location: `${new URL(request.url).origin}/`, setCookies: [] };
+  const origin = new URL(request.url).origin;
+  return { kind: "redirect", location: `${origin}${returnPath(request)}`, setCookies: [] };
 }
 
 /**

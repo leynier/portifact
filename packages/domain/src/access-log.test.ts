@@ -29,7 +29,12 @@ describe("access log windows", () => {
 });
 
 describe("logged openings", () => {
-  const base = { navigation: true, visitorId: "reader", ownerId: "owner" };
+  const base = {
+    navigation: true,
+    visitorId: "reader",
+    ownerId: "owner",
+    accessMode: "restricted" as const,
+  };
 
   it("records a page load by a signed-in visitor", () => {
     expect(isLoggedOpening(base)).toBe(true);
@@ -39,5 +44,12 @@ describe("logged openings", () => {
     expect(isLoggedOpening({ ...base, navigation: false })).toBe(false);
     expect(isLoggedOpening({ ...base, visitorId: null })).toBe(false);
     expect(isLoggedOpening({ ...base, visitorId: "owner" })).toBe(false);
+  });
+
+  it("records only artifacts open to readers the owner listed", () => {
+    // Any site can send a signed-in visitor to a public or `authenticated` artifact, which opens
+    // without a click; logging those would hand the owner the email of whoever was sent there.
+    expect(isLoggedOpening({ ...base, accessMode: "public" })).toBe(false);
+    expect(isLoggedOpening({ ...base, accessMode: "authenticated" })).toBe(false);
   });
 });

@@ -8,7 +8,14 @@ import {
   type PublishRequest,
   type VersionManifest,
 } from "@portifact/contracts";
-import { Button, Callout, LoadingState, PageHeader, PreviewFrame } from "@portifact/ui";
+import {
+  Button,
+  backLinkClasses,
+  Callout,
+  LoadingState,
+  PageHeader,
+  PreviewFrame,
+} from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
@@ -49,11 +56,7 @@ export function DocumentEditorScreen() {
   );
   const back = (
     <p className="mb-4 text-sm">
-      <Link
-        to="/artifacts/$artifactId"
-        params={{ artifactId }}
-        className="inline-flex items-center gap-1"
-      >
+      <Link to="/artifacts/$artifactId" params={{ artifactId }} className={backLinkClasses}>
         <ArrowLeft aria-hidden="true" className="size-4" />
         {artifact.data?.name ?? t("detail.back")}
       </Link>
@@ -227,63 +230,68 @@ function Editor({ artifact, loaded }: { artifact: ArtifactSummary; loaded: Loade
   const conflict = save.error instanceof ApiFailure && save.error.code === "version_conflict";
 
   return (
-    <div className="flex flex-col gap-8">
-      <form.AppForm>
-        <form.Form label={t("editor.title", { name: artifact.name })}>
-          <div className="flex flex-col gap-4">
-            <form.AppField name="source">
-              {(field) => (
-                <field.TextAreaField
-                  label={t(`editor.source.${type}`)}
-                  description={t("editor.source.hint", { path: loaded.manifest.entrypoint })}
-                  code
-                  rows={24}
-                />
-              )}
-            </form.AppField>
-            {save.isError ? (
-              <Callout
-                tone="error"
-                title={t("editor.saveFailed.title")}
-                icon={<CircleAlert className="size-5" />}
-                action={
-                  conflict ? (
-                    <Button
-                      icon={<RefreshCw className="size-4" />}
-                      onClick={() =>
-                        queryClient.invalidateQueries({ queryKey: artifactQuery(artifact.id) })
-                      }
-                    >
-                      {t("editor.reload")}
-                    </Button>
-                  ) : undefined
-                }
-              >
-                {publishFailureMessage(t, save.error)}
-              </Callout>
-            ) : null}
-            <div className="flex flex-wrap gap-3">
-              <form.SubmitButton icon={<Save className="size-4" />} busy={save.isPending}>
-                {t("editor.save")}
-              </form.SubmitButton>
-              <form.Subscribe selector={(state) => state.values.source}>
-                {(source) => (
-                  <Button
-                    icon={<Eye className="size-4" />}
-                    busy={render.isPending}
-                    onClick={() => render.mutate(source)}
-                  >
-                    {t("editor.preview")}
-                  </Button>
+    <div className="grid items-start gap-6 xl:grid-cols-2">
+      <div className="min-w-0 rounded-lg border border-border bg-canvas p-5 shadow-sm">
+        <form.AppForm>
+          <form.Form label={t("editor.title", { name: artifact.name })}>
+            <div className="flex flex-col gap-4">
+              <form.AppField name="source">
+                {(field) => (
+                  <field.TextAreaField
+                    label={t(`editor.source.${type}`)}
+                    description={t("editor.source.hint", { path: loaded.manifest.entrypoint })}
+                    code
+                    rows={24}
+                  />
                 )}
-              </form.Subscribe>
+              </form.AppField>
+              {save.isError ? (
+                <Callout
+                  tone="error"
+                  title={t("editor.saveFailed.title")}
+                  icon={<CircleAlert className="size-5" />}
+                  action={
+                    conflict ? (
+                      <Button
+                        icon={<RefreshCw className="size-4" />}
+                        onClick={() =>
+                          queryClient.invalidateQueries({ queryKey: artifactQuery(artifact.id) })
+                        }
+                      >
+                        {t("editor.reload")}
+                      </Button>
+                    ) : undefined
+                  }
+                >
+                  {publishFailureMessage(t, save.error)}
+                </Callout>
+              ) : null}
+              <div className="flex flex-wrap gap-3">
+                <form.SubmitButton icon={<Save className="size-4" />} busy={save.isPending}>
+                  {t("editor.save")}
+                </form.SubmitButton>
+                <form.Subscribe selector={(state) => state.values.source}>
+                  {(source) => (
+                    <Button
+                      icon={<Eye className="size-4" />}
+                      busy={render.isPending}
+                      onClick={() => render.mutate(source)}
+                    >
+                      {t("editor.preview")}
+                    </Button>
+                  )}
+                </form.Subscribe>
+              </div>
             </div>
-          </div>
-        </form.Form>
-      </form.AppForm>
+          </form.Form>
+        </form.AppForm>
+      </div>
 
-      <section aria-labelledby="preview-heading" className="flex flex-col gap-3">
-        <h2 id="preview-heading" className="text-lg font-semibold">
+      <section
+        aria-labelledby="preview-heading"
+        className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-canvas p-5 shadow-sm xl:sticky xl:top-10"
+      >
+        <h2 id="preview-heading" className="text-base font-semibold tracking-tight">
           {t("editor.previewHeading")}
         </h2>
         <p className="text-sm text-text-muted">{t("editor.previewHint")}</p>
@@ -309,7 +317,9 @@ function Editor({ artifact, loaded }: { artifact: ArtifactSummary; loaded: Loade
             />
           </>
         ) : (
-          <p className="text-sm text-text-muted">{t("editor.previewEmpty")}</p>
+          <p className="flex min-h-48 items-center justify-center rounded-md border border-dashed border-border-strong px-4 text-center text-sm text-text-muted">
+            {t("editor.previewEmpty")}
+          </p>
         )}
       </section>
     </div>

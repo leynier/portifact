@@ -1,3 +1,4 @@
+import { TriangleAlert } from "lucide-react";
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import { Button } from "./button.tsx";
 
@@ -11,6 +12,11 @@ export interface ConfirmDialogProps {
   confirmIcon?: ReactNode;
   /** True while the confirmed action runs; both buttons wait for it. */
   busy?: boolean;
+  /**
+   * `danger` for actions that cannot be undone or end something elsewhere: a warning icon leads
+   * the title, so the risk reads in shape as well as in words.
+   */
+  tone?: "default" | "danger";
   onConfirm(): void;
   onCancel(): void;
 }
@@ -29,6 +35,7 @@ export function ConfirmDialog({
   cancelLabel,
   confirmIcon,
   busy = false,
+  tone = "default",
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -65,13 +72,25 @@ export function ConfirmDialog({
         event.preventDefault();
         if (!busy) onCancel();
       }}
-      className="m-auto w-full max-w-md rounded-lg border border-border bg-surface-raised p-6 text-text shadow-float backdrop:bg-surface-inverse/40"
+      className="m-auto w-full max-w-md rounded-lg border border-border bg-surface-raised p-6 text-text shadow-float backdrop:bg-surface-inverse/50 open:motion-safe:animate-pop"
     >
-      <h2 id={titleId} className="text-lg font-semibold">
-        {title}
-      </h2>
-      <div id={bodyId} className="mt-2 text-sm text-text-muted">
-        {children}
+      <div className="flex gap-4">
+        {tone === "danger" ? (
+          <span
+            aria-hidden="true"
+            className="inline-flex size-10 shrink-0 items-center justify-center rounded-md bg-selection"
+          >
+            <TriangleAlert className="size-5" />
+          </span>
+        ) : null}
+        <div className="min-w-0">
+          <h2 id={titleId} className="text-lg font-semibold tracking-tight break-words">
+            {title}
+          </h2>
+          <div id={bodyId} className="mt-1.5 text-sm text-text-muted">
+            {children}
+          </div>
+        </div>
       </div>
       <div className="mt-6 flex flex-wrap justify-end gap-3">
         {/* No autoFocus: React would focus it while the dialog is closed. showModal() moves

@@ -108,7 +108,7 @@ export const messages = {
   logsEmpty: (id: string, days: number) =>
     `No signed-in visitor opened ${id} in the last ${days} days.`,
   logsNote: (minutes: number, days: number) =>
-    `One entry per visitor every ${minutes} minutes, kept ${days} days. Anonymous visits to public artifacts and your own visits are not recorded, and some openings may be missing.`,
+    `One entry per visitor every ${minutes} minutes, kept ${days} days. Only artifacts restricted to listed readers record openings, your own visits are not recorded, and some openings may be missing.`,
   rolledBack: (id: string, version: number, from: number, url: string, expiresAt: string) =>
     [
       `Rolled back ${id}: version ${version} has the files of version ${from}. Access did not change.`,
@@ -153,6 +153,8 @@ export const messages = {
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
     invalidMode: (value: string) =>
       `${JSON.stringify(value)} is not an access mode. Use restricted, authenticated or public.`,
+    invalidBarState: (value: string) =>
+      `${JSON.stringify(value)} is not a Portifact bar state. Use on or off.`,
     invalidEmail: (value: string) => `${JSON.stringify(value)} is not a valid email address.`,
     tooManyReaders: (max: number) => `Add or remove at most ${max} readers at a time.`,
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,

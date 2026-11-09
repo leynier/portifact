@@ -26,6 +26,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/emails": "workspace:*",
         "@portifact/render": "workspace:*",
         "@portifact/services": "workspace:*",
         "aws4fetch": "^1.0.20",
@@ -71,6 +72,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/emails": "workspace:*",
         "@portifact/services": "workspace:*",
         "drizzle-orm": "^0.45.0",
       },
@@ -130,6 +132,7 @@
         "@portifact/db": "workspace:*",
         "@portifact/services": "workspace:*",
         "@types/node": "catalog:",
+        "axe-core": "catalog:",
         "typescript": "catalog:",
         "wrangler": "^4.0.0",
       },
@@ -226,6 +229,20 @@
         "@types/node": "catalog:",
         "@vitest/coverage-istanbul": "catalog:",
         "fast-check": "^4.0.0",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
+    "packages/emails": {
+      "name": "@portifact/emails",
+      "version": "0.0.0",
+      "dependencies": {
+        "@portifact/ui": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@vitest/coverage-istanbul": "catalog:",
+        "parse5": "^8.1.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -741,6 +758,8 @@
     "@portifact/domain": ["@portifact/domain@workspace:packages/domain"],
 
     "@portifact/e2e": ["@portifact/e2e@workspace:e2e"],
+
+    "@portifact/emails": ["@portifact/emails@workspace:packages/emails"],
 
     "@portifact/jobs": ["@portifact/jobs@workspace:apps/jobs"],
 

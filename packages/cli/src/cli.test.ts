@@ -82,7 +82,7 @@ describe("portifact cli", () => {
 
   it("documents the access subcommands and the delete confirmation flag", async () => {
     const access = await invoke("access", "--help");
-    for (const sub of ["set", "add", "remove"]) {
+    for (const sub of ["set", "bar", "add", "remove"]) {
       expect(access.stdout).toMatch(new RegExp(`^  ${sub} `, "m"));
     }
     expect((await invoke("delete", "--help")).stdout).toContain("-y, --yes");

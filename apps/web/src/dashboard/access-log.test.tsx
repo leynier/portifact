@@ -42,7 +42,7 @@ describe("access log", () => {
       expect.stringContaining("visitor1@example.test"),
     ]);
     expect(section.textContent).toContain("Only you see this list.");
-    expect(section.textContent).toContain("Anonymous visits to public artifacts");
+    expect(section.textContent).toContain("Only artifacts restricted to the people you list");
     expect(section.textContent).toContain("some openings may be missing");
     expect(within(section).queryByRole("button", { name: "Show more" })).toBeNull();
     expect(await axeViolations(container)).toEqual([]);

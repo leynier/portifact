@@ -13,6 +13,8 @@ export interface DeliveryArtifact {
   policyGeneration: number;
   indexable: boolean;
   embeddable: boolean;
+  /** Top-level page visits open in the viewer with the Portifact bar. */
+  bar: boolean;
   currentVersionId: string | null;
   /** Entrypoint of the current version: the original of a document. */
   entrypoint: string | null;
@@ -41,6 +43,7 @@ export async function findDeliveryArtifact(
       policyGeneration: artifacts.policyGeneration,
       indexable: artifacts.indexable,
       embeddable: artifacts.embeddable,
+      bar: artifacts.bar,
       currentVersionId: artifacts.currentVersionId,
       entrypoint: versions.entrypoint,
       expiresAt: artifacts.expiresAt,

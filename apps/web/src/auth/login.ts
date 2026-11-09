@@ -1,15 +1,23 @@
 // The login page: Google, GitHub or an email code. When an OAuth client sent the user here,
 // the signed authorization request goes back with the sign-in, and Better Auth continues to
-// the consent page. Every method first records that the user accepts the terms and is 18 or
-// older; the Worker refuses to create an account or a session without it (docs/legal.md). New
-// accounts also need a solved human check: the page renders it and sends its token before a
-// sign-in; existing accounts sign in without it (docs/security.md, "Human check").
+// the consent page.
+//
+// Terms (docs/legal.md, "Acceptance at sign-in"): the page shows a notice right above the
+// methods that continuing means the user is 18 or older and accepts the Terms and the Acceptable
+// Use Policy and has read the Privacy Policy. Choosing a method is the acceptance: the page
+// records it with /accept-terms before the method starts, and the Worker refuses to create an
+// account or a session without it.
+//
+// Human check (docs/security.md, "Human check"): new accounts need a solved Turnstile challenge.
+// It runs invisibly from page load (human-gate.ts) and appears below the methods only when
+// Cloudflare needs an interaction; existing accounts sign in without it.
 import { EMAIL_SUPPRESSED } from "@portifact/contracts/email-delivery";
 import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { type Api, currentUser, field, type PageLocation } from "./api.ts";
 import { announce, byId, hideSummary, setFieldError, showSummary, whileBusy } from "./dom.ts";
+import { humanGate } from "./human-gate.ts";
 import { messages } from "./messages.ts";
 import { safeNext, signedOAuthQuery } from "./query.ts";
 
@@ -26,6 +34,8 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CODE_PATTERN = /^\d{6}$/;
 const PROVIDERS = ["google", "github"] as const;
 const ACCEPTANCE = { version: TERMS_VERSION, acceptTerms: true, confirmAdult: true };
+/** The Worker sends one code per address a minute (OTP_LIMITS.perEmailCooldown). */
+export const RESEND_COOLDOWN_SECONDS = 60;
 
 export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const { api, location } = env;
@@ -37,58 +47,45 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const summary = byId(doc, "error-summary");
   const status = byId(doc, "status");
   const signIn = byId(doc, "sign-in");
+  const methods = byId(doc, "methods");
   const emailForm = byId<HTMLFormElement>(doc, "email-form");
   const emailInput = byId<HTMLInputElement>(doc, "email");
   const emailError = byId(doc, "email-error");
   const codeForm = byId<HTMLFormElement>(doc, "code-form");
   const codeInput = byId<HTMLInputElement>(doc, "code");
   const codeError = byId(doc, "code-error");
+  const resend = byId<HTMLButtonElement>(doc, "resend-code");
 
   const providerError = new URLSearchParams(location.search).get("error");
   if (providerError) {
     showSummary(summary, messages.providerErrors[providerError] ?? messages.providerErrorFallback);
   }
 
-  const termsBox = byId<HTMLInputElement>(doc, "terms-accept");
-  const termsError = byId(doc, "terms-accept-error");
+  const humanCopy = byId(doc, "human-check-copy");
+  const humanGroup = byId(doc, "human-check");
+  const human = humanGate(env.humanCheck, {
+    container: byId(doc, "human-check-widget"),
+    setInteractive(visible) {
+      if (visible === !humanCopy.hidden) return;
+      humanCopy.hidden = !visible;
+      humanGroup.classList.toggle("mt-6", visible);
+      if (visible) {
+        announce(status, messages.humanCheckNeeded);
+        humanGroup.scrollIntoView?.({ block: "nearest" });
+      }
+    },
+  });
 
-  /** The terms box must be checked; otherwise the error is shown and false returned. */
-  const termsChecked = (box: HTMLInputElement, error: HTMLElement): boolean => {
-    const problem = box.checked ? undefined : messages.termsRequired;
-    setFieldError(box, error, problem);
-    if (problem) showSummary(summary, problem);
-    return !problem;
-  };
-
-  const acceptTerms = () => api.post("/accept-terms", ACCEPTANCE);
-
-  // The latest solved challenge. It is sent once, then the widget starts a fresh one.
-  let humanToken: string | undefined;
-  let removeWidget: (() => void) | undefined;
-  const humanBox = byId(doc, "human-check");
-  const renderWidget = () => {
-    removeWidget?.();
-    humanToken = undefined;
-    removeWidget = env.humanCheck?.render(byId(doc, "human-check-widget"), {
-      onToken: (token) => {
-        humanToken = token;
-      },
-      onReset: () => {
-        humanToken = undefined;
-      },
-    });
-  };
   /**
-   * Accepts the terms, then hands a solved check to the Worker, which keeps it in a cookie for
-   * the sign-in. Existing accounts do not need it, so a missing or refused check never stops a
+   * Choosing a method accepts the terms: record it, then hand a solved check, if any, to the
+   * Worker, which keeps it in a cookie for the sign-in. A missing or refused check never stops a
    * sign-in here; the Worker refuses only a new account without one.
    */
   const beforeSignIn = async () => {
-    const accepted = await acceptTerms();
-    if (accepted.status !== 200 || humanToken === undefined) return accepted;
-    const token = humanToken;
-    renderWidget();
-    await api.post("/verify-human", { token });
+    const accepted = await api.post("/accept-terms", ACCEPTANCE);
+    if (accepted.status !== 200) return accepted;
+    const token = await human.take();
+    if (token !== undefined) await api.post("/verify-human", { token });
     return accepted;
   };
 
@@ -105,11 +102,22 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
           : messages.unexpected,
     );
 
+  // One sign-in at a time: a second method chosen while one is starting is ignored.
+  let pending = false;
+  const exclusive = async <T>(button: HTMLButtonElement, work: () => Promise<T>) => {
+    if (pending) return undefined;
+    pending = true;
+    try {
+      return await whileBusy(button, work);
+    } finally {
+      pending = false;
+    }
+  };
+
   for (const button of doc.querySelectorAll<HTMLButtonElement>("button[data-provider]")) {
     button.addEventListener("click", async () => {
       hideSummary(summary);
-      if (!termsChecked(termsBox, termsError)) return;
-      const response = await whileBusy(button, async () => {
+      const response = await exclusive(button, async () => {
         const accepted = await beforeSignIn();
         if (accepted.status !== 200) return accepted;
         return api.post(
@@ -121,6 +129,7 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
           }),
         );
       });
+      if (!response) return;
       const url = field(response.body, "url");
       if (response.status === 200 && url) {
         announce(status, messages.redirecting);
@@ -131,15 +140,39 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     });
   }
 
+  // The resend link waits out the Worker's one-code-a-minute limit, counting down in its label.
+  let countdown: ReturnType<typeof setInterval> | undefined;
+  const startCooldown = () => {
+    clearInterval(countdown);
+    let left = RESEND_COOLDOWN_SECONDS;
+    const tick = () => {
+      if (left <= 0) {
+        clearInterval(countdown);
+        resend.disabled = false;
+        resend.textContent = messages.resendCode;
+        return;
+      }
+      resend.disabled = true;
+      resend.textContent = messages.resendIn(left);
+      left -= 1;
+    };
+    tick();
+    countdown = setInterval(tick, 1_000);
+  };
+
   let email = "";
-  const sendCode = async (button: HTMLButtonElement): Promise<boolean> => {
+  const sendCode = async (button: HTMLButtonElement): Promise<boolean | undefined> => {
     // The acceptance is renewed with every code, so it outlives the code it goes with.
-    const response = await whileBusy(button, async () => {
+    const response = await exclusive(button, async () => {
       const accepted = await beforeSignIn();
       if (accepted.status !== 200) return accepted;
       return api.post("/email-otp/send-verification-otp", { email, type: "sign-in" });
     });
-    if (response.status === 200) return true;
+    if (!response) return undefined;
+    if (response.status === 200) {
+      startCooldown();
+      return true;
+    }
     const body = response.body as { error?: unknown } | null;
     const refusal = field(body?.error, "code");
     if (refusal === EMAIL_SUPPRESSED) showSummary(summary, messages.emailSuppressed);
@@ -151,7 +184,6 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   emailForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     hideSummary(summary);
-    if (!termsChecked(termsBox, termsError)) return;
     const value = emailInput.value.trim();
     const problem = !value
       ? messages.emailRequired
@@ -160,15 +192,17 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
         : messages.emailInvalid;
     setFieldError(emailInput, emailError, problem);
     if (problem) {
-      showSummary(summary, problem);
+      emailInput.focus();
       return;
     }
     email = value;
     if (!(await sendCode(byId<HTMLButtonElement>(doc, "send-code")))) return;
     byId(doc, "code-sent").textContent = messages.codeSent(email);
-    emailForm.hidden = true;
+    methods.hidden = true;
     codeForm.hidden = false;
     codeInput.value = "";
+    setFieldError(codeInput, codeError, undefined);
+    announce(status, messages.codeSentStatus);
     codeInput.focus();
   });
 
@@ -178,12 +212,13 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     const otp = codeInput.value.replace(/\s/g, "");
     if (!CODE_PATTERN.test(otp)) {
       setFieldError(codeInput, codeError, messages.codeRequired);
-      showSummary(summary, messages.codeRequired);
+      codeInput.focus();
       return;
     }
-    const response = await whileBusy(byId<HTMLButtonElement>(doc, "verify-code"), () =>
+    const response = await exclusive(byId<HTMLButtonElement>(doc, "verify-code"), () =>
       api.post("/sign-in/email-otp", withQuery({ email, otp })),
     );
+    if (!response) return;
     if (response.status === 200) {
       setFieldError(codeInput, codeError, undefined);
       announce(status, messages.redirecting);
@@ -192,30 +227,33 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     }
     const refusal = field(response.body, "code");
     if (refusal === TERMS_NOT_ACCEPTED || refusal === HUMAN_VERIFICATION_REQUIRED) {
-      showSummary(summary, messages.providerErrors[refusal] ?? messages.termsRequired);
+      showSummary(summary, messages.providerErrors[refusal] ?? messages.providerErrorFallback);
       return;
     }
     if (response.status === 400 || response.status === 403) {
       setFieldError(codeInput, codeError, messages.codeInvalid);
-      showSummary(summary, messages.codeInvalid);
+      codeInput.focus();
       return;
     }
     failed(response.status);
   });
 
-  byId<HTMLButtonElement>(doc, "resend-code").addEventListener("click", async (event) => {
+  resend.addEventListener("click", async () => {
     hideSummary(summary);
-    if (await sendCode(event.currentTarget as HTMLButtonElement)) {
-      announce(status, messages.codeResent);
-    }
+    if (await sendCode(resend)) announce(status, messages.codeResent);
   });
 
   byId<HTMLButtonElement>(doc, "change-email").addEventListener("click", () => {
     hideSummary(summary);
     codeForm.hidden = true;
-    emailForm.hidden = false;
+    methods.hidden = false;
     emailInput.focus();
   });
+
+  const showSignIn = () => {
+    signIn.hidden = false;
+    human.prepare();
+  };
 
   const signedIn = byId(doc, "signed-in");
   byId<HTMLButtonElement>(doc, "sign-out").addEventListener("click", async (event) => {
@@ -223,7 +261,8 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     const response = await whileBusy(button, () => api.post("/sign-out", {}));
     if (response.status === 200) {
       signedIn.hidden = true;
-      signIn.hidden = false;
+      byId(doc, "intro").hidden = false;
+      showSignIn();
       announce(status, messages.signedOut);
     } else {
       failed(response.status);
@@ -233,7 +272,7 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   // An OAuth client asked for a sign-in: always offer it, even with a session.
   const user = oauthQuery ? undefined : await currentUser(api);
   if (user && user.termsVersion !== TERMS_VERSION) {
-    setupTermsUpdate(doc, env, { email: user.email, afterSignIn, summary, signIn, termsChecked });
+    setupTermsUpdate(doc, env, { email: user.email, afterSignIn, summary, showSignIn });
     return;
   }
   const sessionEmail = user?.email;
@@ -242,37 +281,33 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     return;
   }
   if (sessionEmail) {
+    byId(doc, "intro").hidden = true;
     byId(doc, "signed-in-email").textContent = messages.signedInAs(sessionEmail);
     signedIn.hidden = false;
     await showMethods(doc, api);
     return;
   }
-  signIn.hidden = false;
-  if (env.humanCheck) {
-    humanBox.hidden = false;
-    renderWidget();
-  }
+  showSignIn();
 }
 
 interface TermsUpdate {
   email: string;
   afterSignIn: string;
   summary: HTMLElement;
-  signIn: HTMLElement;
-  termsChecked: (box: HTMLInputElement, error: HTMLElement) => boolean;
+  showSignIn(): void;
 }
 
 /**
  * A signed-in account that has not accepted the current terms (an account from before they
- * existed, or after they changed) accepts them here before going on, or signs out.
+ * existed, or after they changed) accepts them here before going on, or signs out. The notice
+ * above the button says that selecting it is the acceptance.
  */
 function setupTermsUpdate(doc: Document, env: PageEnv, update: TermsUpdate): void {
   const { api, location } = env;
   const { summary } = update;
   const section = byId(doc, "terms-update");
-  const box = byId<HTMLInputElement>(doc, "terms-update-accept");
-  const error = byId(doc, "terms-update-accept-error");
   const status = byId(doc, "status");
+  byId(doc, "intro").hidden = true;
   byId(doc, "terms-update-email").textContent = messages.termsUpdateFor(update.email);
 
   const failed = (statusCode: number) =>
@@ -280,7 +315,6 @@ function setupTermsUpdate(doc: Document, env: PageEnv, update: TermsUpdate): voi
 
   byId<HTMLButtonElement>(doc, "terms-update-continue").addEventListener("click", async (event) => {
     hideSummary(summary);
-    if (!update.termsChecked(box, error)) return;
     const response = await whileBusy(event.currentTarget as HTMLButtonElement, () =>
       api.post("/accept-terms", ACCEPTANCE),
     );
@@ -299,7 +333,8 @@ function setupTermsUpdate(doc: Document, env: PageEnv, update: TermsUpdate): voi
     );
     if (response.status === 200) {
       section.hidden = true;
-      update.signIn.hidden = false;
+      byId(doc, "intro").hidden = false;
+      update.showSignIn();
       announce(status, messages.signedOut);
     } else {
       failed(response.status);

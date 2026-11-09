@@ -46,7 +46,13 @@ export interface FakeArtifact {
   purgeAt: number | null;
   createdAt: number;
   updatedAt: number;
-  access: { mode: AccessMode; readers: string[]; indexable: boolean; embeddable: boolean };
+  access: {
+    mode: AccessMode;
+    readers: string[];
+    indexable: boolean;
+    embeddable: boolean;
+    bar: boolean;
+  };
   policyGeneration: number;
   /** Set when the operator suspended it; the summary then says `suspended` with the reason. */
   suspensionReason?: AbuseReason;
@@ -241,7 +247,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         purgeAt: null,
         createdAt: now,
         updatedAt: now,
-        access: { mode: "restricted", readers: [], indexable: false, embeddable: false },
+        access: { mode: "restricted", readers: [], indexable: false, embeddable: false, bar: true },
         policyGeneration: 1,
         ...overrides,
       };
@@ -757,7 +763,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       createdAt: now,
       updatedAt: now,
       // New artifacts are private to their owner.
-      access: { mode: "restricted", readers: [], indexable: false, embeddable: false },
+      access: { mode: "restricted", readers: [], indexable: false, embeddable: false, bar: true },
       policyGeneration: 1,
     };
     artifact.name = session.name;
@@ -902,6 +908,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         readers: [...readers].sort(),
         indexable: change.indexable ?? artifact.access.indexable,
         embeddable: change.embeddable ?? artifact.access.embeddable,
+        bar: change.bar ?? artifact.access.bar,
       };
       artifact.policyGeneration += 1;
     }

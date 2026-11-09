@@ -27,3 +27,4 @@ export * from "./review-access.ts";
 export * from "./traffic.ts";
 export * from "./usage.ts";
 export * from "./versions.ts";
+export * from "./viewer.ts";

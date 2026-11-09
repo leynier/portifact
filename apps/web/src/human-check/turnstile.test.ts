@@ -53,16 +53,53 @@ describe("human check widget", () => {
       sitekey: "0x4AAA",
       action: "comment",
       theme: "auto",
+      appearance: "always",
+      "refresh-expired": "auto",
       "response-field": false,
     });
     const given = fake.options[0] ?? {};
     (given.callback as (token: string) => void)("t1");
     (given["expired-callback"] as () => void)();
     (given["error-callback"] as () => void)();
+    (given["unsupported-callback"] as () => void)();
+    // Without an interaction callback, the visibility hooks do nothing.
+    (given["before-interactive-callback"] as () => void)();
     expect(onToken).toHaveBeenCalledWith("t1");
-    expect(onReset).toHaveBeenCalledTimes(2);
+    expect(onReset).toHaveBeenCalledTimes(3);
     remove?.();
     expect(fake.removed).toEqual(["w1"]);
+  });
+
+  it("stays invisible until Cloudflare needs an interaction, and reports errors apart", async () => {
+    withSiteKey("0x4AAA");
+    const fake = fakeApi();
+    const widget = turnstileWidget(document, "sign-up", async () => fake.api);
+    const onReset = vi.fn();
+    const onError = vi.fn();
+    const onInteractive = vi.fn();
+    widget?.render(
+      document.body,
+      { onToken: vi.fn(), onReset, onError, onInteractive },
+      { appearance: "interaction-only" },
+    );
+    await settle();
+    const given = fake.options[0] ?? {};
+    expect(given.appearance).toBe("interaction-only");
+    (given["before-interactive-callback"] as () => void)();
+    (given["after-interactive-callback"] as () => void)();
+    expect(onInteractive.mock.calls).toEqual([[true], [false]]);
+    (given["error-callback"] as () => void)();
+    (given["unsupported-callback"] as () => void)();
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onReset).not.toHaveBeenCalled();
+
+    const blocked = vi.fn();
+    turnstileWidget(document, "sign-up", () => Promise.reject(new Error("blocked")))?.render(
+      document.body,
+      { onToken: vi.fn(), onReset: vi.fn(), onError: blocked },
+    );
+    await settle();
+    expect(blocked).toHaveBeenCalledOnce();
   });
 
   it("renders nothing when removed before the script loaded, and resets when it fails", async () => {

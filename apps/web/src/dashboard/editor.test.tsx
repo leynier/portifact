@@ -166,13 +166,18 @@ describe("document editor", () => {
 describe("links to the new screens", () => {
   it("offers publishing from the list and the content actions on the artifact page", async () => {
     const { router } = renderDashboard("/", server);
-    const publish = await screen.findByRole("link", { name: "Publish" });
-    expect(publish.getAttribute("href")).toBe("/publish");
+    // The navigation and the list's header both lead to publishing.
+    await screen.findByRole("heading", { level: 1, name: "Artifacts" });
+    const publish = screen.getAllByRole("link", { name: "Publish" });
+    expect(publish.map((link) => link.getAttribute("href"))).toEqual(["/publish", "/publish"]);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "Publish" })).toBe(publish[0]);
     await router.navigate({ to: "/artifacts/$artifactId", params: { artifactId: ID } });
     const region = await screen.findByRole("region", { name: "Content" });
-    expect(
-      within(region).getByRole("link", { name: "Publish a new version" }).getAttribute("href"),
-    ).toBe(`/artifacts/${ID}/publish`);
+    // A new version is the page's main content action, in its header.
+    expect(screen.getByRole("link", { name: "Publish a new version" }).getAttribute("href")).toBe(
+      `/artifacts/${ID}/publish`,
+    );
     expect(within(region).getByRole("link", { name: "Edit document" }).getAttribute("href")).toBe(
       `/artifacts/${ID}/edit`,
     );

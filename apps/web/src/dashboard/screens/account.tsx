@@ -13,6 +13,7 @@ import {
   EmptyState,
   LoadingState,
   PageHeader,
+  Panel,
   Table,
   TableBody,
   TableCell,
@@ -38,6 +39,7 @@ import { type ReactNode, useState } from "react";
 import { loginUrl } from "../../auth/query.ts";
 import { ACCOUNT_EXPORT_PATH, type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
+import type { MessageId } from "../i18n/en.ts";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { describeUserAgent } from "../user-agent.ts";
@@ -62,25 +64,54 @@ export function AccountScreen() {
   // The shell loads the account before any screen renders.
   const account = queryClient.getQueryData<Account>(ACCOUNT_QUERY);
 
+  const sections: [string, MessageId][] = [
+    ["profile", "account.profile"],
+    ["usage", "usage.title"],
+    ["methods", "account.methods.title"],
+    ["sessions", "account.sessions.title"],
+    ["apps", "account.apps.title"],
+    ["data", "account.data.title"],
+    ["delete", "account.delete.title"],
+  ];
+
   return (
     <>
       <PageHeader title={t("account.title")} description={t("account.description")} />
-      <Section id="profile" title={t("account.profile")}>
-        <DetailList
-          items={[
-            { term: t("account.email"), detail: account?.email ?? "" },
-            ...(account?.createdAt
-              ? [{ term: t("account.memberSince"), detail: formatDate(account.createdAt) }]
-              : []),
-          ]}
-        />
-      </Section>
-      <Usage />
-      <SignInMethods email={account?.email ?? ""} />
-      <BrowserSessions />
-      <ConnectedApps />
-      <AccountData />
-      <DeleteAccount email={account?.email ?? ""} />
+      <div className="grid items-start gap-8 lg:grid-cols-4">
+        <nav aria-label={t("account.sectionsNav")} className="lg:sticky lg:top-10">
+          <ul className="flex flex-wrap gap-x-1 gap-y-1 text-sm lg:flex-col">
+            {sections.map(([id, label]) => (
+              <li key={id}>
+                <a
+                  href={`#${id}`}
+                  className="flex h-8 items-center rounded-xs px-2.5 text-text-muted no-underline hover:bg-surface-hover hover:text-text"
+                >
+                  {t(label)}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+        <div className="flex min-w-0 flex-col gap-6 lg:col-span-3">
+          <Section id="profile" title={t("account.profile")}>
+            <DetailList
+              framed={false}
+              items={[
+                { term: t("account.email"), detail: account?.email ?? "" },
+                ...(account?.createdAt
+                  ? [{ term: t("account.memberSince"), detail: formatDate(account.createdAt) }]
+                  : []),
+              ]}
+            />
+          </Section>
+          <Usage />
+          <SignInMethods email={account?.email ?? ""} />
+          <BrowserSessions />
+          <ConnectedApps />
+          <AccountData />
+          <DeleteAccount email={account?.email ?? ""} />
+        </div>
+      </div>
     </>
   );
 }
@@ -97,13 +128,9 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section id={id} aria-labelledby={`${id}-heading`} className="mt-8 first-of-type:mt-0">
-      <h2 id={`${id}-heading`} className="text-lg font-semibold">
-        {title}
-      </h2>
-      {hint ? <p className="mt-1 text-sm text-text-muted">{hint}</p> : null}
-      <div className="mt-3">{children}</div>
-    </section>
+    <Panel id={id} title={title} description={hint}>
+      {children}
+    </Panel>
   );
 }
 
@@ -167,6 +194,7 @@ function SignInMethods({ email }: { email: string }) {
       >
         {(list) => (
           <DetailList
+            framed={false}
             items={[
               {
                 term: t("account.methods.email"),
@@ -291,6 +319,7 @@ function BrowserSessions() {
         confirmLabel={t("account.sessions.confirm.confirm")}
         cancelLabel={t("account.cancel")}
         confirmIcon={<LogOut className="size-4" />}
+        tone="danger"
         busy={signOutOthers.isPending}
         onConfirm={() => signOutOthers.mutate()}
         onCancel={() => setConfirming(false)}
@@ -355,7 +384,7 @@ function ConnectedApps() {
             ) : (
               <ul className="flex flex-col gap-4">
                 {items.map((app) => (
-                  <li key={app.clientId} className="rounded-md border border-border p-4">
+                  <li key={app.clientId} className="rounded-md border border-border bg-surface p-4">
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                       <h3 className="inline-flex flex-wrap items-center gap-2 text-base font-semibold">
                         <span className="break-all">{appName(t, app)}</span>
@@ -382,6 +411,8 @@ function ConnectedApps() {
                       </Button>
                     </div>
                     <DetailList
+                      framed={false}
+                      layout="stacked"
                       items={[
                         {
                           term: t("account.apps.resources"),
@@ -428,6 +459,7 @@ function ConnectedApps() {
         confirmLabel={t("account.apps.disconnect")}
         cancelLabel={t("account.cancel")}
         confirmIcon={<Unplug className="size-4" />}
+        tone="danger"
         busy={disconnect.isPending}
         onConfirm={() => confirming && disconnect.mutate(confirming)}
         onCancel={() => setConfirming(null)}
@@ -536,6 +568,7 @@ function DeleteAccount({ email }: { email: string }) {
         confirmLabel={t("account.delete.dialog.confirm")}
         cancelLabel={t("account.cancel")}
         confirmIcon={<Trash2 className="size-4" />}
+        tone="danger"
         busy={remove.isPending}
         onConfirm={() => remove.mutate()}
         onCancel={() => setConfirming(false)}

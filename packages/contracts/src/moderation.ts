@@ -150,6 +150,7 @@ export const ExportArtifact = z.object({
   annotations: z.enum(["off", "open", "locked"]),
   indexable: z.boolean(),
   embeddable: z.boolean(),
+  bar: z.boolean(),
   suspension: SuspensionView.nullable(),
   createdAt: Iso,
   updatedAt: Iso,

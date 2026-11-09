@@ -166,7 +166,7 @@ export function createHarness(
 
 /** The six-digit code in a sign-in email. */
 export function codeFrom(message: EmailMessage | undefined): string {
-  const code = message?.text.match(/sign-in code is (\d{6})/)?.[1];
+  const code = message?.text.match(/^(\d{6})$/m)?.[1];
   if (!code) throw new Error("no sign-in code was delivered");
   return code;
 }

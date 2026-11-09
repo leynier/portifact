@@ -1,6 +1,6 @@
 # Accessibility
 
-Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard, the review viewer, the annotation flow, the Markdown and TXT viewers, the CLI and the documentation. Accessibility is a requirement for a feature to be done, not a later pass. We cannot make sites uploaded by users accessible, but nothing we inject or wrap around them may make them less accessible.
+Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard, the viewer with the Portifact bar, the annotation flow, the Markdown and TXT viewers, the CLI and the documentation. Accessibility is a requirement for a feature to be done, not a later pass. We cannot make sites uploaded by users accessible, but nothing we inject or wrap around them may make them less accessible.
 
 ## Foundations
 
@@ -41,7 +41,7 @@ Annotation must be fully possible without a mouse:
 
 - The Markdown viewer outputs semantic HTML: real headings, lists, tables with header cells, code blocks and links with meaningful text. Images keep the author's alt text; missing alt text is flagged to the creator in the dashboard.
 - The TXT viewer keeps line numbers out of the text read by screen readers and the copy buffer.
-- The review viewer gives the artifact iframe an accessible title and does not trap focus inside it.
+- The viewer gives the artifact iframe an accessible title and does not trap focus inside it. Its bar is the page's `banner` with the artifact's name as the only `h1`, a skip link jumps to the artifact region, the comments sidebar is a labelled `complementary` landmark, and its toggle states `aria-expanded` and `aria-controls`. Selecting text in the artifact never moves focus out of it.
 - The bridge injected into sites adds no focusable elements, landmarks or announcements unless review mode is active, and it never changes the site's own semantics.
 
 ## CLI
@@ -57,6 +57,6 @@ Accessibility is tested like any other behavior. See [testing.md](testing.md).
 
 - Component tests query by role and accessible name, which also verifies the accessible name exists.
 - `vitest-axe` runs on every component story and state in `packages/ui`.
-- `@axe-core/playwright` runs on every main screen in the end-to-end tests, in both themes. Any violation fails the build.
+- axe-core runs in real browsers in the end-to-end tests (`e2e/src/axe.ts`), in both themes, so contrast is checked too: `e2e/tests/design.spec.ts` covers the dashboard's main screens (list, artifact page, publish, history, account and the empty list) and the sign-in specs cover the auth pages. Any violation fails the build. Accessible names of controls start with their visible label (WCAG 2.5.3), which this check enforces.
 - End-to-end tests include keyboard-only paths: sign in, publish, change access, annotate text, annotate an element, reply and restore.
 - Automated tools find only part of the problems. Before release, run a manual check with the keyboard alone, with VoiceOver or NVDA, at 200% zoom and with reduced motion.

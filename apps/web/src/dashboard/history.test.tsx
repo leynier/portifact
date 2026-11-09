@@ -68,16 +68,16 @@ describe("version history", () => {
     ).toBeNull();
     expect(
       within(current as HTMLElement).queryByRole("button", {
-        name: "Download the sources of version 2",
+        name: "Download sources of version 2",
       }),
     ).toBeNull();
-    expect(screen.getByRole("button", { name: "Download the sources of version 1" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download sources of version 1" })).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
   });
 
   it("downloads several files as a checked ZIP and a single file as itself", async () => {
     const { saved } = renderDashboard(PATH, server);
-    fireEvent.click(await screen.findByRole("button", { name: "Download the files of version 2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Download files of version 2" }));
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0]?.fileName).toBe("Launch plan-v2.zip");
     const zip = saved[0]?.blob as Blob;
@@ -85,7 +85,7 @@ describe("version history", () => {
     expect(Object.keys(files).sort()).toEqual(["app.js", "index.html"]);
     expect(status()).toContain("Launch plan-v2.zip is ready.");
 
-    fireEvent.click(screen.getByRole("button", { name: "Download the sources of version 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Download sources of version 1" }));
     await waitFor(() => expect(saved).toHaveLength(2));
     expect(saved[1]?.fileName).toBe("src.zip");
     expect(await saved[1]?.blob.text()).toBe("zip bytes");
@@ -94,9 +94,7 @@ describe("version history", () => {
   it("refuses to save a download that does not match its checksum", async () => {
     const { saved } = renderDashboard(PATH, server);
     server.storage.fail({ corrupt: true });
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Download the sources of version 1" }),
-    );
+    fireEvent.click(await screen.findByRole("button", { name: "Download sources of version 1" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("The download did not finish");
     expect(alert.textContent).toContain("src.zip did not match its checksum");

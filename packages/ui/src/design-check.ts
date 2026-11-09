@@ -26,9 +26,21 @@ const STYLESHEET_RULES: { rule: string; pattern: RegExp }[] = [
   { rule: "raw color value", pattern: /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|oklch|lab|lch)\(/i },
 ];
 
+/**
+ * Email templates: mail clients drop or rewrite stylesheets, so emails carry inline styles. Their
+ * values still come from the tokens (packages/emails/src/theme.ts), never raw values.
+ */
+export function isEmailTemplate(file: string): boolean {
+  return /(^|\/)packages\/emails\/src\//.test(file);
+}
+
 /** Checks one file. Stylesheets get the color rules; markup and scripts get the class rules. */
 export function checkFile(file: string, content: string): Violation[] {
-  const rules = file.endsWith(".css") ? STYLESHEET_RULES : MARKUP_RULES;
+  const rules = file.endsWith(".css")
+    ? STYLESHEET_RULES
+    : isEmailTemplate(file)
+      ? MARKUP_RULES.filter(({ rule }) => rule !== "inline style attribute")
+      : MARKUP_RULES;
   const violations: Violation[] = [];
   content.split("\n").forEach((text, index) => {
     for (const { rule, pattern } of rules) {

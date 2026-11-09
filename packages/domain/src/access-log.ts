@@ -1,6 +1,6 @@
 // Access log rules (plan sections 2, 11 and 13): which openings are recorded, the 30-minute
 // window that deduplicates them and the 30 days they are kept. Only signed-in visitors are ever
-// identified; anonymous visits of public artifacts are not recorded.
+// identified, and only on `restricted` artifacts; public and `authenticated` ones are never recorded.
 import { ACCESS_LOG } from "@portifact/contracts";
 
 const MINUTE_MS = 60_000;
@@ -26,12 +26,25 @@ export interface ServedRequest {
   /** The signed-in visitor a read or review session names; null for an anonymous visit. */
   visitorId: string | null;
   ownerId: string;
+  /**
+   * The artifact's access mode. Only `restricted` artifacts are logged: their readers are the
+   * addresses the owner listed. Public and `authenticated` artifacts open for anyone signed in
+   * (in the viewer, or through the read handoff without a click), so any site could send a
+   * visitor there and hand the owner their email.
+   */
+  accessMode: "public" | "authenticated" | "restricted";
 }
 
 /**
- * An opening is a page load by a signed-in visitor who is not the owner. Subresources (each
- * asset) and anonymous visits are never recorded, and the owner's own visits are not openings.
+ * An opening is a page load of a `restricted` artifact by a signed-in visitor who is not the
+ * owner. Subresources (each asset), anonymous visits, every visit of a public or `authenticated`
+ * artifact and the owner's own visits are never recorded.
  */
 export function isLoggedOpening(request: ServedRequest): boolean {
-  return request.navigation && request.visitorId !== null && request.visitorId !== request.ownerId;
+  return (
+    request.navigation &&
+    request.accessMode === "restricted" &&
+    request.visitorId !== null &&
+    request.visitorId !== request.ownerId
+  );
 }

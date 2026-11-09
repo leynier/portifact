@@ -11,6 +11,7 @@ import {
   Button,
   buttonClasses,
   Callout,
+  CopyField,
   EmptyState,
   LoadingState,
   PageHeader,
@@ -24,11 +25,24 @@ import {
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { CircleAlert, Inbox, RefreshCw, Search, SearchX, Upload, X } from "lucide-react";
+import {
+  Bot,
+  CircleAlert,
+  ExternalLink,
+  Inbox,
+  MessageSquareText,
+  RefreshCw,
+  Search,
+  SearchX,
+  SquareTerminal,
+  Upload,
+  X,
+} from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { ApiFailure } from "../api.ts";
-import { useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
-import { StateBadge } from "../presentation.tsx";
+import { useAnnounce, useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
+import { AccessBadge, StateBadge, TypeIcon } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { TrafficNotice, trafficBlock, useUsage } from "./usage.tsx";
@@ -124,7 +138,7 @@ export function ArtifactListScreen() {
     return (
       <>
         {header}
-        <LoadingState label={t("list.loading")} />
+        <LoadingState label={t("list.loading")} skeleton={5} />
       </>
     );
   }
@@ -180,14 +194,7 @@ export function ArtifactListScreen() {
             <p role="status">{t("list.noMatch.body")}</p>
           </EmptyState>
         ) : (
-          <EmptyState title={t("list.empty.title")} icon={<Inbox className="size-8" />}>
-            <p>{t("list.empty.body")}</p>
-            <p className="mt-3">
-              <code className="rounded-xs bg-surface px-2 py-1 font-mono text-text">
-                portifact publish ./report.html
-              </code>
-            </p>
-          </EmptyState>
+          <FirstPublish />
         )
       ) : (
         <>
@@ -195,39 +202,56 @@ export function ArtifactListScreen() {
             <TableHead>
               <TableRow>
                 <TableHeaderCell>{t("list.column.name")}</TableHeaderCell>
-                <TableHeaderCell>{t("list.column.type")}</TableHeaderCell>
                 <TableHeaderCell>{t("list.column.state")}</TableHeaderCell>
                 <TableHeaderCell>{t("list.column.access")}</TableHeaderCell>
                 <TableHeaderCell>{t("list.column.expires")}</TableHeaderCell>
                 <TableHeaderCell>{t("list.column.usage")}</TableHeaderCell>
                 <TableHeaderCell>{t("list.column.activity")}</TableHeaderCell>
+                <TableHeaderCell>
+                  <span className="sr-only">{t("list.column.actions")}</span>
+                </TableHeaderCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {artifacts.map((artifact) => (
                 <TableRow key={artifact.id}>
                   <TableCell>
-                    <Link
-                      to="/artifacts/$artifactId"
-                      params={{ artifactId: artifact.id }}
-                      className="font-medium"
-                    >
-                      {artifact.name}
-                    </Link>
+                    <span className="flex min-w-52 items-center gap-3">
+                      <TypeIcon type={artifact.type} />
+                      <span className="flex min-w-0 flex-col">
+                        <Link
+                          to="/artifacts/$artifactId"
+                          params={{ artifactId: artifact.id }}
+                          className="font-semibold no-underline hover:underline"
+                        >
+                          {artifact.name}
+                        </Link>
+                        <span className="flex flex-wrap gap-x-2 text-xs text-text-muted">
+                          <span>{t(`type.${artifact.type}`)}</span>
+                          <span className="font-mono">{artifact.id}</span>
+                        </span>
+                      </span>
+                    </span>
                   </TableCell>
-                  <TableCell>{t(`type.${artifact.type}`)}</TableCell>
                   <TableCell>
                     <StateBadge state={artifact.state} />
                   </TableCell>
-                  <TableCell>{t(`list.access.${artifact.accessMode}`)}</TableCell>
                   <TableCell>
-                    {artifact.expiresAt ? formatDate(artifact.expiresAt) : t("list.never")}
+                    <AccessBadge mode={artifact.accessMode} />
+                  </TableCell>
+                  <TableCell>
+                    <span className="whitespace-nowrap tabular-nums">
+                      {artifact.expiresAt ? formatDate(artifact.expiresAt) : t("list.never")}
+                    </span>
                   </TableCell>
                   <TableCell>
                     <UsageCell artifact={artifact} />
                   </TableCell>
                   <TableCell>
                     <ActivityCell artifact={artifact} />
+                  </TableCell>
+                  <TableCell>
+                    <RowActions artifact={artifact} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -267,10 +291,10 @@ function UsageCell({ artifact }: { artifact: ArtifactListItem }) {
   const { activity } = artifact;
   return (
     <>
-      <span className="block">
+      <span className="block whitespace-nowrap tabular-nums">
         {activity.currentBytes === null ? t("list.noVersion") : formatBytes(activity.currentBytes)}
       </span>
-      <span className="block text-text-muted">
+      <span className="block whitespace-nowrap text-text-muted">
         {t("list.versions", { count: activity.versions })}
       </span>
     </>
@@ -284,16 +308,149 @@ function ActivityCell({ artifact }: { artifact: ArtifactListItem }) {
   const { activity } = artifact;
   return (
     <>
-      <span className="block">{t("list.updated", { date: formatDate(artifact.updatedAt) })}</span>
+      <span className="block whitespace-nowrap">
+        {t("list.updated", { date: formatDate(artifact.updatedAt) })}
+      </span>
       {artifact.annotations !== "off" || activity.openThreads > 0 ? (
-        <span className="block">{t("list.openThreads", { count: activity.openThreads })}</span>
+        <span
+          className={`block whitespace-nowrap ${activity.openThreads > 0 ? "font-semibold" : "text-text-muted"}`}
+        >
+          {t("list.openThreads", { count: activity.openThreads })}
+        </span>
       ) : null}
       {activity.lastAnnotationAt ? (
-        <span className="block text-text-muted">
+        <span className="block whitespace-nowrap text-text-muted">
           {t("list.lastComment", { date: formatDate(activity.lastAnnotationAt) })}
         </span>
       ) : null}
     </>
+  );
+}
+
+/** Quick ways into an artifact from its row: the published page and, while active, review. */
+function RowActions({ artifact }: { artifact: ArtifactListItem }) {
+  const t = useT();
+  const servable = artifact.state === "active";
+  return (
+    <span className="flex justify-end gap-1">
+      {servable ? (
+        <>
+          <a
+            href={artifact.url}
+            aria-label={t("list.openLabel", { name: artifact.name })}
+            title={t("list.open")}
+            className={buttonClasses({ intent: "ghost", size: "sm" })}
+          >
+            <ExternalLink aria-hidden="true" className="size-4" />
+          </a>
+          {/* A full page load, so the viewer gets its own policy (frames of this artifact only). */}
+          <a
+            href={`/view/${encodeURIComponent(artifact.id)}`}
+            aria-label={t("list.reviewLabel", { name: artifact.name })}
+            title={t("list.review")}
+            className={buttonClasses({ intent: "ghost", size: "sm" })}
+          >
+            <MessageSquareText aria-hidden="true" className="size-4" />
+          </a>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * The empty list teaches the three ways to publish, each with what it needs: the browser upload,
+ * the CLI commands and the MCP server URL for agents.
+ */
+function FirstPublish() {
+  const t = useT();
+  const announce = useAnnounce();
+  const copied = () => announce(t("copy.done"));
+  const failed = () => announce(t("copy.failed"));
+  const copy = { copiedLabel: t("copy.copied"), onCopied: copied, onCopyFailed: failed };
+  const mcpUrl = `${window.location.origin}/mcp`;
+  return (
+    <EmptyState
+      title={t("list.empty.title")}
+      icon={<Inbox className="size-5" />}
+      action={
+        <ul className="grid w-full gap-4 text-sm lg:grid-cols-3">
+          <Way
+            icon={<Upload className="size-4" />}
+            title={t("list.onboarding.browser.title")}
+            body={t("list.onboarding.browser.body")}
+          >
+            <div>
+              <Link to="/publish" className={buttonClasses({ intent: "primary" })}>
+                <Upload aria-hidden="true" className="size-4" />
+                {t("list.onboarding.browser.action")}
+              </Link>
+            </div>
+          </Way>
+          <Way
+            icon={<SquareTerminal className="size-4" />}
+            title={t("list.onboarding.cli.title")}
+            body={t("list.onboarding.cli.body")}
+          >
+            <CopyField
+              kind="command"
+              label={t("list.onboarding.cli.install")}
+              value="curl -fsSL https://portifact.com/install | bash"
+              copyLabel={t("list.onboarding.cli.copy")}
+              {...copy}
+            />
+            <CopyField
+              kind="command"
+              label={t("list.onboarding.cli.publish")}
+              value="portifact publish ./report.html"
+              copyLabel={t("list.onboarding.cli.copy")}
+              {...copy}
+            />
+          </Way>
+          <Way
+            icon={<Bot className="size-4" />}
+            title={t("list.onboarding.mcp.title")}
+            body={t("list.onboarding.mcp.body")}
+          >
+            <CopyField
+              label={t("list.onboarding.mcp.url")}
+              value={mcpUrl}
+              copyLabel={t("list.onboarding.mcp.copy")}
+              {...copy}
+            />
+          </Way>
+        </ul>
+      }
+    >
+      <p>{t("list.onboarding.lead")}</p>
+    </EmptyState>
+  );
+}
+
+function Way({
+  icon,
+  title,
+  body,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  body: string;
+  children: ReactNode;
+}) {
+  return (
+    <li className="flex min-w-0 flex-col gap-4 rounded-md border border-border bg-surface p-4">
+      <div>
+        <h3 className="flex items-center gap-2 font-semibold">
+          <span aria-hidden="true" className="inline-flex">
+            {icon}
+          </span>
+          {title}
+        </h3>
+        <p className="mt-1 text-text-muted">{body}</p>
+      </div>
+      <div className="mt-auto flex flex-col gap-3">{children}</div>
+    </li>
   );
 }
 
@@ -341,18 +498,30 @@ function FilterForm({
   return (
     <form.AppForm>
       <form.Form label={t("list.filter.label")}>
-        <div className="flex flex-col gap-4 rounded-md border border-border p-4">
-          <form.AppField name="search">
-            {(field) => (
-              <field.TextField
-                type="search"
-                label={t("list.filter.search")}
-                description={t("list.filter.searchHint")}
-                autoComplete="off"
-              />
-            )}
-          </form.AppField>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex flex-col gap-4 rounded-lg border border-border bg-canvas p-4 shadow-sm">
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
+            <div className="min-w-64 flex-1">
+              <form.AppField name="search">
+                {(field) => (
+                  <field.TextField
+                    type="search"
+                    label={t("list.filter.search")}
+                    description={t("list.filter.searchHint")}
+                    autoComplete="off"
+                  />
+                )}
+              </form.AppField>
+            </div>
+            <div className="flex gap-2">
+              <form.SubmitButton icon={<Search className="size-4" />} busy={busy}>
+                {t("list.filter.submit")}
+              </form.SubmitButton>
+              <Button intent="ghost" icon={<X className="size-4" />} onClick={() => onApply({})}>
+                {t("list.filter.clear")}
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
             <form.AppField name="state">
               {(field) => (
                 <field.SelectField
@@ -406,14 +575,6 @@ function FilterForm({
                 />
               )}
             </form.AppField>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <form.SubmitButton icon={<Search className="size-4" />} busy={busy}>
-              {t("list.filter.submit")}
-            </form.SubmitButton>
-            <Button icon={<X className="size-4" />} onClick={() => onApply({})}>
-              {t("list.filter.clear")}
-            </Button>
           </div>
         </div>
       </form.Form>

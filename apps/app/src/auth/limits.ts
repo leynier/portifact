@@ -30,10 +30,19 @@ export const ENDPOINT_LIMITS: Record<string, Limit> = {
 export const READ_ENTRY_LIMIT: Limit = { max: 60, windowSeconds: 600 };
 
 /**
- * Per-account limit on review codes (`POST /api/v1/artifacts/:id/review`): each one stores a
- * code. The viewer asks for one per page load and when a review session ends.
+ * Limit on review codes (`POST /api/v1/artifacts/:id/review` and `/review/tab`) per account and
+ * artifact: the viewer asks for one per page load and when a review session ends. Any site can
+ * make a signed-in browser reload the viewer of one artifact, so the budget is per artifact and
+ * spending it never locks the account out of the others; stored codes are bounded separately
+ * (`REVIEW_SESSION.openCodesPerUser`).
  */
 export const REVIEW_START_LIMIT: Limit = { max: 60, windowSeconds: 600 };
+
+/**
+ * Per-IP limit on the viewer's lookup (`GET /api/v1/artifacts/:id/viewer`), which answers
+ * without a session: one per viewer load, so a reader opening many links stays far below it.
+ */
+export const VIEWER_LOOKUP_LIMIT: Limit = { max: 300, windowSeconds: 600 };
 
 /**
  * Checks the limits in order and stops at the first one exceeded, so a refused request does

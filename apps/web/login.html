@@ -9,112 +9,121 @@
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <script type="module" src="/src/pages/login.ts"></script>
   </head>
-  <body class="min-h-screen bg-canvas text-text antialiased">
+  <body class="min-h-screen bg-surface text-text antialiased">
     <a
       href="#main"
       class="sr-only z-50 rounded-sm bg-surface-inverse px-3 py-2 text-text-inverse focus:not-sr-only focus:fixed focus:top-4 focus:left-4"
       >Skip to content</a
     >
-    <header class="border-b border-border">
-      <div class="mx-auto flex h-16 max-w-md items-center px-4">
+    <div aria-hidden="true" class="pointer-events-none fixed inset-x-0 top-0 h-96 bg-dot-grid"></div>
+    <div class="relative flex min-h-screen flex-col">
+      <header class="mx-auto flex w-full max-w-md items-center px-4 pt-8 pb-6 sm:pt-12">
         <a href="https://portifact.com/" class="no-underline" aria-label="Portifact home">
           <picture>
             <source media="(prefers-color-scheme: dark)" srcset="../../assets/brand/wordmark-dark.svg" />
-            <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-7 w-auto" />
+            <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-8 w-auto" />
           </picture>
         </a>
-      </div>
-    </header>
+      </header>
 
-    <main id="main" class="mx-auto max-w-md px-4 py-12">
-      <h1 class="text-2xl font-semibold tracking-tight">Sign in to Portifact</h1>
-      <p class="mt-2 text-text-muted">Use Google, GitHub or a code sent to your email. The first sign-in creates your account.</p>
+      <main id="main" tabindex="-1" class="mx-auto w-full max-w-md flex-1 px-4 pb-12 focus:outline-none">
+        <div class="rounded-lg border border-border bg-surface-raised p-6 shadow-float sm:p-8 motion-safe:animate-rise">
+          <h1 class="text-2xl font-semibold tracking-tight">Sign in to Portifact</h1>
+          <p id="intro" class="mt-2 text-sm text-text-muted">New here? Your first sign-in creates your account.</p>
 
-      <div id="error-summary" role="alert" tabindex="-1" class="mt-6 rounded-md border-2 border-border-strong bg-surface p-4 text-sm font-medium" hidden></div>
-      <p id="status" role="status" aria-live="polite" class="sr-only"></p>
+          <div id="error-summary" role="alert" tabindex="-1" class="mt-6 flex gap-3 rounded-md border-2 border-text bg-surface p-4 text-sm font-medium focus:outline-none" hidden><svg aria-hidden="true" viewBox="0 0 24 24" class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><p data-message class="min-w-0 flex-1"></p></div>
+          <p id="status" role="status" aria-live="polite" class="sr-only"></p>
 
-      <section id="signed-in" class="mt-8" aria-labelledby="signed-in-email" hidden>
-        <p id="signed-in-email" class="font-medium"></p>
-        <p class="mt-2 text-sm text-text-muted">You can close this page, or sign out on this browser.</p>
-        <h2 id="methods-heading" class="mt-8 text-base font-semibold">Sign-in methods</h2>
-        <p class="mt-1 text-sm text-text-muted">A Google or GitHub account with this verified email joins this account the first time you use it.</p>
-        <ul class="mt-4 space-y-3" aria-labelledby="methods-heading">
-          <li class="flex items-center justify-between gap-4">
-            <span class="text-sm font-medium">Google</span>
-            <span id="method-google" class="text-sm text-text-muted">Not used yet</span>
-          </li>
-          <li class="flex items-center justify-between gap-4">
-            <span class="text-sm font-medium">GitHub</span>
-            <span id="method-github" class="text-sm text-text-muted">Not used yet</span>
-          </li>
-        </ul>
-        <button id="sign-out" type="button" class="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Sign out</button>
-      </section>
+          <section id="signed-in" class="mt-6" aria-labelledby="signed-in-email" hidden>
+            <p id="signed-in-email" class="font-medium break-words"></p>
+            <p class="mt-1 text-sm text-text-muted">You can open your dashboard, close this page, or sign out on this browser.</p>
+            <a href="/" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85 motion-reduce:transition-none">Open your dashboard</a>
+            <h2 id="methods-heading" class="mt-8 text-sm font-semibold">Sign-in methods</h2>
+            <p class="mt-1 text-sm text-text-muted">A Google or GitHub account with this verified email joins this account the first time you use it.</p>
+            <ul class="mt-3 divide-y divide-border rounded-md border border-border" aria-labelledby="methods-heading">
+              <li class="flex items-center justify-between gap-4 px-4 py-3">
+                <span class="text-sm font-medium">Google</span>
+                <span id="method-google" class="text-sm text-text-muted">Not used yet</span>
+              </li>
+              <li class="flex items-center justify-between gap-4 px-4 py-3">
+                <span class="text-sm font-medium">GitHub</span>
+                <span id="method-github" class="text-sm text-text-muted">Not used yet</span>
+              </li>
+            </ul>
+            <button id="sign-out" type="button" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none">Sign out</button>
+          </section>
 
-      <section id="terms-update" class="mt-8" aria-labelledby="terms-update-heading" hidden>
-        <h2 id="terms-update-heading" class="text-base font-semibold">Review the terms to continue</h2>
-        <p id="terms-update-email" class="mt-2 text-sm text-text-muted"></p>
-        <p class="mt-2 text-sm text-text-muted">Your account has not accepted the current version of the terms yet.</p>
-        <div class="mt-6 flex items-start gap-3">
-          <input id="terms-update-accept" name="terms-update-accept" type="checkbox" required class="mt-0.5 size-5 shrink-0 accent-text" />
-          <label for="terms-update-accept" class="text-sm">I am 18 or older and I agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>. I have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a></label>
-        </div>
-        <p id="terms-update-accept-error" class="mt-2 border-l-2 border-border-strong pl-2 text-sm font-medium" hidden></p>
-        <button id="terms-update-continue" type="button" class="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-surface-inverse px-6 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60">Accept and continue</button>
-        <button id="terms-update-sign-out" type="button" class="mt-3 inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Sign out</button>
-      </section>
+          <section id="terms-update" class="mt-6" aria-labelledby="terms-update-heading" hidden>
+            <h2 id="terms-update-heading" class="text-lg font-semibold">Review the terms to continue</h2>
+            <p id="terms-update-email" class="mt-1 text-sm text-text-muted break-words"></p>
+            <p class="mt-4 text-sm">Your account has not accepted the current version of the terms yet.</p>
+            <p id="terms-update-notice" class="mt-4 rounded-md border border-border-strong bg-surface p-4 text-sm leading-relaxed">By selecting Agree and continue, you confirm that you are 18 or older, you agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>, and you have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>. The links open in a new tab.</p>
+            <button id="terms-update-continue" type="button" aria-describedby="terms-update-notice" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none">Agree and continue</button>
+            <button id="terms-update-sign-out" type="button" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none">Sign out</button>
+          </section>
 
-      <div id="sign-in" class="mt-8" hidden>
-        <div class="mb-8">
-          <div class="flex items-start gap-3">
-            <input id="terms-accept" name="terms-accept" type="checkbox" required class="mt-0.5 size-5 shrink-0 accent-text" />
-            <label for="terms-accept" class="text-sm">I am 18 or older and I agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>. I have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a></label>
+          <div id="sign-in" class="mt-6" hidden>
+            <p id="terms-notice" class="rounded-md border border-border-strong bg-surface p-4 text-sm leading-relaxed">By continuing with Google, GitHub or an email code, you confirm that you are 18 or older, you agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>, and you have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>. The links open in a new tab.</p>
+
+            <div id="methods" class="mt-6">
+              <div class="space-y-3">
+                <button type="button" data-provider="google" aria-describedby="terms-notice" class="inline-flex h-11 w-full items-center justify-center gap-3 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" class="size-4 shrink-0" fill="currentColor"><path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" /></svg>
+                  Continue with Google
+                </button>
+                <button type="button" data-provider="github" aria-describedby="terms-notice" class="inline-flex h-11 w-full items-center justify-center gap-3 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none">
+                  <svg aria-hidden="true" viewBox="0 0 16 16" class="size-4 shrink-0" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" /></svg>
+                  Continue with GitHub
+                </button>
+              </div>
+
+              <p class="my-6 flex items-center gap-4 text-xs font-medium tracking-wide text-text-muted uppercase" aria-hidden="true">
+                <span class="h-px flex-1 bg-border"></span>or use your email<span class="h-px flex-1 bg-border"></span>
+              </p>
+
+              <form id="email-form" novalidate>
+                <label for="email" class="block text-sm font-medium">Email address</label>
+                <input id="email" name="email" type="email" autocomplete="email" required spellcheck="false" class="mt-2 h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-base aria-invalid:border-2 aria-invalid:border-text" />
+                <p id="email-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
+                <button id="send-code" type="submit" aria-describedby="terms-notice" class="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none">Email me a code</button>
+              </form>
+            </div>
+
+            <form id="code-form" class="mt-6" novalidate hidden>
+              <h2 id="code-heading" tabindex="-1" class="text-lg font-semibold focus:outline-none">Check your email</h2>
+              <p id="code-sent" class="mt-1 text-sm text-text-muted break-words"></p>
+              <label for="code" class="mt-6 block text-sm font-medium">6-digit code</label>
+              <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required spellcheck="false" aria-describedby="code-hint" class="mt-2 h-14 w-full rounded-md border border-border-strong bg-canvas px-4 text-center font-mono text-2xl tracking-widest aria-invalid:border-2 aria-invalid:border-text" />
+              <p id="code-hint" class="mt-2 text-sm text-text-muted">The code expires in 5 minutes and works once. Check your spam folder if it has not arrived.</p>
+              <p id="code-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
+              <button id="verify-code" type="submit" aria-describedby="terms-notice" class="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none">Sign in</button>
+              <div class="mt-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-sm">
+                <button id="resend-code" type="button" class="underline underline-offset-4 disabled:no-underline disabled:opacity-60">Send a new code</button>
+                <button id="change-email" type="button" class="underline underline-offset-4">Use a different email</button>
+              </div>
+            </form>
+
+            <div id="human-check">
+              <div id="human-check-copy" class="mb-3 rounded-md border border-border-strong bg-surface p-4 text-sm" hidden>
+                <p id="human-check-heading" class="font-semibold">One more step: confirm you are human</p>
+                <p class="mt-1 text-text-muted">Cloudflare needs a quick check before Portifact can go on. Complete it below and your sign-in continues by itself.</p>
+              </div>
+              <div id="human-check-widget"></div>
+            </div>
           </div>
-          <p id="terms-accept-error" class="mt-2 border-l-2 border-border-strong pl-2 text-sm font-medium" hidden></p>
         </div>
-        <fieldset id="human-check" class="mb-8" hidden>
-          <legend id="human-check-label" class="text-sm text-text-muted">New accounts need a quick check that you are human. Existing accounts can skip it.</legend>
-          <div id="human-check-widget" class="mt-3"></div>
-        </fieldset>
-        <div class="space-y-3">
-          <button type="button" data-provider="google" class="inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Continue with Google</button>
-          <button type="button" data-provider="github" class="inline-flex h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-6 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60">Continue with GitHub</button>
-        </div>
+      </main>
 
-        <p class="my-8 flex items-center gap-4 text-sm text-text-muted" aria-hidden="true">
-          <span class="h-px flex-1 bg-border"></span>or<span class="h-px flex-1 bg-border"></span>
-        </p>
-
-        <form id="email-form" novalidate>
-          <label for="email" class="block text-sm font-medium">Email address</label>
-          <input id="email" name="email" type="email" autocomplete="email" required spellcheck="false" class="mt-2 h-11 w-full rounded-sm border border-border-strong bg-canvas px-3 text-base" />
-          <p id="email-error" class="mt-2 border-l-2 border-border-strong pl-2 text-sm font-medium" hidden></p>
-          <button id="send-code" type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-md bg-surface-inverse px-6 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60">Email me a code</button>
-        </form>
-
-        <form id="code-form" novalidate hidden>
-          <p id="code-sent" class="text-sm text-text-muted"></p>
-          <label for="code" class="mt-4 block text-sm font-medium">Code</label>
-          <input id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required spellcheck="false" class="mt-2 h-11 w-full rounded-sm border border-border-strong bg-canvas px-3 font-mono text-base tracking-widest" />
-          <p id="code-error" class="mt-2 border-l-2 border-border-strong pl-2 text-sm font-medium" hidden></p>
-          <button id="verify-code" type="submit" class="mt-4 inline-flex h-11 w-full items-center justify-center rounded-md bg-surface-inverse px-6 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60">Sign in</button>
-          <div class="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
-            <button id="resend-code" type="button" class="underline underline-offset-4 disabled:opacity-60">Send a new code</button>
-            <button id="change-email" type="button" class="underline underline-offset-4">Use a different email</button>
-          </div>
-        </form>
-      </div>
-    </main>
-
-    <footer class="border-t border-border">
-      <nav aria-label="Legal" class="mx-auto max-w-md px-4 py-8 text-sm">
-        <ul class="flex flex-wrap gap-x-5 gap-y-2">
-          <li><a href="https://portifact.com/" class="text-text-muted hover:text-text">portifact.com</a></li>
-          <li><a href="https://portifact.com/terms" class="text-text-muted hover:text-text">Terms</a></li>
-          <li><a href="https://portifact.com/privacy" class="text-text-muted hover:text-text">Privacy</a></li>
-          <li><a href="https://portifact.com/acceptable-use" class="text-text-muted hover:text-text">Acceptable use</a></li>
-        </ul>
-      </nav>
-    </footer>
+      <footer>
+        <nav aria-label="Legal" class="mx-auto w-full max-w-md px-4 pb-8 text-sm">
+          <ul class="flex flex-wrap justify-center gap-x-5 gap-y-2">
+            <li><a href="https://portifact.com/" class="text-text-muted hover:text-text">portifact.com</a></li>
+            <li><a href="https://portifact.com/terms" class="text-text-muted hover:text-text">Terms</a></li>
+            <li><a href="https://portifact.com/privacy" class="text-text-muted hover:text-text">Privacy</a></li>
+            <li><a href="https://portifact.com/acceptable-use" class="text-text-muted hover:text-text">Acceptable use</a></li>
+          </ul>
+        </nav>
+      </footer>
+    </div>
   </body>
 </html>

@@ -14,6 +14,8 @@ import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
 import { setContentClockOffset } from "./clock.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
+/** Where the e2e Worker keeps the last email sent to each address, in the local bucket. */
+export const MAIL_PREFIX = "e2e-mail/";
 export type E2eEnv = AppEnv & ContentEnv;
 
 const DAY = 86_400_000;
@@ -55,6 +57,8 @@ interface PublishInput {
   accessMode?: "public" | "authenticated" | "restricted";
   readers?: string[];
   annotations?: "off" | "open" | "locked";
+  /** The Portifact bar; on by default, like a new artifact. */
+  bar?: boolean;
   /** Publishes a new version of this artifact on `baseVersionId` instead of a new artifact. */
   update?: { artifactId: string; baseVersionId: string };
 }
@@ -246,9 +250,14 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       return Response.json({ artifactId, versionId: committed.value.versionId });
     }
     await env.DB.prepare(
-      "UPDATE artifacts SET access_mode = ?, annotations = ?, policy_generation = policy_generation + 1 WHERE id = ?",
+      "UPDATE artifacts SET access_mode = ?, annotations = ?, bar = ?, policy_generation = policy_generation + 1 WHERE id = ?",
     )
-      .bind(publish.accessMode ?? "restricted", publish.annotations ?? "open", artifactId)
+      .bind(
+        publish.accessMode ?? "restricted",
+        publish.annotations ?? "open",
+        publish.bar === false ? 0 : 1,
+        artifactId,
+      )
       .run();
     for (const email of publish.readers ?? []) {
       await env.DB.prepare("INSERT INTO artifact_readers (artifact_id, email) VALUES (?, ?)")
@@ -308,6 +317,15 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     const { artifactId, offsetMs } = input as ClockInput;
     setContentClockOffset(artifactId, offsetMs);
     return Response.json({ artifactId, offsetMs });
+  }
+
+  // The last email the app sent to an address (worker/index.ts keeps it), for sign-in codes.
+  if (path === "/mail") {
+    const { to } = input as { to: string };
+    const object = await env.ARTIFACTS.get(`${MAIL_PREFIX}${to.toLowerCase()}`);
+    return object
+      ? new Response(object.body, { headers: { "content-type": "application/json" } })
+      : Response.json({ error: "no email" }, { status: 404 });
   }
 
   if (path === "/sql") {

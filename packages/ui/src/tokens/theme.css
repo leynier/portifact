@@ -9,9 +9,11 @@
   --color-*: initial;
   --font-*: initial;
 
+  --color-backdrop: var(--pf-color-backdrop);
   --color-canvas: var(--pf-color-canvas);
   --color-surface: var(--pf-color-surface);
   --color-surface-raised: var(--pf-color-surface-raised);
+  --color-surface-hover: var(--pf-color-surface-hover);
   --color-surface-inverse: var(--pf-color-surface-inverse);
   --color-text: var(--pf-color-text);
   --color-text-muted: var(--pf-color-text-muted);
@@ -35,6 +37,7 @@
 
   --shadow-*: initial;
   --shadow-sm: var(--pf-shadow-sm);
+  --shadow-raised: var(--pf-shadow-raised);
   --shadow-float: var(--pf-shadow-float);
 
   --ease-out: var(--pf-ease-out);
@@ -43,6 +46,8 @@
   --animate-type: pf-type 1.2s steps(31, end) both;
   --animate-sweep: pf-sweep var(--pf-duration-slow) var(--pf-ease-out) both;
   --animate-blink: pf-blink 1.1s steps(1, end) infinite;
+  --animate-pop: pf-pop var(--pf-duration-base) var(--pf-ease-out) both;
+  --animate-shimmer: pf-shimmer 1.6s ease-in-out infinite;
 }
 
 /*
@@ -78,6 +83,21 @@
   }
 }
 
+/* A small rise and fade for things that answer an action, such as a toast or a dialog. */
+@keyframes pf-pop {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+/* Loading placeholders breathe instead of spinning; only with `motion-safe:`. */
+@keyframes pf-shimmer {
+  50% {
+    opacity: 0.45;
+  }
+}
+
 @keyframes pf-blink {
   50% {
     opacity: 0;
@@ -100,6 +120,62 @@
   background-image: linear-gradient(var(--pf-color-selection), var(--pf-color-selection));
   background-repeat: no-repeat;
   background-size: 100% 100%;
+}
+
+/*
+ * The product's signature, taken from the logo: a text selection, a light band held between two
+ * handles (a bar with a knob on top at the start, and one with a knob below at the end). It marks
+ * what is selected or current: the page in the navigation, the chosen option, the current
+ * version. Apply it with a variant, such as `current:selection-band` or `has-checked:selection-band`;
+ * the element needs `relative` positioning, which the utility sets.
+ */
+@utility selection-band {
+  position: relative;
+  background-color: var(--pf-color-selection);
+  color: var(--pf-color-text);
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    width: var(--pf-handle-knob);
+    pointer-events: none;
+    background-image:
+      radial-gradient(
+        circle,
+        var(--pf-color-text) calc(var(--pf-handle-knob) / 2 - 0.5px),
+        transparent calc(var(--pf-handle-knob) / 2)
+      ),
+      linear-gradient(var(--pf-color-text), var(--pf-color-text));
+    background-repeat: no-repeat;
+    background-size:
+      var(--pf-handle-knob) var(--pf-handle-knob),
+      var(--pf-handle-width) 100%;
+  }
+
+  &::before {
+    top: calc(var(--pf-handle-knob) * -0.5);
+    bottom: 0;
+    left: calc(var(--pf-handle-knob) * -0.5);
+    background-position:
+      top center,
+      bottom center;
+    background-size:
+      var(--pf-handle-knob) var(--pf-handle-knob),
+      var(--pf-handle-width) calc(100% - var(--pf-handle-knob) / 2);
+  }
+
+  &::after {
+    top: 0;
+    bottom: calc(var(--pf-handle-knob) * -0.5);
+    right: calc(var(--pf-handle-knob) * -0.5);
+    background-position:
+      bottom center,
+      top center;
+    background-size:
+      var(--pf-handle-knob) var(--pf-handle-knob),
+      var(--pf-handle-width) calc(100% - var(--pf-handle-knob) / 2);
+  }
 }
 
 /* A faint dot grid for product scenes, faded out toward the edges. */
@@ -212,5 +288,61 @@
 
   &::-moz-progress-bar {
     background-color: var(--pf-color-text);
+  }
+}
+
+/*
+ * A native `meter` drawn with tokens in every engine, like `progress-bar`. The filled part is the
+ * text color; past the high mark it turns to a hatched fill, so a quota near its limit differs by
+ * pattern as well as by the words next to it, never by tone alone.
+ */
+@utility meter-bar {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: var(--pf-space-2);
+  border: 0;
+  border-radius: var(--pf-radius-xs);
+  overflow: hidden;
+  background: var(--pf-color-selection);
+
+  &::-webkit-meter-inner-element {
+    display: block;
+  }
+
+  &::-webkit-meter-bar {
+    height: var(--pf-space-2);
+    border: 0;
+    border-radius: var(--pf-radius-xs);
+    background: var(--pf-color-selection);
+  }
+
+  &::-webkit-meter-optimum-value {
+    border-radius: var(--pf-radius-xs);
+    background: var(--pf-color-text);
+  }
+
+  &::-webkit-meter-suboptimum-value,
+  &::-webkit-meter-even-less-good-value {
+    border-radius: var(--pf-radius-xs);
+    background: repeating-linear-gradient(
+      135deg,
+      var(--pf-color-text) 0 3px,
+      var(--pf-color-text-muted) 3px 5px
+    );
+  }
+
+  &::-moz-meter-bar {
+    border-radius: var(--pf-radius-xs);
+    background: var(--pf-color-text);
+  }
+
+  &:-moz-meter-sub-optimum::-moz-meter-bar,
+  &:-moz-meter-sub-sub-optimum::-moz-meter-bar {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--pf-color-text) 0 3px,
+      var(--pf-color-text-muted) 3px 5px
+    );
   }
 }

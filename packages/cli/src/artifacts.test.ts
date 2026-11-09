@@ -446,6 +446,7 @@ describe("portifact access", () => {
         readers: ["ana@example.test"],
         indexable: false,
         embeddable: true,
+        bar: true,
       },
     });
 
@@ -453,10 +454,11 @@ describe("portifact access", () => {
     expect(text.code).toBe(0);
     expect(text.stdout).toBe(
       [
-        "Access      restricted",
-        "Readers     ana@example.test",
-        "Indexable   no",
-        "Embeddable  yes",
+        "Access         restricted",
+        "Readers        ana@example.test",
+        "Indexable      no",
+        "Embeddable     yes",
+        "Portifact bar  on",
         "",
       ].join("\n"),
     );
@@ -468,8 +470,35 @@ describe("portifact access", () => {
       readers: ["ana@example.test"],
       indexable: false,
       embeddable: true,
+      bar: true,
       policyGeneration: 1,
     });
+  });
+
+  it("turns the Portifact bar off and on", async () => {
+    h.signIn();
+    const artifact = seed();
+
+    const off = await h.invoke("access", "bar", artifact.id, "off");
+    expect(off.code).toBe(0);
+    expect(off.stdout).toContain(`Updated access to ${artifact.id}.\n`);
+    expect(off.stdout).toContain("Portifact bar  off\n");
+    expect(JSON.parse(requests("PATCH", /\/access$/)[0]?.body ?? "")).toEqual({ bar: false });
+    expect(server.api.artifacts.get(artifact.id)?.access.bar).toBe(false);
+
+    const on = await h.invoke("access", "bar", artifact.id, "on", "--json");
+    expect(json(on)).toMatchObject({ artifactId: artifact.id, bar: true });
+  });
+
+  it("rejects a bar state other than on or off before any request", async () => {
+    h.signIn();
+    const artifact = seed();
+
+    const result = await h.invoke("access", "bar", artifact.id, "yes", "--json");
+
+    expect(result.code).toBe(2);
+    expect(json(result).error.message).toContain("Use on or off.");
+    expect(server.requests).toHaveLength(0);
   });
 
   it("sets the access mode", async () => {
@@ -480,7 +509,7 @@ describe("portifact access", () => {
 
     expect(result.code).toBe(0);
     expect(result.stdout).toContain(
-      `Updated access to ${artifact.id}.\nAccess      authenticated\n`,
+      `Updated access to ${artifact.id}.\nAccess         authenticated\n`,
     );
     expect(JSON.parse(requests("PATCH", /\/access$/)[0]?.body ?? "")).toEqual({
       mode: "authenticated",
@@ -529,7 +558,7 @@ describe("portifact access", () => {
 
     const removed = await h.invoke("access", "remove", artifact.id, "bo@example.test");
     expect(removed.code).toBe(0);
-    expect(removed.stdout).toContain("Readers     ana@example.test\n");
+    expect(removed.stdout).toContain("Readers        ana@example.test\n");
     expect(JSON.parse(requests("PATCH", /\/access$/)[1]?.body ?? "")).toEqual({
       removeReaders: ["bo@example.test"],
     });
@@ -538,7 +567,13 @@ describe("portifact access", () => {
   it("notes that readers apply only while access is restricted", async () => {
     h.signIn();
     const artifact = seed({
-      access: { mode: "authenticated", readers: [], indexable: false, embeddable: false },
+      access: {
+        mode: "authenticated",
+        readers: [],
+        indexable: false,
+        embeddable: false,
+        bar: true,
+      },
     });
 
     const result = await h.invoke("access", "add", artifact.id, "ana@example.test");

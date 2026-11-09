@@ -86,3 +86,13 @@ export const DeleteArtifactInput = z.object({
     ),
 });
 export type DeleteArtifactInput = z.infer<typeof DeleteArtifactInput>;
+
+export const SetPortifactBarInput = z.object({
+  artifactId,
+  enabled: z
+    .boolean()
+    .describe(
+      "true opens the artifact's pages in Portifact's viewer, with the Portifact bar and the comments sidebar; false serves the artifact itself, full screen.",
+    ),
+});
+export type SetPortifactBarInput = z.infer<typeof SetPortifactBarInput>;

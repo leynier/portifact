@@ -111,7 +111,7 @@ describe("portifact rollback", () => {
   it("rolls back on top of the current version with an idempotency key", async () => {
     h.signIn();
     const { artifact, v1, v2 } = history({
-      access: { mode: "restricted", readers: [], indexable: false, embeddable: false },
+      access: { mode: "restricted", readers: [], indexable: false, embeddable: false, bar: true },
     });
 
     const result = await h.invoke("rollback", artifact.id, v1.id);

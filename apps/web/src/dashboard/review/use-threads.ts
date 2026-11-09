@@ -75,11 +75,16 @@ export async function loadThreads(
   };
 }
 
-export function useThreads(artifactId: string, version: AnnotationVersionFilter = "current") {
+export function useThreads(
+  artifactId: string,
+  version: AnnotationVersionFilter = "current",
+  enabled = true,
+) {
   const { api } = useDashboard();
   const queryClient = useQueryClient();
   return useQuery({
     queryKey: threadsQuery(artifactId, version),
+    enabled,
     queryFn: () =>
       loadThreads(
         api,

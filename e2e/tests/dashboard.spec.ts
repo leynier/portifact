@@ -1,6 +1,6 @@
 // Dashboard flows end to end: the artifact list's search and filters, applied by the API and
 // kept in the URL, each artifact's activity in the list, the conversations on earlier versions in
-// the history, and the review viewer's comment filters and export.
+// the history, and the viewer's comment filters and export.
 
 import { readFile } from "node:fs/promises";
 import { control, createUser, expect, openReview, publish, signIn, test } from "../src/fixtures.ts";
@@ -39,7 +39,7 @@ test("the artifact list searches and filters from the keyboard, and keeps them i
   await page.getByRole("combobox", { name: "Type" }).selectOption("markdown");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(table.getByRole("row")).toHaveCount(2);
-  await expect(table.getByRole("link", { name: "Launch notes" })).toBeVisible();
+  await expect(table.getByRole("link", { name: "Launch notes", exact: true })).toBeVisible();
 
   // The URL carries the filters to a new load, and back returns to the earlier search.
   await page.reload();
@@ -52,10 +52,10 @@ test("the artifact list searches and filters from the keyboard, and keeps them i
   await page.getByRole("combobox", { name: "Access" }).selectOption("public");
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(table.getByRole("row")).toHaveCount(2);
-  await expect(table.getByRole("link", { name: "Budget" })).toBeVisible();
+  await expect(table.getByRole("link", { name: "Budget", exact: true })).toBeVisible();
 });
 
-test("the review viewer filters comments by author and exports them as Markdown", async ({
+test("the viewer filters comments by author and exports them as Markdown", async ({
   page,
   context,
 }) => {
@@ -84,6 +84,8 @@ test("the review viewer filters comments by author and exports them as Markdown"
   await openReview(page, artifactId, "Export plan");
   await expect(page.getByText("2 comment threads")).toBeVisible();
 
+  // The filters and export sit in a collapsed disclosure in the sidebar.
+  await page.getByText("Filter and export", { exact: true }).click();
   await page.getByRole("combobox", { name: "Author" }).selectOption({ label: "You" });
   await expect(page.getByText("Showing 1 of 2 comment threads")).toBeVisible();
   await expect(page.getByText("Owner note")).toBeVisible();

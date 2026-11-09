@@ -63,3 +63,34 @@ describe("AppShell", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 });
+
+describe("AppShell with an aside and a full page header", () => {
+  it("renders the account once, the aside in the banner and a header with back link and facts", async () => {
+    const { container } = render(
+      <AppShell
+        skipLinkLabel="Skip to content"
+        navigationLabel="Main"
+        brand={<a href="/">portifact</a>}
+        navigation={[
+          <a key="a" href="/" className={navLinkClasses}>
+            Artifacts
+          </a>,
+        ]}
+        aside={<p>3 of 50 active artifacts</p>}
+        account={<button type="button">Sign out</button>}
+      >
+        <PageHeader
+          title="Launch plan"
+          back={<a href="/">All artifacts</a>}
+          meta={<span>Active</span>}
+        />
+      </AppShell>,
+    );
+    expect(screen.getAllByRole("button", { name: "Sign out" })).toHaveLength(1);
+    expect(screen.getByRole("banner").textContent).toContain("3 of 50 active artifacts");
+    const heading = screen.getByRole("heading", { level: 1, name: "Launch plan" });
+    expect(screen.getByRole("link", { name: "All artifacts" })).toBeTruthy();
+    expect(heading.parentElement?.textContent).toContain("Active");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+});

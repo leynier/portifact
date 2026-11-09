@@ -1,7 +1,7 @@
-import { AppShell, Button, Callout, LiveRegion, LoadingState, navLinkClasses } from "@portifact/ui";
+import { AppShell, Button, Callout, LoadingState, navLinkClasses, Toast } from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Gauge, LogOut } from "lucide-react";
+import { CircleUserRound, Gauge, Layers, LogOut, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
@@ -37,6 +37,7 @@ export function Shell() {
   const { api, leave } = useDashboard();
   const location = useRouterState({ select: (state) => state.location });
   const here = `${location.pathname}${location.searchStr}`;
+  const onArtifactPage = /^\/(artifacts|review)\//.test(location.pathname);
 
   const account = useQuery({ queryKey: ACCOUNT_QUERY, queryFn: () => api.account() });
   useEffect(() => {
@@ -74,22 +75,35 @@ export function Shell() {
         </Link>
       }
       navigation={[
-        <Link key="artifacts" to="/" activeOptions={{ exact: false }} className={navLinkClasses}>
+        <Link
+          key="artifacts"
+          to="/"
+          activeOptions={{ exact: true }}
+          // Artifact pages and their review belong to this section too.
+          {...(onArtifactPage ? { "aria-current": "page" as const } : {})}
+          className={navLinkClasses}
+        >
+          <Layers aria-hidden="true" className="size-4 shrink-0" />
           {t("shell.artifacts")}
         </Link>,
+        <Link key="publish" to="/publish" className={navLinkClasses}>
+          <Upload aria-hidden="true" className="size-4 shrink-0" />
+          {t("shell.publishLink")}
+        </Link>,
         <Link key="account" to="/account" className={navLinkClasses}>
+          <CircleUserRound aria-hidden="true" className="size-4 shrink-0" />
           {t("shell.accountLink")}
         </Link>,
       ]}
       account={
         account.data ? (
           <>
-            <span className="text-text-muted">
+            <span className="sr-only text-text-muted lg:not-sr-only lg:max-w-full lg:truncate">
               {t("shell.account", { email: account.data.email })}
             </span>
             <Button
-              intent="link"
-              size="inline"
+              intent="ghost"
+              size="sm"
               icon={<LogOut className="size-4" />}
               busy={signOut.isPending}
               onClick={() => signOut.mutate()}
@@ -109,10 +123,10 @@ export function Shell() {
             <Outlet />
           </>
         ) : (
-          <LoadingState label={t("shell.loadingAccount")} />
+          <LoadingState label={t("shell.loadingAccount")} skeleton={4} />
         )}
       </AnnounceContext.Provider>
-      <LiveRegion message={announcement} />
+      <Toast message={announcement} dismissLabel={t("shell.dismiss")} />
     </AppShell>
   );
 }

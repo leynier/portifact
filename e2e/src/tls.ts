@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { APP_HOST, CONTENT_SITE } from "./hosts.ts";
+import { TURNSTILE_HOST } from "./turnstile-fake.ts";
 
 export interface TlsMaterial {
   key: string;
@@ -38,7 +39,7 @@ export function selfSignedCertificate(): TlsMaterial {
         "-subj",
         "/CN=portifact e2e",
         "-addext",
-        `subjectAltName=DNS:${APP_HOST},DNS:*.${CONTENT_SITE}`,
+        `subjectAltName=DNS:${APP_HOST},DNS:*.${CONTENT_SITE},DNS:${TURNSTILE_HOST}`,
       ],
       { stdio: "ignore" },
     );
