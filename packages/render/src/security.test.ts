@@ -266,8 +266,10 @@ describe("hostile Markdown size and shape", () => {
 
   // micromark (remark) is quadratic on several of these; markdown-it is linear. A quadratic
   // parser needs many minutes on 1 MB of these inputs, so the budget stays generous for CI, where
-  // every package's tests share the runner's CPU at once, and still catches a quadratic one. The
-  // test timeout sits above the budget, so a slow run fails on the assertion.
+  // every package's tests share the runner's CPU at once under coverage instrumentation, and still
+  // catches a quadratic one. "nested links" takes about 1.3 s on a laptop and reached 20.1 s on the
+  // release runner, so the budget is 60 s. The test timeout sits above the budget, so a slow run
+  // fails on the assertion.
   it.each([
     ["nested emphasis openers and closers", fill("*a _b ", MB / 2) + fill("b_ a* ", MB / 2)],
     ["nested links", fill("[", MB / 2) + fill("](x)", MB / 2)],
@@ -295,10 +297,10 @@ describe("hostile Markdown size and shape", () => {
     (_name, source) => {
       const started = performance.now();
       const { html } = renderMarkdown(source);
-      expect(performance.now() - started).toBeLessThan(20_000);
+      expect(performance.now() - started).toBeLessThan(60_000);
       expect(html.length).toBeGreaterThan(0);
     },
-    60_000,
+    90_000,
   );
 
   it("caps nesting instead of recursing without bound", () => {
