@@ -76,6 +76,7 @@ describe("addresses", () => {
     expect(emailHint("Ana.Lopez@Example.com")).toBe("a***@example.com");
     expect(emailHint("x@y.z")).toBe("x***@y.z");
     expect(emailHint("co@a.co")).toBe("c***@a.co");
+    expect(emailHint("a*@a.aa")).toBe("a***@a.aa");
     expect(emailHint("@nouser.test")).toBe("***");
     expect(emailHint("no-at-sign")).toBe("***");
   });
@@ -83,11 +84,10 @@ describe("addresses", () => {
   it("never shows more of the local part than its first character", () => {
     fc.assert(
       fc.property(fc.emailAddress(), (email) => {
-        const hint = emailHint(email);
-        const local = normalizeEmail(email).slice(0, normalizeEmail(email).lastIndexOf("@"));
-        // Only the hint's local part counts: the domain may contain the same letters ("co@a.co").
-        const hintLocal = hint.slice(0, hint.lastIndexOf("@"));
-        return local.length <= 1 || !hintLocal.includes(local);
+        const normalized = normalizeEmail(email);
+        const at = normalized.lastIndexOf("@");
+        // Whatever the local part holds ("a*@a.aa", "co@a.co"), only its first character shows.
+        return emailHint(email) === `${normalized[0]}***${normalized.slice(at)}`;
       }),
     );
   });

@@ -829,6 +829,8 @@ export const en = {
   "review.thread.hideMessages": "Fold the comments",
   "review.thread.open": "Open",
   "review.thread.resolved": "Resolved",
+  "review.thread.replies": "{count, plural, one {# reply} other {# replies}}",
+  "review.thread.hideReplies": "Hide replies",
   "review.thread.otherVersion": "Earlier version",
   "review.thread.orphaned": "Without location",
   "review.thread.otherPage": "On {path}",

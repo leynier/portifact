@@ -1,6 +1,7 @@
-// A comment thread in the viewer's sidebar: a header with its number, what it points at and its
-// state, compact actions (show in the artifact, resolve or reopen, and a menu for the rest), its
-// messages with their own menus, and a reply box that opens in place. Quotes, names and bodies
+// A comment thread in the viewer's sidebar: a header with its number (a check when resolved), what
+// it points at, compact actions (show in the artifact, resolve or reopen, and a menu for the
+// rest), its first message, its replies folded behind a count until the reader opens them or
+// selects the thread, and a reply box that opens in place. Quotes, names and bodies
 // are untrusted text and are only rendered as text.
 import {
   AnnotationBody,
@@ -23,7 +24,6 @@ import {
   ChevronDown,
   CircleAlert,
   CircleCheck,
-  CircleDot,
   Eye,
   EyeOff,
   Info,
@@ -122,6 +122,11 @@ export function ThreadCard({
   const [replying, setReplying] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Replies rest folded behind their count; selecting the thread or replying opens them.
+  const [repliesOpen, setRepliesOpen] = useState(false);
+  useEffect(() => {
+    if (selection === "primary") setRepliesOpen(true);
+  }, [selection]);
   const replyButton = useRef<HTMLButtonElement>(null);
   const ref = useCallback(
     (element: HTMLElement | null) => register(thread.id, element),
@@ -195,6 +200,13 @@ export function ThreadCard({
     setReplying(false);
     setTimeout(() => replyButton.current?.focus(), 0);
   };
+  const startReplying = () => {
+    setRepliesOpen(true);
+    setReplying(true);
+  };
+  const [first, ...replies] = thread.messages;
+  const showReplies = repliesOpen || replying;
+  const notes = orphaned || elsewhere || !thread.current;
 
   return (
     <li>
@@ -222,32 +234,32 @@ export function ThreadCard({
             }`}
           >
             <span className="sr-only">{t("review.thread.titlePrefix")}</span>
+            {resolved ? (
+              <CircleCheck aria-hidden="true" className="mr-1 size-3.5 text-text-muted" />
+            ) : null}
             {number}
           </h3>
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            {/* The state, for screen readers; the check, the dashed border and Reopen show it. */}
+            {resolved ? <span className="sr-only">{t("review.thread.resolved")}</span> : null}
             <TargetSummary target={thread.target} compact={selection === null} />
-            <div className="flex flex-wrap items-center gap-1.5">
-              {resolved ? (
-                <Badge emphasis="quiet" icon={<CircleCheck className="size-3.5" />}>
-                  {t("review.thread.resolved")}
-                </Badge>
-              ) : (
-                <Badge icon={<CircleDot className="size-3.5" />}>{t("review.thread.open")}</Badge>
-              )}
-              {orphaned ? (
-                <Badge emphasis="strong" icon={<MapPinOff className="size-3.5" />}>
-                  {t("review.thread.orphaned")}
-                </Badge>
-              ) : null}
-              {elsewhere ? (
-                <Badge emphasis="quiet">
-                  {t("review.thread.otherPage", { path: thread.target.path })}
-                </Badge>
-              ) : null}
-              {thread.current ? null : (
-                <Badge emphasis="quiet">{t("review.thread.otherVersion")}</Badge>
-              )}
-            </div>
+            {notes ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {orphaned ? (
+                  <Badge emphasis="strong" icon={<MapPinOff className="size-3.5" />}>
+                    {t("review.thread.orphaned")}
+                  </Badge>
+                ) : null}
+                {elsewhere ? (
+                  <Badge emphasis="quiet">
+                    {t("review.thread.otherPage", { path: thread.target.path })}
+                  </Badge>
+                ) : null}
+                {thread.current ? null : (
+                  <Badge emphasis="quiet">{t("review.thread.otherVersion")}</Badge>
+                )}
+              </div>
+            ) : null}
           </div>
           <div className="-mt-0.5 -mr-1 flex shrink-0 items-center">
             {showable ? (
@@ -298,9 +310,9 @@ export function ThreadCard({
               </Button>
             </div>
           ) : null}
-          {folded ? null : (
+          {folded || first === undefined ? null : (
             <ol className="flex flex-col gap-3 border-t border-border pt-3">
-              {thread.messages.map((message) => (
+              {(showReplies ? thread.messages : [first]).map((message) => (
                 <MessageItem
                   key={message.id}
                   artifactId={artifactId}
@@ -311,7 +323,40 @@ export function ThreadCard({
               ))}
             </ol>
           )}
-          {writable && !folded ? (
+          {!folded && (replies.length > 0 || (writable && !showReplies)) && !replying ? (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              {replies.length > 0 ? (
+                <Button
+                  intent="link"
+                  size="inline"
+                  icon={
+                    <ChevronDown
+                      className={`size-4 motion-safe:transition-transform ${showReplies ? "rotate-180" : ""}`}
+                    />
+                  }
+                  aria-expanded={showReplies}
+                  onClick={() => setRepliesOpen((open) => !open)}
+                >
+                  {showReplies
+                    ? t("review.thread.hideReplies")
+                    : t("review.thread.replies", { count: replies.length })}
+                </Button>
+              ) : null}
+              {writable && !showReplies ? (
+                <Button
+                  ref={replyButton}
+                  intent="link"
+                  size="inline"
+                  icon={<Reply className="size-4" />}
+                  aria-expanded={false}
+                  onClick={startReplying}
+                >
+                  {t("review.thread.reply")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          {writable && !folded && showReplies ? (
             replying ? (
               <ReplyForm
                 artifactId={artifactId}

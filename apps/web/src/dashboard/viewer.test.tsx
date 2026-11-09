@@ -189,6 +189,11 @@ function menuItems(scope: HTMLElement, menu: string): string[] {
 
 const OWN_MENU = "More actions for the message from You";
 
+/** Opens a thread's replies, which rest folded behind their count. */
+function openReplies(thread: HTMLElement) {
+  fireEvent.click(within(thread).getByRole("button", { name: /^\d+ repl(y|ies)$/ }));
+}
+
 async function open() {
   const view = renderDashboard(PATH, server);
   await screen.findByRole("heading", { level: 1, name: "Launch plan" });
@@ -709,7 +714,10 @@ describe("review viewer", () => {
     store.seq += 1;
     second.seq = store.seq;
     await act(() => queryClient.invalidateQueries({ queryKey: ["annotations", ID] }));
-    await screen.findByText("Second opinion");
+    const thread = screen.getByRole("article", { name: "Thread 2" });
+    // The new reply arrives folded behind the thread's reply count.
+    fireEvent.click(await within(thread).findByRole("button", { name: "1 reply" }));
+    expect(within(thread).getByText("Second opinion")).toBeTruthy();
     expect(server.requests.at(-1)?.path).toBe(`/api/v1/artifacts/${ID}/annotations?cursor=2`);
   });
 
@@ -763,6 +771,35 @@ describe("review viewer", () => {
 });
 
 describe("thread actions", () => {
+  it("shows only the first message, folds the replies behind their count and no state badge", async () => {
+    const store = server.annotations[ID];
+    store?.threads[0]?.messages.push(
+      fakeMessage({ id: "r1", body: "First reply" }),
+      fakeMessage({ id: "r2", body: "Second reply" }),
+    );
+    await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    expect(within(thread).getByText("Secret feedback for the owner")).toBeTruthy();
+    expect(within(thread).queryByText("First reply")).toBeNull();
+    expect(within(thread).queryByText("Open")).toBeNull();
+    const toggle = within(thread).getByRole("button", { name: "2 replies" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    // Replying needs no unfolding first.
+    expect(within(thread).getByRole("button", { name: "Reply" })).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(within(thread).getByText("First reply")).toBeTruthy();
+    expect(within(thread).getByText("Second reply")).toBeTruthy();
+    const hide = within(thread).getByRole("button", { name: "Hide replies" });
+    expect(hide.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(hide);
+    expect(within(thread).queryByText("First reply")).toBeNull();
+
+    // Selecting the thread opens its replies.
+    fireEvent.click(within(thread).getByText("Secret feedback for the owner"));
+    await within(thread).findByText("First reply");
+  });
+
   it("replies, resolves and reopens a thread", async () => {
     await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
@@ -850,6 +887,7 @@ describe("thread actions", () => {
     store?.threads[0]?.messages.push(own);
     const { container } = await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
+    openReplies(thread);
     // Only your own messages can be edited; the owner moderates other people's.
     expect(menuItems(thread, OWN_MENU)).toEqual(["Edit"]);
     expect(menuItems(thread, "More actions for the message from Bea")).toEqual(["Hide", "Delete"]);
@@ -884,6 +922,7 @@ describe("thread actions", () => {
     store.outOfScope = [store.threads[0]?.id ?? ""];
     await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
+    openReplies(thread);
     chooseFromMenu(thread, OWN_MENU, "Edit");
     const form = within(thread).getByRole("form", { name: "Edit your message" });
     fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), {
@@ -903,6 +942,7 @@ describe("thread actions", () => {
     store?.threads[0]?.messages.push(own);
     await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
+    openReplies(thread);
     chooseFromMenu(thread, OWN_MENU, "Edit");
     fireEvent.click(within(thread).getByRole("button", { name: "Cancel" }));
     expect(within(thread).queryByRole("form", { name: "Edit your message" })).toBeNull();
