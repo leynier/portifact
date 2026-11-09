@@ -92,7 +92,7 @@ describe("AppShell", () => {
     expect(within(banner).getByRole("button", { name: "Sign out" })).toBeTruthy();
     // Without a name, the email's local part stands in for it.
     expect(
-      within(banner).getByRole("link", { name: "Profile: ada, ada@example.com" }).textContent,
+      within(banner).getByRole("link", { name: "Profile: ada ada@example.com" }).textContent,
     ).toContain("ada@example.com");
   });
 
@@ -134,7 +134,7 @@ describe("AppShell", () => {
     fireEvent.focus(usage);
     expect(usage.parentElement?.querySelector("[data-tooltip]")?.textContent).toBe("Usage");
     // The account keeps the avatar and sign out.
-    expect(screen.getByRole("link", { name: "Profile: ada, ada@example.com" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Profile: ada ada@example.com" })).toBeTruthy();
     expect(screen.queryByRole("separator")).toBeNull();
     expect(JSON.parse(window.localStorage.getItem(KEY) ?? "{}")).toMatchObject({
       collapsed: true,
@@ -249,8 +249,8 @@ describe("SidebarAccount", () => {
         onSignOut={onSignOut}
       />,
     );
-    const link = screen.getByRole("link", { name: "Profile: Ada Lovelace, ada@example.com" });
-    expect(link.textContent).toBe("ALAda Lovelaceada@example.com");
+    const link = screen.getByRole("link", { name: "Profile: Ada Lovelace ada@example.com" });
+    expect(link.textContent).toBe("ALProfile: Ada Lovelace ada@example.com");
     expect(screen.getByRole("button", { name: "Sign out" }).getAttribute("aria-busy")).toBe("true");
   });
 });

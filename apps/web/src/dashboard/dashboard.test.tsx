@@ -39,9 +39,7 @@ const RETRIED = { timeout: 3000 };
 describe("app shell", () => {
   it("shows the signed-in account, a labelled navigation and a skip link", async () => {
     renderDashboard("/", server);
-    expect(
-      await screen.findByRole("link", { name: "Profile: Ada, ada@example.test" }),
-    ).toBeTruthy();
+    expect(await screen.findByRole("link", { name: "Profile: Ada ada@example.test" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const current = within(nav).getByRole("link", { name: "Artifacts" });

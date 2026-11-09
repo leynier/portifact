@@ -50,7 +50,7 @@ describe("profile page", () => {
     const { router } = renderDashboard("/", server);
     const banner = await screen.findByRole("banner");
     const profileLink = await within(banner).findByRole("link", {
-      name: "Profile: Ada, ada@example.test",
+      name: "Profile: Ada ada@example.test",
     });
     fireEvent.click(profileLink);
     await waitFor(() => expect(router.state.location.pathname).toBe("/profile"));

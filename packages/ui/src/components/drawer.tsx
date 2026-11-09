@@ -57,6 +57,7 @@ export function Drawer({
   }, [open]);
 
   return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: a press on the backdrop has its keyboard equivalent in Escape (onCancel)
     <dialog
       ref={(node) => {
         dialogRef.current = node;

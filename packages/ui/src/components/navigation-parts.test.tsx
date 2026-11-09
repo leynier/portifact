@@ -80,6 +80,23 @@ describe("Tooltip", () => {
     expect(document.activeElement).toBe(button);
   });
 
+  it("shows one tooltip at a time", () => {
+    const { container } = render(
+      <>
+        <Tooltip label="Collapse sidebar">
+          <button type="button">Collapse sidebar</button>
+        </Tooltip>
+        <Tooltip label="Usage">
+          <a href="/usage">Usage</a>
+        </Tooltip>
+      </>,
+    );
+    fireEvent.focus(screen.getByRole("button"));
+    fireEvent.pointerEnter(screen.getByRole("link").parentElement as HTMLElement);
+    const shown = [...container.querySelectorAll("[data-tooltip]")].map((t) => t.textContent);
+    expect(shown).toEqual(["Usage"]);
+  });
+
   it("renders only the control while disabled", () => {
     const { container } = render(
       <Tooltip label="Artifacts" disabled>
@@ -105,9 +122,7 @@ function DrawerHarness() {
         header={<span>portifact</span>}
       >
         <nav aria-label="Main">
-          <a href="#usage" onClick={(event) => event.preventDefault()}>
-            Usage
-          </a>
+          <a href="#usage">Usage</a>
           <button type="button">Not a link</button>
         </nav>
       </Drawer>

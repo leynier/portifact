@@ -14,6 +14,9 @@ const bubbleClasses = cva(
   },
 );
 
+/** Hides the tooltip shown now, so a focused control and a hovered one never show two at once. */
+let hideShown: (() => void) | null = null;
+
 export interface TooltipProps {
   /** The text shown. It must repeat the control's accessible name, which carries the meaning. */
   label: string;
@@ -28,18 +31,24 @@ export interface TooltipProps {
 /**
  * A short label shown next to a control while it is hovered or focused, for icon buttons and
  * the collapsed sidebar. It repeats the control's own name, so it is hidden from assistive
- * technology; Escape hides it without moving focus (WCAG 1.4.13).
+ * technology; Escape hides it without moving focus (WCAG 1.4.13). Only one shows at a time.
  */
 export function Tooltip({ label, side, disabled = false, block = false, children }: TooltipProps) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    const hide = () => setOpen(false);
+    if (hideShown && hideShown !== hide) hideShown();
+    hideShown = hide;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") hide();
     };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (hideShown === hide) hideShown = null;
+    };
   }, [open]);
 
   if (disabled) return <>{children}</>;

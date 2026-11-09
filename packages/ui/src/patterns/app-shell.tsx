@@ -281,11 +281,14 @@ export interface SidebarAccountProps {
   image?: string | null | undefined;
   /** Names the link to the profile, such as "Profile". */
   profileLabel: string;
-  /** Renders the link to the profile with the given class, content and accessible name. */
+  /**
+   * Renders the link to the profile with the given class and content, and the accessible name
+   * when the content has no visible text (the collapsed rail).
+   */
   renderProfileLink(props: {
     className: string;
     children: ReactNode;
-    "aria-label": string;
+    "aria-label"?: string;
   }): ReactNode;
   signOutLabel: string;
   signingOut?: boolean;
@@ -321,7 +324,7 @@ export function SidebarAccount({
       />
     </Tooltip>
   );
-  const profileName = `${profileLabel}: ${shown}, ${email}`;
+  const profileName = `${profileLabel}: ${shown} ${email}`;
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-2">
@@ -342,12 +345,15 @@ export function SidebarAccount({
       {renderProfileLink({
         className:
           "flex min-w-0 flex-1 items-center gap-2.5 rounded-xs p-1.5 text-text no-underline transition-colors duration-150 hover:bg-surface-hover current:bg-surface-hover",
-        "aria-label": profileName,
+        // The visible name and email name the link, so speech input can use what is on screen.
         children: (
           <>
             <Avatar name={name} email={email} image={image} />
             <span className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-medium">{shown}</span>
+              <span className="truncate text-sm font-medium">
+                <span className="sr-only">{profileLabel}: </span>
+                {shown}
+              </span>{" "}
               <span className="truncate text-xs text-text-muted">{email}</span>
             </span>
           </>
