@@ -26,7 +26,13 @@ a [relative link](guide.md#setup), www.example.com and an <b>inline tag</b>.
 ![Diagram](diagram.png) ![Remote](https://cdn.example/r.png)
 
 \`\`\`ts
-const answer = 42;
+// The answer
+const answer: number = 42;
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  A[Write] --> B{Review}
 \`\`\`
 
 ---
@@ -36,9 +42,10 @@ const answer = 42;
 
 describe("golden output", () => {
   it(`is stable for renderer version ${RENDERER_VERSION}`, () => {
-    const { html, blocks, headings } = renderMarkdown(SAMPLE);
+    const { html, blocks, headings, diagrams } = renderMarkdown(SAMPLE);
     expect(headings.map((h) => h.id)).toEqual(["release-notes", "checklist"]);
-    expect(blocks).toHaveLength(17);
+    expect(blocks).toHaveLength(18);
+    expect(diagrams).toBe(1);
     expect({ html, blocks }).toMatchSnapshot();
     expect(renderText("\n<b>&</b>\n").html).toMatchSnapshot();
   });

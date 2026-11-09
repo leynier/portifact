@@ -1,7 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["@cloudflare/workers-types"]
+    // node: for the content Worker's node:zlib import (nodejs_compat), as in apps/content.
+    "types": ["@cloudflare/workers-types", "node"]
   },
   "include": ["."]
 }

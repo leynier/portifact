@@ -2,7 +2,7 @@
 import { DOCUMENT_CSS } from "@portifact/ui/document-css";
 import { TOKENS_CSS } from "@portifact/ui/tokens-css";
 import { type MarkdownOptions, type RenderedMarkdown, renderMarkdown } from "./markdown.ts";
-import { documentPolicy } from "./policy.ts";
+import { DIAGRAM_LOADER, documentPolicy } from "./policy.ts";
 import { type RenderedText, renderText } from "./text.ts";
 import { RENDERER_VERSION } from "./version.ts";
 
@@ -18,6 +18,16 @@ export interface DocumentOptions {
    * origin, does not.
    */
   reportLink?: boolean;
+}
+
+export interface MarkdownDocumentOptions extends DocumentOptions, MarkdownOptions {
+  /**
+   * Draw Mermaid blocks in the browser: a document with any carries the diagram loader, the one
+   * inline script its policy allows by hash, which loads the diagram script from the artifact
+   * origin. Published renderings set it; the editor's preview, whose frame runs no scripts and
+   * has no artifact origin, does not, and shows the diagrams' source.
+   */
+  liveDiagrams?: boolean;
 }
 
 /** The reserved path of every artifact origin that opens the report form for it. */
@@ -54,16 +64,25 @@ interface Shell extends DocumentOptions {
   kind: "markdown" | "text";
   body: string;
   remoteImages: boolean;
+  diagrams: boolean;
 }
 
-function shell({ title, lang = "en", kind, body, remoteImages, reportLink }: Shell): string {
+function shell({
+  title,
+  lang = "en",
+  kind,
+  body,
+  remoteImages,
+  diagrams,
+  reportLink,
+}: Shell): string {
   if (!LANG.test(lang)) throw new RangeError(`Invalid language tag: ${lang}`);
   return [
     "<!doctype html>",
     `<html lang="${lang}">`,
     "<head>",
     '<meta charset="utf-8">',
-    `<meta http-equiv="Content-Security-Policy" content="${documentPolicy(remoteImages)}">`,
+    `<meta http-equiv="Content-Security-Policy" content="${documentPolicy({ remoteImages, diagrams })}">`,
     '<meta name="referrer" content="no-referrer">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     '<meta name="color-scheme" content="light dark">',
@@ -76,6 +95,7 @@ function shell({ title, lang = "en", kind, body, remoteImages, reportLink }: She
     body,
     "</main>",
     ...(reportLink ? [REPORT_FOOTER] : []),
+    ...(diagrams ? [`<script>${DIAGRAM_LOADER}</script>`] : []),
     "</body>",
     "</html>",
     "",
@@ -91,14 +111,16 @@ export interface RenderedDocument {
 /** Renders Markdown into a complete document. Also returns the block map and headings. */
 export function renderMarkdownDocument(
   source: string,
-  options: DocumentOptions & MarkdownOptions,
+  options: MarkdownDocumentOptions,
 ): RenderedDocument & Omit<RenderedMarkdown, "html"> {
-  const { html, blocks, headings } = renderMarkdown(source, options);
+  const { html, blocks, headings, diagrams } = renderMarkdown(source, options);
   const remoteImages = options.remoteImages ?? false;
+  const live = (options.liveDiagrams ?? false) && diagrams > 0;
   return {
-    html: shell({ ...options, kind: "markdown", body: html, remoteImages }),
+    html: shell({ ...options, kind: "markdown", body: html, remoteImages, diagrams: live }),
     blocks,
     headings,
+    diagrams,
     rendererVersion: RENDERER_VERSION,
   };
 }
@@ -107,7 +129,7 @@ export function renderMarkdownDocument(
 export function renderTextDocument(source: string, options: DocumentOptions): RenderedDocument {
   const { html }: RenderedText = renderText(source);
   return {
-    html: shell({ ...options, kind: "text", body: html, remoteImages: false }),
+    html: shell({ ...options, kind: "text", body: html, remoteImages: false, diagrams: false }),
     rendererVersion: RENDERER_VERSION,
   };
 }

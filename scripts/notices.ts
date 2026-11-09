@@ -65,7 +65,16 @@ function manifest(fs: PackageFs, dir: string): Manifest {
   return JSON.parse(text) as Manifest;
 }
 
-/** The SPDX expression a manifest declares, or UNKNOWN. */
+/**
+ * Licenses of packages whose manifest declares none, read from their license file by hand. Keyed
+ * by exact version, so an update is reviewed again; adding one is a license review.
+ */
+export const REVIEWED_LICENSES: Record<string, string> = {
+  // A Mermaid dependency: its `license` file is the MIT License.
+  "khroma@2.1.0": "MIT",
+};
+
+/** The SPDX expression a manifest declares (or a reviewed one when it declares none), or UNKNOWN. */
 export function declaredLicense(m: Manifest): string {
   const value = m.license ?? m.licenses;
   if (typeof value === "string" && value.trim() !== "") return value.trim();
@@ -82,7 +91,7 @@ export function declaredLicense(m: Manifest): string {
     if (types.length > 0)
       return types.length === 1 ? (types[0] as string) : `(${types.join(" OR ")})`;
   }
-  return "UNKNOWN";
+  return REVIEWED_LICENSES[`${m.name}@${m.version}`] ?? "UNKNOWN";
 }
 
 /** A browsable source URL from the manifest's repository field. */
