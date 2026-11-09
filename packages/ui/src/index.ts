@@ -22,9 +22,8 @@ export {
   RadioGroup,
   type RadioGroupProps,
   type RadioOption,
-  Select,
-  type SelectOption,
-  type SelectProps,
+  SearchField,
+  type SearchFieldProps,
   TextArea,
   type TextAreaProps,
   TextInput,
@@ -45,17 +44,31 @@ export { Meter, type MeterProps } from "./components/meter.tsx";
 export { Panel, type PanelProps } from "./components/panel.tsx";
 export { PreviewFrame, type PreviewFrameProps } from "./components/preview-frame.tsx";
 export { ProgressBar, type ProgressBarProps } from "./components/progress.tsx";
+export {
+  placeListbox,
+  Select,
+  type SelectOption,
+  type SelectProps,
+  typeaheadMatch,
+} from "./components/select.tsx";
+export { Sheet, type SheetProps } from "./components/sheet.tsx";
 export { type Step, Steps, type StepsProps } from "./components/steps.tsx";
 export {
+  rowControlClasses,
+  rowLinkClasses,
   Table,
   TableBody,
   TableCell,
+  type TableCellProps,
   TableHead,
   TableHeaderCell,
+  type TableProps,
   TableRow,
+  type TableRowProps,
 } from "./components/table.tsx";
 export { Toast, type ToastProps } from "./components/toast.tsx";
 export { Tooltip, type TooltipProps } from "./components/tooltip.tsx";
+export { useMediaQuery, WIDE_QUERY } from "./hooks/use-media-query.ts";
 export {
   AppShell,
   type AppShellProps,
@@ -76,4 +89,11 @@ export {
   type OverlaySize,
   type VisualViewportBox,
 } from "./patterns/frame-overlay.tsx";
+export {
+  PageSection,
+  type PageSectionLink,
+  type PageSectionProps,
+  SectionedPage,
+  type SectionedPageProps,
+} from "./patterns/section-nav.tsx";
 export { ViewerShell, type ViewerShellProps } from "./patterns/viewer-shell.tsx";

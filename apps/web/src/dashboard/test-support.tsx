@@ -31,7 +31,7 @@ import {
   type ViewerInfo,
 } from "@portifact/contracts";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
@@ -895,6 +895,19 @@ function reviewRoute(
     });
   }
   const store = server.annotations[id];
+  if (rest === "/mode" && method === "PUT") {
+    // Like the Worker: the owner's artifact takes the new mode, with or without threads.
+    const owned = server.artifacts.find((a) => a.id === id);
+    if (!owned) return missing();
+    const mode = (server.bodies.at(-1) as { mode?: AnnotationsState } | undefined)?.mode;
+    if (!mode) return apiError("invalid_input", 400);
+    owned.annotations = mode;
+    if (store) {
+      store.mode = mode;
+      store.seq += 1;
+    }
+    return Response.json({ annotations: mode });
+  }
   if (!store) return missing();
   const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
   const touch = (thread: FakeAnnotations["threads"][number]) => {
@@ -959,11 +972,6 @@ function reviewRoute(
       },
       threads,
     });
-  }
-  if (rest === "/mode" && method === "PUT") {
-    store.mode = body?.mode as AnnotationsState;
-    store.seq += 1;
-    return Response.json({ annotations: store.mode });
   }
   if (rest === "/threads" && method === "POST") {
     store.seq += 1;
@@ -1126,4 +1134,27 @@ export function renderDashboard(
     />,
   );
   return { ...view, left, saved, router, queryClient };
+}
+
+/** Opens the select named `name` and chooses the option labelled `option`, as a pointer would. */
+export function choose(name: string, option: string): void {
+  fireEvent.click(screen.getByRole("combobox", { name }));
+  fireEvent.click(
+    within(screen.getByRole("listbox", { name })).getByRole("option", { name: option }),
+  );
+}
+
+/** The labels of a select's options and the chosen one, read from its open list. */
+export function selectOptions(name: string): { options: string[]; chosen: string | undefined } {
+  const trigger = screen.getByRole("combobox", { name });
+  fireEvent.click(trigger);
+  const options = within(screen.getByRole("listbox", { name })).getAllByRole("option");
+  const result = {
+    options: options.map((option) => option.textContent ?? ""),
+    chosen:
+      options.find((option) => option.getAttribute("aria-selected") === "true")?.textContent ??
+      undefined,
+  };
+  fireEvent.keyDown(trigger, { key: "Escape" });
+  return result;
 }

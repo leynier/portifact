@@ -38,7 +38,8 @@ export function Panel({
       className="scroll-mt-6 rounded-lg border border-border bg-canvas shadow-sm"
     >
       <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-5 pt-5">
-        <div className="min-w-0 flex-1">
+        {/* The title keeps a readable width; on narrow screens the actions wrap below it. */}
+        <div className="min-w-0 flex-1 basis-56">
           <Heading id={headingId} className="text-base font-semibold tracking-tight">
             {title}
           </Heading>

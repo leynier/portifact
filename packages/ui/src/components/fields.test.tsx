@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axeViolations } from "../testing/axe.ts";
-import { Checkbox, RadioGroup, Select, TextInput } from "./fields.tsx";
+import { Checkbox, RadioGroup, TextInput } from "./fields.tsx";
 
 afterEach(cleanup);
 
@@ -112,81 +112,5 @@ describe("RadioGroup", () => {
       />,
     );
     expect(screen.getByRole("group", { name: "Mode" })).toHaveProperty("disabled", true);
-  });
-});
-
-describe("Select", () => {
-  const options = [
-    { value: "any", label: "Any state" },
-    { value: "active", label: "Active" },
-    { value: "archived", label: "Archived" },
-  ] as const;
-
-  it("is named by its label, shows the chosen option and reports a new choice", async () => {
-    const onChange = vi.fn();
-    const { container } = render(
-      <Select
-        label="State"
-        description="Drafts are never listed"
-        value="active"
-        options={options}
-        onChange={onChange}
-      />,
-    );
-    const select = screen.getByRole("combobox", { name: "State" }) as HTMLSelectElement;
-    expect(select.value).toBe("active");
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
-      "Any state",
-      "Active",
-      "Archived",
-    ]);
-    expect(describedText(select)).toBe("Drafts are never listed");
-    fireEvent.change(select, { target: { value: "archived" } });
-    expect(onChange).toHaveBeenCalledWith("archived");
-    expect(await axeViolations(container)).toEqual([]);
-  });
-
-  it("marks itself invalid with the error linked, and can be disabled", async () => {
-    const { container } = render(
-      <Select
-        label="State"
-        value="any"
-        options={options}
-        onChange={() => {}}
-        error="Choose a state"
-        disabled
-      />,
-    );
-    const select = screen.getByRole("combobox", { name: "State" });
-    expect(select.getAttribute("aria-invalid")).toBe("true");
-    expect(describedText(select)).toBe("Choose a state");
-    expect((select as HTMLSelectElement).disabled).toBe(true);
-    expect(await axeViolations(container)).toEqual([]);
-  });
-
-  it("ignores a value that is not one of its options", () => {
-    const onChange = vi.fn();
-    render(<Select label="State" value="any" options={options} onChange={onChange} />);
-    const select = screen.getByRole("combobox", { name: "State" }) as HTMLSelectElement;
-    const forged = document.createElement("option");
-    forged.value = "deleted";
-    select.append(forged);
-    fireEvent.change(select, { target: { value: "deleted" } });
-    expect(onChange).not.toHaveBeenCalled();
-  });
-
-  it("keeps a hidden label as the accessible name", async () => {
-    const { container } = render(
-      <Select
-        label="State of ana"
-        labelVisible={false}
-        value="any"
-        options={options}
-        onChange={() => {}}
-      />,
-    );
-    const select = screen.getByRole("combobox", { name: "State of ana" }) as HTMLSelectElement;
-    expect(select.labels[0]?.className).toBe("sr-only");
-    expect(await axeViolations(container)).toEqual([]);
   });
 });

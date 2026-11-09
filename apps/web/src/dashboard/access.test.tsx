@@ -4,7 +4,14 @@ import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { publicAvailableFrom, settingsChange } from "./screens/access-settings.tsx";
-import { artifact, type FakeServer, fakeServer, renderDashboard } from "./test-support.tsx";
+import {
+  artifact,
+  choose,
+  type FakeServer,
+  fakeServer,
+  renderDashboard,
+  selectOptions,
+} from "./test-support.tsx";
 
 afterEach(cleanup);
 
@@ -31,9 +38,14 @@ beforeEach(() => {
   server.access[ID] = { ...POLICY, readers: [...POLICY.readers] };
 });
 
-const accessRegion = async () => screen.findByRole("region", { name: "Access" });
+// The first render loads the artifact page's chunks, which takes over a second on a busy CI runner.
+const accessRegion = async () =>
+  screen.findByRole("region", { name: "Access" }, { timeout: 10_000 });
 const radio = (name: string) => screen.getByRole("radio", { name }) as HTMLInputElement;
 const save = () => fireEvent.click(screen.getByRole("button", { name: "Save access" }));
+const saveLink = () => fireEvent.click(screen.getByRole("button", { name: "Save link settings" }));
+const saveComments = () =>
+  fireEvent.click(screen.getByRole("button", { name: "Save comment settings" }));
 const patches = () => server.requests.filter((r) => r.method === "PATCH");
 const emailField = () => screen.getByRole("textbox", { name: "Email address" }) as HTMLInputElement;
 
@@ -55,10 +67,12 @@ describe("access settings", () => {
     expect(region.textContent).toContain("republishing never opens an artifact to more people");
     expect(radio("Public: anyone with the link").disabled).toBe(false);
 
-    const indexable = screen.getByRole("checkbox", { name: "Let search engines list it" });
+    // How the link opens is its own group, saved on its own.
+    const link = screen.getByRole("region", { name: "Link settings" });
+    const indexable = within(link).getByRole("checkbox", { name: "Let search engines list it" });
     expect((indexable as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByRole("checkbox", { name: "Let other sites embed it" })).toBeTruthy();
-    expect(region.textContent).toContain("Only applies while the artifact is public.");
+    expect(within(link).getByRole("checkbox", { name: "Let other sites embed it" })).toBeTruthy();
+    expect(link.textContent).toContain("Only applies while the artifact is public.");
     const bar = screen.getByRole("checkbox", { name: "Show the Portifact bar" });
     expect((bar as HTMLInputElement).checked).toBe(true);
 
@@ -77,8 +91,14 @@ describe("access settings", () => {
     await accessRegion();
     await screen.findByRole("group", { name: "Who can open this artifact" });
     fireEvent.click(screen.getByRole("checkbox", { name: "Show the Portifact bar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save access" }));
+    // The group says it has unsaved changes until it is saved.
+    expect(
+      within(screen.getByRole("region", { name: "Link settings" })).getByText("Unsaved changes"),
+    ).toBeTruthy();
+    saveLink();
     await waitFor(() => expect(server.bodies.at(-1)).toEqual({ bar: false }));
+    expect(await screen.findByText("Link settings saved.")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Unsaved changes")).toBeNull());
     await waitFor(() => expect(server.access[ID]?.bar).toBe(false));
   });
 
@@ -87,6 +107,7 @@ describe("access settings", () => {
     await accessRegion();
     await screen.findByRole("group", { name: "Who can open this artifact" });
     fireEvent.click(radio("Anyone signed in to Portifact"));
+    // A choice in another group is not sent with this one.
     fireEvent.click(screen.getByRole("checkbox", { name: "Let search engines list it" }));
     save();
 
@@ -94,7 +115,7 @@ describe("access settings", () => {
       await screen.findByText(/Access saved\. Anyone who can no longer open the artifact/),
     ).toBeTruthy();
     expect(patches()).toEqual([{ method: "PATCH", path: `/api/v1/artifacts/${ID}/access` }]);
-    expect(server.bodies.at(-1)).toEqual({ mode: "authenticated", indexable: true });
+    expect(server.bodies.at(-1)).toEqual({ mode: "authenticated" });
     expect(radio("Anyone signed in to Portifact").checked).toBe(true);
     const facts = screen.getByRole("region", { name: "Details" });
     await waitFor(() => expect(facts.textContent).toContain("Anyone signed in to Portifact"));
@@ -102,7 +123,7 @@ describe("access settings", () => {
 
   it("explains who sees comments, defaults to the owner and saves a change to everyone", async () => {
     const { container } = renderDashboard(PATH, server);
-    const region = await accessRegion();
+    const region = await screen.findByRole("region", { name: "Comment settings" });
     await within(region).findByRole("group", { name: "Who sees comments" });
     const ownerOnly = radio("Only you, and each person their own");
     expect(ownerOnly.checked).toBe(true);
@@ -111,7 +132,7 @@ describe("access settings", () => {
     );
     expect(region.textContent).toContain("You can make an exception for a person you added");
     fireEvent.click(radio("Everyone who can open the artifact"));
-    save();
+    saveComments();
     // Widening is retroactive, so it is confirmed first; cancelling sends nothing.
     const dialog = await screen.findByRole("dialog", { name: "Show every comment to everyone?" });
     expect(dialog.textContent).toContain(
@@ -120,13 +141,13 @@ describe("access settings", () => {
     expect(await axeViolations(container)).toEqual([]);
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(patches()).toEqual([]);
-    save();
+    saveComments();
     fireEvent.click(
       within(
         await screen.findByRole("dialog", { name: "Show every comment to everyone?" }),
       ).getByRole("button", { name: "Show all comments" }),
     );
-    await screen.findByText(/Access saved/);
+    await screen.findByText("Comment settings saved.");
     expect(server.bodies.at(-1)).toEqual({ commentVisibility: "everyone" });
     expect(server.access[ID]?.commentVisibility).toBe("everyone");
     expect(await axeViolations(container)).toEqual([]);
@@ -135,14 +156,15 @@ describe("access settings", () => {
   it("sets and clears one reader's exception from the list, following the artifact's default", async () => {
     const { container } = renderDashboard(PATH, server);
     await accessRegion();
-    const select = (await screen.findByRole("combobox", {
-      name: "Comments ana@example.com sees",
-    })) as HTMLSelectElement;
-    expect(select.value).toBe("inherit");
-    expect(select.selectedOptions[0]?.textContent).toBe("Default: own and yours");
+    const name = "Comments ana@example.com sees";
+    await screen.findByRole("combobox", { name });
+    expect(selectOptions(name)).toEqual({
+      options: ["Default: own and yours", "All comments", "Only own and yours"],
+      chosen: "Default: own and yours",
+    });
     expect(await axeViolations(container)).toEqual([]);
 
-    fireEvent.change(select, { target: { value: "all" } });
+    choose(name, "All comments");
     // Showing one reader every comment is retroactive too: confirmed first, cancel keeps it.
     const dialog = await screen.findByRole("dialog", {
       name: "Show ana@example.com every comment?",
@@ -150,8 +172,8 @@ describe("access settings", () => {
     expect(dialog.textContent).toContain("including comments already written");
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(patches()).toEqual([]);
-    expect(select.value).toBe("inherit");
-    fireEvent.change(select, { target: { value: "all" } });
+    expect(selectOptions(name).chosen).toBe("Default: own and yours");
+    choose(name, "All comments");
     fireEvent.click(
       within(
         await screen.findByRole("dialog", { name: "Show ana@example.com every comment?" }),
@@ -164,9 +186,9 @@ describe("access settings", () => {
     expect(server.access[ID]?.readerCommentVisibility).toEqual([
       { email: "ana@example.com", commentVisibility: "all" },
     ]);
-    await waitFor(() => expect(select.value).toBe("all"));
+    await waitFor(() => expect(selectOptions(name).chosen).toBe("All comments"));
 
-    fireEvent.change(select, { target: { value: "inherit" } });
+    choose(name, "Default: own and yours");
     await screen.findByText("ana@example.com now sees: Default: own and yours.");
     expect(server.access[ID]?.readerCommentVisibility).toEqual([]);
   });
@@ -174,17 +196,80 @@ describe("access settings", () => {
   it("names the everyone default in a reader's menu when comments are open to all", async () => {
     server.access[ID] = { ...POLICY, commentVisibility: "everyone" };
     renderDashboard(PATH, server);
-    const select = (await screen.findByRole("combobox", {
-      name: "Comments ana@example.com sees",
-    })) as HTMLSelectElement;
-    expect(select.selectedOptions[0]?.textContent).toBe("Default: all comments");
+    const name = "Comments ana@example.com sees";
+    await screen.findByRole("combobox", { name });
+    expect(selectOptions(name).chosen).toBe("Default: all comments");
     // Narrowing needs no confirmation.
-    fireEvent.change(select, { target: { value: "own" } });
+    choose(name, "Only own and yours");
     await screen.findByText("ana@example.com now sees: Only own and yours.");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(server.access[ID]?.readerCommentVisibility).toEqual([
       { email: "ana@example.com", commentVisibility: "own" },
     ]);
+  });
+
+  it("turns comments off and locks them from the artifact page", async () => {
+    const { container } = renderDashboard(PATH, server);
+    const region = await screen.findByRole("region", { name: "Comment settings" });
+    await within(region).findByRole("group", { name: "Comments on this artifact" });
+    expect(radio("Off").checked).toBe(true);
+    expect(region.textContent).toContain("Comments stay readable; nobody can add new ones.");
+    fireEvent.click(radio("Open"));
+    saveComments();
+    await screen.findByText("Comment settings saved.");
+    expect(server.requests).toContainEqual({
+      method: "PUT",
+      path: `/api/v1/artifacts/${ID}/annotations/mode`,
+    });
+    expect(server.bodies.at(-1)).toEqual({ mode: "open" });
+    // The artifact itself now says comments are open, and the form follows it.
+    await waitFor(() => expect(server.artifacts[0]?.annotations).toBe("open"));
+    await waitFor(() => expect(radio("Open").checked).toBe(true));
+    expect(patches()).toEqual([]);
+
+    fireEvent.click(radio("Locked"));
+    saveComments();
+    await waitFor(() => expect(server.artifacts[0]?.annotations).toBe("locked"));
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("says nothing changed in the comment group without sending anything", async () => {
+    renderDashboard(PATH, server);
+    await screen.findByRole("group", { name: "Comments on this artifact" });
+    saveComments();
+    expect(
+      await screen.findByText("Nothing to save: comments are already set this way."),
+    ).toBeTruthy();
+    saveLink();
+    expect(
+      await screen.findByText("Nothing to save: the link is already set this way."),
+    ).toBeTruthy();
+    expect(server.requests.filter((r) => r.method !== "GET")).toEqual([]);
+  });
+
+  it("explains why a comment change was refused", async () => {
+    server.fail("PUT", `/api/v1/artifacts/${ID}/annotations/mode`, {
+      status: 403,
+      code: "forbidden",
+    });
+    renderDashboard(PATH, server);
+    await screen.findByRole("group", { name: "Comments on this artifact" });
+    fireEvent.click(radio("Open"));
+    saveComments();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Comment settings were not saved");
+  });
+
+  it("loads the policy again when the artifact's access changed elsewhere", async () => {
+    const { queryClient } = renderDashboard(PATH, server);
+    await screen.findByRole("group", { name: "Who can open this artifact" });
+    expect(radio("Only you and the people you add").checked).toBe(true);
+    // The CLI made it public; the artifact refreshes on its own, the policy does not.
+    server.access[ID] = { ...POLICY, mode: "public", policyGeneration: 5 };
+    const owned = server.artifacts[0];
+    if (owned) owned.accessMode = "public";
+    await queryClient.invalidateQueries({ queryKey: ["artifact", ID], exact: true });
+    await waitFor(() => expect(radio("Public: anyone with the link").checked).toBe(true));
   });
 
   it("does not send anything when nothing changed", async () => {
@@ -304,7 +389,7 @@ describe("access settings", () => {
       2,
     );
     renderDashboard(PATH, server);
-    const region = await accessRegion();
+    const region = await screen.findByRole("region", { name: "Sharing" });
     const alert = await within(region).findByRole("alert", {}, RETRIED);
     expect(alert.textContent).toContain("Access settings could not be loaded");
     fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));

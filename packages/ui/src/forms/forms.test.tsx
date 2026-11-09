@@ -64,7 +64,41 @@ function Example({ onSubmit }: { onSubmit(values: Values): Promise<void> | void 
   );
 }
 
+function SearchExample({ onSubmit }: { onSubmit(values: { search: string }): void }) {
+  const form = useAppForm({
+    defaultValues: { search: "" },
+    onSubmit: ({ value }) => onSubmit(value),
+  });
+  return (
+    <form.AppForm>
+      <form.Form label="Find">
+        <form.AppField name="search">
+          {(field) => <field.SearchField label="Search" clearLabel="Clear the search" />}
+        </form.AppField>
+      </form.Form>
+    </form.AppForm>
+  );
+}
+
 describe("form hook", () => {
+  it("submits a search on Enter and ends it with the clear button, keeping focus in the box", async () => {
+    const onSubmit = vi.fn();
+    const { container } = render(<SearchExample onSubmit={onSubmit} />);
+    const search = screen.getByRole("searchbox", { name: "Search" });
+    // Nothing to clear while it is empty.
+    expect(screen.queryByRole("button", { name: "Clear the search" })).toBeNull();
+    fireEvent.change(search, { target: { value: "launch" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Find" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenLastCalledWith({ search: "launch" }));
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear the search" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenLastCalledWith({ search: "" }));
+    expect((search as HTMLInputElement).value).toBe("");
+    expect(document.activeElement).toBe(search);
+    expect(screen.queryByRole("button", { name: "Clear the search" })).toBeNull();
+  });
+
   it("submits the values of every bound field", async () => {
     const onSubmit = vi.fn();
     render(<Example onSubmit={onSubmit} />);
@@ -77,9 +111,8 @@ describe("form hook", () => {
     });
     fireEvent.click(screen.getByRole("radio", { name: "B" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Indexable" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Kind" }), {
-      target: { value: "site" },
-    });
+    fireEvent.click(screen.getByRole("combobox", { name: "Kind" }));
+    fireEvent.click(screen.getByRole("option", { name: "Site" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(onSubmit).toHaveBeenCalledWith({

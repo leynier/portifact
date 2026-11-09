@@ -16,6 +16,8 @@ Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard
 - Everything that works with a pointer works with a keyboard, in a logical order.
 - Focus is always visible, using the focus token, and never hidden behind sticky headers.
 - Dialogs and menus trap focus while open, close with Escape and return focus to the control that opened them.
+- Selects follow the WAI-ARIA select-only combobox pattern: focus stays on the trigger, the active option is announced through `aria-activedescendant`, and the keys of a native select work (arrows, Home, End, Page keys, typeahead, Enter, Space, Escape, Tab).
+- A card or row that takes a press anywhere uses one real link or label stretched over it, never nested interactive elements, and keeps its own controls above it.
 - Pages provide a skip link to the main content.
 - Shortcuts never override browser or assistive technology keys and can be discovered from the UI.
 
@@ -58,6 +60,6 @@ Accessibility is tested like any other behavior. See [testing.md](testing.md).
 
 - Component tests query by role and accessible name, which also verifies the accessible name exists.
 - `vitest-axe` runs on every component story and state in `packages/ui`.
-- axe-core runs in real browsers in the end-to-end tests (`e2e/src/axe.ts`), in both themes, so contrast is checked too: `e2e/tests/design.spec.ts` covers the dashboard's main screens (list, artifact page, publish, history, account and the empty list) and the sign-in specs cover the auth pages. Any violation fails the build. Accessible names of controls start with their visible label (WCAG 2.5.3), which this check enforces.
+- axe-core runs in real browsers in the end-to-end tests (`e2e/src/axe.ts`), in both themes, so contrast is checked too: `e2e/tests/design.spec.ts` covers the dashboard's main screens (list, artifact page, publish, history, account and the empty list), `e2e/tests/dashboard-layout.spec.ts` the phone layout at 375 px, and the sign-in specs cover the auth pages. Any violation fails the build. Accessible names of controls start with their visible label (WCAG 2.5.3), which this check enforces.
 - End-to-end tests include keyboard-only paths: sign in, publish, change access, annotate text, annotate an element, reply and restore.
 - Automated tools find only part of the problems. Before release, run a manual check with the keyboard alone, with VoiceOver or NVDA, at 200% zoom and with reduced motion.
