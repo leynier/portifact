@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`golden output > is stable for renderer version 2 1`] = `
+exports[`golden output > is stable for renderer version 3 1`] = `
 {
   "blocks": [
     {
@@ -124,19 +124,27 @@ exports[`golden output > is stable for renderer version 2 1`] = `
       "tag": "p",
     },
     {
-      "end": 444,
-      "endLine": 23,
+      "end": 466,
+      "endLine": 24,
       "id": "b16",
       "start": 416,
       "startLine": 21,
       "tag": "code",
     },
     {
-      "end": 470,
-      "endLine": 27,
+      "end": 520,
+      "endLine": 29,
       "id": "b17",
-      "start": 451,
-      "startLine": 27,
+      "start": 468,
+      "startLine": 26,
+      "tag": "code",
+    },
+    {
+      "end": 546,
+      "endLine": 33,
+      "id": "b18",
+      "start": 527,
+      "startLine": 33,
       "tag": "p",
     },
   ],
@@ -173,12 +181,16 @@ a <a href="guide.md#setup">relative link</a>, <a href="http://www.example.com" r
 </table>
 </div>
 <p data-pf-block="b15"><img src="diagram.png" alt="Diagram"> <a href="https://cdn.example/r.png" rel="nofollow noopener noreferrer">Remote</a></p>
-<pre><code data-pf-block="b16" class="language-ts">const answer = 42;
+<pre><code data-pf-block="b16" class="language-ts"><span class="pf-tok-comment">// The answer</span>
+<span class="pf-tok-keyword">const</span> answer: <span class="pf-tok-type">number</span> = 42;
+</code></pre>
+<pre class="pf-mermaid" data-pf-diagram="Diagram" data-pf-diagram-source="Diagram source"><code data-pf-block="b17" class="language-mermaid">flowchart LR
+  A[Write] --&gt; B{Review}
 </code></pre>
 <hr>
 <section class="footnotes" aria-label="Footnotes">
 <ol>
-<li id="fn:1"><p data-pf-block="b17">The footnote. <a href="#fnref:1" class="footnote-backref" aria-label="Back to reference 1">↩︎</a></p>
+<li id="fn:1"><p data-pf-block="b18">The footnote. <a href="#fnref:1" class="footnote-backref" aria-label="Back to reference 1">↩︎</a></p>
 </li>
 </ol>
 </section>
@@ -186,7 +198,7 @@ a <a href="guide.md#setup">relative link</a>, <a href="http://www.example.com" r
 }
 `;
 
-exports[`golden output > is stable for renderer version 2 2`] = `
+exports[`golden output > is stable for renderer version 3 2`] = `
 "<pre class="pf-text">
 
 &lt;b&gt;&amp;&lt;/b&gt;

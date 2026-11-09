@@ -63,7 +63,12 @@ export async function renderDocument(
   const encoder = new TextEncoder();
   const outputs: { kind: Rendering["kind"]; contentType: string; text: string }[] = [];
   if (input.type === "markdown") {
-    const document = renderMarkdownDocument(source, { title: input.name, reportLink: true });
+    // Published pages draw their Mermaid blocks in the browser; the preview below does not.
+    const document = renderMarkdownDocument(source, {
+      title: input.name,
+      reportLink: true,
+      liveDiagrams: true,
+    });
     outputs.push({ kind: "rendered", contentType: HTML, text: document.html });
     outputs.push({
       kind: "block_map",

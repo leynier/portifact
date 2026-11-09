@@ -4,7 +4,7 @@
  * change, so annotation anchors made against an older rendering can be detected (plan section 8,
  * "Anclas").
  */
-export const RENDERER_VERSION = "2";
+export const RENDERER_VERSION = "3";
 
 /**
  * Oldest renderer version without a known security flaw. Published documents are rendered once

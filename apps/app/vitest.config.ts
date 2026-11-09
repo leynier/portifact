@@ -15,6 +15,16 @@ export default defineConfig(async () => {
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
+          // highlight.js's grammars (packages/render) load from disk as plain ES modules instead
+          // of through Vite: the pool sends every module Vite transformed for a test file in one
+          // WebSocket message, which workerd caps at 32 MiB, and this suite's graph is close to it.
+          modulesRules: [
+            {
+              type: "ESModule",
+              include: ["**/highlight.js/es/core.js", "**/highlight.js/es/languages/*.js"],
+            },
+            { type: "CommonJS", include: ["**/highlight.js/lib/core.js"] },
+          ],
           bindings: {
             // Fixed values that only exist in local tests. Real secrets use wrangler secret.
             BETTER_AUTH_SECRET: "test-only-secret-not-used-anywhere-else-0123456789",

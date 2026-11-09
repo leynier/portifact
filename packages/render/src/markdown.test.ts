@@ -117,7 +117,11 @@ describe("CommonMark and GFM", () => {
 
   it("uses translated labels and escapes them", () => {
     const root = dom("x[^1]\n\n[^1]: y\n", {
-      labels: { footnotes: 'Notas "<b>"', backToReference: (n) => `Volver a la referencia ${n}` },
+      labels: {
+        ...DEFAULT_LABELS,
+        footnotes: 'Notas "<b>"',
+        backToReference: (n) => `Volver a la referencia ${n}`,
+      },
     });
     expect(attr(byTag(root, "section")[0] ?? (root as never), "aria-label")).toBe('Notas "<b>"');
     expect(byTag(root, "b")).toHaveLength(0);
@@ -266,5 +270,52 @@ describe("determinism", () => {
     const first = renderMarkdown("# A\n\nx[^1]\n\n[^1]: y");
     renderMarkdown("# A\n# A\n\nz[^2]\n\n[^2]: w");
     expect(renderMarkdown("# A\n\nx[^1]\n\n[^1]: y")).toEqual(first);
+  });
+});
+
+describe("Mermaid blocks", () => {
+  const SOURCE = '# Flow\n\n```mermaid\nflowchart LR\n  A["<b>x</b>"] --> B\n```\n\nafter\n';
+
+  it("render as their source in a code block the diagram script draws", () => {
+    const { html, diagrams } = renderMarkdown(SOURCE);
+    const root = fragment(html);
+    const [pre] = byTag(root, "pre");
+    expect(diagrams).toBe(1);
+    expect(pre && attr(pre, "class")).toBe("pf-mermaid");
+    expect(pre && attr(pre, "data-pf-diagram")).toBe("Diagram");
+    expect(pre && attr(pre, "data-pf-diagram-source")).toBe("Diagram source");
+    const [code] = byTag(pre ?? root, "code");
+    expect(code && [attr(code, "class"), attr(code, "data-pf-block")]).toEqual([
+      "language-mermaid",
+      "b2",
+    ]);
+    expect(text(code ?? root)).toBe('flowchart LR\n  A["<b>x</b>"] --> B\n');
+    expect(byTag(root, "b")).toHaveLength(0);
+    expect(byTag(code ?? root, "span")).toHaveLength(0);
+  });
+
+  it("are found whatever the case of the language and the rest of the info string", () => {
+    expect(renderMarkdown("```Mermaid title\ngraph TD\n```\n\n```MERMAID\npie\n```").diagrams).toBe(
+      2,
+    );
+    expect(renderMarkdown("```mermaidx\ngraph TD\n```\n\n    mermaid\n\n`mermaid`").diagrams).toBe(
+      0,
+    );
+  });
+
+  it("keep the block map of the same fence as plain code", () => {
+    const plain = renderMarkdown(SOURCE.replace("mermaid", "zzzzzzz"));
+    expect(renderMarkdown(SOURCE).blocks).toEqual(plain.blocks);
+    expect(renderMarkdown(SOURCE).headings).toEqual(plain.headings);
+  });
+
+  it("carry translated labels, escaped", () => {
+    const root = dom("```mermaid\ngraph TD\n```", {
+      labels: { ...DEFAULT_LABELS, diagram: 'Diagrama "<i>"', diagramSource: "Código & más" },
+    });
+    const [pre] = byTag(root, "pre");
+    expect(pre && attr(pre, "data-pf-diagram")).toBe('Diagrama "<i>"');
+    expect(pre && attr(pre, "data-pf-diagram-source")).toBe("Código & más");
+    expect(byTag(root, "i")).toHaveLength(0);
   });
 });

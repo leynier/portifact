@@ -202,6 +202,83 @@ const MARKDOWN_CSS = `
 }
 `;
 
+/**
+ * Highlighted code (`pf-tok-*` spans written by packages/render). Monochrome: keywords bold,
+ * types italic, strings and metadata muted, comments muted italic. No hue, in either theme.
+ */
+const CODE_CSS = `
+.pf-markdown :is(.pf-tok-keyword, .pf-tok-strong, .pf-tok-addition) {
+  font-weight: var(--pf-weight-bold);
+}
+
+.pf-markdown :is(.pf-tok-type, .pf-tok-emphasis) {
+  font-style: italic;
+}
+
+.pf-markdown :is(.pf-tok-string, .pf-tok-meta) {
+  color: var(--pf-color-text-muted);
+}
+
+.pf-markdown .pf-tok-comment {
+  color: var(--pf-color-text-muted);
+  font-style: italic;
+}
+
+.pf-markdown .pf-tok-subst {
+  color: var(--pf-color-text);
+  font-style: normal;
+}
+
+.pf-markdown .pf-tok-deletion {
+  text-decoration: line-through;
+}
+`;
+
+/**
+ * Mermaid diagrams drawn by the diagram script: the drawing in a frame, then a control that
+ * shows the source block, which stays in the page (folded) so annotations keep their text.
+ */
+const DIAGRAM_CSS = `
+.pf-markdown .pf-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--pf-space-3);
+  margin: 0 0 var(--pf-space-4);
+  padding: var(--pf-space-4);
+  border-radius: var(--pf-radius-sm);
+  border: var(--pf-border-width) solid var(--pf-color-border);
+  background: var(--pf-color-canvas);
+  overflow-x: auto;
+}
+
+.pf-markdown .pf-diagram img {
+  align-self: center;
+  max-width: 100%;
+  height: auto;
+}
+
+.pf-markdown .pf-diagram-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--pf-color-text-muted);
+  font: inherit;
+  font-size: var(--pf-text-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.pf-markdown .pf-diagram-toggle[aria-expanded="true"] {
+  color: var(--pf-color-text);
+}
+
+.pf-markdown .pf-mermaid.pf-diagram-folded {
+  display: none;
+}
+`;
+
 /** Plain text: exact characters, wrapped lines, monospace. */
 const TEXT_CSS = `
 .pf-text {
@@ -228,4 +305,5 @@ const CHROME_CSS = `
 `;
 
 /** Every rule the Markdown and TXT document viewers need, without the token declarations. */
-export const DOCUMENT_CSS = `${BASE_CSS}${MARKDOWN_CSS}${TEXT_CSS}${CHROME_CSS}`.trim();
+export const DOCUMENT_CSS =
+  `${BASE_CSS}${MARKDOWN_CSS}${CODE_CSS}${DIAGRAM_CSS}${TEXT_CSS}${CHROME_CSS}`.trim();
