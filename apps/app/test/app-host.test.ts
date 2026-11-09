@@ -1,4 +1,5 @@
 import { SELF } from "cloudflare:test";
+import { THEME_SCRIPT, THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { describe, expect, it } from "vitest";
 import { LOGIN_CSP, PAGE_CSP, withHumanCheck } from "../src/app-host.ts";
 import { createHarness, json, ORIGIN, SESSION_COOKIE } from "./harness.ts";
@@ -32,9 +33,21 @@ describe("auth pages on app.portifact.com", () => {
     });
   }
 
-  it("keeps the CSP strict: no inline code, no framing, no other origins", () => {
+  it("applies the stored theme on the auth pages with the one inline script the policy allows", async () => {
+    for (const path of ["/login", "/device", "/consent", "/report"]) {
+      const response = await get(path);
+      const html = await response.text();
+      expect(html.slice(0, html.indexOf("</head>")), path).toContain(
+        `<script>${THEME_SCRIPT}</script>`,
+      );
+      expect(html.match(/<script>/g), path).toHaveLength(1);
+      expect(response.headers.get("content-security-policy"), path).toContain(THEME_SCRIPT_HASH);
+    }
+  });
+
+  it("keeps the CSP strict: no inline code but the theme script, no framing, no other origins", () => {
     expect(PAGE_CSP).toContain("default-src 'none'");
-    expect(PAGE_CSP).toContain("script-src 'self'");
+    expect(PAGE_CSP).toContain(`script-src 'self' ${THEME_SCRIPT_HASH};`);
     expect(PAGE_CSP).toContain("frame-ancestors 'none'");
     expect(PAGE_CSP).not.toContain("unsafe");
     expect(PAGE_CSP).not.toMatch(/https?:/);

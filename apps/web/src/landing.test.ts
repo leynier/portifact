@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
+import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
+import { themeSwitcherClasses } from "@portifact/ui";
 import { describe, expect, it } from "vitest";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+const headers = readFileSync(new URL("../public/_headers", import.meta.url), "utf8");
 const readme = readFileSync(new URL("../../../readme.md", import.meta.url), "utf8");
 
 function decode(text: string): string {
@@ -200,6 +203,30 @@ describe("landing page", () => {
     for (const match of html.matchAll(/data-copy-target="([^"]+)"/g)) {
       expect(html).toContain(`id="${match[1]}"`);
     }
+  });
+
+  it("offers the System, Light and Dark theme with the design system's switcher markup", () => {
+    const switcher = /<fieldset data-theme-switcher\b[\s\S]*?<\/fieldset>/.exec(html)?.[0] ?? "";
+    expect(switcher).toContain('<legend class="mb-3 text-sm font-semibold">Theme</legend>');
+    expect(switcher).toContain(`class="${themeSwitcherClasses.group}"`);
+    const options = [
+      ...switcher.matchAll(
+        /<label class="([^"]+)"><input ([^>]+)\/>[\s\S]*?<\/svg>(\w+)<\/label>/g,
+      ),
+    ];
+    expect(options.map((match) => match[3])).toEqual(["System", "Light", "Dark"]);
+    for (const [, classes, input] of options) {
+      expect(classes).toBe(themeSwitcherClasses.option);
+      expect(input).toMatch(
+        /type="radio" name="theme" value="(system|light|dark)" class="sr-only"/,
+      );
+    }
+  });
+
+  it("allows the inline theme script in the landing page's policy and nothing else inline", () => {
+    const policy = /Content-Security-Policy: (.+)/.exec(headers)?.[1] ?? "";
+    expect(policy).toContain(`script-src 'self' ${THEME_SCRIPT_HASH};`);
+    expect(policy).not.toContain("unsafe");
   });
 
   it("shows the product as real screenshots, light and dark, at 1x and 2x, without layout shift", () => {

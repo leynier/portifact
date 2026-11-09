@@ -7,6 +7,7 @@ Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard
 - **Semantic HTML first.** Use native elements (`button`, `a`, `label`, `table`, headings, landmarks) before ARIA. Add ARIA only when no native element fits, and never contradict native semantics.
 - **Design system.** Accessible behavior lives in `packages/ui` components, built on Radix UI primitives, so screens inherit it. See [design.md](design.md). Do not rebuild a component in an app to change its behavior.
 - **Contrast.** Semantic color tokens meet 4.5:1 for text and 3:1 for large text, icons, focus indicators and control borders, in both light and dark themes. A token change that breaks contrast fails the check.
+- **Theme.** People can choose System, Light or Dark (`ThemeSwitcher`, a native radio group with a legend; "Theming" in [design.md](design.md)). System is the default, so the operating system's preference is respected until someone picks otherwise, and both themes are held to the same contrast.
 - **Color is never the only signal.** Status, errors, access mode and annotation state also use text or an icon. The palette is monochromatic (see [design.md](design.md)), so this is required by construction: states differ by icon, label, weight and border, never by tone alone.
 - **Motion.** Respect `prefers-reduced-motion`; no essential information is conveyed only through animation.
 - **Zoom and reflow.** Content works at 200% zoom and at 320 CSS pixels wide without horizontal scrolling, except data tables, which scroll inside their own region.

@@ -292,6 +292,7 @@
       "name": "@portifact/ui",
       "version": "0.0.0",
       "dependencies": {
+        "@portifact/contracts": "workspace:*",
         "@tanstack/react-form": "^1.28.0",
         "class-variance-authority": "^0.7.1",
         "lucide-react": "catalog:",

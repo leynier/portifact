@@ -4,7 +4,10 @@ import {
   Callout,
   LoadingState,
   SidebarAccount,
+  ThemedImage,
+  ThemeSwitcher,
   Toast,
+  useSidebarCollapsed,
 } from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
@@ -21,6 +24,27 @@ import { useUsage } from "./usage.tsx";
 export const ACCOUNT_QUERY = ["account"] as const;
 /** Where this browser remembers whether the sidebar is collapsed and how wide it is. */
 export const SIDEBAR_STORAGE_KEY = "portifact.dashboard.sidebar";
+/** The names of the theme choices, for every theme switcher of the dashboard. */
+export function themeLabels(t: ReturnType<typeof useT>) {
+  return { system: t("theme.system"), light: t("theme.light"), dark: t("theme.dark") };
+}
+
+/** The quick theme switch above the account: icons only, stacked in the collapsed rail. */
+function QuickTheme() {
+  const t = useT();
+  const collapsed = useSidebarCollapsed();
+  return (
+    <div className={collapsed ? "flex justify-center" : ""}>
+      <ThemeSwitcher
+        legend={t("theme.legend")}
+        labels={themeLabels(t)}
+        compact
+        orientation={collapsed ? "vertical" : "horizontal"}
+      />
+    </div>
+  );
+}
+
 /**
  * The visible notice while the platform's budget protection limits publishing (plan section 12).
  * It comes from the account's usage blocks, so the API, the CLI and MCP report the same thing.
@@ -131,35 +155,46 @@ export function Shell() {
       storageKey={SIDEBAR_STORAGE_KEY}
       brand={
         <Link to="/" aria-label={t("shell.home")} className="no-underline">
-          <picture>
-            <source media="(prefers-color-scheme: dark)" srcSet={wordmarkDark} />
-            <img src={wordmark} alt="" width={148} height={40} className="h-7 w-auto" />
-          </picture>
+          <ThemedImage
+            src={wordmark}
+            darkSrc={wordmarkDark}
+            alt=""
+            width={148}
+            height={40}
+            className="h-7 w-auto"
+          />
         </Link>
       }
       compactBrand={
         <Link to="/" aria-label={t("shell.home")} className="no-underline">
-          <picture>
-            <source media="(prefers-color-scheme: dark)" srcSet={symbolDark} />
-            <img src={symbol} alt="" width={32} height={32} className="size-8" />
-          </picture>
+          <ThemedImage
+            src={symbol}
+            darkSrc={symbolDark}
+            alt=""
+            width={32}
+            height={32}
+            className="size-8"
+          />
         </Link>
       }
       navigation={navigation}
       account={
-        account.data ? (
-          <SidebarAccount
-            name={account.data.name}
-            email={account.data.email}
-            profileLabel={t("shell.profileLink")}
-            renderProfileLink={(props) => <Link to="/profile" {...props} />}
-            signOutLabel={t("shell.signOut")}
-            signingOut={signOut.isPending}
-            onSignOut={() => signOut.mutate()}
-          />
-        ) : (
-          <span className="text-sm text-text-muted">{t("shell.loadingAccount")}</span>
-        )
+        <div className="flex flex-col gap-3">
+          <QuickTheme />
+          {account.data ? (
+            <SidebarAccount
+              name={account.data.name}
+              email={account.data.email}
+              profileLabel={t("shell.profileLink")}
+              renderProfileLink={(props) => <Link to="/profile" {...props} />}
+              signOutLabel={t("shell.signOut")}
+              signingOut={signOut.isPending}
+              onSignOut={() => signOut.mutate()}
+            />
+          ) : (
+            <span className="text-sm text-text-muted">{t("shell.loadingAccount")}</span>
+          )}
+        </div>
       }
     >
       <AnnounceContext.Provider value={announce}>

@@ -32,6 +32,18 @@ describe("design tokens", () => {
     expect(mediaDecls).toBe(forcedDecls);
   });
 
+  it("lets a chosen theme on the root win over the system theme", () => {
+    const light = css.indexOf(':root,\n[data-theme="light"]');
+    const forcedDark = css.lastIndexOf('[data-theme="dark"] {');
+    expect(light).toBeGreaterThan(-1);
+    // Same specificity as the light block, so the later block wins on the root.
+    expect(forcedDark).toBeGreaterThan(light);
+    // The system's dark theme never overrides a chosen Light theme.
+    expect(css).toContain(
+      '@media (prefers-color-scheme: dark) {\n  :root:not([data-theme="light"]) {',
+    );
+  });
+
   for (const theme of themes) {
     describe(`${theme} theme`, () => {
       const c = resolveColors(css, theme);
