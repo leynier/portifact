@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
+// A relative import, so Vite bundles the TypeScript source into the config.
+import { THEME_SCRIPT } from "../../packages/contracts/src/theme.ts";
 
 const repoFile = (path: string) => fileURLToPath(new URL(`../../${path}`, import.meta.url));
 
@@ -40,6 +42,17 @@ function repoAssets(): Plugin {
 }
 
 /**
+ * The theme script at the end of every page's `<head>`, so the stored theme applies before the
+ * body is painted. Its exact text is allowed by hash in the pages' CSP (`THEME_SCRIPT_HASH`).
+ */
+function themeScript(): Plugin {
+  return {
+    name: "portifact-theme-script",
+    transformIndexHtml: () => [{ tag: "script", children: THEME_SCRIPT, injectTo: "head" }],
+  };
+}
+
+/**
  * HTML entries: the landing, the legal pages and the MCP compatibility page on portifact.com,
  * and the dashboard and auth pages and the public report page on app.portifact.com.
  */
@@ -57,7 +70,7 @@ const pages = [
 ];
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), repoAssets()],
+  plugins: [react(), tailwindcss(), repoAssets(), themeScript()],
   server: { fs: { allow: ["../.."] } },
   build: {
     outDir: "dist",

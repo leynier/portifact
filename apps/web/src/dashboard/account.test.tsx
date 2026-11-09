@@ -371,7 +371,11 @@ describe("connected apps", () => {
 describe("section guides", () => {
   it.each([
     ["/profile", "Profile sections", ["Your account", "Sign-in methods", "Browser sessions"]],
-    ["/settings", "Settings sections", ["Defaults for new artifacts", "Your data", "Danger zone"]],
+    [
+      "/settings",
+      "Settings sections",
+      ["Appearance", "Defaults for new artifacts", "Your data", "Danger zone"],
+    ],
   ])("%s links each of its sections from an On this page guide", async (path, name, labels) => {
     const { container } = renderDashboard(path, server);
     const nav = await screen.findByRole("navigation", { name });

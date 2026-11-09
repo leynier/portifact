@@ -6,6 +6,7 @@ import {
   TURNSTILE_ORIGIN,
   TURNSTILE_SITE_KEY_META,
 } from "@portifact/contracts";
+import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { Hono } from "hono";
@@ -69,10 +70,11 @@ export const VIEWER_ROUTE = "/view/:artifactId";
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
 
 // Strict policy for the dashboard and the auth pages: only same-origin scripts, styles, images and requests,
-// no framing, no plugins and no base or form targets elsewhere.
+// no framing, no plugins and no base or form targets elsewhere. The one inline script allowed is
+// the theme script every page carries, by the hash of its exact text (`THEME_SCRIPT`).
 export const PAGE_CSP = [
   "default-src 'none'",
-  "script-src 'self'",
+  `script-src 'self' ${THEME_SCRIPT_HASH}`,
   "style-src 'self'",
   "img-src 'self'",
   "font-src 'self'",

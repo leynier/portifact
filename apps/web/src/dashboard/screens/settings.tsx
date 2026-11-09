@@ -8,7 +8,7 @@ import {
   type DefaultAnnotations,
   LIMITS,
 } from "@portifact/contracts";
-import { Callout, PageHeader, SectionedPage } from "@portifact/ui";
+import { Callout, PageHeader, SectionedPage, ThemeSwitcher } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Save } from "lucide-react";
@@ -18,7 +18,7 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { publicAvailableFrom } from "./access-settings.tsx";
 import { AccountData, DeleteAccount, Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
-import { ACCOUNT_QUERY } from "./shell.tsx";
+import { ACCOUNT_QUERY, themeLabels } from "./shell.tsx";
 
 export const SETTINGS_QUERY = ["account", "settings"] as const;
 
@@ -48,16 +48,32 @@ export function SettingsScreen() {
         label={t("settings.sectionsNav")}
         title={t("sections.title")}
         sections={[
+          { id: "appearance", label: t("settings.appearance.title") },
           { id: "defaults", label: t("settings.defaults.title") },
           { id: "data", label: t("account.data.title") },
           { id: "delete", label: t("settings.danger.title") },
         ]}
       >
+        <Appearance />
         <ArtifactDefaults />
         <AccountData />
         <DeleteAccount email={account?.email ?? ""} />
       </SectionedPage>
     </>
+  );
+}
+
+/** The theme for this browser: System, Light or Dark, applied at once and remembered here. */
+function Appearance() {
+  const t = useT();
+  return (
+    <Section
+      id="appearance"
+      title={t("settings.appearance.title")}
+      hint={t("settings.appearance.hint")}
+    >
+      <ThemeSwitcher legend={t("theme.legend")} labels={themeLabels(t)} />
+    </Section>
   );
 }
 
