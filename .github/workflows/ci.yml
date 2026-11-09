@@ -72,12 +72,27 @@ jobs:
   # Playwright end to end in Chromium, Firefox and WebKit (e2e/, docs/testing.md), with the
   # browsers' system libraries installed, so WebKit runs here even though it needs libraries
   # most workstations lack. On Linux WebKit has no partitioned cookies and covers the fallback.
+  # One job per Playwright project, in parallel: the suite runs with one worker per stack (the
+  # stack shares one D1, R2 and per-IP limits), so splitting by browser is what cuts the time.
+  # Each job installs only its own browser.
   e2e:
-    name: e2e
+    name: e2e (${{ matrix.project }})
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.e2e != 'false') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: chromium-3pc-blocked
+            browser: chromium
+          - project: firefox-chips
+            browser: firefox
+          - project: firefox-3pc-blocked
+            browser: firefox
+          - project: webkit
+            browser: webkit
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -87,14 +102,15 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
-      - name: Install the browsers and their system libraries
-        run: bun run --cwd e2e browsers --with-deps
-      - run: bun run test:e2e
+      - name: Install the browser and its system libraries
+        working-directory: e2e
+        run: bunx playwright install --with-deps ${{ matrix.browser }}
+      - run: bun run test:e2e -- --project=${{ matrix.project }}
       - name: Keep traces of failed tests
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-traces
+          name: e2e-traces-${{ matrix.project }}
           path: e2e/test-results/
           retention-days: 7
           if-no-files-found: ignore

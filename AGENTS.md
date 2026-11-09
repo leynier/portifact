@@ -69,7 +69,7 @@ bun run --cwd packages/db generate:access -- --name <change>   # create an acces
 bun run --cwd packages/ui sync-tokens   # regenerate tokens-css.ts after editing tokens.css
 bun run --cwd packages/render build     # build the diagram script (Mermaid and its runner) into packages/render/dist; turbo runs it before the content Worker's tasks and the e2e typecheck
 bun run --cwd packages/emails preview   # render every email to /tmp/portifact-email-previews (.html and .txt) for review
-bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit with third-party cookies blocked (see docs/testing.md); CI's e2e job runs it too
+bun run test:e2e       # Playwright end to end in Chromium, Firefox and WebKit with third-party cookies blocked (see docs/testing.md); CI runs it as one parallel job per project
 bun run test:mutation  # Stryker on domain, anchors, contracts, render and services, one package at a time (slow; see docs/testing.md)
 bun run landing:shots  # regenerate the landing page's product screenshots and CLI transcripts from the real app on the e2e stack (docs/design.md, "Landing page")
 bun run test:load      # load and concurrency scenarios against the local e2e Worker, or staging with --app-url (never production)
