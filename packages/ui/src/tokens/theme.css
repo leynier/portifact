@@ -30,6 +30,12 @@
   --font-sans: var(--pf-font-sans);
   --font-mono: var(--pf-font-mono);
 
+  /*
+   * The dashboard's page column (`max-w-page`): wide enough for grids of panels on large
+   * screens, aligned to the sidebar instead of centered. Prose inside keeps `max-w-3xl`.
+   */
+  --container-page: 88rem;
+
   --radius-xs: var(--pf-radius-xs);
   --radius-sm: var(--pf-radius-sm);
   --radius-md: var(--pf-radius-md);
@@ -378,4 +384,12 @@
 
 @utility pl-sidebar {
   padding-left: var(--pf-sidebar-width, 15rem);
+}
+
+/*
+ * A page's content beside its section guide ("On this page", `SectionedPage`): the content takes
+ * the free space and the guide a fixed column at the end.
+ */
+@utility grid-cols-guide {
+  grid-template-columns: minmax(0, 1fr) 13rem;
 }

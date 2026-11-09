@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { OAuthScope } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -225,23 +226,88 @@ describe("connected apps", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
-  it("shows each app with who made it, what it connects to and what it may do", async () => {
+  it("shows each app at a glance and keeps permissions and exact dates behind Details", async () => {
+    const hour = 3_600_000;
+    server.apps = [
+      connectedApp("portifact-cli", {
+        scopes: [...OAuthScope.options, "offline_access"],
+        lastIssuedAt: new Date(Date.now() - 2 * hour).toISOString(),
+      }),
+      connectedApp("mcp-client-1", {
+        name: "Claude Code",
+        firstParty: false,
+        resources: ["mcp"],
+        scopes: ["artifacts:read", "artifacts:share", "custom:thing"],
+        expiresAt: null,
+      }),
+    ];
+    const { container } = renderDashboard("/apps", server);
+    const apps = await region("Connected apps");
+    const card = (name: RegExp) =>
+      within(apps).getByRole("heading", { name }).closest("li") as HTMLElement;
+    await within(apps).findByRole("heading", { name: /Portifact CLI/ });
+    const cli = card(/Portifact CLI/);
+    const claude = card(/Claude Code/);
+
+    expect(cli.textContent).toContain("Made by Portifact");
+    expect(cli.textContent).toContain("Full access");
+    expect(cli.textContent).toContain("Connects to Portifact API");
+    expect(cli.textContent).toContain("Last used 2 hours ago");
+    expect(cli.textContent).toContain("Access expires Dec 1, 2026");
+    expect(claude.textContent).toContain("Third-party app");
+    expect(claude.textContent).toContain("2 of 7 permissions");
+    expect(claude.textContent).toContain("Connects to Portifact MCP");
+    expect(claude.textContent).toContain("Does not expire");
+    // The exact time stays available on the relative one.
+    const lastUsed = within(cli).getByText("Last used 2 hours ago");
+    expect(lastUsed.tagName).toBe("TIME");
+    expect(lastUsed.getAttribute("title")).toMatch(/2026/);
+
+    // The full list and exact dates wait in a closed disclosure, one per app.
+    const details = within(claude).getByText("Details").closest("details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.getAttribute("aria-label")).toBe(
+      "Details of Claude Code",
+    );
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(details.textContent).toContain("Change who can open your artifacts");
+    expect(details.textContent).toContain("Use the permission custom:thing");
+    expect(details.textContent).toContain("Approved on");
+    expect(details.textContent).toContain("Last token issued");
+
+    // Disconnect is one click away on each card.
+    expect(within(claude).getByRole("button", { name: "Disconnect Claude Code" })).toBeTruthy();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("sums up read-only and partial permissions, without counting staying connected", async () => {
+    server.apps = [
+      connectedApp("reader", {
+        name: "Reader",
+        firstParty: false,
+        scopes: ["artifacts:read", "annotations:read", "offline_access"],
+      }),
+      connectedApp("writer", { name: "Writer", firstParty: false, scopes: ["artifacts:write"] }),
+      connectedApp("idle", { name: "Idle", firstParty: false, scopes: ["offline_access"] }),
+    ];
     renderDashboard("/apps", server);
     const apps = await region("Connected apps");
-    const cli = (await within(apps).findByRole("heading", { name: /Portifact CLI/ })).closest("li");
-    const claude = within(apps)
-      .getByRole("heading", { name: /Claude Code/ })
-      .closest("li");
-    expect(cli?.textContent).toContain("Made by Portifact");
-    expect(cli?.textContent).toContain("Portifact API");
-    expect(cli?.textContent).toContain("See your artifacts, their settings and their versions");
-    expect(cli?.textContent).toContain("Stay connected until you disconnect it");
-    expect(cli?.textContent).toContain("Dec 1, 2026");
-    expect(claude?.textContent).toContain("Third-party app");
-    expect(claude?.textContent).toContain("Portifact MCP");
-    expect(claude?.textContent).toContain("Change who can open your artifacts");
-    expect(claude?.textContent).toContain("Use the permission custom:thing");
-    expect(claude?.textContent).toContain("Does not expire");
+    const summary = async (name: string) =>
+      ((await within(apps).findByRole("heading", { name })).closest("li") as HTMLElement)
+        .textContent;
+    expect(await summary("Reader")).toContain("Read only");
+    expect(await summary("Writer")).toContain("1 of 7 permissions");
+    expect(await summary("Idle")).toContain("0 of 7 permissions");
+  });
+
+  it("says how to connect another app with the CLI command and the MCP server URL", async () => {
+    renderDashboard("/apps", server);
+    const connect = await region("Connect an app");
+    expect(within(connect).getByText("portifact login")).toBeTruthy();
+    expect(within(connect).getByText(`${window.location.origin}/mcp`)).toBeTruthy();
+    expect(within(connect).getByRole("button", { name: "Copy command" })).toBeTruthy();
+    expect(within(connect).getByRole("button", { name: "Copy URL" })).toBeTruthy();
   });
 
   it("disconnects an app only after confirming and announces it", async () => {
@@ -299,6 +365,27 @@ describe("connected apps", () => {
     expect((await within(methods).findByRole("alert", {}, RETRIED)).textContent).toContain(
       "Sign-in methods could not be loaded",
     );
+  });
+});
+
+describe("section guides", () => {
+  it.each([
+    ["/profile", "Profile sections", ["Your account", "Sign-in methods", "Browser sessions"]],
+    ["/settings", "Settings sections", ["Defaults for new artifacts", "Your data", "Danger zone"]],
+  ])("%s links each of its sections from an On this page guide", async (path, name, labels) => {
+    const { container } = renderDashboard(path, server);
+    const nav = await screen.findByRole("navigation", { name });
+    expect(nav.textContent).toContain("On this page");
+    const links = within(nav).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual(labels);
+    for (const link of links) {
+      const target = document.getElementById(link.getAttribute("href")?.slice(1) ?? "");
+      expect(target?.getAttribute("aria-labelledby")).toBeTruthy();
+      expect(target?.textContent).toContain(link.textContent);
+    }
+    expect(links[0]?.getAttribute("aria-current")).toBe("true");
+    await waitFor(() => expect(screen.queryByText(/^Loading/)).toBeNull());
+    expect(await axeViolations(container)).toEqual([]);
   });
 });
 

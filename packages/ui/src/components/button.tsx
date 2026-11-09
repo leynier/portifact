@@ -12,6 +12,11 @@ export const buttonClasses = cva(
           "rounded-sm bg-surface-inverse text-text-inverse shadow-sm hover:opacity-85 disabled:hover:opacity-55",
         secondary:
           "rounded-sm border border-border-strong bg-canvas text-text hover:bg-surface-hover disabled:hover:bg-canvas aria-pressed:border-text aria-pressed:bg-surface-hover",
+        // A secondary action that ends or removes something, such as disconnecting an app: a
+        // dashed border at rest and the inverse fill on hover, never a hue. Pair it with an icon
+        // and a confirmation.
+        danger:
+          "rounded-sm border border-dashed border-border-strong bg-canvas text-text hover:border-solid hover:border-text hover:bg-surface-inverse hover:text-text-inverse disabled:hover:border-dashed disabled:hover:border-border-strong disabled:hover:bg-canvas disabled:hover:text-text",
         // Quiet actions in toolbars, rows and navigation; the label and icon carry them.
         ghost: "rounded-sm text-text hover:bg-surface-hover disabled:hover:bg-transparent",
         link: "text-text underline underline-offset-4 hover:decoration-2",

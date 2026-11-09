@@ -1,7 +1,7 @@
 // Sections of the account pages (plan section 6, "Cuenta"), shared by Profile, Apps and Settings:
 // how the user can sign in, the browsers signed in, the apps (CLI and MCP clients) that hold
 // tokens, the data export and account deletion, with the loading and error states they share.
-import type { BrowserSession, ConnectedApp } from "@portifact/contracts";
+import { type BrowserSession, type ConnectedApp, OAuthScope } from "@portifact/contracts";
 import {
   Badge,
   Button,
@@ -9,6 +9,7 @@ import {
   Callout,
   ConfirmDialog,
   DetailList,
+  Disclosure,
   EmptyState,
   LoadingState,
   Panel,
@@ -22,21 +23,26 @@ import {
 } from "@portifact/ui";
 import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Bot,
   Cable,
+  Check,
   CircleAlert,
   Download,
+  KeyRound,
   LogIn,
   LogOut,
   Monitor,
   Plug,
   RefreshCw,
+  ShieldCheck,
+  SquareTerminal,
   Trash2,
   Unplug,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { loginUrl } from "../../auth/query.ts";
 import { ACCOUNT_EXPORT_PATH, ApiFailure } from "../api.ts";
-import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
+import { useAnnounce, useDashboard, useFormatDate, useRelativeTime, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { describeUserAgent } from "../user-agent.ts";
 import { errorMessage } from "./artifact-list.tsx";
@@ -261,9 +267,34 @@ function appName(t: ReturnType<typeof useT>, app: ConnectedApp): string {
   return app.name?.trim() || t("account.apps.unnamed");
 }
 
+const PERMISSIONS: readonly string[] = OAuthScope.options;
+
+/**
+ * What an app may do, in a few words: every permission, only reading, or how many of them.
+ * Staying connected (`offline_access`) is how long, not what, so it does not count.
+ */
+function permissionSummary(t: ReturnType<typeof useT>, scopes: readonly string[]): string {
+  const granted = PERMISSIONS.filter((name) => scopes.includes(name));
+  if (granted.length === PERMISSIONS.length) return t("account.apps.access.full");
+  if (granted.length > 0 && granted.every((name) => name.endsWith(":read"))) {
+    return t("account.apps.access.readOnly");
+  }
+  return t("account.apps.access.partial", {
+    count: granted.length,
+    total: PERMISSIONS.length,
+  });
+}
+
+function scopeLabel(t: ReturnType<typeof useT>, name: string): string {
+  return name.startsWith("artifacts:") ||
+    name.startsWith("annotations:") ||
+    name === "offline_access"
+    ? t(`scope.${name}` as Parameters<typeof t>[0])
+    : t("scope.unknown", { name });
+}
+
 export function ConnectedApps() {
   const t = useT();
-  const formatDate = useFormatDate();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
@@ -282,11 +313,6 @@ export function ConnectedApps() {
     },
     onError: () => setConfirming(null),
   });
-
-  const scope = (name: string) =>
-    name.startsWith("artifacts:") || name.startsWith("annotations:") || name === "offline_access"
-      ? t(`scope.${name}` as Parameters<typeof t>[0])
-      : t("scope.unknown", { name });
 
   return (
     <Section id="apps" title={t("account.apps.title")} hint={t("account.apps.hint")}>
@@ -309,71 +335,16 @@ export function ConnectedApps() {
                 <p>{t("account.apps.empty.body")}</p>
               </EmptyState>
             ) : (
-              <ul className="flex flex-col gap-4">
+              // One card per app; two side by side once the column is wide enough.
+              <ul className="grid items-start gap-4 2xl:grid-cols-2">
                 {items.map((app) => (
-                  <li key={app.clientId} className="rounded-md border border-border bg-surface p-4">
-                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                      <h3 className="inline-flex flex-wrap items-center gap-2 text-base font-semibold">
-                        <span className="break-all">{appName(t, app)}</span>
-                        <Badge
-                          icon={<Plug className="size-3.5" />}
-                          emphasis={app.firstParty ? "normal" : "quiet"}
-                        >
-                          {t(
-                            app.firstParty ? "account.apps.firstParty" : "account.apps.thirdParty",
-                          )}
-                        </Badge>
-                      </h3>
-                      <Button
-                        size="sm"
-                        icon={<Unplug className="size-4" />}
-                        aria-label={t("account.apps.disconnectLabel", { name: appName(t, app) })}
-                        busy={
-                          disconnect.isPending && disconnect.variables?.clientId === app.clientId
-                        }
-                        disabled={disconnect.isPending}
-                        onClick={() => setConfirming(app)}
-                      >
-                        {t("account.apps.disconnect")}
-                      </Button>
-                    </div>
-                    <DetailList
-                      framed={false}
-                      layout="stacked"
-                      items={[
-                        {
-                          term: t("account.apps.resources"),
-                          detail: app.resources
-                            .map((resource) => t(`account.apps.resource.${resource}`))
-                            .join(", "),
-                        },
-                        {
-                          term: t("account.apps.scopes"),
-                          detail: (
-                            <ul className="list-disc pl-5">
-                              {app.scopes.map((name) => (
-                                <li key={name}>{scope(name)}</li>
-                              ))}
-                            </ul>
-                          ),
-                        },
-                        {
-                          term: t("account.apps.approved"),
-                          detail: formatDate(app.approvedAt, true),
-                        },
-                        {
-                          term: t("account.apps.lastIssued"),
-                          detail: formatDate(app.lastIssuedAt, true),
-                        },
-                        {
-                          term: t("account.apps.expires"),
-                          detail: app.expiresAt
-                            ? formatDate(app.expiresAt, true)
-                            : t("account.apps.noExpiry"),
-                        },
-                      ]}
-                    />
-                  </li>
+                  <AppCard
+                    key={app.clientId}
+                    app={app}
+                    busy={disconnect.isPending && disconnect.variables?.clientId === app.clientId}
+                    disabled={disconnect.isPending}
+                    onDisconnect={() => setConfirming(app)}
+                  />
                 ))}
               </ul>
             )}
@@ -394,6 +365,127 @@ export function ConnectedApps() {
         {t("account.apps.confirm.body")}
       </ConfirmDialog>
     </Section>
+  );
+}
+
+/**
+ * One connected app at a glance: what it is, who made it, what it reaches, how much it may do
+ * and when it was last used, with the full permissions and exact dates behind "Details".
+ */
+function AppCard({
+  app,
+  busy,
+  disabled,
+  onDisconnect,
+}: {
+  app: ConnectedApp;
+  busy: boolean;
+  disabled: boolean;
+  onDisconnect(): void;
+}) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  const relative = useRelativeTime();
+  const name = appName(t, app);
+  const resources = app.resources
+    .map((resource) => t(`account.apps.resource.${resource}`))
+    .join(", ");
+  const usesMcp = app.resources.includes("mcp");
+
+  return (
+    <li className="flex min-w-0 flex-col gap-3 rounded-md border border-border bg-surface p-4">
+      <div className="flex flex-wrap items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-border bg-canvas text-text"
+        >
+          {usesMcp ? <Bot className="size-5" /> : <SquareTerminal className="size-5" />}
+        </span>
+        <div className="min-w-0 flex-1 basis-40">
+          <h3 className="text-base font-semibold break-words">{name}</h3>
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            <Badge
+              icon={
+                app.firstParty ? (
+                  <ShieldCheck className="size-3.5" />
+                ) : (
+                  <Plug className="size-3.5" />
+                )
+              }
+              emphasis={app.firstParty ? "normal" : "quiet"}
+            >
+              {t(app.firstParty ? "account.apps.firstParty" : "account.apps.thirdParty")}
+            </Badge>
+            <Badge emphasis="subtle" icon={<KeyRound className="size-3.5" />}>
+              {permissionSummary(t, app.scopes)}
+            </Badge>
+          </div>
+        </div>
+        <Button
+          intent="danger"
+          size="sm"
+          icon={<Unplug className="size-4" />}
+          aria-label={t("account.apps.disconnectLabel", { name })}
+          busy={busy}
+          disabled={disabled}
+          onClick={onDisconnect}
+        >
+          {t("account.apps.disconnect")}
+        </Button>
+      </div>
+      <ul className="flex flex-col gap-1 text-sm text-text-muted">
+        {resources ? <li>{t("account.apps.connectsTo", { resources })}</li> : null}
+        <li>
+          <time dateTime={app.lastIssuedAt} title={formatDate(app.lastIssuedAt, true)}>
+            {t("account.apps.lastUsed", { when: relative(app.lastIssuedAt) })}
+          </time>
+        </li>
+        <li>
+          {app.expiresAt ? (
+            <time dateTime={app.expiresAt} title={formatDate(app.expiresAt, true)}>
+              {t("account.apps.expiresOn", { date: formatDate(app.expiresAt) })}
+            </time>
+          ) : (
+            t("account.apps.noExpiry")
+          )}
+        </li>
+      </ul>
+      <div className="border-t border-border pt-2">
+        <Disclosure
+          appearance="inline"
+          summary={t("account.apps.details")}
+          label={t("account.apps.detailsOf", { name })}
+        >
+          <DetailList
+            framed={false}
+            layout="stacked"
+            items={[
+              {
+                term: t("account.apps.scopes"),
+                detail: (
+                  <ul className="flex flex-col gap-1">
+                    {app.scopes.map((scope) => (
+                      <li key={scope} className="flex items-start gap-2">
+                        <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                        <span className="min-w-0 break-words">{scopeLabel(t, scope)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ),
+              },
+              { term: t("account.apps.approved"), detail: formatDate(app.approvedAt, true) },
+              { term: t("account.apps.lastIssued"), detail: formatDate(app.lastIssuedAt, true) },
+              {
+                term: t("account.apps.expires"),
+                detail: app.expiresAt
+                  ? formatDate(app.expiresAt, true)
+                  : t("account.apps.noExpiry"),
+              },
+            ]}
+          />
+        </Disclosure>
+      </div>
+    </li>
   );
 }
 

@@ -57,6 +57,18 @@ describe("Button", () => {
     expect(buttonClasses({ intent: "link", size: "inline" })).toContain("underline");
     expect(buttonClasses()).toContain("border-border-strong");
   });
+
+  it("draws a destructive secondary action without a hue, and stays accessible", async () => {
+    const { container } = render(
+      <Button intent="danger" size="sm" icon={<Icon />}>
+        Disconnect
+      </Button>,
+    );
+    expect(buttonClasses({ intent: "danger" })).toContain("border-dashed");
+    expect(buttonClasses({ intent: "danger" })).toContain("hover:bg-surface-inverse");
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeDefined();
+    expect(await axeViolations(container)).toEqual([]);
+  });
 });
 
 describe("Badge", () => {
@@ -248,5 +260,41 @@ describe("Disclosure", () => {
       </Disclosure>,
     );
     expect((container.querySelector("details") as HTMLDetailsElement).open).toBe(true);
+  });
+
+  it("has an inline look for cards, named by its label when the summary repeats", async () => {
+    const onToggle = vi.fn();
+    const { container } = render(
+      <ul>
+        <li>
+          <Disclosure
+            appearance="inline"
+            summary="Details"
+            label="Details of Claude"
+            onToggle={onToggle}
+          >
+            <p>Read your artifacts</p>
+          </Disclosure>
+        </li>
+        <li>
+          <Disclosure appearance="inline" summary="Details" label="Details of Codex">
+            <p>Publish</p>
+          </Disclosure>
+        </li>
+      </ul>,
+    );
+    const summaries = [...container.querySelectorAll("summary")];
+    expect(summaries.map((summary) => summary.getAttribute("aria-label"))).toEqual([
+      "Details of Claude",
+      "Details of Codex",
+    ]);
+    expect(summaries.map((summary) => summary.textContent)).toEqual(["Details", "Details"]);
+    const details = container.querySelector("details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.className).not.toContain("border");
+    details.open = true;
+    fireEvent(details, new Event("toggle"));
+    expect(onToggle).toHaveBeenLastCalledWith(true);
+    expect(await axeViolations(container)).toEqual([]);
   });
 });

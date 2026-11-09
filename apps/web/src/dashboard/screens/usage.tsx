@@ -59,7 +59,7 @@ export function UsageScreen() {
   useDocumentTitle(t("usage.title"));
   const usage = useUsage();
   return (
-    <div className="flex max-w-4xl flex-col gap-6">
+    <div className="flex flex-col gap-6">
       <PageHeader title={t("usage.title")} description={t("usage.description")} />
       <Loaded query={usage} loading={t("usage.loading")} error={t("usage.error")}>
         {(view) => <UsageDetails usage={view} />}
@@ -68,8 +68,13 @@ export function UsageScreen() {
   );
 }
 
-function MeterGrid({ children }: { children: ReactNode }) {
-  return <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2">{children}</div>;
+/** Meters side by side: two columns, or three in a panel that spans the page (`wide`). */
+function MeterGrid({ wide = false, children }: { wide?: boolean; children: ReactNode }) {
+  return (
+    <div className={`grid gap-x-8 gap-y-6 sm:grid-cols-2 ${wide ? "xl:grid-cols-3" : ""}`}>
+      {children}
+    </div>
+  );
 }
 
 /** Every quota of the account, grouped by what it limits. */
@@ -135,105 +140,118 @@ export function UsageDetails({ usage }: { usage: AccountUsageView }) {
           </ul>
         </Callout>
       ) : null}
-      <Section id="traffic" title={t("usage.traffic.section")} hint={t("usage.traffic.hint")}>
-        <MeterGrid>
-          {meter(
-            t("usage.trafficRequests"),
-            usage.trafficThisMonth.requests,
-            formatNumber,
-            t("usage.trafficRequests.hint"),
-          )}
-          {meter(
-            t("usage.trafficBytes"),
-            usage.trafficThisMonth.bytes,
-            formatBytes,
-            t("usage.trafficBytes.hint"),
-          )}
-        </MeterGrid>
-        <div className="mt-6 border-t border-border pt-4">
+      {/* On wide screens traffic sits beside storage and the version limits, and publishing spans
+          both columns with room for three meters a row. */}
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+        <div className="xl:row-span-2">
+          <Section id="traffic" title={t("usage.traffic.section")} hint={t("usage.traffic.hint")}>
+            <MeterGrid>
+              {meter(
+                t("usage.trafficRequests"),
+                usage.trafficThisMonth.requests,
+                formatNumber,
+                t("usage.trafficRequests.hint"),
+              )}
+              {meter(
+                t("usage.trafficBytes"),
+                usage.trafficThisMonth.bytes,
+                formatBytes,
+                t("usage.trafficBytes.hint"),
+              )}
+            </MeterGrid>
+            <div className="mt-6 border-t border-border pt-4">
+              <DetailList
+                layout="stacked"
+                framed={false}
+                items={[
+                  {
+                    term: t("usage.trafficResets"),
+                    detail: formatDate(usage.trafficThisMonth.resetsAt, true),
+                  },
+                ]}
+              />
+            </div>
+          </Section>
+        </div>
+        <Section id="storage" title={t("usage.storage.section")}>
+          <MeterGrid>
+            {meter(
+              t("usage.activeArtifacts"),
+              usage.activeArtifacts,
+              formatNumber,
+              t("usage.activeArtifacts.hint"),
+            )}
+            {meter(
+              t("usage.storage"),
+              usage.storage,
+              formatBytes,
+              t("usage.storage.hint"),
+              usage.storage.used + usage.storage.reserved,
+            )}
+          </MeterGrid>
+        </Section>
+        <Section id="versions" title={t("usage.versions.section")} hint={t("usage.versions.hint")}>
           <DetailList
-            layout="stacked"
             framed={false}
             items={[
               {
-                term: t("usage.trafficResets"),
-                detail: formatDate(usage.trafficThisMonth.resetsAt, true),
+                term: t("usage.versions.publishedBytes"),
+                detail: formatBytes(usage.versionLimits.publishedBytes),
+              },
+              {
+                term: t("usage.versions.files"),
+                detail: formatNumber(usage.versionLimits.files),
+              },
+              {
+                term: t("usage.versions.documentBytes"),
+                detail: formatBytes(usage.versionLimits.documentBytes),
               },
             ]}
           />
+        </Section>
+        <div className="xl:col-span-2">
+          <Section
+            id="publishing"
+            title={t("usage.publishing.section")}
+            hint={t("usage.publishing.hint")}
+          >
+            <MeterGrid wide>
+              {meter(
+                t("usage.publishes"),
+                usage.publishesLast24h,
+                formatNumber,
+                t("usage.publishes.hint"),
+              )}
+              {meter(
+                t("usage.openUploads"),
+                usage.openUploads,
+                formatNumber,
+                t("usage.openUploads.hint"),
+              )}
+              {meter(
+                t("usage.newFiles"),
+                usage.newFilesLast24h,
+                formatNumber,
+                t("usage.newFiles.hint"),
+              )}
+              {meter(
+                t("usage.newBytes"),
+                usage.newBytesLast24h,
+                formatBytes,
+                t("usage.newBytes.hint"),
+              )}
+              {meter(
+                t("usage.newObjects"),
+                usage.newObjectsThisMonth,
+                formatNumber,
+                t("usage.newObjects.hint", {
+                  date: formatDate(usage.newObjectsThisMonth.resetsAt, true),
+                }),
+              )}
+            </MeterGrid>
+          </Section>
         </div>
-      </Section>
-      <Section id="storage" title={t("usage.storage.section")}>
-        <MeterGrid>
-          {meter(
-            t("usage.activeArtifacts"),
-            usage.activeArtifacts,
-            formatNumber,
-            t("usage.activeArtifacts.hint"),
-          )}
-          {meter(
-            t("usage.storage"),
-            usage.storage,
-            formatBytes,
-            t("usage.storage.hint"),
-            usage.storage.used + usage.storage.reserved,
-          )}
-        </MeterGrid>
-      </Section>
-      <Section
-        id="publishing"
-        title={t("usage.publishing.section")}
-        hint={t("usage.publishing.hint")}
-      >
-        <MeterGrid>
-          {meter(
-            t("usage.publishes"),
-            usage.publishesLast24h,
-            formatNumber,
-            t("usage.publishes.hint"),
-          )}
-          {meter(
-            t("usage.openUploads"),
-            usage.openUploads,
-            formatNumber,
-            t("usage.openUploads.hint"),
-          )}
-          {meter(
-            t("usage.newFiles"),
-            usage.newFilesLast24h,
-            formatNumber,
-            t("usage.newFiles.hint"),
-          )}
-          {meter(t("usage.newBytes"), usage.newBytesLast24h, formatBytes, t("usage.newBytes.hint"))}
-          {meter(
-            t("usage.newObjects"),
-            usage.newObjectsThisMonth,
-            formatNumber,
-            t("usage.newObjects.hint", {
-              date: formatDate(usage.newObjectsThisMonth.resetsAt, true),
-            }),
-          )}
-        </MeterGrid>
-      </Section>
-      <Section id="versions" title={t("usage.versions.section")} hint={t("usage.versions.hint")}>
-        <DetailList
-          framed={false}
-          items={[
-            {
-              term: t("usage.versions.publishedBytes"),
-              detail: formatBytes(usage.versionLimits.publishedBytes),
-            },
-            {
-              term: t("usage.versions.files"),
-              detail: formatNumber(usage.versionLimits.files),
-            },
-            {
-              term: t("usage.versions.documentBytes"),
-              detail: formatBytes(usage.versionLimits.documentBytes),
-            },
-          ]}
-        />
-      </Section>
+      </div>
     </>
   );
 }
