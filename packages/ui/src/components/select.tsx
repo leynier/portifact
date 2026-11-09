@@ -47,6 +47,12 @@ export interface SelectProps<T extends string = string> {
    */
   variant?: "field" | "compact";
   /**
+   * A compact trigger may show an icon before the option. With `labelVisible={false}` the icon
+   * stands in for the label on screen, where room is tight (the sidebar); the label still names
+   * the control for assistive technology.
+   */
+  icon?: ReactNode;
+  /**
    * The choice differs from the neutral one, such as a filter that is on. A compact trigger
    * then has a solid strong border and its value in bold, so it never relies on tone.
    */
@@ -122,6 +128,7 @@ export function Select<T extends string = string>({
   name,
   variant = "field",
   active = false,
+  icon,
 }: SelectProps<T>) {
   const id = useId();
   const labelId = `${id}-label`;
@@ -324,8 +331,13 @@ export function Select<T extends string = string>({
       }}
       className={triggerClasses}
     >
+      {compact && icon ? (
+        <span aria-hidden="true" className="flex shrink-0 text-text-muted">
+          {icon}
+        </span>
+      ) : null}
       {compact ? (
-        <span id={labelId} className="shrink-0 text-text-muted">
+        <span id={labelId} className={labelVisible ? "shrink-0 text-text-muted" : "sr-only"}>
           {label}
         </span>
       ) : null}

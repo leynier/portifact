@@ -310,6 +310,25 @@ describe("Select", () => {
     fireEvent.click(screen.getByRole("option", { name: "Any state" }));
     expect(onPick).toHaveBeenCalledWith("any");
   });
+  it("can show an icon instead of the visible label where room is tight, still named by it", async () => {
+    const { container } = render(
+      <Select
+        label="Language"
+        labelVisible={false}
+        icon={<svg data-testid="icon" />}
+        variant="compact"
+        value="any"
+        options={OPTIONS}
+        onChange={() => {}}
+      />,
+    );
+    const trigger = combobox("Language");
+    expect(screen.getByText("Language").className).toBe("sr-only");
+    expect(within(trigger).getByTestId("icon").parentElement?.getAttribute("aria-hidden")).toBe(
+      "true",
+    );
+    expect(await axeViolations(container)).toEqual([]);
+  });
 });
 
 describe("placeListbox", () => {

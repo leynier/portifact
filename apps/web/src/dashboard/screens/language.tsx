@@ -4,6 +4,7 @@
 import type { LocaleCode } from "@portifact/contracts/locales";
 import { LanguageSwitcher } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Languages } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { LANGUAGES, useLocale } from "../locale.tsx";
@@ -27,7 +28,11 @@ export function useAccountLocale(): void {
   }, [saved, locale, setLocale]);
 }
 
-export function LanguageChoice({ variant }: { variant: "field" | "compact" }) {
+/**
+ * The language choice: `field` on the settings page, `compact` as a chip, and `sidebar` as a
+ * chip with an icon in place of the visible label, next to the quick theme switch.
+ */
+export function LanguageChoice({ variant }: { variant: "field" | "compact" | "sidebar" }) {
   const t = useT();
   const announce = useAnnounce();
   const { api } = useDashboard();
@@ -58,7 +63,8 @@ export function LanguageChoice({ variant }: { variant: "field" | "compact" }) {
       description={variant === "field" ? t("language.description") : undefined}
       value={locale}
       languages={LANGUAGES}
-      variant={variant}
+      variant={variant === "field" ? "field" : "compact"}
+      icon={variant === "sidebar" ? <Languages className="size-4" /> : undefined}
       onChange={(code) => void choose(code)}
     />
   );
