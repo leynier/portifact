@@ -3,10 +3,40 @@
 // content Worker, the app host to the app Worker, and the control host (reachable only from the
 // test runner, never through the browsers' proxy) to the seeding endpoints in control.ts. The
 // content Worker runs on the clock in clock.ts, which tests can move forward per artifact.
-import app from "../../apps/app/src/index.ts";
+//
+// The app Worker gets the two external boundaries of sign-in replaced, like the app tests do:
+// emails are kept in the local bucket for the control host to read (`/mail`), and siteverify
+// accepts only the fake Turnstile's token (../src/turnstile-fake.ts).
+
+import { workerDeps } from "../../apps/app/src/auth/deps.ts";
+import type { EmailSender } from "../../apps/app/src/auth/email.ts";
+import { createWorker } from "../../apps/app/src/index.ts";
 import { handle, isolateMeter, isolateOpenings } from "../../apps/content/src/index.ts";
+import { TURNSTILE_PASS } from "../src/turnstile-fake.ts";
 import { contentNow } from "./clock.ts";
-import { CONTROL_HOST, control, type E2eEnv } from "./control.ts";
+import { CONTROL_HOST, control, type E2eEnv, MAIL_PREFIX } from "./control.ts";
+
+function capturedEmail(bucket: R2Bucket): EmailSender {
+  return {
+    async send(message) {
+      await bucket.put(`${MAIL_PREFIX}${message.to.toLowerCase()}`, JSON.stringify(message));
+    },
+  };
+}
+
+async function fakeSiteverify(_input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const form = init?.body instanceof FormData ? init.body : new FormData();
+  const passed = form.get("response") === TURNSTILE_PASS && form.get("secret") !== null;
+  return Response.json(
+    passed ? { success: true } : { success: false, "error-codes": ["invalid-input-response"] },
+  );
+}
+
+const app = createWorker((env) => ({
+  ...workerDeps(env),
+  email: capturedEmail(env.ARTIFACTS),
+  siteverify: fakeSiteverify,
+}));
 
 export default {
   fetch(request, env, ctx) {

@@ -9,11 +9,33 @@ export interface HumanCheckCallbacks {
   onToken(token: string): void;
   /** The token expired before it was used, or the challenge failed to run. */
   onReset(): void;
+  /**
+   * The challenge failed to run (blocked script, unsupported browser, network error). Without
+   * it, failures call `onReset`.
+   */
+  onError?(): void;
+  /**
+   * With `appearance: "interaction-only"`: true when the challenge becomes visible because the
+   * visitor must interact, false once that interaction is over.
+   */
+  onInteractive?(visible: boolean): void;
+}
+
+export interface HumanCheckOptions {
+  /**
+   * `always` (the default) shows the widget at once; `interaction-only` keeps it invisible and
+   * shows it only when Cloudflare needs the visitor to interact, which most visitors never do.
+   */
+  appearance?: "always" | "interaction-only";
 }
 
 export interface HumanCheckWidget {
   /** Renders a challenge into `container` and returns a function that removes it. */
-  render(container: HTMLElement, callbacks: HumanCheckCallbacks): () => void;
+  render(
+    container: HTMLElement,
+    callbacks: HumanCheckCallbacks,
+    options?: HumanCheckOptions,
+  ): () => void;
 }
 
 /** The part of Turnstile's script API the widget uses. */
@@ -67,26 +89,31 @@ export function turnstileWidget(
   const sitekey = siteKeyOf(doc);
   if (!sitekey) return null;
   return {
-    render(container, callbacks) {
+    render(container, callbacks, options = {}) {
       let removed = false;
+      const failed = () => (callbacks.onError ?? callbacks.onReset)();
       let widgetId: string | null | undefined;
       let api: TurnstileApi | undefined;
-      load().then(
-        (loaded) => {
-          if (removed) return;
-          api = loaded;
-          widgetId = loaded.render(container, {
-            sitekey,
-            action,
-            theme: "auto",
-            "response-field": false,
-            callback: (token: string) => callbacks.onToken(token),
-            "expired-callback": () => callbacks.onReset(),
-            "error-callback": () => callbacks.onReset(),
-          });
-        },
-        () => callbacks.onReset(),
-      );
+      load().then((loaded) => {
+        if (removed) return;
+        api = loaded;
+        widgetId = loaded.render(container, {
+          sitekey,
+          action,
+          theme: "auto",
+          size: "flexible",
+          appearance: options.appearance ?? "always",
+          // An unused token expires after five minutes; Turnstile solves a fresh one itself.
+          "refresh-expired": "auto",
+          "response-field": false,
+          callback: (token: string) => callbacks.onToken(token),
+          "expired-callback": () => callbacks.onReset(),
+          "error-callback": failed,
+          "unsupported-callback": failed,
+          "before-interactive-callback": () => callbacks.onInteractive?.(true),
+          "after-interactive-callback": () => callbacks.onInteractive?.(false),
+        });
+      }, failed);
       return () => {
         removed = true;
         if (api && widgetId) api.remove(widgetId);

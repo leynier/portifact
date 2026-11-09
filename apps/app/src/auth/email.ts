@@ -4,6 +4,7 @@
 // in Portifact's own list (docs/security.md, "Identity").
 import { OTP_LIMITS } from "@portifact/contracts";
 import type { Db } from "@portifact/db";
+import { signInCodeEmail as renderSignInCode } from "@portifact/emails";
 import { recordEmailsSent, suppressEmail } from "@portifact/services";
 
 export interface EmailMessage {
@@ -80,35 +81,8 @@ export async function deliverSignInCode(
   await recordEmailsSent(db, input.now());
 }
 
-/** The sign-in code email: plain, monochrome and readable without HTML. */
+/** The sign-in code email (packages/emails): the code, its expiry and the "ignore it" line. */
 export function signInCodeEmail(to: string, code: string): EmailMessage {
-  const minutes = Math.round(OTP_LIMITS.codeTtlSeconds / 60);
-  const subject = "Your Portifact sign-in code";
-  const expiry = `The code expires in ${minutes} minutes and works once.`;
-  const ignore = "If you did not try to sign in to Portifact, you can ignore this email.";
-  const text = [
-    `Your Portifact sign-in code is ${code}`,
-    "",
-    expiry,
-    ignore,
-    "",
-    "Portifact",
-    "https://portifact.com",
-  ].join("\n");
-  const html = [
-    "<!doctype html>",
-    '<html lang="en">',
-    '<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">',
-    `<title>${subject}</title></head>`,
-    "<body>",
-    `<h1>${subject}</h1>`,
-    "<p>Enter this code on the sign-in page:</p>",
-    `<p><strong>${code}</strong></p>`,
-    `<p>${expiry}</p>`,
-    `<p>${ignore}</p>`,
-    '<p>Portifact, <a href="https://portifact.com">portifact.com</a></p>',
-    "</body>",
-    "</html>",
-  ].join("\n");
-  return { to, subject, text, html };
+  const expiresInMinutes = Math.round(OTP_LIMITS.codeTtlSeconds / 60);
+  return { to, ...renderSignInCode({ email: to, code, expiresInMinutes }) };
 }

@@ -24,6 +24,7 @@ import {
 } from "./hosts.ts";
 import { startProxy } from "./proxy.ts";
 import { selfSignedCertificate } from "./tls.ts";
+import { FAKE_TURNSTILE_SCRIPT, TURNSTILE_HOST, TURNSTILE_SCRIPT_PATH } from "./turnstile-fake.ts";
 
 /** One request a browser sent to an artifact host, as the content Worker received it. */
 export interface ContentRequest {
@@ -155,6 +156,16 @@ export async function startStack(): Promise<Stack> {
       try {
         const host = request.headers.host ?? "";
         const url = `https://${host}${request.url ?? "/"}`;
+        if (host === TURNSTILE_HOST) {
+          if (new URL(url).pathname !== TURNSTILE_SCRIPT_PATH) {
+            response.writeHead(404).end();
+            return;
+          }
+          response
+            .writeHead(200, { "content-type": "text/javascript", "cache-control": "no-store" })
+            .end(FAKE_TURNSTILE_SCRIPT);
+          return;
+        }
         if (host === REDIRECT_HOST) {
           const to = new URL(url).searchParams.get("to") ?? "";
           const target = URL.canParse(to) ? new URL(to) : null;

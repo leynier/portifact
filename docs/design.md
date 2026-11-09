@@ -81,6 +81,8 @@ Use the files as they are: do not recolor, stretch, add effects or rebuild the l
 - If something is missing, add the token, variant or component to `packages/ui` first, with its story and tests, then use it.
 - Light and dark themes are both driven by semantic tokens, so a component never branches on the theme.
 
+Emails are the one exception to the inline style rule: mail clients drop or rewrite stylesheets, so the templates in `packages/emails/src` write inline styles (`isEmailTemplate` in `packages/ui/src/design-check.ts` exempts them from that rule only). Their colors still come from the tokens (see "Emails" below), never raw values.
+
 `bun run check` runs `scripts/check-design-system.ts` (rules in `packages/ui/src/design-check.ts`), which fails on arbitrary Tailwind values, inline `style` attributes, Tailwind's default palette and raw color values outside `packages/ui/src/tokens`. The Tailwind theme in `packages/ui/src/tokens/theme.css` removes the default palette, so only token colors exist as utilities. Do not disable it; if a rule blocks a legitimate case, change the rule in a separate, explained change.
 
 ## Dashboard
@@ -108,6 +110,21 @@ The dashboard is a React 19 single-page app in `apps/web/src/dashboard`, built b
 - The review viewer shows a participant a "Report this artifact" link to `/report?artifact=<id>` under the frame. A visitor's first comments on other people's artifacts need the human check: when the API answers `human_verification_required`, the composer or reply form shows the Turnstile widget (`review/human-check.tsx`, a labelled group with an alert when posting before solving it) and the next post sends the token with a new idempotency key. `DashboardEnv.humanCheck` provides the widget (`src/human-check/turnstile.ts`, shared with the login page), so tests pass a fake.
 - The account screen has an in-page section navigation ("Account sections") beside its panels, and usage shows each quota as a `Meter`.
 - The account screen (`/account`, `screens/account.tsx`) shows the email, the sign-in methods (`/api/auth/list-accounts`), the browser sessions with "Sign out other sessions" and the connected apps with "Disconnect" (`/api/v1/account/*`). App names come from OAuth clients, so they are untrusted text and only ever rendered as text.
+
+## Auth pages
+
+The login, device, consent and report pages (`apps/web/{login,device,consent,report}.html`, scripts in `apps/web/src/auth` and `src/report`) are static pages with small scripts, not React, so they load fast under the strict page CSP. They share one shell: a skip link, the wordmark, a faint `bg-dot-grid` band, one card (`bg-surface-raised`, `shadow-float`, `rounded-lg`, entering with `motion-safe:animate-rise`) on `bg-surface`, and the legal footer. Inside the card they use the design-system classes of the components they stand for: `buttonClasses` primary and secondary for buttons, the error `Callout` (2px border, icon, `role="alert"`, the message in its `[data-message]` child) for the error summary, the `TextInput` field classes, and bordered `divide-y` lists for details. Change the shared shell in all four pages together.
+
+- The login card shows the sign-in notice above the methods (see [legal.md](legal.md)), then Google and GitHub with their monochrome marks, then the email form. The code step replaces the methods with "Check your email", a large one-time-code field, the expiry and a "Send a new code" link that counts down the Worker's one-minute limit. The human check sits below everything and shows its explanation only when Cloudflare asks for an interaction.
+- A single invalid field moves focus to itself, with its error linked; the error summary is for failures of the request.
+
+## Emails
+
+Every email is built by `packages/emails`: one layout (`layout.ts`) and a template per message (`sign-in-code.ts`, `budget-alert.ts`), each with an HTML version and a plain-text alternative. The HTML is table-based with inline styles so it renders the same in Gmail, Outlook and Apple Mail: a quiet page, the hosted wordmark (`https://portifact.com/brand/wordmark.png` and its dark variant, published from `assets/brand` by `apps/web/vite.config.ts`, with "Portifact" as the alternative text), one card and small print. Colors are the semantic tokens resolved to their values (`theme.ts`); a `prefers-color-scheme: dark` block repaints them for clients that honor it, and the light version is pure grays so the clients that invert it on their own keep it legible.
+
+- Callers pass text; every value goes through `escapeHtml`. Never build email markup elsewhere.
+- A code is one unbroken string, large and in a monospace font; the spacing between its digits is `letter-spacing`, so copying it copies only the digits. Codes never go in the subject or the preview text, which lock screens show.
+- `bun run --cwd packages/emails preview` writes every email (`src/previews.ts`) to `/tmp/portifact-email-previews` as `.html` and `.txt` for review; add a sample there with every new email.
 
 ## Forms
 

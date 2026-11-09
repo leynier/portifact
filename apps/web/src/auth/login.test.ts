@@ -1,9 +1,16 @@
 // @vitest-environment happy-dom
+
+import { OTP_LIMITS } from "@portifact/contracts";
 import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
-import { beforeEach, describe, expect, it } from "vitest";
-import type { HumanCheckWidget } from "../human-check/turnstile.ts";
-import { setupLogin } from "./login.ts";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type {
+  HumanCheckCallbacks,
+  HumanCheckOptions,
+  HumanCheckWidget,
+} from "../human-check/turnstile.ts";
+import { HUMAN_CHECK_WAIT_MS } from "./human-gate.ts";
+import { RESEND_COOLDOWN_SECONDS, setupLogin } from "./login.ts";
 import { messages } from "./messages.ts";
 import {
   element,
@@ -26,11 +33,9 @@ const OAUTH_QUERY =
 let api: FakeApi;
 let location: FakeLocation;
 
-/** Opens the page; the user checks the terms box unless `acceptTerms` is false. */
-async function open(search = "", acceptTerms = true) {
+async function open(search = "") {
   location = fakeLocation(search);
   await setupLogin(document, pageEnv(api, location));
-  element<HTMLInputElement>("terms-accept").checked = acceptTerms;
 }
 
 const ACCEPTANCE = { version: TERMS_VERSION, acceptTerms: true, confirmAdult: true };
@@ -61,7 +66,7 @@ describe("login page", () => {
     expect(element("sign-in").hidden).toBe(false);
     expect(element("signed-in").hidden).toBe(true);
     const providers = [...document.querySelectorAll<HTMLButtonElement>("button[data-provider]")];
-    expect(providers.map((button) => button.textContent)).toEqual([
+    expect(providers.map((button) => button.textContent?.trim())).toEqual([
       "Continue with Google",
       "Continue with GitHub",
     ]);
@@ -77,10 +82,14 @@ describe("login page", () => {
       path: "/email-otp/send-verification-otp",
       body: { email: "ada@example.test", type: "sign-in" },
     });
-    expect(element("email-form").hidden).toBe(true);
+    expect(element("methods").hidden).toBe(true);
     expect(element("code-form").hidden).toBe(false);
     expect(element("code-sent").textContent).toBe(messages.codeSent("ada@example.test"));
+    expect(element("status").textContent).toBe(messages.codeSentStatus);
     expect(document.activeElement).toBe(element("code"));
+    // The legal notice stays above the code step, whose button is described by it.
+    expect(element("terms-notice").hidden).toBe(false);
+    expect(element("verify-code").getAttribute("aria-describedby")).toBe("terms-notice");
 
     await enterCode("123 456");
     expect(api.calls.at(-1)).toEqual({
@@ -92,7 +101,7 @@ describe("login page", () => {
     expect(element("status").textContent).toBe(messages.redirecting);
   });
 
-  it("links an invalid email error to the field and moves focus to the summary", async () => {
+  it("links an invalid email error to the field and moves focus to it", async () => {
     await open();
     await requestCode("not-an-email");
     const input = element<HTMLInputElement>("email");
@@ -100,8 +109,9 @@ describe("login page", () => {
     expect(input.getAttribute("aria-describedby")).toBe("email-error");
     expect(element("email-error").textContent).toBe(messages.emailInvalid);
     expect(element("email-error").hidden).toBe(false);
-    expect(element("error-summary").textContent).toBe(messages.emailInvalid);
-    expect(document.activeElement).toBe(element("error-summary"));
+    // One field: focus goes to it, and its linked error is read with it (docs/accessibility.md).
+    expect(element("error-summary").hidden).toBe(true);
+    expect(document.activeElement).toBe(input);
     expect(api.calls.filter((call) => call.path === "/email-otp/send-verification-otp")).toEqual(
       [],
     );
@@ -157,7 +167,10 @@ describe("login page", () => {
     await requestCode("ada@example.test");
     await enterCode("12");
     expect(element("code-error").textContent).toBe(messages.codeRequired);
-    expect(element<HTMLInputElement>("code").getAttribute("aria-describedby")).toBe("code-error");
+    expect(element<HTMLInputElement>("code").getAttribute("aria-describedby")).toBe(
+      "code-hint code-error",
+    );
+    expect(document.activeElement).toBe(element("code"));
     expect(api.calls.some((call) => call.path === "/sign-in/email-otp")).toBe(false);
   });
 
@@ -178,25 +191,51 @@ describe("login page", () => {
     expect(element("error-summary").textContent).toBe(messages.unexpected);
   });
 
-  it("sends a new code and lets the user change the address", async () => {
-    await open();
-    await requestCode("ada@example.test");
-    element("resend-code").click();
-    await settle();
-    expect(element("status").textContent).toBe(messages.codeResent);
-    expect(
-      api.calls.filter((call) => call.path === "/email-otp/send-verification-otp"),
-    ).toHaveLength(2);
+  describe("sending a new code", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-    api.on("POST", "/email-otp/send-verification-otp", { status: 429, body: null });
-    element("resend-code").click();
-    await settle();
-    expect(element("error-summary").textContent).toBe(messages.rateLimited);
+    it("waits out the Worker's one-code-a-minute limit with a countdown", async () => {
+      expect(RESEND_COOLDOWN_SECONDS).toBe(OTP_LIMITS.perEmailCooldown.windowSeconds);
+      await open();
+      await requestCode("ada@example.test");
+      const resend = element<HTMLButtonElement>("resend-code");
+      expect(resend.disabled).toBe(true);
+      expect(resend.textContent).toBe(messages.resendIn(60));
+      vi.advanceTimersByTime(15_000);
+      expect(resend.textContent).toBe(messages.resendIn(45));
+      vi.advanceTimersByTime(45_000);
+      expect(resend.disabled).toBe(false);
+      expect(resend.textContent).toBe(messages.resendCode);
 
-    element("change-email").click();
-    expect(element("code-form").hidden).toBe(true);
-    expect(element("email-form").hidden).toBe(false);
-    expect(document.activeElement).toBe(element("email"));
+      resend.click();
+      await settle();
+      expect(element("status").textContent).toBe(messages.codeResent);
+      expect(
+        api.calls.filter((call) => call.path === "/email-otp/send-verification-otp"),
+      ).toHaveLength(2);
+      expect(resend.disabled).toBe(true);
+      vi.advanceTimersByTime(60_000);
+
+      api.on("POST", "/email-otp/send-verification-otp", { status: 429, body: null });
+      resend.click();
+      await settle();
+      expect(element("error-summary").textContent).toBe(messages.rateLimited);
+      expect(resend.disabled).toBe(false);
+    });
+
+    it("lets the user change the address", async () => {
+      await open();
+      await requestCode("ada@example.test");
+      element("change-email").click();
+      expect(element("code-form").hidden).toBe(true);
+      expect(element("methods").hidden).toBe(false);
+      expect(document.activeElement).toBe(element("email"));
+    });
   });
 
   it("starts a provider sign-in and follows the provider URL", async () => {
@@ -308,10 +347,15 @@ describe("login page", () => {
     expect(element("signed-in").hidden).toBe(false);
     expect(element("sign-in").hidden).toBe(true);
     expect(element("signed-in-email").textContent).toBe(messages.signedInAs("ada@example.test"));
+    expect(element("intro").hidden).toBe(true);
+    expect(document.querySelector<HTMLAnchorElement>('#signed-in a[href="/"]')?.textContent).toBe(
+      "Open your dashboard",
+    );
     element("sign-out").click();
     await settle();
     expect(element("signed-in").hidden).toBe(true);
     expect(element("sign-in").hidden).toBe(false);
+    expect(element("intro").hidden).toBe(false);
     expect(element("status").textContent).toBe(messages.signedOut);
   });
 
@@ -342,6 +386,10 @@ describe("login page", () => {
     const button = element<HTMLButtonElement>("send-code");
     expect(button.disabled).toBe(true);
     expect(button.getAttribute("aria-busy")).toBe("true");
+    // Another method chosen meanwhile is ignored: one sign-in at a time.
+    element("sign-in").querySelector<HTMLButtonElement>('[data-provider="google"]')?.click();
+    await settle();
+    expect(api.calls.some((call) => call.path === "/sign-in/social")).toBe(false);
     release();
     await settle();
     expect(button.disabled).toBe(false);
@@ -384,46 +432,36 @@ describe("terms acceptance at sign-in", () => {
   const providerButton = (name: string) =>
     element("sign-in").querySelector<HTMLButtonElement>(`[data-provider="${name}"]`);
 
-  it("links every legal page from the box's label", async () => {
+  it("shows the notice with every legal page before any method, and describes each button by it", async () => {
     await open();
-    const label = document.querySelector('label[for="terms-accept"]');
-    expect(label?.textContent).toContain("I am 18 or older");
-    const links = [...(label?.querySelectorAll("a") ?? [])].map((link) => link.href);
-    expect(links).toEqual([
+    const notice = element("terms-notice");
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toContain("By continuing with Google, GitHub or an email code");
+    expect(notice.textContent).toContain("18 or older");
+    const links = [...notice.querySelectorAll("a")];
+    expect(links.map((link) => link.href)).toEqual([
       "https://portifact.com/terms",
       "https://portifact.com/acceptable-use",
       "https://portifact.com/privacy",
     ]);
-  });
-
-  it("does not start any method until the box is checked", async () => {
-    await open("", false);
-    for (const start of [
-      () => requestCode("ada@example.test"),
-      async () => {
-        providerButton("google")?.click();
-        await settle();
-      },
-      async () => {
-        providerButton("github")?.click();
-        await settle();
-      },
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Terms of Service",
+      "Acceptable Use Policy",
+      "Privacy Policy",
+    ]);
+    // Right above the methods: nothing to act on comes before it.
+    const methods = element("methods");
+    expect(notice.compareDocumentPosition(methods) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    for (const button of [
+      providerButton("google"),
+      providerButton("github"),
+      element("send-code"),
+      element("verify-code"),
     ]) {
-      await start();
-      expect(api.calls.filter((call) => call.method === "POST")).toEqual([]);
-      const box = element<HTMLInputElement>("terms-accept");
-      expect(box.getAttribute("aria-invalid")).toBe("true");
-      expect(box.getAttribute("aria-describedby")).toBe("terms-accept-error");
-      expect(element("terms-accept-error").textContent).toBe(messages.termsRequired);
-      expect(element("error-summary").textContent).toBe(messages.termsRequired);
-      expect(document.activeElement).toBe(element("error-summary"));
+      expect(button?.getAttribute("aria-describedby")).toBe("terms-notice");
     }
-    expect(element("code-form").hidden).toBe(true);
-
-    element<HTMLInputElement>("terms-accept").checked = true;
-    await requestCode("ada@example.test");
-    expect(element<HTMLInputElement>("terms-accept").hasAttribute("aria-invalid")).toBe(false);
-    expect(element("terms-accept-error").hidden).toBe(true);
+    // No checkbox to tick: choosing a method is the acceptance.
+    expect(document.querySelector('#sign-in input[type="checkbox"]')).toBeNull();
   });
 
   it("records the acceptance before sending a code and before a provider sign-in", async () => {
@@ -501,15 +539,19 @@ describe("a signed-in account without the current terms", () => {
     expect(element("terms-update").hidden).toBe(false);
   });
 
-  it("needs the box checked, then records the acceptance and continues", async () => {
+  it("records the acceptance when the user agrees, and continues", async () => {
     await open("?next=%2Fdevice");
-    element("terms-update-continue").click();
-    await settle();
+    const notice = element("terms-update-notice");
+    expect(notice.textContent).toContain("By selecting Agree and continue");
+    expect([...notice.querySelectorAll("a")].map((link) => link.href)).toEqual([
+      "https://portifact.com/terms",
+      "https://portifact.com/acceptable-use",
+      "https://portifact.com/privacy",
+    ]);
+    expect(element("terms-update-continue").getAttribute("aria-describedby")).toBe(
+      "terms-update-notice",
+    );
     expect(api.calls.some((call) => call.path === "/accept-terms")).toBe(false);
-    expect(element("terms-update-accept-error").textContent).toBe(messages.termsRequired);
-    expect(element("error-summary").textContent).toBe(messages.termsRequired);
-
-    element<HTMLInputElement>("terms-update-accept").checked = true;
     element("terms-update-continue").click();
     await settle();
     expect(api.calls.at(-1)).toEqual({ method: "POST", path: "/accept-terms", body: ACCEPTANCE });
@@ -519,7 +561,6 @@ describe("a signed-in account without the current terms", () => {
 
   it("opens the dashboard after accepting when nothing else was asked", async () => {
     await open();
-    element<HTMLInputElement>("terms-update-accept").checked = true;
     element("terms-update-continue").click();
     await settle();
     expect(location.assigned).toEqual(["/"]);
@@ -528,7 +569,6 @@ describe("a signed-in account without the current terms", () => {
   it("reports an acceptance that could not be recorded", async () => {
     api.on("POST", "/accept-terms", { status: 500, body: null });
     await open();
-    element<HTMLInputElement>("terms-update-accept").checked = true;
     element("terms-update-continue").click();
     await settle();
     expect(element("error-summary").textContent).toBe(messages.unexpected);
@@ -558,46 +598,68 @@ describe("a signed-in account without the current terms", () => {
 });
 
 describe("human check of new accounts", () => {
-  /** A widget that renders a marker and lets the test solve, expire or reset it. */
+  interface Rendered {
+    container: HTMLElement;
+    callbacks: HumanCheckCallbacks;
+    options: HumanCheckOptions | undefined;
+    removed: boolean;
+  }
+
+  /** A widget that records each challenge and lets the test solve, expire or fail it. */
   function fakeWidget() {
-    const rendered: { container: HTMLElement; solve(token: string): void; reset(): void }[] = [];
-    let removed = 0;
+    const rendered: Rendered[] = [];
     const widget: HumanCheckWidget = {
-      render(container, callbacks) {
-        const marker = document.createElement("p");
-        marker.textContent = "challenge";
-        container.append(marker);
-        rendered.push({ container, solve: callbacks.onToken, reset: callbacks.onReset });
+      render(container, callbacks, options) {
+        const entry: Rendered = { container, callbacks, options, removed: false };
+        rendered.push(entry);
         return () => {
-          marker.remove();
-          removed += 1;
+          entry.removed = true;
         };
       },
     };
-    return { widget, rendered, removed: () => removed };
+    return { widget, rendered, last: () => rendered.at(-1) as Rendered };
   }
 
-  async function openWith(widget: HumanCheckWidget | null) {
-    location = fakeLocation("");
+  async function openWith(widget: HumanCheckWidget | null, search = "") {
+    location = fakeLocation(search);
     await setupLogin(document, { ...pageEnv(api, location), humanCheck: widget });
-    element<HTMLInputElement>("terms-accept").checked = true;
   }
 
-  it("shows the check in a labelled group and sends its token once, before the sign-in", async () => {
+  const paths = () => api.calls.map((call) => call.path);
+
+  beforeEach(() => {
     api.on("POST", "/verify-human", { status: 200, body: { verified: true } });
+  });
+
+  it("runs invisibly from page load, below the methods, with no copy until it is needed", async () => {
     const fake = fakeWidget();
     await openWith(fake.widget);
-    const group = element("human-check");
-    expect(group.hidden).toBe(false);
-    expect(group.tagName).toBe("FIELDSET");
-    expect(group.querySelector("legend")?.textContent).toContain("human");
     expect(fake.rendered).toHaveLength(1);
-    expect(fake.rendered[0]?.container.id).toBe("human-check-widget");
+    expect(fake.last().options).toEqual({ appearance: "interaction-only" });
+    expect(fake.last().container.id).toBe("human-check-widget");
+    expect(element("human-check-widget").hidden).toBe(false);
+    expect(element("human-check-copy").hidden).toBe(true);
+    // After every way to sign in, so a challenge shows up next to the action that needs it.
+    const group = element("human-check");
+    expect(
+      element("methods").compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(element("human-check-heading").textContent).toContain("human");
+  });
 
-    fake.rendered[0]?.solve("token-1");
+  it("does not run for a signed-in visitor", async () => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    const fake = fakeWidget();
+    await openWith(fake.widget);
+    expect(fake.rendered).toHaveLength(0);
+  });
+
+  it("sends a solved token once, after the acceptance and before the sign-in", async () => {
+    const fake = fakeWidget();
+    await openWith(fake.widget);
+    fake.last().callbacks.onToken("token-1");
     await requestCode("new@example.test");
-    const paths = api.calls.map((call) => call.path);
-    expect(paths.slice(paths.indexOf("/accept-terms"))).toEqual([
+    expect(paths().slice(paths().indexOf("/accept-terms"))).toEqual([
       "/accept-terms",
       "/verify-human",
       "/email-otp/send-verification-otp",
@@ -607,58 +669,130 @@ describe("human check of new accounts", () => {
       path: "/verify-human",
       body: { token: "token-1" },
     });
-    // The token is single use: a fresh challenge replaces it, and nothing is sent until solved.
-    expect(fake.rendered).toHaveLength(2);
-    expect(fake.removed()).toBe(1);
-    api.calls.length = 0;
-    element<HTMLButtonElement>("resend-code").click();
-    await settle();
-    expect(api.calls.map((call) => call.path)).not.toContain("/verify-human");
+    // The token is single use: the challenge is removed and the next sign-in starts a new one.
+    expect(fake.rendered[0]?.removed).toBe(true);
+    expect(fake.rendered).toHaveLength(1);
   });
 
-  it("sends the token before a provider sign-in too, and not after it expired", async () => {
-    api.on("POST", "/verify-human", { status: 200, body: { verified: true } });
+  it("waits for a challenge still running, then sends its token", async () => {
     api.on("POST", "/sign-in/social", { status: 200, body: { url: "https://github.com/x" } });
     const fake = fakeWidget();
     await openWith(fake.widget);
-    fake.rendered[0]?.solve("expired-token");
-    fake.rendered[0]?.reset();
-    const github = document.querySelector<HTMLButtonElement>('button[data-provider="github"]');
-    github?.click();
+    document.querySelector<HTMLButtonElement>('button[data-provider="github"]')?.click();
     await settle();
-    expect(api.calls.map((call) => call.path)).not.toContain("/verify-human");
-
-    fake.rendered[0]?.solve("token-2");
-    github?.click();
+    expect(paths()).not.toContain("/sign-in/social");
+    fake.last().callbacks.onToken("late-token");
     await settle();
-    const paths = api.calls.map((call) => call.path);
-    expect(paths.indexOf("/verify-human")).toBeLessThan(paths.lastIndexOf("/sign-in/social"));
+    expect(paths().indexOf("/verify-human")).toBeLessThan(paths().indexOf("/sign-in/social"));
+    expect(location.assigned).toEqual(["https://github.com/x"]);
   });
 
-  it("still signs an existing account in when the check is refused or missing", async () => {
+  it("shows the challenge with its explanation only when Cloudflare asks for an interaction", async () => {
+    api.on("POST", "/sign-in/email-otp", { status: 200, body: { token: "t" } });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fake = fakeWidget();
+      await openWith(fake.widget);
+      element<HTMLInputElement>("email").value = "new@example.test";
+      submit(element<HTMLFormElement>("email-form"));
+      await vi.advanceTimersByTimeAsync(0);
+      fake.last().callbacks.onInteractive?.(true);
+      expect(element("human-check-copy").hidden).toBe(false);
+      expect(element("status").textContent).toBe(messages.humanCheckNeeded);
+      // A visible challenge waits for the visitor, however long they take.
+      await vi.advanceTimersByTimeAsync(HUMAN_CHECK_WAIT_MS * 3);
+      expect(paths()).not.toContain("/email-otp/send-verification-otp");
+      expect(element<HTMLButtonElement>("send-code").getAttribute("aria-busy")).toBe("true");
+
+      fake.last().callbacks.onInteractive?.(false);
+      fake.last().callbacks.onToken("solved");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(element("human-check-copy").hidden).toBe(true);
+      expect(api.calls).toContainEqual({
+        method: "POST",
+        path: "/verify-human",
+        body: { token: "solved" },
+      });
+      expect(element("code-form").hidden).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("goes on without a token when an invisible challenge takes too long", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fake = fakeWidget();
+      await openWith(fake.widget);
+      element<HTMLInputElement>("email").value = "ada@example.test";
+      submit(element<HTMLFormElement>("email-form"));
+      await vi.advanceTimersByTimeAsync(HUMAN_CHECK_WAIT_MS - 1);
+      expect(paths()).not.toContain("/email-otp/send-verification-otp");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(paths()).not.toContain("/verify-human");
+      expect(paths()).toContain("/email-otp/send-verification-otp");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retries a failed challenge for the sign-in, and goes on without it when it fails again", async () => {
+    api.on("POST", "/sign-in/email-otp", { status: 200, body: { token: "t" } });
+    const fake = fakeWidget();
+    await openWith(fake.widget);
+    fake.last().callbacks.onError?.();
+    await requestCode("ada@example.test");
+    // The failed challenge was replaced by a new one, which the sign-in waits for.
+    expect(fake.rendered).toHaveLength(2);
+    expect(fake.rendered[0]?.removed).toBe(true);
+    expect(paths()).not.toContain("/email-otp/send-verification-otp");
+    fake.last().callbacks.onError?.();
+    await settle();
+    expect(paths()).not.toContain("/verify-human");
+    expect(element("code-form").hidden).toBe(false);
+    await enterCode("123456");
+    expect(location.assigned).toEqual(["/"]);
+  });
+
+  it("does not send a token that expired", async () => {
+    api.on("POST", "/sign-in/social", { status: 200, body: { url: "https://github.com/x" } });
+    const fake = fakeWidget();
+    await openWith(fake.widget);
+    fake.last().callbacks.onToken("expired-token");
+    fake.last().callbacks.onReset();
+    document.querySelector<HTMLButtonElement>('button[data-provider="github"]')?.click();
+    await settle();
+    fake.last().callbacks.onToken("fresh-token");
+    await settle();
+    expect(api.calls.filter((call) => call.path === "/verify-human")).toEqual([
+      { method: "POST", path: "/verify-human", body: { token: "fresh-token" } },
+    ]);
+  });
+
+  it("still signs an existing account in when the check is refused", async () => {
     api.on("POST", "/verify-human", { status: 403, body: null });
     api.on("POST", "/sign-in/email-otp", { status: 200, body: { token: "t" } });
     const fake = fakeWidget();
     await openWith(fake.widget);
-    fake.rendered[0]?.solve("refused");
+    fake.last().callbacks.onToken("refused");
     await requestCode("ada@example.test");
     await enterCode("123456");
     expect(location.assigned).toEqual(["/"]);
   });
 
-  it("explains a refused sign-up and hides the check when the page has no site key", async () => {
+  it("explains a refused sign-up, and sends no check when the page has no site key", async () => {
     api.on("POST", "/sign-in/email-otp", {
       status: 403,
       body: { code: HUMAN_VERIFICATION_REQUIRED, message: "x" },
     });
     await openWith(null);
-    expect(element("human-check").hidden).toBe(true);
+    expect(element("human-check-copy").hidden).toBe(true);
     await requestCode("new@example.test");
     await enterCode("123456");
     expect(element("error-summary").textContent).toBe(
       messages.providerErrors[HUMAN_VERIFICATION_REQUIRED],
     );
-    expect(api.calls.map((call) => call.path)).not.toContain("/verify-human");
+    expect(paths()).not.toContain("/verify-human");
   });
 
   it("explains a provider sign-up refused for the check", async () => {
