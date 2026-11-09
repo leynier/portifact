@@ -978,12 +978,14 @@ describe("the viewer's bar and visitors", () => {
     if (listed) listed.accessMode = "public";
   }
 
-  it("shows the bar: the artifact's name, its version, sharing and the owner's settings", async () => {
+  it("shows the bar and caption: the version, sharing and the owner's settings", async () => {
     const writeText = vi.fn(() => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await open();
     const bar = screen.getByRole("banner");
-    expect(within(bar).getByText("Version 1")).toBeTruthy();
+    expect(
+      within(screen.getByRole("main", { name: "Artifact" })).getByText("Version 1"),
+    ).toBeTruthy();
     expect(within(bar).getByRole("link", { name: "Manage" }).getAttribute("href")).toBe(
       `/artifacts/${ID}`,
     );
@@ -992,6 +994,15 @@ describe("the viewer's bar and visitors", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${ORIGIN}/`));
     await screen.findByText("Link copied.");
     Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("says whose page it is: the artifact's origin and a user-content notice by the frame, not the bar", async () => {
+    await open();
+    expect(within(screen.getByRole("banner")).queryByText("Launch plan")).toBeNull();
+    const region = screen.getByRole("main", { name: "Artifact" });
+    expect(within(region).getByRole("heading", { level: 1, name: "Launch plan" })).toBeTruthy();
+    expect(within(region).getByText(`${ID}.portifact.dev`)).toBeTruthy();
+    expect(within(region).getByText("Published by a user, not by Portifact")).toBeTruthy();
   });
 
   it("collapses and reopens the comments sidebar from the bar", async () => {
@@ -1081,6 +1092,16 @@ describe("the viewer's bar and visitors", () => {
     );
   });
 
+  it("offers the artifact without the bar where the frame keeps no review session", async () => {
+    renderDashboard(`${PATH}?path=${encodeURIComponent("/docs/a.html?x=1")}#intro`, server);
+    await screen.findByTitle("Launch plan, published with Portifact");
+    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    const link = await screen.findByRole("link", { name: "Open without the Portifact bar" });
+    expect(link.getAttribute("href")).toBe(
+      `${ORIGIN}/__portifact/raw?to=%2Fdocs%2Fa.html%3Fx%3D1#intro`,
+    );
+  });
+
   it("shows a public artifact as it is where the browser keeps no review session in the frame", async () => {
     makePublic();
     await open();
@@ -1107,5 +1128,8 @@ describe("when the review session cannot start", () => {
     renderDashboard(PATH, server);
     await screen.findByText("Comments could not be connected to the artifact");
     expect(screen.queryByTitle("Launch plan, published with Portifact")).toBeNull();
+    // The bar is not a security boundary: the artifact itself stays one click away.
+    const raw = screen.getByRole("link", { name: "Open without the Portifact bar" });
+    expect(raw.getAttribute("href")).toBe(`${ORIGIN}/__portifact/raw`);
   });
 });

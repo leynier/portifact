@@ -15,6 +15,7 @@ import {
   MAX_CLEANUP_PATHS,
 } from "../src/injected.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
+import { NO_BAR_COOKIE } from "../src/viewer.ts";
 
 const ID = "c7d2qm4xab";
 const ORIGIN = `https://${ID}.portifact.dev`;
@@ -249,8 +250,16 @@ describe("injected cookie cleanup", () => {
     expect(isPortifactCookie(READ_COOKIE)).toBe(true);
     expect(isPortifactCookie(REVIEW_COOKIE)).toBe(true);
     expect(isPortifactCookie(REVIEW_TAB_COOKIE)).toBe(true);
+    expect(isPortifactCookie(NO_BAR_COOKIE)).toBe(true);
     expect(isPortifactCookie("__Host-pf_read_tx_abcdefghijklmnop")).toBe(true);
-    for (const name of ["__host-pf_read", "__Host-pf_Read", "pf_read", "__Host-pf_review_x", ""]) {
+    for (const name of [
+      "__host-pf_read",
+      "__Host-pf_Read",
+      "pf_read",
+      "__Host-pf_review_x",
+      "__host-pf_nobar",
+      "",
+    ]) {
       expect(isPortifactCookie(name)).toBe(false);
     }
   });

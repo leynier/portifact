@@ -292,10 +292,11 @@ test("the viewer refuses a review session another artifact planted in its frame"
   await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
 });
 
-test("the viewer warns when the frame leaves the artifact for another one", async ({
+test("the frame never reaches another artifact, and the viewer warns when it leaves", async ({
   page,
   context,
   engine,
+  browserName,
 }) => {
   test.skip(!engine.reviewWorks, "the bridge never runs in this configuration");
   const victim = await createUser("Victim");
@@ -314,13 +315,24 @@ test("the viewer warns when the frame leaves the artifact for another one", asyn
   });
 
   await signIn(context, victim);
+  const before = (await contentRequests()).length;
   await openReview(page, trampoline.artifactId, "Trampoline");
   await expect(page.getByRole("button", { name: "Select an element" })).toBeVisible();
-  // The frame now shows another artifact, which cannot answer this viewer from its origin.
-  await artifactFrame(page, elsewhere.artifactId);
-  await expect(page.getByText("The frame stopped answering from the artifact")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Select an element" })).toBeHidden();
-  await expect(page.getByRole("button", { name: "Comment on the page" })).toBeVisible();
+  // The viewer's `frame-src` names only this artifact's origin, so the page's navigation to
+  // another artifact is refused before it is sent (Chromium shows an error page, Firefox keeps
+  // the page) and the look-alike never renders in the viewer.
+  await page.waitForTimeout(4_000);
+  const reached = (await contentRequests())
+    .slice(before)
+    .filter((r) => r.host.startsWith(elsewhere.artifactId));
+  expect(reached).toEqual([]);
+  expect(page.frames().some((f) => f.url().includes(elsewhere.artifactId))).toBe(false);
+  if (browserName === "chromium") {
+    // The error page cannot answer from the artifact's origin: the viewer says so.
+    await expect(page.getByText("The frame stopped answering from the artifact")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Select an element" })).toBeHidden();
+    await expect(page.getByRole("button", { name: "Comment on the page" })).toBeVisible();
+  }
 });
 
 test("a frame bounced through another site never reaches another artifact in review mode", async ({

@@ -7,7 +7,7 @@ import { createDb, schema } from "@portifact/db";
 import { hashSecret, redeemReviewHandoff, reviewSessionTag } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
-import { REVIEW_START_LIMIT } from "../src/auth/limits.ts";
+import { REVIEW_START_LIMIT, VIEWER_LOOKUP_LIMIT } from "../src/auth/limits.ts";
 import { publishSite, type TokenClient, tokenClient } from "./api-client.ts";
 import { createHarness, type Harness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
@@ -132,7 +132,7 @@ describe("review codes", () => {
     expect(response.status).toBe(404);
   });
 
-  it("limits how many codes an account asks for", async () => {
+  it("limits how many codes an account asks for one artifact", async () => {
     for (let i = 0; i < REVIEW_START_LIMIT.max; i++) {
       expect((await start(h, artifactId, owner.cookie)).status).toBe(200);
     }
@@ -140,6 +140,21 @@ describe("review codes", () => {
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
+  });
+
+  it("keeps other artifacts open when one artifact's codes are used up", async () => {
+    // Any site can reload the viewer of one artifact in a popup; that must not lock the account
+    // out of the artifacts it reads.
+    const other = await publishSite(owner, "Other plan");
+    for (let i = 0; i <= REVIEW_START_LIMIT.max; i++) await start(h, artifactId, owner.cookie);
+    expect((await start(h, artifactId, owner.cookie)).status).toBe(429);
+    expect((await start(h, other, owner.cookie)).status).toBe(200);
+    // At most REVIEW_OPEN_CODES codes stay open per account; older ones are expired.
+    const open = await db()
+      .select()
+      .from(schema.reviewHandoffs)
+      .where(eq(schema.reviewHandoffs.userId, owner.userId));
+    expect(open.length).toBeLessThanOrEqual(REVIEW_SESSION.openCodesPerUser);
   });
 
   it("does not issue tab codes with GET", async () => {
@@ -259,6 +274,19 @@ describe("viewer info", () => {
     expect(await (await view(stranger)).json()).toMatchObject({ role: "reader" });
     // A forged session cookie is an anonymous visitor, not an error.
     expect((await view(`${SESSION_COOKIE}=forged.value`)).status).toBe(200);
+  });
+
+  it("limits lookups per IP address, with or without a session", async () => {
+    const fromIp = (ip: string) => view("", { "cf-connecting-ip": ip });
+    for (let i = 0; i < VIEWER_LOOKUP_LIMIT.max; i++) {
+      expect((await fromIp("203.0.113.7")).status).toBe(404);
+    }
+    const limited = await fromIp("203.0.113.7");
+    expect(limited.status).toBe(429);
+    expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(await limited.json()).toMatchObject({ error: { code: "rate_limited" } });
+    expect((await view(owner.cookie, { "cf-connecting-ip": "203.0.113.7" })).status).toBe(429);
+    expect((await fromIp("203.0.113.8")).status).toBe(404);
   });
 
   it("answers only the app's own pages: no bearer tokens, no other sites, no bad IDs", async () => {

@@ -57,7 +57,7 @@ describe("portifact logs", () => {
     expect(lines[1]).toMatch(/^2026-11-08 12:00 UTC\s+visitor0@example\.test$/);
     expect(lines[101]).toMatch(/^2026-11-04 08:00 UTC\s+visitor100@example\.test$/);
     expect(lines.at(-1)).toBe(
-      "One entry per visitor every 30 minutes, kept 30 days. Anonymous visits to public artifacts and your own visits are not recorded, and some openings may be missing.",
+      "One entry per visitor every 30 minutes, kept 30 days. Only artifacts restricted to listed readers record openings, your own visits are not recorded, and some openings may be missing.",
     );
     expect(logRequests()).toHaveLength(2);
     expectNoTokens(result);

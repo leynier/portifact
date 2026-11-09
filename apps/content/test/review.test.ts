@@ -16,6 +16,7 @@ import type { LogOpening, Opening } from "../src/access-log.ts";
 import { handle } from "../src/index.ts";
 import { injectReviewBanner } from "../src/inject.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
+import { NO_BAR_COOKIE } from "../src/viewer.ts";
 
 const ID = "r7d2qm4xab";
 const OTHER_ID = "r3n5wq7yzc";
@@ -1043,6 +1044,63 @@ describe("the viewer with the Portifact bar", () => {
     const logOpening = (opening: Opening) => openings.push(opening);
     expect((await send("/", { cookie, logOpening })).status).toBe(200);
     expect(openings).toEqual([]);
+  });
+
+  it("tells caches that every answer depends on the fetch metadata", async () => {
+    for (const [path, headers] of [
+      ["/", TOP_LEVEL],
+      ["/", VIEWER_FRAME],
+      ["/app.js", SAME_ORIGIN],
+      ["/missing.html", TOP_LEVEL],
+    ] as const) {
+      const vary = (await send(path, { headers })).headers.get("vary") ?? "";
+      expect(vary, `${path} ${JSON.stringify(headers)}`).toContain("Sec-Fetch-Dest");
+      expect(vary).toContain("Sec-Fetch-Mode");
+      expect(vary).toContain("Sec-Fetch-Site");
+    }
+  });
+
+  it("opens the artifact without the bar from the viewer's link, for a short while", async () => {
+    const response = await send("/__portifact/raw?to=%2Findex.html%3Fq%3D1", {
+      headers: FROM_APP,
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(`${ORIGIN}/index.html?q=1`);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    const set = response.headers.getSetCookie().find((c) => c.startsWith(`${NO_BAR_COOKIE}=`));
+    expect(set?.split("; ").slice(1)).toEqual([
+      "Max-Age=3600",
+      "Path=/",
+      "Secure",
+      "HttpOnly",
+      "SameSite=Lax",
+    ]);
+    const cookie = set?.split(";")[0];
+    const page = await send("/index.html?q=1", { cookie, headers: TOP_LEVEL });
+    expect(page.status).toBe(200);
+    expect(await page.text()).toBe(PAGE);
+    // Only that exact cookie and value skip the viewer; anything else still opens it.
+    for (const other of [`${NO_BAR_COOKIE}=0`, "__host-pf_nobar=1", `${cookie}; ${cookie}`]) {
+      expect((await send("/", { cookie: other, headers: TOP_LEVEL })).status, other).toBe(303);
+    }
+  });
+
+  it("starts an opt-out only from a top-level navigation, and only towards this origin", async () => {
+    for (const headers of [VIEWER_FRAME, SAME_ORIGIN, SIBLING, {}]) {
+      const refused = await send("/__portifact/raw", { headers });
+      expect(refused.status, JSON.stringify(headers)).toBe(400);
+      expect(refused.headers.getSetCookie()).toEqual([]);
+    }
+    for (const to of ["//evil.example/", "/__portifact/review/end", "https://evil.example/"]) {
+      const response = await send(`/__portifact/raw?${new URLSearchParams({ to })}`, {
+        headers: TOP_LEVEL,
+      });
+      expect(response.headers.get("location"), to).toBe(`${ORIGIN}/`);
+    }
+    expect((await send("/__portifact/raw", { headers: TOP_LEVEL, method: "POST" })).status).toBe(
+      405,
+    );
   });
 
   it("starts review on the page the viewer names, and only on a page of this origin", async () => {

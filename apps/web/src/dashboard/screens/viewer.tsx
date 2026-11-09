@@ -33,7 +33,7 @@ import {
 } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useParams, useSearch } from "@tanstack/react-router";
+import { useLocation, useParams, useSearch } from "@tanstack/react-router";
 import {
   AppWindow,
   CircleAlert,
@@ -114,6 +114,27 @@ function pageUrl(origin: string, target: Target): string {
 }
 
 /**
+ * The artifact on its own origin, without the bar: `/__portifact/raw` sets a short opt-out for
+ * this browser and continues to the page, through the usual sign-in for a protected artifact.
+ * The bar is not a security boundary, so this is always safe to offer.
+ */
+function withoutBarUrl(origin: string, target: Target): string {
+  const link = new URL("/__portifact/raw", origin);
+  if (target.path !== "/") link.searchParams.set("to", target.path);
+  return `${link.toString()}${target.hash}`;
+}
+
+/** The link to the artifact without the bar, for when the viewer cannot show it with tools. */
+function WithoutBarLink({ info, target }: { info: ViewerInfo; target: Target }) {
+  const t = useT();
+  return (
+    <p className="text-sm">
+      <a href={withoutBarUrl(info.origin, target)}>{t("viewer.withoutBar")}</a>
+    </p>
+  );
+}
+
+/**
  * A review link (frame or tab) that starts on the target page. The artifact origin checks `to`
  * again; the fragment rides along the redirects to the page.
  */
@@ -164,7 +185,7 @@ export function ViewerScreen() {
           <>
             <p className="text-text-muted">{t("viewer.unavailable.body")}</p>
             <p className="mt-4">
-              <Link to="/">{t("viewer.dashboard")}</Link>
+              <a href="/">{t("viewer.dashboard")}</a>
             </p>
           </>
         ) : (
@@ -255,24 +276,28 @@ function ViewerLayout({
           </picture>
         </a>
       }
-      title={info.name}
-      details={
-        <Badge emphasis="quiet">{t("viewer.version", { number: info.versionNumber })}</Badge>
-      }
+      caption={{
+        origin: new URL(info.origin).host,
+        title: info.name,
+        details: (
+          <Badge emphasis="quiet">{t("viewer.version", { number: info.versionNumber })}</Badge>
+        ),
+        notice: t("viewer.userContent"),
+      }}
       actions={
         <>
           <Button size="sm" icon={<Link2 className="size-4" />} onClick={copy}>
             {t("viewer.copyLink")}
           </Button>
           {info.role === "owner" ? (
-            <Link
-              to="/artifacts/$artifactId"
-              params={{ artifactId: info.artifactId }}
+            // Full page loads: the dashboard gets its own policy, not the viewer's narrow frame-src.
+            <a
+              href={`/artifacts/${encodeURIComponent(info.artifactId)}`}
               className={buttonClasses({ size: "sm" })}
             >
               <Settings aria-hidden="true" className="size-4" />
               {t("viewer.manage")}
-            </Link>
+            </a>
           ) : (
             <a
               href={`/report?${new URLSearchParams({ artifact: info.artifactId })}`}
@@ -294,9 +319,9 @@ function ViewerLayout({
             </Button>
           ) : null}
           {account.kind === "signed-in" ? (
-            <Link to="/" className={buttonClasses({ intent: "link", size: "inline" })}>
+            <a href="/" className={buttonClasses({ intent: "link", size: "inline" })}>
               {t("viewer.dashboard")}
-            </Link>
+            </a>
           ) : (
             <a
               href={loginUrl(account.here)}
@@ -441,6 +466,7 @@ function SignedInViewer({ info, target }: { info: ViewerInfo; target: Target }) 
               >
                 {errorMessage(t, start.error)}
               </Callout>
+              <WithoutBarLink info={info} target={target} />
             </div>
             {info.accessMode === "public" ? (
               <ArtifactFrame info={info} src={pageUrl(info.origin, target)} />
@@ -654,12 +680,7 @@ function ReviewSession({
   const frameArea = (
     <>
       <div className="flex flex-col gap-3 p-3 empty:hidden">
-        <BridgeNotice
-          state={state}
-          artifactId={start.artifactId}
-          target={target}
-          onRestart={onRestart}
-        />
+        <BridgeNotice state={state} info={info} target={target} onRestart={onRestart} />
         {outdated ? (
           <Callout
             title={t("review.newVersion.title")}
@@ -778,15 +799,16 @@ function refusalMessage(t: T, reason: RefusalReason): string {
 
 function BridgeNotice({
   state,
-  artifactId,
+  info,
   target,
   onRestart,
 }: {
   state: BridgeState;
-  artifactId: string;
+  info: ViewerInfo;
   target: Target;
   onRestart(): void;
 }) {
+  const artifactId = info.artifactId;
   const t = useT();
   if (state === "connecting") {
     return <p className="text-sm text-text-muted">{t("review.frame.connecting")}</p>;
@@ -797,6 +819,7 @@ function BridgeNotice({
         <Callout title={t(`review.status.${state}.title`)} icon={<Info className="size-5" />}>
           {t(`review.status.${state}.body`)}
         </Callout>
+        <WithoutBarLink info={info} target={target} />
         <ReviewTabOffer artifactId={artifactId} target={target} />
       </>
     );

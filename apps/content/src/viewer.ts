@@ -4,6 +4,55 @@
 // requests are frame navigations, so they are served as usual and never sent back to the viewer.
 // See "The viewer" in docs/security.md for every condition.
 import { viewerPath } from "@portifact/domain";
+import { cookieValue, setCookie } from "./cookies.ts";
+
+/**
+ * The viewer's "Open without the Portifact bar" link: a top-level navigation here sets
+ * `NO_BAR_COOKIE` on this artifact origin and continues to the page in `to`.
+ */
+export const NO_BAR_PATH = "/__portifact/raw";
+
+/**
+ * Host-only, first-party and `Lax`: while it holds `1`, top-level visits of this artifact get the
+ * artifact itself instead of the viewer. It grants nothing; it only does for one browser what the
+ * owner's opt-out does for everyone, because the bar is not a security boundary.
+ */
+export const NO_BAR_COOKIE = "__Host-pf_nobar";
+
+/** How long the opt-out lasts in that browser. */
+export const NO_BAR_SECONDS = 3600;
+
+/**
+ * The page a reserved path continues to: the request's one `to` parameter when `viewerPath`
+ * accepts it, else the root. Whoever sets it can only pick another page of the same artifact.
+ */
+export function returnPath(request: Request): string {
+  const values = new URL(request.url).searchParams.getAll("to");
+  return (values.length === 1 ? viewerPath(values[0]) : null) ?? "/";
+}
+
+/** Whether this browser asked to see the artifact without the bar (`NO_BAR_COOKIE`). */
+export function skipsViewer(request: Request): boolean {
+  return cookieValue(request.headers.get("Cookie"), NO_BAR_COOKIE) === "1";
+}
+
+/**
+ * `/__portifact/raw?to=<path>`: only a top-level navigation (the visitor followed the viewer's
+ * link) sets the opt-out, so a sibling's subresource or frame cannot set it; anything else is
+ * refused with no cookie. Null means refused.
+ */
+export function noBarRedirect(request: Request): Response | null {
+  if (!isTopLevelVisit(request)) return null;
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: `${new URL(request.url).origin}${returnPath(request)}`,
+      "Set-Cookie": setCookie(NO_BAR_COOKIE, "1", { maxAgeSeconds: NO_BAR_SECONDS }),
+      "Cache-Control": "no-store",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
+}
 
 /**
  * Whether a request is a top-level page visit the viewer should show instead: a `GET` navigation

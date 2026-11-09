@@ -102,6 +102,28 @@ describe("access policy", () => {
     });
   });
 
+  it("turns the Portifact bar off and on without moving the generation, so sessions go on", async () => {
+    const ownerId = await owner(30);
+    const artifactId = await artifact(ownerId);
+    const off = await updateAccess(db(), {
+      ownerId,
+      artifactId,
+      change: { bar: false },
+      now: NOW,
+    });
+    expect(off.ok && off.value).toMatchObject({ bar: false, policyGeneration: 1 });
+    const on = await updateAccess(db(), { ownerId, artifactId, change: { bar: true }, now: NOW });
+    expect(on.ok && on.value).toMatchObject({ bar: true, policyGeneration: 1 });
+    // Combined with a change that does affect access, the generation moves as usual.
+    const both = await updateAccess(db(), {
+      ownerId,
+      artifactId,
+      change: { bar: false, mode: "authenticated" },
+      now: NOW,
+    });
+    expect(both.ok && both.value).toMatchObject({ bar: false, policyGeneration: 2 });
+  });
+
   it("lets a reader be added and removed in one change, keeping the addition", async () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);

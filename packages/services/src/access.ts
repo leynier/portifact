@@ -1,6 +1,6 @@
 // The owner's access policy of an artifact (plan section 5): read it, and change the mode, the
-// reader list, indexing, embedding and the Portifact bar in one transaction. Every change bumps the policy
-// generation, which read sessions carry, so a revocation applies quickly.
+// reader list, indexing, embedding and the Portifact bar in one transaction. Every change but the
+// bar bumps the policy generation, which read sessions carry, so a revocation applies quickly.
 import { type AccessMode, LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { checkAccessChange, fail, ok, type Result } from "@portifact/domain";
@@ -24,6 +24,22 @@ export interface AccessChange {
   /** Lowercased email addresses. */
   addReaders?: readonly string[] | undefined;
   removeReaders?: readonly string[] | undefined;
+}
+
+/**
+ * Whether a change can narrow or widen who reads or how the artifact is delivered to other
+ * sites. Only those end read and review sessions (the generation moves); the Portifact bar
+ * changes neither, so turning it on or off keeps every reader's sessions. The update is still
+ * conditioned on the generation read, so it conflicts with a concurrent access change.
+ */
+function changesAccess(change: AccessChange): boolean {
+  return (
+    change.mode !== undefined ||
+    change.indexable !== undefined ||
+    change.embeddable !== undefined ||
+    (change.addReaders?.length ?? 0) > 0 ||
+    (change.removeReaders?.length ?? 0) > 0
+  );
 }
 
 async function loadOwned(db: Db, ownerId: string, artifactId: string) {
@@ -136,7 +152,7 @@ export async function updateAccess(
         ...(change.indexable === undefined ? {} : { indexable: change.indexable }),
         ...(change.embeddable === undefined ? {} : { embeddable: change.embeddable }),
         ...(change.bar === undefined ? {} : { bar: change.bar }),
-        policyGeneration: artifact.policyGeneration + 1,
+        policyGeneration: artifact.policyGeneration + (changesAccess(change) ? 1 : 0),
         updatedAt: input.now,
       })
       .where(

@@ -1,6 +1,6 @@
 // Access log rules (plan sections 2, 11 and 13): which openings are recorded, the 30-minute
 // window that deduplicates them and the 30 days they are kept. Only signed-in visitors are ever
-// identified, and only on protected artifacts; visits of public artifacts are never recorded.
+// identified, and only on `restricted` artifacts; public and `authenticated` ones are never recorded.
 import { ACCESS_LOG } from "@portifact/contracts";
 
 const MINUTE_MS = 60_000;
@@ -27,23 +27,23 @@ export interface ServedRequest {
   visitorId: string | null;
   ownerId: string;
   /**
-   * The artifact is public. Anyone may read it without signing in, so a signed-in visitor's
-   * session there (the viewer's frame or a review tab) does not identify them to the owner.
+   * The artifact's access mode. Only `restricted` artifacts are logged: their readers are the
+   * addresses the owner listed. Public and `authenticated` artifacts open for anyone signed in
+   * (in the viewer, or through the read handoff without a click), so any site could send a
+   * visitor there and hand the owner their email.
    */
-  public: boolean;
+  accessMode: "public" | "authenticated" | "restricted";
 }
 
 /**
- * An opening is a page load of a protected artifact by a signed-in visitor who is not the
- * owner. Subresources (each asset), anonymous visits and every visit of a public artifact are
- * never recorded, and the owner's own visits are not openings. Public artifacts open in the
- * viewer with a session for anyone who happens to be signed in to Portifact; logging those would
- * name visitors who never had to identify themselves to read the artifact.
+ * An opening is a page load of a `restricted` artifact by a signed-in visitor who is not the
+ * owner. Subresources (each asset), anonymous visits, every visit of a public or `authenticated`
+ * artifact and the owner's own visits are never recorded.
  */
 export function isLoggedOpening(request: ServedRequest): boolean {
   return (
     request.navigation &&
-    !request.public &&
+    request.accessMode === "restricted" &&
     request.visitorId !== null &&
     request.visitorId !== request.ownerId
   );

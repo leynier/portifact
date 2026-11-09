@@ -58,7 +58,14 @@ import {
   strayFrameCookie,
 } from "./review.ts";
 import { type CountTraffic, TrafficMeter } from "./traffic.ts";
-import { isTopLevelVisit, viewerLocation, viewerRedirect } from "./viewer.ts";
+import {
+  isTopLevelVisit,
+  NO_BAR_PATH,
+  noBarRedirect,
+  skipsViewer,
+  viewerLocation,
+  viewerRedirect,
+} from "./viewer.ts";
 
 // The Durable Object class the TRAFFIC_LIMITER binding names (wrangler.jsonc).
 export { TrafficLimiter } from "./traffic-limiter.ts";
@@ -91,7 +98,8 @@ const PAGES: Record<
   | "trafficExceeded"
   | "slowDown"
   | "reviewEnded"
-  | "endRefused",
+  | "endRefused"
+  | "noBarRefused",
   string
 > = {
   notFound: "This artifact does not exist or is no longer available",
@@ -106,7 +114,11 @@ const PAGES: Record<
   slowDown: "Too many requests right now. Try again in a minute",
   reviewEnded: "Review ended. You can close this tab",
   endRefused: "Use End review in the review tab to end the review",
+  noBarRefused: "Open this link from the Portifact viewer to see the artifact without the bar",
 };
+
+/** The request headers every answer of this Worker depends on. */
+const FETCH_METADATA_VARY = "Sec-Fetch-Dest, Sec-Fetch-Mode, Sec-Fetch-Site";
 
 /** Pages where retrying from the artifact's root is the way forward. */
 const RETRY_PAGES = new Set<Page>(["signIn", "linkExpired"]);
@@ -153,7 +165,8 @@ const NO_OPENINGS: LogOpening = () => {};
  * Answers one request. `countTraffic` is charged once for every authorized request served for an
  * artifact; requests refused before authorization (sign-in, unknown or unavailable artifacts)
  * and the 429 itself charge nothing. `logOpening` gets every page served to a signed-in visitor
- * who is not the owner (`isLoggedOpening`); anonymous visits and subresources are never logged.
+ * who is not the owner of a `restricted` artifact (`isLoggedOpening`); anonymous visits, public and
+ * `authenticated` artifacts and subresources are never logged.
  */
 export async function handle(
   request: Request,
@@ -173,10 +186,12 @@ export async function handle(
     env.CONTENT_DOMAIN,
   );
   const clearing = stray ? [stray, ...injected] : injected;
-  if (clearing.length === 0) return response;
-  const cleared = new Response(response.body, response);
-  for (const cookie of clearing) cleared.headers.append("Set-Cookie", cookie);
-  return cleared;
+  const answered = new Response(response.body, response);
+  for (const cookie of clearing) answered.headers.append("Set-Cookie", cookie);
+  // Whether a request opens the viewer, is served in review mode or may use a session depends
+  // on its fetch metadata, so no cache may reuse one answer for another kind of request.
+  answered.headers.append("Vary", FETCH_METADATA_VARY);
+  return answered;
 }
 
 async function route(
@@ -231,6 +246,10 @@ async function route(
     return reviewStepResponse(await handleReviewEnd(request, env, db, id), env);
   }
   if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
+  if (url.pathname === NO_BAR_PATH) {
+    const response = noBarRedirect(request);
+    return response ?? message(400, PAGES.noBarRefused);
+  }
 
   const cycle = trafficCycle(now);
   const found = await findDeliveryArtifact(db, id, cycle.start);
@@ -317,7 +336,7 @@ async function serve(
       navigation: isPageLoad(request),
       visitorId,
       ownerId: artifact.ownerId,
-      public: artifact.accessMode === "public",
+      accessMode: artifact.accessMode,
     })
   ) {
     delivery.logOpening({ artifactId: artifact.id, userId: visitorId as string, at: now });
@@ -475,7 +494,7 @@ function opensInViewer(
   file: DeliveryFile,
   role: Resolved["role"],
 ): boolean {
-  if (!artifact.bar || !isTopLevelVisit(request)) return false;
+  if (!artifact.bar || !isTopLevelVisit(request) || skipsViewer(request)) return false;
   return role === "page" || (role === "file" && file.contentType.startsWith("text/html"));
 }
 

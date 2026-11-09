@@ -260,7 +260,7 @@ export const en = {
   "account.actionFailed.title": "The action did not finish",
   "accessLog.title": "Who opened it",
   "accessLog.hint":
-    "Signed-in visitors who opened this artifact in the last 30 days, newest first, one entry per visitor every 30 minutes. Only you see this list. Anonymous visits to public artifacts and your own visits are not recorded, and some openings may be missing.",
+    "Signed-in visitors who opened this artifact in the last 30 days, newest first, one entry per visitor every 30 minutes. Only you see this list. Only artifacts restricted to the people you list record openings, your own visits are not recorded, and some openings may be missing.",
   "accessLog.loading": "Loading who opened the artifact",
   "accessLog.error.title": "The access log could not be loaded",
   "accessLog.empty.title": "No visitors yet",
@@ -512,6 +512,8 @@ export const en = {
   "viewer.skipLink": "Skip to the artifact",
   "viewer.brand": "Portifact",
   "viewer.version": "Version {number}",
+  "viewer.userContent": "Published by a user, not by Portifact",
+  "viewer.withoutBar": "Open without the Portifact bar",
   "viewer.copyLink": "Copy link",
   "viewer.copied": "Link copied.",
   "viewer.copyFailed": "The link could not be copied. The link is {link}",

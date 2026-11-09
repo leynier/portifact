@@ -27,7 +27,7 @@ import {
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
-import { checkLimits, REVIEW_START_LIMIT } from "../auth/limits.ts";
+import { checkLimits, REVIEW_START_LIMIT, VIEWER_LOOKUP_LIMIT } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
 import { fromAppOrigin, hasSessionCookie } from "./access.ts";
 import type { AccountSessionLookup } from "./account.ts";
@@ -101,14 +101,22 @@ export function reviewRoutes(deps: ReviewDeps) {
     if (!ArtifactId.safeParse(artifactId).success) {
       return error(c, "not_found", "Artifact not found.");
     }
+    // It answers without a session, so it is limited per IP like the other open endpoints.
+    const now = deps.now();
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+    const limit = await checkLimits(
+      c.env.DB,
+      [{ key: `viewer:ip:${ip}`, limit: VIEWER_LOOKUP_LIMIT }],
+      now,
+    );
+    if (!limit.ok) {
+      c.header("Retry-After", String(limit.retryAfterSeconds));
+      return error(c, "rate_limited", "Too many artifacts opened. Try again in a few minutes.");
+    }
     const userId = hasSessionCookie(request.headers.get("cookie"))
       ? ((await deps.viewer(c.env)(request)) ?? null)
       : null;
-    const found = await getViewerArtifact(createDb(c.env.DB), {
-      artifactId,
-      userId,
-      now: deps.now(),
-    });
+    const found = await getViewerArtifact(createDb(c.env.DB), { artifactId, userId, now });
     if (!found.ok) return error(c, found.code, found.message);
     return c.json(
       ViewerInfo.parse({
@@ -156,12 +164,15 @@ async function issue(c: ReviewContext, deps: ReviewDeps, kind: ReviewKind): Prom
   const now = deps.now();
   const limit = await checkLimits(
     c.env.DB,
-    [{ key: `review:user:${session.userId}`, limit: REVIEW_START_LIMIT }],
+    [{ key: `review:user:${session.userId}:${artifactId}`, limit: REVIEW_START_LIMIT }],
     now,
   );
   if (!limit.ok) {
     c.header("Retry-After", String(limit.retryAfterSeconds));
-    return refuse("rate_limited", "Too many reviews opened. Try again in a few minutes.");
+    return refuse(
+      "rate_limited",
+      "Too many reviews of this artifact opened. Try again in a few minutes.",
+    );
   }
   const issued = await issueReviewHandoff(createDb(c.env.DB), {
     artifactId,

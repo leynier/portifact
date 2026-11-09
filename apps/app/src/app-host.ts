@@ -117,6 +117,8 @@ export function dashboardPolicy(
   storage: string,
   stylesheetSource: string,
   contentDomain: string,
+  /** The one artifact origin the viewer frames; every artifact origin when absent. */
+  frameOrigin = `https://*.${contentDomain}`,
 ): string {
   const policy = PAGE_CSP.replace(
     "style-src 'self'",
@@ -125,7 +127,7 @@ export function dashboardPolicy(
   // The review viewer frames artifact origins. Client-side navigation keeps the policy of the
   // first page, so every dashboard route sends it. The frames are cross-site and sandboxed. It
   // also renders the human check of a visitor's first comments.
-  return withHumanCheck(`${policy}; frame-src https://*.${contentDomain}`);
+  return withHumanCheck(`${policy}; frame-src ${frameOrigin}`);
 }
 
 export async function dashboardCsp(
@@ -135,6 +137,23 @@ export async function dashboardCsp(
     storageOrigin(env.R2_ACCOUNT_ID),
     await documentStylesheetSource(),
     env.CONTENT_DOMAIN,
+  );
+}
+
+/**
+ * The viewer's policy: the dashboard's, with `frame-src` narrowed to the one artifact it shows
+ * (and the human check), so its frame can never be navigated to another artifact or site. Its
+ * links to the dashboard load a new page, which gets the dashboard's own policy.
+ */
+export async function viewerCsp(
+  env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">,
+  artifactId: string,
+): Promise<string> {
+  return dashboardPolicy(
+    storageOrigin(env.R2_ACCOUNT_ID),
+    await documentStylesheetSource(),
+    env.CONTENT_DOMAIN,
+    `https://${artifactId}.${env.CONTENT_DOMAIN}`,
   );
 }
 
@@ -311,10 +330,11 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   // The viewer is the dashboard SPA with or without a session; the page itself holds nothing.
   // Never indexed: crawlers get the artifact itself on its own origin (docs/security.md).
   app.get(VIEWER_ROUTE, async (c) => {
-    if (!ArtifactId.safeParse(c.req.param("artifactId")).success) return c.notFound();
+    const artifactId = c.req.param("artifactId");
+    if (!ArtifactId.safeParse(artifactId).success) return c.notFound();
     const page = trustedPage(
       await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
-      await dashboardCsp(c.env),
+      await viewerCsp(c.env, artifactId),
     );
     page.headers.set("X-Robots-Tag", "noindex");
     return withSiteKey(page, c.env.TURNSTILE_SITE_KEY);

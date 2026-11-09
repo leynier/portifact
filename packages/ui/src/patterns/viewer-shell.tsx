@@ -1,16 +1,19 @@
 import type { ReactNode } from "react";
+import { Badge } from "../components/badge.tsx";
 
 export interface ViewerShellProps {
   /** Text of the skip link that jumps to the artifact. */
   skipLinkLabel: string;
-  /** The Portifact mark, linking to Portifact. */
+  /** The Portifact mark. */
   brand: ReactNode;
-  /** The artifact's name, rendered as the page's single `h1`. */
-  title: string;
-  /** Short facts next to the title, such as the version badge. */
-  details?: ReactNode;
   /** Controls of the bar: sharing, the owner's links, the comments toggle and the account. */
   actions: ReactNode;
+  /**
+   * What the frame shows, attached to it rather than to the bar: the artifact's own origin, its
+   * name as its publisher wrote it (the page's single `h1`, set as user content), short facts
+   * such as the version, and a notice that a user published it, not Portifact.
+   */
+  caption: { origin: string; title: string; details?: ReactNode; notice: string };
   /** Accessible name of the artifact region. */
   frameLabel: string;
   /** Notices about the artifact and the artifact frame itself, which fills the region. */
@@ -23,16 +26,17 @@ export interface ViewerShellProps {
 }
 
 /**
- * Page frame of the viewer with the Portifact bar: a slim bar that says this is a Portifact
- * artifact, the artifact filling the rest of the screen and an optional comments sidebar. The
- * page itself never scrolls; the frame and the sidebar scroll on their own.
+ * Page frame of the viewer with the Portifact bar: a slim bar with Portifact's mark and
+ * controls, the artifact filling the rest of the screen under a caption that names its origin
+ * and says a user published it, and an optional comments sidebar. The page itself never
+ * scrolls; the frame and the sidebar scroll on their own. The artifact's name never sits next to
+ * the mark, so a name such as "Portifact sign-in" cannot pass for Portifact's own page.
  */
 export function ViewerShell({
   skipLinkLabel,
   brand,
-  title,
-  details,
   actions,
+  caption,
   frameLabel,
   frame,
   sidebar,
@@ -45,14 +49,8 @@ export function ViewerShell({
       >
         {skipLinkLabel}
       </a>
-      <header className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border-strong bg-surface px-3 py-2">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border-strong bg-surface px-3 py-2">
         <div className="flex h-9 shrink-0 items-center">{brand}</div>
-        <div className="flex min-w-0 flex-1 items-center gap-3">
-          <h1 className="truncate text-base font-semibold tracking-tight">{title}</h1>
-          {details ? (
-            <div className="hidden shrink-0 sm:flex sm:items-center">{details}</div>
-          ) : null}
-        </div>
         <div className="flex flex-wrap items-center gap-2 text-sm">{actions}</div>
       </header>
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
@@ -62,6 +60,16 @@ export function ViewerShell({
           aria-label={frameLabel}
           className="flex min-h-0 min-w-0 flex-1 flex-col focus:outline-none"
         >
+          <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-canvas px-3 py-2 text-sm">
+            <span className="min-w-0 font-mono break-all text-text-muted">{caption.origin}</span>
+            <h1 className="min-w-0 truncate font-normal">
+              <span aria-hidden="true">“</span>
+              {caption.title}
+              <span aria-hidden="true">”</span>
+            </h1>
+            {caption.details}
+            <Badge emphasis="strong">{caption.notice}</Badge>
+          </div>
           {frame}
         </main>
         {sidebar ? (

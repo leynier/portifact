@@ -156,14 +156,14 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
       <PageHeader title={artifact.name} description={<StateBadge state={artifact.state} />} />
       {artifact.state === "active" ? (
         <p className="mb-6">
-          <Link
-            to="/view/$artifactId"
-            params={{ artifactId: artifact.id }}
+          {/* A full page load, so the viewer gets its own policy (frames of this artifact only). */}
+          <a
+            href={`/view/${encodeURIComponent(artifact.id)}`}
             className={buttonClasses({ intent: "secondary" })}
           >
             <MessageSquareText aria-hidden="true" className="size-4" />
             {t("review.open")}
-          </Link>
+          </a>
         </p>
       ) : null}
 

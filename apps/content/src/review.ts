@@ -19,10 +19,10 @@
 // /__portifact/review/end ends the session and clears the cookie.
 import { OpaqueToken, REVIEW_SESSION, ReviewClaims, type ReviewKind } from "@portifact/contracts";
 import type { Db } from "@portifact/db";
-import { viewerPath } from "@portifact/domain";
 import { endReviewSession, redeemReviewHandoff, refreshReviewSession } from "@portifact/services";
 import { cookieValue, seal, setCookie, unseal, usableSecret } from "./cookies.ts";
 import type { ServableArtifact } from "./read-session.ts";
+import { returnPath } from "./viewer.ts";
 
 export const REVIEW_COOKIE = "__Host-pf_review";
 export const REVIEW_TAB_COOKIE = "__Host-pf_review_tab";
@@ -409,16 +409,6 @@ export async function handleReviewCheck(
   if (!claims) return { kind: "status", status: "unavailable", httpStatus: 409, setCookies: [] };
   const origin = new URL(request.url).origin;
   return { kind: "redirect", location: `${origin}${returnPath(request)}`, setCookies: [] };
-}
-
-/**
- * The page review starts on: the request's one `to` parameter when it is a path on this origin
- * outside the reserved paths (`viewerPath`), else the root. The viewer sets it to the page its
- * link names; anything else that sets it can only pick another page of the same artifact.
- */
-function returnPath(request: Request): string {
-  const values = new URL(request.url).searchParams.getAll("to");
-  return (values.length === 1 ? viewerPath(values[0]) : null) ?? "/";
 }
 
 /**

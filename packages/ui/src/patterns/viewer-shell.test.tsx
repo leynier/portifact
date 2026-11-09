@@ -11,8 +11,12 @@ function shell(withSidebar = true) {
     <ViewerShell
       skipLinkLabel="Skip to the artifact"
       brand={<a href="https://portifact.com">Portifact</a>}
-      title="Launch plan"
-      details={<span>Version 3</span>}
+      caption={{
+        origin: "k7d2qm4xab.portifact.dev",
+        title: "Launch plan",
+        details: <span>Version 3</span>,
+        notice: "Published by a user, not by Portifact",
+      }}
       actions={<button type="button">Copy link</button>}
       frameLabel="Artifact"
       frame={<iframe title="Launch plan" src="about:blank" />}
@@ -24,12 +28,18 @@ function shell(withSidebar = true) {
 }
 
 describe("ViewerShell", () => {
-  it("shows the bar with the artifact's name as the only h1 and its controls", () => {
+  it("keeps the artifact's name out of the bar, attached to the frame with its origin", () => {
     shell();
-    expect(screen.getByRole("banner").textContent).toContain("Portifact");
-    expect(screen.getByRole("heading", { level: 1, name: "Launch plan" })).toBeTruthy();
-    expect(screen.getByText("Version 3")).toBeTruthy();
+    const bar = screen.getByRole("banner");
+    expect(bar.textContent).toContain("Portifact");
+    expect(bar.textContent).not.toContain("Launch plan");
     expect(screen.getByRole("button", { name: "Copy link" })).toBeTruthy();
+    const main = screen.getByRole("main", { name: "Artifact" });
+    const heading = screen.getByRole("heading", { level: 1, name: "Launch plan" });
+    expect(main.contains(heading)).toBe(true);
+    expect(main.textContent).toContain("k7d2qm4xab.portifact.dev");
+    expect(main.textContent).toContain("Published by a user, not by Portifact");
+    expect(main.textContent).toContain("Version 3");
   });
 
   it("skips to the focusable artifact region and labels the comments sidebar", () => {

@@ -106,7 +106,7 @@ Only in versions whose `--help` lists `usage`. `portifact usage --json` prints `
 
 ## Access logs
 
-Only in versions whose `--help` lists `logs`. `portifact logs <id>` lists who opened one of the user's artifacts in the last 30 days, newest first: the verified email of each signed-in visitor and when, one entry per visitor every 30 minutes. `--since 7d` (or `30m`, `12h`, or an ISO date) limits it to recent openings, and `--json` prints `{"artifactId","entries","nextCursor","windowMinutes","retentionDays"}` with every entry as `{"email","openedAt"}`. Only the owner can read it; anyone else gets `not_found` (exit 5). Anonymous visits to public artifacts and the owner's own visits are never recorded, and openings can be missing, so it is not a complete audit. The emails are the visitors' personal data: show them to the user and do not send them anywhere else.
+Only in versions whose `--help` lists `logs`. `portifact logs <id>` lists who opened one of the user's artifacts in the last 30 days, newest first: the verified email of each signed-in visitor and when, one entry per visitor every 30 minutes. `--since 7d` (or `30m`, `12h`, or an ISO date) limits it to recent openings, and `--json` prints `{"artifactId","entries","nextCursor","windowMinutes","retentionDays"}` with every entry as `{"email","openedAt"}`. Only the owner can read it; anyone else gets `not_found` (exit 5). Only artifacts restricted to listed readers record openings (public and `authenticated` ones never do), the owner's own visits are never recorded, and openings can be missing, so it is not a complete audit. The emails are the visitors' personal data: show them to the user and do not send them anywhere else.
 
 ## Annotations
 

@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { describe, expect, it } from "vitest";
 import { SESSION_SCOPES } from "../src/api/access.ts";
-import { dashboardCsp, PAGE_CSP } from "../src/app-host.ts";
+import { dashboardCsp, PAGE_CSP, viewerCsp } from "../src/app-host.ts";
 import { publishSite, tokenClient } from "./api-client.ts";
 import { createHarness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
@@ -110,7 +110,14 @@ describe("viewer page", () => {
         redirect: "manual",
       });
       expect(response.status).toBe(200);
-      expect(response.headers.get("content-security-policy")).toBe(await dashboardCsp(env));
+      const policy = response.headers.get("content-security-policy") ?? "";
+      expect(policy).toBe(await viewerCsp(env, "k7d2qm4xab"));
+      // Only this artifact's origin (and the human check) may be framed, not every artifact.
+      expect(policy).toContain(
+        "frame-src https://k7d2qm4xab.portifact.dev https://challenges.cloudflare.com",
+      );
+      expect(policy).not.toContain("*.portifact.dev");
+      expect(policy).toContain("frame-ancestors 'none'");
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response.headers.get("x-frame-options")).toBe("DENY");

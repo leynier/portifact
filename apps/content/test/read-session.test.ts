@@ -973,6 +973,15 @@ describe("access log openings", () => {
     expect(openings).toEqual([{ artifactId: ID, userId: READER, at: NOW }]);
   });
 
+  it("records nothing on an artifact any signed-in account may open", async () => {
+    // Any site can send a signed-in visitor here and the handoff completes without a click.
+    await sql("UPDATE artifacts SET access_mode = 'authenticated' WHERE id = ?", ID);
+    const cookie = await signIn(STRANGER);
+    const { openings, logOpening } = recorder();
+    expect((await send("/", { cookie, logOpening })).status).toBe(200);
+    expect(openings).toEqual([]);
+  });
+
   it("records nothing for the owner, a missing page, a refusal or the sign-in steps", async () => {
     const { openings, logOpening } = recorder();
     const owner = await signIn(OWNER);

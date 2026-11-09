@@ -17,6 +17,12 @@ export const REVIEW_SESSION = {
   claimsTtlSeconds: 60,
   sessionTtlSeconds: 14_400,
   tabSessionTtlSeconds: 900,
+  /**
+   * Unredeemed codes an account keeps at most; issuing another expires the oldest. Any site can
+   * make a signed-in browser load the viewer, so codes are bounded per account instead of being
+   * refused once a global budget is spent.
+   */
+  openCodesPerUser: 10,
 } as const;
 
 /**

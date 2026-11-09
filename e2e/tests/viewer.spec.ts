@@ -58,9 +58,14 @@ for (const artifact of ARTIFACTS) {
     await page.goto(`${artifactOrigin(artifactId)}/`);
     await expect(page).toHaveURL(`${APP_ORIGIN}/view/${artifactId}`);
     const bar = page.getByRole("banner");
-    await expect(bar.getByRole("heading", { level: 1, name: artifact.name })).toBeVisible();
-    await expect(bar.getByText("Version 1")).toBeVisible();
     await expect(bar.getByRole("link", { name: "Manage" })).toBeVisible();
+    // The name is the publisher's, shown by the frame with its origin, never beside the mark.
+    await expect(bar.getByText(artifact.name)).toHaveCount(0);
+    const region = page.getByRole("main", { name: "Artifact" });
+    await expect(region.getByRole("heading", { level: 1, name: artifact.name })).toBeVisible();
+    await expect(region.getByText(`${artifactId}.portifact-content.test`)).toBeVisible();
+    await expect(region.getByText("Published by a user, not by Portifact")).toBeVisible();
+    await expect(region.getByText("Version 1")).toBeVisible();
     const sidebar = page.getByRole("complementary", { name: "Comments" });
     await expect(sidebar).toBeVisible();
 
@@ -71,11 +76,15 @@ for (const artifact of ARTIFACTS) {
       await sidebar.getByRole("textbox", { name: "Comment" }).fill("General note");
       await sidebar.getByRole("button", { name: "Post comment" }).click();
       await expect(sidebar.getByText("1 comment thread")).toBeVisible();
+      // The artifact itself stays one click away, without the bar.
+      await page.getByRole("link", { name: "Open without the Portifact bar" }).click();
+      await expect(page).toHaveURL(`${artifactOrigin(artifactId)}/`);
+      await expect(page.getByText(QUOTE).first()).toBeVisible();
       return;
     }
 
     const frame = await artifactFrame(page, artifactId);
-    await frame.getByText(QUOTE).first().waitFor();
+    await expect(frame.getByText(QUOTE).first()).toBeVisible();
     // Select the quote in the artifact itself; the sidebar offers a comment, nothing is posted.
     await frame.evaluate((quote) => {
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
@@ -134,6 +143,7 @@ test("the viewer keeps the page, query and fragment of the link it was opened wi
   const frame = await artifactFrame(page, artifactId);
   expect(frame.url()).toBe(`${artifactOrigin(artifactId)}/docs/guide.html?step=2#install`);
   await expect(frame.getByRole("heading", { name: "Guide" })).toBeVisible();
+  await expect(frame.getByText("Install it")).toBeVisible();
 });
 
 test("an anonymous visitor of a public artifact reads it in the viewer and is asked to sign in to comment", async ({
@@ -150,7 +160,7 @@ test("an anonymous visitor of a public artifact reads it in the viewer and is as
   await page.goto(`${artifactOrigin(artifactId)}/`);
   await expect(page).toHaveURL(`${APP_ORIGIN}/view/${artifactId}`);
   const bar = page.getByRole("banner");
-  await expect(bar.getByRole("heading", { level: 1, name: "Open plan" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Open plan" })).toBeVisible();
   await expect(bar.getByRole("link", { name: "Sign in" })).toBeVisible();
   await expect(bar.getByRole("link", { name: "Manage" })).toHaveCount(0);
 
@@ -176,6 +186,7 @@ test("an anonymous visitor of a public artifact reads it in the viewer and is as
 test("a protected artifact opens in the viewer once the reader signed in, on the page of the link", async ({
   page,
   context,
+  engine,
 }) => {
   const owner = await createUser("Owner");
   const reader = await createUser("Reader");
@@ -196,6 +207,16 @@ test("a protected artifact opens in the viewer once the reader signed in, on the
   await expect(
     page.getByRole("banner").getByRole("link", { name: "Report this artifact" }),
   ).toBeVisible();
+  if (engine.reviewWorks) {
+    const frame = await artifactFrame(page, artifactId);
+    await expect(frame.getByText(QUOTE)).toBeVisible();
+  } else {
+    // No session in the frame: the reader still reaches the content without the bar, through
+    // the usual read handoff.
+    await page.getByRole("link", { name: "Open without the Portifact bar" }).click();
+    await expect(page).toHaveURL(`${artifactOrigin(artifactId)}/index.html?from=link`);
+    await expect(page.getByText(QUOTE)).toBeVisible();
+  }
 });
 
 test("with the bar off, the artifact's link opens the artifact itself", async ({ page }) => {
