@@ -368,7 +368,7 @@ export const en = {
   "settings.title": "Settings",
   "settings.sectionsNav": "Settings sections",
   "settings.description":
-    "How Portifact looks, how new artifacts start, your data, and deleting your account.",
+    "How Portifact looks, how new artifacts start, the emails you get, your data, and deleting your account.",
   "settings.appearance.title": "Appearance",
   "settings.appearance.hint":
     "How Portifact looks in this browser. System follows your device's setting. Artifacts keep the look their creators gave them.",
@@ -390,6 +390,16 @@ export const en = {
   "settings.defaults.saved": "Defaults saved. New artifacts start this way.",
   "settings.defaults.unchanged": "Nothing to save: your defaults are already set this way.",
   "settings.defaults.failed": "Your defaults were not saved",
+  "settings.notices.title": "Email notices",
+  "settings.notices.hint":
+    "Artifacts stop being served 30 days after you last publish or renew them. Portifact can remind you a few days before.",
+  "settings.notices.expiry.label": "Email me before my artifacts expire",
+  "settings.notices.expiry.hint":
+    "At most one email a day, listing every artifact that expires within 3 days, with a link to renew each one.",
+  "settings.notices.save": "Save email notices",
+  "settings.notices.saved": "Email notices saved.",
+  "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
+  "settings.notices.failed": "Your email notices were not saved",
   "settings.danger.title": "Danger zone",
   "settings.danger.hint": "These actions cannot be undone.",
   "account.data.title": "Your data",

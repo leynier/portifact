@@ -180,6 +180,7 @@ test("settings and profile have a section guide, a compact menu on phones", asyn
   await expect(settings.getByRole("link")).toHaveText([
     "Appearance",
     "Defaults for new artifacts",
+    "Email notices",
     "Your data",
     "Danger zone",
   ]);

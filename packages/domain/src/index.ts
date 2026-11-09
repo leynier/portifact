@@ -5,6 +5,7 @@ export * from "./annotations.ts";
 export * from "./budget.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
+export * from "./expiry-notices.ts";
 export * from "./files.ts";
 export * from "./ids.ts";
 export * from "./lifecycle.ts";

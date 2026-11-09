@@ -363,6 +363,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       defaultAnnotations: "off",
       defaultCommentVisibility: "owner",
       defaultBar: true,
+      expiryNotices: true,
     },
     usage: usageView(),
     accessLogs: {},

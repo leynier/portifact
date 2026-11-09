@@ -27,7 +27,21 @@ const BUILT_IN = {
   defaultAnnotations: "off",
   defaultCommentVisibility: "owner",
   defaultBar: true,
+  expiryNotices: true,
 } as const;
+
+const { expiryNotices: _, ...DEFAULTS } = BUILT_IN;
+
+async function notices() {
+  const section = await screen.findByRole("region", { name: "Email notices" });
+  await within(section).findByRole("button", { name: "Save email notices" });
+  return section;
+}
+
+const expiryBox = (section: HTMLElement) =>
+  within(section).getByRole("checkbox", {
+    name: "Email me before my artifacts expire",
+  }) as HTMLInputElement;
 
 async function defaults() {
   const section = await screen.findByRole("region", { name: "Defaults for new artifacts" });
@@ -51,7 +65,13 @@ describe("settings page", () => {
     await defaults();
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
-    ).toEqual(["Appearance", "Defaults for new artifacts", "Your data", "Danger zone"]);
+    ).toEqual([
+      "Appearance",
+      "Defaults for new artifacts",
+      "Email notices",
+      "Your data",
+      "Danger zone",
+    ]);
     expect(await axeViolations(container)).toEqual([]);
   });
 
@@ -158,15 +178,78 @@ describe("settings page", () => {
   });
 });
 
+describe("email notices", () => {
+  it("shows expiry notices on by default and explains when they come", async () => {
+    const { container } = renderDashboard("/settings", server);
+    const section = await notices();
+    expect(expiryBox(section).checked).toBe(true);
+    expect(section.textContent).toContain("At most one email a day");
+    expect(section.textContent).toContain("30 days after you last publish or renew");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("turns them off with only that change, and keeps the defaults form as it was", async () => {
+    renderDashboard("/settings", server);
+    const section = await notices();
+    const defaultsSection = await defaults();
+    fireEvent.click(within(defaultsSection).getByRole("radio", { name: /Open/ }));
+    fireEvent.click(expiryBox(section));
+    fireEvent.click(within(section).getByRole("button", { name: "Save email notices" }));
+    expect(await screen.findByText("Email notices saved.")).toBeTruthy();
+    expect(server.bodies.at(-1)).toEqual({ expiryNotices: false });
+    expect(server.settings.expiryNotices).toBe(false);
+    expect(expiryBox(await notices()).checked).toBe(false);
+    const comments = within(await defaults()).getByRole("group", {
+      name: "Comments on a new artifact",
+    });
+    expect(
+      (within(comments).getByRole("radio", { name: /Open/ }) as HTMLInputElement).checked,
+    ).toBe(true);
+  });
+
+  it("shows them off when saved off, and turns them back on", async () => {
+    server.settings = { ...BUILT_IN, expiryNotices: false };
+    renderDashboard("/settings", server);
+    const section = await notices();
+    expect(expiryBox(section).checked).toBe(false);
+    fireEvent.click(expiryBox(section));
+    fireEvent.click(within(section).getByRole("button", { name: "Save email notices" }));
+    expect(await screen.findByText("Email notices saved.")).toBeTruthy();
+    expect(server.bodies.at(-1)).toEqual({ expiryNotices: true });
+  });
+
+  it("sends nothing when nothing changed", async () => {
+    renderDashboard("/settings", server);
+    const section = await notices();
+    fireEvent.click(within(section).getByRole("button", { name: "Save email notices" }));
+    expect(
+      await screen.findByText("Nothing to save: your email notices are already set this way."),
+    ).toBeTruthy();
+    expect(server.requests.some((r) => r.method === "PATCH")).toBe(false);
+  });
+
+  it("shows a failure with its message", async () => {
+    server.fail("PATCH", "/api/v1/account/settings", { status: 429, code: "rate_limited" });
+    renderDashboard("/settings", server);
+    const section = await notices();
+    fireEvent.click(expiryBox(section));
+    fireEvent.click(within(section).getByRole("button", { name: "Save email notices" }));
+    const alert = await within(section).findByRole("alert");
+    expect(alert.textContent).toContain("Your email notices were not saved");
+    expect(alert.textContent).toContain("Too many requests");
+    expect(server.settings.expiryNotices).toBe(true);
+  });
+});
+
 describe("defaultsChange", () => {
   it("keeps only the fields that differ", () => {
-    expect(defaultsChange(BUILT_IN, BUILT_IN)).toBeUndefined();
-    expect(defaultsChange(BUILT_IN, { ...BUILT_IN, defaultBar: false })).toEqual({
+    expect(defaultsChange(DEFAULTS, DEFAULTS)).toBeUndefined();
+    expect(defaultsChange(DEFAULTS, { ...DEFAULTS, defaultBar: false })).toEqual({
       defaultBar: false,
     });
     expect(
-      defaultsChange(BUILT_IN, {
-        ...BUILT_IN,
+      defaultsChange(DEFAULTS, {
+        ...DEFAULTS,
         defaultAccessMode: "public",
         defaultCommentVisibility: "everyone",
       }),

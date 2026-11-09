@@ -316,7 +316,9 @@ const eraseJobs = (subject: string) =>
 
 async function runEraseJobs(subject: string) {
   for (const job of await eraseJobs(subject)) {
-    await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "erase_access_events" }, NOW, access());
+    await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "erase_access_events" }, NOW, {
+      access: access(),
+    });
   }
 }
 
@@ -337,11 +339,15 @@ describe("erasure jobs", () => {
       "access log database",
     );
     expect(await eraseJobs(artifactId)).toHaveLength(1);
-    expect(await runJob(db(), env.ARTIFACTS, message, NOW + MINUTE, access())).toBe("done");
+    expect(await runJob(db(), env.ARTIFACTS, message, NOW + MINUTE, { access: access() })).toBe(
+      "done",
+    );
     expect(await eventsOf(artifactId)).toEqual([]);
     expect(await eraseJobs(artifactId)).toEqual([]);
     // A duplicate delivery finds the row gone.
-    expect(await runJob(db(), env.ARTIFACTS, message, NOW + MINUTE, access())).toBe("done");
+    expect(await runJob(db(), env.ARTIFACTS, message, NOW + MINUTE, { access: access() })).toBe(
+      "done",
+    );
   });
 
   it("leaves a pending job for the next delivery when the log is long", async () => {
@@ -350,9 +356,9 @@ describe("erasure jobs", () => {
     await deleteArtifact(db(), env.ARTIFACTS, { ownerId: owner.id, artifactId, now: NOW });
     const [job] = await eraseJobs(artifactId);
     const message = { id: job?.id ?? 0, topic: "erase_access_events" as const };
-    expect(await runJob(db(), env.ARTIFACTS, message, NOW, access())).toBe("pending");
+    expect(await runJob(db(), env.ARTIFACTS, message, NOW, { access: access() })).toBe("pending");
     expect(await eraseJobs(artifactId)).toHaveLength(1);
-    expect(await runJob(db(), env.ARTIFACTS, message, NOW, access())).toBe("done");
+    expect(await runJob(db(), env.ARTIFACTS, message, NOW, { access: access() })).toBe("done");
     expect(await eventsOf(artifactId)).toEqual([]);
   });
 
@@ -385,7 +391,9 @@ describe("erasure jobs", () => {
           ),
         );
       for (const job of purges) {
-        await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "purge_artifact" }, NOW, access());
+        await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "purge_artifact" }, NOW, {
+          access: access(),
+        });
       }
       state = await advanceAccountDeletion(db(), env.ARTIFACTS, reader.id, NOW);
     }

@@ -93,6 +93,8 @@ export const AccountSettings = z.object({
   defaultCommentVisibility: CommentVisibility,
   /** The Portifact bar on new artifacts. */
   defaultBar: z.boolean(),
+  /** Email the owner before their artifacts expire (one email per account, grouped). */
+  expiryNotices: z.boolean(),
 });
 export type AccountSettings = z.infer<typeof AccountSettings>;
 
@@ -103,6 +105,7 @@ export const AccountSettingsUpdate = z
     defaultAnnotations: DefaultAnnotations.optional(),
     defaultCommentVisibility: CommentVisibility.optional(),
     defaultBar: z.boolean().optional(),
+    expiryNotices: z.boolean().optional(),
   })
   .refine((update) => Object.values(update).some((value) => value !== undefined), {
     message: "Send at least one change.",

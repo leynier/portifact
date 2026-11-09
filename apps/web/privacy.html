@@ -69,7 +69,7 @@
       <section id="collect" aria-labelledby="collect-heading" class="mt-12 scroll-mt-8">
         <h2 id="collect-heading" class="text-xl font-semibold tracking-tight">What we collect</h2>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-          <li><strong>Account.</strong> Your email address and whether it is verified, and the name and profile picture that Google or GitHub share when you sign in with them. For Google and GitHub we keep the stable ID of your account there. We do not keep their access tokens. We also keep the defaults you choose for new artifacts (who can open them, comments and the Portifact bar).</li>
+          <li><strong>Account.</strong> Your email address and whether it is verified, and the name and profile picture that Google or GitHub share when you sign in with them. For Google and GitHub we keep the stable ID of your account there. We do not keep their access tokens. We also keep the defaults you choose for new artifacts (who can open them, comments and the Portifact bar) and whether you want expiry notices.</li>
           <li><strong>Human check.</strong> When you create an account, and for your first comments on other people's artifacts, Cloudflare Turnstile checks that you are a person and not an automated program. It looks at signals from your browser and your IP address, and tells us only whether the check passed. We keep a short-lived cookie saying it passed, and nothing else.</li>
           <li><strong>Terms acceptance.</strong> The version of the terms you accepted, including your confirmation that you are 18 or older, and when you accepted it.</li>
           <li><strong>Sign-in codes.</strong> Codes sent to your email are stored only as hashes. To limit abuse, we count requests per email address (using a keyed hash, never the address itself) and per IP address. We also count how many emails we send each day, without any data about the recipients.</li>
@@ -88,7 +88,7 @@
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
           <li>To run Portifact: sign you in, publish and serve your artifacts to the people you allow, and keep your quotas.</li>
           <li>To keep it secure: limit request rates, detect and stop abuse, and investigate reports.</li>
-          <li>To contact you: send sign-in codes and, later, service notices such as an artifact about to expire or a change to these policies.</li>
+          <li>To contact you: send sign-in codes, a notice a few days before your artifacts expire (at most one email a day, listing each artifact with a link to renew it; you can turn it off in Settings), and, later, other service notices such as a change to these policies. We do not send these notices to addresses recorded as undeliverable.</li>
           <li>To meet legal obligations.</li>
         </ul>
         <p class="mt-4 leading-7">Our legal bases, where the law asks for one, are performing our agreement with you (the terms), our legitimate interest in keeping Portifact secure and working, and complying with the law.</p>

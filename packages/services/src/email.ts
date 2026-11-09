@@ -19,6 +19,24 @@ import {
 } from "@portifact/domain";
 import { and, desc, eq, gt, gte, lt, lte, type SQLWrapper, sql, sum } from "drizzle-orm";
 
+/** Email Service refused the send because its suppression list holds the recipient. */
+export class RecipientSuppressedError extends Error {
+  constructor() {
+    super("email recipient suppressed");
+    this.name = "RecipientSuppressedError";
+  }
+}
+
+/** Cloudflare's binding rejects with `E_RECIPIENT_SUPPRESSED`, as a code or in the message. */
+export function isRecipientSuppressed(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  return (
+    code === "E_RECIPIENT_SUPPRESSED" ||
+    (typeof message === "string" && message.includes("E_RECIPIENT_SUPPRESSED"))
+  );
+}
+
 // The hash only keys the list; it is unkeyed so the operator tool can look an address up without
 // the Worker's secrets. The prefix keeps it apart from any other hash of an address.
 const HASH_PREFIX = "portifact:email-suppression:v1:";
