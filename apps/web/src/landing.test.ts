@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
@@ -148,7 +148,8 @@ describe("landing page", () => {
     ]) {
       expect(available).toContain(`${feature} Available`);
     }
-    expect(planned).toEqual(["Access logs for your artifacts Planned"]);
+    expect(available).toContain("Access logs for your artifacts Available");
+    expect(planned).toEqual([]);
     const pills = [
       ...html.matchAll(/role="tabpanel"[\s\S]*?<p\b[^>]*rounded-full[^>]*>([\s\S]*?)<\/p>/g),
     ];
@@ -185,4 +186,76 @@ describe("landing page", () => {
       expect(html).toContain(`id="${match[1]}"`);
     }
   });
+
+  it("shows the product as real screenshots, light and dark, at 1x and 2x, without layout shift", () => {
+    const pictures = [...html.matchAll(/<picture\b[^>]*>([\s\S]*?)<\/picture>/g)]
+      .map((match) => match[1] ?? "")
+      .filter((inner) => inner.includes("./src/assets/landing/"));
+    expect(pictures).toHaveLength(3);
+    for (const [index, inner] of pictures.entries()) {
+      const img = /<img\b[^>]*>/.exec(inner)?.[0] ?? "";
+      const dark = /<source\b[^>]*>/.exec(inner)?.[0] ?? "";
+      expect(dark).toContain('media="(prefers-color-scheme: dark)"');
+      expect(img).toMatch(/\balt="[^"]{80,}"/);
+      expect(img).toContain('decoding="async"');
+      // Only the hero, above the fold, loads at once.
+      expect(img).toContain(index === 0 ? 'fetchpriority="high"' : 'loading="lazy"');
+      const width = Number(/\bwidth="(\d+)"/.exec(img)?.[1]);
+      const height = Number(/\bheight="(\d+)"/.exec(img)?.[1]);
+      expect(width).toBeGreaterThan(0);
+      expect(height).toBeGreaterThan(0);
+      for (const tag of [img, dark]) {
+        const candidates = (/\bsrcset="([^"]+)"/.exec(tag)?.[1] ?? "")
+          .split(",")
+          .map((c) => c.trim());
+        expect(candidates).toHaveLength(2);
+        expect(tag).toMatch(/\bsizes="[^"]+"/);
+        for (const [scale, candidate] of candidates.entries()) {
+          const [path, descriptor] = candidate.split(/\s+/);
+          const file = new URL(`../${path}`, import.meta.url);
+          expect(existsSync(file), path).toBe(true);
+          expect(descriptor).toBe(`${width * (scale + 1)}w`);
+          expect(webpSize(readFileSync(file))).toEqual({
+            width: width * (scale + 1),
+            height: height * (scale + 1),
+          });
+        }
+      }
+    }
+  });
+
+  it("fills every terminal transcript from the shots run, as production shows it", () => {
+    const regions = [...html.matchAll(/<!-- shots:([a-z-]+) -->([\s\S]*?)<!-- \/shots:\1 -->/g)];
+    expect(regions.map((match) => match[1])).toEqual([
+      "hero-terminal",
+      "cli-terminal",
+      "agent-session",
+      "review-terminal",
+    ]);
+    for (const [, , content = ""] of regions) {
+      expect(content.trim()).not.toBe("");
+      expect(content).not.toMatch(/\.test\b|pf-shots|\/tmp\/|Using the Portifact server/);
+    }
+    const cli = regions[1]?.[2] ?? "";
+    expect(cli).toContain("portifact publish ./prototype");
+    expect(cli).toContain("portifact access add");
+    expect(cli).toContain("portifact annotations export");
+    expect(regions[2]?.[2]).toMatch(/publish_document[\s\S]*list_annotations/);
+  });
 });
+
+/** Width and height from a WebP file's header (lossy, lossless or extended). */
+function webpSize(bytes: Buffer): { width: number; height: number } {
+  expect(bytes.toString("ascii", 0, 4)).toBe("RIFF");
+  expect(bytes.toString("ascii", 8, 12)).toBe("WEBP");
+  const chunk = bytes.toString("ascii", 12, 16);
+  if (chunk === "VP8 ") {
+    return { width: bytes.readUInt16LE(26) & 0x3fff, height: bytes.readUInt16LE(28) & 0x3fff };
+  }
+  if (chunk === "VP8L") {
+    const bits = bytes.readUInt32LE(21);
+    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+  }
+  expect(chunk).toBe("VP8X");
+  return { width: bytes.readUIntLE(24, 3) + 1, height: bytes.readUIntLE(27, 3) + 1 };
+}

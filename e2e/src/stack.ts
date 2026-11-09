@@ -40,6 +40,8 @@ export interface ContentRequest {
 export interface Stack {
   proxyUrl: string;
   controlUrl: string;
+  /** The HTTPS front end, for clients outside a browser that set the stack host themselves. */
+  frontUrl: string;
   close(): Promise<void>;
 }
 
@@ -225,6 +227,7 @@ export async function startStack(): Promise<Stack> {
   return {
     proxyUrl: proxy.url,
     controlUrl: `http://127.0.0.1:${(control.address() as AddressInfo).port}`,
+    frontUrl: `https://127.0.0.1:${(front.address() as AddressInfo).port}`,
     async close() {
       await proxy.close();
       await new Promise<void>((resolve) => front.close(() => resolve()));
