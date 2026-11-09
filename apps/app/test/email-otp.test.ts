@@ -55,6 +55,35 @@ describe("sign-in with an email code", () => {
     expect(body.user).toMatchObject({ email: "new-user@example.test", emailVerified: true });
   });
 
+  it("writes the code email in the language the login page asks for", async () => {
+    const h = createHarness();
+    const response = await h.request(
+      "/api/auth/email-otp/send-verification-otp",
+      json(
+        { email: "lectora@example.test", type: "sign-in" },
+        { "cf-connecting-ip": "198.51.100.8", "accept-language": "es" },
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(h.outbox[0]?.subject).toBe("Tu código para iniciar sesión en Portifact");
+    expect(h.outbox[0]?.html).toContain('<html lang="es"');
+    // The code is the same code in any language, and still signs in.
+    const signedIn = await verify(h, "lectora@example.test", codeFrom(h.outbox[0]));
+    expect(signedIn.status).toBe(200);
+  });
+
+  it("falls back to English for languages it does not have", async () => {
+    const h = createHarness();
+    await h.request(
+      "/api/auth/email-otp/send-verification-otp",
+      json(
+        { email: "leser@example.test", type: "sign-in" },
+        { "cf-connecting-ip": "198.51.100.9", "accept-language": "de-DE, ja;q=0.8" },
+      ),
+    );
+    expect(h.outbox[0]?.subject).toBe("Your Portifact sign-in code");
+  });
+
   it("answers the same whether or not an account exists", async () => {
     const h = createHarness();
     await h.signIn("existing@example.test");

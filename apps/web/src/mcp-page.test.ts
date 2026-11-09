@@ -15,7 +15,7 @@ describe("MCP compatibility page", () => {
     expect(html).toContain('<main id="main"');
     expect(html.match(/<h1\b/g)).toHaveLength(1);
     expect(html).toContain(">MCP compatibility</h1>");
-    expect(html).toContain("<title>MCP compatibility: Portifact</title>");
+    expect(html).toMatch(/<title[^>]*>MCP compatibility: Portifact<\/title>/);
     expect(html).toContain(
       '<link rel="canonical" href="https://portifact.com/mcp-compatibility" />',
     );

@@ -9,6 +9,7 @@ export * from "./expiry-notices.ts";
 export * from "./files.ts";
 export * from "./ids.ts";
 export * from "./lifecycle.ts";
+export * from "./locale.ts";
 export * from "./multipart.ts";
 export * from "./paths.ts";
 export * from "./quotas.ts";

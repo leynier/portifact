@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ApiResponse } from "../auth/api.ts";
+import { messages } from "../auth/messages.ts";
 import { element, fakeLocation, loadPage, settle, submit } from "../auth/test-page.ts";
-import { reportMessages, reportSender, setupReport } from "./report.ts";
+import { reportSender, setupReport } from "./report.ts";
 
 let sent: unknown[];
 let answer: ApiResponse;
@@ -52,7 +53,7 @@ describe("report page", () => {
     expect(element("report-form").hidden).toBe(true);
     expect(element("done").hidden).toBe(false);
     expect(document.activeElement?.id).toBe("done-heading");
-    expect(element("status").textContent).toBe(reportMessages.sent);
+    expect(element("status").textContent).toBe(messages.report.sent);
   });
 
   it("ignores an artifact parameter that is not an ID and leaves optional fields out", async () => {
@@ -67,27 +68,27 @@ describe("report page", () => {
     open();
     await send();
     expect(sent).toEqual([]);
-    expect(element("artifact-error").textContent).toBe(reportMessages.artifactRequired);
+    expect(element("artifact-error").textContent).toBe(messages.report.artifactRequired);
     expect(element("artifact").getAttribute("aria-invalid")).toBe("true");
     expect(element("error-summary").hidden).toBe(false);
 
     fill({ artifact: "k7d2qm4xab" });
     await send();
-    expect(element("reason-error").textContent).toBe(reportMessages.reasonRequired);
+    expect(element("reason-error").textContent).toBe(messages.report.reasonRequired);
     expect(element("artifact").getAttribute("aria-invalid")).toBeNull();
 
     fill({ reason: "spam", email: "nope" });
     await send();
-    expect(element("email-error").textContent).toBe(reportMessages.emailInvalid);
+    expect(element("email-error").textContent).toBe(messages.report.emailInvalid);
     expect(sent).toEqual([]);
   });
 
   it("maps the server's validation errors to their fields", async () => {
     for (const [field, message, target] of [
-      ["artifact", reportMessages.artifactInvalid, "artifact"],
-      ["details", reportMessages.detailsInvalid, "details"],
-      ["email", reportMessages.emailInvalid, "email"],
-      ["reason", reportMessages.reasonRequired, "reason"],
+      ["artifact", messages.report.artifactInvalid, "artifact"],
+      ["details", messages.report.detailsInvalid, "details"],
+      ["email", messages.report.emailInvalid, "email"],
+      ["reason", messages.report.reasonRequired, "reason"],
     ] as const) {
       open();
       answer = {
@@ -102,14 +103,14 @@ describe("report page", () => {
     answer = { status: 400, body: null };
     fill({ artifact: "k7d2qm4xab", reason: "spam" });
     await send();
-    expect(element("artifact-error").textContent).toBe(reportMessages.artifactInvalid);
+    expect(element("artifact-error").textContent).toBe(messages.report.artifactInvalid);
   });
 
   it("explains rate limits, network failures and other errors", async () => {
     for (const [status, message] of [
-      [429, reportMessages.rateLimited],
-      [0, reportMessages.network],
-      [500, reportMessages.failed],
+      [429, messages.report.rateLimited],
+      [0, messages.report.network],
+      [500, messages.report.failed],
     ] as const) {
       open();
       answer = { status, body: null };

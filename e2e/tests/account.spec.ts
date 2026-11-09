@@ -178,6 +178,7 @@ test("settings and profile have a section guide, a compact menu on phones", asyn
   await open(page, "/settings", "Settings");
   const settings = page.getByRole("navigation", { name: "Settings sections" });
   await expect(settings.getByRole("link")).toHaveText([
+    "Language",
     "Appearance",
     "Defaults for new artifacts",
     "Email notices",
@@ -195,7 +196,7 @@ test("settings and profile have a section guide, a compact menu on phones", asyn
   await open(page, "/settings", "Settings");
   const menu = page.getByRole("navigation", { name: "Settings sections" });
   const summary = menu.locator("summary");
-  await expect(summary).toHaveText(/On this page\s*Appearance/);
+  await expect(summary).toHaveText(/On this page\s*Language/);
   await expect(menu.getByRole("link", { name: "Your data" })).toBeHidden();
   await summary.click();
   await menu.getByRole("link", { name: "Your data" }).click();

@@ -5,6 +5,7 @@
 // (`/api/v1/tokens`, bearer only with `credentials:manage`) is at the end.
 import { z } from "zod";
 import { AccessMode, CommentVisibility } from "./core.ts";
+import { LOCALE_CODES } from "./locales.ts";
 
 /** A signed-in browser on app.portifact.com. */
 export const BrowserSession = z.object({
@@ -78,6 +79,10 @@ export const TokenRevokeResult = z.object({
 });
 export type TokenRevokeResult = z.infer<typeof TokenRevokeResult>;
 
+/** A language Portifact is translated into (`LOCALES` in locales.ts). */
+export const Locale = z.enum(LOCALE_CODES);
+export type Locale = z.infer<typeof Locale>;
+
 /** Comments on a new artifact: closed, or open to everyone who can read it. */
 export const DefaultAnnotations = z.enum(["off", "open"]);
 export type DefaultAnnotations = z.infer<typeof DefaultAnnotations>;
@@ -95,6 +100,11 @@ export const AccountSettings = z.object({
   defaultBar: z.boolean(),
   /** Email the owner before their artifacts expire (one email per account, grouped). */
   expiryNotices: z.boolean(),
+  /**
+   * The language the account chose for the dashboard and the emails; null follows each
+   * browser's languages.
+   */
+  locale: Locale.nullable(),
 });
 export type AccountSettings = z.infer<typeof AccountSettings>;
 
@@ -106,6 +116,8 @@ export const AccountSettingsUpdate = z
     defaultCommentVisibility: CommentVisibility.optional(),
     defaultBar: z.boolean().optional(),
     expiryNotices: z.boolean().optional(),
+    /** A language of the locale list, or null to follow the browser again. */
+    locale: Locale.nullable().optional(),
   })
   .refine((update) => Object.values(update).some((value) => value !== undefined), {
     message: "Send at least one change.",

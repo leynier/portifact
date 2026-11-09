@@ -1,6 +1,7 @@
 // The owner's defaults for new artifacts: which access, comments, comment visibility and bar a
 // publish gives an artifact it creates. Existing artifacts never change when the defaults do. The
-// same settings say whether the owner gets expiry notices (expiry-notices.ts).
+// same settings say whether the owner gets expiry notices (expiry-notices.ts) and hold the
+// account's language, which changes nothing about artifacts.
 import type { AccountSettings, AccountSettingsUpdate } from "@portifact/contracts";
 import { checkAccessChange } from "./access.ts";
 import { ok, type Result } from "./result.ts";
@@ -15,6 +16,7 @@ export const BUILT_IN_SETTINGS: AccountSettings = {
   defaultCommentVisibility: "owner",
   defaultBar: true,
   expiryNotices: true,
+  locale: null,
 };
 
 /**
@@ -33,6 +35,8 @@ export function changeSettings(
     defaultCommentVisibility: update.defaultCommentVisibility ?? current.defaultCommentVisibility,
     defaultBar: update.defaultBar ?? current.defaultBar,
     expiryNotices: update.expiryNotices ?? current.expiryNotices,
+    // null is a choice of its own (follow the browser), so only a missing field keeps the old one.
+    locale: update.locale === undefined ? current.locale : update.locale,
   };
   if (next.defaultAccessMode !== current.defaultAccessMode) {
     const allowed = checkAccessChange(next.defaultAccessMode, accountCreatedAt, now);

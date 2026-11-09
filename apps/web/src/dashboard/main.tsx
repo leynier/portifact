@@ -4,9 +4,16 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { loginUrl } from "../auth/query.ts";
 import { turnstileWidget } from "../human-check/turnstile.ts";
+import {
+  applyDocumentLocale,
+  browserStorage,
+  localeParam,
+  pageLocale,
+  withoutLocaleParam,
+} from "../i18n/preference.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
-import { createI18n } from "./i18n/i18n.ts";
+import { CATALOG_LOADERS, createI18n } from "./i18n/i18n.ts";
 import { workerBuilder } from "./publish/builder.ts";
 import { saveFile } from "./publish/save.ts";
 import { xhrTransport } from "./publish/transport.ts";
@@ -27,13 +34,30 @@ const env = {
   humanCheck: turnstileWidget(document, HUMAN_CHECK_ACTIONS.comment),
 };
 
+/**
+ * The i18n instance in the reader's language (`?lang=`, their choice in this browser, their
+ * browser's languages, English), with its catalog loaded before the first render so nothing
+ * shows in the wrong language. A catalog that cannot load leaves English.
+ */
+async function startI18n() {
+  const url = window.location.href;
+  const locale = pageLocale({ url, storage: browserStorage, languages: navigator.languages });
+  if (localeParam(url)) window.history.replaceState(null, "", withoutLocaleParam(url));
+  const i18n = await CATALOG_LOADERS[locale]()
+    .then((messages) => createI18n(locale, messages))
+    .catch(() => createI18n());
+  applyDocumentLocale(document, i18n.locale === locale ? locale : "en");
+  return i18n;
+}
+
 const root = document.getElementById("root");
 if (root) {
+  const i18n = await startI18n();
   createRoot(root).render(
     <StrictMode>
       <DashboardApp
         env={env}
-        i18n={createI18n()}
+        i18n={i18n}
         queryClient={createQueryClient()}
         router={createDashboardRouter()}
       />

@@ -93,6 +93,44 @@ describe("sign-in code email", () => {
   });
 });
 
+describe("sign-in code email in Spanish", () => {
+  const es = signInCodeEmail({
+    email: "ada@example.com",
+    code: "482913",
+    expiresInMinutes: 5,
+    locale: "es",
+  });
+
+  it("is written in Spanish, marked as Spanish, with the code kept out of the subject", () => {
+    expect(es.subject).toBe("Tu código para iniciar sesión en Portifact");
+    expect(es.subject).not.toContain("482913");
+    expect(es.html).toContain('<html lang="es" dir="ltr">');
+    expect(bodyText(es.html)).toContain("Vence en 5 minutos y funciona una sola vez.");
+    expect(bodyText(es.html)).toContain("continuar como ada@example.com.");
+  });
+
+  it("has a Spanish plain-text alternative with the same facts", () => {
+    expect(es.text.split("\n")).toContain("482913");
+    expect(es.text).toContain("ada@example.com");
+    expect(es.text).toContain("puedes ignorar este correo");
+    expect(es.text).not.toMatch(/<[a-z]/i);
+  });
+
+  it("says minuto in the singular for a one-minute code", () => {
+    const short = signInCodeEmail({
+      email: "a@b.test",
+      code: "111111",
+      expiresInMinutes: 1,
+      locale: "es",
+    });
+    expect(short.text).toContain("Vence en 1 minuto y funciona una sola vez.");
+  });
+
+  it("stays English without a language", () => {
+    expect(code.html).toContain('<html lang="en" dir="ltr">');
+  });
+});
+
 describe("email layout", () => {
   it("is table-based with inline styles and loads only the hosted wordmarks", () => {
     const all = elements(code.html);
@@ -300,6 +338,7 @@ describe("previews", () => {
     const names = previews().map((p) => p.name);
     expect(names).toEqual([
       "sign-in-code",
+      "sign-in-code-es",
       "budget-alert",
       "budget-alert-no-protection",
       "expiry-notice",

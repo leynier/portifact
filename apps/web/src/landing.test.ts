@@ -70,14 +70,14 @@ describe("landing page", () => {
 
   it("gives the hero heading one stable, complete name and hides the animated line", () => {
     const h1 = /<h1\b[^>]*>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? "";
-    const spoken = /<span class="sr-only">([^<]+)<\/span>/.exec(h1)?.[1];
+    const spoken = /<span class="sr-only"[^>]*>([^<]+)<\/span>/.exec(h1)?.[1];
     const phrases = [...h1.matchAll(/<span data-typewriter-phrase\b[^>]*>([^<]+)</g)].map(
       (match) => match[1] ?? "",
     );
-    const initial = /<span data-typewriter-text>([^<]*)<\/span>/.exec(h1)?.[1];
+    const initial = /<span data-typewriter-text\b[^>]*>([^<]*)<\/span>/.exec(h1)?.[1];
 
     expect(spoken).toBe(`Share what your agent built. ${phrases[0]}`);
-    expect(h1.replace(/<span class="sr-only">[^<]*<\/span>/, "")).toMatch(
+    expect(h1.replace(/<span class="sr-only"[^>]*>[^<]*<\/span>/, "")).toMatch(
       /^\s*<span aria-hidden="true">[\s\S]*<\/span>\s*$/,
     );
     expect(phrases.length).toBeGreaterThanOrEqual(3);
@@ -207,11 +207,12 @@ describe("landing page", () => {
 
   it("offers the System, Light and Dark theme with the design system's switcher markup", () => {
     const switcher = /<fieldset data-theme-switcher\b[\s\S]*?<\/fieldset>/.exec(html)?.[0] ?? "";
-    expect(switcher).toContain('<legend class="mb-3 text-sm font-semibold">Theme</legend>');
+    // Translation markers (src/i18n/markers.ts) may sit on the legend and around each name.
+    expect(switcher).toMatch(/<legend class="mb-3 text-sm font-semibold"[^>]*>Theme<\/legend>/);
     expect(switcher).toContain(`class="${themeSwitcherClasses.group}"`);
     const options = [
       ...switcher.matchAll(
-        /<label class="([^"]+)"><input ([^>]+)\/>[\s\S]*?<\/svg>(\w+)<\/label>/g,
+        /<label class="([^"]+)"><input ([^>]+)\/>[\s\S]*?<\/svg>(?:<span[^>]*>)?(\w+)(?:<\/span>)?<\/label>/g,
       ),
     ];
     expect(options.map((match) => match[3])).toEqual(["System", "Light", "Dark"]);

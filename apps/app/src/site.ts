@@ -1,5 +1,6 @@
 // portifact.com and www.portifact.com: the landing page, the legal pages, the MCP
 // compatibility page and the installer redirects.
+import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { Hono } from "hono";
 import { AUTH_PAGES, DASHBOARD_PAGE, PAGE_CSP } from "./app-host.ts";
 import type { Env } from "./env.ts";
@@ -23,6 +24,15 @@ export const LEGAL_PAGES = ["/terms", "/privacy", "/acceptable-use"] as const;
 
 /** Static documents served like the legal pages: the MCP compatibility matrix (plan section 17). */
 export const DOCUMENT_PAGES = [...LEGAL_PAGES, "/mcp-compatibility"] as const;
+
+/**
+ * The same documents in every other language, under the language's prefix (`/es/terms`), as
+ * apps/web prerenders them (src/i18n/site.ts). The landing in each language (`/es/`) is a
+ * static asset like the English one.
+ */
+export const LOCALIZED_DOCUMENT_PAGES = LOCALE_CODES.filter(
+  (locale) => locale !== DEFAULT_LOCALE,
+).flatMap((locale) => DOCUMENT_PAGES.map((page) => `/${locale.toLowerCase()}${page}`));
 
 /** The licenses and notices of the open source software Portifact ships. */
 export const THIRD_PARTY_NOTICES_PATH = "/third-party-notices";
@@ -62,7 +72,7 @@ export function createSite() {
     });
   }
 
-  for (const page of DOCUMENT_PAGES) {
+  for (const page of [...DOCUMENT_PAGES, ...LOCALIZED_DOCUMENT_PAGES]) {
     site.get(page, async (c) =>
       legalPage(await c.env.ASSETS.fetch(new Request(new URL(page, c.req.url)))),
     );

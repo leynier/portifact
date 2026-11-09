@@ -14,6 +14,7 @@
     "preview": "node --experimental-transform-types --no-warnings scripts/preview.ts"
   },
   "dependencies": {
+    "@portifact/contracts": "workspace:*",
     "@portifact/ui": "workspace:*"
   },
   "devDependencies": {

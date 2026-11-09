@@ -38,6 +38,8 @@ export interface EmailLayout {
   blocks: Block[];
   /** Small print under the card, such as why the email was sent. */
   footer: string;
+  /** The language of the text, a BCP 47 tag; English when absent. */
+  lang?: string;
 }
 
 const text = `color: ${LIGHT.text}`;
@@ -133,7 +135,7 @@ function logo(): string {
 export function renderEmail(layout: EmailLayout): string {
   return [
     "<!doctype html>",
-    '<html lang="en" dir="ltr">',
+    `<html lang="${escapeHtml(layout.lang ?? "en")}" dir="ltr">`,
     "<head>",
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',

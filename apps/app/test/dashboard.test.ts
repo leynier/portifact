@@ -47,6 +47,18 @@ describe("dashboard pages", () => {
     expect(forged.status).toBe(302);
   });
 
+  it("passes a language asked for on the way in to the login page, and only a known one", async () => {
+    const h = createHarness();
+    const asked = await h.request("/?lang=es", { redirect: "manual" });
+    expect(asked.headers.get("location")).toBe(
+      `/login?${new URLSearchParams({ next: "/?lang=es", lang: "es" })}`,
+    );
+    const unknown = await h.request("/?lang=xx", { redirect: "manual" });
+    expect(unknown.headers.get("location")).toBe(
+      `/login?${new URLSearchParams({ next: "/?lang=xx" })}`,
+    );
+  });
+
   it("serves the dashboard to a signed-in user with the strict page headers", async () => {
     const h = createHarness();
     const cookie = await h.signIn("dashboard-page@example.test");
