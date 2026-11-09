@@ -56,7 +56,7 @@ export function TextInput({ label, description, error, type = "text", ...rest }:
         type={type}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
-        className="h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-sm text-text disabled:opacity-60 aria-invalid:border-2 aria-invalid:border-text"
+        className="h-10 w-full rounded-sm border border-border-strong bg-canvas px-3 text-sm text-text transition-colors duration-150 placeholder:text-text-muted hover:border-text disabled:opacity-55 disabled:hover:border-border-strong aria-invalid:border-2 aria-invalid:border-text"
       />
       {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>
@@ -94,7 +94,7 @@ export function TextArea({ label, description, error, code = false, ...rest }: T
         id={id}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
-        className={`min-h-48 w-full resize-y rounded-md border border-border-strong bg-canvas p-3 text-sm text-text disabled:opacity-60 aria-invalid:border-2 aria-invalid:border-text ${code ? "font-mono" : ""}`}
+        className={`min-h-48 w-full resize-y rounded-sm border border-border-strong bg-canvas p-3 text-sm text-text transition-colors duration-150 hover:border-text disabled:opacity-55 aria-invalid:border-2 aria-invalid:border-text ${code ? "font-mono leading-6" : "leading-6"}`}
       />
       {error ? <FieldError id={errorId}>{error}</FieldError> : null}
     </div>
@@ -155,7 +155,7 @@ export function Select<T extends string = string>({
         }}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
-        className="h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-sm text-text disabled:opacity-60 aria-invalid:border-2 aria-invalid:border-text"
+        className="h-10 w-full rounded-sm border border-border-strong bg-canvas px-3 text-sm text-text transition-colors duration-150 placeholder:text-text-muted hover:border-text disabled:opacity-55 disabled:hover:border-border-strong aria-invalid:border-2 aria-invalid:border-text"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -216,6 +216,8 @@ export interface RadioGroupProps<T extends string> {
   onChange(value: T): void;
   onBlur?(): void;
   disabled?: boolean;
+  /** `row` puts the options side by side on wide screens, for short ones such as types. */
+  layout?: "stack" | "row";
 }
 
 /**
@@ -230,19 +232,20 @@ export function RadioGroup<T extends string>({
   onChange,
   onBlur,
   disabled = false,
+  layout = "stack",
 }: RadioGroupProps<T>) {
   const id = useId();
   return (
     <fieldset disabled={disabled} className="min-w-0">
       <legend className="mb-3 text-sm font-semibold">{legend}</legend>
-      <div className="flex flex-col gap-3">
+      <div className={layout === "row" ? "grid gap-2.5 sm:grid-cols-3" : "flex flex-col gap-2.5"}>
         {options.map((option) => {
           const optionId = `${id}-${option.value}`;
           const hintId = `${optionId}-hint`;
           return (
             <div
               key={option.value}
-              className="flex items-start gap-3 rounded-md border border-border p-3 has-checked:border-2 has-checked:border-text"
+              className="flex items-start gap-3 rounded-sm border border-border bg-canvas p-3.5 transition-colors duration-150 hover:bg-surface has-checked:border-transparent has-checked:selection-band has-disabled:hover:bg-canvas"
             >
               <input
                 id={optionId}

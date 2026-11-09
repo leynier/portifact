@@ -9,10 +9,10 @@ import {
   Email,
   LIMITS,
 } from "@portifact/contracts";
-import { Button, Callout, LoadingState } from "@portifact/ui";
+import { Button, Callout, LoadingState, Panel } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Info, RefreshCw, Save, UserMinus, UserPlus } from "lucide-react";
+import { CircleAlert, Info, RefreshCw, Save, UserMinus, UserPlus, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
 import { type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
@@ -63,16 +63,13 @@ export function AccessSettings({ artifact }: { artifact: ArtifactSummary }) {
   }
 
   return (
-    <section aria-labelledby="access-heading" className="mt-8">
-      <h2 id="access-heading" className="mb-3 text-lg font-semibold">
-        {t("accessSettings.title")}
-      </h2>
-      <p className="mb-4 flex gap-2 text-sm text-text-muted">
-        <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-        <span>{t("accessSettings.republish")}</span>
-      </p>
+    <Panel
+      id="access"
+      title={t("accessSettings.title")}
+      description={t("accessSettings.republish")}
+    >
       {body}
-    </section>
+    </Panel>
   );
 }
 
@@ -314,14 +311,16 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
   const full = policy.readers.length >= max;
 
   return (
-    <section aria-labelledby="readers-heading">
-      <h3 id="readers-heading" className="text-base font-semibold">
-        {t("readers.title")}
-      </h3>
+    <section aria-labelledby="readers-heading" className="border-t border-border pt-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h3 id="readers-heading" className="text-base font-semibold tracking-tight">
+          {t("readers.title")}
+        </h3>
+        <p className="text-sm font-medium tabular-nums">
+          {t("readers.count", { count: policy.readers.length, max })}
+        </p>
+      </div>
       <p className="mt-1 text-sm text-text-muted">{t("readers.hint")}</p>
-      <p className="mt-1 text-sm font-medium">
-        {t("readers.count", { count: policy.readers.length, max })}
-      </p>
       {error ? (
         <div className="mt-4">
           <Callout
@@ -334,7 +333,10 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
         </div>
       ) : null}
       {policy.readers.length === 0 ? (
-        <p className="mt-4 text-sm text-text-muted">{t("readers.empty")}</p>
+        <p className="mt-4 flex items-center gap-2 rounded-md border border-dashed border-border-strong px-4 py-3 text-sm text-text-muted">
+          <UsersRound aria-hidden="true" className="size-4 shrink-0" />
+          {t("readers.empty")}
+        </p>
       ) : (
         <ul
           aria-label={t("readers.list")}
@@ -344,6 +346,7 @@ function Readers({ policy, disabled, error, pending, onChange }: ReadersProps) {
             <li key={email} className="flex flex-wrap items-center justify-between gap-3 px-4 py-2">
               <span className="min-w-0 text-sm break-all">{email}</span>
               <Button
+                intent="ghost"
                 size="sm"
                 icon={<UserMinus className="size-4" />}
                 aria-label={t("readers.removeLabel", { email })}
@@ -406,8 +409,8 @@ function AddReaderForm({
   return (
     <form.AppForm>
       <form.Form label={t("readers.add")}>
-        <div className="flex max-w-xl flex-col items-start gap-3">
-          <div className="w-full">
+        <div className="flex max-w-xl flex-wrap items-end gap-3">
+          <div className="min-w-56 flex-1">
             <form.AppField name="email">
               {(field) => (
                 <field.TextField

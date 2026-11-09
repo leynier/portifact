@@ -42,15 +42,27 @@ describe("design tokens", () => {
       };
 
       it("meets WCAG AA for body and muted text on every surface", () => {
-        for (const surface of ["canvas", "surface", "surface-raised"]) {
+        for (const surface of [
+          "backdrop",
+          "canvas",
+          "surface",
+          "surface-raised",
+          "surface-hover",
+        ]) {
           expect(contrast(get("text"), get(surface))).toBeGreaterThanOrEqual(7);
           expect(contrast(get("text-muted"), get(surface))).toBeGreaterThanOrEqual(4.5);
         }
         expect(contrast(get("text-inverse"), get("surface-inverse"))).toBeGreaterThanOrEqual(7);
       });
 
-      it("keeps selected text readable", () => {
-        expect(contrast(get("text"), get("selection"))).toBeGreaterThanOrEqual(4.5);
+      it("keeps selected text and the hints inside a selection readable", () => {
+        expect(contrast(get("text"), get("selection"))).toBeGreaterThanOrEqual(7);
+        expect(contrast(get("text-muted"), get("selection"))).toBeGreaterThanOrEqual(4.5);
+      });
+
+      it("raises panels off the backdrop, so depth reads without shadows", () => {
+        expect(get("backdrop")).not.toBe(get("canvas"));
+        expect(get("surface-hover")).not.toBe(get("canvas"));
       });
 
       it("keeps terminal text readable and the terminal distinct from the canvas", () => {

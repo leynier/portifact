@@ -13,13 +13,19 @@ import type {
 import { DEFAULT_ENTRY } from "@portifact/domain";
 import {
   Button,
+  backLinkClasses,
+  buttonClasses,
   Callout,
+  CopyField,
   canPickFolders,
   DetailList,
+  type DroppedItems,
+  DropZone,
   FilePicker,
   LoadingState,
   PageHeader,
   ProgressBar,
+  Steps,
   Table,
   TableBody,
   TableCell,
@@ -38,12 +44,14 @@ import {
   Files,
   FileText,
   FolderOpen,
+  MessageSquareText,
   RotateCcw,
   Upload,
   X,
 } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useAnnounce, useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
+import type { MessageId } from "../i18n/en.ts";
 import { BuildCancelled } from "../publish/builder.ts";
 import { canResume, publishFailureMessage } from "../publish/failures.ts";
 import type { BrowserManifest, ManifestProgress, ManifestSource } from "../publish/manifest.ts";
@@ -132,11 +140,7 @@ export function PublishVersionScreen() {
   );
   const back = (
     <p className="mb-4 text-sm">
-      <Link
-        to="/artifacts/$artifactId"
-        params={{ artifactId }}
-        className="inline-flex items-center gap-1"
-      >
+      <Link to="/artifacts/$artifactId" params={{ artifactId }} className={backLinkClasses}>
         <ArrowLeft aria-hidden="true" className="size-4" />
         {artifact.data?.name ?? t("detail.back")}
       </Link>
@@ -187,6 +191,38 @@ function defaultName(files: readonly File[], folder: boolean): string {
   if (!first) return "";
   if (folder) return first.webkitRelativePath.split("/")[0] || first.name;
   return first.name.replace(/\.zip$/i, "");
+}
+
+const STEP_ORDER = ["choose", "review", "publish"] as const;
+const STEP_LABELS: Record<(typeof STEP_ORDER)[number], MessageId> = {
+  choose: "publish.steps.choose",
+  review: "publish.steps.review",
+  publish: "publish.steps.publish",
+};
+
+/** Where the flow stands, in the three steps people see. */
+function FlowSteps({ stage }: { stage: Stage["step"] }) {
+  const t = useT();
+  const current =
+    stage === "choose" || stage === "building"
+      ? 0
+      : stage === "review"
+        ? 1
+        : stage === "done"
+          ? STEP_ORDER.length
+          : 2;
+  return (
+    <div className="mb-8">
+      <Steps
+        label={t("publish.steps.label")}
+        stateLabels={{ done: t("steps.done"), upcoming: t("steps.upcoming") }}
+        steps={STEP_ORDER.map((step, index) => ({
+          label: t(STEP_LABELS[step]),
+          state: index < current ? "done" : index === current ? "current" : "upcoming",
+        }))}
+      />
+    </div>
+  );
 }
 
 function PublishFlow({ base }: { base?: ArtifactSummary }) {
@@ -265,6 +301,30 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
       },
       defaultName(files, folder),
     );
+  /** Dropped files keep the paths inside what was dropped; one ZIP is read as an archive. */
+  const pickDropped = ({ files, folder }: DroppedItems) => {
+    const [only] = files;
+    const type = form.state.values.type;
+    if (type === "site" && files.length === 1 && only && /\.zip$/i.test(only.path)) {
+      void start({ kind: "zip", blob: only.file }, defaultName([only.file], false));
+      return;
+    }
+    const chosen = type === "site" ? files : files.slice(0, 1);
+    void start(
+      {
+        kind: "files",
+        folder: type === "site" && folder,
+        files: chosen.map((entry) => ({ path: entry.path, blob: entry.file })),
+      },
+      folder
+        ? (chosen[0]?.path.split("/")[0] ?? "")
+        : defaultName(
+            chosen.map((e) => e.file),
+            false,
+          ),
+    );
+  };
+
   const pickZip = (files: File[]) => {
     const [file] = files;
     if (file) void start({ kind: "zip", blob: file }, defaultName(files, false));
@@ -343,168 +403,214 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
     setStage({ step: "choose" });
   };
 
-  if (stage.step === "building") {
-    const progress = stage.progress;
-    return (
-      <section aria-labelledby="building-heading" className="flex flex-col gap-4">
-        <h2 id="building-heading" className="text-lg font-semibold">
-          {t("publish.building")}
-        </h2>
-        <ProgressBar
-          label={t("publish.building")}
-          value={progress?.doneBytes}
-          max={Math.max(progress?.totalBytes ?? 1, 1)}
-          valueText={
-            progress
-              ? t("publish.buildingProgress", {
-                  done: formatBytes(progress.doneBytes),
-                  total: formatBytes(progress.totalBytes),
-                })
-              : t("publish.building")
-          }
-        />
-        <div>
-          <Button icon={<X className="size-4" />} onClick={cancel}>
-            {t("publish.cancel")}
-          </Button>
-        </div>
-      </section>
-    );
-  }
-
-  if (stage.step === "review" || stage.step === "uploading" || stage.step === "failed") {
-    return (
-      <Review
-        stage={stage}
-        base={base}
-        onPublish={() => void publish(stage)}
-        onResume={() => (stage.step === "failed" ? void publish(stage, stage.prepared) : undefined)}
-        onCancel={cancel}
-        onBack={startOver}
-      />
-    );
-  }
-
-  if (stage.step === "done") {
-    const { committed } = stage;
-    return (
-      <div className="flex flex-col gap-4">
-        <Callout
-          title={t("publish.done.title", { number: committed.versionNumber })}
-          icon={<CircleCheck className="size-5" />}
-        >
-          <p>
-            {t("publish.done.body", {
-              url: committed.url,
-              date: formatDate(committed.expiresAt),
-            })}
-          </p>
-        </Callout>
-        <div className="flex flex-wrap gap-3">
-          <Link
-            to="/artifacts/$artifactId"
-            params={{ artifactId: committed.artifactId }}
-            className="font-medium"
-          >
-            {t("publish.done.open")}
-          </Link>
-          {base ? null : (
-            <Button intent="link" size="inline" onClick={startOver}>
-              {t("publish.done.another")}
-            </Button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
+  const content = renderStage();
   return (
-    <form.AppForm>
-      <form.Form label={t("publish.step.choose")}>
-        <div className="flex flex-col gap-6">
-          {stage.error ? (
-            <Callout
-              tone="error"
-              title={t("publish.buildFailed.title")}
-              icon={<CircleAlert className="size-5" />}
+    <>
+      <FlowSteps stage={stage.step} />
+      {content}
+    </>
+  );
+
+  function renderStage() {
+    if (stage.step === "building") {
+      const progress = stage.progress;
+      return (
+        <section
+          aria-labelledby="building-heading"
+          className="flex flex-col gap-4 rounded-lg border border-border bg-canvas p-5 shadow-sm"
+        >
+          <h2 id="building-heading" className="text-lg font-semibold tracking-tight">
+            {t("publish.building")}
+          </h2>
+          <ProgressBar
+            label={t("publish.building")}
+            value={progress?.doneBytes}
+            max={Math.max(progress?.totalBytes ?? 1, 1)}
+            valueText={
+              progress
+                ? t("publish.buildingProgress", {
+                    done: formatBytes(progress.doneBytes),
+                    total: formatBytes(progress.totalBytes),
+                  })
+                : t("publish.building")
+            }
+          />
+          <div>
+            <Button icon={<X className="size-4" />} onClick={cancel}>
+              {t("publish.cancel")}
+            </Button>
+          </div>
+        </section>
+      );
+    }
+
+    if (stage.step === "review" || stage.step === "uploading" || stage.step === "failed") {
+      return (
+        <Review
+          stage={stage}
+          base={base}
+          onPublish={() => void publish(stage)}
+          onResume={() =>
+            stage.step === "failed" ? void publish(stage, stage.prepared) : undefined
+          }
+          onCancel={cancel}
+          onBack={startOver}
+        />
+      );
+    }
+
+    if (stage.step === "done") {
+      const { committed } = stage;
+      return (
+        <div className="flex flex-col gap-6 rounded-lg border border-border bg-canvas p-5 shadow-sm sm:p-6">
+          <Callout
+            tone="success"
+            title={t("publish.done.title", { number: committed.versionNumber })}
+            icon={<CircleCheck className="size-5" />}
+          >
+            <p>
+              {t("publish.done.body", {
+                url: committed.url,
+                date: formatDate(committed.expiresAt),
+              })}
+            </p>
+          </Callout>
+          <CopyField
+            label={t("detail.link")}
+            value={committed.url}
+            href={committed.url}
+            copyLabel={t("detail.copyLink")}
+            copiedLabel={t("copy.copied")}
+            onCopied={() => announce(t("detail.linkCopied"))}
+            onCopyFailed={() => announce(t("copy.failed"))}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Link
+              to="/artifacts/$artifactId"
+              params={{ artifactId: committed.artifactId }}
+              className={buttonClasses({ intent: "primary" })}
             >
-              {publishFailureMessage(t, stage.error)}
-            </Callout>
-          ) : null}
-          {base ? null : (
-            <form.AppField name="type">
-              {(field) => (
-                <field.RadioGroupField
-                  legend={t("publish.type.legend")}
-                  options={(["site", "markdown", "text"] as const).map((value) => ({
-                    value,
-                    label: t(`type.${value}`),
-                    description: t(`publish.type.${value}`),
-                  }))}
-                />
-              )}
-            </form.AppField>
-          )}
-          {base ? null : (
-            <form.AppField name="name">
-              {(field) => (
-                <field.TextField
-                  label={t("publish.name.label")}
-                  description={t("publish.name.hint")}
-                  maxLength={200}
-                />
-              )}
-            </form.AppField>
-          )}
-          <form.Subscribe selector={(state) => state.values.type}>
-            {(type) =>
-              type === "site" ? (
-                <SiteSources
-                  entryField={
-                    <form.AppField name="entry">
+              {t("publish.done.open")}
+            </Link>
+            <Link
+              to="/review/$artifactId"
+              params={{ artifactId: committed.artifactId }}
+              className={buttonClasses()}
+            >
+              <MessageSquareText aria-hidden="true" className="size-4" />
+              {t("publish.done.review")}
+            </Link>
+            {base ? null : (
+              <Button intent="ghost" onClick={startOver}>
+                {t("publish.done.another")}
+              </Button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <form.AppForm>
+        <form.Form label={t("publish.step.choose")}>
+          <div className="flex flex-col gap-6 rounded-lg border border-border bg-canvas p-5 shadow-sm sm:p-6">
+            {stage.error ? (
+              <Callout
+                tone="error"
+                title={t("publish.buildFailed.title")}
+                icon={<CircleAlert className="size-5" />}
+              >
+                {publishFailureMessage(t, stage.error)}
+              </Callout>
+            ) : null}
+            {base ? null : (
+              <form.AppField name="type">
+                {(field) => (
+                  <field.RadioGroupField
+                    layout="row"
+                    legend={t("publish.type.legend")}
+                    options={(["site", "markdown", "text"] as const).map((value) => ({
+                      value,
+                      label: t(`type.${value}`),
+                      description: t(`publish.type.${value}`),
+                    }))}
+                  />
+                )}
+              </form.AppField>
+            )}
+            {base ? null : (
+              <form.AppField name="name">
+                {(field) => (
+                  <field.TextField
+                    label={t("publish.name.label")}
+                    description={t("publish.name.hint")}
+                    maxLength={200}
+                  />
+                )}
+              </form.AppField>
+            )}
+            <form.Subscribe selector={(state) => state.values.type}>
+              {(type) =>
+                type === "site" ? (
+                  <DropZone
+                    label={t("publish.drop.site")}
+                    activeLabel={t("publish.drop.active")}
+                    onDrop={pickDropped}
+                  >
+                    <SiteSources
+                      entryField={
+                        <form.AppField name="entry">
+                          {(field) => (
+                            <field.TextField
+                              label={t("publish.entry.label")}
+                              description={t("publish.entry.hint")}
+                            />
+                          )}
+                        </form.AppField>
+                      }
+                      onFiles={(files) => void pickFiles(files, false)}
+                      onFolder={(files) => void pickFiles(files, true)}
+                      onZip={pickZip}
+                    />
+                  </DropZone>
+                ) : (
+                  <div className="flex flex-col gap-6">
+                    <DropZone
+                      label={t("publish.drop.document")}
+                      activeLabel={t("publish.drop.active")}
+                      onDrop={pickDropped}
+                    >
+                      <FilePicker
+                        label={t("publish.pick.document")}
+                        description={t("publish.pick.documentHint")}
+                        icon={<FileText className="size-4" />}
+                        accept={DOCUMENT_ACCEPT[type]}
+                        onPick={(files) => void pickFiles(files.slice(0, 1), false)}
+                      />
+                    </DropZone>
+                    <form.AppField name="text">
                       {(field) => (
-                        <field.TextField
-                          label={t("publish.entry.label")}
-                          description={t("publish.entry.hint")}
+                        <field.TextAreaField
+                          label={t("publish.text.label")}
+                          description={t("publish.text.hint", { file: PASTED_FILE[type] })}
+                          code
                         />
                       )}
                     </form.AppField>
-                  }
-                  onFiles={(files) => void pickFiles(files, false)}
-                  onFolder={(files) => void pickFiles(files, true)}
-                  onZip={pickZip}
-                />
-              ) : (
-                <div className="flex flex-col gap-6">
-                  <FilePicker
-                    label={t("publish.pick.document")}
-                    description={t("publish.pick.documentHint")}
-                    icon={<FileText className="size-4" />}
-                    accept={DOCUMENT_ACCEPT[type]}
-                    onPick={(files) => void pickFiles(files.slice(0, 1), false)}
-                  />
-                  <form.AppField name="text">
-                    {(field) => (
-                      <field.TextAreaField
-                        label={t("publish.text.label")}
-                        description={t("publish.text.hint", { file: PASTED_FILE[type] })}
-                        code
-                      />
-                    )}
-                  </form.AppField>
-                  <div>
-                    <form.SubmitButton icon={<FileText className="size-4" />}>
-                      {t("publish.text.use")}
-                    </form.SubmitButton>
+                    <div>
+                      <form.SubmitButton icon={<FileText className="size-4" />}>
+                        {t("publish.text.use")}
+                      </form.SubmitButton>
+                    </div>
                   </div>
-                </div>
-              )
-            }
-          </form.Subscribe>
-        </div>
-      </form.Form>
-    </form.AppForm>
-  );
+                )
+              }
+            </form.Subscribe>
+          </div>
+        </form.Form>
+      </form.AppForm>
+    );
+  }
 }
 
 interface SiteSourcesProps {
@@ -519,7 +625,6 @@ function SiteSources({ entryField, onFiles, onFolder, onZip }: SiteSourcesProps)
   const folders = canPickFolders();
   return (
     <div className="flex flex-col gap-6">
-      {entryField}
       <div className="grid gap-6 sm:grid-cols-3">
         <FilePicker
           label={t("publish.pick.files")}
@@ -544,6 +649,9 @@ function SiteSources({ entryField, onFiles, onFolder, onZip }: SiteSourcesProps)
           accept=".zip,application/zip"
           onPick={onZip}
         />
+      </div>
+      <div className="border-t border-border pt-5">
+        <div className="max-w-md">{entryField}</div>
       </div>
     </div>
   );
@@ -570,8 +678,11 @@ function Review({
   const formatBytes = useFormatBytes();
   const { manifest, name } = stage;
   return (
-    <section aria-labelledby="review-heading" className="flex flex-col gap-6">
-      <h2 id="review-heading" className="text-lg font-semibold">
+    <section
+      aria-labelledby="review-heading"
+      className="flex flex-col gap-6 rounded-lg border border-border bg-canvas p-5 shadow-sm sm:p-6"
+    >
+      <h2 id="review-heading" className="text-lg font-semibold tracking-tight">
         {t("publish.step.review")}
       </h2>
       <DetailList

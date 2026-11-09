@@ -7,6 +7,7 @@ import {
   Callout,
   EmptyState,
   LoadingState,
+  Panel,
   Table,
   TableBody,
   TableCell,
@@ -15,7 +16,7 @@ import {
   TableRow,
 } from "@portifact/ui";
 import { useInfiniteQuery, useMutation } from "@tanstack/react-query";
-import { CircleAlert, Download, Eye, Info, RefreshCw } from "lucide-react";
+import { CircleAlert, Download, Eye, RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { type AccessLogFormat, exportAccessLog } from "../access-log-export.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
@@ -67,9 +68,9 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
           {t("accessLog.empty.body")}
         </EmptyState>
       ) : (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
           <AccessLogExport artifactId={artifact.id} />
-          <Table caption={t("accessLog.caption")}>
+          <Table caption={t("accessLog.caption")} variant="flush">
             <TableHead>
               <TableRow>
                 <TableHeaderCell>{t("accessLog.column.opened")}</TableHeaderCell>
@@ -79,7 +80,11 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
             <TableBody>
               {entries.map((entry) => (
                 <TableRow key={`${entry.openedAt} ${entry.email}`}>
-                  <TableCell>{formatDate(entry.openedAt, true)}</TableCell>
+                  <TableCell>
+                    <span className="whitespace-nowrap tabular-nums">
+                      {formatDate(entry.openedAt, true)}
+                    </span>
+                  </TableCell>
                   <TableCell>
                     <span className="break-all">{entry.email}</span>
                   </TableCell>
@@ -88,7 +93,7 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
             </TableBody>
           </Table>
           {log.hasNextPage ? (
-            <div>
+            <div className="px-5 pb-5">
               <Button busy={log.isFetchingNextPage} onClick={() => log.fetchNextPage()}>
                 {t("accessLog.loadMore")}
               </Button>
@@ -98,17 +103,16 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
       );
   }
 
+  const listed = Boolean(log.data?.pages.some((page) => page.entries.length > 0));
   return (
-    <section aria-labelledby="access-log-heading" className="mt-8">
-      <h2 id="access-log-heading" className="mb-3 text-lg font-semibold">
-        {t("accessLog.title")}
-      </h2>
-      <p className="mb-4 flex gap-2 text-sm text-text-muted">
-        <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-        <span>{t("accessLog.hint")}</span>
-      </p>
+    <Panel
+      id="access-log"
+      title={t("accessLog.title")}
+      description={t("accessLog.hint")}
+      flush={listed}
+    >
       {body}
-    </section>
+    </Panel>
   );
 }
 
@@ -125,7 +129,7 @@ function AccessLogExport({ artifactId }: { artifactId: string }) {
     },
   });
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2 px-5 pt-4">
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"

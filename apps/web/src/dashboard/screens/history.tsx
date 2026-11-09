@@ -6,11 +6,13 @@ import type { ArtifactSummary, DownloadKind, VersionSummary } from "@portifact/c
 import {
   Badge,
   Button,
+  backLinkClasses,
   Callout,
   ConfirmDialog,
   EmptyState,
   LoadingState,
   PageHeader,
+  Panel,
   Table,
   TableBody,
   TableCell,
@@ -59,11 +61,7 @@ export function HistoryScreen() {
   );
   const back = (
     <p className="mb-4 text-sm">
-      <Link
-        to="/artifacts/$artifactId"
-        params={{ artifactId }}
-        className="inline-flex items-center gap-1"
-      >
+      <Link to="/artifacts/$artifactId" params={{ artifactId }} className={backLinkClasses}>
         <ArrowLeft aria-hidden="true" className="size-4" />
         {artifact.data?.name ?? t("detail.back")}
       </Link>
@@ -134,8 +132,11 @@ function ArchivePanel({ artifact }: { artifact: ArtifactSummary }) {
     onError: () => setConfirmingDelete(false),
   });
   return (
-    <section aria-labelledby="archive-heading" className="mb-8 flex flex-col gap-4">
-      <h2 id="archive-heading" className="flex items-center gap-2 text-lg font-semibold">
+    <section
+      aria-labelledby="archive-heading"
+      className="mb-6 flex flex-col gap-4 rounded-lg border border-border border-l-4 border-l-text bg-canvas p-5 shadow-sm"
+    >
+      <h2 id="archive-heading" className="flex items-center gap-2 text-base font-semibold">
         <Archive aria-hidden="true" className="size-5" />
         {t("history.archive.title")}
       </h2>
@@ -177,6 +178,7 @@ function ArchivePanel({ artifact }: { artifact: ArtifactSummary }) {
         confirmLabel={t("detail.confirmDelete.confirm")}
         cancelLabel={t("detail.confirmDelete.cancel")}
         confirmIcon={<Trash2 className="size-4" />}
+        tone="danger"
         busy={action.isPending}
         onConfirm={() => action.mutate("delete")}
         onCancel={() => setConfirmingDelete(false)}
@@ -246,7 +248,7 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
     onError: () => setRollingBack(null),
   });
 
-  if (versions.isPending) return <LoadingState label={t("history.loading")} />;
+  if (versions.isPending) return <LoadingState label={t("history.loading")} skeleton={3} />;
   if (versions.isError && !versions.data) {
     return (
       <Callout
@@ -296,107 +298,115 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
       {canRollBack ? null : (
         <p className="text-sm text-text-muted">{t("history.rollbackUnavailable")}</p>
       )}
-      <Table caption={t("history.caption")}>
-        <TableHead>
-          <TableRow>
-            <TableHeaderCell>{t("history.column.version")}</TableHeaderCell>
-            <TableHeaderCell>{t("history.column.published")}</TableHeaderCell>
-            <TableHeaderCell>{t("history.column.files")}</TableHeaderCell>
-            <TableHeaderCell>{t("history.column.kept")}</TableHeaderCell>
-            <TableHeaderCell>{t("history.column.actions")}</TableHeaderCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {items.map((version) => (
-            <TableRow key={version.id}>
-              <TableCell>
-                <span className="flex flex-wrap items-center gap-2 font-medium">
-                  {t("history.version", { number: version.number })}
-                  {version.current ? (
-                    <Badge icon={<CircleCheck className="size-3.5" />}>
-                      {t("history.current")}
-                    </Badge>
-                  ) : null}
-                </span>
-              </TableCell>
-              <TableCell>{formatDate(version.committedAt, true)}</TableCell>
-              <TableCell>
-                <span className="block">
-                  {t("history.files", {
-                    count: version.publishedFiles,
-                    size: formatBytes(version.publishedBytes),
-                  })}
-                </span>
-                {version.sourceFiles > 0 ? (
-                  <span className="block text-text-muted">
-                    {t("history.sources", {
-                      count: version.sourceFiles,
-                      size: formatBytes(version.sourceBytes),
+      <Panel title={t("history.versionsTitle")} flush>
+        <Table caption={t("history.caption")} variant="flush">
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>{t("history.column.version")}</TableHeaderCell>
+              <TableHeaderCell>{t("history.column.published")}</TableHeaderCell>
+              <TableHeaderCell>{t("history.column.files")}</TableHeaderCell>
+              <TableHeaderCell>{t("history.column.kept")}</TableHeaderCell>
+              <TableHeaderCell>{t("history.column.actions")}</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {items.map((version) => (
+              <TableRow key={version.id}>
+                <TableCell>
+                  <span className="flex flex-wrap items-center gap-2 font-semibold whitespace-nowrap">
+                    {t("history.version", { number: version.number })}
+                    {version.current ? (
+                      <Badge icon={<CircleCheck className="size-3.5" />}>
+                        {t("history.current")}
+                      </Badge>
+                    ) : null}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="whitespace-nowrap tabular-nums">
+                    {formatDate(version.committedAt, true)}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <span className="block">
+                    {t("history.files", {
+                      count: version.publishedFiles,
+                      size: formatBytes(version.publishedBytes),
                     })}
                   </span>
-                ) : null}
-              </TableCell>
-              <TableCell>
-                {version.expiresAt
-                  ? formatDate(version.expiresAt, true)
-                  : t("history.whileCurrent")}
-              </TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    icon={<Download className="size-4" />}
-                    aria-label={t("history.downloadLabel", { number: version.number })}
-                    busy={
-                      download.isPending &&
-                      download.variables.version.id === version.id &&
-                      download.variables.kind === "published"
-                    }
-                    disabled={download.isPending}
-                    onClick={() => download.mutate({ version, kind: "published" })}
-                  >
-                    {t("history.download")}
-                  </Button>
                   {version.sourceFiles > 0 ? (
+                    <span className="block text-text-muted">
+                      {t("history.sources", {
+                        count: version.sourceFiles,
+                        size: formatBytes(version.sourceBytes),
+                      })}
+                    </span>
+                  ) : null}
+                </TableCell>
+                <TableCell>
+                  {version.expiresAt
+                    ? formatDate(version.expiresAt, true)
+                    : t("history.whileCurrent")}
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-2">
                     <Button
+                      intent="ghost"
                       size="sm"
                       icon={<Download className="size-4" />}
-                      aria-label={t("history.downloadSourcesLabel", { number: version.number })}
+                      aria-label={t("history.downloadLabel", { number: version.number })}
                       busy={
                         download.isPending &&
                         download.variables.version.id === version.id &&
-                        download.variables.kind === "source"
+                        download.variables.kind === "published"
                       }
                       disabled={download.isPending}
-                      onClick={() => download.mutate({ version, kind: "source" })}
+                      onClick={() => download.mutate({ version, kind: "published" })}
                     >
-                      {t("history.downloadSources")}
+                      {t("history.download")}
                     </Button>
-                  ) : null}
-                  {canRollBack && !version.current ? (
-                    <Button
-                      size="sm"
-                      icon={<Undo2 className="size-4" />}
-                      aria-label={t("history.rollbackLabel", { number: version.number })}
-                      disabled={rollback.isPending}
-                      onClick={() => setRollingBack({ version, key: crypto.randomUUID() })}
-                    >
-                      {t("history.rollback")}
-                    </Button>
-                  ) : null}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      {versions.hasNextPage ? (
-        <div>
-          <Button busy={versions.isFetchingNextPage} onClick={() => versions.fetchNextPage()}>
-            {t("history.loadMore")}
-          </Button>
-        </div>
-      ) : null}
+                    {version.sourceFiles > 0 ? (
+                      <Button
+                        intent="ghost"
+                        size="sm"
+                        icon={<Download className="size-4" />}
+                        aria-label={t("history.downloadSourcesLabel", { number: version.number })}
+                        busy={
+                          download.isPending &&
+                          download.variables.version.id === version.id &&
+                          download.variables.kind === "source"
+                        }
+                        disabled={download.isPending}
+                        onClick={() => download.mutate({ version, kind: "source" })}
+                      >
+                        {t("history.downloadSources")}
+                      </Button>
+                    ) : null}
+                    {canRollBack && !version.current ? (
+                      <Button
+                        size="sm"
+                        icon={<Undo2 className="size-4" />}
+                        aria-label={t("history.rollbackLabel", { number: version.number })}
+                        disabled={rollback.isPending}
+                        onClick={() => setRollingBack({ version, key: crypto.randomUUID() })}
+                      >
+                        {t("history.rollback")}
+                      </Button>
+                    ) : null}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {versions.hasNextPage ? (
+          <div className="border-t border-border px-5 py-4">
+            <Button busy={versions.isFetchingNextPage} onClick={() => versions.fetchNextPage()}>
+              {t("history.loadMore")}
+            </Button>
+          </div>
+        ) : null}
+      </Panel>
       <ConfirmDialog
         open={rollingBack !== null}
         title={t("history.confirmRollback.title", { number: rollingBack?.version.number ?? 0 })}
