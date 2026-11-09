@@ -2,7 +2,12 @@
 // @vitest-environment-options {"settings":{"enableIframePageLoading":true,"navigation":{"disableChildFrameNavigation":true}}}
 // The frame never navigates in these tests: the bridge is played by messages from a stand-in
 // window, and the frame's own page load is covered by the end-to-end tests.
-import { BRIDGE_LIMITS, REVIEW_CHANNEL, type ViewerMessage } from "@portifact/bridge";
+import {
+  BRIDGE_LIMITS,
+  REVIEW_CHANNEL,
+  REVIEW_PROTOCOL,
+  type ViewerMessage,
+} from "@portifact/bridge";
 import type { AnnotationTarget, ReviewStart } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -124,7 +129,13 @@ const sent = () =>
 
 /** Starts the handshake and returns the nonce the viewer gave the page. */
 async function connect(page: { path: string; route?: string } = { path: "index.html" }) {
-  deliver({ channel: REVIEW_CHANNEL, v: 1, type: "ready", page, sessionTag: SESSION_TAG });
+  deliver({
+    channel: REVIEW_CHANNEL,
+    v: REVIEW_PROTOCOL,
+    type: "ready",
+    page,
+    sessionTag: SESSION_TAG,
+  });
   await waitFor(() => expect(sent().some((s) => s.message.type === "init")).toBe(true));
   const init = sent().find((s) => s.message.type === "init");
   return init?.message.nonce as string;
@@ -135,7 +146,7 @@ const filterTools = () =>
   screen.getByText(/^Filter and export/).closest("details") as HTMLDetailsElement;
 
 const fromBridge = (nonce: string, body: Record<string, unknown>) =>
-  deliver({ channel: REVIEW_CHANNEL, v: 1, nonce, ...body });
+  deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, nonce, ...body });
 
 const RECT = { x: 120, y: 200, width: 240, height: 18 };
 
@@ -157,6 +168,24 @@ async function commentInline(nonce: string, rect: Record<string, number> = RECT)
   fireEvent.click(await pill());
   return screen.getByRole("region", { name: "Comment on the selection" });
 }
+
+/** Opens a menu by its button's name inside `scope` and chooses an item. */
+function chooseFromMenu(scope: HTMLElement, menu: string | RegExp, item: string) {
+  const [trigger] = within(scope).getAllByRole("button", { name: menu });
+  fireEvent.click(trigger as HTMLElement);
+  fireEvent.click(screen.getByRole("menuitem", { name: item }));
+}
+
+/** The items of a menu, by its button's name inside `scope`; the menu is closed again after. */
+function menuItems(scope: HTMLElement, menu: string): string[] {
+  const trigger = within(scope).getByRole("button", { name: menu });
+  fireEvent.click(trigger);
+  const items = screen.getAllByRole("menuitem").map((item) => item.textContent ?? "");
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+  return items;
+}
+
+const OWN_MENU = "More actions for the message from You";
 
 async function open() {
   const view = renderDashboard(PATH, server);
@@ -188,17 +217,20 @@ describe("review viewer", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
-  it("answers the bridge's handshake with a nonce and sends only targets and labels", async () => {
+  it("answers the bridge's handshake with a nonce and sends only the targets to highlight", async () => {
     await open();
     const nonce = await connect();
     expect(nonce).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    await waitFor(() => expect(sent().some((s) => s.message.type === "markers")).toBe(true));
+    await waitFor(() => expect(sent().some((s) => s.message.type === "highlights")).toBe(true));
     expect(sent().every((s) => s.origin === ORIGIN)).toBe(true);
-    const markers = sent().find((s) => s.message.type === "markers")?.message;
-    expect(markers).toMatchObject({
+    const highlights = sent().find((s) => s.message.type === "highlights")?.message;
+    expect(highlights).toEqual({
+      channel: REVIEW_CHANNEL,
+      v: REVIEW_PROTOCOL,
       nonce,
-      markers: [{ id: "t1", label: "1", name: "Open thread 1", target: TEXT_TARGET }],
-      active: null,
+      type: "highlights",
+      highlights: [{ id: "t1", target: TEXT_TARGET }],
+      selected: [],
     });
     const everything = JSON.stringify(sent());
     expect(everything).not.toContain("Secret feedback");
@@ -211,24 +243,24 @@ describe("review viewer", () => {
     const nonce = await connect();
     const selection = { type: "selection", target: TEXT_TARGET };
     deliver(
-      { channel: REVIEW_CHANNEL, v: 1, nonce, ...selection },
+      { channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, nonce, ...selection },
       "https://p3n5wq7yzc.portifact.dev",
     );
-    deliver({ channel: REVIEW_CHANNEL, v: 1, nonce, ...selection }, ORIGIN, window);
-    deliver({ channel: REVIEW_CHANNEL, v: 1, nonce: "x".repeat(22), ...selection });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, nonce, ...selection }, ORIGIN, window);
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, nonce: "x".repeat(22), ...selection });
     deliver({
       channel: REVIEW_CHANNEL,
-      v: 1,
+      v: REVIEW_PROTOCOL,
       nonce,
       ...selection,
       extra: "x".repeat(BRIDGE_LIMITS.bridgeMessageMaxBytes),
     });
-    deliver({ channel: REVIEW_CHANNEL, v: 1, nonce, type: "post", body: "spam" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, nonce, type: "post", body: "spam" });
     // A forged "ready" from another window cannot take over the handshake either.
     deliver(
       {
         channel: REVIEW_CHANNEL,
-        v: 1,
+        v: REVIEW_PROTOCOL,
         type: "ready",
         page: { path: "index.html" },
         sessionTag: SESSION_TAG,
@@ -282,9 +314,9 @@ describe("review viewer", () => {
     expect(sent().some((s) => s.message.type === "clear-selection")).toBe(true);
     // Back in the artifact, and the new thread is the current one in the sidebar and the page.
     expect(document.activeElement?.tagName).toBe("IFRAME");
-    await waitFor(() => expect(sent().at(-1)?.message).toMatchObject({ type: "markers" }));
-    const markers = sent().at(-1)?.message as Extract<ViewerMessage, { type: "markers" }>;
-    expect(markers.active).toBe(markers.markers.at(-1)?.id);
+    await waitFor(() => expect(sent().at(-1)?.message).toMatchObject({ type: "highlights" }));
+    const last = sent().at(-1)?.message as Extract<ViewerMessage, { type: "highlights" }>;
+    expect(last.selected).toEqual([last.highlights.at(-1)?.id]);
   });
 
   it("cancels the inline comment with Escape or Cancel, and returns to the artifact", async () => {
@@ -509,13 +541,13 @@ describe("review viewer", () => {
     });
     await open();
     const nonce = await connect();
-    await waitFor(() => expect(sent().some((s) => s.message.type === "markers")).toBe(true));
+    await waitFor(() => expect(sent().some((s) => s.message.type === "highlights")).toBe(true));
     const ids = () => {
       const last = sent()
         .map((s) => s.message)
-        .filter((message) => message.type === "markers")
+        .filter((message) => message.type === "highlights")
         .at(-1);
-      return last?.markers.map((marker) => marker.id);
+      return last?.highlights.map((highlight) => highlight.id);
     };
     expect(ids()).toEqual(["t1"]);
     fromBridge(nonce, { type: "location", page: { path: "other.html" } });
@@ -549,7 +581,7 @@ describe("review viewer", () => {
     );
   });
 
-  it("ignores results and activations for threads it did not send to the page", async () => {
+  it("ignores results and selections for threads it did not send to the page", async () => {
     server.annotations[ID]?.threads.push({
       ...fakeThread("t3", {
         target: { ...TEXT_TARGET, path: "other.html" },
@@ -562,20 +594,108 @@ describe("review viewer", () => {
     fromBridge(nonce, { type: "location", page: { path: "other.html" } });
     fromBridge(nonce, { type: "location", page: { path: "index.html" } });
     fromBridge(nonce, { type: "resolved", results: [{ id: "t3", confidence: "orphaned" }] });
-    fromBridge(nonce, { type: "activate", id: "t2" });
+    // t2 is a general comment (never highlighted), t3 is on another page, "nope" is unknown.
+    fromBridge(nonce, { type: "select", ids: ["t2", "t3", "nope"] });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    const second = screen.getByRole("article", { name: "Thread 2" });
-    expect(second.getAttribute("aria-current")).toBeNull();
-    expect(document.activeElement).not.toBe(second);
+    for (const name of ["Thread 1", "Thread 2", "Thread 3"]) {
+      const card = screen.getByRole("article", { name });
+      expect(card.getAttribute("aria-current")).toBeNull();
+      expect(card.hasAttribute("data-selected")).toBe(false);
+    }
+    expect(screen.queryByRole("region", { name: /on the text you clicked/ })).toBeNull();
   });
 
-  it("moves focus to the thread a reader activates in the page", async () => {
+  it("selects the thread a reader clicks in the page without taking focus from the artifact", async () => {
     await open();
     const nonce = await connect();
-    fromBridge(nonce, { type: "activate", id: "t1" });
+    await waitFor(() => expect(sent().some((s) => s.message.type === "highlights")).toBe(true));
+    const frame = screen.getByTitle("Launch plan, published with Portifact");
+    frame.focus();
+    fromBridge(nonce, { type: "select", ids: ["t1"] });
     const thread = screen.getByRole("article", { name: "Thread 1" });
-    await waitFor(() => expect(document.activeElement).toBe(thread));
-    expect(thread.getAttribute("aria-current")).toBe("true");
+    await waitFor(() => expect(thread.getAttribute("aria-current")).toBe("true"));
+    expect(document.activeElement).toBe(frame);
+    await screen.findByText("Thread 1 selected.");
+    await waitFor(() =>
+      expect(sent().at(-1)?.message).toMatchObject({ type: "highlights", selected: ["t1"] }),
+    );
+    // A click outside every highlight clears what the page selected.
+    fromBridge(nonce, { type: "select", ids: [] });
+    await waitFor(() => expect(thread.getAttribute("aria-current")).toBeNull());
+  });
+
+  it("shows every thread on the clicked text together, the innermost first, and outlines the one pointed at", async () => {
+    const inner: AnnotationTarget = {
+      ...TEXT_TARGET,
+      anchor: {
+        kind: "text",
+        quote: { exact: "new", prefix: "Hello brave ", suffix: " world" },
+        position: { start: 12, end: 15 },
+      },
+    };
+    server.annotations[ID]?.threads.push({
+      ...fakeThread("t3", {
+        target: inner,
+        createdAt: "2026-11-08T12:09:00.000Z",
+        messages: [fakeMessage({ id: "m3", body: "Inner remark" })],
+      }),
+      seq: 3,
+    });
+    const { container } = await open();
+    const nonce = await connect();
+    await waitFor(() => expect(sent().some((s) => s.message.type === "highlights")).toBe(true));
+    fromBridge(nonce, { type: "select", ids: ["t3", "t1"] });
+    const group = await screen.findByRole("region", { name: "2 threads on the text you clicked" });
+    const cards = within(group).getAllByRole("article");
+    expect(cards.map((card) => card.getAttribute("aria-labelledby"))).toEqual([
+      "thread-t3-title",
+      "thread-t1-title",
+    ]);
+    expect(cards[0]?.getAttribute("aria-current")).toBe("true");
+    expect(cards[1]?.hasAttribute("data-selected")).toBe(true);
+    await screen.findByText("Threads 3, 1 selected.");
+    await waitFor(() =>
+      expect(sent().at(-1)?.message).toMatchObject({ type: "highlights", selected: ["t3", "t1"] }),
+    );
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+    Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
+      configurable: true,
+      get: () => frameWindow,
+    });
+
+    // Pointing at a thread outlines its text in the page; general comments outline nothing.
+    fireEvent.pointerEnter(cards[1] as HTMLElement);
+    expect(sent().at(-1)?.message).toMatchObject({ type: "hover", id: "t1" });
+    fireEvent.pointerLeave(cards[1] as HTMLElement);
+    expect(sent().at(-1)?.message).toMatchObject({ type: "hover", id: null });
+    fireEvent.pointerEnter(screen.getByRole("article", { name: "Thread 2" }));
+    expect(sent().at(-1)?.message).toMatchObject({ type: "hover", id: null });
+
+    // Clicking a card selects it alone, in place, and shows it in the page once it has a place.
+    fromBridge(nonce, {
+      type: "resolved",
+      results: [
+        { id: "t1", confidence: "exact" },
+        { id: "t3", confidence: "exact" },
+      ],
+    });
+    await within(cards[1] as HTMLElement).findByRole("button", { name: "Show in the artifact" });
+    fireEvent.click(within(cards[1] as HTMLElement).getByText("Secret feedback for the owner"));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: /on the text you clicked/ })).toBeNull(),
+    );
+    expect(screen.getByRole("article", { name: "Thread 1" }).getAttribute("aria-current")).toBe(
+      "true",
+    );
+    expect(sent().map((s) => s.message)).toContainEqual(
+      expect.objectContaining({ type: "focus", id: "t1" }),
+    );
+
+    fromBridge(nonce, { type: "select", ids: ["t1", "t3"] });
+    const again = await screen.findByRole("region", { name: "2 threads on the text you clicked" });
+    fireEvent.click(within(again).getByRole("button", { name: "Show all threads" }));
+    expect(screen.queryByRole("region", { name: /on the text you clicked/ })).toBeNull();
   });
 
   it("refreshes incrementally with the cursor", async () => {
@@ -659,6 +779,48 @@ describe("thread actions", () => {
     await within(thread).findByRole("button", { name: "Resolve" });
   });
 
+  it("opens the reply box in place from the thread's reply field and closes it back there", async () => {
+    const { container } = await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    const field = within(thread).getByRole("button", { name: "Reply" });
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(thread)).toEqual([]);
+    fireEvent.click(field);
+    const box = within(thread).getByRole("textbox", { name: "Reply" });
+    expect(document.activeElement).toBe(box);
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(within(thread).queryByRole("form")).toBeNull();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(thread).getByRole("button", { name: "Reply" })),
+    );
+    // Clicking inside the reply box never selects or moves the thread.
+    fireEvent.click(within(thread).getByRole("button", { name: "Reply" }));
+    fireEvent.click(within(thread).getByRole("textbox", { name: "Reply" }));
+    expect(thread.getAttribute("aria-current")).toBeNull();
+  });
+
+  it("folds resolved threads, dimmed, until the reader opens or selects them", async () => {
+    const store = server.annotations[ID];
+    const first = store?.threads[0];
+    if (first) first.state = "resolved";
+    await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    expect(within(thread).getByText("Resolved")).toBeTruthy();
+    expect(within(thread).queryByText("Secret feedback for the owner")).toBeNull();
+    expect(within(thread).queryByRole("button", { name: "Reply" })).toBeNull();
+    const unfold = within(thread).getByRole("button", { name: "Show the comment" });
+    expect(unfold.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(unfold);
+    expect(within(thread).getByText("Secret feedback for the owner")).toBeTruthy();
+    fireEvent.click(within(thread).getByRole("button", { name: "Fold the comments" }));
+    expect(within(thread).queryByText("Secret feedback for the owner")).toBeNull();
+    // Selecting it, here or in the page, opens it.
+    fireEvent.click(within(thread).getByText("brave new world"));
+    await within(thread).findByText("Secret feedback for the owner");
+    expect(thread.getAttribute("aria-current")).toBe("true");
+  });
+
   it("says in the reply box when every reader sees the thread: the owner started it", async () => {
     const store = server.annotations[ID];
     if (!store) throw new Error("missing");
@@ -687,9 +849,9 @@ describe("thread actions", () => {
     const { container } = await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
     // Only your own messages can be edited; the owner moderates other people's.
-    expect(within(thread).getAllByRole("button", { name: "Edit" })).toHaveLength(1);
-    const edit = within(thread).getByRole("button", { name: "Edit" });
-    fireEvent.click(edit);
+    expect(menuItems(thread, OWN_MENU)).toEqual(["Edit"]);
+    expect(menuItems(thread, "More actions for the message from Bea")).toEqual(["Hide", "Delete"]);
+    chooseFromMenu(thread, OWN_MENU, "Edit");
     const form = within(thread).getByRole("form", { name: "Edit your message" });
     const box = within(form).getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     expect(box.value).toBe("Frist draft");
@@ -707,7 +869,7 @@ describe("thread actions", () => {
     expect(within(thread).getByText(/Edited/)).toBeTruthy();
     await screen.findByText("Message edited.");
     await waitFor(() =>
-      expect(document.activeElement).toBe(within(thread).getByRole("button", { name: "Edit" })),
+      expect(document.activeElement).toBe(within(thread).getByRole("button", { name: OWN_MENU })),
     );
   });
 
@@ -720,7 +882,7 @@ describe("thread actions", () => {
     store.outOfScope = [store.threads[0]?.id ?? ""];
     await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
-    fireEvent.click(within(thread).getByRole("button", { name: "Edit" }));
+    chooseFromMenu(thread, OWN_MENU, "Edit");
     const form = within(thread).getByRole("form", { name: "Edit your message" });
     fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), {
       target: { value: "Redacted" },
@@ -739,12 +901,12 @@ describe("thread actions", () => {
     store?.threads[0]?.messages.push(own);
     await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
-    fireEvent.click(within(thread).getByRole("button", { name: "Edit" }));
+    chooseFromMenu(thread, OWN_MENU, "Edit");
     fireEvent.click(within(thread).getByRole("button", { name: "Cancel" }));
     expect(within(thread).queryByRole("form", { name: "Edit your message" })).toBeNull();
     expect(within(thread).getByText("Old text")).toBeTruthy();
 
-    fireEvent.click(within(thread).getByRole("button", { name: "Edit" }));
+    chooseFromMenu(thread, OWN_MENU, "Edit");
     // Edited from the CLI meanwhile.
     own.body = "Text from the CLI";
     own.revision = 2;
@@ -777,17 +939,19 @@ describe("thread actions", () => {
     store.threads[1]?.messages.push(fakeMessage({ id: "m-own2", own: true, body: "Mine" }));
     store.mode = "locked";
     await open();
-    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: OWN_MENU })).toBeNull();
   });
 
   it("lets the owner hide and delete other people's messages, and delete threads after confirming", async () => {
     await open();
     const thread = screen.getByRole("article", { name: "Thread 1" });
-    fireEvent.click(within(thread).getByRole("button", { name: "Hide" }));
-    await within(thread).findByRole("button", { name: "Show again" });
+    const bea = "More actions for the message from Bea";
+    chooseFromMenu(thread, bea, "Hide");
+    await within(thread).findByText("Hidden by the owner");
     expect(server.bodies.at(-1)).toEqual({ action: "hide" });
+    expect(menuItems(thread, bea)).toEqual(["Show again", "Delete"]);
 
-    fireEvent.click(within(thread).getByRole("button", { name: "Delete thread" }));
+    chooseFromMenu(thread, "More actions for thread 1", "Delete thread");
     const dialog = await screen.findByRole("dialog", { name: "Delete thread 1?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete thread" }));
     await screen.findByText("1 comment thread");
@@ -806,8 +970,7 @@ describe("thread actions", () => {
     if (own) own.own = true;
     await open();
     const first = screen.getByRole("article", { name: "Thread 1" });
-    expect(within(first).queryByRole("button", { name: "Hide" })).toBeNull();
-    expect(within(first).queryByRole("button", { name: "Delete thread" })).toBeNull();
+    expect(within(first).queryByRole("button", { name: /More actions/ })).toBeNull();
     expect(within(first).queryByRole("button", { name: "Resolve" })).toBeNull();
     const second = screen.getByRole("article", { name: "Thread 2" });
     expect(within(second).getByRole("button", { name: "Resolve" })).toBeTruthy();
@@ -837,9 +1000,9 @@ describe("comment filters and export", () => {
   const lastMarkers = () =>
     sent()
       .map((s) => s.message)
-      .filter((message) => message.type === "markers")
+      .filter((message) => message.type === "highlights")
       .at(-1)
-      ?.markers.map((marker) => marker.id);
+      ?.highlights.map((highlight) => highlight.id);
 
   beforeEach(() => {
     const store = server.annotations[ID];
@@ -993,7 +1156,7 @@ describe("comment filters and export", () => {
 describe("review states", () => {
   it("says when the browser cannot keep the review cookie, and keeps general comments", async () => {
     await open();
-    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "status", status: "unavailable" });
     await screen.findByText("Review tools are not available in this browser");
     expect(screen.getByRole("button", { name: "Comment on the page" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Select an element" })).toBeNull();
@@ -1002,7 +1165,7 @@ describe("review states", () => {
   it("offers a review tab where the frame cannot keep the cookie, through a one-use link", async () => {
     await open();
     expect(screen.queryByRole("heading", { name: "Review in a separate tab" })).toBeNull();
-    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "status", status: "unavailable" });
     const offer = (
       await screen.findByRole("heading", { name: "Review in a separate tab" })
     ).closest("section") as HTMLElement;
@@ -1051,7 +1214,7 @@ describe("review states", () => {
 
   it("shows why a review tab could not be prepared", async () => {
     await open();
-    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "status", status: "unavailable" });
     delete server.reviews[ID];
     fireEvent.click(await screen.findByRole("button", { name: "Prepare a review tab" }));
     await screen.findByText("The action did not finish");
@@ -1060,7 +1223,7 @@ describe("review states", () => {
 
   it("offers to reload when the review session ends, with a new code", async () => {
     await open();
-    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "ended" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "status", status: "ended" });
     fireEvent.click(await screen.findByRole("button", { name: "Reload the review" }));
     await waitFor(() =>
       expect(server.requests.filter((r) => r.path.endsWith("/review"))).toHaveLength(2),
@@ -1072,7 +1235,7 @@ describe("review states", () => {
     await open();
     deliver({
       channel: REVIEW_CHANNEL,
-      v: 1,
+      v: REVIEW_PROTOCOL,
       type: "ready",
       page: { path: "index.html" },
       sessionTag: "a".repeat(22),
@@ -1110,7 +1273,7 @@ describe("review states", () => {
   it("keeps comments working when the page claims the session ended", async () => {
     await open();
     await connect();
-    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "ended" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "status", status: "ended" });
     await screen.findByText("This review session ended");
     expect(screen.getByRole("button", { name: "Comment on the page" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "Thread 1" })).toBeTruthy();
@@ -1159,7 +1322,7 @@ describe("review states", () => {
     renderDashboard(PATH, server);
     await screen.findByTitle("Launch plan, published with Portifact");
     expect(screen.queryByRole("complementary")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Comments" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Comments/ })).toBeNull();
     expect(server.requests.some((r) => r.path.includes("/annotations"))).toBe(false);
   });
 
@@ -1428,15 +1591,73 @@ describe("the viewer's bar and visitors", () => {
 
   it("collapses and reopens the comments sidebar from the bar", async () => {
     await open();
-    const toggle = screen.getByRole("button", { name: "Comments" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    // A toggle that says how many threads are open.
+    const toggle = screen.getByRole("button", { name: "Comments (2 open threads)" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
     expect(toggle.getAttribute("aria-controls")).toBe("viewer-comments");
     expect(screen.getByRole("complementary", { name: "Comments" }).id).toBe("viewer-comments");
     fireEvent.click(toggle);
     expect(screen.queryByRole("complementary")).toBeNull();
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(toggle.hasAttribute("aria-controls")).toBe(false);
     fireEvent.click(toggle);
     expect(screen.getByRole("complementary", { name: "Comments" })).toBeTruthy();
+  });
+
+  it("keeps the toggle and an overflow menu on narrow screens, and opens comments over the artifact", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query.includes("max-width"),
+          media: query,
+          addEventListener() {},
+          removeEventListener() {},
+        }) as unknown as MediaQueryList,
+    );
+    const { container } = renderDashboard(PATH, server);
+    await screen.findByTitle("Launch plan, published with Portifact");
+    const bar = screen.getByRole("banner");
+    const toggle = await within(bar).findByRole("button", { name: "Comments (2 open threads)" });
+    // Narrow screens start with the artifact, not the comments.
+    expect(screen.queryByRole("complementary")).toBeNull();
+    const more = within(bar).getByRole("button", { name: "More" });
+    fireEvent.click(more);
+    const menu = screen.getByRole("menu", { name: "More" });
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Copy link", "Manage", "Your artifacts", "Your account"]);
+    expect(within(menu).getByRole("menuitem", { name: "Your account" }).getAttribute("href")).toBe(
+      "/account",
+    );
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.keyDown(menu, { key: "Escape" });
+
+    // The sidebar covers the artifact and takes focus; its close button returns to the toggle.
+    fireEvent.click(toggle);
+    const sidebar = await screen.findByRole("complementary", { name: "Comments" });
+    await waitFor(() => expect(document.activeElement).toBe(sidebar));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Close comments" }));
+    expect(screen.queryByRole("complementary")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(toggle));
+  });
+
+  it("offers anonymous visitors sign-in in the overflow menu", async () => {
+    const listed = server.artifacts.find((a) => a.id === ID);
+    if (listed) listed.accessMode = "public";
+    server.email = null;
+    renderDashboard(PATH, server);
+    await screen.findByTitle("Launch plan, published with Portifact");
+    const bar = screen.getByRole("banner");
+    fireEvent.click(within(bar).getByRole("button", { name: "More" }));
+    const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Copy link",
+      "Report this artifact",
+      "Sign in",
+    ]);
   });
 
   it("opens review on the page and fragment the link names, and only on the artifact", async () => {
@@ -1500,7 +1721,7 @@ describe("the viewer's bar and visitors", () => {
     renderDashboard(PATH, server);
     await screen.findByTitle("Launch plan, published with Portifact");
     expect(screen.queryByRole("complementary")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Comments" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Comments/ })).toBeNull();
   });
 
   it("sends anonymous visitors of an artifact they cannot see to sign in, back to the same view", async () => {
@@ -1516,7 +1737,7 @@ describe("the viewer's bar and visitors", () => {
   it("offers the artifact without the bar where the frame keeps no review session", async () => {
     renderDashboard(`${PATH}?path=${encodeURIComponent("/docs/a.html?x=1")}#intro`, server);
     await screen.findByTitle("Launch plan, published with Portifact");
-    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "status", status: "unavailable" });
     const link = await screen.findByRole("link", { name: "Open without the Portifact bar" });
     expect(link.getAttribute("href")).toBe(
       `${ORIGIN}/__portifact/raw?to=%2Fdocs%2Fa.html%3Fx%3D1#intro`,
@@ -1526,7 +1747,7 @@ describe("the viewer's bar and visitors", () => {
   it("shows a public artifact as it is where the browser keeps no review session in the frame", async () => {
     makePublic();
     await open();
-    deliver({ channel: REVIEW_CHANNEL, v: 1, type: "status", status: "unavailable" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, type: "status", status: "unavailable" });
     const frame = screen.getByTitle("Launch plan, published with Portifact") as HTMLIFrameElement;
     await waitFor(() => expect(frame.getAttribute("src")).toBe(`${ORIGIN}/`));
     expect(screen.getByText("Review tools are not available in this browser")).toBeTruthy();

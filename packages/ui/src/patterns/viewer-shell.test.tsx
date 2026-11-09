@@ -1,22 +1,37 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { axeViolations } from "../testing/axe.ts";
 import { ViewerShell } from "./viewer-shell.tsx";
 
 afterEach(cleanup);
 
-function shell(withSidebar = true) {
+function shell(withSidebar = true, onClose = vi.fn()) {
   return render(
     <ViewerShell
       skipLinkLabel="Skip to the artifact"
       brand={<a href="https://portifact.com">Portifact</a>}
       artifact={{ title: "Launch plan", details: <span>Version 3</span> }}
       actions={<button type="button">Copy link</button>}
+      toggle={
+        <button type="button" aria-pressed="true">
+          Comments
+        </button>
+      }
+      account={<a href="/">Your artifacts</a>}
+      overflow={<button type="button">More</button>}
       frameLabel="Artifact"
       frame={<iframe title="Launch plan" src="about:blank" />}
       sidebar={
-        withSidebar ? { id: "comments", label: "Comments", content: <h2>Comments</h2> } : undefined
+        withSidebar
+          ? {
+              id: "comments",
+              label: "Comments",
+              content: <h2>Comments</h2>,
+              closeLabel: "Close comments",
+              onClose,
+            }
+          : undefined
       }
     />,
   );
@@ -46,6 +61,29 @@ describe("ViewerShell", () => {
     expect(main.id).toBe("artifact");
     expect(main.getAttribute("tabindex")).toBe("-1");
     expect(screen.getByRole("complementary", { name: "Comments" }).id).toBe("comments");
+  });
+
+  it("keeps the toggle at every width and puts the rest in an overflow menu on narrow screens", () => {
+    shell();
+    const bar = screen.getByRole("banner");
+    const toggle = within(bar).getByRole("button", { name: "Comments" });
+    const copy = within(bar).getByRole("button", { name: "Copy link" });
+    const more = within(bar).getByRole("button", { name: "More" });
+    const dashboard = within(bar).getByRole("link", { name: "Your artifacts" });
+    // Breakpoint classes decide what shows; happy-dom has no layout, so check where each sits.
+    expect(toggle.closest(".hidden")).toBeNull();
+    expect(copy.closest(".hidden")).not.toBeNull();
+    expect(dashboard.closest(".hidden")).not.toBeNull();
+    expect(more.parentElement?.className).toContain("sm:hidden");
+  });
+
+  it("closes the sidebar, which covers the artifact on narrow screens, from its own button", () => {
+    const onClose = vi.fn();
+    shell(true, onClose);
+    const sidebar = screen.getByRole("complementary", { name: "Comments" });
+    expect(sidebar.getAttribute("tabindex")).toBe("-1");
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Close comments" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("leaves the sidebar out when there is none", () => {
