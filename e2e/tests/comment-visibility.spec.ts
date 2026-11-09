@@ -54,6 +54,9 @@ async function seedThread(
 }
 
 async function as(page: Page, user: User) {
+  // Leave the open page first: a viewer still polling would see the cleared session and send
+  // itself to the sign-in page, racing the next navigation (seen in WebKit).
+  await page.goto("about:blank");
   await page.context().clearCookies();
   await signIn(page.context(), user);
 }
