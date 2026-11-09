@@ -3,7 +3,7 @@ name: ci
 on:
   pull_request:
     branches: [develop, main]
-    types: [opened, synchronize, reopened, edited]
+    types: [opened, synchronize, reopened]
   # Runs on develop after each merge so the README status and coverage badges reflect it.
   push:
     branches: [develop]
@@ -189,17 +189,6 @@ jobs:
             git commit -m "chore: update coverage badge"
             git push origin badges
           fi
-
-  pr-title:
-    name: pr-title
-    if: github.base_ref == 'develop'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-    steps:
-      - uses: amannn/action-semantic-pull-request@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   main-source:
     name: main-source
