@@ -61,10 +61,47 @@ export function useFormatDate(): (iso: string, withTime?: boolean) => string {
   );
 }
 
+const RELATIVE_STEPS = [
+  { unit: "minute", seconds: 60, below: 3600 },
+  { unit: "hour", seconds: 3600, below: 86_400 },
+  { unit: "day", seconds: 86_400, below: 7 * 86_400 },
+] as const;
+
+/**
+ * Formats a past moment relative to now, for comments: "now", "5 minutes ago", "yesterday", and
+ * the date itself once it is a week old or more.
+ */
+export function useRelativeTime(): (iso: string, now?: number) => string {
+  const { i18n } = useLingui();
+  return useCallback(
+    (iso: string, now = Date.now()) => {
+      const when = new Date(iso);
+      const seconds = Math.max(0, Math.round((now - when.getTime()) / 1000));
+      const format = new Intl.RelativeTimeFormat(i18n.locale, { numeric: "auto" });
+      if (seconds < 60) return format.format(0, "second");
+      for (const step of RELATIVE_STEPS) {
+        if (seconds < step.below)
+          return format.format(-Math.floor(seconds / step.seconds), step.unit);
+      }
+      return i18n.date(when, { dateStyle: "medium" });
+    },
+    [i18n],
+  );
+}
+
 /** Formats a count for people, with the locale's grouping. */
 export function useFormatNumber(): (value: number) => string {
   const { i18n } = useLingui();
   return useCallback((value: number) => i18n.number(value), [i18n]);
+}
+
+/** Formats a share of a whole (0 to 1) as a whole percentage, such as "42%". */
+export function useFormatPercent(): (ratio: number) => string {
+  const { i18n } = useLingui();
+  return useCallback(
+    (ratio: number) => i18n.number(ratio, { style: "percent", maximumFractionDigits: 0 }),
+    [i18n],
+  );
 }
 
 const BYTE_UNITS = [

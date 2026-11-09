@@ -9,6 +9,7 @@ import { type Db, schema } from "@portifact/db";
 import { commentScope, fail, ok, type Result, threadInScope } from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEventsJob } from "./access-log.ts";
+import { loadSettings } from "./account-settings.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
@@ -188,6 +189,7 @@ export async function exportAccount(
         provider: method.provider,
         connectedAt: method.createdAt.toISOString(),
       })),
+      settings: await loadSettings(db, input.userId),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,

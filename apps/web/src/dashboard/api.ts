@@ -6,6 +6,8 @@ import {
   AccessPolicyView,
   type AccessUpdate,
   AccountDeletionResult,
+  AccountSettings,
+  type AccountSettingsUpdate,
   AccountUsageView,
   AnnotationDeleteResult,
   AnnotationEditResult,
@@ -92,6 +94,9 @@ export interface DashboardApi {
   signOutOtherSessions(): Promise<SignOutOthersResult>;
   connectedApps(): Promise<ConnectedAppList>;
   disconnectApp(clientId: string): Promise<DisconnectResult>;
+  /** The defaults new artifacts start with. */
+  accountSettings(): Promise<AccountSettings>;
+  updateAccountSettings(update: AccountSettingsUpdate): Promise<AccountSettings>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** The account's quotas, this month's traffic and what blocks it now. */
@@ -308,6 +313,12 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         DisconnectResult,
         "DELETE",
       );
+    },
+    accountSettings() {
+      return call("/api/v1/account/settings", AccountSettings);
+    },
+    updateAccountSettings(update) {
+      return call("/api/v1/account/settings", AccountSettings, "PATCH", update);
     },
     deleteAccount(confirmEmail) {
       return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });

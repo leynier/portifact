@@ -2,6 +2,7 @@ export * from "./access.ts";
 export * from "./access-log.ts";
 export * from "./account.ts";
 export * from "./account-data.ts";
+export * from "./account-settings.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";

@@ -1,7 +1,8 @@
 // The review bridge: runs inside the artifact (review mode only) and talks to the trusted viewer
 // in the parent window. It turns the reader's text selection or picked element into an
-// annotation target with `packages/anchors`, and draws markers for the targets the viewer
-// sends. It never posts a comment: the viewer offers one and the reader writes and confirms it
+// annotation target with `packages/anchors`, highlights the threads the viewer sends (layered,
+// so text several threads cover is darker) and reports which threads cover the point the reader
+// clicks. It never posts a comment: the viewer offers one and the reader writes and confirms it
 // there. It holds no credential and never receives thread bodies, emails or tokens. It reads no
 // form values, cookies or storage.
 import {
@@ -15,12 +16,18 @@ import {
 import { ANCHOR_SCHEMA_VERSION, type Anchor, AnnotationTarget } from "@portifact/contracts";
 import { bridgeEnvelope, readViewerMessage } from "./channel.ts";
 import { frameRect } from "./geometry.ts";
-import { type Box, createOverlay } from "./overlay.ts";
+import {
+  type Box,
+  createOverlay,
+  type HighlightState,
+  type HitArea,
+  threadsAt,
+} from "./overlay.ts";
 import {
   type BridgeBody,
   BridgePage,
-  type Marker,
-  type MarkerResolution,
+  type Highlight,
+  type HighlightResolution,
   REVIEW_CHANNEL,
   REVIEW_PROTOCOL,
   type RefusalReason,
@@ -51,7 +58,7 @@ export interface Bridge {
 export const SELECTION_SETTLE_MS = 250;
 /** How often the bridge checks the SPA route. */
 export const ROUTE_POLL_MS = 500;
-/** How long after the page changes the bridge redraws markers. */
+/** How long after the page changes the bridge redraws highlights. */
 export const REDRAW_SETTLE_MS = 300;
 /** How often, at most, the bridge reports that the offered selection moved. */
 export const RECT_THROTTLE_MS = 50;
@@ -75,8 +82,10 @@ export function startBridge(
 ): Bridge {
   const { document } = window;
   let nonce: string | null = null;
-  let markers: Marker[] = [];
-  let active: string | null = null;
+  let highlights: Highlight[] = [];
+  let selected: string[] = [];
+  /** What is drawn now, for hit-testing clicks. */
+  let areas: HitArea[] = [];
   let picking: { hint: string } | null = null;
   let snapshot: AnchorDocument | null = null;
   let route = currentRoute(window.location);
@@ -86,6 +95,7 @@ export function startBridge(
   /** What the viewer was last told the reader offers to comment on, to follow it as it moves. */
   let offered: Range | Element | null = null;
   let rectTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The first box of each drawn highlight, to scroll to. */
   const drawn = new Map<string, HTMLElement>();
 
   const page = () => ({ path: config.path, ...(route === undefined ? {} : { route }) });
@@ -93,7 +103,7 @@ export function startBridge(
     if (nonce !== null) parent.postMessage(bridgeEnvelope(nonce, body), config.appOrigin);
   };
 
-  const overlay = createOverlay(document, (id) => send({ type: "activate", id }));
+  const overlay = createOverlay(document);
 
   /** The text model of the page now; rebuilt after the page changes. */
   const anchors = (): AnchorDocument => {
@@ -103,7 +113,7 @@ export function startBridge(
 
   /**
    * Catches up with a route change the poll has not seen yet: a client-side router can move
-   * between polls, and a target or marker must use the route the page is on now. Returns whether
+   * between polls, and a target or highlight must use the route the page is on now. Returns whether
    * the route changed.
    */
   const syncRoute = (): boolean => {
@@ -233,6 +243,21 @@ export function startBridge(
     if (element) void pickElement(element);
   };
 
+  // Clicks on highlighted text: the page keeps them (links still work), and the bridge, listening
+  // before the page's handlers can stop them, reports which
+  // threads cover the point. Keyboard activations (`detail` 0) and the end of a text selection
+  // are not clicks on a place.
+  const onPageClick = (event: Event) => {
+    if (nonce === null || picking || !(event instanceof window.MouseEvent)) return;
+    if (event.detail === 0) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    const point = { x: event.clientX + window.scrollX, y: event.clientY + window.scrollY };
+    const ids = threadsAt(point, areas);
+    // A click outside every highlight clears a selection, and is otherwise not worth a message.
+    if (ids.length > 0 || selected.length > 0) send({ type: "select", ids });
+  };
+
   const onKeyDown = (event: KeyboardEvent) => {
     if (!picking) return;
     if (event.key === "Escape") {
@@ -250,41 +275,41 @@ export function startBridge(
     }
   };
 
-  // Markers
+  // Highlights
+
+  const stateOf = (id: string): HighlightState => {
+    if (selected[0] === id) return "primary";
+    return selected.includes(id) ? "selected" : null;
+  };
 
   const draw = () => {
     syncRoute();
-    overlay.clearMarkers();
+    overlay.clearHighlights();
     drawn.clear();
+    areas = [];
     const doc = anchors();
-    const results: MarkerResolution[] = [];
-    for (const marker of markers) {
-      if (marker.target.path !== config.path) continue;
-      const resolution = doc.resolve(marker.target, route === undefined ? {} : { route });
+    const results: HighlightResolution[] = [];
+    for (const highlight of highlights) {
+      if (highlight.target.path !== config.path) continue;
+      const resolution = doc.resolve(highlight.target, route === undefined ? {} : { route });
       if (resolution.confidence === "orphaned") {
-        results.push({ id: marker.id, confidence: "orphaned", reason: resolution.reason });
+        results.push({ id: highlight.id, confidence: "orphaned", reason: resolution.reason });
         continue;
       }
-      results.push({ id: marker.id, confidence: resolution.confidence });
+      results.push({ id: highlight.id, confidence: resolution.confidence });
       if (resolution.kind === "document") continue;
       const boxes =
         resolution.kind === "text"
           ? rangeBoxes(window, resolution.range)
           : [pageBox(window, (resolution.element as unknown as Element).getBoundingClientRect())];
-      const holder =
-        resolution.kind === "text"
-          ? blockOf(window, resolution.range.start.node as unknown as Node)
-          : (resolution.element as unknown as Element);
-      const button = overlay.mark({
-        id: marker.id,
-        label: marker.label,
-        name: marker.name,
+      const first = overlay.highlight({
+        id: highlight.id,
         kind: resolution.kind,
         boxes,
-        ...(holder ? { gutter: pageBox(window, holder.getBoundingClientRect()).x } : {}),
-        active: marker.id === active,
+        state: stateOf(highlight.id),
       });
-      if (button) drawn.set(marker.id, button);
+      areas.push({ id: highlight.id, boxes });
+      if (first) drawn.set(highlight.id, first);
     }
     send({ type: "resolved", results });
   };
@@ -293,18 +318,14 @@ export function startBridge(
     snapshot = null;
     clearTimeout(redrawTimer);
     redrawTimer = setTimeout(() => {
-      if (nonce !== null && markers.length > 0) draw();
+      if (nonce !== null && highlights.length > 0) draw();
     }, REDRAW_SETTLE_MS);
   };
 
+  // Nothing in the overlay takes focus: the sidebar's "Show in the artifact" is the keyboard path,
+  // and it only scrolls the page to the highlight.
   const focus = (id: string) => {
-    active = id;
-    draw();
-    const button = drawn.get(id);
-    if (button) {
-      button.scrollIntoView({ block: "center" });
-      button.focus({ preventScroll: true });
-    }
+    drawn.get(id)?.scrollIntoView({ block: "center" });
   };
 
   // Messages from the viewer
@@ -321,10 +342,13 @@ export function startBridge(
         nonce = message.nonce;
         send({ type: "location", page: page() });
         return;
-      case "markers":
-        markers = message.markers;
-        active = message.active;
+      case "highlights":
+        highlights = message.highlights;
+        selected = message.selected;
         draw();
+        return;
+      case "hover":
+        overlay.hover(message.id);
         return;
       case "pick":
         if (message.active) {
@@ -358,6 +382,7 @@ export function startBridge(
   document.addEventListener("selectionchange", onSelectionChange);
   window.addEventListener("pointermove", onPointerMove, true);
   window.addEventListener("click", onClick, true);
+  window.addEventListener("click", onPageClick, true);
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("resize", scheduleRedraw);
   window.addEventListener("resize", onMove);
@@ -387,6 +412,7 @@ export function startBridge(
       document.removeEventListener("selectionchange", onSelectionChange);
       window.removeEventListener("pointermove", onPointerMove, true);
       window.removeEventListener("click", onClick, true);
+      window.removeEventListener("click", onPageClick, true);
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("resize", scheduleRedraw);
       window.removeEventListener("resize", onMove);
@@ -411,19 +437,6 @@ export function pageBox(window: Window, rect: DOMRectReadOnly): Box {
     width: Math.round(rect.width),
     height: Math.round(rect.height),
   };
-}
-
-/**
- * The nearest element around `node` that is not laid out inline: the paragraph, list item or cell
- * whose left edge is the gutter a text marker sits in.
- */
-function blockOf(window: Window, node: Node): Element | null {
-  let element = node.nodeType === 1 ? (node as Element) : node.parentElement;
-  while (element && element !== window.document.body) {
-    if (!window.getComputedStyle(element).display.startsWith("inline")) return element;
-    element = element.parentElement;
-  }
-  return element;
 }
 
 /** The boxes of each line of a resolved text range. */

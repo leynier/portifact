@@ -23,6 +23,7 @@ import {
   validateManifestPaths,
 } from "@portifact/domain";
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
+import { newArtifactDefaults } from "./account-settings.ts";
 import { platformProtection } from "./budget.ts";
 import {
   type DocumentRendering,
@@ -316,6 +317,9 @@ export async function preparePublish(
   );
   if (!admission.ok) return admission;
 
+  // A new artifact starts with the owner's defaults (access, comments, the bar); updates keep
+  // the artifact's own policy.
+  const policy = createsArtifact ? await newArtifactDefaults(db, input.ownerId, input.now) : null;
   artifactId ??= generateArtifactId();
   const versionId = newId("ver");
   const sessionId = newId("upl");
@@ -353,13 +357,14 @@ export async function preparePublish(
           updatedAt: input.now,
         })
         .where(eq(schema.accountUsage.ownerId, input.ownerId)),
-      ...(createsArtifact
+      ...(policy
         ? [
             db.insert(schema.artifacts).values({
               id: artifactId,
               ownerId: input.ownerId,
               type: input.type,
               name,
+              ...policy,
               createdAt: input.now,
               updatedAt: input.now,
             }),

@@ -1,8 +1,17 @@
-import { AppShell, Button, Callout, LoadingState, navLinkClasses, Toast } from "@portifact/ui";
+import {
+  AppShell,
+  type AppShellNavItem,
+  Callout,
+  LoadingState,
+  SidebarAccount,
+  Toast,
+} from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { CircleUserRound, Gauge, Layers, LogOut, Upload } from "lucide-react";
+import { Cable, Gauge, Layers, Settings, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import symbol from "../../../../../assets/brand/symbol.svg";
+import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
@@ -10,6 +19,8 @@ import { AnnounceContext, useDashboard, useT } from "../context.tsx";
 import { useUsage } from "./usage.tsx";
 
 export const ACCOUNT_QUERY = ["account"] as const;
+/** Where this browser remembers whether the sidebar is collapsed and how wide it is. */
+export const SIDEBAR_STORAGE_KEY = "portifact.dashboard.sidebar";
 /**
  * The visible notice while the platform's budget protection limits publishing (plan section 12).
  * It comes from the account's usage blocks, so the API, the CLI and MCP report the same thing.
@@ -31,7 +42,10 @@ function CapacityNotice() {
   );
 }
 
-/** Frame of every dashboard screen: navigation, the signed-in account and announcements. */
+/**
+ * Frame of every dashboard screen: the navigation (Artifacts, Publish, Apps, Usage, Settings),
+ * the signed-in account with its link to the profile and sign out, and announcements.
+ */
 export function Shell() {
   const t = useT();
   const { api, leave } = useDashboard();
@@ -62,10 +76,59 @@ export function Shell() {
     document.getElementById("main")?.focus();
   }, [location.pathname]);
 
+  const navigation: AppShellNavItem[] = [
+    {
+      key: "artifacts",
+      label: t("shell.artifacts"),
+      icon: <Layers className="size-4" />,
+      render: (props) => (
+        <Link
+          to="/"
+          activeOptions={{ exact: true }}
+          // Artifact pages and their review belong to this section too.
+          {...(onArtifactPage ? { "aria-current": "page" as const } : {})}
+          {...props}
+        />
+      ),
+    },
+    {
+      key: "publish",
+      label: t("shell.publishLink"),
+      icon: <Upload className="size-4" />,
+      render: (props) => <Link to="/publish" {...props} />,
+    },
+    {
+      key: "apps",
+      label: t("shell.appsLink"),
+      icon: <Cable className="size-4" />,
+      render: (props) => <Link to="/apps" {...props} />,
+    },
+    {
+      key: "usage",
+      label: t("shell.usageLink"),
+      icon: <Gauge className="size-4" />,
+      render: (props) => <Link to="/usage" {...props} />,
+    },
+    {
+      key: "settings",
+      label: t("shell.settingsLink"),
+      icon: <Settings className="size-4" />,
+      render: (props) => <Link to="/settings" {...props} />,
+    },
+  ];
+
   return (
     <AppShell
-      skipLinkLabel={t("shell.skipLink")}
-      navigationLabel={t("shell.navigation")}
+      labels={{
+        skipLink: t("shell.skipLink"),
+        navigation: t("shell.navigation"),
+        openNavigation: t("shell.openNavigation"),
+        closeNavigation: t("shell.closeNavigation"),
+        collapseSidebar: t("shell.collapseSidebar"),
+        expandSidebar: t("shell.expandSidebar"),
+        resizeSidebar: t("shell.resizeSidebar"),
+      }}
+      storageKey={SIDEBAR_STORAGE_KEY}
       brand={
         <Link to="/" aria-label={t("shell.home")} className="no-underline">
           <picture>
@@ -74,45 +137,28 @@ export function Shell() {
           </picture>
         </Link>
       }
-      navigation={[
-        <Link
-          key="artifacts"
-          to="/"
-          activeOptions={{ exact: true }}
-          // Artifact pages and their review belong to this section too.
-          {...(onArtifactPage ? { "aria-current": "page" as const } : {})}
-          className={navLinkClasses}
-        >
-          <Layers aria-hidden="true" className="size-4 shrink-0" />
-          {t("shell.artifacts")}
-        </Link>,
-        <Link key="publish" to="/publish" className={navLinkClasses}>
-          <Upload aria-hidden="true" className="size-4 shrink-0" />
-          {t("shell.publishLink")}
-        </Link>,
-        <Link key="account" to="/account" className={navLinkClasses}>
-          <CircleUserRound aria-hidden="true" className="size-4 shrink-0" />
-          {t("shell.accountLink")}
-        </Link>,
-      ]}
+      compactBrand={
+        <Link to="/" aria-label={t("shell.home")} className="no-underline">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcSet={symbolDark} />
+            <img src={symbol} alt="" width={32} height={32} className="size-8" />
+          </picture>
+        </Link>
+      }
+      navigation={navigation}
       account={
         account.data ? (
-          <>
-            <span className="sr-only text-text-muted lg:not-sr-only lg:max-w-full lg:truncate">
-              {t("shell.account", { email: account.data.email })}
-            </span>
-            <Button
-              intent="ghost"
-              size="sm"
-              icon={<LogOut className="size-4" />}
-              busy={signOut.isPending}
-              onClick={() => signOut.mutate()}
-            >
-              {t("shell.signOut")}
-            </Button>
-          </>
+          <SidebarAccount
+            name={account.data.name}
+            email={account.data.email}
+            profileLabel={t("shell.profileLink")}
+            renderProfileLink={(props) => <Link to="/profile" {...props} />}
+            signOutLabel={t("shell.signOut")}
+            signingOut={signOut.isPending}
+            onSignOut={() => signOut.mutate()}
+          />
         ) : (
-          <span className="text-text-muted">{t("shell.loadingAccount")}</span>
+          <span className="text-sm text-text-muted">{t("shell.loadingAccount")}</span>
         )
       }
     >

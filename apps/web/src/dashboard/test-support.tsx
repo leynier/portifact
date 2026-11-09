@@ -5,6 +5,7 @@ import {
   type AccessLogView,
   type AccessPolicyView,
   AccessUpdate,
+  type AccountSettings,
   type AccountUsageView,
   type AnnotationMessageView,
   type AnnotationRole,
@@ -31,7 +32,7 @@ import {
   type ViewerInfo,
 } from "@portifact/contracts";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { render } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
@@ -319,6 +320,8 @@ export interface FakeServer {
   providers: { providerId: string; createdAt: string }[];
   sessions: BrowserSession[];
   apps: ConnectedApp[];
+  /** The account's defaults for new artifacts. */
+  settings: AccountSettings;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
@@ -355,6 +358,12 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     providers: [],
     sessions: [browserSession({ current: true })],
     apps: [],
+    settings: {
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "off",
+      defaultCommentVisibility: "owner",
+      defaultBar: true,
+    },
     usage: usageView(),
     accessLogs: {},
     bodies: [],
@@ -713,6 +722,20 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
   }
+  if (path === "/api/v1/account/settings" && method === "GET") {
+    return Response.json(server.settings);
+  }
+  if (path === "/api/v1/account/settings" && method === "PATCH") {
+    const update = server.bodies.at(-1) as Partial<AccountSettings>;
+    if (update.defaultAccessMode === "public" && server.createdAt) {
+      const age = Date.now() - Date.parse(server.createdAt);
+      if (age < LIMITS.publicAccessMinAccountAgeMinutes * 60_000) {
+        return apiError("account_too_new_for_public", 403);
+      }
+    }
+    server.settings = { ...server.settings, ...update };
+    return Response.json(server.settings);
+  }
   if (path === "/api/v1/account/delete" && method === "POST") {
     const body = server.bodies.at(-1) as { confirmEmail?: string } | undefined;
     if (body?.confirmEmail?.trim().toLowerCase() !== server.email) {
@@ -895,6 +918,19 @@ function reviewRoute(
     });
   }
   const store = server.annotations[id];
+  if (rest === "/mode" && method === "PUT") {
+    // Like the Worker: the owner's artifact takes the new mode, with or without threads.
+    const owned = server.artifacts.find((a) => a.id === id);
+    if (!owned) return missing();
+    const mode = (server.bodies.at(-1) as { mode?: AnnotationsState } | undefined)?.mode;
+    if (!mode) return apiError("invalid_input", 400);
+    owned.annotations = mode;
+    if (store) {
+      store.mode = mode;
+      store.seq += 1;
+    }
+    return Response.json({ annotations: mode });
+  }
   if (!store) return missing();
   const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
   const touch = (thread: FakeAnnotations["threads"][number]) => {
@@ -959,11 +995,6 @@ function reviewRoute(
       },
       threads,
     });
-  }
-  if (rest === "/mode" && method === "PUT") {
-    store.mode = body?.mode as AnnotationsState;
-    store.seq += 1;
-    return Response.json({ annotations: store.mode });
   }
   if (rest === "/threads" && method === "POST") {
     store.seq += 1;
@@ -1126,4 +1157,27 @@ export function renderDashboard(
     />,
   );
   return { ...view, left, saved, router, queryClient };
+}
+
+/** Opens the select named `name` and chooses the option labelled `option`, as a pointer would. */
+export function choose(name: string, option: string): void {
+  fireEvent.click(screen.getByRole("combobox", { name }));
+  fireEvent.click(
+    within(screen.getByRole("listbox", { name })).getByRole("option", { name: option }),
+  );
+}
+
+/** The labels of a select's options and the chosen one, read from its open list. */
+export function selectOptions(name: string): { options: string[]; chosen: string | undefined } {
+  const trigger = screen.getByRole("combobox", { name });
+  fireEvent.click(trigger);
+  const options = within(screen.getByRole("listbox", { name })).getAllByRole("option");
+  const result = {
+    options: options.map((option) => option.textContent ?? ""),
+    chosen:
+      options.find((option) => option.getAttribute("aria-selected") === "true")?.textContent ??
+      undefined,
+  };
+  fireEvent.keyDown(trigger, { key: "Escape" });
+  return result;
 }

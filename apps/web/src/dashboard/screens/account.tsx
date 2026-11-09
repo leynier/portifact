@@ -1,7 +1,6 @@
-// The account screen (plan section 6, "Cuenta"): the signed-in email, the account's usage
-// (quotas and this month's traffic), how the user can sign in,
-// the browsers signed in, the apps (CLI and MCP clients) that hold tokens, the data export and
-// account deletion.
+// Sections of the account pages (plan section 6, "Cuenta"), shared by Profile, Apps and Settings:
+// how the user can sign in, the browsers signed in, the apps (CLI and MCP clients) that hold
+// tokens, the data export and account deletion, with the loading and error states they share.
 import type { BrowserSession, ConnectedApp } from "@portifact/contracts";
 import {
   Badge,
@@ -12,7 +11,6 @@ import {
   DetailList,
   EmptyState,
   LoadingState,
-  PageHeader,
   Panel,
   Table,
   TableBody,
@@ -37,15 +35,11 @@ import {
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { loginUrl } from "../../auth/query.ts";
-import { ACCOUNT_EXPORT_PATH, type Account, ApiFailure } from "../api.ts";
+import { ACCOUNT_EXPORT_PATH, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
-import type { MessageId } from "../i18n/en.ts";
 import { refreshOptions } from "../refresh.ts";
-import { useDocumentTitle } from "../use-document-title.ts";
 import { describeUserAgent } from "../user-agent.ts";
 import { errorMessage } from "./artifact-list.tsx";
-import { ACCOUNT_QUERY } from "./shell.tsx";
-import { UsageDetails, useUsage } from "./usage.tsx";
 
 export const SIGN_IN_METHODS_QUERY = ["account", "sign-in-methods"] as const;
 export const SESSIONS_QUERY = ["account", "sessions"] as const;
@@ -56,67 +50,7 @@ type Provider = (typeof PROVIDERS)[number];
 const isProvider = (value: string): value is Provider =>
   (PROVIDERS as readonly string[]).includes(value);
 
-export function AccountScreen() {
-  const t = useT();
-  const formatDate = useFormatDate();
-  const queryClient = useQueryClient();
-  useDocumentTitle(t("account.title"));
-  // The shell loads the account before any screen renders.
-  const account = queryClient.getQueryData<Account>(ACCOUNT_QUERY);
-
-  const sections: [string, MessageId][] = [
-    ["profile", "account.profile"],
-    ["usage", "usage.title"],
-    ["methods", "account.methods.title"],
-    ["sessions", "account.sessions.title"],
-    ["apps", "account.apps.title"],
-    ["data", "account.data.title"],
-    ["delete", "account.delete.title"],
-  ];
-
-  return (
-    <>
-      <PageHeader title={t("account.title")} description={t("account.description")} />
-      <div className="grid items-start gap-8 lg:grid-cols-4">
-        <nav aria-label={t("account.sectionsNav")} className="lg:sticky lg:top-10">
-          <ul className="flex flex-wrap gap-x-1 gap-y-1 text-sm lg:flex-col">
-            {sections.map(([id, label]) => (
-              <li key={id}>
-                <a
-                  href={`#${id}`}
-                  className="flex h-8 items-center rounded-xs px-2.5 text-text-muted no-underline hover:bg-surface-hover hover:text-text"
-                >
-                  {t(label)}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-        <div className="flex min-w-0 flex-col gap-6 lg:col-span-3">
-          <Section id="profile" title={t("account.profile")}>
-            <DetailList
-              framed={false}
-              items={[
-                { term: t("account.email"), detail: account?.email ?? "" },
-                ...(account?.createdAt
-                  ? [{ term: t("account.memberSince"), detail: formatDate(account.createdAt) }]
-                  : []),
-              ]}
-            />
-          </Section>
-          <Usage />
-          <SignInMethods email={account?.email ?? ""} />
-          <BrowserSessions />
-          <ConnectedApps />
-          <AccountData />
-          <DeleteAccount email={account?.email ?? ""} />
-        </div>
-      </div>
-    </>
-  );
-}
-
-function Section({
+export function Section({
   id,
   title,
   hint,
@@ -135,7 +69,7 @@ function Section({
 }
 
 /** The loading and error states every section shares; renders `children` with the data. */
-function Loaded<T>({
+export function Loaded<T>({
   query,
   loading,
   error,
@@ -167,19 +101,7 @@ function Loaded<T>({
   return <>{children(query.data as T)}</>;
 }
 
-function Usage() {
-  const t = useT();
-  const usage = useUsage();
-  return (
-    <Section id="usage" title={t("usage.title")} hint={t("usage.hint")}>
-      <Loaded query={usage} loading={t("usage.loading")} error={t("usage.error")}>
-        {(view) => <UsageDetails usage={view} />}
-      </Loaded>
-    </Section>
-  );
-}
-
-function SignInMethods({ email }: { email: string }) {
+export function SignInMethods({ email }: { email: string }) {
   const t = useT();
   const formatDate = useFormatDate();
   const { api } = useDashboard();
@@ -220,7 +142,7 @@ function deviceName(t: ReturnType<typeof useT>, session: BrowserSession): string
   return browser ?? system ?? t("account.sessions.unknown");
 }
 
-function BrowserSessions() {
+export function BrowserSessions() {
   const t = useT();
   const formatDate = useFormatDate();
   const announce = useAnnounce();
@@ -268,7 +190,8 @@ function BrowserSessions() {
                   </Callout>
                 </div>
               ) : null}
-              <Table caption={t("account.sessions.caption")}>
+              {/* Phones get one stacked card per browser; wider screens a table to scan. */}
+              <Table caption={t("account.sessions.caption")} stacked>
                 <TableHead>
                   <TableRow>
                     <TableHeaderCell>{t("account.sessions.column.browser")}</TableHeaderCell>
@@ -281,7 +204,7 @@ function BrowserSessions() {
                     // Sessions carry no public ID; the order is stable between refreshes.
                     <TableRow key={index}>
                       <TableCell>
-                        <span className="inline-flex flex-wrap items-center gap-2">
+                        <span className="inline-flex flex-wrap items-center gap-2 font-medium sm:font-normal">
                           {deviceName(t, session)}
                           {session.current ? (
                             <Badge icon={<Monitor className="size-3.5" />}>
@@ -290,8 +213,12 @@ function BrowserSessions() {
                           ) : null}
                         </span>
                       </TableCell>
-                      <TableCell>{formatDate(session.lastActiveAt, true)}</TableCell>
-                      <TableCell>{formatDate(session.expiresAt)}</TableCell>
+                      <TableCell label={t("account.sessions.column.lastActive")} stack="inline">
+                        {formatDate(session.lastActiveAt, true)}
+                      </TableCell>
+                      <TableCell label={t("account.sessions.column.expires")} stack="inline">
+                        {formatDate(session.expiresAt)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -334,7 +261,7 @@ function appName(t: ReturnType<typeof useT>, app: ConnectedApp): string {
   return app.name?.trim() || t("account.apps.unnamed");
 }
 
-function ConnectedApps() {
+export function ConnectedApps() {
   const t = useT();
   const formatDate = useFormatDate();
   const announce = useAnnounce();
@@ -470,7 +397,7 @@ function ConnectedApps() {
   );
 }
 
-function AccountData() {
+export function AccountData() {
   const t = useT();
   return (
     <Section id="data" title={t("account.data.title")} hint={t("account.data.hint")}>
@@ -482,7 +409,7 @@ function AccountData() {
   );
 }
 
-function DeleteAccount({ email }: { email: string }) {
+export function DeleteAccount({ email }: { email: string }) {
   const t = useT();
   const announce = useAnnounce();
   const { api, leave } = useDashboard();
@@ -500,13 +427,15 @@ function DeleteAccount({ email }: { email: string }) {
   });
   const reauth = useMutation({
     mutationFn: () => api.signOut(),
-    onSettled: () => leave(loginUrl("/account")),
+    onSettled: () => leave(loginUrl("/settings")),
   });
   const needsSignIn =
     remove.error instanceof ApiFailure && remove.error.code === "reauthentication_required";
 
   return (
-    <Section id="delete" title={t("account.delete.title")} hint={t("account.delete.hint")}>
+    <Section id="delete" title={t("settings.danger.title")} hint={t("settings.danger.hint")}>
+      <h3 className="text-sm font-semibold">{t("account.delete.title")}</h3>
+      <p className="mt-1 mb-4 max-w-3xl text-sm text-text-muted">{t("account.delete.hint")}</p>
       {needsSignIn ? (
         <div className="mb-4">
           <Callout

@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { tokenClient } from "./api-client.ts";
+import { publishSite, tokenClient } from "./api-client.ts";
 import {
   authorizeWithPkce,
   callApi,
@@ -19,6 +19,7 @@ import {
   ORIGIN,
   SESSION_COOKIE,
 } from "./harness.ts";
+import { callTool, connect, mcpToken } from "./mcp-helpers.ts";
 
 const ARTIFACT_ORIGIN = "https://k7d2qm4xab.portifact.dev";
 
@@ -254,6 +255,8 @@ describe("account endpoint access", () => {
     ["DELETE", "/api/v1/account/apps/portifact-cli"],
     ["GET", "/api/v1/account/export"],
     ["POST", "/api/v1/account/delete"],
+    ["GET", "/api/v1/account/settings"],
+    ["PATCH", "/api/v1/account/settings"],
   ];
 
   it("refuses session requests that do not come from the app's own pages", async () => {
@@ -314,5 +317,126 @@ describe("account endpoint access", () => {
         );
       }
     }
+  });
+});
+
+describe("account settings", () => {
+  const settings = (h: Harness, cookie: string) =>
+    h.request("/api/v1/account/settings", dashboard(cookie));
+  const change = (h: Harness, cookie: string, body: unknown) =>
+    h.request("/api/v1/account/settings", {
+      ...dashboard(cookie, "PATCH", { "content-type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+  const artifact = async (c: { call(path: string): Promise<Response> }, id: string) =>
+    (await c.call(`/api/v1/artifacts/${id}`)).json<{ accessMode: string; annotations: string }>();
+
+  it("answers the built-in defaults, then saves changes and keeps the rest", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("settings-read@example.test");
+    const initial = await settings(h, cookie);
+    expect(initial.status).toBe(200);
+    expect(initial.headers.get("cache-control")).toBe("no-store");
+    expect(await initial.json()).toEqual({
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "off",
+      defaultCommentVisibility: "owner",
+      defaultBar: true,
+    });
+    const saved = await change(h, cookie, { defaultAnnotations: "open", defaultBar: false });
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toEqual({
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "open",
+      defaultCommentVisibility: "owner",
+      defaultBar: false,
+    });
+    expect(await (await settings(h, cookie)).json()).toMatchObject({ defaultBar: false });
+  });
+
+  it("refuses invalid changes without saving anything", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("settings-invalid@example.test");
+    for (const body of [
+      {},
+      { defaultAnnotations: "locked" },
+      { defaultAccessMode: "everyone" },
+      { defaultBar: "yes" },
+      { defaultBar: false, userId: "someone-else" },
+    ]) {
+      const response = await change(h, cookie, body);
+      expect(response.status, JSON.stringify(body)).toBe(400);
+      expect((await response.json<{ error: { code: string } }>()).error.code).toBe("invalid_input");
+    }
+    const notJson = await h.request("/api/v1/account/settings", {
+      ...dashboard(cookie, "PATCH", { "content-type": "text/plain" }),
+      body: "defaultBar=false",
+    });
+    expect(notJson.status).toBe(400);
+    expect(await (await settings(h, cookie)).json()).toMatchObject({ defaultBar: true });
+  });
+
+  it("refuses a public default while the account is new, and accepts it once it is old enough", async () => {
+    const h = createHarness();
+    const email = "settings-public@example.test";
+    const cookie = await h.signIn(email);
+    const early = await change(h, cookie, { defaultAccessMode: "public" });
+    expect(early.status).toBe(403);
+    expect((await early.json<{ error: { code: string } }>()).error.code).toBe(
+      "account_too_new_for_public",
+    );
+    await env.DB.prepare("update users set created_at = ? where email = ?")
+      .bind(Date.now() - 60 * 60 * 1000, email)
+      .run();
+    const later = await change(h, cookie, { defaultAccessMode: "public" });
+    expect(later.status).toBe(200);
+    expect(await later.json()).toMatchObject({ defaultAccessMode: "public" });
+  });
+
+  it("gives new artifacts the defaults through the API and MCP alike, never existing ones", async () => {
+    const h = createHarness();
+    const email = "settings-parity@example.test";
+    const owner = await tokenClient(h, email);
+    const before = await publishSite(owner, "Before");
+    expect(
+      (
+        await change(h, owner.cookie, {
+          defaultAccessMode: "authenticated",
+          defaultAnnotations: "open",
+        })
+      ).status,
+    ).toBe(200);
+
+    const viaApi = await publishSite(owner, "Through the API");
+    const mcp = await connect(h, await mcpToken(h, email));
+    const published = await callTool(mcp, "publish_document", {
+      type: "text",
+      name: "Through MCP",
+      content: "hello",
+    });
+    expect(published.isError).toBeUndefined();
+    const viaMcp = (published.structuredContent as { artifactId: string }).artifactId;
+
+    for (const id of [viaApi, viaMcp]) {
+      expect(await artifact(owner, id)).toMatchObject({
+        accessMode: "authenticated",
+        annotations: "open",
+      });
+    }
+    expect(await artifact(owner, before)).toMatchObject({
+      accessMode: "restricted",
+      annotations: "off",
+    });
+  });
+
+  it("includes the settings in the account export", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("settings-export@example.test");
+    await change(h, cookie, { defaultCommentVisibility: "everyone" });
+    const exported = await h.request("/api/v1/account/export", dashboard(cookie));
+    expect(exported.status).toBe(200);
+    expect(
+      (await exported.json<{ account: { settings: unknown } }>()).account.settings,
+    ).toMatchObject({ defaultCommentVisibility: "everyone" });
   });
 });

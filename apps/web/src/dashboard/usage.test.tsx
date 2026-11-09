@@ -44,27 +44,76 @@ function meters(region: HTMLElement): Record<string, string> {
   );
 }
 
-const usageRegion = () => screen.findByRole("region", { name: "Usage" });
+const usagePage = async () => {
+  await screen.findByRole("heading", { level: 1, name: "Usage" });
+  return screen.getByRole("main");
+};
 
 describe("account usage", () => {
-  it("shows the quotas and this month's traffic with their limits", async () => {
-    const { container } = renderDashboard("/account", server);
-    const region = await usageRegion();
-    await waitFor(() => expect(within(region).getAllByRole("meter").length).toBeGreaterThan(0));
-    expect(meters(region)).toEqual({
-      "Active artifacts": "2 of 50",
-      Storage: "1.5 MB of 2.5 GB",
-      "Publishes, last 24 hours": "3 of 100",
-      "Requests served this month": "12,345 of 1,000,000",
-      "Data served this month": "3.2 GB of 25 GB",
+  it("is reachable from the navigation", async () => {
+    const { router } = renderDashboard("/", server);
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    fireEvent.click(within(nav).getByRole("link", { name: "Usage" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/usage"));
+    expect(document.title).toBe("Usage · Portifact");
+    expect(within(nav).getByRole("link", { name: "Usage" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+  });
+
+  it("shows every quota with its value, limit, share and what it counts", async () => {
+    const { container } = renderDashboard("/usage", server);
+    const page = await usagePage();
+    await waitFor(() => expect(within(page).getAllByRole("meter").length).toBeGreaterThan(0));
+    expect(meters(page)).toEqual({
+      "Requests served this month": "12,345 of 1,000,000 (1%)",
+      "Data served this month": "3.2 GB of 25 GB (13%)",
+      "Active artifacts": "2 of 50 (4%)",
+      Storage: "1.5 MB of 2.5 GB (0%)",
+      "Publishes, last 24 hours": "3 of 100 (3%)",
+      "Uploads in progress": "0 of 2 (0%)",
+      "New files, last 24 hours": "0 of 10,000 (0%)",
+      "New data, last 24 hours": "0 bytes of 5 GB (0%)",
+      "New files this month": "0 of 100,000 (0%)",
     });
-    const reset = within(region).getByRole("term");
+    expect(
+      within(await screen.findByRole("region", { name: "Traffic this month" })).getByText(
+        /Counted for your whole account/,
+      ),
+    ).toBeTruthy();
+    const newObjects = within(page)
+      .getAllByRole("meter")
+      .find(
+        (meter) =>
+          document.getElementById(meter.getAttribute("aria-labelledby") ?? "")?.textContent ===
+          "New files this month",
+      );
+    expect(newObjects?.getAttribute("aria-describedby")?.split(" ")).toHaveLength(2);
+    expect(page.textContent).toContain(`Resets on ${local("2026-12-01T00:00:00.000Z")}.`);
+    const traffic = await screen.findByRole("region", { name: "Traffic this month" });
+    const reset = within(traffic).getByRole("term");
     expect(reset.textContent).toBe("Traffic resets on");
     expect(reset.nextElementSibling?.textContent).toBe(local("2026-12-01T00:00:00.000Z"));
+    const versions = await screen.findByRole("region", { name: "Limits of each version" });
+    expect(
+      within(versions)
+        .getAllByRole("definition")
+        .map((d) => d.textContent),
+    ).toEqual(["250 MB", "1,000", "5 MB"]);
+    // The account is old enough to publish in public, so nothing says when it may.
+    expect(within(page).queryByText("Public artifacts are available soon")).toBeNull();
     // Nothing is close to its limit, so no meter warns.
-    expect(within(region).queryByText("Near the limit")).toBeNull();
-    expect(within(region).queryByText("Your artifacts used this month's traffic")).toBeNull();
+    expect(within(page).queryByText("Near the limit")).toBeNull();
+    expect(within(page).queryByText("Your artifacts used this month's traffic")).toBeNull();
     expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("says when a new account may make artifacts public", async () => {
+    const from = new Date(Date.now() + 10 * 60_000).toISOString();
+    server.usage = usageView({ publicAccessFrom: from });
+    renderDashboard("/usage", server);
+    const title = await screen.findByText("Public artifacts are available soon");
+    expect(title.closest('[role="status"]')?.textContent).toContain(`You can from ${local(from)}.`);
   });
 
   it("explains that artifacts answer 429 until the next month when traffic is used up", async () => {
@@ -90,8 +139,8 @@ describe("account usage", () => {
         },
       ],
     });
-    const { container } = renderDashboard("/account", server);
-    const region = await usageRegion();
+    const { container } = renderDashboard("/usage", server);
+    const region = await usagePage();
     const title = await within(region).findByText("Your artifacts used this month's traffic");
     const notice = title.closest('[role="status"]') as HTMLElement;
     expect(notice.textContent).toContain("HTTP 429");
@@ -107,15 +156,15 @@ describe("account usage", () => {
       `You published 100 times in the last 24 hours. Lifts ${local("2026-11-09T08:30:00.000Z")}.`,
     ]);
     // The requests meter is full: it says so in words, read with the meter.
-    expect(meters(region)["Requests served this month"]).toBe("1,000,000 of 1,000,000");
+    expect(meters(region)["Requests served this month"]).toBe("1,000,000 of 1,000,000 (100%)");
     expect(within(region).getByText("Limit reached")).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
   });
 
   it("shows an error with a retry when usage cannot load", async () => {
     server.fail("GET", "/api/v1/usage", { status: 500 }, 2);
-    renderDashboard("/account", server);
-    const region = await usageRegion();
+    renderDashboard("/usage", server);
+    const region = await usagePage();
     expect(await within(region).findByText("Usage could not be loaded", {}, RETRIED)).toBeTruthy();
     fireEvent.click(within(region).getByRole("button", { name: "Try again" }));
     expect(await within(region).findByText("Requests served this month")).toBeTruthy();
@@ -131,8 +180,7 @@ describe("artifact list traffic notice", () => {
     expect(notice.textContent).toContain("HTTP 429");
     expect(await screen.findByRole("link", { name: "Launch plan" })).toBeTruthy();
     fireEvent.click(within(notice).getByRole("link", { name: "See your usage" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/account"));
-    expect(router.state.location.hash).toBe("usage");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/usage"));
   });
 
   it("shows no notice without a traffic block, or when usage cannot load", async () => {

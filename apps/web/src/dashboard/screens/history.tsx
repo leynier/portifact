@@ -299,7 +299,7 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
         <p className="text-sm text-text-muted">{t("history.rollbackUnavailable")}</p>
       )}
       <Panel title={t("history.versionsTitle")} flush>
-        <Table caption={t("history.caption")} variant="flush">
+        <Table caption={t("history.caption")} variant="flush" stacked>
           <TableHead>
             <TableRow>
               <TableHeaderCell>{t("history.column.version")}</TableHeaderCell>
@@ -322,12 +322,12 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
                     ) : null}
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell label={t("history.column.published")}>
                   <span className="whitespace-nowrap tabular-nums">
                     {formatDate(version.committedAt, true)}
                   </span>
                 </TableCell>
-                <TableCell>
+                <TableCell label={t("history.column.files")}>
                   <span className="block">
                     {t("history.files", {
                       count: version.publishedFiles,
@@ -343,7 +343,7 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
                     </span>
                   ) : null}
                 </TableCell>
-                <TableCell>
+                <TableCell label={t("history.column.kept")}>
                   {version.expiresAt
                     ? formatDate(version.expiresAt, true)
                     : t("history.whileCurrent")}

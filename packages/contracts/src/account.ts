@@ -3,6 +3,7 @@
 // user's own browser sessions and connected apps. Secrets (session tokens, OAuth tokens, IP
 // addresses) never appear in them.
 import { z } from "zod";
+import { AccessMode, CommentVisibility } from "./core.ts";
 
 /** A signed-in browser on app.portifact.com. */
 export const BrowserSession = z.object({
@@ -49,3 +50,34 @@ export type ConnectedAppList = z.infer<typeof ConnectedAppList>;
 
 export const DisconnectResult = z.object({ clientId: z.string(), disconnected: z.literal(true) });
 export type DisconnectResult = z.infer<typeof DisconnectResult>;
+
+/** Comments on a new artifact: closed, or open to everyone who can read it. */
+export const DefaultAnnotations = z.enum(["off", "open"]);
+export type DefaultAnnotations = z.infer<typeof DefaultAnnotations>;
+
+/**
+ * The owner's defaults for new artifacts (`GET /api/v1/account/settings`). They apply when a
+ * publish creates an artifact, from any client; existing artifacts never change.
+ */
+export const AccountSettings = z.object({
+  /** `restricted` (private to the owner until readers are added) unless the owner chose another. */
+  defaultAccessMode: AccessMode,
+  defaultAnnotations: DefaultAnnotations,
+  defaultCommentVisibility: CommentVisibility,
+  /** The Portifact bar on new artifacts. */
+  defaultBar: z.boolean(),
+});
+export type AccountSettings = z.infer<typeof AccountSettings>;
+
+/** A change to the defaults (`PATCH /api/v1/account/settings`): at least one of them. */
+export const AccountSettingsUpdate = z
+  .strictObject({
+    defaultAccessMode: AccessMode.optional(),
+    defaultAnnotations: DefaultAnnotations.optional(),
+    defaultCommentVisibility: CommentVisibility.optional(),
+    defaultBar: z.boolean().optional(),
+  })
+  .refine((update) => Object.values(update).some((value) => value !== undefined), {
+    message: "Send at least one change.",
+  });
+export type AccountSettingsUpdate = z.infer<typeof AccountSettingsUpdate>;

@@ -1,50 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { type Box, MARKER_GAP, markerPosition } from "./overlay.ts";
+import { threadsAt } from "./overlay.ts";
 
-const overlaps = (a: Box, b: Box) =>
-  a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+describe("hit-testing highlights", () => {
+  const line = (x: number, width: number, y = 100) => ({ x, y, width, height: 20 });
 
-describe("marker position", () => {
-  const size = { width: 24, height: 24 };
-
-  it("sits in the gutter left of the quote's block, where it covers no text at all", () => {
-    // A quote that starts mid-line: the gutter keeps the words before it uncovered too.
-    const first = { x: 420, y: 100, width: 160, height: 20 };
-    const at = markerPosition([first], size, 200);
-    expect(at).toEqual({ x: 200 - 24 - MARKER_GAP, y: 98 });
-    // No gutter (the block starts at the page's edge): fall back to the quote's own margin.
-    expect(markerPosition([first], size, 10)).toEqual({ x: 420 - 24 - MARKER_GAP, y: 98 });
-  });
-
-  it("sits in the margin before the quote's first line, centred on it", () => {
-    const first = { x: 200, y: 100, width: 160, height: 20 };
-    const at = markerPosition([first], size);
-    expect(at).toEqual({ x: 200 - 24 - MARKER_GAP, y: 98 });
-    expect(overlaps({ ...at, ...size }, first)).toBe(false);
-  });
-
-  it("moves above the quote when there is no room before it, and below at the very top", () => {
-    const atEdge = { x: 10, y: 100, width: 160, height: 20 };
-    expect(markerPosition([atEdge], size)).toEqual({ x: 10, y: 100 - 24 - MARKER_GAP });
-    const atTop = { x: 10, y: 4, width: 160, height: 20 };
-    expect(markerPosition([atTop], size)).toEqual({ x: 10, y: 4 + 20 + MARKER_GAP });
-  });
-
-  it("never covers any line of a quote that spans several lines", () => {
-    const boxes = [
-      { x: 300, y: 100, width: 200, height: 20 },
-      { x: 40, y: 120, width: 460, height: 20 },
-      { x: 40, y: 140, width: 120, height: 20 },
+  it("finds every thread that covers the point, innermost first", () => {
+    const drawn = [
+      { id: "paragraph", boxes: [line(40, 400), line(40, 400, 120)] },
+      { id: "sentence", boxes: [line(100, 200)] },
+      { id: "word", boxes: [line(150, 40)] },
     ];
-    for (const width of [24, 40]) {
-      const at = markerPosition(boxes, { width, height: 24 });
-      for (const box of boxes) expect(overlaps({ ...at, width, height: 24 }, box)).toBe(false);
-    }
-    const tight = [
-      { x: 12, y: 30, width: 200, height: 20 },
-      { x: 12, y: 50, width: 200, height: 20 },
+    expect(threadsAt({ x: 160, y: 110 }, drawn)).toEqual(["word", "sentence", "paragraph"]);
+    expect(threadsAt({ x: 110, y: 110 }, drawn)).toEqual(["sentence", "paragraph"]);
+    // The second line of a quote counts too.
+    expect(threadsAt({ x: 60, y: 130 }, drawn)).toEqual(["paragraph"]);
+    expect(threadsAt({ x: 10, y: 110 }, drawn)).toEqual([]);
+    expect(threadsAt({ x: 160, y: 110 }, [])).toEqual([]);
+  });
+
+  it("puts the most recent first between threads with the same area, and counts edges as inside", () => {
+    const drawn = [
+      { id: "older", boxes: [line(100, 50)] },
+      { id: "newer", boxes: [line(100, 50)] },
     ];
-    const at = markerPosition(tight, size);
-    for (const box of tight) expect(overlaps({ ...at, ...size }, box)).toBe(false);
+    expect(threadsAt({ x: 100, y: 100 }, drawn)).toEqual(["newer", "older"]);
+    expect(threadsAt({ x: 150, y: 120 }, drawn)).toEqual(["newer", "older"]);
+    expect(threadsAt({ x: 151, y: 120 }, drawn)).toEqual([]);
   });
 });

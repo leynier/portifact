@@ -69,7 +69,7 @@
       <section id="collect" aria-labelledby="collect-heading" class="mt-12 scroll-mt-8">
         <h2 id="collect-heading" class="text-xl font-semibold tracking-tight">What we collect</h2>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-          <li><strong>Account.</strong> Your email address and whether it is verified, and the name and profile picture that Google or GitHub share when you sign in with them. For Google and GitHub we keep the stable ID of your account there. We do not keep their access tokens.</li>
+          <li><strong>Account.</strong> Your email address and whether it is verified, and the name and profile picture that Google or GitHub share when you sign in with them. For Google and GitHub we keep the stable ID of your account there. We do not keep their access tokens. We also keep the defaults you choose for new artifacts (who can open them, comments and the Portifact bar).</li>
           <li><strong>Human check.</strong> When you create an account, and for your first comments on other people's artifacts, Cloudflare Turnstile checks that you are a person and not an automated program. It looks at signals from your browser and your IP address, and tells us only whether the check passed. We keep a short-lived cookie saying it passed, and nothing else.</li>
           <li><strong>Terms acceptance.</strong> The version of the terms you accepted, including your confirmation that you are 18 or older, and when you accepted it.</li>
           <li><strong>Sign-in codes.</strong> Codes sent to your email are stored only as hashes. To limit abuse, we count requests per email address (using a keyed hash, never the address itself) and per IP address. We also count how many emails we send each day, without any data about the recipients.</li>
@@ -162,7 +162,7 @@
           <li>see and change your artifacts and their access in the dashboard or the CLI;</li>
           <li>delete any artifact at any time;</li>
           <li>sign out of the CLI with <code>portifact logout</code>, which revokes its token;</li>
-          <li>download a copy of your data (as JSON, with links to your files) and delete your account from the Account page of the dashboard, or ask us by writing to <a href="mailto:privacy@portifact.com">privacy@portifact.com</a>.</li>
+          <li>download a copy of your data (as JSON, with links to your files) and delete your account from the Settings page of the dashboard, or ask us by writing to <a href="mailto:privacy@portifact.com">privacy@portifact.com</a>.</li>
         </ul>
         <p class="mt-4 leading-7">When an account is deleted, its sessions, tokens and sign-in identities end at once and its artifacts stop being served; within hours we delete its artifacts and files with their access logs, its comments on other people's artifacts, and the access log entries of its visits to other people's artifacts. A comment that others replied to is replaced by a "message deleted" marker. We keep only a minimal record of the account's internal ID and of its artifact IDs, so those addresses are never given to anyone else, and we erase your email from any abuse report you sent. We answer requests within 30 days and do not charge for them. You can also complain to your local data protection authority.</p>
       </section>

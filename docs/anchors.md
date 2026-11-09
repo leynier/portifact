@@ -12,7 +12,7 @@ A thread points at an immutable version, a file path and a target. The target sh
 | `text`     | `quote` (W3C TextQuoteSelector: `exact`, `prefix`, `suffix`), `position` (TextPositionSelector), optional `domHint` selector and optional `source` (Markdown block and source offsets, or TXT offsets). |
 | `element`  | Up to four `selectors` (primary first), `tagName`, a text `fingerprint` and an optional `rect` as a visual hint.                                                                                        |
 
-The bridge polls the route every 500 ms to tell the viewer, and also reads it whenever it creates a target or resolves markers, so a selection made right after a client-side router moves records the route the page is on, not the one the last poll saw.
+The bridge polls the route every 500 ms to tell the viewer, and also reads it whenever it creates a target or resolves highlights, so a selection made right after a client-side router moves records the route the page is on, not the one the last poll saw.
 
 `contentHash` is `contentHash()` from `packages/anchors`: SHA-256 of the UTF-8 normalized text. The bridge sets it from the page's text when it creates a target, sets `renderer` (`portifact-render@<version>`) only on pages Portifact rendered, and does not fill `source` yet.
 
@@ -35,6 +35,10 @@ In a DOM, the text is that of the root (normally `document.body`) in document or
 | `orphaned` | `not_found`, or `ambiguous` when a tie remains after the recorded position and the DOM hint.                                                                             | `not_found` or `ambiguous`. Selectors that find several elements are never trusted.               |
 
 A target recorded on another SPA route resolves as `orphaned` with `route_mismatch`. An orphaned thread keeps its quote and shows as "without location". Automatic re-anchoring across versions is out of scope for now: resolution only reports where the anchor is in the document it is given.
+
+## Highlights and overlapping threads
+
+The viewer sends the bridge the IDs and targets of the threads on the page; the bridge resolves each one and draws one translucent box per line of its text (or an outline around its element), with no numbered marker. Boxes of different threads are layered, so text that several threads cover is drawn darker, and selected threads are emphasized, the first one most. Clicking the page reports every thread whose boxes contain the point (`threadsAt` in `packages/bridge/src/overlay.ts`): innermost first, meaning the smallest highlighted area, and between equal areas the thread drawn last, which is the most recent. The boxes are those of the last draw, which follows the page's mutations and resizes. Thread numbers live only in the sidebar.
 
 ## Untrusted input
 
