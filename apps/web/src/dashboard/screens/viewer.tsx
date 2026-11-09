@@ -195,7 +195,11 @@ export function ViewerScreen() {
 
   let content: ReactNode;
   if (info.isPending || account.isPending || signInFirst) {
-    content = <Standalone>{<LoadingState label={t("viewer.loading")} />}</Standalone>;
+    content = (
+      <main id="main" className="flex min-h-dvh flex-col">
+        <LoadingState layout="centered" label={t("viewer.loading")} />
+      </main>
+    );
   } else if (info.isError) {
     content = (
       <Standalone>
@@ -539,7 +543,7 @@ function SignedInViewer({ info, target }: { info: ViewerInfo; target: Target }) 
         info={info}
         target={target}
         account={{ kind: "signed-in" }}
-        frame={<LoadingState label={t("viewer.loading")} />}
+        frame={<LoadingState layout="centered" label={t("viewer.loading")} />}
         sidebar={null}
         sidebarOpen={false}
         onSidebar={() => {}}
@@ -949,6 +953,9 @@ function ReviewSession({
       <FrameOverlay layer={layer}>
         <LiveRegion message={hint} />
         <ArtifactFrame info={info} src={src} frame={frame} onLoad={bridge.onFrameLoad} />
+        {state === "connecting" ? (
+          <LoadingState layout="cover" label={t("review.frame.connecting")} />
+        ) : null}
       </FrameOverlay>
     </>
   );
@@ -1053,9 +1060,8 @@ function BridgeNotice({
 }) {
   const artifactId = info.artifactId;
   const t = useT();
-  if (state === "connecting") {
-    return <p className="text-sm text-text-muted">{t("review.frame.connecting")}</p>;
-  }
+  // While connecting, the frame is covered by a centered loading state (see the frame area).
+  if (state === "connecting") return null;
   if (state === "unavailable" || state === "silent") {
     return (
       <>

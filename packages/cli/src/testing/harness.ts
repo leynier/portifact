@@ -5,7 +5,7 @@ import { OAuthScope } from "@portifact/contracts";
 import { run } from "../cli.ts";
 import { KEYRING_SERVICE } from "../credentials.ts";
 import { type Git, gitRunner } from "../git.ts";
-import { nodeFileBody, type Runtime, type SecretsApi } from "../runtime.ts";
+import { nodeFileBody, type ProcessRunner, type Runtime, type SecretsApi } from "../runtime.ts";
 import type { FakeServer } from "./fake-server.ts";
 
 /** An in-memory OS credential store, or one that fails like Linux without a Secret Service. */
@@ -39,6 +39,8 @@ export interface Harness {
   opened: string[];
   /** Questions the CLI asked at the terminal. */
   prompts: string[];
+  /** Every program the CLI ran through `Runtime.process`, with its arguments. */
+  processes: string[][];
   secrets: FakeSecrets | undefined;
   configDir: string;
   /** A scratch folder for files to publish, removed by cleanup. */
@@ -63,7 +65,14 @@ export interface HarnessOptions {
   env?: Record<string, string>;
   /** Runs git; the real binary by default. */
   git?: Git;
+  /** Runs other programs; by default none is installed, so no test reaches the real `gh`. */
+  process?: ProcessRunner;
 }
+
+/** A runner for which no program is installed, like `spawn` failing with ENOENT. */
+export const nothingInstalled: ProcessRunner = async (command) => {
+  throw Object.assign(new Error(`spawn ${command} ENOENT`), { code: "ENOENT" });
+};
 
 export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const base = await mkdtemp(join(tmpdir(), "portifact-cli-"));
@@ -72,6 +81,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const sleeps: number[] = [];
   const opened: string[] = [];
   const prompts: string[] = [];
+  const processes: string[][] = [];
+  const runProcess = options.process ?? nothingInstalled;
   const answers = options.answers;
   let clock = Date.parse("2026-11-08T12:00:00Z");
   const secrets = "secrets" in options ? options.secrets : new FakeSecrets();
@@ -100,6 +111,10 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       : undefined,
     fileBody: nodeFileBody,
     git: options.git ?? gitRunner(),
+    process: (command, args, processOptions) => {
+      processes.push([command, ...args]);
+      return runProcess(command, args, processOptions);
+    },
   };
   // Upload URLs expire on the same controlled clock the CLI reads.
   options.server.clock = () => clock;
@@ -109,6 +124,7 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
     sleeps,
     opened,
     prompts,
+    processes,
     secrets,
     configDir,
     workspace,

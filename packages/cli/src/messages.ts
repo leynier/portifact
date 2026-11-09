@@ -80,6 +80,8 @@ export const messages = {
       `URL: ${url}`,
       `Expires: ${formatDate(expiresAt)}`,
     ].join("\n"),
+  starSuggestion: (command: string) =>
+    `Enjoying Portifact? A GitHub star helps other people find it. If you want to, run: ${command}`,
 
   // Artifacts.
   listEmpty: "No artifacts yet. Publish one with `portifact publish <path>`.",

@@ -21,6 +21,7 @@ import { messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
 import type { Session } from "./session.ts";
 import { buildSourceManifest, type SourceManifest } from "./sources.ts";
+import { starSuggestion } from "./star.ts";
 import { uploadAll } from "./upload.ts";
 
 export interface PublishOptions extends OutputOptions {
@@ -77,7 +78,15 @@ export async function publish(
     if (options.source !== undefined) {
       sources = await buildSourceManifest(options.source, { ref: options.ref, git: runtime.git });
     }
-    await publishBuilt(io, { manifest, sources, path, options, session, base, artifactId });
+    await publishBuilt(io, runtime, {
+      manifest,
+      sources,
+      path,
+      options,
+      session,
+      base,
+      artifactId,
+    });
   } finally {
     await discardManifest(manifest);
     if (sources) await discardManifest(sources);
@@ -86,6 +95,7 @@ export async function publish(
 
 async function publishBuilt(
   io: Io,
+  runtime: Runtime,
   built: {
     manifest: LocalManifest;
     sources: SourceManifest | undefined;
@@ -198,7 +208,9 @@ async function publishBuilt(
     throw error;
   }
 
+  // The star suggestion comes only after a publish that succeeded, never in a dry run.
   if (options.json) {
+    const pending = await starSuggestion(runtime);
     writeJson(io, {
       artifactId: committed.artifactId,
       versionId: committed.versionId,
@@ -213,11 +225,18 @@ async function publishBuilt(
       sourceOrigin: sources?.origin ?? null,
       uploadedFiles: prepared.uploads.length,
       uploadedBytes: uploadBytes,
+      ...(pending ? { suggestion: pending.suggestion } : {}),
     });
+    await pending?.markShown();
   } else {
     io.stdout(
       `${messages.published(committed.url, committed.artifactId, committed.versionNumber, committed.expiresAt)}\n`,
     );
+    const pending = await starSuggestion(runtime);
+    if (pending) {
+      io.stderr(`\n${pending.suggestion.message}\n`);
+      await pending.markShown();
+    }
   }
 }
 
