@@ -37,7 +37,7 @@ const ICONS: Record<ThemePreference, ReactNode> = {
  * (apps/web/index.html), which `setupThemeSwitchers` wires without React.
  */
 export const themeSwitcherClasses = {
-  group: "inline-flex gap-1 rounded-sm border border-border bg-canvas p-1",
+  group: "inline-flex max-w-full flex-wrap gap-1 rounded-sm border border-border bg-canvas p-1",
   option:
     "relative inline-flex h-7 items-center justify-center gap-1.5 rounded-xs px-2 text-sm text-text-muted transition-colors duration-150 hover:bg-surface-hover hover:text-text has-checked:selection-band has-checked:font-medium has-checked:hover:bg-selection input-focus:outline-2 input-focus:outline-offset-2 input-focus:outline-focus",
   compactOption: "w-7 px-0",

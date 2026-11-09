@@ -4,6 +4,8 @@
 
 import { REVIEW_CHANNEL, REVIEW_PROTOCOL } from "@portifact/bridge";
 import { BRIDGE_SCRIPT, BRIDGE_VERSION } from "@portifact/bridge/bundle";
+import { DEFAULT_LOCALE, type LocaleCode, localeInfo } from "@portifact/contracts/locales";
+import { negotiateLocale, parseAcceptLanguage } from "@portifact/domain/locale";
 import type { ReviewStatus } from "./review.ts";
 
 export const BRIDGE_PATH = "/__portifact/bridge.js";
@@ -99,23 +101,116 @@ const BANNER_STYLE = [
   "a:focus-visible{outline:3px solid #fff;outline-offset:2px}",
 ].join("");
 
+/** The review tab banner's text in one language. */
+export interface BannerText {
+  /** The banner region's accessible name. */
+  region: string;
+  /** The bold lead, such as "Review tab." */
+  lead: string;
+  /** What follows it: the version, where comments go and when the review ends by itself. */
+  body(minutes: number): string;
+  /** The link that ends the review. The dashboard names it in the same words. */
+  end: string;
+}
+
+/**
+ * The banner in every language, typed by the locale list so a new language fails the typecheck
+ * until it is here. The dashboard's review-tab messages name the `end` link with the same words.
+ */
+export const BANNER_TEXT: { readonly [code in LocaleCode]: BannerText } = {
+  en: {
+    region: "Portifact review",
+    lead: "Review tab.",
+    body: (minutes) =>
+      `You are reviewing the version shown here. Write comments in the review viewer. This review ends by itself within ${minutes} minutes.`,
+    end: "End review",
+  },
+  es: {
+    region: "Revisión de Portifact",
+    lead: "Pestaña de revisión.",
+    body: (minutes) =>
+      `Estás revisando la versión que se muestra aquí. Escribe los comentarios en el visor de revisión. Esta revisión termina sola en ${minutes} minutos como máximo.`,
+    end: "Terminar revisión",
+  },
+  "pt-BR": {
+    region: "Revisão do Portifact",
+    lead: "Aba de revisão.",
+    body: (minutes) =>
+      `Você está revisando a versão exibida aqui. Escreva os comentários no visualizador de revisão. Esta revisão termina sozinha em até ${minutes} minutos.`,
+    end: "Encerrar revisão",
+  },
+  fr: {
+    region: "Relecture Portifact",
+    lead: "Onglet de relecture.",
+    body: (minutes) =>
+      `Vous relisez la version affichée ici. Écrivez vos commentaires dans la visionneuse de relecture. Cette relecture prend fin d’elle-même dans ${minutes} minutes au plus.`,
+    end: "Terminer la relecture",
+  },
+  de: {
+    region: "Portifact-Review",
+    lead: "Review-Tab.",
+    body: (minutes) =>
+      `Du reviewst die hier angezeigte Version. Schreib Kommentare im Review-Viewer. Dieses Review endet von selbst spätestens nach ${minutes} Minuten.`,
+    end: "Review beenden",
+  },
+  ru: {
+    region: "Проверка Portifact",
+    lead: "Вкладка проверки.",
+    body: (minutes) =>
+      `Вы проверяете показанную здесь версию. Пишите комментарии в просмотрщике. Эта проверка завершится сама не позже чем через ${minutes} мин.`,
+    end: "Завершить проверку",
+  },
+  ja: {
+    region: "Portifactのレビュー",
+    lead: "レビュータブ。",
+    body: (minutes) =>
+      `ここに表示されているバージョンをレビューしています。コメントはレビュービューアーで書いてください。このレビューは${minutes}分以内に自動で終了します。`,
+    end: "レビューを終了",
+  },
+  "zh-CN": {
+    region: "Portifact 审阅",
+    lead: "审阅标签页。",
+    body: (minutes) =>
+      `你正在审阅此处显示的版本。请在审阅查看器中撰写评论。此次审阅最多 ${minutes} 分钟后会自动结束。`,
+    end: "结束审阅",
+  },
+};
+
+/** The space after the lead, which Chinese and Japanese leave out after their full stop. */
+const leadGap = (lead: string) => (lead.endsWith("。") ? "" : " ");
+
+/**
+ * The banner's language: the browser's (`Accept-Language`), since the artifact's origin knows
+ * nothing else about the reader; English when none matches.
+ */
+export function bannerLocale(acceptLanguage: string | null): LocaleCode {
+  return negotiateLocale(parseAcceptLanguage(acceptLanguage)) ?? DEFAULT_LOCALE;
+}
+
 /**
  * The review tab's banner: says the tab is in review mode, how long it lasts, where comments are
  * written, and links to end it. It is plain markup in a declarative shadow root, so the page's
  * styles do not restyle it and it needs no script; a site whose own CSP blocks inline
  * styles shows it unstyled. The page's scripts run in the same document and can hide it, which
- * is why the session is short and the viewer says how to end it too.
+ * is why the session is short and the viewer says how to end it too. It carries its own `lang`,
+ * since the artifact's language may differ.
  */
-export function reviewBanner(minutes: number): string {
-  return `<div role="region" aria-label="Portifact review" data-portifact-ignore><template shadowrootmode="open"><style>${BANNER_STYLE}</style><div class="bar"><p><strong>Review tab.</strong> You are reviewing the version shown here. Write comments in the review viewer. This review ends by itself within ${minutes} minutes.</p><a href="${REVIEW_END_HREF}">End review</a></div></template></div>`;
+export function reviewBanner(minutes: number, locale: LocaleCode = DEFAULT_LOCALE): string {
+  const text = BANNER_TEXT[locale];
+  const { code, dir } = localeInfo(locale);
+  return `<div role="region" aria-label="${escapeAttribute(text.region)}" lang="${code}" dir="${dir}" data-portifact-ignore><template shadowrootmode="open"><style>${BANNER_STYLE}</style><div class="bar"><p><strong>${escapeAttribute(text.lead)}</strong>${leadGap(text.lead)}${escapeAttribute(text.body(minutes))}</p><a href="${REVIEW_END_HREF}">${escapeAttribute(text.end)}</a></div></template></div>`;
 }
 
 /**
  * Adds the review banner to an HTML response of the review tab, at the start of the body, or at
  * the end of the document when the markup has no body tag. Nothing else in the page changes.
  */
-export function injectReviewBanner(response: Response, minutes: number): Response {
-  const banner = reviewBanner(minutes);
+export function injectReviewBanner(
+  response: Response,
+  minutes: number,
+  locale: LocaleCode = DEFAULT_LOCALE,
+): Response {
+  const banner = reviewBanner(minutes, locale);
   let placed = false;
   return new HTMLRewriter()
     .on("body", {

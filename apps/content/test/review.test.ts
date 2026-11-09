@@ -14,7 +14,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 import type { LogOpening, Opening } from "../src/access-log.ts";
 import { handle } from "../src/index.ts";
-import { injectReviewBanner } from "../src/inject.ts";
+import { BANNER_TEXT, injectReviewBanner } from "../src/inject.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
 import { NO_BAR_COOKIE } from "../src/viewer.ts";
 
@@ -739,6 +739,18 @@ describe("review tab", () => {
     const replay = await send(`/__portifact/review/tab?code=${pending}`, { headers: FROM_VIEWER });
     expect(replay.status).toBe(400);
     expect(tabSetCookie(replay)).toBeUndefined();
+  });
+
+  it("writes the banner in the browser's language, marked as such", async () => {
+    const cookie = await openTab();
+    const response = await send("/", {
+      cookie,
+      headers: { ...TOP_LEVEL, "Accept-Language": "de-AT,de;q=0.9,en;q=0.5" },
+    });
+    const html = await response.text();
+    expect(html).toContain('lang="de" dir="ltr"');
+    expect(html).toContain(`<a href="/__portifact/review/end">${BANNER_TEXT.de.end}</a>`);
+    expect(html).not.toContain("End review");
   });
 
   it("serves the pinned version with the banner and no bridge, on the tab's pages and visits", async () => {

@@ -78,10 +78,31 @@ describe("sign-in with an email code", () => {
       "/api/auth/email-otp/send-verification-otp",
       json(
         { email: "leser@example.test", type: "sign-in" },
-        { "cf-connecting-ip": "198.51.100.9", "accept-language": "de-DE, ja;q=0.8" },
+        { "cf-connecting-ip": "198.51.100.9", "accept-language": "it-IT, zh-TW;q=0.8" },
       ),
     );
     expect(h.outbox[0]?.subject).toBe("Your Portifact sign-in code");
+  });
+
+  it("writes the code email in German or Japanese when the page asks for it", async () => {
+    const h = createHarness();
+    for (const [language, lang] of [
+      ["de-DE, en;q=0.5", "de"],
+      ["ja", "ja"],
+    ] as const) {
+      await h.request(
+        "/api/auth/email-otp/send-verification-otp",
+        json(
+          { email: `reader-${lang}@example.test`, type: "sign-in" },
+          { "cf-connecting-ip": "198.51.100.10", "accept-language": language },
+        ),
+      );
+    }
+    expect(h.outbox).toHaveLength(2);
+    for (const [index, lang] of ["de", "ja"].entries()) {
+      expect(h.outbox[index]?.subject).not.toBe("Your Portifact sign-in code");
+      expect(h.outbox[index]?.html).toContain(`<html lang="${lang}"`);
+    }
   });
 
   it("answers the same whether or not an account exists", async () => {

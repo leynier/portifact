@@ -8,6 +8,7 @@
 // puts the row back for the next run; only a Worker dying between the claim and the send loses a
 // notice, which is safer than a second copy and costs nothing but the reminder.
 import { ExpiryNoticePayload } from "@portifact/contracts";
+import type { LocaleCode } from "@portifact/contracts/locales";
 import { type Db, schema } from "@portifact/db";
 import {
   checkNoticeCapacity,
@@ -40,7 +41,12 @@ export interface ExpiringArtifact {
  * address or the message for any other failure.
  */
 export interface ExpiryNotifier {
-  send(notice: { to: string; artifacts: ExpiringArtifact[] }): Promise<void>;
+  send(notice: {
+    to: string;
+    artifacts: ExpiringArtifact[];
+    /** The owner's language (account settings); null when they chose none, which means English. */
+    locale: LocaleCode | null;
+  }): Promise<void>;
 }
 
 const a = schema.artifacts;
@@ -156,7 +162,8 @@ export async function sendExpiryNotice(
     .where(eq(schema.users.id, ownerId))
     .limit(1);
   if (!owner) return skipped("no_account", scheduled.length);
-  if (!(await loadSettings(db, ownerId)).expiryNotices) {
+  const settings = await loadSettings(db, ownerId);
+  if (!settings.expiryNotices) {
     return skipped("opted_out", scheduled.length);
   }
 
@@ -197,7 +204,7 @@ export async function sendExpiryNotice(
   }
 
   try {
-    await notifier.send({ to: owner.email, artifacts });
+    await notifier.send({ to: owner.email, artifacts, locale: settings.locale });
   } catch (error) {
     if (error instanceof RecipientSuppressedError) {
       await suppressEmail(db, { email: owner.email, reason: "provider", now });

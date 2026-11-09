@@ -26,6 +26,12 @@ export type AuthCatalogLoaders = {
 /** One loader per language besides English, so adding a locale fails the typecheck until it has one. */
 export const authCatalogLoaders: AuthCatalogLoaders = {
   es: () => import("./es.ts").then((module) => module.es),
+  "pt-BR": () => import("./pt-br.ts").then((module) => module.ptBR),
+  fr: () => import("./fr.ts").then((module) => module.fr),
+  de: () => import("./de.ts").then((module) => module.de),
+  ru: () => import("./ru.ts").then((module) => module.ru),
+  ja: () => import("./ja.ts").then((module) => module.ja),
+  "zh-CN": () => import("./zh-cn.ts").then((module) => module.zhCN),
 };
 
 export interface AuthPageLocaleSources extends PageLocaleSources {

@@ -31,8 +31,26 @@ describe("choosing the language", () => {
     const section = await languageSection();
     fireEvent.click(within(section).getByRole("combobox", { name: "Language" }));
     const options = screen.getAllByRole("option");
-    expect(options.map((option) => option.textContent)).toEqual(["English", "Español"]);
-    expect(options.map((option) => option.getAttribute("lang"))).toEqual(["en", "es"]);
+    expect(options.map((option) => option.textContent)).toEqual([
+      "English",
+      "Español",
+      "Português (Brasil)",
+      "Français",
+      "Deutsch",
+      "Русский",
+      "日本語",
+      "简体中文",
+    ]);
+    expect(options.map((option) => option.getAttribute("lang"))).toEqual([
+      "en",
+      "es",
+      "pt-BR",
+      "fr",
+      "de",
+      "ru",
+      "ja",
+      "zh-CN",
+    ]);
     expect(await axeViolations(container)).toEqual([]);
   });
 
