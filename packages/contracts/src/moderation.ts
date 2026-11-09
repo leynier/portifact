@@ -1,6 +1,7 @@
 // Abuse reports, operator suspensions and the account's own export and deletion (plan sections
 // 5 and 13). Report text and the reporter's email are untrusted input from anyone on the web.
 import { z } from "zod";
+import { AccountSettings } from "./account.ts";
 import { ArtifactId, Email } from "./core.ts";
 
 /** Categories of the Acceptable Use Policy, used by reports and by suspensions. */
@@ -173,6 +174,8 @@ export const AccountExport = z.object({
     termsVersion: z.string().nullable(),
     termsAcceptedAt: IsoOrNull,
     signInMethods: z.array(z.object({ provider: z.string(), connectedAt: Iso })),
+    /** The defaults for new artifacts, the built-in ones when the owner never changed them. */
+    settings: AccountSettings,
   }),
   artifacts: z.array(ExportArtifact),
   /**

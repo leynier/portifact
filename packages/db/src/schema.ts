@@ -910,4 +910,42 @@ export const emailCounters = sqliteTable(
   (t) => [check("email_counters_nonnegative", sql`${t.sent} >= 0`)],
 );
 
+/**
+ * The owner's defaults for new artifacts (packages/domain/src/account-settings.ts), applied when
+ * `preparePublish` creates an artifact; existing artifacts never change. A missing row means the
+ * built-in defaults, the same as the columns' defaults. Removed with the user by the foreign key.
+ */
+export const accountSettings = sqliteTable(
+  "account_settings",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    defaultAccessMode: text("default_access_mode", {
+      enum: ["public", "authenticated", "restricted"],
+    })
+      .notNull()
+      .default("restricted"),
+    defaultAnnotations: text("default_annotations", { enum: ["off", "open"] })
+      .notNull()
+      .default("off"),
+    defaultCommentVisibility: text("default_comment_visibility", { enum: ["owner", "everyone"] })
+      .notNull()
+      .default("owner"),
+    defaultBar: integer("default_bar", { mode: "boolean" }).notNull().default(true),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    check(
+      "account_settings_access_mode",
+      sql`${t.defaultAccessMode} in ('public', 'authenticated', 'restricted')`,
+    ),
+    check("account_settings_annotations", sql`${t.defaultAnnotations} in ('off', 'open')`),
+    check(
+      "account_settings_comment_visibility",
+      sql`${t.defaultCommentVisibility} in ('owner', 'everyone')`,
+    ),
+  ],
+);
+
 export * from "./auth-schema.ts";

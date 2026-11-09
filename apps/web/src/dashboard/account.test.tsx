@@ -45,39 +45,40 @@ beforeEach(() => {
 
 const region = (name: string) => screen.findByRole("region", { name });
 
-describe("account screen", () => {
-  it("is reachable from the navigation and shows the signed-in email and member date", async () => {
+describe("profile page", () => {
+  it("is reachable from the account at the bottom of the sidebar and shows who you are", async () => {
     const { router } = renderDashboard("/", server);
-    const nav = await screen.findByRole("navigation", { name: "Main" });
-    fireEvent.click(within(nav).getByRole("link", { name: "Account" }));
-    await waitFor(() => expect(router.state.location.pathname).toBe("/account"));
-    expect(await screen.findByRole("heading", { level: 1, name: "Account" })).toBeTruthy();
-    expect(within(nav).getByRole("link", { name: "Account" }).getAttribute("aria-current")).toBe(
-      "page",
-    );
-    expect(document.title).toBe("Account · Portifact");
-    const profile = await region("Profile");
+    const banner = await screen.findByRole("banner");
+    const profileLink = await within(banner).findByRole("link", {
+      name: "Profile: Ada, ada@example.test",
+    });
+    fireEvent.click(profileLink);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/profile"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Profile" })).toBeTruthy();
+    expect(profileLink.getAttribute("aria-current")).toBe("page");
+    expect(document.title).toBe("Profile · Portifact");
+    const profile = await region("Your account");
     expect(
       within(profile)
         .getAllByRole("definition")
         .map((d) => d.textContent),
-    ).toEqual(["ada@example.test", "Sep 1, 2026"]);
+    ).toEqual(["Ada", "ada@example.test", "Sep 1, 2026"]);
     await waitFor(() => expect(document.activeElement?.id).toBe("main"));
   });
 
   it("leaves out the member date when the session does not say", async () => {
     server.createdAt = null;
-    renderDashboard("/account", server);
-    const profile = await region("Profile");
+    renderDashboard("/profile", server);
+    const profile = await region("Your account");
     expect(
       within(profile)
         .getAllByRole("term")
         .map((d) => d.textContent),
-    ).toEqual(["Email"]);
+    ).toEqual(["Name", "Email"]);
   });
 
   it("lists the email code and linked providers, ignoring internal ones", async () => {
-    renderDashboard("/account", server);
+    renderDashboard("/profile", server);
     const methods = await region("Sign-in methods");
     await within(methods).findByText("GitHub");
     expect(
@@ -91,17 +92,31 @@ describe("account screen", () => {
   });
 
   it("has no axe violations with every section loaded", async () => {
-    const { container } = renderDashboard("/account", server);
+    const { container } = renderDashboard("/profile", server);
     await screen.findByRole("table", { name: "Browsers signed in to your account" });
-    await screen.findByRole("heading", { name: /Claude Code/ });
     await screen.findByText("GitHub");
     expect(await axeViolations(container)).toEqual([]);
   });
 });
 
+describe("links to the old account page", () => {
+  it.each([
+    ["/account", "/profile"],
+    ["/account#profile", "/profile"],
+    ["/account#sessions", "/profile"],
+    ["/account#usage", "/usage"],
+    ["/account#apps", "/apps"],
+    ["/account#data", "/settings"],
+    ["/account#delete", "/settings"],
+  ])("send %s to %s", async (from, to) => {
+    const { router } = renderDashboard(from, server);
+    await waitFor(() => expect(router.state.location.pathname).toBe(to));
+  });
+});
+
 describe("browser sessions", () => {
   it("lists browsers in words, marks this one and when each was active", async () => {
-    renderDashboard("/account", server);
+    renderDashboard("/profile", server);
     const table = await screen.findByRole("table", { name: "Browsers signed in to your account" });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows.map((row) => within(row).getAllByRole("cell")[0]?.textContent)).toEqual([
@@ -112,8 +127,25 @@ describe("browser sessions", () => {
     expect(rows[1]?.textContent).toContain("Nov 7, 2026");
   });
 
+  it("gives phones one card per browser instead of a table", async () => {
+    renderDashboard("/profile", server);
+    const cards = await screen.findByRole("list", { name: "Browsers signed in to your account" });
+    const items = within(cards).getAllByRole("listitem");
+    expect(items.map((item) => item.firstElementChild?.textContent)).toEqual([
+      "Firefox on LinuxThis browser",
+      "Safari on iOS",
+      "Unknown browser",
+    ]);
+    expect(
+      within(items[1] as HTMLElement)
+        .getAllByRole("term")
+        .map((term) => term.textContent),
+    ).toEqual(["Last active", "Signed out on"]);
+    expect(items[1]?.textContent).toContain("Nov 7, 2026");
+  });
+
   it("signs out the other sessions only after confirming, and announces how many", async () => {
-    const { container } = renderDashboard("/account", server);
+    const { container } = renderDashboard("/profile", server);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out other sessions" }));
     const dialog = screen.getByRole("dialog", { name: "Sign out other sessions?" });
     expect(dialog.textContent).toContain(
@@ -138,7 +170,7 @@ describe("browser sessions", () => {
 
   it("offers nothing to sign out when this is the only browser", async () => {
     server.sessions = [browserSession({ current: true })];
-    renderDashboard("/account", server);
+    renderDashboard("/profile", server);
     expect(await screen.findByText("This is the only browser signed in.")).toBeTruthy();
   });
 
@@ -147,7 +179,7 @@ describe("browser sessions", () => {
       status: 429,
       code: "rate_limited",
     });
-    renderDashboard("/account", server);
+    renderDashboard("/profile", server);
     fireEvent.click(await screen.findByRole("button", { name: "Sign out other sessions" }));
     fireEvent.click(
       within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out others" }),
@@ -160,7 +192,7 @@ describe("browser sessions", () => {
 
   it("offers a retry when sessions cannot load", async () => {
     server.fail("GET", "/api/v1/account/sessions", { status: 0, network: true }, 2);
-    renderDashboard("/account", server);
+    renderDashboard("/profile", server);
     const sessions = await region("Browser sessions");
     const alert = await within(sessions).findByRole("alert", {}, RETRIED);
     expect(alert.textContent).toContain("Browser sessions could not be loaded");
@@ -173,7 +205,7 @@ describe("browser sessions", () => {
       browserSession({ current: true, userAgent: "Mozilla/5.0 Firefox/140.0" }),
       browserSession({ userAgent: "SomeBot (Windows NT 10.0)" }),
     ];
-    renderDashboard("/account", server);
+    renderDashboard("/profile", server);
     const table = await screen.findByRole("table");
     const names = within(table)
       .getAllByRole("row")
@@ -184,8 +216,22 @@ describe("browser sessions", () => {
 });
 
 describe("connected apps", () => {
+  it("is reachable from the navigation, with a page header", async () => {
+    const { router, container } = renderDashboard("/", server);
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    fireEvent.click(within(nav).getByRole("link", { name: "Apps" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/apps"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Apps" })).toBeTruthy();
+    expect(within(nav).getByRole("link", { name: "Apps" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+    expect(document.title).toBe("Apps · Portifact");
+    await screen.findByRole("heading", { name: /Claude Code/ });
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("shows each app with who made it, what it connects to and what it may do", async () => {
-    renderDashboard("/account", server);
+    renderDashboard("/apps", server);
     const apps = await region("Connected apps");
     const cli = (await within(apps).findByRole("heading", { name: /Portifact CLI/ })).closest("li");
     const claude = within(apps)
@@ -204,7 +250,7 @@ describe("connected apps", () => {
   });
 
   it("disconnects an app only after confirming and announces it", async () => {
-    const { container } = renderDashboard("/account", server);
+    const { container } = renderDashboard("/apps", server);
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect Claude Code" }));
     const dialog = screen.getByRole("dialog", { name: "Disconnect Claude Code?" });
     expect(dialog.textContent).toContain("It loses access right away");
@@ -225,7 +271,7 @@ describe("connected apps", () => {
 
   it("shows why a disconnection failed", async () => {
     server.fail("DELETE", "/api/v1/account/apps/portifact-cli", { status: 404, code: "not_found" });
-    renderDashboard("/account", server);
+    renderDashboard("/apps", server);
     fireEvent.click(await screen.findByRole("button", { name: "Disconnect Portifact CLI" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Disconnect" }));
     expect((await screen.findByRole("alert")).textContent).toContain("The action did not finish");
@@ -233,25 +279,27 @@ describe("connected apps", () => {
 
   it("explains how to connect one when there are none, and names unnamed apps", async () => {
     server.apps = [];
-    const { container } = renderDashboard("/account", server);
+    const { container } = renderDashboard("/apps", server);
     expect(await screen.findByRole("heading", { name: "No apps connected" })).toBeTruthy();
     expect(screen.getByText(/Run portifact login in a terminal/)).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
     cleanup();
 
     server.apps = [connectedApp("x", { name: "  ", firstParty: false })];
-    renderDashboard("/account", server);
+    renderDashboard("/apps", server);
     expect(await screen.findByRole("button", { name: "Disconnect Unnamed app" })).toBeTruthy();
   });
 
   it("offers a retry when apps or sign-in methods cannot load", async () => {
     server.fail("GET", "/api/v1/account/apps", { status: 503, code: "capacity_unavailable" }, 2);
     server.fail("GET", "/api/auth/list-accounts", { status: 500 }, 2);
-    renderDashboard("/account", server);
+    renderDashboard("/apps", server);
     const apps = await region("Connected apps");
     expect((await within(apps).findByRole("alert", {}, RETRIED)).textContent).toContain(
       "Connected apps could not be loaded",
     );
+    cleanup();
+    renderDashboard("/profile", server);
     const methods = await region("Sign-in methods");
     expect((await within(methods).findByRole("alert", {}, RETRIED)).textContent).toContain(
       "Sign-in methods could not be loaded",
@@ -261,7 +309,7 @@ describe("connected apps", () => {
 
 describe("your data", () => {
   it("offers the export as a download link", async () => {
-    renderDashboard("/account", server);
+    renderDashboard("/settings", server);
     const data = await region("Your data");
     const link = within(data).getByRole("link", { name: "Download your data" });
     expect(link.getAttribute("href")).toBe("/api/v1/account/export");
@@ -271,7 +319,7 @@ describe("your data", () => {
 
 describe("account deletion", () => {
   const typeEmail = async (value: string) => {
-    const section = await region("Delete account");
+    const section = await region("Danger zone");
     fireEvent.change(within(section).getByLabelText(/Type your email to confirm/), {
       target: { value },
     });
@@ -279,7 +327,7 @@ describe("account deletion", () => {
   };
 
   it("deletes only after the email is typed and the dialog confirmed, then leaves", async () => {
-    const { container, left } = renderDashboard("/account", server);
+    const { container, left } = renderDashboard("/settings", server);
     let section = await typeEmail("someone@example.test");
     fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
     expect(
@@ -307,7 +355,7 @@ describe("account deletion", () => {
       status: 403,
       code: "reauthentication_required",
     });
-    const { left } = renderDashboard("/account", server);
+    const { left } = renderDashboard("/settings", server);
     const section = await typeEmail("ada@example.test");
     fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
     fireEvent.click(
@@ -316,13 +364,13 @@ describe("account deletion", () => {
     const alert = await within(section).findByRole("alert");
     expect(alert.textContent).toContain("Sign in again to delete your account");
     fireEvent.click(within(alert).getByRole("button", { name: "Sign in again" }));
-    await waitFor(() => expect(left).toContain("/login?next=%2Faccount"));
+    await waitFor(() => expect(left).toContain("/login?next=%2Fsettings"));
     expect(server.requests).toContainEqual({ method: "POST", path: "/api/auth/sign-out" });
   });
 
   it("shows why the deletion failed otherwise", async () => {
     server.fail("POST", "/api/v1/account/delete", { status: 429, code: "rate_limited" });
-    renderDashboard("/account", server);
+    renderDashboard("/settings", server);
     const section = await typeEmail("ada@example.test");
     fireEvent.click(within(section).getByRole("button", { name: "Delete account" }));
     fireEvent.click(

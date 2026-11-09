@@ -1,11 +1,13 @@
 // The account endpoints under /api/v1/account (plan section 6, "Cuenta"): the signed-in user's
-// browser sessions and connected apps. They answer only the dashboard's session cookie from the
+// browser sessions, connected apps, defaults for new artifacts, data export and deletion. They answer only the dashboard's session cookie from the
 // app's own pages. Bearer tokens are refused: no OAuth scope covers account and credential
 // management yet, and a token must never list or revoke other credentials.
 import {
   AccountDeletionInput,
   AccountDeletionResult,
   AccountExport,
+  AccountSettings,
+  AccountSettingsUpdate,
   type AppResource,
   BrowserSessionList,
   ConnectedAppList,
@@ -18,9 +20,11 @@ import { createDb } from "@portifact/db";
 import {
   disconnectApp,
   exportAccount,
+  getAccountSettings,
   listBrowserSessions,
   listConnectedApps,
   requestAccountDeletion,
+  updateAccountSettings,
 } from "@portifact/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
@@ -153,6 +157,31 @@ export function accountRoutes(deps: AccountDeps) {
       return c.json(
         DisconnectResult.parse({ clientId: result.value.clientId, disconnected: true }),
       );
+    }),
+  );
+
+  // Defaults for new artifacts, applied by the publish service for every client.
+  routes.get(
+    "/api/v1/account/settings",
+    sessionOnly(async (c, session) => {
+      const result = await getAccountSettings(createDb(c.env.DB), { userId: session.userId });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(AccountSettings.parse(result.value));
+    }),
+  );
+
+  routes.patch(
+    "/api/v1/account/settings",
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, AccountSettingsUpdate, 1024);
+      if (!body.ok) return body.response;
+      const result = await updateAccountSettings(createDb(c.env.DB), {
+        userId: session.userId,
+        update: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(AccountSettings.parse(result.value));
     }),
   );
 

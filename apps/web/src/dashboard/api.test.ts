@@ -258,7 +258,13 @@ describe("dashboard API client", () => {
     });
   });
 
-  it("reads sign-in methods, sessions and connected apps, and ends them by their routes", async () => {
+  it("reads sign-in methods, sessions, connected apps and settings, and changes them by their routes", async () => {
+    const SETTINGS = {
+      defaultAccessMode: "restricted",
+      defaultAnnotations: "off",
+      defaultCommentVisibility: "owner",
+      defaultBar: true,
+    };
     const at = "2026-11-08T12:00:00.000Z";
     const answers: Record<string, unknown> = {
       "GET /api/auth/list-accounts": [
@@ -270,6 +276,8 @@ describe("dashboard API client", () => {
       "POST /api/v1/account/sessions/sign-out-others": { signedOut: 2 },
       "GET /api/v1/account/apps": { items: [] },
       "DELETE /api/v1/account/apps/mcp%2Fclient": { clientId: "mcp/client", disconnected: true },
+      "GET /api/v1/account/settings": SETTINGS,
+      "PATCH /api/v1/account/settings": { ...SETTINGS, defaultBar: false },
     };
     const { api, calls } = client((path, init) => Response.json(answers[`${init.method} ${path}`]));
     expect(await api.signInMethods()).toEqual([{ provider: "github", connectedAt: at }]);
@@ -280,6 +288,14 @@ describe("dashboard API client", () => {
       clientId: "mcp/client",
       disconnected: true,
     });
-    expect(calls).toHaveLength(5);
+    expect(await api.accountSettings()).toEqual(SETTINGS);
+    expect(await api.updateAccountSettings({ defaultBar: false })).toMatchObject({
+      defaultBar: false,
+    });
+    expect(calls).toHaveLength(7);
+    expect(calls[6]).toMatchObject({
+      path: "/api/v1/account/settings",
+      init: { method: "PATCH", body: '{"defaultBar":false}' },
+    });
   });
 });

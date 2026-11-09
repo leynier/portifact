@@ -67,6 +67,15 @@ export function useFormatNumber(): (value: number) => string {
   return useCallback((value: number) => i18n.number(value), [i18n]);
 }
 
+/** Formats a share of a whole (0 to 1) as a whole percentage, such as "42%". */
+export function useFormatPercent(): (ratio: number) => string {
+  const { i18n } = useLingui();
+  return useCallback(
+    (ratio: number) => i18n.number(ratio, { style: "percent", maximumFractionDigits: 0 }),
+    [i18n],
+  );
+}
+
 const BYTE_UNITS = [
   { unit: "gigabyte", size: 1e9 },
   { unit: "megabyte", size: 1e6 },

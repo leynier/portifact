@@ -50,6 +50,11 @@ export const DASHBOARD_ROUTES = [
   "/artifacts/:artifactId/publish",
   "/artifacts/:artifactId/edit",
   "/artifacts/:artifactId/history",
+  "/profile",
+  "/apps",
+  "/usage",
+  "/settings",
+  // The old account page; the dashboard sends it on to the page that holds each section now.
   "/account",
 ] as const;
 

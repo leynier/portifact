@@ -39,7 +39,10 @@ const RETRIED = { timeout: 3000 };
 describe("app shell", () => {
   it("shows the signed-in account, a labelled navigation and a skip link", async () => {
     renderDashboard("/", server);
-    expect(await screen.findByText("Signed in as ada@example.test")).toBeTruthy();
+    expect(
+      await screen.findByRole("link", { name: "Profile: Ada, ada@example.test" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const current = within(nav).getByRole("link", { name: "Artifacts" });
     expect(current.getAttribute("aria-current")).toBe("page");
@@ -215,9 +218,7 @@ describe("artifact list", () => {
         exact: false,
       }),
     ).toBeTruthy();
-    expect(screen.getByRole("link", { name: "See usage" }).getAttribute("href")).toBe(
-      "/account#usage",
-    );
+    expect(screen.getByRole("link", { name: "See usage" }).getAttribute("href")).toBe("/usage");
     expect(await axeViolations(container)).toEqual([]);
   });
 
