@@ -271,7 +271,7 @@ export const AccountExport = z.object({
   commentsElsewhere: z.array(
     ExportThread.extend({ state: ExportThread.shape.state.optional(), createdAt: Iso.optional() }),
   ),
-  /** Verdicts the account gave in approval reviews (decision 0012), with its notes. */
+  /** Verdicts the account gave in approval reviews (decision 0013), with its notes. */
   reviewVerdicts: z.array(
     z.object({
       artifactId: z.string(),

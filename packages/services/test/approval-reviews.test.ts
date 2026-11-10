@@ -1,4 +1,4 @@
-// Approval reviews (premium plan T6, decision 0012): requesting, changing and cancelling on the
+// Approval reviews (premium plan T6, decision 0013): requesting, changing and cancelling on the
 // owner side, verdicts by requested reviewers, the status, who sees what, the reset on a new
 // version, races, transfers, account deletion and the maintenance re-check.
 import { env } from "cloudflare:test";

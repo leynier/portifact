@@ -69,7 +69,7 @@ export const ROLE_ACTIONS = [
   "usage",
   /** Custom domains (decision 0006): like `access`, but never a service token's (decision 0011). */
   "domains",
-  /** Requesting, changing and cancelling approval reviews (premium plan T6, decision 0012). */
+  /** Requesting, changing and cancelling approval reviews (premium plan T6, decision 0013). */
   "approvals",
   // Admins only.
   /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */

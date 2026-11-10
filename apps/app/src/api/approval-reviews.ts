@@ -1,4 +1,4 @@
-// Approval reviews (premium plan T6, decision 0012; not review mode). The owner side asks for,
+// Approval reviews (premium plan T6, decision 0013; not review mode). The owner side asks for,
 // changes and cancels a review with `artifacts:write`: it manages the artifact's workflow and,
 // unlike a share link or a reader, grants nobody access, so it is not `artifacts:share`. A
 // reviewer's verdict is a reader's act like a comment, `annotations:write`. Reading the review

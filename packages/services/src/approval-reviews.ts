@@ -1,4 +1,4 @@
-// Approval reviews (premium plan T6, feature `reviews`; decision 0012). Not review mode: that is
+// Approval reviews (premium plan T6, feature `reviews`; decision 0013). Not review mode: that is
 // the commenting session on an artifact. Here an admin or editor of the owner (role action
 // `approvals`, which a service token also holds) asks named people to review the artifact's
 // current version; each reviewer answers with a verdict and an optional note.
@@ -167,7 +167,7 @@ export function liveApprovalStatus(requestId: string): SQL<string> {
 
 /**
  * Records that the version under review reached a final status, once per version: the seam where
- * a notice to the requester side and a `review.completed` webhook go (decision 0012, "What is
+ * a notice to the requester side and a `review.completed` webhook go (decision 0013, "What is
  * left"). Runs last in a batch, on that batch's condition.
  */
 function announce(db: RegionalDb, requestId: string, condition: SQL): BatchItem<"sqlite"> {

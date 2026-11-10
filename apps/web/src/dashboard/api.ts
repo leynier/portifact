@@ -223,7 +223,7 @@ export interface DashboardApi {
     input: { label: string; expiresAt?: string; password?: string },
   ): Promise<ShareLinkCreated>;
   revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
-  /** The approval review as the caller may see it (decision 0012). */
+  /** The approval review as the caller may see it (decision 0013). */
   getReview(artifactId: string): Promise<ApprovalReviewView>;
   requestReview(
     artifactId: string,

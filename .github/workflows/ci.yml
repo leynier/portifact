@@ -57,7 +57,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run test
-      - run: shellcheck scripts/*.sh
+      - run: shellcheck scripts/*.sh action/*.sh
       - run: node scripts/check-release-notes.mjs
       - name: Validate the app Worker bundle
         working-directory: apps/app

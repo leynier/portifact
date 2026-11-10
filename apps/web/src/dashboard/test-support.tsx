@@ -461,7 +461,7 @@ export interface FakeServer {
   /** Share links by artifact ID, newest first, as the API lists them. */
   shareLinks: Record<string, ShareLinkView[]>;
   /**
-   * Approval reviews by artifact (decision 0012), as GET .../review/status answers them; missing
+   * Approval reviews by artifact (decision 0013), as GET .../review/status answers them; missing
    * ones have no request. Writes answer `approvalReply` when it is set.
    */
   approvals: Record<string, ApprovalReviewView>;

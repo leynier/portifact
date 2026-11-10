@@ -1,4 +1,4 @@
-// Approval reviews (premium plan T6, decision 0012; not review mode, the commenting session).
+// Approval reviews (premium plan T6, decision 0013; not review mode, the commenting session).
 // The artifact page's Reviews section lets the owner side ask people to review the current
 // version, see each verdict and note, change the request or cancel it; the viewer shows the
 // status in the bar and, to a requested reviewer, the two verdict actions with a note. The API

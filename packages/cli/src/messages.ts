@@ -155,6 +155,11 @@ export const messages = {
     return `${path} (${change}) ${reason}. Size before: ${size(before)}, after: ${size(after)}.`;
   },
 
+  // A space's open feedback.
+  feedbackEmpty: "No open feedback: no unresolved thread you can see on the current versions.",
+  feedbackMore: (cursor: string, flags = "") =>
+    `More feedback: run \`portifact feedback --cursor ${cursor}${flags}\`.`,
+
   // Access logs.
   logsEmpty: (id: string, days: number) =>
     `No signed-in visitor opened ${id} in the last ${days} days.`,
@@ -194,7 +199,7 @@ export const messages = {
     "Your plan does not include share links now, so these links do not open. They work again if the plan includes them; you can still revoke them.",
   confirmShareRevoke: (linkId: string) =>
     `Anyone with share link ${linkId} loses access, and it cannot be undone.\nType "revoke" to confirm: `,
-  // Approval reviews (decision 0012).
+  // Approval reviews (decision 0013).
   reviewRequested: (id: string, reviewers: number) =>
     `Asked ${reviewers} ${reviewers === 1 ? "person" : "people"} to review the current version of ${id}. They can open it already; asking gave nobody access.`,
   reviewChanged: (id: string) => `Changed the review request of ${id}.`,

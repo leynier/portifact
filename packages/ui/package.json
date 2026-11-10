@@ -15,7 +15,8 @@
     "./theme": "./src/theme/theme.ts",
     "./theme.css": "./src/tokens/theme.css",
     "./tokens-css": "./src/tokens/tokens-css.ts",
-    "./tokens.css": "./src/tokens/tokens.css"
+    "./tokens.css": "./src/tokens/tokens.css",
+    "./plans": "./src/static/plans.ts"
   },
   "scripts": {
     "sync-tokens": "bun scripts/sync-tokens-css.ts && biome format --write src/tokens/tokens-css.ts",

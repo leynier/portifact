@@ -49,7 +49,7 @@ const EDITOR: readonly RoleAction[] = [
   "access_log",
   "usage",
   "domains",
-  // Asking for, changing and cancelling approval reviews (decision 0012).
+  // Asking for, changing and cancelling approval reviews (decision 0013).
   "approvals",
 ];
 const ADMIN: readonly RoleAction[] = [
@@ -86,7 +86,7 @@ export const TOKEN_ACTIONS: ReadonlySet<RoleAction> = new Set<RoleAction>([
   "rollback",
   "usage",
   // An approval review asks people to review the artifact: managing the artifact's workflow, which
-  // grants nobody access (decision 0012). A verdict needs a person and is never a role action.
+  // grants nobody access (decision 0013). A verdict needs a person and is never a role action.
   "approvals",
 ]);
 

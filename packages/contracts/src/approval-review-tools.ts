@@ -1,4 +1,4 @@
-// MCP inputs of approval reviews (decision 0012): the API's bodies plus the artifact. Kept apart
+// MCP inputs of approval reviews (decision 0013): the API's bodies plus the artifact. Kept apart
 // from approval-reviews.ts, which the audit catalog imports, so it does not import publishing.
 import { z } from "zod";
 import { APPROVALS, ApprovalNote, ApprovalVerdict, RequiredApprovals } from "./approval-reviews.ts";

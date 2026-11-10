@@ -1,4 +1,4 @@
-// Approval reviews (premium plan T6, feature `reviews`; decision 0012): an admin or editor of an
+// Approval reviews (premium plan T6, feature `reviews`; decision 0013): an admin or editor of an
 // artifact's owner asks named people to review its current version, and each answers with a
 // verdict (approve or request changes) and an optional note. "Approval review" is a different
 // thing from review mode (the commenting session on an artifact, `__Host-pf_review`): the code

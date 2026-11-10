@@ -322,4 +322,10 @@ export const landing: PageMessages = {
   "landing.footer.privacy": "プライバシーポリシー",
   "landing.footer.acceptableUse": "利用ポリシー",
   "landing.footer.report": "artifactを報告",
+  "landing.nav.plans": "プラン",
+  "landing.plans.eyebrow": "プラン",
+  "landing.plans.title": "無料で始めて、必要なときに拡張",
+  "landing.plans.lead":
+    "どのプランでも公開、共有、レビューの仕組みは同じです。有料プランでは上限が上がり、「含まれるもの」の機能が加わります。「近日提供」の機能はまだ利用できません。",
+  "landing.plans.compare": "上限を比較",
 };

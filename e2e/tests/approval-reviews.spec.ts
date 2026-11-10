@@ -1,4 +1,4 @@
-// Approval reviews end to end (premium plan T6, decision 0012; not review mode): the owner asks a
+// Approval reviews end to end (premium plan T6, decision 0013; not review mode): the owner asks a
 // reader to review from the artifact page, the reader approves in the viewer with a note, the
 // owner sees the verdict, and a new version starts the review again with no verdicts.
 

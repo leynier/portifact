@@ -5,12 +5,15 @@ import {
   ArtifactListItem,
   ArtifactSummary,
   CommittedPublish,
+  FeedbackPage,
   LifecycleResult,
   type OwnerView,
+  UNTRUSTED_ANNOTATIONS_NOTICE,
 } from "@portifact/contracts";
 import type {
   ArtifactRow,
   CommittedPublish as CommittedVersion,
+  FeedbackResult,
   LifecycleOutcome,
   ListedArtifact,
 } from "@portifact/services";
@@ -42,7 +45,7 @@ export function artifactSummary(
       ? { suspension: { reason: row.suspensionReason } }
       : {}),
     ...(servedHost(env, row) ? { customHost: servedHost(env, row) } : {}),
-    // Built once here for the API and MCP (decision 0012): status and counts, never names.
+    // Built once here for the API and MCP (decision 0013): status and counts, never names.
     ...(row.review ? { review: row.review } : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
@@ -64,6 +67,26 @@ export function artifactListItem(
       openThreads: activity.openThreads,
       lastAnnotationAt: isoOrNull(activity.lastAnnotationAt),
     },
+  });
+}
+
+/** A page of a space's open feedback; `GET /api/v1/feedback` and `list_open_feedback`. */
+export function feedbackPage(env: Env, value: FeedbackResult, owner: OwnerView): FeedbackPage {
+  return FeedbackPage.parse({
+    notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+    owner,
+    role: value.role,
+    items: value.items.map(({ artifact, thread, counts }) => ({
+      artifact: {
+        id: artifact.id,
+        name: artifact.name,
+        type: artifact.type,
+        url: artifactUrl(env, artifact),
+      },
+      thread,
+      counts,
+    })),
+    nextCursor: value.nextCursor,
   });
 }
 

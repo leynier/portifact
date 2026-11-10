@@ -1,4 +1,4 @@
-// MCP tools for approval reviews (premium plan T6, decision 0012; not review mode):
+// MCP tools for approval reviews (premium plan T6, decision 0013; not review mode):
 // request_review (request, change or cancel), submit_review and get_review_status. Each calls the
 // same service as its /api/v1/artifacts/:id/review route, with the same scope, and returns the
 // same body, so the plan gate, the role checks and the errors are the API's.

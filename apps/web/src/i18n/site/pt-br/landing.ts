@@ -328,4 +328,10 @@ export const landing: PageMessages = {
   "landing.footer.privacy": "Política de Privacidade",
   "landing.footer.acceptableUse": "Política de Uso Aceitável",
   "landing.footer.report": "Denunciar um artifact",
+  "landing.nav.plans": "Planos",
+  "landing.plans.eyebrow": "Planos",
+  "landing.plans.title": "Comece de graça e cresça quando precisar",
+  "landing.plans.lead":
+    "Todos os planos publicam, compartilham e revisam do mesmo jeito. Os planos pagos aumentam os limites e somam os recursos marcados como incluídos; os marcados como em breve ainda não estão disponíveis.",
+  "landing.plans.compare": "Compare os limites",
 };

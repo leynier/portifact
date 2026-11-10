@@ -314,7 +314,7 @@ function ViewerLayout({
   const t = useT();
   const announce = useAnnounce();
   const { api } = useDashboard();
-  // The approval review's status (decision 0012), as the API lets this visitor see it.
+  // The approval review's status (decision 0013), as the API lets this visitor see it.
   const approval = useApprovalReview(info.artifactId, account.kind === "signed-in");
   const signedIn = useQuery({
     queryKey: ACCOUNT_QUERY,

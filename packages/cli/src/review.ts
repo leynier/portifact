@@ -1,5 +1,5 @@
 // portifact review request | change | status | approve | request-changes | cancel: approval
-// reviews of an artifact's current version (premium plan T6, decision 0012; not review mode,
+// reviews of an artifact's current version (premium plan T6, decision 0013; not review mode,
 // the commenting session), through /api/v1/artifacts/:id/review/request, /status and /verdict. Every write sends an
 // Idempotency-Key, so a retried call is applied once. Reviewers' names and notes are untrusted
 // and printed through `plain`.

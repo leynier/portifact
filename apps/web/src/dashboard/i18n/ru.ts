@@ -1,9 +1,11 @@
 // Russian messages of the dashboard (standard Russian, "вы" in lowercase), with the same keys as
 // en.ts. "artifact" stays in Latin script, masculine and undeclined. Titles and buttons have no
 // trailing period; no em dashes.
+import { planTextRu } from "../../plans/i18n/ru.ts";
 import type { Catalog } from "./en.ts";
 
 export const ru = {
+  ...planTextRu,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Перейти к содержимому",
@@ -1602,6 +1604,21 @@ export const ru = {
   "webhooks.personalOnly.title": "Webhooks настраиваются в личном пространстве",
   "webhooks.personalOnly.body":
     "Пока webhooks отправляют события только об artifacts вашего личного пространства. Перейдите в него, чтобы управлять ими.",
+  "shell.planLink": "Тариф",
+  "plan.title": "Тариф",
+  "plan.description":
+    "Тариф вашего личного пространства, его лимиты и функции, а также другие тарифы.",
+  "plan.descriptionWorkspace": "Тариф {workspace}, его лимиты и функции, а также другие тарифы.",
+  "plan.current.hint":
+    "Что есть у этого пространства сейчас. На странице «Использование» видно, сколько из этого занято.",
+  "plan.current.limits": "Лимиты текущего тарифа",
+  "plan.current.usageLink": "Открыть использование",
+  "plan.loading": "Загрузка тарифа",
+  "plan.error": "Не удалось загрузить тариф.",
+  "plan.compare.section": "Все тарифы",
+  "plan.requestNote": "Запросить другой тариф могут только администраторы {workspace}.",
+  "plan.hidden": "Тариф {workspace} видят его редакторы и администраторы.",
+  "usage.plan.compare": "Сравнить тарифы",
   "shell.auditLink": "Журнал аудита",
   "audit.title": "Журнал аудита",
   "audit.description": "Кто и что изменил в этом пространстве. Изменения хранятся {days} дн.",

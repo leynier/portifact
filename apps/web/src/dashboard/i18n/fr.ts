@@ -1,9 +1,11 @@
 // French messages of the dashboard (France, "vous"), with the same keys as en.ts. French
 // typography: a no-break space before : ; ! ? and inside « ». Titles and buttons have no
 // trailing period; no em dashes.
+import { planTextFr } from "../../plans/i18n/fr.ts";
 import type { Catalog } from "./en.ts";
 
 export const fr = {
+  ...planTextFr,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Aller au contenu",
@@ -1621,6 +1623,22 @@ export const fr = {
   "webhooks.personalOnly.title": "Les webhooks se règlent dans votre espace personnel",
   "webhooks.personalOnly.body":
     "Pour l’instant, les webhooks n’envoient que les événements des artifacts de votre espace personnel. Passez-y pour les gérer.",
+  "shell.planLink": "Offre",
+  "plan.title": "Offre",
+  "plan.description":
+    "L’offre de votre espace personnel, ses limites et ses fonctions, et les autres offres.",
+  "plan.descriptionWorkspace":
+    "L’offre de {workspace}, ses limites et ses fonctions, et les autres offres.",
+  "plan.current.hint":
+    "Ce dont cet espace dispose maintenant. La page Utilisation montre ce qui en est utilisé.",
+  "plan.current.limits": "Limites de l’offre actuelle",
+  "plan.current.usageLink": "Voir l’utilisation",
+  "plan.loading": "Chargement de l’offre",
+  "plan.error": "Impossible de charger l’offre.",
+  "plan.compare.section": "Toutes les offres",
+  "plan.requestNote": "Seuls les administrateurs de {workspace} peuvent demander une autre offre.",
+  "plan.hidden": "L’offre de {workspace} est visible par ses éditeurs et ses administrateurs.",
+  "usage.plan.compare": "Comparer les offres",
   "shell.auditLink": "Journal d'audit",
   "audit.title": "Journal d'audit",
   "audit.description":

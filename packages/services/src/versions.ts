@@ -640,7 +640,7 @@ export async function rollbackArtifact(
       },
       switched,
     ),
-    // An open approval review follows the new version with no verdicts (decision 0012).
+    // An open approval review follows the new version with no verdicts (decision 0013).
     moveApprovalReview(db, { artifactId: artifact.id, versionId, switched, now: input.now }),
     // A rollback is a new version for the owner's webhooks, numbered by the insert above.
     ...markWebhookEvent(db, {

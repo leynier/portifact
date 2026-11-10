@@ -221,6 +221,8 @@ irm https://portifact.com/install.ps1 | iex
 
 `portifact.com/install` and `portifact.com/install.ps1` redirect to the scripts attached to the latest release. Both scripts verify the archive against `SHA256SUMS` before installing. They accept `PORTIFACT_VERSION`, `PORTIFACT_INSTALL_DIR` and `PORTIFACT_NO_MODIFY_PATH`; see the header of each script.
 
+The pull request preview action (`action/`, [github-actions.md](github-actions.md)) needs no release step of its own: users pin it to the `vX.Y.Z` tags the release workflow creates, or to the commit those tags point to, and it installs the CLI of that same release by reading `packages/cli/package.json`, which the release commit sets, and running `scripts/install.sh` or `scripts/install.ps1` from the same commit. So the action reaches users with the first release after it changes, never edit its version by hand, and keep the installers' environment variables (`PORTIFACT_VERSION`, `PORTIFACT_INSTALL_DIR`, `PORTIFACT_NO_MODIFY_PATH`) and the CLI's `publish --json` and `delete --key --json` fields stable, because released tags of the action depend on them. `scripts/github-action.test.ts` checks the action and its documented workflows.
+
 To verify that a downloaded archive was built by this repository's workflow:
 
 ```bash

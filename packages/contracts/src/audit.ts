@@ -95,7 +95,7 @@ export const AUDIT_DETAILS = {
   "share_link.created": z.strictObject({ password: z.boolean(), expires: z.boolean() }),
   "share_link.revoked": empty,
   /**
-   * Approval reviews (decision 0012): counts and settings, never reviewers' addresses or notes.
+   * Approval reviews (decision 0013): counts and settings, never reviewers' addresses or notes.
    * `required` is null for "every reviewer".
    */
   "review.requested": z.strictObject({

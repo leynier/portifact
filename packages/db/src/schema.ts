@@ -896,6 +896,8 @@ export const annotationThreads = sqliteTable(
     ),
     index("annotation_threads_artifact_change_idx").on(t.artifactId, t.changeSeq),
     index("annotation_threads_author_idx").on(t.authorId),
+    // A space's open feedback: an owner's open threads, newest activity first.
+    index("annotation_threads_owner_state_updated_idx").on(t.ownerId, t.state, t.updatedAt, t.id),
     check("annotation_threads_target_bytes", sql`${t.targetBytes} between 1 and 8192`),
     check(
       "annotation_threads_counters",
@@ -1026,7 +1028,7 @@ export const commentNotices = sqliteTable(
 );
 
 /**
- * Approval reviews (premium plan T6, decision 0012; not review mode, which is the commenting
+ * Approval reviews (premium plan T6, decision 0013; not review mode, which is the commenting
  * session): an admin or editor of the owner asks named people to review the artifact's current
  * version. At most one open request per artifact (partial unique index); a cancelled one stays,
  * with its verdicts, as history. `version_id` is the version under review: publish and rollback

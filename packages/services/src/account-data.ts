@@ -487,7 +487,7 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, input.userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, input.userId)),
     closeJobs(db, "comment_notice", input.userId, sql`1`),
-    // Verdicts the account gave and the requests it made (approval reviews, decision 0012).
+    // Verdicts the account gave and the requests it made (approval reviews, decision 0013).
     ...eraseApprovalAuthor(db, input.userId),
     // The account's webhooks stop at once; no foreign key (an owner may be a workspace).
     db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, input.userId)),

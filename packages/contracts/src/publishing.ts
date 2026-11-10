@@ -180,7 +180,7 @@ export const ArtifactSummary = z.object({
    */
   customHost: z.string().optional(),
   /**
-   * The approval review on the current version (decision 0012): status and counts, no names.
+   * The approval review on the current version (decision 0013): status and counts, no names.
    * Present in the artifact list and the artifact view.
    */
   review: ApprovalSummary.optional(),

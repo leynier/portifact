@@ -15,6 +15,7 @@ export * from "./documents.ts";
 export * from "./email.ts";
 export * from "./email-domains.ts";
 export * from "./expiry-notices.ts";
+export * from "./feedback.ts";
 export * from "./files.ts";
 export * from "./ids.ts";
 export * from "./lifecycle.ts";

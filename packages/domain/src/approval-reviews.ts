@@ -1,4 +1,4 @@
-// Approval review rules (premium plan T6, decision 0012). Pure decisions: the status of a review
+// Approval review rules (premium plan T6, decision 0013). Pure decisions: the status of a review
 // from its request and verdicts, the bounds of a request and its changes, and who sees what.
 // Who may be a reviewer is not decided here: it is exactly who the existing access rules let
 // open the artifact and take part in its comments (`canRead` and the owner side), evaluated by

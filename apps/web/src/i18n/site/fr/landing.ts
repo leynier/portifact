@@ -332,4 +332,10 @@ export const landing: PageMessages = {
   "landing.footer.privacy": "Politique de confidentialité",
   "landing.footer.acceptableUse": "Politique d’utilisation acceptable",
   "landing.footer.report": "Signaler un artifact",
+  "landing.nav.plans": "Offres",
+  "landing.plans.eyebrow": "Offres",
+  "landing.plans.title": "Commencez gratuitement, évoluez quand vous en avez besoin",
+  "landing.plans.lead":
+    "Toutes les offres publient, partagent et relisent de la même façon. Les offres payantes relèvent les limites et ajoutent les fonctions marquées comme incluses ; celles marquées comme bientôt disponibles ne le sont pas encore.",
+  "landing.plans.compare": "Comparer les limites",
 };

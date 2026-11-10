@@ -909,7 +909,7 @@ export async function commitPublish(
       },
       switched,
     ),
-    // An open approval review follows the new version with no verdicts (decision 0012).
+    // An open approval review follows the new version with no verdicts (decision 0013).
     moveApprovalReview(db, {
       artifactId: session.artifactId,
       versionId: session.versionId,

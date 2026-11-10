@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// The artifact page's Reviews section (decision 0012): requesting with reviewers and a number,
+// The artifact page's Reviews section (decision 0013): requesting with reviewers and a number,
 // the reviewers with their verdicts and notes as text, changing and cancelling after a
 // confirmation, and an explanation instead of the form when the owner's plan lacks reviews.
 import type { ApprovalReviewView } from "@portifact/contracts";

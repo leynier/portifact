@@ -46,7 +46,7 @@ export interface ArtifactActivity {
   lastAnnotationAt: number | null;
 }
 
-/** An artifact with its approval review block (status and counts, no names; decision 0012). */
+/** An artifact with its approval review block (status and counts, no names; decision 0013). */
 export type ReviewedArtifact = ArtifactRow & { review: ApprovalSummary };
 
 export type ListedArtifact = ReviewedArtifact & { activity: ArtifactActivity };

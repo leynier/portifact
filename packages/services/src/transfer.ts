@@ -221,7 +221,7 @@ export async function transferArtifact(
             sql`${schema.webhookEvents.artifactId} = ${artifact.id} and ${schema.webhookEvents.webhookId} in (select ${schema.webhooks.id} from ${schema.webhooks} where ${schema.webhooks.ownerId} = ${from})`,
           ),
         ),
-      // Reviewers were chosen under the old owner: the open approval review ends (decision 0012).
+      // Reviewers were chosen under the old owner: the open approval review ends (decision 0013).
       cancelApprovalReviewOnTransfer(db, {
         artifactId: artifact.id,
         condition: unchanged,
