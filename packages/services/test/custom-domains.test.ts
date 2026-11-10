@@ -6,12 +6,13 @@ import { env } from "cloudflare:test";
 import { planRequiredMessage, txtRecordName, txtRecordValue } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   advanceAccountDeletion,
   exportAccount,
   requestAccountDeletion,
 } from "../src/account-data.ts";
+import type { DomainDeps } from "../src/cloudflare-hostnames.ts";
 import {
   addCustomDomain,
   artifactCustomDomains,
@@ -23,6 +24,8 @@ import {
   getCustomDomain,
   listCustomDomains,
   reconcileCustomDomains,
+  releaseArtifactDomains,
+  releaseOwnerDomains,
   removeCustomDomain,
   runDeleteHostname,
   verifyCustomDomain,
@@ -63,7 +66,7 @@ function add(
   });
 }
 
-function verify(fake: FakeDomains | null, userId: string, hostname: string, now = NOW) {
+function verify(fake: DomainDeps | null, userId: string, hostname: string, now = NOW) {
   return verifyCustomDomain(regions(), fake, { userId, hostname, now });
 }
 
@@ -872,5 +875,335 @@ describe("reconciliation after a restore", () => {
     expect((await domainRow(kept.hostname))?.state).toBe("active");
     expect(await customHost(three.artifactId)).toBeNull();
     expect(await customHost(one.artifactId)).toBeNull();
+  });
+});
+
+// Each test below starts from no domains and no claims, so counts and lists are exact.
+describe("exact outcomes", () => {
+  beforeEach(async () => {
+    await db().delete(schema.customDomains);
+    await db().delete(schema.domainClaims);
+    await db().update(schema.artifacts).set({ customHost: null });
+  });
+
+  async function provisioned(fake: FakeDomains, plan: "pro" | "team" = "pro") {
+    const { owner, artifactId } = await owned(plan);
+    const claim = value(await add(fake, owner.id, artifactId, host()));
+    publishProof(fake, claim);
+    value(await verify(fake, owner.id, claim.hostname));
+    return { owner, artifactId, hostname: claim.hostname, token: claim.token };
+  }
+
+  it("counts what each scheduled pass did", async () => {
+    const fake = new FakeDomains();
+    const a = await provisioned(fake);
+    fake.activate(a.hostname);
+    expect(await checkCustomDomains(dbs(), fake, NOW)).toEqual({
+      prunedClaims: 0,
+      activated: 1,
+      checked: 0,
+      detached: 0,
+    });
+    // Not due a moment before a day has passed, due at the day.
+    expect((await checkCustomDomains(dbs(), fake, NOW + DAY - 1)).checked).toBe(0);
+    expect(await checkCustomDomains(dbs(), fake, NOW + DAY)).toEqual({
+      prunedClaims: 0,
+      activated: 0,
+      checked: 1,
+      detached: 0,
+    });
+    fake.setStatus(a.hostname, "deleted");
+    expect(await checkCustomDomains(dbs(), fake, NOW + 2 * DAY)).toEqual({
+      prunedClaims: 0,
+      activated: 0,
+      checked: 1,
+      detached: 1,
+    });
+    const b = await provisioned(fake);
+    fake.setStatus(b.hostname, "moved");
+    expect(await checkCustomDomains(dbs(), fake, NOW + 2 * DAY)).toMatchObject({
+      activated: 0,
+      detached: 1,
+    });
+    expect(await domainRow(b.hostname)).toMatchObject({ detachReason: "cloudflare_gone" });
+  });
+
+  it("detaches an active domain whose artifact no longer holds it, and records Cloudflare outages", async () => {
+    const fake = new FakeDomains();
+    const cases = [
+      { state: "suspended" as const, customHost: true },
+      { state: "active" as const, customHost: false },
+    ];
+    const names: string[] = [];
+    for (const change of cases) {
+      const { owner, artifactId } = await owned();
+      const { hostname } = await attach(fake, owner.id, artifactId);
+      names.push(hostname);
+      await db()
+        .update(schema.artifacts)
+        .set({
+          state: change.state,
+          customHost: change.customHost ? hostname : "elsewhere.example.com",
+        })
+        .where(eq(schema.artifacts.id, artifactId));
+    }
+    const kept = await owned();
+    const { hostname: keptName, token } = await attach(fake, kept.owner.id, kept.artifactId);
+    fake.publishTxt(txtRecordName(keptName), txtRecordValue(token));
+    fake.failing.hostnames = true;
+    expect(await checkCustomDomains(dbs(), fake, NOW + DAY)).toEqual({
+      prunedClaims: 0,
+      activated: 0,
+      checked: 3,
+      detached: 2,
+    });
+    for (const name of names) {
+      expect(await domainRow(name), name).toMatchObject({
+        state: "detaching",
+        detachReason: "artifact_unavailable",
+      });
+    }
+    expect(await domainRow(keptName)).toMatchObject({
+      state: "active",
+      missedChecks: 0,
+      problem: "cloudflare_unavailable",
+      checkedAt: NOW + DAY,
+    });
+  });
+
+  it("releases only the named artifact's or owner's domains, and counts them", async () => {
+    const fake = new FakeDomains();
+    const owner = await user();
+    await grantPlan(owner.id, "team");
+    const first = (await publishSite(owner.id)).artifactId;
+    const second = (await publishSite(owner.id)).artifactId;
+    const a = await attach(fake, owner.id, first);
+    const b = await attach(fake, owner.id, second);
+    const other = await owned();
+    const c = await attach(fake, other.owner.id, other.artifactId);
+    expect(await releaseArtifactDomains(dbs(), first, "purged", NOW)).toBe(1);
+    expect(await releaseArtifactDomains(dbs(), first, "purged", NOW)).toBe(0);
+    expect((await domainRow(b.hostname))?.state).toBe("active");
+    expect(await releaseOwnerDomains(dbs(), owner.id, "account_deleted", NOW)).toBe(1);
+    expect(await domainRow(a.hostname)).toMatchObject({ detachReason: "purged" });
+    expect(await domainRow(b.hostname)).toMatchObject({ detachReason: "account_deleted" });
+    expect((await domainRow(c.hostname))?.state).toBe("active");
+  });
+
+  it("applies plan limits only to owners over them", async () => {
+    const fake = new FakeDomains();
+    const at = await owned("pro");
+    await attach(fake, at.owner.id, at.artifactId);
+    const over = await owned("team");
+    const one = await attach(fake, over.owner.id, over.artifactId);
+    const two = await attach(fake, over.owner.id, (await publishSite(over.owner.id)).artifactId);
+    await db()
+      .update(schema.customDomains)
+      .set({ verifiedAt: NOW + 1 })
+      .where(eq(schema.customDomains.hostname, two.hostname));
+    await grantPlan(over.owner.id, "pro");
+    expect(await enforceDomainLimits(dbs(), NOW)).toBe(1);
+    expect((await domainRow(one.hostname))?.state).toBe("active");
+    expect(await domainRow(two.hostname)).toMatchObject({ detachReason: "plan_limit" });
+    expect(await enforceDomainLimits(dbs(), NOW)).toBe(0);
+  });
+
+  it("lists claims, domains and what counts, exactly", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned("team");
+    const active = await attach(fake, owner.id, artifactId);
+    const second = (await publishSite(owner.id)).artifactId;
+    const removing = await attach(fake, owner.id, second);
+    value(
+      await removeCustomDomain(regions(), {
+        userId: owner.id,
+        hostname: removing.hostname,
+        now: NOW,
+      }),
+    );
+    const third = (await publishSite(owner.id)).artifactId;
+    const pending = value(await add(fake, owner.id, third, host()));
+    const actor = {
+      userId: owner.id,
+      ownerId: owner.id,
+      role: "admin" as const,
+      region: "default" as const,
+    };
+    const listed = value(await listCustomDomains(regions(), null, { actor, now: NOW }));
+    expect(listed).toMatchObject({ available: false, enabled: true, limit: 5, used: 1 });
+    expect(listed.domains.map((d) => [d.hostname, d.state])).toEqual([
+      [active.hostname, "active"],
+      [removing.hostname, "removing"],
+      [pending.hostname, "pending"],
+    ]);
+    // A name removed while still detaching does not count against adding another.
+    expect((await add(fake, owner.id, second, host())).ok).toBe(true);
+  });
+
+  it("answers missing artifacts and hostnames the same way", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    for (const state of ["purging", "deleted"] as const) {
+      await db().update(schema.artifacts).set({ state }).where(eq(schema.artifacts.id, artifactId));
+      expect(await add(fake, owner.id, artifactId, host())).toEqual({
+        ok: false,
+        code: "not_found",
+        message: "Artifact not found.",
+      });
+      expect(
+        await artifactCustomDomains(regions(), fake, { userId: owner.id, artifactId, now: NOW }),
+      ).toEqual({
+        ok: false,
+        code: "not_found",
+        message: "Artifact not found.",
+      });
+    }
+    for (const name of ["not a host", "example.com", "nobody.example.com"]) {
+      expect(
+        await getCustomDomain(regions(), { userId: owner.id, hostname: name, now: NOW }),
+      ).toEqual({
+        ok: false,
+        code: "not_found",
+        message: "Custom domain not found.",
+      });
+    }
+  });
+
+  it("explains a refused role and a proof for an artifact that changed", async () => {
+    const fake = new FakeDomains();
+    const t = await team();
+    await grantPlan(t.id, "team");
+    const claim = value(await add(fake, t.editor.id, t.artifactId, host()));
+    expect(await verify(fake, t.member.id, claim.hostname)).toEqual({
+      ok: false,
+      code: "forbidden",
+      message: "Your role on this workspace does not allow this.",
+    });
+    // The artifact got another domain after the claim.
+    const other = await attach(fake, t.editor.id, t.artifactId);
+    publishProof(fake, claim);
+    expect(await verify(fake, t.editor.id, claim.hostname)).toEqual({
+      ok: false,
+      code: "invalid_input",
+      message: `This artifact already has the custom domain ${other.hostname}. Remove it first.`,
+    });
+    // The artifact went away.
+    const gone = await owned();
+    const lost = value(await add(fake, gone.owner.id, gone.artifactId, host()));
+    publishProof(fake, lost);
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "purging" })
+      .where(eq(schema.artifacts.id, gone.artifactId));
+    expect(await verify(fake, gone.owner.id, lost.hostname)).toEqual({
+      ok: false,
+      code: "invalid_input",
+      message: "The artifact this domain was added to is no longer active. Add the domain again.",
+    });
+  });
+
+  it("checks again: busy while removing, unavailable when DNS cannot be asked", async () => {
+    const fake = new FakeDomains();
+    const a = await provisioned(fake);
+    fake.activate(a.hostname);
+    value(await verify(fake, a.owner.id, a.hostname));
+    fake.failing.txt = true;
+    expect(await verify(fake, a.owner.id, a.hostname)).toEqual({
+      ok: false,
+      code: "capacity_unavailable",
+      message: "DNS could not be checked right now. Try again in a minute.",
+    });
+    fake.failing.txt = false;
+    await detachDomain(dbs(), a.hostname, "operator", NOW);
+    expect(await verify(fake, a.owner.id, a.hostname)).toEqual({
+      ok: false,
+      code: "version_conflict",
+      message: `${a.hostname} is being removed. Try again in a few minutes.`,
+    });
+  });
+
+  it("gives back a Cloudflare hostname created for a row that changed meanwhile", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    const claim = value(await add(fake, owner.id, artifactId, host()));
+    publishProof(fake, claim);
+    const racing = {
+      txt: fake.txt,
+      hostnames: {
+        ...fake.hostnames,
+        create: async (hostname: string) => {
+          await detachDomain(dbs(), hostname, "removed", NOW);
+          return fake.hostnames.create(hostname);
+        },
+      },
+    };
+    expect(value(await verify(racing, owner.id, claim.hostname)).state).toBe("removing");
+    expect(fake.idOf(claim.hostname)).toBeUndefined();
+    // Its row never had a Cloudflare hostname, so the job deletes it without the client.
+    expect(await runDeleteHostname(dbs(), null, claim.hostname)).toBe("done");
+    expect(await domainRow(claim.hostname)).toBeUndefined();
+  });
+
+  it("detaches when another artifact still holds the name, and gives a host back after a lost race", async () => {
+    const fake = new FakeDomains();
+    const a = await provisioned(fake);
+    const squatter = await owned();
+    await db()
+      .update(schema.artifacts)
+      .set({ customHost: a.hostname })
+      .where(eq(schema.artifacts.id, squatter.artifactId));
+    fake.activate(a.hostname);
+    expect(value(await verify(fake, a.owner.id, a.hostname)).state).toBe("removing");
+    expect(await domainRow(a.hostname)).toMatchObject({ detachReason: "artifact_unavailable" });
+
+    const b = await provisioned(fake);
+    fake.activate(b.hostname);
+    const racing = {
+      txt: fake.txt,
+      hostnames: {
+        ...fake.hostnames,
+        status: async (id: string) => {
+          // The domain is removed while Cloudflare answers.
+          await db()
+            .update(schema.customDomains)
+            .set({ state: "detaching" })
+            .where(eq(schema.customDomains.hostname, b.hostname));
+          return fake.hostnames.status(id);
+        },
+      },
+    };
+    expect(value(await verify(racing, b.owner.id, b.hostname)).state).toBe("removing");
+    expect(await customHost(b.artifactId)).toBeNull();
+  });
+
+  it("reconciles exactly", async () => {
+    const fake = new FakeDomains();
+    const one = await owned();
+    const gone = await attach(fake, one.owner.id, one.artifactId);
+    const two = await owned();
+    const kept = await attach(fake, two.owner.id, two.artifactId);
+    const removing = await owned();
+    const going = await attach(fake, removing.owner.id, removing.artifactId);
+    await detachDomain(dbs(), going.hostname, "removed", NOW);
+    fake.created.delete(fake.idOf(gone.hostname) as string);
+    fake.created.delete(fake.idOf(going.hostname) as string);
+    await fake.hostnames.create("orphan.example.com");
+    const stray = await owned();
+    await db()
+      .update(schema.artifacts)
+      .set({ customHost: "stray.example.com" })
+      .where(eq(schema.artifacts.id, stray.artifactId));
+    expect(await reconcileCustomDomains(dbs(), [db()], fake, NOW)).toEqual({
+      detached: [gone.hostname],
+      removed: ["orphan.example.com"],
+      cleared: ["stray.example.com"],
+    });
+    expect(await domainRow(gone.hostname)).toMatchObject({ detachReason: "reconciled" });
+    expect((await domainRow(kept.hostname))?.state).toBe("active");
+    expect(await reconcileCustomDomains(dbs(), [db()], fake, NOW)).toEqual({
+      detached: [],
+      removed: [],
+      cleared: [],
+    });
   });
 });

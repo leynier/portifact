@@ -98,7 +98,9 @@ describe("custom domain inputs", () => {
 
 describe("custom domain shapes, exactly", () => {
   it("lists the states, record types and problems", async () => {
-    const { CustomDomainState, DnsRecord, CustomDomainProblem } = await import("./custom-domains.ts");
+    const { CustomDomainState, DnsRecord, CustomDomainProblem } = await import(
+      "./custom-domains.ts"
+    );
     expect(CustomDomainState.options).toEqual(["pending", "provisioning", "active", "removing"]);
     expect(DnsRecord.shape.type.options).toEqual(["TXT", "CNAME"]);
     expect(CustomDomainProblem.options).toEqual([
@@ -138,9 +140,9 @@ describe("custom domain shapes, exactly", () => {
     expect(CustomDomainAdd.parse({ hostname: " a.example.com " })).toEqual({
       hostname: "a.example.com",
     });
-    expect(CustomDomainRemoved.safeParse({ hostname: "a.example.com", removed: false }).success).toBe(
-      false,
-    );
+    expect(
+      CustomDomainRemoved.safeParse({ hostname: "a.example.com", removed: false }).success,
+    ).toBe(false);
     expect(CustomDomainRemoved.safeParse({ removed: true }).success).toBe(false);
     expect(CustomDomainListQuery.parse({ artifactId: "abcdefghij" })).toEqual({
       artifactId: "abcdefghij",

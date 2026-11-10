@@ -202,3 +202,82 @@ describe("the switch", () => {
     }
   });
 });
+
+describe("the client's details", () => {
+  it("sends JSON without following redirects on every call", async () => {
+    const { sent, fetcher } = fakeFetch(() => json({ success: true, result: [] }));
+    const client = cloudflareHostnames(fetcher, ZONE, TOKEN);
+    await client.list();
+    await client.status("0a");
+    await client.remove("0a");
+    for (const call of sent) {
+      expect(call.init?.redirect).toBe("manual");
+      expect((call.init?.headers as Record<string, string> | undefined)?.["content-type"]).toBe(
+        "application/json",
+      );
+    }
+    expect(sent).toHaveLength(3);
+  });
+
+  it("names every Cloudflare code, and none when the body has none", async () => {
+    const codes = cloudflareHostnames(
+      fakeFetch(() => json({ success: false, errors: [{ code: 1406 }, { code: 1407 }] }, 409))
+        .fetcher,
+      ZONE,
+      TOKEN,
+    );
+    await expect(codes.create("a.example.com")).rejects.toThrow(
+      /^Cloudflare custom hostnames: 409 1406,1407$/,
+    );
+    const bare = cloudflareHostnames(fakeFetch(() => json({}, 500)).fetcher, ZONE, TOKEN);
+    const error = (await bare.create("a.example.com").catch((e: unknown) => e)) as CloudflareError;
+    expect(error.message).toBe("Cloudflare custom hostnames: 500 ");
+    expect(error.codes).toEqual([]);
+    const missing = cloudflareHostnames(fakeFetch(() => json({}, 404)).fetcher, ZONE, TOKEN);
+    const notFound = (await missing
+      .create("a.example.com")
+      .catch((e: unknown) => e)) as CloudflareError;
+    expect([notFound.status, notFound.codes]).toEqual([404, []]);
+    // A list with nothing on its first page is empty, not an error.
+    expect(await missing.list()).toEqual([]);
+  });
+
+  it("stops listing on a short page", async () => {
+    const page = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({ id: `${i}`, hostname: `h${i}.example.com` }));
+    const { sent, fetcher } = fakeFetch(() => json({ success: true, result: page(50) }));
+    let calls = 0;
+    const limited: Fetch = async (url, init) => {
+      calls += 1;
+      return calls < 3 ? fetcher(url, init) : json({ success: true, result: page(49) });
+    };
+    expect(await cloudflareHostnames(limited, ZONE, TOKEN).list()).toHaveLength(149);
+    expect(sent).toHaveLength(2);
+  });
+
+  it("checks zone and hostname IDs whole", async () => {
+    const fetcher = fakeFetch(() => json({})).fetcher;
+    for (const zone of [`x${ZONE}`, `${ZONE}x`, ZONE.toUpperCase()]) {
+      expect(() => cloudflareHostnames(fetcher, zone, TOKEN), zone).toThrow(
+        "CF_CONTENT_ZONE_ID is not a zone ID",
+      );
+    }
+    const client = cloudflareHostnames(fetcher, ZONE, TOKEN);
+    for (const id of ["/0a", "0a/", "0a?x", "x0a", "0ax"]) {
+      await expect(client.status(id), id).rejects.toThrow("Not a custom hostname ID");
+    }
+  });
+
+  it("needs a token of at least 20 characters", () => {
+    const fetcher: Fetch = async () => json({});
+    const on = { CUSTOM_DOMAINS_ENABLED: "true", CF_CONTENT_ZONE_ID: ZONE };
+    expect(
+      domainDepsFromEnv({ ...on, CF_HOSTNAMES_TOKEN: "t".repeat(20) }, fetcher),
+    ).not.toBeNull();
+    expect(domainDepsFromEnv({ ...on, CF_HOSTNAMES_TOKEN: "t".repeat(19) }, fetcher)).toBeNull();
+  });
+
+  it("reads a DNS answer without an Answer section as no values", async () => {
+    expect(await dohTxt(fakeFetch(() => json({ Status: 0, Answer: [] })).fetcher)("x")).toEqual([]);
+  });
+});
