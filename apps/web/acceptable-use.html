@@ -31,7 +31,7 @@
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Acceptable Use Policy</h1>
-      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-08</span>. Effective <time datetime="2026-11-08">November 8, 2026</time>.</p>
+      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-12-10</span>. Effective <time datetime="2026-12-10">December 10, 2026</time>.</p>
       <p class="mt-6 leading-7">This policy is part of the <a href="/terms">Terms of Service</a>. It applies to everything published on Portifact, every comment and every request sent to the service, including requests your coding agents send for you.</p>
 
       <nav aria-labelledby="toc-heading" class="mt-10 rounded-md border border-border p-5">
@@ -40,6 +40,7 @@
           <li><a href="#content">Content you may not publish</a></li>
           <li><a href="#behavior">Things you may not do</a></li>
           <li><a href="#agents">Coding agents</a></li>
+          <li><a href="#not-yet-available">Features not yet available</a></li>
           <li><a href="#reporting">Reporting abuse</a></li>
           <li><a href="#enforcement">What happens when the rules are broken</a></li>
           <li><a href="#changes">Changes to this policy</a></li>
@@ -54,7 +55,7 @@
           <li>contains malware, exploits or code that harms visitors' devices or data, or mines cryptocurrency in their browsers;</li>
           <li>is sexually explicit, or sexualizes minors in any way. Child sexual abuse material is reported to the authorities;</li>
           <li>infringes copyrights, trademarks or other rights, including pirated software, media or other files;</li>
-          <li>impersonates a person, company or organization, or misleads people about who is behind it;</li>
+          <li>impersonates a person, company or organization, or misleads people about who is behind it, including through a brand on the Portifact bar that uses another company's or Portifact's name or logo, or one that looks like them;</li>
           <li>threatens, harasses or incites violence against people or groups, or promotes terrorism or violent extremism;</li>
           <li>shares other people's private information without a lawful reason, such as their contact details, documents or credentials;</li>
           <li>is spam, including pages made only to promote links or manipulate search engines;</li>
@@ -70,24 +71,36 @@
           <li>Attack, overload or disrupt Portifact, or try to reach artifacts, accounts or data you were not given access to. Good-faith security research that follows our security policy is welcome.</li>
           <li>Write comments or content meant to make someone else's agent take harmful actions (prompt injection), or to collect data from the people who open an artifact without telling them.</li>
           <li>Send automated requests at a volume that harms the service or other users.</li>
-          <li>Resell or rebrand the hosted service as your own.</li>
+          <li>Resell or rebrand the hosted service as your own, beyond the branding your plan offers.</li>
+          <li>Use share links to distribute content this policy forbids, to get around a suspension, or to publish material openly while presenting it as private.</li>
+          <li>Use a brand's link to send people to phishing or malware.</li>
+          <li>Verify an email domain you are not entitled to act for, or use a service token outside the workspace it was created for.</li>
         </ul>
       </section>
 
       <section id="agents" aria-labelledby="agents-heading" class="mt-12 scroll-mt-8">
         <h2 id="agents-heading" class="text-xl font-semibold tracking-tight">Coding agents</h2>
-        <p class="mt-4 leading-7">You are responsible for what your agents publish and do on Portifact with the access you give them, just as if you did it yourself. Review what they publish before you share it more widely.</p>
+        <p class="mt-4 leading-7">You are responsible for what your agents publish and do on Portifact with the access you give them, just as if you did it yourself. Review what they publish before you share it more widely. The same applies to automation that uses a workspace's service tokens: the workspace is responsible for it.</p>
+      </section>
+
+      <section id="not-yet-available" aria-labelledby="not-yet-available-heading" class="mt-12 scroll-mt-8">
+        <h2 id="not-yet-available-heading" class="text-xl font-semibold tracking-tight">Features not yet available</h2>
+        <p class="mt-4 leading-7">Webhooks and custom domains are built but are not available yet. Once we make them available:</p>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li>Do not use webhooks to send requests to systems you are not allowed to use, or to overload anyone's systems.</li>
+          <li>A custom domain may not impersonate another person, brand or Portifact itself. This policy applies to everything served on it, and abuse on a custom domain is reported like abuse on the artifact and ends with the domain's removal.</li>
+        </ul>
       </section>
 
       <section id="reporting" aria-labelledby="reporting-heading" class="mt-12 scroll-mt-8">
         <h2 id="reporting-heading" class="text-xl font-semibold tracking-tight">Reporting abuse</h2>
-        <p class="mt-4 leading-7">Report content that breaks this policy with the <a href="https://app.portifact.com/report">report form</a>, which needs no account, or by writing to <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>. Every artifact also has a report link at <code>/__portifact/report</code> on its own address, for example <code>https://abcdefghij.portifact.dev/__portifact/report</code>; Markdown and text artifacts show it as "Report this artifact" under the document, and the review viewer shows it to reviewers. Include the artifact's address and what is wrong with it. We aim to respond within 48 hours. Please do not send us copies of illegal material; the address is enough.</p>
+        <p class="mt-4 leading-7">Report content that breaks this policy with the <a href="https://app.portifact.com/report">report form</a>, which needs no account, or by writing to <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>. Every artifact also has a report link at <code>/__portifact/report</code> on its own address, for example <code>https://abcdefghij.portifact.dev/__portifact/report</code>; Markdown and text artifacts show it as "Report this artifact" under the document, and the review viewer shows it to reviewers. Include the artifact's address and what is wrong with it. Reports about a share link or a branded bar are handled like reports about the artifact; you can send the artifact's address instead of the link. We aim to respond within 48 hours. Please do not send us copies of illegal material; the address is enough.</p>
       </section>
 
       <section id="enforcement" aria-labelledby="enforcement-heading" class="mt-12 scroll-mt-8">
         <h2 id="enforcement-heading" class="text-xl font-semibold tracking-tight">What happens when the rules are broken</h2>
         <p class="mt-4 leading-7">Depending on how serious it is, we may remove the content, suspend the artifact, limit features such as public sharing, or suspend or close the account, and we may report illegal activity to the authorities. We can act without warning when people or the service are at risk.</p>
-        <p class="mt-4 leading-7">A suspended artifact is not served to anyone and shows the same notice as a missing one; its owner sees the reason in the dashboard. Where it is safe and lawful, we will tell you what we did and why. If you think we made a mistake, reply or write to <a href="mailto:abuse@portifact.com">abuse@portifact.com</a> and we will review it.</p>
+        <p class="mt-4 leading-7">A suspended artifact is not served to anyone and shows the same notice as a missing one, and every share link to it stops working; its owner sees the reason in the dashboard. We may also suspend a brand, which brings back the default bar. Where it is safe and lawful, we will tell you what we did and why. If you think we made a mistake, reply or write to <a href="mailto:abuse@portifact.com">abuse@portifact.com</a> and we will review it.</p>
       </section>
 
       <section id="changes" aria-labelledby="changes-heading" class="mt-12 scroll-mt-8">

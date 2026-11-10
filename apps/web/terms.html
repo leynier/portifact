@@ -31,7 +31,7 @@
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Terms of Service</h1>
-      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-08</span>. Effective <time datetime="2026-11-08">November 8, 2026</time>.</p>
+      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-12-10</span>. Effective <time datetime="2026-12-10">December 10, 2026</time>.</p>
       <p class="mt-6 leading-7">These terms are an agreement between you and the operator of Portifact. They cover the hosted service at portifact.com and portifact.dev: the website, the dashboard, the command-line tool (CLI), the remote MCP server and the API. Please read them together with the <a href="/privacy">Privacy Policy</a>, which explains what data we keep, and the <a href="/acceptable-use">Acceptable Use Policy</a>, which lists what you may not publish.</p>
 
       <nav aria-labelledby="toc-heading" class="mt-10 rounded-md border border-border p-5">
@@ -43,7 +43,13 @@
           <li><a href="#account">Your account and credentials</a></li>
           <li><a href="#service">What Portifact provides</a></li>
           <li><a href="#content">Your content</a></li>
+          <li><a href="#plans">Plans</a></li>
           <li><a href="#lifecycle">How long artifacts stay online</a></li>
+          <li><a href="#workspaces">Workspaces</a></li>
+          <li><a href="#share-links">Share links</a></li>
+          <li><a href="#branding">Branding</a></li>
+          <li><a href="#automation">Service tokens and publish keys</a></li>
+          <li><a href="#not-yet-available">Features not yet available</a></li>
           <li><a href="#acceptable-use">Acceptable use</a></li>
           <li><a href="#abuse">Reports and enforcement</a></li>
           <li><a href="#open-source">Open source</a></li>
@@ -89,7 +95,7 @@
         <h2 id="service-heading" class="text-xl font-semibold tracking-tight">What Portifact provides</h2>
         <p class="mt-4 leading-7">Portifact publishes static artifacts (HTML sites, Markdown and plain text) at their own address, lets you decide who can open each one, and, as it becomes available, lets the people you invite comment on them. It runs no builds, servers or databases for your content.</p>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-          <li>Portifact is free. Free accounts have quotas, which today are 50 active artifacts, 250 MB per artifact, 2.5 GB per account, 100 publications every 24 hours, and 1 million requests and 25 GB served per calendar month across all of your artifacts. When the monthly traffic is used up, your artifacts answer with an error until the next month, while you can still publish and manage them. We may change the quotas; when we lower one, we will tell you first, and what is already published stays online until it expires.</li>
+          <li>Portifact is free to use on the free plan, which has quotas: today 50 active artifacts, 250 MB per artifact, 2.5 GB per account, 100 publications every 24 hours, and 1 million requests and 25 GB served per calendar month across all of your artifacts. Paid plans raise these quotas and add features, as described under <a href="#plans">Plans</a>. When the monthly traffic is used up, your artifacts answer with an error until the next month, while you can still publish and manage them. We may change the quotas; when we lower one, we will tell you first, and what is already published stays online until it expires.</li>
           <li>Portifact is in early development. Features may change, move or be removed, and some described in the documentation are still being built. There is no guaranteed availability or support response time.</li>
           <li>New accounts cannot make artifacts public during their first 15 minutes.</li>
         </ul>
@@ -102,19 +108,101 @@
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
           <li>You confirm that you have the rights needed to publish your content and to grant this license, and that publishing it does not break the law or these terms.</li>
           <li>When you make an artifact public, anyone with the link can open it, and it may be copied by people we do not control.</li>
-          <li>Comments belong to the people who write them. By commenting on someone's artifact, you give its creator, and the people with access the creator lets see it, the right to read your comment, and you give us the same license to operate the service. The creator, and the agents they use, may read and act on comments.</li>
+          <li>Comments belong to the people who write them. By commenting on someone's artifact, you give its creator, and the people with access the creator lets see it, the right to read your comment, and you give us the same license to operate the service. For an artifact of a workspace, "its creator" means the workspace's admins and editors. The creator, and the agents they use, may read and act on comments.</li>
         </ul>
         <p class="mt-4 leading-7">We do not use your content to train AI models, and we do not sell it.</p>
+      </section>
+
+      <section id="plans" aria-labelledby="plans-heading" class="mt-12 scroll-mt-8">
+        <h2 id="plans-heading" class="text-xl font-semibold tracking-tight">Plans</h2>
+        <p class="mt-4 leading-7">Every account and every workspace has a plan. Without a paid plan it is on the free plan, with the quotas above. The paid plans are Pro, Team and Enterprise.</p>
+        <!-- biome-ignore lint/a11y/noNoninteractiveTabindex: the table scrolls sideways on narrow screens, and a scrolling region must be reachable by keyboard -->
+        <section class="mt-4 overflow-x-auto rounded-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" tabindex="0" aria-labelledby="plans-caption">
+        <table class="w-full text-left text-sm leading-6">
+          <caption id="plans-caption" class="sr-only">What each plan allows</caption>
+          <thead><tr><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Limit</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Free</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Pro</th><th scope="col" class="border-b border-border-strong py-2 pr-4 font-semibold">Team</th></tr></thead>
+          <tbody>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Active artifacts</th><td class="border-b border-border py-2 pr-4 align-top">50</td><td class="border-b border-border py-2 pr-4 align-top">500</td><td class="border-b border-border py-2 pr-4 align-top">2,000</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Size of one artifact</th><td class="border-b border-border py-2 pr-4 align-top">250 MB</td><td class="border-b border-border py-2 pr-4 align-top">2 GB</td><td class="border-b border-border py-2 pr-4 align-top">2 GB</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Storage</th><td class="border-b border-border py-2 pr-4 align-top">2.5 GB</td><td class="border-b border-border py-2 pr-4 align-top">25 GB</td><td class="border-b border-border py-2 pr-4 align-top">30 GB per seat</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Traffic served per calendar month</th><td class="border-b border-border py-2 pr-4 align-top">1 million requests and 25 GB</td><td class="border-b border-border py-2 pr-4 align-top">2 million requests and 250 GB</td><td class="border-b border-border py-2 pr-4 align-top">3 million requests per seat and 1 TB</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Comments across your artifacts</th><td class="border-b border-border py-2 pr-4 align-top">5,000 messages and 50 MB</td><td class="border-b border-border py-2 pr-4 align-top">25,000 messages and 100 MB</td><td class="border-b border-border py-2 pr-4 align-top">25,000 messages and 100 MB per seat</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Archive kept for</th><td class="border-b border-border py-2 pr-4 align-top">6 months</td><td class="border-b border-border py-2 pr-4 align-top">12 months</td><td class="border-b border-border py-2 pr-4 align-top">12 months</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Previous versions kept</th><td class="border-b border-border py-2 pr-4 align-top">Up to 2, for 7 days</td><td class="border-b border-border py-2 pr-4 align-top">Up to 50, for 90 days</td><td class="border-b border-border py-2 pr-4 align-top">Up to 100, for 1 year</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Access log and analytics kept for</th><td class="border-b border-border py-2 pr-4 align-top">30 days</td><td class="border-b border-border py-2 pr-4 align-top">1 year</td><td class="border-b border-border py-2 pr-4 align-top">1 year</td></tr>
+          </tbody>
+        </table>
+        </section>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li><strong>Paid features.</strong> Pro and Team add pinning artifacts so they do not expire, comparing versions, share links, comment notices by email, artifact analytics and branding the Portifact bar. Team adds workspaces, service tokens and the audit log. Enterprise starts from Team, and its limits are those we agree with you in writing.</li>
+          <li><strong>Getting a paid plan.</strong> Portifact has no checkout and does not process payments. To get a paid plan, write to <a href="mailto:legal@portifact.com">legal@portifact.com</a>. We grant it to your account or workspace at the price we agree with you before it starts, for the period we agree. We tell you by email before a paid plan ends.</li>
+          <li><strong>When a plan ends or is lowered.</strong> Your artifacts, comments and settings are not deleted because of it, and what is published stays online until it expires as usual. New work over the lower plan's limits is refused, for example a publish over the storage limit or a new member over the seats. Pinned artifacts are unpinned: each one gets the usual 30 days from then, and you get the usual expiry notice. Features of the higher plan stop: share links are paused until the plan includes them again, the brand is kept but not shown, and comment notices, analytics, version comparison, service tokens and reading the audit log stop. Previous versions and access log entries that the lower plan does not keep are deleted at the next cleanup. An artifact already archived keeps the date set when it was archived.</li>
+        </ul>
       </section>
 
       <section id="lifecycle" aria-labelledby="lifecycle-heading" class="mt-12 scroll-mt-8">
         <h2 id="lifecycle-heading" class="text-xl font-semibold tracking-tight">How long artifacts stay online</h2>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-          <li>An artifact stays online for 30 days after you publish it. Every update or renewal starts the 30 days again.</li>
-          <li>After that it is archived: it goes offline but is kept for six months, and you can restore it at any time during that period.</li>
-          <li>After six months in the archive, it is deleted for good. You can also delete an artifact yourself at any time, which cannot be undone.</li>
+          <li>An artifact stays online for 30 days after you publish it. Every update or renewal starts the 30 days again. On a paid plan you can pin an artifact so it does not expire while it is pinned.</li>
+          <li>After that it is archived: it goes offline but is kept for six months on the free plan, or 12 months on a paid plan, and you can restore it at any time during that period. The period is set by the plan you have when the artifact is archived, and a later plan change does not move it.</li>
+          <li>At the end of that period, it is deleted for good. You can also delete an artifact yourself at any time, which cannot be undone.</li>
         </ul>
         <p class="mt-4 leading-7">Portifact is not a backup service. Keep your own copies of anything you need.</p>
+      </section>
+
+      <section id="workspaces" aria-labelledby="workspaces-heading" class="mt-12 scroll-mt-8">
+        <h2 id="workspaces-heading" class="text-xl font-semibold tracking-tight">Workspaces</h2>
+        <p class="mt-4 leading-7">A workspace lets a team own artifacts together. Workspaces are on the Team and Enterprise plans, and we create them on request; you cannot create one yourself yet. Each member acts in a workspace with a role:</p>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li><strong>Admins</strong> manage members, invitations, roles, verified email domains, service tokens, branding and everything editors can do, and read the audit log.</li>
+          <li><strong>Editors</strong> publish and manage every artifact of the workspace.</li>
+          <li><strong>Members</strong> read and comment on what is shared with the workspace and manage nothing.</li>
+        </ul>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li>Admins and editors can open, change, share, archive and delete every artifact of the workspace, see every comment on them and read their access logs, whoever published it.</li>
+          <li>What you publish in a workspace, or move into it, belongs to the workspace. It stays there when you leave, are removed or delete your account. Only an admin can move an artifact out of a workspace.</li>
+          <li>The plan's seats limit the members plus the pending invitations. A lower plan or fewer seats removes nobody, but new members and invitations are refused until the workspace is under the limit.</li>
+          <li>The last admin of a workspace cannot leave it or delete their account until another member is an admin or the workspace is deleted. We delete a workspace at its admins' request; its artifacts are then deleted like those of a deleted account.</li>
+          <li>An artifact of a workspace can be shared with every member, or with its verified email domains: then anyone signed in with a verified address at one of those domains can open it too. Admins who verify a domain must be entitled to act for it, and the workspace is responsible for who holds addresses at its domains. We remove a domain when its DNS record is missing for three daily checks in a row or when another workspace proves control of it.</li>
+        </ul>
+      </section>
+
+      <section id="share-links" aria-labelledby="share-links-heading" class="mt-12 scroll-mt-8">
+        <h2 id="share-links-heading" class="text-xl font-semibold tracking-tight">Share links</h2>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li>On a plan with share links, you can create links that let anyone holding them read the current version of one artifact without an account, optionally with a password and an expiry of up to one year. A link does not let its holder comment.</li>
+          <li>You are responsible for who gets a link and its password. Anyone who has them can open the artifact and pass them on. Revoke a link to stop it.</li>
+          <li>Links are paused while the plan does not include them and work again when it does. Suspending, archiving or deleting the artifact stops its links.</li>
+          <li>People who open an artifact through a link accept the <a href="/acceptable-use">Acceptable Use Policy</a> by using it, like anyone who opens a public artifact.</li>
+        </ul>
+      </section>
+
+      <section id="branding" aria-labelledby="branding-heading" class="mt-12 scroll-mt-8">
+        <h2 id="branding-heading" class="text-xl font-semibold tracking-tight">Branding</h2>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li>On a plan with branding, the admins of your account or workspace can show a name, a logo, an accent color and a link on the Portifact bar above your artifacts.</li>
+          <li>You must have the rights to the name, logo and link you show, including any trademarks. A brand may not imitate Portifact or another person or organization.</li>
+          <li>The bar always says that the page is hosted on Portifact, shows the artifact's real address and offers a report link.</li>
+          <li>We may suspend a brand without notice, which brings back the default bar. A brand is not shown while the plan does not include branding, and it is kept until you delete it.</li>
+        </ul>
+      </section>
+
+      <section id="automation" aria-labelledby="automation-heading" class="mt-12 scroll-mt-8">
+        <h2 id="automation-heading" class="text-xl font-semibold tracking-tight">Service tokens and publish keys</h2>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li>On a plan with service tokens, a workspace's admins can create tokens that act for the workspace from automation such as continuous integration, with the editor role, the scopes they choose and an expiry of at most 366 days. A token can be limited to the artifacts it created or to artifacts whose publish key starts with a prefix.</li>
+          <li>The workspace is responsible for everything done with its tokens and for keeping them secret. Revoke a token you no longer need or that may have leaked. A token stops when it is revoked or expires, while the plan does not include service tokens, and when the workspace is deleted.</li>
+          <li>A publish key is a name you choose for an artifact, so automation can update the same artifact every time. It is kept with the artifact and freed when the artifact is deleted.</li>
+        </ul>
+      </section>
+
+      <section id="not-yet-available" aria-labelledby="not-yet-available-heading" class="mt-12 scroll-mt-8">
+        <h2 id="not-yet-available-heading" class="text-xl font-semibold tracking-tight">Features not yet available</h2>
+        <p class="mt-4 leading-7">Webhooks and custom domains are built but are not available yet. We will announce when each one becomes available. From then on, these terms apply to them:</p>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+          <li><strong>Webhooks.</strong> On a plan with webhooks, the admins of your account or workspace can have Portifact send events about your artifacts to HTTPS addresses they choose. You are responsible for the addresses you choose and for what happens to the data once it is sent. Do not use webhooks to send requests to systems you are not allowed to use.</li>
+          <li><strong>Custom domains.</strong> On a plan with custom domains, you can serve an artifact from a domain you control. You are responsible for your DNS, and you must keep the DNS record that proves you control the domain. We remove the domain, never the artifact, when the proof is missing or the domain stops pointing at Portifact for three daily checks in a row, when the plan no longer includes it (7 days after the plan ends, with an email first), when the artifact is suspended or deleted, when we block the name, or when someone else proves control of it. Cloudflare issues the certificate. We send no HSTS header on your domain. The cookies we set there only let your visitors open that artifact; other cookies your own sites set on the domain are your responsibility. The artifact keeps its Portifact address.</li>
+        </ul>
       </section>
 
       <section id="acceptable-use" aria-labelledby="acceptable-use-heading" class="mt-12 scroll-mt-8">
@@ -141,7 +229,7 @@
 
       <section id="ending" aria-labelledby="ending-heading" class="mt-12 scroll-mt-8">
         <h2 id="ending-heading" class="text-xl font-semibold tracking-tight">Ending your use</h2>
-        <p class="mt-4 leading-7">You can stop using Portifact at any time. Download your data and delete your account from the Account page of the dashboard; deleting needs a recent sign-in and cannot be undone. You can also write to <a href="mailto:privacy@portifact.com">privacy@portifact.com</a> and we will delete your account and its content.</p>
+        <p class="mt-4 leading-7">You can stop using Portifact at any time. Download your data and delete your account from the Settings page of the dashboard; deleting needs a recent sign-in and cannot be undone. If you are the only admin of a workspace, make another member an admin first. What you published in a workspace stays with the workspace. You can also write to <a href="mailto:privacy@portifact.com">privacy@portifact.com</a> and we will delete your account and its content.</p>
         <p class="mt-4 leading-7">We may suspend or close your account as described above. If we decide to shut Portifact down, we will give at least 30 days' notice when we reasonably can, so you can download your content. The sections on your content, disclaimers, liability, indemnity, governing law and general terms continue to apply after your account ends.</p>
       </section>
 
