@@ -63,6 +63,7 @@ export const DASHBOARD_ROUTES = [
   "/profile",
   "/apps",
   "/usage",
+  "/webhooks",
   "/branding",
   "/settings",
   "/members",

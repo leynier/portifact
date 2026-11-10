@@ -15,7 +15,17 @@ import {
 } from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Cable, Gauge, Layers, Mail, Palette, Settings, Upload, Users } from "lucide-react";
+import {
+  Cable,
+  Gauge,
+  Layers,
+  Mail,
+  Palette,
+  Settings,
+  Upload,
+  Users,
+  Webhook,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import symbol from "../../../../../assets/brand/symbol.svg";
 import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
@@ -252,6 +262,12 @@ export function Shell() {
       label: t("shell.usageLink"),
       icon: <Gauge className="size-4" />,
       render: (props) => <Link to="/usage" {...props} />,
+    },
+    space?.kind === "personal" && {
+      key: "webhooks",
+      label: t("shell.webhooksLink"),
+      icon: <Webhook className="size-4" />,
+      render: (props) => <Link to="/webhooks" {...props} />,
     },
     allowed("brand") && {
       key: "branding",

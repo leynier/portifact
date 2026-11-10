@@ -35,6 +35,7 @@ test("the sidebar collapses to icons, resizes from its edge and remembers both",
     "Publish",
     "Apps",
     "Usage",
+    "Webhooks",
     "Branding",
     "Settings",
   ]);

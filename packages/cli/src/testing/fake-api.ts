@@ -37,6 +37,10 @@ import {
   type SourceOrigin,
   UploadedPart,
   VERSION_DIFF,
+  type WebhookAttempt,
+  WebhookCreate,
+  WebhookUpdate,
+  type WebhookView,
 } from "@portifact/contracts";
 import { decodeUtf8, diffText, pageHunks, textDiffEligibility } from "@portifact/domain";
 
@@ -209,6 +213,14 @@ export interface FakeApiState {
   seed(overrides?: Partial<FakeArtifact>): FakeArtifact;
   /** What GET /usage answers. */
   usage: AccountUsageView;
+  /** The account's webhooks, as /webhooks keeps them (the feature comes from `usage.plan`). */
+  webhooks: Map<string, WebhookView>;
+  /** Delivery attempts each webhook's log answers. */
+  webhookAttempts: Map<string, WebhookAttempt[]>;
+  /** Test events queued per webhook. */
+  webhookTests: string[];
+  /** Whether the server offers webhooks at all (`WEBHOOKS_ENABLED`). */
+  webhooksOffered: boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -264,6 +276,10 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     tooNewForPublic: false,
     workspaces: [],
     workspaceParams: [],
+    webhooks: new Map(),
+    webhookAttempts: new Map(),
+    webhookTests: [],
+    webhooksOffered: true,
     urlTtlMs: 15 * 60 * 1000,
     usage: {
       plan: {
@@ -1284,6 +1300,99 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     return { status: 200, body: view };
   }
 
+  /** /webhooks like the Worker: plan gate on create, enable and test; others never gated. */
+  function webhookRoute(method: string, path: string, raw: string): Reply | undefined {
+    const available = state.usage.plan.features.includes("webhooks");
+    const missing = () => error("not_found", "Webhook not found.");
+    if (path === "/webhooks" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          webhooks: [...state.webhooks.values()],
+          available,
+          serviceAvailable: state.webhooksOffered,
+          limit: 10,
+        },
+      };
+    }
+    if (path === "/webhooks" && method === "POST") {
+      const body = WebhookCreate.safeParse(JSON.parse(raw || "{}"));
+      if (!body.success) return error("invalid_input", body.error.issues[0]?.message ?? "Invalid.");
+      if (!available) return planRequired("webhooks");
+      const url = new URL(body.data.url);
+      if (url.protocol !== "https:")
+        return error("invalid_input", "The URL must start with https://.");
+      const id = `wh_${randomUUID().replaceAll("-", "")}`;
+      const webhook: WebhookView = {
+        id,
+        host: url.hostname,
+        format: body.data.format,
+        events: body.data.events,
+        state: "active",
+        disabledReason: null,
+        disabledAt: null,
+        failures: 0,
+        createdAt: new Date(clock()).toISOString(),
+        createdVia: "portifact-cli",
+        createdBy: "Ada",
+        probation: false,
+        lastAttempt: null,
+      };
+      state.webhooks.set(id, webhook);
+      return {
+        status: 201,
+        body: { webhook, secret: body.data.format === "generic" ? "whsec_sample-for-tests" : null },
+      };
+    }
+    const match = /^\/webhooks\/([^/]+)(\/test|\/deliveries)?$/.exec(path);
+    if (!match) return undefined;
+    const webhook = state.webhooks.get(decodeURIComponent(match[1] as string));
+    if (!webhook) return missing();
+    if (match[2] === "/deliveries" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          webhookId: webhook.id,
+          attempts: state.webhookAttempts.get(webhook.id) ?? [],
+          retentionDays: 7,
+        },
+      };
+    }
+    if (match[2] === "/test" && method === "POST") {
+      if (!available) return planRequired("webhooks");
+      state.webhookTests.push(webhook.id);
+      return { status: 202, body: { webhookId: webhook.id, queued: true } };
+    }
+    if (!match[2] && method === "DELETE") {
+      state.webhooks.delete(webhook.id);
+      return { status: 200, body: { webhookId: webhook.id, removed: true } };
+    }
+    if (!match[2] && method === "PATCH") {
+      const body = WebhookUpdate.safeParse(JSON.parse(raw || "{}"));
+      if (!body.success) return error("invalid_input", body.error.issues[0]?.message ?? "Invalid.");
+      const enabled = body.data.enabled ?? webhook.state !== "disabled";
+      if (enabled && !available) return planRequired("webhooks");
+      if (body.data.events) webhook.events = body.data.events;
+      if (body.data.enabled === true) {
+        Object.assign(webhook, {
+          state: "active",
+          disabledReason: null,
+          disabledAt: null,
+          failures: 0,
+        });
+      }
+      if (body.data.enabled === false && webhook.state !== "disabled") {
+        Object.assign(webhook, {
+          state: "disabled",
+          disabledReason: "manual",
+          disabledAt: new Date(clock()).toISOString(),
+        });
+      }
+      return { status: 200, body: webhook };
+    }
+    return undefined;
+  }
+
   /** Answers an /api/v1 route other than /me, or undefined when there is none. */
   function api(method: string, url: URL, ownerId: string, key: string | undefined, raw: string) {
     const path = url.pathname.slice("/api/v1".length);
@@ -1336,6 +1445,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       const to = url.searchParams.get("to") ?? body.to;
       return { status: 200, body: { ...body, from, to } };
     }
+    const hooks = webhookRoute(method, path, raw);
+    if (hooks) return hooks;
     const log = /^\/artifacts\/([^/]+)\/access-log$/.exec(path);
     if (log && method === "GET") return accessLog(decodeURIComponent(log[1] as string), url);
     if (route === "GET /domains") return domainList(url);

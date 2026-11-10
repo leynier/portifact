@@ -40,13 +40,14 @@ import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { artifactListItem, artifactSummary } from "../mcp/present.ts";
-import { artifactDb, defaultDb, ownerOf, ownerScope } from "../regions.ts";
-import { authorizeApiRequest, type SessionLookup } from "./access.ts";
+import { artifactDb, defaultDb, ownerOf, ownerScope, personalScope } from "../regions.ts";
+import { authorizeAccountRequest, authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
 import { domainRoutes } from "./domains.ts";
 import {
+  type AccountGuarded,
   type ApiContext,
   error,
   type Guarded,
@@ -61,6 +62,7 @@ import { statsRoutes } from "./stats.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
+import { webhookRoutes } from "./webhooks.ts";
 import { workspaceReadRoutes } from "./workspaces.ts";
 
 export interface ApiDeps {
@@ -102,6 +104,21 @@ export function apiRoutes(deps: ApiDeps) {
       scope,
     );
     return decision.ok ? handler(c, decision.userId) : decision.response;
+  };
+
+  /** The dashboard session or the Portifact CLI's `credentials:manage` token, nothing else. */
+  const accountGuarded: AccountGuarded = (handler) => async (c: ApiContext) => {
+    const decision = await authorizeAccountRequest(
+      {
+        introspect: deps.introspect(c.env),
+        resource: deps.resource(c.env),
+        session: deps.session(c.env),
+      },
+      c.req.raw,
+    );
+    if (!decision.ok) return decision.response;
+    c.header("Cache-Control", "no-store");
+    return handler(c, { userId: decision.userId, via: decision.via });
   };
 
   api.post(
@@ -364,6 +381,7 @@ export function apiRoutes(deps: ApiDeps) {
   workspaceReadRoutes(api, guarded);
   shareLinkRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  webhookRoutes(api, guarded, accountGuarded, deps.now);
   domainRoutes(api, guarded, deps.domains, deps.now);
 
   return api;

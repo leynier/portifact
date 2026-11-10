@@ -16,12 +16,17 @@ import {
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
 import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
+import { webhookDepsFromEnv } from "../../apps/jobs/src/webhooks.ts";
 import { setContentClockOffset } from "./clock.ts";
 import { e2eDomains } from "./domains.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
 /** Where the e2e Worker keeps the last email sent to each address, in the local bucket. */
 export const MAIL_PREFIX = "e2e-mail/";
+/** Where the stand-in webhook receiver keeps each request it got, in the local bucket. */
+export const WEBHOOK_PREFIX = "e2e-webhooks/";
+/** The receiver's host: webhook deliveries to it never leave the stack. */
+export const RECEIVER_HOST = "hooks.receiver-e2e.example.com";
 export type E2eEnv = AppEnv & ContentEnv;
 
 const DAY = 86_400_000;
@@ -399,6 +404,35 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       await runJob(db, env.ARTIFACTS, { id, topic: "comment_notice" }, now, { commentNotifier });
     }
     return Response.json({ scheduled: scheduled.recipients, ran: results.length });
+  }
+
+  // The jobs Worker's webhook deliveries, run now with its real deps, except the network: requests
+  // to RECEIVER_HOST land in the local bucket (the receiver answers 200), anything else fails.
+  if (path === "/webhooks") {
+    const receive = async (url: string, init: RequestInit) => {
+      if (new URL(url).hostname !== RECEIVER_HOST) throw new TypeError("not the e2e receiver");
+      const headers = Object.fromEntries(new Headers(init.headers).entries());
+      await env.ARTIFACTS.put(
+        `${WEBHOOK_PREFIX}${Date.now()}-${crypto.randomUUID()}`,
+        JSON.stringify({ url, headers, body: String(init.body) }),
+      );
+      return new Response("ok");
+    };
+    const webhooks = await webhookDepsFromEnv(env, receive);
+    const { results } = await env.DB.prepare(
+      "select id from outbox where topic = 'webhook_delivery' and available_at <= ?",
+    )
+      .bind(now)
+      .all<{ id: number }>();
+    for (const { id } of results) {
+      await runJob(db, env.ARTIFACTS, { id, topic: "webhook_delivery" }, now, { webhooks });
+    }
+    const listed = await env.ARTIFACTS.list({ prefix: WEBHOOK_PREFIX });
+    const received = [];
+    for (const object of listed.objects.sort((a, b) => a.key.localeCompare(b.key))) {
+      received.push(await (await env.ARTIFACTS.get(object.key))?.json());
+    }
+    return Response.json({ ran: results.length, received });
   }
 
   // Custom domains: what DNS holds and what Cloudflare reports, as a customer and Cloudflare would.

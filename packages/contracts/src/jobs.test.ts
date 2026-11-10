@@ -68,11 +68,12 @@ describe("job contracts", () => {
       "expiry_notice",
       "comment_notice",
       "owner_retention",
+      "webhook_delivery",
       "delete_custom_hostname",
       "workspace_deletion",
       "access_history_move",
     ]);
-    for (const kind of ["artifact", "account", "share_link", "workspace"]) {
+    for (const kind of ["artifact", "account", "share_link", "workspace", "webhook"]) {
       expect(TombstoneMarker.parse({ ...marker, kind }).kind).toBe(kind);
     }
     expect(JobMessage.parse({ id: 1, topic: "workspace_deletion" }).topic).toBe(

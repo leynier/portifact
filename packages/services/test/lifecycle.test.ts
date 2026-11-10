@@ -451,6 +451,7 @@ describe("purging archives", () => {
       prunedEmailSuppressions: 0,
       alignedPlanLimits: 0,
       unpinned: 0,
+      webhooks: { prunedDeliveries: 0, requeued: 0 },
     });
   });
 });

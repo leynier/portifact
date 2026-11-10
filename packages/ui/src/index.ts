@@ -31,6 +31,7 @@ export {
   type CheckboxProps,
   ColorField,
   type ColorFieldProps,
+  FieldError,
   RadioGroup,
   type RadioGroupProps,
   type RadioOption,

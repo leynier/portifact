@@ -52,18 +52,26 @@ afterEach(() => {
 interface Client {
   userId: string;
   apiCall: (path: string, init?: RequestInit) => Promise<Response>;
+  /** The API with the Portifact CLI's `credentials:manage` token, which manages webhooks. */
+  manageCall: (path: string, init?: RequestInit) => Promise<Response>;
   tool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
 /** One operation's answer through the API (status and body) and through MCP (error flag and body). */
 interface Answers {
   api: { status: number; body: unknown };
-  mcp: { ok: boolean; body: unknown };
+  /** Absent for operations no MCP tool offers (managing webhooks, decision 0003's addendum). */
+  mcp?: { ok: boolean; body: unknown };
 }
 
 interface GatedOperation {
   feature: PlanFeature;
   name: string;
+  /**
+   * `owner` for operations on the caller's own space (webhooks), which the interfaces cannot aim
+   * at a workspace yet: the plan that counts is the caller's personal space's.
+   */
+  scope?: "artifact" | "owner";
   /** Runs the operation as `who` on artifact `id` through both interfaces. */
   run: (who: Client, id: string) => Promise<Answers>;
 }
@@ -173,6 +181,31 @@ const GATED: GatedOperation[] = [
     "diff_version_file",
     (id) => ({ artifactId: id, fromVersionId: "current", path: "index.md" }),
   ),
+  {
+    feature: "webhooks",
+    name: "create a webhook",
+    scope: "owner",
+    run: async (who) => {
+      const response = await who.manageCall("/api/v1/webhooks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(WEBHOOK),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
+  {
+    feature: "webhooks",
+    name: "enable a webhook",
+    scope: "owner",
+    run: (who) => onWebhook(who, "enable"),
+  },
+  {
+    feature: "webhooks",
+    name: "send a test event",
+    scope: "owner",
+    run: (who) => onWebhook(who, "test"),
+  },
   route(
     "customDomains",
     "add a custom domain",
@@ -191,13 +224,56 @@ const GATED: GatedOperation[] = [
   probe("sso"),
 ];
 
+const WEBHOOK = {
+  url: "https://hooks.example.com/in",
+  format: "generic",
+  events: ["artifact.published"],
+};
+
+/**
+ * Enables or tests a webhook the caller made while on a plan with the feature, after setting the
+ * plan the test chose: the row is written as a grant would, the webhook is disabled for `enable`.
+ */
+async function onWebhook(who: Client, operation: "enable" | "test"): Promise<Answers> {
+  const [plan] = await db()
+    .select()
+    .from(schema.ownerPlans)
+    .where(eq(schema.ownerPlans.ownerId, who.userId));
+  await onPlan(who.userId, "pro");
+  const created = await who.manageCall("/api/v1/webhooks", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(WEBHOOK),
+  });
+  const { webhook } = await created.json<{ webhook: { id: string } }>();
+  if (operation === "enable") {
+    await db()
+      .update(schema.webhooks)
+      .set({ disabledAt: NOW, disabledReason: "manual" })
+      .where(eq(schema.webhooks.id, webhook.id));
+  }
+  await onPlan(who.userId, plan?.plan ?? "free");
+  const [path, method, body] =
+    operation === "enable"
+      ? [`/api/v1/webhooks/${webhook.id}`, "PATCH", { enabled: true }]
+      : [`/api/v1/webhooks/${webhook.id}/test`, "POST", undefined];
+  const response = await who.manageCall(path, {
+    method,
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  return { api: { status: response.status, body: await response.json<unknown>() } };
+}
+
 async function client(email: string): Promise<Client> {
   const h = createHarness();
   const apiAccess = await apiToken(h, email, SCOPES);
   const mcp = await connect(h, await mcpToken(h, email, SCOPES));
   const apiCall = (path: string, init?: RequestInit) => api(h, apiAccess, path, init);
+  const manage = await apiToken(h, email, "artifacts:read credentials:manage");
+  const manageCall = (path: string, init?: RequestInit) => api(h, manage, path, init);
   const { userId } = await (await apiCall("/api/v1/me")).json<{ userId: string }>();
-  return { userId, apiCall, tool: (name, args) => callTool(mcp, name, args) };
+  return { userId, apiCall, manageCall, tool: (name, args) => callTool(mcp, name, args) };
 }
 
 async function sha256(text: string) {
@@ -253,11 +329,11 @@ const slug = (op: GatedOperation) =>
 function expectRefused(answers: Answers, feature: PlanFeature, label: string) {
   const body = { error: { code: "plan_required", message: planRequiredMessage(feature) } };
   expect(answers.api, label).toEqual({ status: 403, body });
-  expect(answers.mcp, label).toEqual({ ok: false, body });
+  if (answers.mcp) expect(answers.mcp, label).toEqual({ ok: false, body });
 }
 
 function expectNotRefused(answers: Answers, label: string) {
-  for (const body of [answers.api.body, answers.mcp.body]) {
+  for (const body of [answers.api.body, ...(answers.mcp ? [answers.mcp.body] : [])]) {
     expect((body as { error?: { code?: string } }).error?.code, label).not.toBe("plan_required");
   }
 }
@@ -271,7 +347,12 @@ describe.each(GATED)("$feature: $name", (op) => {
     await onPlan(owner.userId, lowestPlanWith(op.feature));
     expectNotRefused(await op.run(owner, id), lowestPlanWith(op.feature));
   });
+});
 
+// Operations on the caller's own space have no artifact owner to follow.
+const ON_ARTIFACTS = GATED.filter((op) => op.scope !== "owner");
+
+describe.each(ON_ARTIFACTS)("$feature: $name, on a workspace's artifact", (op) => {
   it("follows the artifact owner's plan, not the caller's", async () => {
     const editor = await client(`gate-editor-${slug(op)}@example.test`);
     const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;

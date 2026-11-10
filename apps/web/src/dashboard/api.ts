@@ -61,6 +61,14 @@ import {
   VersionList,
   VersionManifest,
   ViewerInfo,
+  type WebhookCreate,
+  WebhookCreated,
+  WebhookDeliveries,
+  WebhookList,
+  WebhookRemoved,
+  WebhookTestQueued,
+  type WebhookUpdate,
+  WebhookView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
@@ -167,6 +175,14 @@ export interface DashboardApi {
   ): Promise<WorkspaceView | null>;
   /** Moves an artifact to a workspace, or to the personal space with `null`. */
   transferArtifact(artifactId: string, workspace: string | null): Promise<ArtifactSummary>;
+  /** The account's webhooks (decision 0009). */
+  webhooks(): Promise<WebhookList>;
+  /** Adds a webhook; the answer holds its signing secret once. */
+  createWebhook(webhook: WebhookCreate): Promise<WebhookCreated>;
+  updateWebhook(webhookId: string, update: WebhookUpdate): Promise<WebhookView>;
+  removeWebhook(webhookId: string): Promise<WebhookRemoved>;
+  testWebhook(webhookId: string): Promise<WebhookTestQueued>;
+  webhookDeliveries(webhookId: string): Promise<WebhookDeliveries>;
   /** The artifact's share links that are not revoked, never with their URL. */
   listShareLinks(artifactId: string): Promise<ShareLinkList>;
   /** Creates a share link; the answer holds its URL, the only time it is ever shown. */
@@ -465,6 +481,36 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     removeBrandLogo(workspace) {
       return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "DELETE");
+    },
+    webhooks() {
+      return call("/api/v1/webhooks", WebhookList);
+    },
+    createWebhook(webhook) {
+      return call("/api/v1/webhooks", WebhookCreated, "POST", webhook);
+    },
+    updateWebhook(webhookId, update) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}`,
+        WebhookView,
+        "PATCH",
+        update,
+      );
+    },
+    removeWebhook(webhookId) {
+      return call(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, WebhookRemoved, "DELETE");
+    },
+    testWebhook(webhookId) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
+        WebhookTestQueued,
+        "POST",
+      );
+    },
+    webhookDeliveries(webhookId) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`,
+        WebhookDeliveries,
+      );
     },
     commentNoticeMute(artifactId) {
       return call(

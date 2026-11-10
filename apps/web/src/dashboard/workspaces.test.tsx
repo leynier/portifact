@@ -109,7 +109,7 @@ describe("the space menu", () => {
     server.workspaces.e = workspace("e", "editor");
     server.workspaces.m = workspace("m", "member");
     const cases: [string, string[]][] = [
-      ["/", ["Artifacts", "Publish", "Apps", "Usage", "Branding", "Settings"]],
+      ["/", ["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Branding", "Settings"]],
       [
         "/?workspace=a",
         ["Artifacts", "Publish", "Apps", "Usage", "Branding", "Members", "Settings"],
@@ -142,6 +142,17 @@ describe("the space menu", () => {
     expect(requested("/api/v1/artifacts")).toEqual([]);
     expect(requested("/api/v1/usage?workspace=m")).toEqual([]);
     expect(requested("/api/v1/account/branding?workspace=m")).toEqual([]);
+  });
+
+  it("keeps webhooks in the personal space, and says so in a workspace", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    const { container } = renderDashboard("/webhooks?workspace=acme", server);
+    expect(await screen.findByText("Webhooks are set in your personal space")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "Go to your personal space" }).getAttribute("href"),
+    ).toBe("/webhooks");
+    expect(requested("/api/v1/webhooks")).toEqual([]);
+    expect(await axeViolations(container)).toEqual([]);
   });
 
   it("shows an empty workspace's first publish with the CLI command for it", async () => {

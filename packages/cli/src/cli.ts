@@ -34,6 +34,14 @@ import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
 import { listTokens, revokeToken } from "./tokens.ts";
 import { usage } from "./usage.ts";
 import { rollback, versions } from "./versions.ts";
+import {
+  addWebhook,
+  listWebhooks,
+  removeWebhook,
+  testWebhook,
+  updateWebhook,
+  webhookDeliveries,
+} from "./webhooks.ts";
 import { transfer, useWorkspace, workspaces } from "./workspaces.ts";
 
 export type { Io } from "./runtime.ts";
@@ -132,6 +140,15 @@ on your personal space unless --workspace names a workspace (or personal) or \`p
 workspaces use <slug>\` made one this device's default. Updating an artifact with --artifact
 always keeps it where it is. Admins and editors of a workspace see and manage everything published
 there; members only read and comment on what is shared with them.
+`;
+
+const WEBHOOKS_HELP = `
+A webhook sends events about all your artifacts to an HTTPS URL you choose: comment.created,
+thread.resolved, artifact.published, artifact.expiring and artifact.access_changed (or "all").
+The generic format is signed JSON (Standard Webhooks: webhook-id, webhook-timestamp and
+webhook-signature headers); add shows its signing secret once. slack and discord need that
+service's incoming webhook URL. Webhooks are part of a paid plan. Removing asks you to type
+"remove"; without a terminal pass --yes.
 `;
 
 const LIST_MAX = 100;
@@ -776,6 +793,100 @@ target will see who opened it before the move. Open read, review and share link 
           yes: options.yes === true,
           json: options.json === true,
         }),
+      ),
+    );
+
+  const webhooks = program
+    .command("webhooks")
+    .description("Manage the webhooks that send your artifacts' events to your own systems")
+    .enablePositionalOptions()
+    .addHelpText("after", WEBHOOKS_HELP);
+  webhooks
+    .command("list")
+    .description("List your webhooks: host, format, state, events and last attempt")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }) =>
+        listWebhooks(io, runtime, { json: options.json === true }),
+      ),
+    );
+  webhooks
+    .command("add")
+    .description("Add a webhook; prints its signing secret once")
+    .argument("<url>", "the HTTPS URL that receives the events")
+    .requiredOption("--events <list>", 'comma-separated event types, or "all"')
+    .option("--format <format>", "generic (signed JSON), slack or discord", "generic")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { events: string; format: "generic" | "slack" | "discord"; json?: boolean },
+          url: string,
+        ) =>
+          addWebhook(io, runtime, url, {
+            events: options.events,
+            format: options.format,
+            json: options.json === true,
+          }),
+      ),
+    );
+  webhooks
+    .command("remove")
+    .description("Remove a webhook and its delivery log, after a confirmation")
+    .argument("<id>", "webhook ID")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string) =>
+        removeWebhook(io, runtime, id, { yes: options.yes === true, json: options.json === true }),
+      ),
+    );
+  webhooks
+    .command("test")
+    .description("Send a test event to a webhook")
+    .argument("<id>", "webhook ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        testWebhook(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  webhooks
+    .command("deliveries")
+    .description("Show a webhook's delivery attempts of the last 7 days")
+    .argument("<id>", "webhook ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        webhookDeliveries(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  for (const [name, enabled, description] of [
+    ["enable", true, "Enable a webhook again; resets its failures"],
+    ["disable", false, "Stop a webhook without removing it"],
+  ] as const) {
+    webhooks
+      .command(name)
+      .description(description)
+      .argument("<id>", "webhook ID")
+      .option("--json", "Print the result as JSON")
+      .action(
+        execute((io, runtime, options: { json?: boolean }, id: string) =>
+          updateWebhook(io, runtime, id, { enabled }, { json: options.json === true }),
+        ),
+      );
+  }
+  webhooks
+    .command("events")
+    .description("Change which events a webhook receives")
+    .argument("<id>", "webhook ID")
+    .argument("<list>", 'comma-separated event types, or "all"')
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, list: string) =>
+        updateWebhook(io, runtime, id, { events: list }, { json: options.json === true }),
       ),
     );
 
