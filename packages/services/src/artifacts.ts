@@ -3,7 +3,6 @@
 import type { ArtifactListFilters } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import { type Actor, authorize, fail, ok, type Result } from "@portifact/domain";
-import { authorizeOn } from "./actors.ts";
 import {
   and,
   type Column,
@@ -16,6 +15,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { authorizeOn } from "./actors.ts";
 
 export type ArtifactRow = typeof schema.artifacts.$inferSelect;
 

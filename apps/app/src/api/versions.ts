@@ -16,7 +16,6 @@ import {
   VersionSummary,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { artifactDb } from "../regions.ts";
 import {
   type DownloadPlan,
   type FilePage,
@@ -35,6 +34,7 @@ import {
 } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
+import { artifactDb } from "../regions.ts";
 import { type ApiContext, error, failure, type Guarded as Guard, iso, readJson } from "./http.ts";
 import type { Presigner } from "./presign.ts";
 import { type ApiDeps, contentUrl } from "./routes.ts";
@@ -187,14 +187,17 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       if (!versionId.success) return error(c, "invalid_input", "Invalid version id.");
       if (!query.success) return error(c, "invalid_input", "kind must be published or source.");
       const now = deps.now();
-      const result = await getVersionDownload(await artifactDb(c.env, c.req.param("artifactId") as string), {
-        userId,
-        artifactId: c.req.param("artifactId") as string,
-        versionId: versionId.data,
-        kind: query.data.kind,
-        path: query.data.path,
-        now,
-      });
+      const result = await getVersionDownload(
+        await artifactDb(c.env, c.req.param("artifactId") as string),
+        {
+          userId,
+          artifactId: c.req.param("artifactId") as string,
+          versionId: versionId.data,
+          kind: query.data.kind,
+          path: query.data.path,
+          now,
+        },
+      );
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(await versionDownload(deps.presigner(c.env), result.value, now));
     }),
@@ -214,13 +217,17 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       if (!query.success) {
         return error(c, "invalid_input", "kind must be published or source, offset a byte offset.");
       }
-      const result = await readVersionFile(await artifactDb(c.env, c.req.param("artifactId") as string), c.env.ARTIFACTS, {
-        userId,
-        artifactId: c.req.param("artifactId") as string,
-        versionId: versionId.data,
-        ...query.data,
-        now: deps.now(),
-      });
+      const result = await readVersionFile(
+        await artifactDb(c.env, c.req.param("artifactId") as string),
+        c.env.ARTIFACTS,
+        {
+          userId,
+          artifactId: c.req.param("artifactId") as string,
+          versionId: versionId.data,
+          ...query.data,
+          now: deps.now(),
+        },
+      );
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(artifactContent(result.value));
     }),
@@ -247,8 +254,7 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
           requestHash: await hashRequest({ artifactId, ...body.value }),
           now,
         },
-        () =>
-          rollbackResponse(db, c.env, { userId, artifactId, request: body.value, now }),
+        () => rollbackResponse(db, c.env, { userId, artifactId, request: body.value, now }),
       );
       if (outcome.kind === "mismatch") {
         return error(c, "invalid_input", "This Idempotency-Key was used for a different request.");

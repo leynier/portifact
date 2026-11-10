@@ -1,13 +1,12 @@
-import { value } from "./fixtures.ts";
-import { personalActor } from "@portifact/domain";
 // Plans in the services (premium plan section 3, F1): an owner without a row is exactly today's
 // free account, and an owner's plan row raises or lowers the limits the domain rules apply.
 import { PLANS } from "@portifact/contracts";
+import { personalActor } from "@portifact/domain";
 import { describe, expect, it } from "vitest";
 import { ownerEntitlements, planView } from "../src/plans.ts";
 import { type ManifestEntry, preparePublish } from "../src/publish.ts";
 import { getAccountUsage } from "../src/usage.ts";
-import { DAY, db, grantPlan, NOW, user } from "./fixtures.ts";
+import { DAY, db, grantPlan, NOW, user, value } from "./fixtures.ts";
 
 /** A site of two 200 MB files: 400 MB, over free's 250 MB per version and under Pro's 2 GB. */
 function bigSite(): ManifestEntry[] {

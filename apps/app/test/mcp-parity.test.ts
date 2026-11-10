@@ -1655,7 +1655,13 @@ describe("API and MCP parity under budget protection", () => {
   const DOC = { schema: 1, path: "index.md", anchor: { kind: "document" } };
 
   async function protect(level: "slow75" | "protect100", steps = 1) {
-    await setBudgetOverride(regionsFromEnv(env).get("default").db, { level, steps, until: null, note: null, now: NOW });
+    await setBudgetOverride(regionsFromEnv(env).get("default").db, {
+      level,
+      steps,
+      until: null,
+      note: null,
+      now: NOW,
+    });
   }
   afterEach(async () => {
     await clearBudgetOverride(regionsFromEnv(env).get("default").db, NOW);

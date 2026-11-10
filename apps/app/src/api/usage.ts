@@ -1,10 +1,10 @@
 // GET /api/v1/usage (plan section 6, "Uso"): the account's quotas, current counters, 24-hour
 // windows and block reasons. The MCP tool get_usage returns the same body through `usageView`.
 import { AccountUsageView } from "@portifact/contracts";
-import { personalScope } from "../regions.ts";
 import { type AccountUsageReport, getAccountUsage, planView } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
+import { personalScope } from "../regions.ts";
 import { error, type Guarded, iso } from "./http.ts";
 
 export function usageView(report: AccountUsageReport): AccountUsageView {

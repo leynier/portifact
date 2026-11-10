@@ -2,14 +2,18 @@
 // GET /api/v1/usage and returns the same body with the same scope.
 import { AccountUsageView, GetUsageInput, type OAuthScope } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { personalScope } from "../regions.ts";
 import { getAccountUsage } from "@portifact/services";
 import { usageView } from "../api/usage.ts";
+import { personalScope } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 export const USAGE_TOOL_SCOPES: [string, OAuthScope][] = [["get_usage", "artifacts:read"]];
 
-export function registerUsageTools(register: RegisterTool, context: ToolContext, db: RegionalDb): void {
+export function registerUsageTools(
+  register: RegisterTool,
+  context: ToolContext,
+  db: RegionalDb,
+): void {
   register(
     "get_usage",
     {

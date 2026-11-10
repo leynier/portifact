@@ -7,8 +7,8 @@ import { ACCESS_LOG, type EraseAccessEventsPayload } from "@portifact/contracts"
 import { type AccessDb, accessSchema, type Db, type RegionalDb, schema } from "@portifact/db";
 import { accessLogCutoff, accessWindow, fail, ok, type Result } from "@portifact/domain";
 import { and, asc, desc, eq, gt, gte, inArray, lt, or, type SQL, sql } from "drizzle-orm";
-import { authorizeOn, ownerSide } from "./actors.ts";
 import type { BatchItem } from "drizzle-orm/batch";
+import { authorizeOn, ownerSide } from "./actors.ts";
 
 const IN_CHUNK = 80;
 /** Rows one erase or prune statement deletes, so no statement runs long. */

@@ -6,8 +6,8 @@
 import { drizzle } from "drizzle-orm/d1";
 import * as accessSchema from "./access-schema.ts";
 import type { AccessDb, Db } from "./index.ts";
-import { REGIONS } from "./schema.ts";
 import * as schema from "./schema.ts";
+import { REGIONS } from "./schema.ts";
 
 export type Region = (typeof REGIONS)[number];
 

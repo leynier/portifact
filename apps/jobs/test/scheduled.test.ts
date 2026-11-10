@@ -8,8 +8,9 @@ const NOW = Date.UTC(2026, 10, 8);
 
 describe("scheduled maintenance", () => {
   it("archives expired artifacts on each run", async () => {
-    await regionsFromEnv(env).get("default").db
-      .insert(schema.artifacts)
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.artifacts)
       .values({
         id: "k7d2qm4xab",
         ownerId: "u_owner",

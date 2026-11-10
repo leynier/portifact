@@ -19,7 +19,6 @@ import {
   ModerateMessageRequest,
   ReplyRequest,
 } from "@portifact/contracts";
-import { artifactDb } from "../regions.ts";
 import {
   annotationsToMarkdown,
   createAnnotationThread,
@@ -37,6 +36,7 @@ import {
 import { Hono } from "hono";
 import type { FetchLike } from "../auth/deps.ts";
 import type { Env } from "../env.ts";
+import { artifactDb } from "../regions.ts";
 import { humanCheck } from "../turnstile.ts";
 import { type ApiContext, error, failure, type Guarded, idempotent, readJson } from "./http.ts";
 

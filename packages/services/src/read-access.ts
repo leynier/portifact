@@ -5,9 +5,9 @@
 import { READ_SESSION } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import { canRead, effectiveState, fail, ok, type Result } from "@portifact/domain";
-import { actorOn } from "./actors.ts";
 import { and, eq, exists, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { actorOn } from "./actors.ts";
 
 const SECOND_MS = 1000;
 /** Rows each prune deletes per run, like the other maintenance jobs. */

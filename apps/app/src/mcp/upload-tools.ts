@@ -15,7 +15,6 @@ import {
   UploadRef,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { artifactDb, personalScope } from "../regions.ts";
 import {
   commitPublish,
   hashRequest,
@@ -24,6 +23,7 @@ import {
   uploadProgress,
 } from "@portifact/services";
 import { preparedPublish, prepareUpload } from "../api/uploads.ts";
+import { artifactDb, personalScope } from "../regions.ts";
 import { committedPublish } from "./present.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
@@ -51,7 +51,11 @@ function nextSteps(body: PreparedPublish): string {
     .join(" ");
 }
 
-export function registerUploadTools(register: RegisterTool, context: ToolContext, db: RegionalDb): void {
+export function registerUploadTools(
+  register: RegisterTool,
+  context: ToolContext,
+  db: RegionalDb,
+): void {
   const uploadDeps = () => ({
     bucket: context.env.ARTIFACTS,
     presigner: context.presigner,

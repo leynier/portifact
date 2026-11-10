@@ -16,7 +16,6 @@ import {
   VersionManifest,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { artifactDb } from "../regions.ts";
 import {
   getVersionDownload,
   getVersionManifest,
@@ -33,6 +32,7 @@ import {
   versionList,
   versionManifest,
 } from "../api/versions.ts";
+import { artifactDb } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 /** The scope of each version tool: the scope of the API route for the same operation. */
@@ -46,7 +46,11 @@ export const VERSION_TOOL_SCOPES: [string, OAuthScope][] = [
 
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false };
 
-export function registerVersionTools(register: RegisterTool, context: ToolContext, db: RegionalDb): void {
+export function registerVersionTools(
+  register: RegisterTool,
+  context: ToolContext,
+  db: RegionalDb,
+): void {
   register(
     "read_artifact",
     {
@@ -58,15 +62,19 @@ export function registerVersionTools(register: RegisterTool, context: ToolContex
       annotations: READ_ONLY,
     },
     async (args: ReadArtifactInput) => {
-      const result = await readVersionFile(await artifactDb(context.env, args.artifactId), context.env.ARTIFACTS, {
-        userId: context.userId,
-        artifactId: args.artifactId,
-        versionId: args.versionId,
-        kind: args.kind,
-        path: args.path,
-        offset: args.offset,
-        now: context.now(),
-      });
+      const result = await readVersionFile(
+        await artifactDb(context.env, args.artifactId),
+        context.env.ARTIFACTS,
+        {
+          userId: context.userId,
+          artifactId: args.artifactId,
+          versionId: args.versionId,
+          kind: args.kind,
+          path: args.path,
+          offset: args.offset,
+          now: context.now(),
+        },
+      );
       if (!result.ok) return failure(result.code, result.message);
       const body = artifactContent(result.value);
       const end = body.offset + body.length;

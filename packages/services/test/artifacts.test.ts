@@ -1,6 +1,6 @@
-import { personalActor } from "@portifact/domain";
 import { env } from "cloudflare:test";
 import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
+import { personalActor } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { decodeCursor, encodeCursor, getArtifact, listArtifacts } from "../src/artifacts.ts";

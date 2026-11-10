@@ -1,7 +1,7 @@
 // Seeding and inspection for the end-to-end tests, through the same services and tables the
 // Workers use. Only the e2e Worker has these routes, on a host the browsers cannot reach.
 import { TERMS_VERSION } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import {
   commitPublish,
   createAnnotationThread,
@@ -176,7 +176,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   if (path === "/echo") return Response.json(Object.fromEntries(request.headers));
   if (path === "/storage") return storagePut(request, env, url);
   const input = (await request.json()) as unknown;
-  const db = createDb(env.DB);
+  const db = regionsFromEnv(env).get("default").db;
   const now = Date.now();
 
   if (path === "/user") {
@@ -224,7 +224,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       })),
     );
     const prepared = await preparePublish(db, {
-      ownerId: publish.ownerId,
+      userId: publish.ownerId,
       type: publish.type,
       name: publish.name,
       entrypoint: entries[0]?.[0] ?? "index.html",
@@ -240,7 +240,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       await env.ARTIFACTS.put(`objects/${publish.ownerId}/${hash}`, body, { sha256: hash });
     }
     const committed = await commitPublish(db, env.ARTIFACTS, {
-      ownerId: publish.ownerId,
+      userId: publish.ownerId,
       sessionId: prepared.value.sessionId,
       now,
     });
@@ -305,7 +305,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   if (path === "/access") {
     const { ownerId, artifactId, removeReaders, addReaders } = input as AccessInput;
     const result = await updateAccess(db, {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { removeReaders, addReaders },
       now,

@@ -39,11 +39,11 @@ import {
 } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
-  actsForOwner,
   type AnnotationAction,
   type AnnotationRole,
   type AnnotationUsageSnapshot,
   type AnnotationWrite,
+  actsForOwner,
   canRead,
   checkAnnotationAction,
   checkAnnotationCapacity,

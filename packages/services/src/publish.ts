@@ -27,13 +27,13 @@ import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { newArtifactDefaults } from "./account-settings.ts";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
+import { claimNewArtifactId } from "./directory.ts";
 import {
   type DocumentRendering,
   renderDocument,
   renderingStatements,
   storeRenderings,
 } from "./documents.ts";
-import { claimNewArtifactId } from "./directory.ts";
 import { accountSuspension } from "./moderation.ts";
 import {
   abortMultipartJob,

@@ -24,7 +24,6 @@ import {
   UNTRUSTED_ANNOTATIONS_NOTICE,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { artifactDb } from "../regions.ts";
 import {
   annotationsToMarkdown,
   createAnnotationThread,
@@ -42,6 +41,7 @@ import {
   setAnnotationThreadState,
 } from "@portifact/services";
 import { z } from "zod";
+import { artifactDb } from "../regions.ts";
 import type { Outcome } from "./inline.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
@@ -92,7 +92,10 @@ export function registerAnnotationTools(
       annotations: { ...WRITE, destructiveHint: false, idempotentHint: true },
     },
     async (args: SetAnnotationsInput) => {
-      const result = await setAnnotationMode(await artifactDb(context.env, args.artifactId), { ...actor(args.artifactId), mode: args.mode });
+      const result = await setAnnotationMode(await artifactDb(context.env, args.artifactId), {
+        ...actor(args.artifactId),
+        mode: args.mode,
+      });
       if (!result.ok) return failure(result.code, result.message);
       const body = AnnotationModeView.parse(result.value);
       return success(`Annotations on ${args.artifactId} are now ${body.annotations}.`, body);

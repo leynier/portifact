@@ -28,7 +28,6 @@ import {
   SetPortifactBarInput,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { artifactDb, defaultDb, personalScope } from "../regions.ts";
 import type { MultipartConfig } from "@portifact/domain";
 import type { HumanCheck } from "@portifact/services";
 import {
@@ -45,6 +44,7 @@ import {
 } from "@portifact/services";
 import type { Presigner } from "../api/presign.ts";
 import type { Env } from "../env.ts";
+import { artifactDb, defaultDb, personalScope } from "../regions.ts";
 import { ACCESS_LOG_TOOL_SCOPES, registerAccessLogTools } from "./access-log-tools.ts";
 import { ACCESS_TOOL_SCOPES, registerAccessTools } from "./access-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
@@ -148,7 +148,13 @@ export function createPortifactServer(context: ToolContext): McpServer {
     async (args: ListArtifactsInput) => {
       const { cursor, limit, ...filters } = args;
       const { actor, db: owned } = await personalScope(context.env, context.userId);
-      const page = await listArtifacts(owned, { actor, cursor, limit, filters, now: context.now() });
+      const page = await listArtifacts(owned, {
+        actor,
+        cursor,
+        limit,
+        filters,
+        now: context.now(),
+      });
       if (!page.ok) return failure(page.code, page.message);
       const body = ArtifactList.parse({
         items: page.value.items.map((row) => artifactListItem(context.env, row)),
@@ -311,11 +317,15 @@ export function createPortifactServer(context: ToolContext): McpServer {
       }
       return lifecycleResponse(
         args.artifactId,
-        await deleteArtifact(await artifactDb(context.env, args.artifactId), context.env.ARTIFACTS, {
-          userId: context.userId,
-          artifactId: args.artifactId,
-          now: context.now(),
-        }),
+        await deleteArtifact(
+          await artifactDb(context.env, args.artifactId),
+          context.env.ARTIFACTS,
+          {
+            userId: context.userId,
+            artifactId: args.artifactId,
+            now: context.now(),
+          },
+        ),
       );
     },
   );

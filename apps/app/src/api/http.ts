@@ -5,11 +5,11 @@ import {
   IdempotencyKey,
   type OAuthScope,
 } from "@portifact/contracts";
-import { defaultDb } from "../regions.ts";
 import { hashRequest, runIdempotent, type StoredResponse } from "@portifact/services";
 import type { Context } from "hono";
 import type { z } from "zod";
 import type { Env } from "../env.ts";
+import { defaultDb } from "../regions.ts";
 
 export type ApiContext = Context<{ Bindings: Env }>;
 

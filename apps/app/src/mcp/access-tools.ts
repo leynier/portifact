@@ -10,8 +10,8 @@ import {
   SetAccessInput,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { artifactDb } from "../regions.ts";
 import { updateAccess } from "@portifact/services";
+import { artifactDb } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 export const ACCESS_TOOL_SCOPES: [string, OAuthScope][] = [
@@ -27,7 +27,11 @@ const CHANGE = {
   openWorldHint: false,
 };
 
-export function registerAccessTools(register: RegisterTool, context: ToolContext, db: RegionalDb): void {
+export function registerAccessTools(
+  register: RegisterTool,
+  context: ToolContext,
+  db: RegionalDb,
+): void {
   /** Validates `change` as the API's body and applies it; the result is the API's answer. */
   const apply = async (
     artifactId: string,

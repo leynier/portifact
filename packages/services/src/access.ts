@@ -11,9 +11,9 @@ import {
 } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import { type Actor, checkAccessChange, fail, ok, type Result } from "@portifact/domain";
-import { authorizeOn } from "./actors.ts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { authorizeOn } from "./actors.ts";
 
 export interface AccessPolicyState {
   mode: AccessMode;

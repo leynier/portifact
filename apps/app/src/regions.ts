@@ -26,10 +26,7 @@ export async function artifactDb(env: RegionEnv, artifactId: string): Promise<Re
 }
 
 /** The handles of the region that holds an artifact, found like `artifactDb`. */
-export async function artifactRegion(
-  env: RegionEnv,
-  artifactId: string,
-): Promise<RegionHandles> {
+export async function artifactRegion(env: RegionEnv, artifactId: string): Promise<RegionHandles> {
   const regions = regionsFromEnv(env);
   return (await artifactHandles(regions, artifactId)) ?? personalHandles(regions);
 }

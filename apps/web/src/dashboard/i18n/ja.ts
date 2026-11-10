@@ -987,6 +987,8 @@ export const ja = {
   "error.account_too_new_for_public": "新しいアカウントはまだartifactを一般公開できません。",
   "error.capacity_unavailable":
     "Portifactは現在処理能力の上限に達しています。しばらくしてからもう一度お試しください。",
+  "error.sole_workspace_admin":
+    "あなたはワークスペースの唯一の管理者です。アカウントを削除する前に、別のメンバーを管理者にするか、ワークスペースを削除してください。",
   "error.rate_limited": "リクエストが多すぎます。少し待ってから、もう一度お試しください。",
   "error.reauthentication_required": "この操作を行うには、もう一度サインインしてください。",
   "error.human_verification_required":

@@ -3,16 +3,20 @@
 // scope.
 import { AccessLogView, GetAccessLogsInput, type OAuthScope } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { accessDbOf, artifactRegion } from "../regions.ts";
 import { getAccessLog } from "@portifact/services";
 import { accessLogView } from "../api/access-log.ts";
+import { accessDbOf, artifactRegion } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 export const ACCESS_LOG_TOOL_SCOPES: [string, OAuthScope][] = [
   ["get_access_logs", "artifacts:read"],
 ];
 
-export function registerAccessLogTools(register: RegisterTool, context: ToolContext, db: RegionalDb): void {
+export function registerAccessLogTools(
+  register: RegisterTool,
+  context: ToolContext,
+  db: RegionalDb,
+): void {
   register(
     "get_access_logs",
     {

@@ -18,7 +18,6 @@ import {
   ReviewTabStart,
   ViewerInfo,
 } from "@portifact/contracts";
-import { artifactDb } from "../regions.ts";
 import {
   getViewerArtifact,
   type IssuedReviewHandoff,
@@ -29,6 +28,7 @@ import { Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
 import { checkLimits, REVIEW_START_LIMIT, VIEWER_LOOKUP_LIMIT } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
+import { artifactDb } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie } from "./access.ts";
 import type { AccountSessionLookup } from "./account.ts";
 
@@ -116,7 +116,11 @@ export function reviewRoutes(deps: ReviewDeps) {
     const userId = hasSessionCookie(request.headers.get("cookie"))
       ? ((await deps.viewer(c.env)(request)) ?? null)
       : null;
-    const found = await getViewerArtifact(await artifactDb(c.env, artifactId), { artifactId, userId, now });
+    const found = await getViewerArtifact(await artifactDb(c.env, artifactId), {
+      artifactId,
+      userId,
+      now,
+    });
     if (!found.ok) return error(c, found.code, found.message);
     return c.json(
       ViewerInfo.parse({

@@ -17,7 +17,6 @@ import {
   type ErrorCode,
   SignOutOthersResult,
 } from "@portifact/contracts";
-import { defaultDb, regionsOf } from "../regions.ts";
 import {
   type ConnectedAppRow,
   disconnectApp,
@@ -32,6 +31,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import type { Env } from "../env.ts";
+import { defaultDb, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
 

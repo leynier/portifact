@@ -1,8 +1,6 @@
-import { value } from "./fixtures.ts";
-import { personalActor } from "@portifact/domain";
 import { env } from "cloudflare:test";
 import { schema } from "@portifact/db";
-import { type PlatformMetrics, PROTECTION_ACTIONS } from "@portifact/domain";
+import { type PlatformMetrics, PROTECTION_ACTIONS, personalActor } from "@portifact/domain";
 import { beforeEach, describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import {
@@ -34,7 +32,7 @@ import {
 import { preparePublish } from "../src/publish.ts";
 import { getAccountUsage } from "../src/usage.ts";
 import { getVersionDownload, rollbackArtifact } from "../src/versions.ts";
-import { DAY, db, NOW, publishSite, sha256, user } from "./fixtures.ts";
+import { DAY, db, NOW, publishSite, sha256, user, value } from "./fixtures.ts";
 
 const GB = 1_000_000_000;
 // November has 30 days: the 16th at 00:00 is half the cycle, so counters project to double.

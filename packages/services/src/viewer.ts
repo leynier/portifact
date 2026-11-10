@@ -5,8 +5,8 @@
 import type { ViewerRole } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import { actsForOwner, effectiveState, fail, ok, type Result } from "@portifact/domain";
-import { actorOn } from "./actors.ts";
 import { eq } from "drizzle-orm";
+import { actorOn } from "./actors.ts";
 import { checkReadAccess } from "./read-access.ts";
 
 export interface ViewerArtifact {
