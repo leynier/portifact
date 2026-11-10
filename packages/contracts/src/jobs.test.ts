@@ -67,6 +67,7 @@ describe("job contracts", () => {
       "erase_access_events",
       "expiry_notice",
       "comment_notice",
+      "owner_retention",
       "workspace_deletion",
     ]);
     for (const kind of ["artifact", "account", "share_link", "workspace"]) {

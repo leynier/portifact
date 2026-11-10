@@ -465,22 +465,55 @@ export const ru = {
   "account.actionFailed.title": "Действие не завершилось",
   "accessLog.title": "Кто открывал",
   "accessLog.hint":
-    "Вошедшие посетители, открывавшие этот artifact за последние 30 дней, сначала новые, по одной записи на посетителя за каждые 30 минут. Этот список видите только вы. Открытия записываются только для artifacts, доступ к которым ограничен указанными вами людьми; ваши собственные посещения не записываются, и некоторые открытия могут отсутствовать.",
+    "Вошедшие посетители, открывавшие этот artifact за последние {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}, сначала новые, по одной записи на посетителя за каждые 30 минут. Этот список видите только вы. Открытия записываются только для artifacts, доступ к которым ограничен указанными вами людьми; ваши собственные посещения не записываются, и некоторые открытия могут отсутствовать.",
   "accessLog.loading": "Загрузка списка тех, кто открывал artifact",
   "accessLog.error.title": "Не удалось загрузить журнал доступа",
   "accessLog.empty.title": "Пока нет посетителей",
-  "accessLog.empty.body": "Никто из вошедших не открывал этот artifact за последние 30 дней.",
+  "accessLog.empty.body":
+    "Никто из вошедших не открывал этот artifact за последние {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}.",
   "accessLog.caption": "Открытия этого artifact вошедшими посетителями",
   "accessLog.column.opened": "Открыт",
   "accessLog.column.visitor": "Посетитель",
   "accessLog.loadMore": "Показать ещё",
   "accessLog.export.hint":
-    "Экспорт содержит все записи за последние 30 дней, а не только показанные.",
+    "Экспорт содержит все записи за последние {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}, а не только показанные.",
   "accessLog.export.csv": "Экспорт в CSV",
   "accessLog.export.json": "Экспорт в JSON",
   "accessLog.export.doneCsv": "Журнал доступа экспортирован в CSV.",
   "accessLog.export.doneJson": "Журнал доступа экспортирован в JSON.",
   "accessLog.export.failed": "Не удалось экспортировать журнал доступа",
+
+  "analytics.title": "Статистика",
+  "analytics.hint":
+    "Просмотры страниц по дням (UTC) и, для artifacts с доступом только для указанных вами людей, сколько из них его открыли. Только счётчики: здесь никто не идентифицируется.",
+  "analytics.loading": "Загрузка статистики artifact",
+  "analytics.error.title": "Не удалось загрузить статистику",
+  "analytics.planRequired": "Статистика по artifact и журнал доступа за год входят в тариф {plan}.",
+  "analytics.range.label": "Период",
+  "analytics.range.days":
+    "Последние {count, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+  "analytics.total.views": "Просмотры",
+  "analytics.total.signedIn": "Просмотры вошедших посетителей",
+  "analytics.total.visitors": "Разные вошедшие посетители",
+  "analytics.visitors.notKept":
+    "Считаются только для artifacts с доступом для указанных вами людей",
+  "analytics.chart.label": "Просмотры по дням",
+  "analytics.chart.summary":
+    "Просмотры: {views} за {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}. Самый активный день: {busiest}, просмотров: {most}.",
+  "analytics.chart.summaryEmpty":
+    "Нет просмотров за последние {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}.",
+  "analytics.chart.day": "{day}. Просмотры: {views}. С входом: {signedIn}.",
+  "analytics.chart.dayWithVisitors":
+    "{day}. Просмотры: {views}. С входом: {signedIn}. Разные посетители: {visitors}.",
+  "analytics.chart.keyboard": "Переведите фокус на график и читайте каждый день с помощью стрелок.",
+  "analytics.table.show": "Показать числа в таблице",
+  "analytics.table.caption": "Просмотры этого artifact по дням",
+  "analytics.column.day": "День",
+  "analytics.column.views": "Просмотры",
+  "analytics.column.signedIn": "С входом",
+  "analytics.column.visitors": "Разные посетители",
+  "analytics.note":
+    "Хранятся {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}. Ваши собственные посещения и превью ссылок не считаются, а автоматизированные браузеры могут учитываться, поэтому эти числа ориентир, а не аудит.",
 
   "usage.title": "Использование",
   "usage.description":

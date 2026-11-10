@@ -20,6 +20,7 @@ import { handle } from "../src/index.ts";
 import { BANNER_TEXT, injectReviewBanner } from "../src/inject.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
 import { NO_BAR_COOKIE } from "../src/viewer.ts";
+import type { CountView, ViewCharge } from "../src/views.ts";
 
 const ID = "r7d2qm4xab";
 const OTHER_ID = "r3n5wq7yzc";
@@ -183,6 +184,8 @@ interface Send {
   secret?: string | undefined;
   /** Receives the openings the request records in the owner's access log. */
   logOpening?: LogOpening;
+  /** Receives the page views the request counts for the owner's analytics. */
+  countView?: CountView;
 }
 
 function send(path: string, options: Send = {}) {
@@ -193,7 +196,14 @@ function send(path: string, options: Send = {}) {
     headers,
   });
   const testEnv = "secret" in options ? { ...env, READ_SESSION_SECRET: options.secret } : env;
-  return handle(request, testEnv, options.now ?? NOW, undefined, options.logOpening);
+  return handle(
+    request,
+    testEnv,
+    options.now ?? NOW,
+    undefined,
+    options.logOpening,
+    options.countView,
+  );
 }
 
 function reviewSetCookie(response: Response): string | undefined {
@@ -348,6 +358,37 @@ describe("review delivery", () => {
     const own = await openReview(OWNER);
     expect((await send("/", { cookie: own, logOpening })).status).toBe(200);
     expect(openings).toHaveLength(1);
+  });
+
+  it("counts the reviewer's frame load as a signed-in view on a plan with analytics, never the owner's", async () => {
+    await env.DB.exec("DELETE FROM owner_plans");
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: OWNER, plan: "pro", seats: 1, grantedBy: "test", updatedAt: NOW });
+    try {
+      const views: ViewCharge[] = [];
+      const countView = (view: ViewCharge) => views.push(view);
+      const cookie = await openReview();
+      expect((await send("/", { cookie, countView })).status).toBe(200);
+      expect((await send("/app.js", { cookie, headers: SAME_ORIGIN, countView })).status).toBe(200);
+      expect(
+        (await send("/", { cookie, headers: SIBLING_NAVIGATION, countView })).status,
+      ).toBeLessThan(500);
+      expect(views).toEqual([
+        {
+          artifactId: ID,
+          ownerId: OWNER,
+          at: NOW,
+          visitorId: READER,
+          expiresAt: expect.any(Number),
+        },
+      ]);
+      const own = await openReview(OWNER);
+      expect((await send("/", { cookie: own, countView })).status).toBe(200);
+      expect(views).toHaveLength(1);
+    } finally {
+      await env.DB.exec("DELETE FROM owner_plans");
+    }
   });
 
   it("answers 429 in review mode too once the owner's traffic is used up, and charges the page", async () => {

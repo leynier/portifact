@@ -434,21 +434,52 @@ export const zhCN = {
   "account.actionFailed.title": "操作未完成",
   "accessLog.title": "谁打开过",
   "accessLog.hint":
-    "过去 30 天内打开过此 artifact 的已登录访客，按时间从新到旧排列，每位访客每 30 分钟记录一条。只有你能看到此列表。只有仅限你所列人员访问的 artifact 才会记录打开情况，你自己的访问不会被记录，部分打开记录可能缺失。",
+    "过去 {days, plural, one {# 天} other {# 天}}内打开过此 artifact 的已登录访客，按时间从新到旧排列，每位访客每 30 分钟记录一条。只有你能看到此列表。只有仅限你所列人员访问的 artifact 才会记录打开情况，你自己的访问不会被记录，部分打开记录可能缺失。",
   "accessLog.loading": "正在加载谁打开过此 artifact",
   "accessLog.error.title": "无法加载访问日志",
   "accessLog.empty.title": "还没有访客",
-  "accessLog.empty.body": "过去 30 天内没有已登录的人打开过此 artifact。",
+  "accessLog.empty.body":
+    "过去 {days, plural, one {# 天} other {# 天}}内没有已登录的人打开过此 artifact。",
   "accessLog.caption": "已登录访客打开此 artifact 的记录",
   "accessLog.column.opened": "打开时间",
   "accessLog.column.visitor": "访客",
   "accessLog.loadMore": "显示更多",
-  "accessLog.export.hint": "导出内容包含过去 30 天的所有记录，而不仅是当前显示的记录。",
+  "accessLog.export.hint":
+    "导出内容包含过去 {days, plural, one {# 天} other {# 天}}的所有记录，而不仅是当前显示的记录。",
   "accessLog.export.csv": "导出为 CSV",
   "accessLog.export.json": "导出为 JSON",
   "accessLog.export.doneCsv": "访问日志已导出为 CSV。",
   "accessLog.export.doneJson": "访问日志已导出为 JSON。",
   "accessLog.export.failed": "无法导出访问日志",
+
+  "analytics.title": "统计",
+  "analytics.hint":
+    "每天（UTC）的页面浏览量；对于仅限你所列人员访问的 artifact，还显示其中有多少人打开过它。只有计数，这里不会识别任何人。",
+  "analytics.loading": "正在加载 artifact 的统计",
+  "analytics.error.title": "无法加载统计",
+  "analytics.planRequired": "按 artifact 的统计和一年的访问日志包含在 {plan} 方案中。",
+  "analytics.range.label": "时间范围",
+  "analytics.range.days": "最近 {count, plural, one {# 天} other {# 天}}",
+  "analytics.total.views": "浏览量",
+  "analytics.total.signedIn": "已登录访客的浏览量",
+  "analytics.total.visitors": "不同的已登录访客",
+  "analytics.visitors.notKept": "仅对仅限你所列人员访问的 artifact 计数",
+  "analytics.chart.label": "每天的浏览量",
+  "analytics.chart.summary":
+    "{days, plural, one {# 天} other {# 天}}内浏览量：{views}。浏览最多的一天：{busiest}，共 {most}。",
+  "analytics.chart.summaryEmpty": "最近 {days, plural, one {# 天} other {# 天}}没有浏览。",
+  "analytics.chart.day": "{day}。浏览量：{views}。已登录：{signedIn}。",
+  "analytics.chart.dayWithVisitors":
+    "{day}。浏览量：{views}。已登录：{signedIn}。不同访客：{visitors}。",
+  "analytics.chart.keyboard": "将焦点移到图表上，用方向键逐天查看。",
+  "analytics.table.show": "以表格显示数字",
+  "analytics.table.caption": "此 artifact 每天的浏览量",
+  "analytics.column.day": "日期",
+  "analytics.column.views": "浏览量",
+  "analytics.column.signedIn": "已登录",
+  "analytics.column.visitors": "不同访客",
+  "analytics.note":
+    "保留 {days, plural, one {# 天} other {# 天}}。你自己的访问和链接预览不计入，但自动化浏览器可能会被计入，因此这些数字只是参考，而不是审计记录。",
 
   "usage.title": "用量",
   "usage.description":

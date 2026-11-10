@@ -470,23 +470,55 @@ export const es = {
   "account.actionFailed.title": "La acción no terminó",
   "accessLog.title": "Quién lo abrió",
   "accessLog.hint":
-    "Visitantes con la sesión iniciada que abrieron este artifact en los últimos 30 días, los más recientes primero, una entrada por visitante cada 30 minutos. Solo tú ves esta lista. Solo los artifacts restringidos a las personas de tu lista registran aperturas, tus propias visitas no se registran y puede que falten algunas aperturas.",
+    "Visitantes con la sesión iniciada que abrieron este artifact en los últimos {days, plural, one {# día} other {# días}}, los más recientes primero, una entrada por visitante cada 30 minutos. Solo tú ves esta lista. Solo los artifacts restringidos a las personas de tu lista registran aperturas, tus propias visitas no se registran y puede que falten algunas aperturas.",
   "accessLog.loading": "Cargando quién abrió el artifact",
   "accessLog.error.title": "No se pudo cargar el registro de accesos",
   "accessLog.empty.title": "Todavía no hay visitantes",
   "accessLog.empty.body":
-    "Nadie con la sesión iniciada abrió este artifact en los últimos 30 días.",
+    "Nadie con la sesión iniciada abrió este artifact en los últimos {days, plural, one {# día} other {# días}}.",
   "accessLog.caption": "Aperturas de este artifact por visitantes con la sesión iniciada",
   "accessLog.column.opened": "Abierto",
   "accessLog.column.visitor": "Visitante",
   "accessLog.loadMore": "Mostrar más",
   "accessLog.export.hint":
-    "Las exportaciones incluyen todas las entradas de los últimos 30 días, no solo las que se muestran.",
+    "Las exportaciones incluyen todas las entradas de los últimos {days, plural, one {# día} other {# días}}, no solo las que se muestran.",
   "accessLog.export.csv": "Exportar como CSV",
   "accessLog.export.json": "Exportar como JSON",
   "accessLog.export.doneCsv": "El registro de accesos se exportó como CSV.",
   "accessLog.export.doneJson": "El registro de accesos se exportó como JSON.",
   "accessLog.export.failed": "No se pudo exportar el registro de accesos",
+
+  "analytics.title": "Analíticas",
+  "analytics.hint":
+    "Vistas de página por día (UTC) y, en los artifacts restringidos a las personas de tu lista, cuántas de ellas lo abrieron. Solo conteos: aquí no se identifica a nadie.",
+  "analytics.loading": "Cargando las analíticas del artifact",
+  "analytics.error.title": "No se pudieron cargar las analíticas",
+  "analytics.planRequired":
+    "Las analíticas por artifact y un registro de accesos de un año son parte del plan {plan}.",
+  "analytics.range.label": "Período",
+  "analytics.range.days": "Últimos {count, plural, one {# día} other {# días}}",
+  "analytics.total.views": "Vistas",
+  "analytics.total.signedIn": "Vistas de visitantes con la sesión iniciada",
+  "analytics.total.visitors": "Visitantes distintos con la sesión iniciada",
+  "analytics.visitors.notKept":
+    "Solo se cuentan en artifacts restringidos a las personas de tu lista",
+  "analytics.chart.label": "Vistas por día",
+  "analytics.chart.summary":
+    "Vistas: {views} en {days, plural, one {# día} other {# días}}. Día con más vistas: {busiest}, con {most}.",
+  "analytics.chart.summaryEmpty":
+    "Sin vistas en los últimos {days, plural, one {# día} other {# días}}.",
+  "analytics.chart.day": "{day}. Vistas: {views}. Con sesión: {signedIn}.",
+  "analytics.chart.dayWithVisitors":
+    "{day}. Vistas: {views}. Con sesión: {signedIn}. Visitantes distintos: {visitors}.",
+  "analytics.chart.keyboard": "Enfoca el gráfico y usa las flechas para leer cada día.",
+  "analytics.table.show": "Mostrar los números en una tabla",
+  "analytics.table.caption": "Vistas por día de este artifact",
+  "analytics.column.day": "Día",
+  "analytics.column.views": "Vistas",
+  "analytics.column.signedIn": "Con sesión",
+  "analytics.column.visitors": "Visitantes distintos",
+  "analytics.note":
+    "Se conservan {days, plural, one {# día} other {# días}}. Tus propias visitas y las vistas previas de enlaces no se cuentan, pero los navegadores automatizados sí pueden contarse, así que estos números son un indicador, no una auditoría.",
 
   "usage.title": "Uso",
   "usage.description":

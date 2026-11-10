@@ -11,7 +11,12 @@
 import { workerDeps } from "../../apps/app/src/auth/deps.ts";
 import type { EmailSender } from "../../apps/app/src/auth/email.ts";
 import { createWorker } from "../../apps/app/src/index.ts";
-import { handle, isolateMeter, isolateOpenings } from "../../apps/content/src/index.ts";
+import {
+  handle,
+  isolateMeter,
+  isolateOpenings,
+  isolateViews,
+} from "../../apps/content/src/index.ts";
 import { SITE_HOST } from "../src/hosts.ts";
 import { TURNSTILE_PASS } from "../src/turnstile-fake.ts";
 import { contentNow } from "./clock.ts";
@@ -68,7 +73,7 @@ export default {
       return siteCookies(await app.fetch(new Request(url, request), env, ctx));
     }
     if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) {
-      // Like the content Worker's own fetch: traffic and access log batches after the response.
+      // Like the content Worker's own fetch: traffic, access log and view batches after the response.
       const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
       return handle(
         request,
@@ -76,6 +81,7 @@ export default {
         contentNow(host),
         (charge) => isolateMeter(env).count(charge, waitUntil),
         (opening) => isolateOpenings(env).record(opening, waitUntil),
+        (view) => isolateViews(env).count(view, waitUntil),
       );
     }
     return app.fetch(request, env, ctx);

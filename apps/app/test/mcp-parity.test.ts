@@ -6,6 +6,7 @@ import { PLANS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
 import { pastHumanCheck } from "./api-client.ts";
@@ -893,6 +894,152 @@ describe("API and MCP parity for usage and source origins", () => {
       sourceOrigin: { ...origin, remote: "https://ghp_secret@github.com/o/r.git" },
     });
     expect(refused).toMatchObject({ ok: false, body: { error: { code: "invalid_input" } } });
+  });
+});
+
+describe("API and MCP parity for artifact analytics", () => {
+  const DAY = 86_400_000;
+  const today = NOW - (NOW % DAY);
+
+  async function onPro(owner: string) {
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({ ownerId: owner, plan: "pro", seats: 1, grantedBy: "test", updatedAt: NOW });
+  }
+
+  async function seedViews(artifactId: string, owner: string) {
+    const insert = env.ACCESS_DB.prepare(
+      "insert into artifact_views (artifact_id, day, owner_id, views, signed_in_views, expires_at) values (?, ?, ?, ?, ?, ?)",
+    );
+    await insert.bind(artifactId, today, owner, 5, 2, today + 400 * DAY).run();
+    await insert.bind(artifactId, today - 2 * DAY, owner, 3, 0, today + 400 * DAY).run();
+    // Past its expiry: never shown, even before the prune reaches it.
+    await insert.bind(artifactId, today - DAY, owner, 9, 9, NOW - 1).run();
+  }
+
+  async function seedOpening(artifactId: string, owner: string, user: string, at: number) {
+    await env.ACCESS_DB.prepare(
+      "insert into access_events (artifact_id, window_start, user_id, owner_id, email, opened_at, expires_at) values (?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        artifactId,
+        at - (at % 1_800_000),
+        user,
+        owner,
+        `${user}@example.test`,
+        at,
+        at + 400 * DAY,
+      )
+      .run();
+  }
+
+  it("returns the same series and totals, with visitors only for restricted artifacts", async () => {
+    const b = await both("parity-stats@example.test");
+    const owner = await ownerId(b);
+    await onPro(owner);
+    const { artifactId } = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Doc", content: "# Stats" }),
+    ).body as { artifactId: string };
+    await seedViews(artifactId, owner);
+    await seedOpening(artifactId, owner, "u_a", NOW - 60_000);
+    await seedOpening(artifactId, owner, "u_b", NOW - 60_000);
+    await seedOpening(artifactId, owner, "u_a", NOW - 2 * DAY);
+
+    const query = `from=${new Date(today - 2 * DAY).toISOString().slice(0, 10)}`;
+    const viaMcp = fromTool(
+      await b.tool("get_artifact_stats", {
+        artifactId,
+        from: new Date(today - 2 * DAY).toISOString().slice(0, 10),
+      }),
+    );
+    expect(viaMcp).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${artifactId}/stats?${query}`)),
+    );
+    const day = (offset: number) => new Date(today - offset * DAY).toISOString().slice(0, 10);
+    expect(viaMcp.body).toEqual({
+      artifactId,
+      from: day(2),
+      to: day(0),
+      days: [
+        { date: day(2), views: 3, signedInViews: 0, visitors: 1 },
+        { date: day(1), views: 0, signedInViews: 0, visitors: 0 },
+        { date: day(0), views: 5, signedInViews: 2, visitors: 2 },
+      ],
+      totals: { views: 8, signedInViews: 2, visitors: 2 },
+      retentionDays: 365,
+    });
+
+    // Public: the same counts, and no visitors at all even though old openings remain.
+    await regionsFromEnv(env)
+      .get("default")
+      .db.update(schema.artifacts)
+      .set({ accessMode: "public" })
+      .where(eq(schema.artifacts.id, artifactId));
+    const open = fromTool(await b.tool("get_artifact_stats", { artifactId }));
+    expect(open).toEqual(await fromApi(await b.apiCall(`/api/v1/artifacts/${artifactId}/stats`)));
+    const body = open.body as { days: { visitors: unknown }[]; totals: { visitors: unknown } };
+    expect(body.days).toHaveLength(30);
+    expect(body.days.every((entry) => entry.visitors === null)).toBe(true);
+    expect(body.totals.visitors).toBeNull();
+  });
+
+  it("refuses the same way: a stranger, a bad or reversed range", async () => {
+    const owner = await both("parity-stats-owner@example.test");
+    const stranger = await both("parity-stats-stranger@example.test");
+    await onPro(await ownerId(owner));
+    await onPro(await ownerId(stranger));
+    const { artifactId } = fromTool(
+      await owner.tool("publish_document", { type: "text", name: "Doc", content: "stats" }),
+    ).body as { artifactId: string };
+    for (const id of [artifactId, "zzzzzzzzzz"]) {
+      const viaApi = await fromApi(await stranger.apiCall(`/api/v1/artifacts/${id}/stats`));
+      expect(viaApi).toEqual({
+        ok: false,
+        body: { error: { code: "not_found", message: "Artifact not found." } },
+      });
+      expect(fromTool(await stranger.tool("get_artifact_stats", { artifactId: id }))).toEqual(
+        viaApi,
+      );
+    }
+    const reversed = await fromApi(
+      await owner.apiCall(`/api/v1/artifacts/${artifactId}/stats?from=2026-11-02&to=2026-11-01`),
+    );
+    expect(reversed).toEqual({
+      ok: false,
+      body: { error: { code: "invalid_input", message: "The range ends before it starts." } },
+    });
+    expect(
+      fromTool(
+        await owner.tool("get_artifact_stats", {
+          artifactId,
+          from: "2026-11-02",
+          to: "2026-11-01",
+        }),
+      ),
+    ).toEqual(reversed);
+    for (const q of ["from=yesterday", "to=2026-02-30", "from=2024-01-01&to=2026-11-02"]) {
+      const response = await owner.apiCall(`/api/v1/artifacts/${artifactId}/stats?${q}`);
+      expect(response.status, q).toBe(400);
+    }
+  });
+
+  it("needs artifacts:read at both", async () => {
+    const h = createHarness();
+    const email = "parity-stats-scope@example.test";
+    const apiDenied = await api(
+      h,
+      await apiToken(h, email, "annotations:read"),
+      "/api/v1/artifacts/zzzzzzzzzz/stats",
+    );
+    expect(apiDenied.status).toBe(403);
+    const mcpDenied = await rawCall(
+      h,
+      await mcpToken(h, email, "annotations:read"),
+      "get_artifact_stats",
+      { artifactId: "zzzzzzzzzz" },
+    );
+    expect(mcpDenied.status).toBe(403);
   });
 });
 

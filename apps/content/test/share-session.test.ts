@@ -16,6 +16,7 @@ import { READ_COOKIE, seal } from "../src/cookies.ts";
 import { handle } from "../src/index.ts";
 import { isPortifactCookie } from "../src/injected.ts";
 import { SHARE_COOKIE } from "../src/share-session.ts";
+import type { ViewCharge } from "../src/views.ts";
 
 const ID = "s7d2qm4xab";
 const OTHER_ID = "s3n5wq7yzc";
@@ -158,6 +159,8 @@ interface Send {
   origin?: string;
   secret?: string | undefined;
   openings?: Opening[];
+  /** Receives the page views the request counts for the owner's analytics. */
+  views?: ViewCharge[];
 }
 
 function send(path: string, options: Send = {}) {
@@ -165,8 +168,13 @@ function send(path: string, options: Send = {}) {
   if (options.cookie) headers.set("Cookie", options.cookie);
   const request = new Request(`${options.origin ?? ORIGIN}${path}`, { headers });
   const testEnv = "secret" in options ? { ...env, READ_SESSION_SECRET: options.secret } : env;
-  return handle(request, testEnv, options.now ?? NOW, undefined, (opening) =>
-    options.openings?.push(opening),
+  return handle(
+    request,
+    testEnv,
+    options.now ?? NOW,
+    undefined,
+    (opening) => options.openings?.push(opening),
+    (view) => options.views?.push(view),
   );
 }
 
@@ -304,6 +312,25 @@ describe("a share link's session", () => {
     expect(asset.status).toBe(401);
   });
 
+  it("keeps the cookie when a subresource finds the session ended, so the next page load says why", async () => {
+    const { code, linkId } = await link();
+    const cookie = await enter(code);
+    await revokeShareLink(db(), { userId: OWNER, artifactId: ID, linkId, now: NOW });
+    // The open page's own requests (a favicon, a poll) reach the ended session first.
+    const asset = await send("/favicon.ico", {
+      cookie,
+      headers: SAME_ORIGIN,
+      now: NOW + CLAIMS_MS,
+    });
+    expect(asset.status).toBe(401);
+    expect(setCookieFor(asset, SHARE_COOKIE)).toBeUndefined();
+    // The visitor's reload still carries the cookie: it gets the page, not the sign-in redirect.
+    const reload = await send("/", { cookie, now: NOW + CLAIMS_MS });
+    expect(reload.status).toBe(403);
+    expect(await reload.text()).toContain("This share link has expired or was revoked");
+    expect(setCookieFor(reload, SHARE_COOKIE)).toContain("Max-Age=0");
+  });
+
   it("renews its claims while the link lives", async () => {
     const { code } = await link();
     const cookie = await enter(code);
@@ -348,6 +375,20 @@ describe("a share link's session", () => {
     await send("/", { cookie, openings });
     await send("/app.js", { cookie, headers: SAME_ORIGIN, openings });
     expect(openings).toEqual([{ artifactId: ID, userId: linkId, linkId, at: NOW }]);
+  });
+
+  it("counts a page load through a link as one anonymous view, never a signed-in one", async () => {
+    // Share links and analytics are both Pro features; the seeded owner is on Pro.
+    const { code } = await link();
+    const views: ViewCharge[] = [];
+    // The redeeming redirect itself is not a view.
+    const cookie = await enter(code, { views });
+    expect(views).toEqual([]);
+    expect((await send("/", { cookie, views })).status).toBe(200);
+    await send("/app.js", { cookie, headers: SAME_ORIGIN, views });
+    expect(views).toEqual([
+      { artifactId: ID, ownerId: OWNER, at: NOW, visitorId: null, expiresAt: expect.any(Number) },
+    ]);
   });
 
   it("lets a signed-in reader's own read session win, so a link never changes what they get", async () => {

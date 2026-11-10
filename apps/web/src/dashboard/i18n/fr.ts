@@ -477,23 +477,55 @@ export const fr = {
   "account.actionFailed.title": "L’action n’a pas abouti",
   "accessLog.title": "Qui l’a ouvert",
   "accessLog.hint":
-    "Les visiteurs connectés qui ont ouvert cet artifact au cours des 30 derniers jours, du plus récent au plus ancien, une entrée par visiteur toutes les 30 minutes. Vous seul voyez cette liste. Seuls les artifacts limités aux personnes que vous listez enregistrent les ouvertures, vos propres visites ne sont pas enregistrées, et certaines ouvertures peuvent manquer.",
+    "Les visiteurs connectés qui ont ouvert cet artifact au cours des derniers jours ({days, plural, one {# jour} other {# jours}}), du plus récent au plus ancien, une entrée par visiteur toutes les 30 minutes. Vous seul voyez cette liste. Seuls les artifacts limités aux personnes que vous listez enregistrent les ouvertures, vos propres visites ne sont pas enregistrées, et certaines ouvertures peuvent manquer.",
   "accessLog.loading": "Chargement des personnes qui ont ouvert l’artifact",
   "accessLog.error.title": "Le journal d’accès n’a pas pu être chargé",
   "accessLog.empty.title": "Aucun visiteur pour l’instant",
   "accessLog.empty.body":
-    "Personne de connecté n’a ouvert cet artifact au cours des 30 derniers jours.",
+    "Personne de connecté n’a ouvert cet artifact au cours des derniers jours ({days, plural, one {# jour} other {# jours}}).",
   "accessLog.caption": "Ouvertures de cet artifact par des visiteurs connectés",
   "accessLog.column.opened": "Ouvert",
   "accessLog.column.visitor": "Visiteur",
   "accessLog.loadMore": "Afficher plus",
   "accessLog.export.hint":
-    "Les exports contiennent toutes les entrées des 30 derniers jours, pas seulement celles affichées.",
+    "Les exports contiennent toutes les entrées des derniers jours ({days, plural, one {# jour} other {# jours}}), pas seulement celles affichées.",
   "accessLog.export.csv": "Exporter en CSV",
   "accessLog.export.json": "Exporter en JSON",
   "accessLog.export.doneCsv": "Le journal d’accès a été exporté en CSV.",
   "accessLog.export.doneJson": "Le journal d’accès a été exporté en JSON.",
   "accessLog.export.failed": "Le journal d’accès n’a pas pu être exporté",
+
+  "analytics.title": "Statistiques",
+  "analytics.hint":
+    "Les pages vues par jour (UTC) et, pour les artifacts limités aux personnes que vous listez, combien d’entre elles l’ont ouvert. Uniquement des comptes : personne n’est identifié ici.",
+  "analytics.loading": "Chargement des statistiques de l’artifact",
+  "analytics.error.title": "Les statistiques n’ont pas pu être chargées",
+  "analytics.planRequired":
+    "Les statistiques par artifact et un journal d’accès d’un an font partie de l’offre {plan}.",
+  "analytics.range.label": "Période",
+  "analytics.range.days": "Derniers jours ({count, plural, one {# jour} other {# jours}})",
+  "analytics.total.views": "Vues",
+  "analytics.total.signedIn": "Vues de visiteurs connectés",
+  "analytics.total.visitors": "Visiteurs connectés distincts",
+  "analytics.visitors.notKept":
+    "Comptés seulement pour les artifacts limités aux personnes que vous listez",
+  "analytics.chart.label": "Vues par jour",
+  "analytics.chart.summary":
+    "Vues : {views} sur {days, plural, one {# jour} other {# jours}}. Jour le plus actif : {busiest}, avec {most}.",
+  "analytics.chart.summaryEmpty": "Aucune vue sur {days, plural, one {# jour} other {# jours}}.",
+  "analytics.chart.day": "{day}. Vues : {views}. Connectés : {signedIn}.",
+  "analytics.chart.dayWithVisitors":
+    "{day}. Vues : {views}. Connectés : {signedIn}. Visiteurs distincts : {visitors}.",
+  "analytics.chart.keyboard":
+    "Placez le focus sur le graphique et utilisez les flèches pour lire chaque jour.",
+  "analytics.table.show": "Afficher les chiffres dans un tableau",
+  "analytics.table.caption": "Vues par jour de cet artifact",
+  "analytics.column.day": "Jour",
+  "analytics.column.views": "Vues",
+  "analytics.column.signedIn": "Connectés",
+  "analytics.column.visitors": "Visiteurs distincts",
+  "analytics.note":
+    "Conservées {days, plural, one {# jour} other {# jours}}. Vos propres visites et les aperçus de liens ne sont pas comptés, mais les navigateurs automatisés peuvent l’être : ces chiffres sont un indicateur, pas un audit.",
 
   "usage.title": "Utilisation",
   "usage.description":

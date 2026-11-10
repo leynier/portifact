@@ -475,23 +475,55 @@ export const de = {
   "account.actionFailed.title": "Die Aktion wurde nicht abgeschlossen",
   "accessLog.title": "Wer es geöffnet hat",
   "accessLog.hint":
-    "Angemeldete Besucher, die dieses Artifact in den letzten 30 Tagen geöffnet haben, neueste zuerst, ein Eintrag pro Besucher alle 30 Minuten. Nur du siehst diese Liste. Nur Artifacts, die auf die von dir aufgeführten Personen eingeschränkt sind, zeichnen Aufrufe auf, deine eigenen Besuche werden nicht erfasst, und einige Aufrufe können fehlen.",
+    "Angemeldete Besucher, die dieses Artifact in den letzten {days, plural, one {# Tag} other {# Tagen}} geöffnet haben, neueste zuerst, ein Eintrag pro Besucher alle 30 Minuten. Nur du siehst diese Liste. Nur Artifacts, die auf die von dir aufgeführten Personen eingeschränkt sind, zeichnen Aufrufe auf, deine eigenen Besuche werden nicht erfasst, und einige Aufrufe können fehlen.",
   "accessLog.loading": "Wird geladen, wer das Artifact geöffnet hat",
   "accessLog.error.title": "Das Zugriffsprotokoll konnte nicht geladen werden",
   "accessLog.empty.title": "Noch keine Besucher",
   "accessLog.empty.body":
-    "In den letzten 30 Tagen hat niemand mit Anmeldung dieses Artifact geöffnet.",
+    "In den letzten {days, plural, one {# Tag} other {# Tagen}} hat niemand mit Anmeldung dieses Artifact geöffnet.",
   "accessLog.caption": "Aufrufe dieses Artifacts durch angemeldete Besucher",
   "accessLog.column.opened": "Geöffnet",
   "accessLog.column.visitor": "Besucher",
   "accessLog.loadMore": "Mehr anzeigen",
   "accessLog.export.hint":
-    "Exporte enthalten alle Einträge der letzten 30 Tage, nicht nur die angezeigten.",
+    "Exporte enthalten alle Einträge der letzten {days, plural, one {# Tag} other {# Tage}}, nicht nur die angezeigten.",
   "accessLog.export.csv": "Als CSV exportieren",
   "accessLog.export.json": "Als JSON exportieren",
   "accessLog.export.doneCsv": "Das Zugriffsprotokoll wurde als CSV exportiert.",
   "accessLog.export.doneJson": "Das Zugriffsprotokoll wurde als JSON exportiert.",
   "accessLog.export.failed": "Das Zugriffsprotokoll konnte nicht exportiert werden",
+
+  "analytics.title": "Statistiken",
+  "analytics.hint":
+    "Seitenaufrufe pro Tag (UTC) und, bei Artifacts, die auf die von dir aufgeführten Personen eingeschränkt sind, wie viele von ihnen es geöffnet haben. Nur Zahlen: Hier wird niemand identifiziert.",
+  "analytics.loading": "Statistiken des Artifacts werden geladen",
+  "analytics.error.title": "Die Statistiken konnten nicht geladen werden",
+  "analytics.planRequired":
+    "Statistiken pro Artifact und ein Zugriffsprotokoll über ein Jahr sind Teil des Plans {plan}.",
+  "analytics.range.label": "Zeitraum",
+  "analytics.range.days": "Letzte {count, plural, one {# Tag} other {# Tage}}",
+  "analytics.total.views": "Aufrufe",
+  "analytics.total.signedIn": "Aufrufe angemeldeter Besucher",
+  "analytics.total.visitors": "Verschiedene angemeldete Besucher",
+  "analytics.visitors.notKept":
+    "Nur bei Artifacts gezählt, die auf die von dir aufgeführten Personen eingeschränkt sind",
+  "analytics.chart.label": "Aufrufe pro Tag",
+  "analytics.chart.summary":
+    "Aufrufe: {views} in {days, plural, one {# Tag} other {# Tagen}}. Stärkster Tag: {busiest} mit {most}.",
+  "analytics.chart.summaryEmpty":
+    "Keine Aufrufe in den letzten {days, plural, one {# Tag} other {# Tagen}}.",
+  "analytics.chart.day": "{day}. Aufrufe: {views}. Angemeldet: {signedIn}.",
+  "analytics.chart.dayWithVisitors":
+    "{day}. Aufrufe: {views}. Angemeldet: {signedIn}. Verschiedene Besucher: {visitors}.",
+  "analytics.chart.keyboard": "Fokussiere das Diagramm und lies mit den Pfeiltasten jeden Tag.",
+  "analytics.table.show": "Zahlen als Tabelle anzeigen",
+  "analytics.table.caption": "Aufrufe pro Tag dieses Artifacts",
+  "analytics.column.day": "Tag",
+  "analytics.column.views": "Aufrufe",
+  "analytics.column.signedIn": "Angemeldet",
+  "analytics.column.visitors": "Verschiedene Besucher",
+  "analytics.note":
+    "Aufbewahrt: {days, plural, one {# Tag} other {# Tage}}. Deine eigenen Besuche und Linkvorschauen werden nicht gezählt, automatisierte Browser aber schon. Die Zahlen sind daher ein Anhaltspunkt, keine Prüfung.",
 
   "usage.title": "Nutzung",
   "usage.description":

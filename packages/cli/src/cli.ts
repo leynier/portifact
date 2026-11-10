@@ -27,6 +27,7 @@ import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
 import { createShare, listShares, revokeShare } from "./share.ts";
+import { stats } from "./stats.ts";
 import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
 import { listTokens, revokeToken } from "./tokens.ts";
 import { usage } from "./usage.ts";
@@ -531,13 +532,40 @@ export async function run(
 
   program
     .command("logs")
-    .description("Show who opened one of your artifacts in the last 30 days (signed-in visitors)")
+    .description(
+      "Show who opened one of your artifacts (signed-in visitors; 30 days on free, a year on paid plans)",
+    )
     .argument("<id>", "artifact ID")
     .option("--since <time>", "only openings since a duration ago (30m, 12h, 7d) or an ISO date")
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { since?: string; json?: boolean }, id: string) =>
         logs(io, runtime, id, { since: options.since, json: options.json === true }),
+      ),
+    );
+
+  program
+    .command("stats")
+    .description("Show page views per day of one of your artifacts (paid plans)")
+    .argument("<id>", "artifact ID")
+    .option("--days <n>", "the last n days, today included (default 30)")
+    .option("--from <date>", "first UTC day, YYYY-MM-DD")
+    .option("--to <date>", "last UTC day, YYYY-MM-DD (default today)")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { days?: string; from?: string; to?: string; json?: boolean },
+          id: string,
+        ) =>
+          stats(io, runtime, id, {
+            days: options.days,
+            from: options.from,
+            to: options.to,
+            json: options.json === true,
+          }),
       ),
     );
 
