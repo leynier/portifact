@@ -440,7 +440,7 @@ export async function rerenderDocuments(
           inArray(schema.versionFiles.kind, ["rendered", "block_map"]),
         ),
       );
-    await storeRenderings(bucket, version.ownerId, rendered.value.files);
+    await storeRenderings(db, bucket, version.ownerId, rendered.value.files);
     // Only the run that still sees the old renderer version applies its rendering.
     const unchanged = sql`exists (select 1 from ${schema.versions} where ${schema.versions.id} = ${version.versionId} and ${schema.versions.rendererVersion} is ${version.rendererVersion})`;
     const accountUpdates = rendered.value.files.map((file) =>

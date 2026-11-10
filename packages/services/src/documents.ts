@@ -12,7 +12,7 @@ import {
   renderMarkdownDocument,
   renderTextDocument,
 } from "@portifact/render";
-import { type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { objectKey, sha256Hex } from "./objects.ts";
 
 /** A file the server derives from a document: its HTML page or, for Markdown, its block map. */
@@ -101,14 +101,42 @@ export async function renderDocument(
   });
 }
 
-/** Writes renderings to R2 under their content address. Deterministic, so repeating it is safe. */
+/**
+ * Writes renderings to R2 under their content address. Deterministic, so repeating it is safe.
+ * When the owner already has a row for the bytes, they go to that row's key: a transferred
+ * artifact's rows keep the key they were stored under (transfer.ts), so a key built from the
+ * owner would be an object no row holds. A verified row already has the bytes.
+ */
 export async function storeRenderings(
+  db: Db,
   bucket: R2Bucket,
   ownerId: string,
   files: readonly Rendering[],
 ): Promise<void> {
+  const rows = new Map(
+    (
+      await db
+        .select({
+          sha256: schema.objects.sha256,
+          r2Key: schema.objects.r2Key,
+          state: schema.objects.state,
+        })
+        .from(schema.objects)
+        .where(
+          and(
+            eq(schema.objects.ownerId, ownerId),
+            inArray(
+              schema.objects.sha256,
+              files.map((file) => file.sha256),
+            ),
+          ),
+        )
+    ).map((row) => [row.sha256, row]),
+  );
   for (const file of files) {
-    await bucket.put(objectKey(ownerId, file.sha256), file.bytes, {
+    const row = rows.get(file.sha256);
+    if (row?.state === "verified") continue;
+    await bucket.put(row?.r2Key ?? objectKey(ownerId, file.sha256), file.bytes, {
       sha256: file.sha256,
       httpMetadata: { contentType: file.contentType },
     });

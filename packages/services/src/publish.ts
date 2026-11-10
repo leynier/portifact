@@ -909,7 +909,7 @@ async function renderVersion(
   });
   // A rendering always has its page, so there is a first statement.
   if (first) await db.batch([first, ...rest]);
-  await storeRenderings(bucket, input.ownerId, rendered.value.files);
+  await storeRenderings(db, bucket, input.ownerId, rendered.value.files);
   return rendered;
 }
 

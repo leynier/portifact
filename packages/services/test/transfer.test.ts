@@ -422,4 +422,47 @@ describe("transferring an artifact", () => {
       code: "artifact_archived",
     });
   });
+
+  it("leaves no stored rendering without a row when the moved document is published again", async () => {
+    const alice = await user();
+    const ws = await workspace(alice);
+    const source = `# Report ${crypto.randomUUID()}\n\nBody.`;
+    const publishDoc = async (ownerId: string) => {
+      const sha = await sha256(source);
+      const prepared = value(
+        await preparePublish(db(), {
+          userId: alice.id,
+          targetOwnerId: ownerId,
+          type: "markdown",
+          name: "Report",
+          entrypoint: "report.md",
+          baseVersionId: null,
+          files: [
+            {
+              path: "report.md",
+              kind: "published",
+              sha256: sha,
+              size: new TextEncoder().encode(source).byteLength,
+              contentType: "text/markdown; charset=utf-8",
+            },
+          ],
+          now: NOW,
+        }),
+      );
+      for (const upload of prepared.uploads) await env.ARTIFACTS.put(upload.r2Key, source);
+      return value(
+        await commitPublish(db(), env.ARTIFACTS, {
+          userId: alice.id,
+          sessionId: prepared.sessionId,
+          now: NOW,
+        }),
+      ).artifactId;
+    };
+    const id = await publishDoc(alice.id);
+    value(await move(alice.id, id, ws.slug));
+    await publishDoc(ws.id);
+    const listed = await env.ARTIFACTS.list({ prefix: `objects/${ws.id}/` });
+    const keys = new Set((await objectRows(ws.id)).map((row) => row.r2Key));
+    expect(listed.objects.map((o) => o.key).filter((key) => !keys.has(key))).toEqual([]);
+  });
 });
