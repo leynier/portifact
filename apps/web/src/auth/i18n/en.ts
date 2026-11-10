@@ -115,7 +115,7 @@ export const en = {
     network: "Portifact could not be reached. Check your connection and try again.",
     failed:
       "Comment notices could not be turned off. Try again, or turn them off in your settings.",
-    done: "Comment notices turned off.",
+    done: "Comment and review notices turned off.",
   },
 };
 

@@ -60,6 +60,25 @@ export function checkCommentNoticeCapacity(sentThisCycle: number): Result<true> 
     : ok(true);
 }
 
+/**
+ * Emails of the cycle kept for comment notices, expiry notices and sign-in codes once review
+ * notices stop (decision 0013, "Emails"). The ladder, from the first to stop: review notices,
+ * comment notices, expiry notices, sign-in codes. Review notices stop first because they are the
+ * newest and a reviewer still sees the request in the dashboard and the viewer.
+ */
+export const REVIEW_NOTICE_EMAIL_RESERVE = 5_000;
+
+/** Review notices Portifact sends in one cycle at most, counting every email sent before them. */
+export const REVIEW_NOTICE_EMAILS_PER_CYCLE =
+  COMMENT_NOTICE_EMAILS_PER_CYCLE - REVIEW_NOTICE_EMAIL_RESERVE;
+
+/** Whether the cycle still has room for a review notice. */
+export function checkReviewNoticeCapacity(sentThisCycle: number): Result<true> {
+  return sentThisCycle >= REVIEW_NOTICE_EMAILS_PER_CYCLE
+    ? fail("capacity_unavailable", "Review notices are paused until the next cycle.")
+    : ok(true);
+}
+
 /** Whether the cycle still has room for another sign-in code. */
 export function checkEmailCapacity(sentThisCycle: number): Result<true> {
   return sentThisCycle >= SIGN_IN_EMAILS_PER_CYCLE

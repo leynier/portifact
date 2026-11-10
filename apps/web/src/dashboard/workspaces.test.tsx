@@ -131,6 +131,7 @@ describe("the space menu", () => {
           "Apps",
           "Usage",
           "Plan",
+          "Webhooks",
           "Branding",
           "Members",
           "Groups",
@@ -170,15 +171,45 @@ describe("the space menu", () => {
     expect(requested("/api/v1/account/branding?workspace=m")).toEqual([]);
   });
 
-  it("keeps webhooks in the personal space, and says so in a workspace", async () => {
+  it("manages a workspace's webhooks for its admins, in both themes", async () => {
     server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
     const { container } = renderDashboard("/webhooks?workspace=acme", server);
-    expect(await screen.findByText("Webhooks are set in your personal space")).toBeTruthy();
-    expect(
-      screen.getByRole("link", { name: "Go to your personal space" }).getAttribute("href"),
-    ).toBe("/webhooks");
+    await waitFor(() => expect(nav()).toContain("Webhooks"));
+    await screen.findByText("No webhooks yet");
+    expect(requested("/api/v1/webhooks")).toEqual(["GET /api/v1/webhooks?workspace=acme"]);
+    const form = screen.getByRole("region", { name: "Add a webhook" });
+    fireEvent.change(within(form).getByLabelText(/^URL/), {
+      target: { value: "https://hooks.example.com/in" },
+    });
+    fireEvent.click(within(form).getByLabelText("Reviews approved or with changes requested"));
+    fireEvent.click(within(form).getByRole("button", { name: "Add webhook" }));
+    await screen.findByText("Copy the signing secret now");
+    expect(requested("/api/v1/webhooks")).toContain("POST /api/v1/webhooks?workspace=acme");
+    expect(server.bodies.at(-1)).toMatchObject({
+      events: ["comment.created", "thread.resolved", "review.completed"],
+    });
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = theme;
+      expect(await axeViolations(container), theme).toEqual([]);
+    }
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("tells editors and members that only admins manage a workspace's webhooks", async () => {
+    server.workspaces.beta = workspace("beta", "editor", { name: "Beta" });
+    renderDashboard("/?workspace=beta", server);
+    await waitFor(() => expect(nav()).toContain("Members"));
+    expect(nav()).not.toContain("Webhooks");
+    cleanup();
+    const { container } = renderDashboard("/webhooks?workspace=beta", server);
+    expect(await screen.findByText("Only admins manage webhooks")).toBeTruthy();
+    expect(screen.getByText(/only the admins of Beta can see and manage them/)).toBeTruthy();
     expect(requested("/api/v1/webhooks")).toEqual([]);
-    expect(await axeViolations(container)).toEqual([]);
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = theme;
+      expect(await axeViolations(container), theme).toEqual([]);
+    }
+    delete document.documentElement.dataset.theme;
   });
 
   it("shows an empty workspace's first publish with the CLI command for it", async () => {
