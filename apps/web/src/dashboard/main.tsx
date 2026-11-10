@@ -19,6 +19,7 @@ import { saveFile } from "./publish/save.ts";
 import { xhrTransport } from "./publish/transport.ts";
 import { createQueryClient } from "./query-client.ts";
 import { createDashboardRouter } from "./router.tsx";
+import { stashInvitationToken } from "./screens/invitations.tsx";
 
 const leave = (url: string) => window.location.assign(url);
 const env = {
@@ -52,6 +53,8 @@ async function startI18n() {
 
 const root = document.getElementById("root");
 if (root) {
+  // An invitation link's token leaves the address bar before anything reads the location.
+  stashInvitationToken(window);
   const i18n = await startI18n();
   createRoot(root).render(
     <StrictMode>

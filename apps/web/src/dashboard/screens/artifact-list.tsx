@@ -48,7 +48,9 @@ import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
 import { AccessBadge, PinnedBadge, StateBadge, TypeIcon } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
+import { spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
+import { RoleNotice, SpaceBadge } from "./space-parts.tsx";
 import { TrafficNotice, trafficBlock, useUsage } from "./usage.tsx";
 
 export const ARTIFACTS_QUERY = ["artifacts"] as const;
@@ -109,12 +111,16 @@ export function ArtifactListScreen() {
   const navigate = useNavigate();
   const filtered = Object.keys(filters).length > 0;
   useDocumentTitle(t("list.title"));
+  const space = useReadySpace();
+  // A workspace's members do not list its artifacts: they read what is shared with them.
+  const listing = spaceCan(space, "list");
   // Only to explain a traffic block; the list works the same if usage cannot be loaded.
-  const traffic = trafficBlock(useUsage().data);
+  const traffic = trafficBlock(useUsage(space.slug, spaceCan(space, "usage")).data);
 
   const list = useInfiniteQuery({
-    queryKey: [...ARTIFACTS_QUERY, filters],
-    queryFn: ({ pageParam }) => api.listArtifacts(pageParam, filters),
+    queryKey: [...ARTIFACTS_QUERY, space.slug ?? null, filters],
+    queryFn: ({ pageParam }) => api.listArtifacts(pageParam, filters, space.slug),
+    enabled: listing,
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     // The last results stay on screen while a new search loads, so the form never moves.
@@ -128,15 +134,33 @@ export function ArtifactListScreen() {
   const header = (
     <PageHeader
       title={t("list.title")}
-      description={t("list.description")}
+      meta={<SpaceBadge owner={space} />}
+      description={
+        space.kind === "workspace"
+          ? t("list.descriptionWorkspace", { workspace: space.name })
+          : t("list.description")
+      }
       actions={
-        <Link to="/publish" className={buttonClasses({ intent: "primary" })}>
-          <Upload aria-hidden="true" className="size-4" />
-          {t("list.publish")}
-        </Link>
+        spaceCan(space, "publish") ? (
+          <Link to="/publish" className={buttonClasses({ intent: "primary" })}>
+            <Upload aria-hidden="true" className="size-4" />
+            {t("list.publish")}
+          </Link>
+        ) : undefined
       }
     />
   );
+
+  if (!listing) {
+    return (
+      <>
+        {header}
+        <RoleNotice>
+          {t("space.notAllowed.list", { workspace: space.kind === "workspace" ? space.name : "" })}
+        </RoleNotice>
+      </>
+    );
+  }
 
   if (list.isPending) {
     return (
@@ -198,7 +222,7 @@ export function ArtifactListScreen() {
             <p role="status">{t("list.noMatch.body")}</p>
           </EmptyState>
         ) : (
-          <FirstPublish />
+          <FirstPublish workspace={space.slug} />
         )
       ) : (
         <>
@@ -367,7 +391,7 @@ function RowActions({ artifact }: { artifact: ArtifactListItem }) {
  * The empty list teaches the three ways to publish, each with what it needs: the browser upload,
  * the CLI commands and the MCP server URL for agents.
  */
-function FirstPublish() {
+function FirstPublish({ workspace }: { workspace: string | undefined }) {
   const t = useT();
   const announce = useAnnounce();
   const copied = () => announce(t("copy.done"));
@@ -407,7 +431,7 @@ function FirstPublish() {
             <CopyField
               kind="command"
               label={t("list.onboarding.cli.publish")}
-              value="portifact publish ./report.html"
+              value={`portifact publish ./report.html${workspace ? ` --workspace ${workspace}` : ""}`}
               copyLabel={t("list.onboarding.cli.copy")}
               {...copy}
             />

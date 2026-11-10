@@ -27,6 +27,7 @@ import {
   TextInput,
 } from "@portifact/ui";
 import { type UseQueryResult, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   Bot,
   Cable,
@@ -49,6 +50,7 @@ import { loginUrl } from "../../auth/query.ts";
 import { ACCOUNT_EXPORT_PATH, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useRelativeTime, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
+import { useWorkspaces } from "../space.tsx";
 import { describeUserAgent } from "../user-agent.ts";
 import { errorMessage } from "./artifact-list.tsx";
 
@@ -507,6 +509,35 @@ export function AccountData() {
   );
 }
 
+/**
+ * Why the account cannot be deleted while it is the only admin of a workspace, and what to do:
+ * the workspaces where it is an admin, each linking to its members to make someone else an admin.
+ */
+function SoleAdminNotice() {
+  const t = useT();
+  const admin = (useWorkspaces().data?.items ?? []).filter((w) => w.role === "admin");
+  return (
+    <Callout
+      tone="error"
+      title={t("account.delete.soleAdmin.title")}
+      icon={<CircleAlert className="size-5" />}
+    >
+      <p>{t("account.delete.soleAdmin.body")}</p>
+      {admin.length > 0 ? (
+        <ul className="mt-2 list-disc pl-5">
+          {admin.map((workspace) => (
+            <li key={workspace.slug}>
+              <Link to="/members" search={{ workspace: workspace.slug }}>
+                {t("account.delete.soleAdmin.members", { workspace: workspace.name })}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </Callout>
+  );
+}
+
 export function DeleteAccount({ email }: { email: string }) {
   const t = useT();
   const announce = useAnnounce();
@@ -529,6 +560,8 @@ export function DeleteAccount({ email }: { email: string }) {
   });
   const needsSignIn =
     remove.error instanceof ApiFailure && remove.error.code === "reauthentication_required";
+  const soleAdmin =
+    remove.error instanceof ApiFailure && remove.error.code === "sole_workspace_admin";
 
   return (
     <Section id="delete" title={t("settings.danger.title")} hint={t("settings.danger.hint")}>
@@ -552,6 +585,10 @@ export function DeleteAccount({ email }: { email: string }) {
           >
             {t("account.delete.reauth.body")}
           </Callout>
+        </div>
+      ) : soleAdmin ? (
+        <div className="mb-4">
+          <SoleAdminNotice />
         </div>
       ) : remove.isError ? (
         <div className="mb-4">

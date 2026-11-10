@@ -239,7 +239,11 @@ describe("runPublish", () => {
       now: () => NOW,
     });
     expect(committed.versionNumber).toBe(1);
-    expect(calls.preparePublish).toHaveBeenCalledWith({ ...request, multipart: true }, "key-12345");
+    expect(calls.preparePublish).toHaveBeenCalledWith(
+      { ...request, multipart: true },
+      "key-12345",
+      undefined,
+    );
     expect(calls.commitPublish).toHaveBeenCalledWith("up1");
     expect(phases).toEqual(["preparing", "uploading", "committing"]);
     expect(calls.abortPublish).not.toHaveBeenCalled();
