@@ -64,4 +64,24 @@ describe("the downgrade notice for custom domains", () => {
     expect(email.subject).not.toMatch(/—/);
     expect(t.subject(3)).not.toBe(t.subject(1));
   });
+
+  it.each(LOCALE_CODES)("words one and several domains apart in %s", (locale) => {
+    const t = DOMAIN_NOTICE_TEXT[locale];
+    for (const text of [t.subject, t.heading]) {
+      expect(text(2)).not.toBe(text(1));
+      expect(text(2)).toContain("2");
+    }
+    expect(t.intro(1, "D")).toContain("D");
+    expect(t.intro(2, "D")).toContain("2");
+    expect(t.preheader("D")).toContain("D");
+    const many = domainNoticeEmail({
+      hostnames: ["a.example.com", "b.example.com"],
+      detachAt: DETACH,
+      limit: 1,
+      usageUrl: USAGE,
+      locale,
+    });
+    expect(many.subject).toBe(t.subject(2));
+    expect(many.text).toContain(t.intro(1, "").slice(0, 10));
+  });
 });
