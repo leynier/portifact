@@ -66,9 +66,19 @@ function record(artifact: {
   };
 }
 
-const guard = (artifact: { id: string; state: string; lifecycleGeneration: number }) =>
+/**
+ * The artifact is still where and as the request read it: the same owner (a transfer in between
+ * means the role was decided on another owner), state and lifecycle generation.
+ */
+const guard = (artifact: {
+  id: string;
+  ownerId: string;
+  state: string;
+  lifecycleGeneration: number;
+}) =>
   and(
     eq(schema.artifacts.id, artifact.id),
+    eq(schema.artifacts.ownerId, artifact.ownerId),
     eq(schema.artifacts.state, artifact.state as "active"),
     eq(schema.artifacts.lifecycleGeneration, artifact.lifecycleGeneration),
   );

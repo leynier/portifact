@@ -14,6 +14,8 @@ export const OutboxTopic = z.enum([
   "owner_retention",
   "webhook_delivery",
   "delete_custom_hostname",
+  "workspace_deletion",
+  "access_history_move",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -99,7 +101,7 @@ export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
  * restored backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account", "share_link", "webhook"]),
+  kind: z.enum(["artifact", "account", "share_link", "workspace", "webhook"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

@@ -1,6 +1,8 @@
 // Database handles for the app Worker's adapters (decision 0005, section 1). Adapters never call
 // `createDb(env.DB)` for product data: they take the region that holds what the request names.
 // Roles are never decided here; the services resolve them from the user and the owner.
+
+import type { OwnerView } from "@portifact/contracts";
 import {
   type AccessDb,
   type RegionalDb,
@@ -9,8 +11,13 @@ import {
   type Regions,
   regionsFromEnv,
 } from "@portifact/db";
-import type { Actor } from "@portifact/domain";
-import { artifactHandles, personalHandles, resolveActor } from "@portifact/services";
+import type { Actor, Result } from "@portifact/domain";
+import {
+  artifactHandles,
+  ownerView,
+  personalHandles,
+  resolveOwnerScope,
+} from "@portifact/services";
 
 /** The regions this Worker is bound to. */
 export function regionsOf(env: RegionEnv): Regions {
@@ -45,17 +52,41 @@ export function defaultDb(env: RegionEnv): RegionalDb {
   return personalHandles(regionsFromEnv(env)).db;
 }
 
-/**
- * The user's actor on their personal space, the owner every request acts on while no workspace
- * can be chosen, with its region's database.
- */
+/** The user's actor on their personal space, with its region's database. */
 export async function personalScope(
   env: RegionEnv,
   userId: string,
 ): Promise<{ actor: Actor; db: RegionalDb }> {
-  const regions = regionsFromEnv(env);
-  const actor = await resolveActor(regions.global, userId, userId);
+  const scope = await ownerScope(env, userId, undefined);
   // A user always has a role on their own personal space.
-  if (!actor.ok) throw new Error("A user has no personal space");
-  return { actor: actor.value, db: regions.get(actor.value.region).db };
+  if (!scope.ok) throw new Error("A user has no personal space");
+  return { actor: scope.value.actor, db: scope.value.db };
+}
+
+/**
+ * The actor on the space a request names (`?workspace=<slug>` on the API, the `workspace`
+ * argument of MCP tools): the personal space without a slug. The role comes from the services; a
+ * workspace the user is not a member of answers `not_found` like one that does not exist.
+ */
+export async function ownerScope(
+  env: RegionEnv,
+  userId: string,
+  slug: string | undefined,
+): Promise<Result<{ actor: Actor; db: RegionalDb; owner: OwnerView }>> {
+  const regions = regionsFromEnv(env);
+  const actor = await resolveOwnerScope(regions.global, userId, slug);
+  if (!actor.ok) return actor;
+  return {
+    ok: true,
+    value: {
+      actor: actor.value,
+      db: regions.get(actor.value.region).db,
+      owner: await ownerView(regions.global, actor.value.ownerId),
+    },
+  };
+}
+
+/** Where an artifact lives, for its views. */
+export async function ownerOf(env: RegionEnv, ownerId: string): Promise<OwnerView> {
+  return ownerView(regionsFromEnv(env).global, ownerId);
 }

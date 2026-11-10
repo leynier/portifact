@@ -25,6 +25,7 @@ import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
+import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
@@ -279,6 +280,25 @@ export async function exportAccount(
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
     })),
+    workspaces: (
+      await db.global
+        .select({
+          slug: schema.workspaces.slug,
+          name: schema.workspaces.name,
+          role: schema.workspaceMembers.role,
+          joinedAt: schema.workspaceMembers.createdAt,
+        })
+        .from(schema.workspaceMembers)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
+        .where(eq(schema.workspaceMembers.userId, input.userId))
+        .orderBy(asc(schema.workspaces.slug))
+    ).map((row) => ({ ...row, joinedAt: iso(row.joinedAt) })),
+    invitations: (await listIncomingInvitations(db.global, input)).map((invitation) => ({
+      workspace: invitation.workspace,
+      role: invitation.role,
+      invitedBy: invitation.invitedBy,
+      expiresAt: iso(invitation.expiresAt),
+    })),
     // A thread the account no longer sees keeps only where it points and the account's words.
     commentsElsewhere: elsewhere.map((thread) => {
       const { state: _state, createdAt: _createdAt, ...rest } = threadView(thread, true);
@@ -411,7 +431,7 @@ export async function requestAccountDeletion(
 const soleAdmin = () =>
   fail<never>(
     "sole_workspace_admin",
-    "You are the only admin of a workspace. Make another member an admin or delete the workspace before deleting your account.",
+    "You are the only admin of a workspace. Make another member its admin first, or ask Portifact at hello@portifact.com to delete the workspace, then delete your account.",
   );
 
 function causeIncludes(error: unknown, text: string): boolean {

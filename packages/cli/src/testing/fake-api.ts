@@ -75,6 +75,14 @@ export interface FakeArtifact {
   policyGeneration: number;
   /** Set when the operator suspended it; the summary then says `suspended` with the reason. */
   suspensionReason?: AbuseReason;
+  /** The workspace it lives in; absent for the personal space. */
+  workspace?: string | undefined;
+}
+
+export interface FakeWorkspace {
+  slug: string;
+  name: string;
+  role: "admin" | "editor" | "member";
 }
 
 export interface FakeVersionFile {
@@ -101,6 +109,8 @@ interface UploadSession {
   ownerId: string;
   artifactId: string;
   isNew: boolean;
+  /** The workspace a new artifact goes to. */
+  workspace: string | undefined;
   name: string;
   type: ArtifactType;
   versionId: string;
@@ -193,6 +203,10 @@ export interface FakeApiState {
   ): FakeVersion;
   /** The account is in its first days, so it cannot make an artifact public. */
   tooNewForPublic: boolean;
+  /** The workspaces the user belongs to, as GET /workspaces lists them. */
+  workspaces: FakeWorkspace[];
+  /** The `workspace` parameter of each owner-scoped request, as `<route> <slug|personal>`. */
+  workspaceParams: string[];
   /** How long upload URLs stay valid. */
   urlTtlMs: number;
   /** Creates an artifact as if it had been published before the test. */
@@ -260,6 +274,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       });
     },
     tooNewForPublic: false,
+    workspaces: [],
+    workspaceParams: [],
     webhooks: new Map(),
     webhookAttempts: new Map(),
     webhookTests: [],
@@ -854,7 +870,12 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     return true;
   }
 
-  function prepare(ownerId: string, key: string | undefined, raw: string): Reply {
+  function prepare(
+    ownerId: string,
+    key: string | undefined,
+    raw: string,
+    workspace?: string,
+  ): Reply {
     const parsedKey = IdempotencyKey.safeParse(key);
     if (!parsedKey.success) return error("invalid_input", "Send an Idempotency-Key header.");
     const previous = idempotency.get(parsedKey.data);
@@ -862,12 +883,12 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       if (previous.hash !== raw) return error("invalid_input", "Key used for another request.");
       return previous.reply;
     }
-    const reply = prepareOnce(ownerId, raw);
+    const reply = prepareOnce(ownerId, raw, workspace);
     idempotency.set(parsedKey.data, { hash: raw, reply });
     return reply;
   }
 
-  function prepareOnce(ownerId: string, raw: string): Reply {
+  function prepareOnce(ownerId: string, raw: string, workspace?: string): Reply {
     const parsed = PublishRequest.safeParse(parseJson(raw));
     if (!parsed.success) return error("invalid_input", "Invalid publish request.");
     const request = parsed.data;
@@ -907,6 +928,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       ownerId,
       artifactId,
       isNew: !request.artifactId,
+      workspace: request.artifactId ? undefined : workspace,
       name: request.name,
       type: request.type,
       versionId: `ver_${randomUUID().replaceAll("-", "")}`,
@@ -975,6 +997,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         readerCommentVisibility: [],
       },
       policyGeneration: 1,
+      workspace: session.workspace,
     };
     artifact.name = session.name;
     artifact.versions = session.versionNumber - 1;
@@ -1029,7 +1052,24 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     return { status: 200, body };
   }
 
-  function listArtifacts(url: URL): Reply {
+  function transfer(id: string, raw: string): Reply {
+    const artifact = state.artifacts.get(id);
+    if (!artifact || artifact.state === "deleted") return error("not_found", "Artifact not found.");
+    const body = parseJson(raw) as { workspace?: unknown };
+    const target = body?.workspace;
+    if (target !== null && typeof target !== "string") return error("invalid_input", "workspace.");
+    if (target !== null && !state.workspaces.some((w) => w.slug === target)) {
+      return error("not_found", "Workspace not found.");
+    }
+    const from = state.workspaces.find((w) => w.slug === artifact.workspace);
+    if (from && (target ?? undefined) !== artifact.workspace && from.role !== "admin") {
+      return error("forbidden", "Your role on this workspace does not allow this.");
+    }
+    artifact.workspace = target ?? undefined;
+    return { status: 200, body: summary(artifact, state.workspaces) };
+  }
+
+  function listArtifacts(url: URL, workspace?: string): Reply {
     const limit = Number(url.searchParams.get("limit") ?? "50");
     const cursor = url.searchParams.get("cursor");
     const offset = cursor === null ? 0 : Number(cursor.replace(/^c/, ""));
@@ -1054,11 +1094,12 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       (filters.data.access === undefined || item.accessMode === filters.data.access) &&
       (filters.data.annotations === undefined || item.annotations === filters.data.annotations);
     const all = [...state.artifacts.values()]
-      .filter((artifact) => artifact.state !== "deleted")
-      .filter((artifact) => matches(summary(artifact)));
-    const items = all
-      .slice(offset, offset + limit)
-      .map((artifact) => ({ ...summary(artifact), activity: activityOf(artifact) }));
+      .filter((artifact) => artifact.state !== "deleted" && artifact.workspace === workspace)
+      .filter((artifact) => matches(summary(artifact, state.workspaces)));
+    const items = all.slice(offset, offset + limit).map((artifact) => ({
+      ...summary(artifact, state.workspaces),
+      activity: activityOf(artifact),
+    }));
     const nextCursor = offset + limit < all.length ? `c${offset + limit}` : null;
     return { status: 200, body: { items, nextCursor } };
   }
@@ -1356,7 +1397,28 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   function api(method: string, url: URL, ownerId: string, key: string | undefined, raw: string) {
     const path = url.pathname.slice("/api/v1".length);
     const route = `${method} ${path}`;
-    if (route === "POST /publishes") return prepare(ownerId, key, raw);
+    if (route === "GET /workspaces") {
+      return {
+        status: 200,
+        body: {
+          items: state.workspaces.map((workspace) => ({
+            ...workspace,
+            region: "default",
+            createdAt: "2026-11-01T00:00:00.000Z",
+          })),
+        },
+      };
+    }
+    const workspace = url.searchParams.get("workspace") ?? undefined;
+    if (["POST /publishes", "GET /artifacts", "GET /usage"].includes(route)) {
+      state.workspaceParams.push(`${route} ${workspace ?? "personal"}`);
+      if (workspace !== undefined && !state.workspaces.some((w) => w.slug === workspace)) {
+        return error("not_found", "Workspace not found.");
+      }
+    }
+    if (route === "POST /publishes") return prepare(ownerId, key, raw, workspace);
+    const moved = /^\/artifacts\/([^/]+)\/transfer$/.exec(path);
+    if (moved && method === "POST") return transfer(decodeURIComponent(moved[1] as string), raw);
     const parts = /^\/publishes\/([^/]+)\/parts$/.exec(path);
     if (parts && method === "POST") {
       return reportPart(ownerId, decodeURIComponent(parts[1] as string), raw);
@@ -1368,7 +1430,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       if (method === "POST" && match[2]) return commit(ownerId, id);
       if (method === "DELETE" && !match[2]) return abort(ownerId, id);
     }
-    if (route === "GET /artifacts") return listArtifacts(url);
+    if (route === "GET /artifacts") return listArtifacts(url, workspace);
     if (route === "GET /usage") return { status: 200, body: state.usage };
     const statsPath = /^\/artifacts\/([^/]+)\/stats$/.exec(path);
     if (statsPath && method === "GET") {
@@ -1411,7 +1473,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         if (!artifact || artifact.state === "deleted") {
           return error("not_found", "Artifact not found.");
         }
-        return { status: 200, body: summary(artifact) };
+        return { status: 200, body: summary(artifact, state.workspaces) };
       }
     }
     return undefined;
@@ -1431,7 +1493,8 @@ export function scopeFor(method: string, path: string): string {
   return "artifacts:read";
 }
 
-function summary(artifact: FakeArtifact): ArtifactSummary {
+function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): ArtifactSummary {
+  const workspace = workspaces.find((one) => one.slug === artifact.workspace);
   return {
     id: artifact.id,
     name: artifact.name,
@@ -1442,6 +1505,9 @@ function summary(artifact: FakeArtifact): ArtifactSummary {
     annotations: "off",
     currentVersionId: artifact.currentVersionId,
     url: contentUrl(artifact.id),
+    owner: workspace
+      ? { kind: "workspace", slug: workspace.slug, name: workspace.name }
+      : { kind: "personal" },
     expiresAt: artifact.expiresAt === null ? null : iso(artifact.expiresAt),
     archivedAt: artifact.archivedAt === null ? null : iso(artifact.archivedAt),
     purgeAt: artifact.purgeAt === null ? null : iso(artifact.purgeAt),

@@ -257,8 +257,15 @@
     {
       "idx": 36,
       "version": "6",
-      "when": 1794305163140,
-      "tag": "0036_webhooks",
+      "when": 1794305289616,
+      "tag": "0036_workspace_members_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1794307063234,
+      "tag": "0037_webhooks",
       "breakpoints": true
     }
   ]

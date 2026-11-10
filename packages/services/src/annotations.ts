@@ -359,7 +359,8 @@ function allowedModes(role: AnnotationRole, action: AnnotationAction): Annotatio
 function artifactGuard(loaded: Authorized, action: AnnotationAction, now: number): SQL {
   const t = schema.artifacts;
   const a = loaded.artifact;
-  return sql`exists (select 1 from ${t} where ${t.id} = ${a.id} and ${t.state} = 'active' and (${t.expiresAt} is null or ${t.expiresAt} > ${now}) and ${inArray(t.annotations, allowedModes(loaded.role, action))}${
+  // The same owner too: a transfer in between means the role was decided on another owner.
+  return sql`exists (select 1 from ${t} where ${t.id} = ${a.id} and ${t.ownerId} = ${a.ownerId} and ${t.state} = 'active' and (${t.expiresAt} is null or ${t.expiresAt} > ${now}) and ${inArray(t.annotations, allowedModes(loaded.role, action))}${
     loaded.role === "participant" ? sql` and ${t.policyGeneration} = ${a.policyGeneration}` : sql``
   })`;
 }

@@ -63,6 +63,7 @@ export const ErrorCode = z.enum([
   "reauthentication_required",
   "human_verification_required",
   "sole_workspace_admin",
+  "seats_exhausted",
   "plan_required",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;

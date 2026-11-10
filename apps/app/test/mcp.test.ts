@@ -49,6 +49,7 @@ const TOOLS = [
     "remove_custom_domain",
   ],
   ...["prepare_upload", "get_upload_status", "commit_upload", "read_artifact"],
+  ...["list_workspaces", "transfer_artifact"],
   ...[
     "create_annotation",
     "delete_annotation",

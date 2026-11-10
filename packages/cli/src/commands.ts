@@ -15,6 +15,7 @@ import {
 import type { Io, Runtime } from "./runtime.ts";
 import { resolveServer, type Server } from "./server.ts";
 import { type Authorized, credentialsFrom, type Session, withAccessToken } from "./session.ts";
+import { forgetDefaultWorkspace } from "./workspaces.ts";
 
 /**
  * Every product scope the CLI's commands use, managing the account's own tokens
@@ -141,6 +142,8 @@ export async function logout(io: Io, runtime: Runtime, options: OutputOptions): 
     }
     await store.remove(server.origin);
   }
+  // The default workspace was this account's choice; the next account starts in its own space.
+  await forgetDefaultWorkspace(runtime.configDir);
 
   if (options.json) {
     writeJson(io, { server: server.origin, wasSignedIn: credentials !== undefined });

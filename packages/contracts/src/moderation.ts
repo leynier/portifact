@@ -220,6 +220,24 @@ export const AccountExport = z.object({
     brand: Brand.nullable(),
   }),
   artifacts: z.array(ExportArtifact),
+  /** The workspaces the account is a member of, with its role; not their artifacts. */
+  workspaces: z.array(
+    z.object({
+      slug: z.string(),
+      name: z.string(),
+      role: z.enum(["admin", "editor", "member"]),
+      joinedAt: Iso,
+    }),
+  ),
+  /** Pending invitations addressed to the account's email. */
+  invitations: z.array(
+    z.object({
+      workspace: z.object({ slug: z.string(), name: z.string() }),
+      role: z.enum(["admin", "editor", "member"]),
+      invitedBy: z.string().nullable(),
+      expiresAt: Iso,
+    }),
+  ),
   /**
    * Threads on other people's artifacts where the account wrote, with only its own messages.
    * A thread the account no longer sees (the owner narrowed who sees comments) has no `state`

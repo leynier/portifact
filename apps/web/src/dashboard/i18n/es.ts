@@ -1112,7 +1112,9 @@ export const es = {
   "error.capacity_unavailable":
     "Portifact está al límite de su capacidad en este momento. Inténtalo más tarde.",
   "error.sole_workspace_admin":
-    "Eres la única persona administradora de un workspace. Nombra a otro miembro administrador o elimina el workspace antes de eliminar tu cuenta.",
+    "Un workspace debe tener una persona administradora y tú eres la única. Nombra antes a otro miembro administrador o pide a Portifact en hello@portifact.com que elimine el workspace.",
+  "error.seats_exhausted":
+    "El workspace usa todos sus puestos. Quita a un miembro o revoca una invitación, o pide más puestos.",
   "error.rate_limited": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
   "error.reauthentication_required": "Vuelve a iniciar sesión para hacer eso.",
   "error.human_verification_required":

@@ -28,6 +28,8 @@ export async function prepareUpload(
   userId: string,
   body: PublishRequest,
   now: number,
+  /** The owner a new artifact is created for, from `ownerScope`; the personal space when absent. */
+  targetOwnerId?: string,
 ): Promise<StoredResponse> {
   const multipart = body.multipart
     ? { bucket: deps.bucket, ...(deps.multipart ? { config: deps.multipart } : {}) }
@@ -36,6 +38,7 @@ export async function prepareUpload(
     db,
     {
       userId,
+      targetOwnerId,
       ...(body.artifactId ? { artifactId: body.artifactId } : {}),
       type: body.type,
       name: body.name,

@@ -990,7 +990,8 @@ describe("the unsubscribe link", () => {
     const forged = [
       `${version}.${btoa("someone-else").replaceAll("=", "")}.${issued}.${signature}`,
       `${version}.${user}.${Number(issued) + 1}.${signature}`,
-      `${version}.${user}.${issued}.${signature?.slice(0, -2)}AA`,
+      // Two different endings, so one of them always changes the signature.
+      `${version}.${user}.${issued}.${signature?.slice(0, -2)}${signature?.endsWith("AA") ? "BB" : "AA"}`,
       `cn2.${user}.${issued}.${signature}`,
       `${token}.extra`,
       "cn1.@@.1.x",

@@ -246,6 +246,7 @@ describe("tombstones after a restore", () => {
       inserted: markers.length,
       artifacts: 2,
       accounts: 1,
+      workspaces: 0,
       shareLinks: 0,
       webhooks: 0,
     });
@@ -297,6 +298,7 @@ describe("tombstones after a restore", () => {
       inserted: 0,
       artifacts: 0,
       accounts: 0,
+      workspaces: 0,
       shareLinks: 0,
       webhooks: 0,
     });

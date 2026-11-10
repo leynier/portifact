@@ -3,6 +3,7 @@
 // a workspace. A user acts on an owner with a role, which only the services resolve, from the
 // membership; adapters never decide one.
 import { z } from "zod";
+import { Email } from "./core.ts";
 
 /**
  * Where an owner's data is stored (decision 0005). Only the default region exists for now; the
@@ -55,6 +56,7 @@ export const ROLE_ACTIONS = [
   "comment",
   // Editors and admins.
   "manage",
+  "transfer",
   "list",
   "publish",
   "update",
@@ -66,6 +68,8 @@ export const ROLE_ACTIONS = [
   "access_log",
   "usage",
   // Admins only.
+  /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */
+  "transfer_out",
   "members",
   "plan",
   "policies",
@@ -75,3 +79,125 @@ export const ROLE_ACTIONS = [
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;
+
+/**
+ * Where an artifact lives, as every artifact view shows it: the personal space of the user who
+ * sees it, or a workspace by slug and name.
+ */
+export const OwnerView = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("personal") }),
+  z.object({ kind: z.literal("workspace"), slug: WorkspaceSlug, name: z.string() }),
+]);
+export type OwnerView = z.infer<typeof OwnerView>;
+
+/** Workspace names: what members see in lists, one line. */
+export const WorkspaceName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(100)
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point
+  .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "No control characters");
+
+/** A workspace the caller belongs to, with their role (`GET /api/v1/workspaces`, `list_workspaces`). */
+export const WorkspaceView = z.object({
+  slug: WorkspaceSlug,
+  name: z.string(),
+  role: WorkspaceRole,
+  region: Region,
+  createdAt: z.iso.datetime(),
+});
+export type WorkspaceView = z.infer<typeof WorkspaceView>;
+
+export const WorkspaceList = z.object({ items: z.array(WorkspaceView) });
+export type WorkspaceList = z.infer<typeof WorkspaceList>;
+
+/** Seats in use: members plus pending invitations that have not expired, and the plan's cap. */
+export const SeatsView = z.object({
+  used: z.int().min(0),
+  limit: z.int().min(1),
+});
+export type SeatsView = z.infer<typeof SeatsView>;
+
+export const WorkspaceMemberView = z.object({
+  userId: z.string().min(1),
+  name: z.string(),
+  email: z.string(),
+  role: WorkspaceRole,
+  joinedAt: z.iso.datetime(),
+  /** The member is the caller. */
+  you: z.boolean(),
+});
+export type WorkspaceMemberView = z.infer<typeof WorkspaceMemberView>;
+
+export const WorkspaceMemberList = z.object({
+  workspace: WorkspaceView,
+  items: z.array(WorkspaceMemberView),
+  seats: SeatsView,
+});
+export type WorkspaceMemberList = z.infer<typeof WorkspaceMemberList>;
+
+export const MemberRoleUpdate = z.strictObject({ role: WorkspaceRole });
+export type MemberRoleUpdate = z.infer<typeof MemberRoleUpdate>;
+
+/** Invitations (premium plan T1): sent by email, valid for a week, one per address and workspace. */
+export const INVITATION_LIMITS = {
+  ttlDays: 7,
+  /** Invitations one workspace sends in a day. */
+  perWorkspacePerDay: { max: 50, windowSeconds: 86_400 },
+  /** Invitations one admin sends in an hour, across workspaces. */
+  perAdminPerHour: { max: 20, windowSeconds: 3_600 },
+  /** Invitations one address receives in a day, across workspaces (keyed by a hash of it). */
+  perRecipientPerDay: { max: 5, windowSeconds: 86_400 },
+} as const;
+
+export const InvitationCreate = z.strictObject({ email: Email, role: WorkspaceRole });
+export type InvitationCreate = z.infer<typeof InvitationCreate>;
+
+/** IDs of invitations: `inv_` and 32 hex characters. */
+export const InvitationId = z.string().regex(/^inv_[0-9a-f]{32}$/, "Invalid invitation id");
+
+/** The token in an invitation's link: 43 base64url characters (32 random bytes). */
+export const InvitationToken = z.string().regex(/^[A-Za-z0-9_-]{43}$/, "Invalid invitation token");
+
+/** A pending invitation as the workspace's admins see it. */
+export const InvitationView = z.object({
+  id: InvitationId,
+  email: z.string(),
+  role: WorkspaceRole,
+  /** The admin who sent it; null once their account is gone. */
+  invitedBy: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  expiresAt: z.iso.datetime(),
+});
+export type InvitationView = z.infer<typeof InvitationView>;
+
+export const InvitationList = z.object({ items: z.array(InvitationView), seats: SeatsView });
+export type InvitationList = z.infer<typeof InvitationList>;
+
+/** An invitation as the invited person sees it. */
+export const IncomingInvitationView = z.object({
+  id: InvitationId,
+  workspace: z.object({ slug: WorkspaceSlug, name: z.string() }),
+  role: WorkspaceRole,
+  invitedBy: z.string().nullable(),
+  expiresAt: z.iso.datetime(),
+});
+export type IncomingInvitationView = z.infer<typeof IncomingInvitationView>;
+
+export const IncomingInvitationList = z.object({ items: z.array(IncomingInvitationView) });
+export type IncomingInvitationList = z.infer<typeof IncomingInvitationList>;
+
+/** Accepting or declining from the email's link. */
+export const InvitationTokenInput = z.strictObject({ token: InvitationToken });
+export type InvitationTokenInput = z.infer<typeof InvitationTokenInput>;
+
+/**
+ * Moving an artifact to another space: a workspace by slug, or `null` for the caller's personal
+ * space (`POST /api/v1/artifacts/:id/transfer`, `transfer_artifact`, `portifact transfer`).
+ */
+export const TransferRequest = z.strictObject({ workspace: WorkspaceSlug.nullable() });
+export type TransferRequest = z.infer<typeof TransferRequest>;
+
+/** The `workspace` query parameter of owner-scoped routes; absent for the personal space. */
+export const WorkspaceParam = WorkspaceSlug.optional();

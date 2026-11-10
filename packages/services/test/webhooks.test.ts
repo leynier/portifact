@@ -1758,7 +1758,12 @@ describe("review fixes", () => {
 
   it("records who created a webhook and clears it with their account", async () => {
     const admin = await proOwner("Ada Admin");
-    const ws = await workspace([[admin.id, "admin"]]);
+    // A second admin stays: a workspace never loses its last one, so the first can leave.
+    const other = await person();
+    const ws = await workspace([
+      [admin.id, "admin"],
+      [other.id, "admin"],
+    ]);
     await grantPlan(ws, "team");
     const wsActor = await actorIn(admin.id, ws);
     const created = value(
