@@ -5,7 +5,12 @@ import { env } from "cloudflare:workers";
 import { PLANS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
-import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
+import {
+  clearBudgetOverride,
+  runJob,
+  setBudgetOverride,
+  suspendArtifact,
+} from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
@@ -3204,5 +3209,107 @@ describe("API and MCP parity for approval reviews", () => {
     );
     expect(apiDenied.status).toBe(403);
     expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:write"');
+  });
+});
+
+describe("API and MCP parity for content search", () => {
+  const db = () => regionsFromEnv(env).get("default").db;
+
+  /** Runs the search jobs the commits wrote, as the jobs Worker would. */
+  async function runSearchJobs() {
+    const jobs = await db()
+      .select({ id: schema.outbox.id })
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "search_index"));
+    for (const job of jobs) {
+      await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "search_index" }, NOW);
+    }
+  }
+
+  it("answers the same results, cursor, refusals and missing workspace", async () => {
+    const b = await both("parity-search@example.test");
+    const owner = await ownerId(b);
+    const refused = fromTool(await b.tool("search_content", { query: "roadmap" }));
+    expect(refused).toEqual(await fromApi(await b.apiCall("/api/v1/search?q=roadmap")));
+    expect(refused).toMatchObject({ ok: false, body: { error: { code: "plan_required" } } });
+
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: owner, plan: "team", seats: 1, grantedBy: "test", updatedAt: NOW });
+    for (const name of ["One", "Two"]) {
+      await b.tool("publish_document", {
+        type: "markdown",
+        name,
+        content: `# ${name}\n\nThe quarterly roadmap for ${name}.`,
+      });
+    }
+    await runSearchJobs();
+    const first = fromTool(await b.tool("search_content", { query: "roadmap", limit: 1 }));
+    expect(first).toEqual(await fromApi(await b.apiCall("/api/v1/search?q=roadmap&limit=1")));
+    const page = first.body as {
+      items: {
+        artifact: { name: string };
+        path: string;
+        snippet: { text: string; highlights: number[][] };
+      }[];
+      nextCursor: string;
+    };
+    expect(page.items).toHaveLength(1);
+    const firstName = page.items[0]?.artifact.name;
+    expect(page.items[0]?.snippet.highlights).toHaveLength(1);
+    const second = fromTool(
+      await b.tool("search_content", { query: "roadmap", limit: 1, cursor: page.nextCursor }),
+    );
+    expect(second).toEqual(
+      await fromApi(
+        await b.apiCall(
+          `/api/v1/search?q=roadmap&limit=1&cursor=${encodeURIComponent(page.nextCursor)}`,
+        ),
+      ),
+    );
+    // Both were published at the same moment, so the ID orders them: the pages cover each once.
+    expect([firstName, (second.body as typeof page).items[0]?.artifact.name].sort()).toEqual([
+      "One",
+      "Two",
+    ]);
+
+    const missing = fromTool(
+      await b.tool("search_content", { query: "x", workspace: "no-such-team" }),
+    );
+    expect(missing).toEqual(
+      await fromApi(await b.apiCall("/api/v1/search?q=x&workspace=no-such-team")),
+    );
+    expect(missing).toMatchObject({ ok: false, body: { error: { code: "not_found" } } });
+
+    // Quotes and operators are plain characters at both, never an error.
+    const hostile = 'say "NEAR(x" OR {owner}:';
+    const viaTool = fromTool(await b.tool("search_content", { query: hostile }));
+    expect(viaTool).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/search?q=${encodeURIComponent(hostile)}`)),
+    );
+    expect(viaTool).toMatchObject({ ok: true, body: { items: [] } });
+    for (const q of ["", " ", "x".repeat(201)]) {
+      expect((await b.apiCall(`/api/v1/search?q=${encodeURIComponent(q)}`)).status, q).toBe(400);
+    }
+  });
+
+  it("needs artifacts:read at both", async () => {
+    const h = createHarness();
+    const email = "parity-search-scope@example.test";
+    const apiDenied = await api(
+      h,
+      await apiToken(h, email, "annotations:read"),
+      "/api/v1/search?q=x",
+    );
+    expect(apiDenied.status).toBe(403);
+    const mcpDenied = await rawCall(
+      h,
+      await mcpToken(h, email, "annotations:read"),
+      "search_content",
+      {
+        query: "x",
+      },
+    );
+    expect(mcpDenied.status).toBe(403);
   });
 });

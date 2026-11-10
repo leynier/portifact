@@ -166,6 +166,7 @@ describe("plan offers", () => {
       "workspaces",
       "serviceTokens",
       "reviews",
+      "contentSearch",
       "audit",
     ]);
     expect([...AVAILABLE_PLAN_FEATURES]).toEqual(

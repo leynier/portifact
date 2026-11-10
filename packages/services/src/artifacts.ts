@@ -109,7 +109,7 @@ function filterConditions(filters: ArtifactListFilters = {}) {
 }
 
 /** The artifacts a service token's restriction reaches (decision 0011); nothing for people. */
-function reachConditions(actor: Actor): SQL | undefined {
+export function reachConditions(actor: Actor): SQL | undefined {
   const t = schema.artifacts;
   const restriction = actor.token?.restriction;
   if (!restriction || restriction.kind === "none") return undefined;
@@ -124,7 +124,7 @@ function reachConditions(actor: Actor): SQL | undefined {
  * for open threads and `annotation_threads_artifact_change_idx` for the last change (the thread
  * changed last has the highest `change_seq`). They run only for the rows of the page.
  */
-function activityColumns(retention: VersionRetention, now: number) {
+export function activityColumns(retention: VersionRetention, now: number) {
   // Drizzle leaves columns unqualified in select fields, where they would bind to the
   // subquery's own table, so every column here names its table.
   const col = (column: Column) =>
@@ -145,6 +145,55 @@ function activityColumns(retention: VersionRetention, now: number) {
     >`(select ${col(th.updatedAt)} from ${th} where ${col(th.artifactId)} = ${id} order by ${col(th.changeSeq)} desc limit 1)`,
     approvalReview: approvalReviewColumn(id),
   };
+}
+
+/** What `activityColumns` adds to a selected row. */
+interface ActivityFields {
+  activityVersions: number;
+  activityCurrentBytes: number | null;
+  activityOpenThreads: number;
+  activityLastAnnotationAt: number | null;
+  approvalReview: string | null;
+}
+
+/**
+ * Rows selected with `activityColumns`, as listed artifacts: each with its activity and its
+ * approval review, the verdicts' authors read once for the whole page (decision 0013). The one
+ * place a listed artifact is built, for the artifact list and for search results.
+ */
+export async function withActivity<T extends ActivityFields>(
+  db: RegionalDb,
+  rows: readonly T[],
+): Promise<
+  (Omit<T, keyof ActivityFields> & { review: ApprovalSummary; activity: ArtifactActivity })[]
+> {
+  const reviews = await approvalSummaries(
+    db,
+    rows.map((row) => row.approvalReview),
+  );
+  return rows.map(
+    (
+      {
+        activityVersions,
+        activityCurrentBytes,
+        activityOpenThreads,
+        activityLastAnnotationAt,
+        approvalReview: _review,
+        ...row
+      },
+      index,
+    ) => ({
+      ...row,
+      review: reviews[index] as ApprovalSummary,
+      activity: {
+        versions: Number(activityVersions),
+        currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
+        openThreads: Number(activityOpenThreads),
+        lastAnnotationAt:
+          activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
+      },
+    }),
+  );
 }
 
 /**
@@ -184,35 +233,7 @@ export async function listArtifacts(
     )
     .orderBy(desc(t.updatedAt), desc(t.id))
     .limit(input.limit + 1);
-  const page = rows.slice(0, input.limit);
-  // One read of the verdicts' authors for the whole page (approval reviews, decision 0013).
-  const reviews = await approvalSummaries(
-    db,
-    page.map((row) => row.approvalReview),
-  );
-  const items = page.map(
-    (
-      {
-        activityVersions,
-        activityCurrentBytes,
-        activityOpenThreads,
-        activityLastAnnotationAt,
-        approvalReview: _review,
-        ...row
-      },
-      index,
-    ) => ({
-      ...row,
-      review: reviews[index] as ApprovalSummary,
-      activity: {
-        versions: Number(activityVersions),
-        currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
-        openThreads: Number(activityOpenThreads),
-        lastAnnotationAt:
-          activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
-      },
-    }),
-  );
+  const items = await withActivity(db, rows.slice(0, input.limit));
   const last = items.at(-1);
   return ok({ items, nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null });
 }

@@ -71,6 +71,8 @@ export const ROLE_ACTIONS = [
   "domains",
   /** Requesting, changing and cancelling approval reviews (premium plan T6, decision 0013). */
   "approvals",
+  /** Searching inside the content of every artifact of the owner (premium plan T8, decision 0012). */
+  "search",
   // Admins only.
   /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */
   "transfer_out",

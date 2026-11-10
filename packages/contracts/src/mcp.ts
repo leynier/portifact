@@ -19,6 +19,7 @@ import {
   SourceOrigin,
   UploadedPart,
 } from "./publishing.ts";
+import { SEARCH_LIMITS, SearchText } from "./search.ts";
 import { PublishKey } from "./service-tokens.ts";
 import { WorkspaceSlug } from "./workspaces.ts";
 
@@ -283,3 +284,28 @@ export const TransferArtifactInput = z.object({
   ),
 });
 export type TransferArtifactInput = z.infer<typeof TransferArtifactInput>;
+
+/** Input of the MCP tool search_content; the acting user comes from the token. */
+export const SearchContentInput = z.object({
+  workspace: WorkspaceSlug.optional().describe(
+    "The slug of a workspace from list_workspaces to search that workspace. Omit it for the user's personal space.",
+  ),
+  query: SearchText.describe(
+    "Plain words to find in the artifacts' text; every word must appear. Quotes and operators are treated as ordinary characters.",
+  ),
+  cursor: z
+    .string()
+    .max(200)
+    .optional()
+    .describe(
+      "The nextCursor of the previous page, with the same query. Omit it for the first page.",
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(SEARCH_LIMITS.pageMax)
+    .default(SEARCH_LIMITS.pageDefault)
+    .describe(`How many results to return, 1 to ${SEARCH_LIMITS.pageMax}.`),
+});
+export type SearchContentInput = z.infer<typeof SearchContentInput>;

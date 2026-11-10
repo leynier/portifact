@@ -11,6 +11,7 @@ import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
 import { pruneAuditEvents } from "./audit.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
+import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
@@ -565,6 +566,9 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     prunedEmailSuppressions: await pruneEmailSuppressions(db, now),
     alignedPlanLimits: (await alignPlanLimits(db, now)).processed,
     unpinned: (await unpinLapsedPlans(db, now)).processed,
+    // Content search (decision 0012): drop what a plan no longer covers, then index what is missing.
+    droppedSearchIndexes: (await dropLapsedSearchIndexes(db, now)).dropped,
+    scheduledSearchIndexing: (await scheduleSearchIndexing(db, now)).scheduled,
     webhooks: await maintainWebhooks(db, now),
     // The region's events, then the global ones (members, plans, domains); with one region both
     // passes read one database, and the second finds nothing left.

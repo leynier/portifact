@@ -173,6 +173,10 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sendDomainNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
+  // Content search (decision 0012): the index is derived data, kept by a job and two scans.
+  "runSearchIndex",
+  "scheduleSearchIndexing",
+  "dropLapsedSearchIndexes",
   "applyOwnerRetention",
   "moveAccessHistory",
   "eraseAccessEvents",
@@ -215,6 +219,7 @@ const READ_NAMES = new Set([
   "accessAudience",
   "approvalSummaries",
   "participation",
+  "withActivity",
   "authorizeUploadOn",
   "policyDomains",
   "scoped",
@@ -227,6 +232,8 @@ const READ_NAMES = new Set([
   "openUnsubscribeToken",
   "resolveActor",
   "resolveOwnerScope",
+  // Content search is a read (decision 0012): it records nothing.
+  "searchContent",
   "signUnsubscribeToken",
   "signWebhook",
 ]);
