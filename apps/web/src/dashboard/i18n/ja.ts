@@ -423,6 +423,16 @@ export const ja = {
   "settings.notices.saved": "メール通知を保存しました。",
   "settings.notices.unchanged": "保存する変更はありません。メール通知はすでにこの設定です。",
   "settings.notices.failed": "メール通知を保存できませんでした",
+  "settings.notices.comments.label": "新しいコメントをメールで通知",
+  "settings.notices.comments.hint":
+    "メールは最大10分に1通で、artifactごとの新しいスレッド、返信、解決の件数だけを伝え、書かれた内容は含みません。所有者のプランにコメント通知が含まれるartifactのみが対象です。",
+  "commentNotices.label": "このartifactの新しいコメントをメールで通知",
+  "commentNotices.hint":
+    "メールは最大10分に1通で、件数のみです。すべてのコメントメールは設定でオフにできます。",
+  "commentNotices.muted": "このartifactのコメントメールをオフにしました。",
+  "commentNotices.unmuted": "このartifactのコメントメールをオンにしました。",
+  "commentNotices.failed": "選択を保存できませんでした",
+  "commentNotices.planRequired": "新しいコメントのメール通知は{plan}プランに含まれます。",
   "settings.danger.title": "危険な操作",
   "settings.danger.hint": "これらの操作は元に戻せません。",
   "account.data.title": "あなたのデータ",

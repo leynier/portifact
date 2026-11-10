@@ -77,6 +77,15 @@ const messages = {
     failed: "无法发送举报。请重试，或发送邮件至 abuse@portifact.com。",
     sent: "举报已发送。",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing: "此链接不完整。请重新打开邮件中的链接，或在设置中关闭评论通知。",
+    invalid: "此链接已失效。请在设置中关闭评论通知。",
+    rateLimited: "此处尝试次数过多。请几分钟后再试。",
+    network: "无法连接到 Portifact。请检查网络连接后重试。",
+    failed: "无法关闭评论通知。请重试，或在设置中关闭。",
+    done: "评论通知已关闭。",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -184,5 +193,14 @@ export const zhCN: AuthCatalog = {
     "report.doneHeading": "谢谢，我们已收到你的举报",
     "report.doneBody":
       '我们会审核每一份举报。你也可以发送邮件至 <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>。',
+
+    // unsubscribe.html
+    "unsubscribe.title": "关闭 Portifact 评论通知",
+    "unsubscribe.heading": "关闭评论通知",
+    "unsubscribe.intro":
+      "你将不再收到有关 Portifact artifact 新评论的邮件。到期通知和登录邮件不受影响。",
+    "unsubscribe.confirm": "关闭评论通知",
+    "unsubscribe.doneHeading": "评论通知已关闭",
+    "unsubscribe.doneBody": '你可以随时在<a href="/settings">设置</a>中重新开启。',
   },
 };

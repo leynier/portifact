@@ -32,6 +32,7 @@ import { type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { threadsQuery } from "../review/use-threads.ts";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
+import { CommentNoticeToggle } from "./comment-notices.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
 
 export const accessQuery = (artifactId: string) => ["artifact", artifactId, "access"] as const;
@@ -521,6 +522,9 @@ function CommentSettingsPanel({
       >
         {t("accessSettings.comments.confirm.body")}
       </ConfirmDialog>
+      <div className="mt-6 border-t border-border pt-6">
+        <CommentNoticeToggle artifactId={artifact.id} explainPlan />
+      </div>
     </Panel>
   );
 }

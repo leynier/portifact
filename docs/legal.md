@@ -57,6 +57,12 @@ The Terms and the Privacy Policy describe a fixed lifecycle: an artifact expires
 
 Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.
 
+## Pending changes to the legal texts
+
+Changes that shipped and that the legal pages do not describe yet, to be written in one go with the next update of the texts (and a `TERMS_VERSION` bump if the change is material):
+
+- Comment notices (premium plan P5): a new kind of email. The Privacy page must say that on artifacts whose owner's plan includes them, Portifact emails the owner side and the people who took part in a thread a digest of new comment activity, at most every 10 minutes; that the email holds the artifact's name, counts of new threads, replies and resolutions and links, never what was written or who wrote it; that it is on by default and turned off in the settings, per artifact with a mute, or with the one-click unsubscribe link in every email; and what is stored for it: pending activity per recipient and thread (IDs, counts and a time, deleted once the digest is scheduled, with the thread, the artifact or the account), the mutes, the setting and when it last changed, all part of the account export. The Terms may also mention it among the paid features.
+
 ## Changing the texts
 
 1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.

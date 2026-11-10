@@ -441,6 +441,17 @@ export const fr = {
   "settings.notices.unchanged":
     "Rien à enregistrer : vos avis par e-mail sont déjà configurés ainsi.",
   "settings.notices.failed": "Vos avis par e-mail n’ont pas été enregistrés",
+  "settings.notices.comments.label": "M’envoyer un e-mail en cas de nouveaux commentaires",
+  "settings.notices.comments.hint":
+    "Au plus un e-mail toutes les 10 minutes, avec le nombre de nouveaux fils, réponses et résolutions sur chaque artifact, jamais ce qui a été écrit. Seulement pour les artifacts dont le propriétaire a un plan avec les avis de commentaires.",
+  "commentNotices.label": "M’envoyer un e-mail en cas de nouveaux commentaires sur cet artifact",
+  "commentNotices.hint":
+    "Au plus un e-mail toutes les 10 minutes, avec des nombres seulement. Désactivez tous les e-mails de commentaires dans vos paramètres.",
+  "commentNotices.muted": "E-mails de commentaires désactivés pour cet artifact.",
+  "commentNotices.unmuted": "E-mails de commentaires activés pour cet artifact.",
+  "commentNotices.failed": "Votre choix n’a pas été enregistré",
+  "commentNotices.planRequired":
+    "Les avis par e-mail des nouveaux commentaires font partie du plan {plan}.",
   "settings.danger.title": "Zone de danger",
   "settings.danger.hint": "Ces actions sont irréversibles.",
   "account.data.title": "Vos données",

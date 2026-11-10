@@ -18,7 +18,7 @@ import {
   ok,
   type Result,
 } from "@portifact/domain";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 /** The stored defaults, or the built-in ones without a row. */
 export async function loadSettings(db: Db, userId: string): Promise<AccountSettings> {
@@ -29,6 +29,7 @@ export async function loadSettings(db: Db, userId: string): Promise<AccountSetti
       defaultCommentVisibility: schema.accountSettings.defaultCommentVisibility,
       defaultBar: schema.accountSettings.defaultBar,
       expiryNotices: schema.accountSettings.expiryNotices,
+      commentNotices: schema.accountSettings.commentNotices,
       locale: schema.accountSettings.locale,
     })
     .from(schema.accountSettings)
@@ -77,10 +78,24 @@ export async function updateAccountSettings(
   );
   if (!next.ok) return next;
   const values = { ...next.value, updatedAt: input.now };
+  const s = schema.accountSettings;
   await db
-    .insert(schema.accountSettings)
-    .values({ userId: input.userId, ...values })
-    .onConflictDoUpdate({ target: schema.accountSettings.userId, set: values });
+    .insert(s)
+    .values({
+      userId: input.userId,
+      ...values,
+      // A new row only changes the notices from their default when it turns them off.
+      commentNoticesChangedAt: values.commentNotices ? null : input.now,
+    })
+    .onConflictDoUpdate({
+      target: s.userId,
+      set: {
+        ...values,
+        // Unsubscribe links issued before a change of the preference stop working
+        // (`unsubscribeUsable`), so an old link never undoes turning the notices back on.
+        commentNoticesChangedAt: sql`case when ${s.commentNotices} = ${values.commentNotices ? 1 : 0} then ${s.commentNoticesChangedAt} else ${input.now} end`,
+      },
+    });
   return next;
 }
 

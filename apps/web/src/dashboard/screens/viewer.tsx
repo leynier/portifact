@@ -89,6 +89,7 @@ import { type BridgeState, useBridge } from "../review/use-bridge.ts";
 import { applyThread, type ThreadsState, threadsQuery, useThreads } from "../review/use-threads.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
+import { CommentNoticeToggle } from "./comment-notices.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
 
 type T = ReturnType<typeof useT>;
@@ -1059,6 +1060,7 @@ function ReviewSession({
           authors={authors}
         />
       ) : null}
+      {data ? <CommentNoticeToggle artifactId={start.artifactId} explainPlan={false} /> : null}
     </>
   );
 

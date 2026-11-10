@@ -430,6 +430,16 @@ export const ru = {
   "settings.notices.saved": "Уведомления по почте сохранены.",
   "settings.notices.unchanged": "Нечего сохранять: уведомления уже настроены так.",
   "settings.notices.failed": "Уведомления по почте не сохранены",
+  "settings.notices.comments.label": "Сообщать по почте о новых комментариях",
+  "settings.notices.comments.hint":
+    "Не чаще одного письма в 10 минут: сколько новых веток, ответов и закрытых веток в каждом artifact, без текста комментариев. Только для artifacts, у владельца которых тариф с уведомлениями о комментариях.",
+  "commentNotices.label": "Сообщать по почте о новых комментариях к этому artifact",
+  "commentNotices.hint":
+    "Не чаще одного письма в 10 минут, только числа. Все письма о комментариях отключаются в настройках.",
+  "commentNotices.muted": "Письма о комментариях к этому artifact отключены.",
+  "commentNotices.unmuted": "Письма о комментариях к этому artifact включены.",
+  "commentNotices.failed": "Ваш выбор не сохранён",
+  "commentNotices.planRequired": "Уведомления о новых комментариях по почте входят в тариф {plan}.",
   "settings.danger.title": "Опасная зона",
   "settings.danger.hint": "Эти действия нельзя отменить.",
   "account.data.title": "Ваши данные",

@@ -434,6 +434,17 @@ export const es = {
   "settings.notices.unchanged":
     "Nada que guardar: tus avisos por correo ya están configurados así.",
   "settings.notices.failed": "No se guardaron tus avisos por correo",
+  "settings.notices.comments.label": "Envíame un correo cuando haya comentarios nuevos",
+  "settings.notices.comments.hint":
+    "Como máximo un correo cada 10 minutos, con cuántos hilos, respuestas y resoluciones hay nuevos en cada artifact, nunca lo que se escribió. Solo en artifacts cuyo propietario tiene un plan con avisos de comentarios.",
+  "commentNotices.label": "Envíame un correo cuando haya comentarios nuevos en este artifact",
+  "commentNotices.hint":
+    "Como máximo un correo cada 10 minutos, solo con cantidades. Desactiva todos los correos de comentarios en tu configuración.",
+  "commentNotices.muted": "Correos de comentarios desactivados para este artifact.",
+  "commentNotices.unmuted": "Correos de comentarios activados para este artifact.",
+  "commentNotices.failed": "No se guardó tu elección",
+  "commentNotices.planRequired":
+    "Los avisos por correo de comentarios nuevos son parte del plan {plan}.",
   "settings.danger.title": "Zona de peligro",
   "settings.danger.hint": "Estas acciones no se pueden deshacer.",
   "account.data.title": "Tus datos",
