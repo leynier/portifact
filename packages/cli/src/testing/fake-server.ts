@@ -31,6 +31,8 @@ export type PollOutcome =
 export interface RecordedRequest {
   method: string;
   path: string;
+  /** The query string, without the `?`. */
+  query: string;
   form: Record<string, string>;
   authorization: string | undefined;
   headers: IncomingHttpHeaders;
@@ -162,6 +164,7 @@ export async function startFakeServer(): Promise<FakeServer> {
     fake.requests.push({
       method,
       path: url.pathname,
+      query: url.search.slice(1),
       form,
       authorization: request.headers.authorization,
       headers: request.headers,

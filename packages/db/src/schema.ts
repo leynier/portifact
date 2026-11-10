@@ -896,6 +896,8 @@ export const annotationThreads = sqliteTable(
     ),
     index("annotation_threads_artifact_change_idx").on(t.artifactId, t.changeSeq),
     index("annotation_threads_author_idx").on(t.authorId),
+    // A space's open feedback: an owner's open threads, newest activity first.
+    index("annotation_threads_owner_state_updated_idx").on(t.ownerId, t.state, t.updatedAt, t.id),
     check("annotation_threads_target_bytes", sql`${t.targetBytes} between 1 and 8192`),
     check(
       "annotation_threads_counters",
