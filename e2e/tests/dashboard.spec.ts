@@ -3,7 +3,16 @@
 // the history, and the viewer's comment filters and export.
 
 import { readFile } from "node:fs/promises";
-import { control, createUser, expect, openReview, publish, signIn, test } from "../src/fixtures.ts";
+import {
+  control,
+  createUser,
+  expect,
+  openDisclosure,
+  openReview,
+  publish,
+  signIn,
+  test,
+} from "../src/fixtures.ts";
 import { APP_ORIGIN } from "../src/hosts.ts";
 
 const PAGE = { "index.html": "<!doctype html><title>Page</title><p>Hello</p>" };
@@ -94,7 +103,7 @@ test("the viewer filters comments by author and exports them as Markdown", async
   await expect(page.getByText("2 comment threads")).toBeVisible();
 
   // The filters and export sit in a collapsed disclosure in the sidebar.
-  await page.getByText("Filter and export", { exact: true }).click();
+  await openDisclosure(page.getByText("Filter and export", { exact: true }));
   await page.getByRole("combobox", { name: "Author" }).click();
   await page.getByRole("option", { name: "You", exact: true }).click();
   await expect(page.getByText("Showing 1 of 2 comment threads")).toBeVisible();
