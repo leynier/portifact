@@ -6,7 +6,7 @@ import type { AnnotationTarget, CommentNoticePayload, JobMessage } from "@portif
 import { globalDb, regionalDb, schema } from "@portifact/db";
 import { COMMENT_NOTICE_EMAILS_PER_CYCLE } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   advanceAccountDeletion,
   exportAccount,
@@ -225,7 +225,18 @@ async function proWorld(options: { comments?: "owner" | "everyone" } = {}) {
   return { owner, reader, other, a };
 }
 
+/** The `comment_notice_skipped` lines logged since the test started. */
+let logged: unknown[] = [];
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 beforeEach(async () => {
+  logged = [];
+  vi.spyOn(console, "log").mockImplementation((line: unknown) => {
+    logged.push(JSON.parse(String(line)));
+  });
   await env.DB.exec(
     "DELETE FROM comment_notices; DELETE FROM outbox; DELETE FROM email_counters; DELETE FROM email_suppressions",
   );
@@ -276,6 +287,25 @@ describe("marking activity on the write path", () => {
       { created: 0, replies: 3, resolved: 1, firstAt: NOW + MINUTE },
     ]);
     expect(await pending(other.id)).toMatchObject([{ created: 0, replies: 1, resolved: 1 }]);
+  });
+
+  it("marks exactly the owner side and the participants other than the actor", async () => {
+    const { owner, reader, other, a } = await proWorld();
+    const id = await thread(a, reader.id);
+    await reply(a, other.id, id);
+    const recipients = async () =>
+      (
+        await db()
+          .select({ id: schema.commentNotices.recipientId })
+          .from(schema.commentNotices)
+          .where(eq(schema.commentNotices.threadId, id))
+      )
+        .map((row) => row.id)
+        .sort();
+    expect(await recipients()).toEqual([owner.id, reader.id].sort());
+    await db().delete(schema.commentNotices);
+    await resolve(a, reader.id, id, "resolved");
+    expect(await recipients()).toEqual([owner.id, other.id].sort());
   });
 
   it("marks nothing for the owner's own comments on their personal space", async () => {
@@ -500,7 +530,7 @@ describe("scheduleCommentNotices", () => {
   });
 
   it("runs with the maintenance scans", async () => {
-    const { owner, reader, a } = await proWorld();
+    const { reader, a } = await proWorld();
     await thread(a, reader.id);
     expect(await runMaintenance(db(), env.ARTIFACTS, LATER)).toMatchObject({ commentNotices: 1 });
   });
@@ -591,6 +621,7 @@ describe("sendCommentNotice", () => {
     await thread(a, reader.id);
     expect(await deliver(owner.id)).toEqual([]);
     expect(await emailsSentInCycle(db(), LATER)).toBe(0);
+    expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "suppressed", threads: 1 }]);
   });
 
   it("records an address the provider refuses and drops the job", async () => {
@@ -605,6 +636,7 @@ describe("sendCommentNotice", () => {
     ).toBe("stale");
     expect(await isEmailSuppressed(db(), owner.email, LATER)).toBe(true);
     expect(await jobsFor(owner.id)).toEqual([]);
+    expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "suppressed", threads: 1 }]);
   });
 
   it("skips someone who turned the notices off after the scan", async () => {
@@ -625,6 +657,7 @@ describe("sendCommentNotice", () => {
       }),
     ).toBe("stale");
     expect(sent).toEqual([]);
+    expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "opted_out", threads: 1 }]);
   });
 
   it("skips an artifact muted after the scan, and an owner whose plan ended", async () => {
@@ -668,6 +701,7 @@ describe("sendCommentNotice", () => {
     await recordEmailsSent(db(), LATER, COMMENT_NOTICE_EMAILS_PER_CYCLE);
     expect(await deliver(owner.id)).toEqual([]);
     expect(await emailsSentInCycle(db(), LATER)).toBe(COMMENT_NOTICE_EMAILS_PER_CYCLE);
+    expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "capacity", threads: 1 }]);
   });
 
   it("skips an account deleted after the scan", async () => {
@@ -681,12 +715,59 @@ describe("sendCommentNotice", () => {
       await runJob(db(), env.ARTIFACTS, message(job), LATER, { commentNotifier: notifier }),
     ).toBe("stale");
     expect(sent).toEqual([]);
+    expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "no_account", threads: 1 }]);
+  });
+
+  it("does nothing for a row another delivery already claimed", async () => {
+    const { owner, reader, a } = await proWorld();
+    await thread(a, reader.id);
+    await scheduleCommentNotices(db(), LATER);
+    const job = await onlyJob(owner.id);
+    const { notifier, sent } = fakeNotifier();
+    expect(await sendCommentNotice(db(), job, LATER, notifier)).toBe("done");
+    expect(await sendCommentNotice(db(), job, LATER, notifier)).toBe("done");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("drops a job whose payload is not one, sending nothing", async () => {
+    const { owner } = await proWorld();
+    const [job] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "comment_notice",
+        payload: { threads: [{ body: "never" }] },
+        availableAt: LATER,
+        subject: owner.id,
+      })
+      .returning();
+    if (!job) throw new Error("the job was not written");
+    const { notifier, sent } = fakeNotifier();
+    expect(await sendCommentNotice(db(), job, LATER, notifier)).toBe("stale");
+    expect(sent).toEqual([]);
+    expect(logged).toEqual([
+      { event: "comment_notice_skipped", reason: "nothing_visible", threads: 0 },
+    ]);
+  });
+
+  it("lists twenty artifacts at most and counts the rest", async () => {
+    const { owner, reader } = await proWorld();
+    for (let i = 0; i < 21; i += 1) {
+      const extra = await artifact(owner.id, [reader.email], { name: `Doc ${i}` });
+      // A minute apart, under the per-author write rate.
+      const id = await thread(extra, reader.id, NOW + i * MINUTE);
+      // The first artifact is the most active, so it is the one listed first.
+      if (i === 0) await reply(extra, reader.id, id, NOW + 1);
+    }
+    const [notice] = await deliver(owner.id, NOW + 40 * MINUTE);
+    expect(notice?.artifacts).toHaveLength(20);
+    expect(notice?.more).toBe(1);
+    expect(notice?.artifacts[0]).toMatchObject({ name: "Doc 0", newThreads: 1, newReplies: 1 });
   });
 });
 
 describe("visibility when the notice is sent", () => {
   it("tells a reader nothing about another reader's thread they cannot see", async () => {
-    const { owner, reader, other, a } = await proWorld();
+    const { reader, other, a } = await proWorld();
     const id = await thread(a, reader.id);
     await reply(a, other.id, id);
     await reply(a, reader.id, id);
@@ -849,6 +930,18 @@ describe("the unsubscribe link", () => {
       .where(eq(schema.accountSettings.userId, userId));
     return row;
   }
+
+  it("opens tokens of any user ID length, without padding, and nothing else", async () => {
+    for (const userId of ["u", "us", "use", "user-with-a-longer-id"]) {
+      const token = await signUnsubscribeToken(SECRET, userId, NOW);
+      expect(token).not.toContain("=");
+      expect(await openUnsubscribeToken(SECRET, token)).toEqual({ userId, issuedAt: NOW });
+    }
+    const token = await signUnsubscribeToken(SECRET, "u_1", NOW);
+    for (const bad of [`${token}.x`, token.replace(/^cn1/, "cn0"), `${token.slice(0, -4)}@@@@`]) {
+      expect(await openUnsubscribeToken(SECRET, bad)).toBeUndefined();
+    }
+  });
 
   it("signs the user and the time, and opens only with the same secret", async () => {
     const token = await signUnsubscribeToken(SECRET, "user-1", NOW);

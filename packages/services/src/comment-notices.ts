@@ -243,7 +243,7 @@ export async function sendCommentNotice(
       issuedAt: now,
       artifacts: listed.map((entry) => ({
         ...entry,
-        name: views.get(entry.artifactId)?.name ?? "",
+        name: (views.get(entry.artifactId) as NoticeView).name,
       })),
       more: activity.length - listed.length,
       locale: settings.locale,
@@ -349,7 +349,6 @@ function toBase64Url(bytes: ArrayBuffer | Uint8Array): string {
 }
 
 function fromBase64Url(value: string): Uint8Array<ArrayBuffer> | undefined {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) return undefined;
   try {
     const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/"));
     return Uint8Array.from(binary, (char) => char.charCodeAt(0));
@@ -391,21 +390,21 @@ export async function openUnsubscribeToken(
   secret: string,
   token: string,
 ): Promise<{ userId: string; issuedAt: number } | undefined> {
-  const [version, user, issued, signature, ...rest] = token.split(".");
-  if (version !== TOKEN_VERSION || !user || !issued || !signature || rest.length > 0) {
-    return undefined;
-  }
-  if (!/^\d{1,15}$/.test(issued)) return undefined;
-  const userBytes = fromBase64Url(user);
+  const parts = token.split(".");
+  if (parts.length !== 4 || parts[0] !== TOKEN_VERSION) return undefined;
+  const [, user, issued, signature] = parts as [string, string, string, string];
   const signatureBytes = fromBase64Url(signature);
-  if (!userBytes || !signatureBytes) return undefined;
+  if (!signatureBytes) return undefined;
   const valid = await crypto.subtle.verify(
     "HMAC",
     await tokenKey(secret),
     signatureBytes,
-    encoder.encode(`${version}.${user}.${issued}`),
+    encoder.encode(`${TOKEN_VERSION}.${user}.${issued}`),
   );
-  return valid ? { userId: decoder.decode(userBytes), issuedAt: Number(issued) } : undefined;
+  // Only this secret signed it, so the user and the time are the ones `signUnsubscribeToken` wrote.
+  return valid
+    ? { userId: decoder.decode(fromBase64Url(user)), issuedAt: Number(issued) }
+    : undefined;
 }
 
 export const UNSUBSCRIBE_INVALID_MESSAGE =
@@ -440,30 +439,24 @@ export async function unsubscribeCommentNotices(
     .where(eq(schema.users.id, opened.userId))
     .limit(1);
   if (!user) return ok({ unsubscribed: true });
-  try {
-    await db
-      .insert(s)
-      .values({
-        userId: opened.userId,
+  // A deletion landing between the two statements makes the foreign key refuse the insert; the
+  // request then fails, and the next click answers like any account that no longer exists.
+  await db
+    .insert(s)
+    .values({
+      userId: opened.userId,
+      commentNotices: false,
+      commentNoticesChangedAt: input.now,
+      updatedAt: input.now,
+    })
+    .onConflictDoUpdate({
+      target: s.userId,
+      set: {
         commentNotices: false,
-        commentNoticesChangedAt: input.now,
+        // Already off: keep the time, so other links issued since keep working.
+        commentNoticesChangedAt: sql`case when ${s.commentNotices} = 0 then ${s.commentNoticesChangedAt} else ${input.now} end`,
         updatedAt: input.now,
-      })
-      .onConflictDoUpdate({
-        target: s.userId,
-        set: {
-          commentNotices: false,
-          // Already off: keep the time, so other links issued since keep working.
-          commentNoticesChangedAt: sql`case when ${s.commentNotices} = 0 then ${s.commentNoticesChangedAt} else ${input.now} end`,
-          updatedAt: input.now,
-        },
-      });
-  } catch (error) {
-    // The account was deleted in between: nothing is left to unsubscribe.
-    if (error instanceof Error && /FOREIGN KEY/.test(`${error.message} ${String(error.cause)}`)) {
-      return ok({ unsubscribed: true });
-    }
-    throw error;
-  }
+      },
+    });
   return ok({ unsubscribed: true });
 }
