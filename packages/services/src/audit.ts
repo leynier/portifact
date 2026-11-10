@@ -88,6 +88,8 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   "group.deleted",
   "group.member_added",
   "group.member_removed",
+  // A workspace's policies are columns of its global row (decision 0015).
+  "policy.changed",
 ];
 const REGIONAL_AUDIT_KINDS = AUDIT_KINDS.filter((kind) => !GLOBAL_AUDIT_KINDS.includes(kind));
 

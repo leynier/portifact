@@ -351,6 +351,13 @@
       "when": 1794330514778,
       "tag": "0049_review_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1794334144906,
+      "tag": "0050_workspace_policies",
+      "breakpoints": true
     }
   ]
 }

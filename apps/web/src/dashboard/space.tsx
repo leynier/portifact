@@ -5,7 +5,9 @@
 // like an unknown one. The role comes from `GET /api/v1/workspaces`; it only decides what the
 // screens offer, and the API stays the authority.
 import {
+  type OwnerView,
   type RoleAction,
+  type WorkspacePolicy,
   type WorkspaceRole,
   WorkspaceSlug,
   type WorkspaceView,
@@ -82,6 +84,16 @@ export function useSpace(): SpaceState {
 export function useReadySpace(): Space {
   const state = useSpace();
   return state.status === "ready" ? state.space : PERSONAL;
+}
+
+/**
+ * The policies of the workspace that owns an artifact (decision 0015), from the workspace list;
+ * undefined for a personal artifact. They only decide what the screens offer and explain.
+ */
+export function useOwnerPolicy(owner: OwnerView): WorkspacePolicy | undefined {
+  const workspaces = useWorkspaces();
+  if (owner.kind !== "workspace") return undefined;
+  return workspaces.data?.items.find((item) => item.slug === owner.slug)?.policy;
 }
 
 /** Whether the role in the space allows the action; the API decides again. */

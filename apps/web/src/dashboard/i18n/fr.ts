@@ -2085,4 +2085,118 @@ export const fr = {
     "{count, plural, one {a retiré # groupe} other {a retiré # groupes}}",
   "audit.access.groupExceptions":
     "{count, plural, one {a changé la visibilité des commentaires de # groupe} other {a changé la visibilité des commentaires de # groupes}}",
+  "shell.policiesLink": "Règles",
+  "policies.title": "Règles",
+  "policies.description":
+    "Règles pour tous les artefacts de {workspace}. Elles s’appliquent à tous ceux qui agissent sur ses artefacts, admins et jetons de service compris.",
+  "policies.personal.title": "Les règles concernent les espaces de travail",
+  "policies.personal.body":
+    "Un espace personnel n’a pas de règles. Passe à un espace de travail pour voir les siennes.",
+  "policies.loading": "Chargement des règles",
+  "policies.loadFailed": "Les règles n’ont pas pu être chargées",
+  "policies.planTitle": "Définir des règles fait partie de l’offre {plan}",
+  "policies.planRequired":
+    "L’offre de l’espace de travail n’inclut pas les règles. Celles déjà définies continuent de s’appliquer, et les admins peuvent toujours les assouplir ou les retirer.",
+  "policies.readOnly.title": "Définies par les admins",
+  "policies.readOnly.body":
+    "Seuls les admins modifient les règles. Elles s’appliquent aussi à toi.",
+  "policies.adminsToo": "Ces règles s’appliquent aussi aux admins.",
+  "policies.public.legend": "Accès public",
+  "policies.public.allowed": "Autorisé",
+  "policies.public.allowedHint":
+    "Les admins et éditeurs peuvent rendre un artefact public : toute personne ayant son lien peut l’ouvrir.",
+  "policies.public.forbidden": "Interdit",
+  "policies.public.forbiddenHint":
+    "Aucun artefact de l’espace de travail ne peut être public. Les artefacts publics deviennent partagés avec l’espace de travail.",
+  "policies.default.legend": "Accès des nouveaux artefacts",
+  "policies.default.hint":
+    "Ce avec quoi un nouvel artefact de l’espace de travail démarre. Les artefacts existants gardent le leur.",
+  "policies.default.restricted":
+    "Seuls son côté propriétaire et les lecteurs ajoutés peuvent l’ouvrir.",
+  "policies.default.workspace": "Tout membre de l’espace de travail peut l’ouvrir.",
+  "policies.default.domain":
+    "Les membres et toute personne connectée avec une adresse vérifiée des domaines de messagerie de l’espace de travail peuvent l’ouvrir.",
+  "policies.default.domainNone": "Vérifie d’abord un domaine de messagerie sur la page Membres.",
+  "policies.readers.legend": "Domaines des lecteurs",
+  "policies.readers.any": "N’importe quelle adresse",
+  "policies.readers.anyHint":
+    "Des lecteurs peuvent être ajoutés à n’importe quelle adresse e-mail.",
+  "policies.readers.only": "Seulement ces domaines",
+  "policies.readers.onlyHint":
+    "Des lecteurs ne peuvent être ajoutés qu’à ces domaines de messagerie. Les membres et les groupes ne sont pas concernés.",
+  "policies.readers.domains": "Domaines autorisés",
+  "policies.readers.domainsHint": "Un par ligne, comme example.com, au plus {max}.",
+  "policies.readers.domainsError": "Écris entre 1 et {max} domaines simples, comme example.com.",
+  "policies.links.legend": "Liens de partage",
+  "policies.links.allowed": "Autorisés",
+  "policies.links.allowedHint":
+    "Les admins et éditeurs peuvent créer des liens de partage, avec ou sans mot de passe.",
+  "policies.links.password_required": "Mot de passe obligatoire",
+  "policies.links.password_requiredHint":
+    "Chaque lien de partage demande un mot de passe. Ceux qui n’en ont pas ne s’ouvrent plus.",
+  "policies.links.disabled": "Désactivés",
+  "policies.links.disabledHint": "Aucun lien de partage. Ceux qui existent sont révoqués.",
+  "policies.lifetime.label": "Durée de vie maximale d’un lien, en jours",
+  "policies.lifetime.hint":
+    "Laisse vide pour aucune limite. Les liens plus anciens ne s’ouvrent plus.",
+  "policies.lifetime.error": "Écris un nombre entier de jours entre 1 et {max}, ou laisse vide.",
+  "policies.save": "Enregistrer les règles",
+  "policies.saved": "Les règles ont été enregistrées.",
+  "policies.saveFailed": "Les règles n’ont pas été enregistrées",
+  "policies.conflict":
+    "Quelqu’un a modifié les règles entre-temps. Elles ont été rechargées : vérifie-les et enregistre.",
+  "policies.impact.title": "Appliquer ces règles aux artefacts existants ?",
+  "policies.impact.body": "Enregistrer modifie ce qui existe déjà dans {workspace} :",
+  "policies.impact.public":
+    "{count, plural, one {# artefact public devient partagé avec l’espace de travail} other {# artefacts publics deviennent partagés avec l’espace de travail}}",
+  "policies.impact.readers":
+    "{count, plural, one {# lecteur hors des domaines autorisés est retiré} other {# lecteurs hors des domaines autorisés sont retirés}}",
+  "policies.impact.revoked":
+    "{count, plural, one {# lien de partage est révoqué} other {# liens de partage sont révoqués}}",
+  "policies.impact.password":
+    "{count, plural, one {# lien sans mot de passe ne s’ouvre plus} other {# liens sans mot de passe ne s’ouvrent plus}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# lien au-delà de la durée de vie ne s’ouvre plus} other {# liens au-delà de la durée de vie ne s’ouvrent plus}}",
+  "policies.impact.note":
+    "Cela se fait en arrière-plan, par petits lots, et figure dans le journal d’audit.",
+  "policies.impact.confirm": "Appliquer et enregistrer",
+  "policies.impact.cancel": "Continuer à modifier",
+  "policies.note.publicForbidden": "La règle de l’espace de travail interdit l’accès public.",
+  "policies.note.readerDomains":
+    "La règle de l’espace de travail n’autorise que des lecteurs de {domains}.",
+  "policies.note.linksDisabled":
+    "La règle de l’espace de travail n’autorise pas les liens de partage.",
+  "policies.note.linksPassword":
+    "La règle de l’espace de travail exige un mot de passe sur chaque lien de partage.",
+  "policies.note.linksLifetime":
+    "La règle de l’espace de travail limite les liens de partage à {days, plural, one {# jour} other {# jours}}.",
+  "error.policy_refused": "Une règle de l’espace de travail ne le permet pas.",
+  "audit.group.policies": "Règles",
+  "audit.kind.policyChanged": "A modifié les règles de l’espace de travail : {changes}",
+  "audit.kind.policyEnforced": "A appliqué les règles de l’espace de travail : {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {accès public interdit} other {accès public autorisé}}",
+  "audit.policy.default":
+    "{mode, select, workspace {nouveaux artefacts partagés avec l’espace de travail} domain {nouveaux artefacts partagés avec les domaines de messagerie} other {nouveaux artefacts restreints}}",
+  "audit.policy.readers": "lecteurs seulement de {domains}",
+  "audit.policy.readersAny": "lecteurs de n’importe quel domaine",
+  "audit.policy.links":
+    "{value, select, disabled {liens de partage désactivés} password_required {liens de partage avec mot de passe} other {liens de partage autorisés}}",
+  "audit.policy.lifetime":
+    "liens de partage d’au plus {days, plural, one {# jour} other {# jours}}",
+  "audit.policy.lifetimeNone": "aucune limite de durée pour les liens",
+  "audit.policy.narrowed":
+    "{count, plural, one {a limité # artefact à l’espace de travail} other {a limité # artefacts à l’espace de travail}}",
+  "audit.policy.readersRemoved":
+    "{count, plural, one {a retiré # lecteur} other {a retiré # lecteurs}}",
+  "audit.policy.linksRevoked": "{count, plural, one {a révoqué # lien} other {a révoqué # liens}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {a fermé # session de lien} other {a fermé # sessions de lien}}",
+  "policies.impact.stale":
+    "Ce que cette règle change sur les artefacts existants a augmenté depuis ta vérification. Enregistre à nouveau pour revoir les nouveaux chiffres.",
+  "policies.savedWithChanges":
+    "Les artefacts existants sont mis en conformité avec les règles. Leurs pages et le journal d’audit montrent ce qui a changé.",
+  "policies.default.domainLapsed":
+    "Aucun domaine de messagerie n’est vérifié : les nouveaux artefacts démarrent partagés avec l’espace de travail jusqu’à ce qu’un domaine soit de nouveau vérifié.",
+  "audit.access.byPolicy": "par la règle de l’espace de travail",
 } satisfies Catalog;

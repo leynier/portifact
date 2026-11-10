@@ -2,7 +2,7 @@
 // publish gives an artifact it creates. Existing artifacts never change when the defaults do. The
 // same settings say whether the owner gets expiry notices (expiry-notices.ts) and hold the
 // account's language, which changes nothing about artifacts.
-import type { AccountSettings, AccountSettingsUpdate } from "@portifact/contracts";
+import type { AccessMode, AccountSettings, AccountSettingsUpdate } from "@portifact/contracts";
 import { checkAccessChange } from "./access.ts";
 import { ok, type Result } from "./result.ts";
 
@@ -49,7 +49,8 @@ export function changeSettings(
 
 /** The policy columns of an artifact a publish creates. */
 export interface NewArtifactPolicy {
-  accessMode: AccountSettings["defaultAccessMode"];
+  /** A personal default, or a workspace's `defaultAccess` policy (decision 0015); never public there. */
+  accessMode: AccessMode;
   annotations: AccountSettings["defaultAnnotations"];
   commentVisibility: AccountSettings["defaultCommentVisibility"];
   bar: boolean;

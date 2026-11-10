@@ -11,6 +11,7 @@ import {
   WorkspaceList,
   WorkspaceSlug,
 } from "@portifact/contracts";
+import { describePolicy } from "@portifact/domain";
 import { z } from "zod";
 import { plain } from "./annotations.ts";
 import { callApi } from "./api.ts";
@@ -138,6 +139,11 @@ export async function workspaces(io: Io, runtime: Runtime, options: OutputOption
       ...list.items.map((item) => [mark(item.slug === current), item.slug, item.role, item.name]),
     ]),
   );
+  // Each workspace's policies (decision 0015) bind everyone in it, admins included.
+  for (const item of list.items) {
+    const policy = describePolicy(item.policy);
+    if (policy.length > 0) io.stdout(`Policies of ${item.slug}: ${policy.join("; ")}.\n`);
+  }
   io.stderr("* is where publish, list and usage go without --workspace.\n");
 }
 

@@ -18,6 +18,7 @@ import {
   newAuditEventId,
   normalizeEmail,
   ok,
+  policyOf,
   type Result,
 } from "@portifact/domain";
 import { and, asc, eq, gt, lte, type SQL, sql } from "drizzle-orm";
@@ -501,6 +502,7 @@ export async function acceptInvitation(
       name: w.name,
       region: w.region,
       createdAt: w.createdAt,
+      policy: w.policy,
       role: m.role,
     })
     .from(m)
@@ -508,7 +510,7 @@ export async function acceptInvitation(
     .where(and(eq(m.workspaceId, invitation.workspaceId), eq(m.userId, input.userId)))
     .limit(1);
   if (!row) return fail("not_found", MISSING_INVITATION);
-  return ok({ ...row, region: regionOf(row) });
+  return ok({ ...row, region: regionOf(row), policy: policyOf(row.policy) });
 }
 
 /** Declines an invitation, for the account it was sent to; its seat is free again. */

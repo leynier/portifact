@@ -458,6 +458,7 @@ describe("purging archives", () => {
       droppedSearchIndexes: 0,
       scheduledSearchIndexing: 0,
       webhooks: { prunedDeliveries: 0, requeued: 0 },
+      workspacePolicies: { checked: 0, corrected: 0, failed: 0 },
     });
   });
 });

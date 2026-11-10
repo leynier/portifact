@@ -12,10 +12,13 @@ import {
   type Actor,
   BUILT_IN_SETTINGS,
   changeSettings,
+  type Entitlements,
   fail,
+  hasFeature,
   type NewArtifactPolicy,
   newArtifactPolicy,
   ok,
+  policyDefaultAccess,
   type Result,
 } from "@portifact/domain";
 import { eq, sql } from "drizzle-orm";
@@ -109,9 +112,20 @@ export async function newArtifactDefaults(
   db: Db,
   actor: Actor,
   now: number,
+  /** The owner's entitlements, which the publish already loaded. */
+  owner?: Entitlements,
 ): Promise<NewArtifactPolicy> {
   if (isWorkspaceId(actor.ownerId)) {
-    return newArtifactPolicy(BUILT_IN_SETTINGS, new Date(now), new Date(now));
+    // A workspace's artifacts start from the built-in defaults, with the access mode its
+    // `defaultAccess` policy names, never wider than the workspace can give now (decision 0015);
+    // the policy and the verified domain came with the actor.
+    return {
+      ...newArtifactPolicy(BUILT_IN_SETTINGS, new Date(now), new Date(now)),
+      accessMode: policyDefaultAccess(actor.policy, {
+        domainVerified: actor.domainVerified !== false,
+        workspacesFeature: owner === undefined || hasFeature(owner, "workspaces"),
+      }),
+    };
   }
   const [settings, createdAt] = await Promise.all([
     loadSettings(db, actor.userId),

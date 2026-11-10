@@ -3,7 +3,7 @@
 // and a user with no role on the owner cannot tell its artifacts exist. Workspaces and members
 // are inserted as rows: nothing creates them yet.
 import { env } from "cloudflare:test";
-import type { AnnotationTarget, WorkspaceRole } from "@portifact/contracts";
+import { type AnnotationTarget, DEFAULT_POLICY, type WorkspaceRole } from "@portifact/contracts";
 import {
   type AccessDb,
   accessSchema,
@@ -199,6 +199,9 @@ describe("resolveActor", () => {
         ownerId: t.id,
         role,
         region: "default",
+        // The policies come with the membership (decision 0015).
+        policy: DEFAULT_POLICY,
+        domainVerified: true,
       });
     }
   });

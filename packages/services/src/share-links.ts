@@ -5,6 +5,7 @@
 import { type AuditDetail, SHARE_LINKS } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  checkPolicyShareLink,
   checkShareExpiry,
   devHost,
   type Entitlements,
@@ -13,6 +14,7 @@ import {
   fail,
   hasFeature,
   ok,
+  policyLinkOpens,
   type Result,
   SHARE_MESSAGES,
   shareLinkOpens,
@@ -24,8 +26,9 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, type SQL, sql }
 import { authorizeOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { activeCustomHost } from "./custom-domains.ts";
-import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
+import { requireOwnerFeature } from "./plans.ts";
 import { hashSecret, randomToken } from "./read-access.ts";
+import { ownerEntitlementsAndPolicy } from "./workspace-policies.ts";
 
 const SECOND_MS = 1000;
 const DAY_MS = 86_400_000;
@@ -147,7 +150,7 @@ async function loadManaged(db: RegionalDb, userId: string, artifactId: string) {
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
   const actor = await authorizeOn(db, userId, artifact, "access", missing);
   if (!actor.ok) return actor;
-  return ok(artifact);
+  return ok({ ...artifact, policy: actor.value.policy });
 }
 
 /**
@@ -218,6 +221,15 @@ export async function createShareLink(
   if (!gate.ok) return gate;
   const expiry = checkShareExpiry(input.expiresAt, input.now);
   if (!expiry.ok) return expiry;
+  // The workspace's link policy (decision 0015), read with the actor. A link created by a request
+  // that read the policy before it tightened stops opening (`openShareLink`) and the policy job
+  // revokes it while links are disabled.
+  const policy = checkPolicyShareLink(
+    artifact.value.policy,
+    { password: input.password !== undefined, expiresAt: expiry.value },
+    input.now,
+  );
+  if (!policy.ok) return policy;
 
   const token = randomToken();
   const id = newLinkId();
@@ -390,6 +402,7 @@ export async function openShareLink(
         passwordHash: string | null;
         passwordSalt: string | null;
         passwordIterations: number | null;
+        createdAt: number;
         state: (typeof schema.artifacts.$inferSelect)["state"];
         currentVersionId: string | null;
         artifactExpiresAt: number | null;
@@ -407,6 +420,7 @@ export async function openShareLink(
         passwordHash: l.passwordHash,
         passwordSalt: l.passwordSalt,
         passwordIterations: l.passwordIterations,
+        createdAt: l.createdAt,
         state: a.state,
         currentVersionId: a.currentVersionId,
         artifactExpiresAt: a.expiresAt,
@@ -421,8 +435,9 @@ export async function openShareLink(
       break;
     }
   }
-  const owner =
-    found && db ? await ownerEntitlements(db.global, found.ownerId, input.now) : undefined;
+  // The plan and the workspace's policies in one round trip (decision 0015).
+  const scope =
+    found && db ? await ownerEntitlementsAndPolicy(db.global, found.ownerId, input.now) : undefined;
 
   const stored =
     found?.passwordHash && found.passwordSalt && found.passwordIterations
@@ -446,8 +461,15 @@ export async function openShareLink(
             },
             new Date(input.now),
           ) === "active",
-        owner: owner as Entitlements,
+        owner: scope?.owner as Entitlements,
       },
+      input.now,
+    ) &&
+    // A link the workspace's policy no longer allows (disabled, without a required password or
+    // past the maximum lifetime) does not open, whenever it was created.
+    policyLinkOpens(
+      scope?.policy,
+      { hasPassword: found.passwordHash !== null, createdAt: found.createdAt },
       input.now,
     );
 
@@ -483,10 +505,25 @@ export async function openShareLink(
   return { kind: "opened", artifactId: found.artifactId, code, host };
 }
 
-/** A link's condition for SQL: not revoked and not expired at `now`. */
+/**
+ * A link's condition for SQL: not revoked, not expired at `now`, and still allowed by the
+ * workspace policy of its artifact's owner (decision 0015). The policy part is the SQL twin of
+ * `policyLinkOpens`, read from the workspace's row in the same statement (with one region the
+ * workspace and the link share a database, as the delivery lookup's plan join does), so redeeming
+ * a code or renewing a link session costs no extra round trip and answers like a link that does
+ * not open.
+ */
 function liveLink(now: number) {
   const l = schema.shareLinks;
-  return and(isNull(l.revokedAt), or(isNull(l.expiresAt), gt(l.expiresAt, now)));
+  const a = schema.artifacts;
+  const w = schema.workspaces;
+  const rule = (path: string) => sql`json_extract(${w.policy}, ${path})`;
+  const stopped = sql`exists (select 1 from ${a} join ${w} on ${w.id} = ${a.ownerId} where ${a.id} = ${l.artifactId} and ${w.policy} is not null and (${rule("$.shareLinks")} = 'disabled' or (${rule("$.shareLinks")} = 'password_required' and ${l.passwordHash} is null) or (${rule("$.shareLinkMaxDays")} is not null and ${l.createdAt} + ${rule("$.shareLinkMaxDays")} * 86400000 <= ${now})))`;
+  return and(
+    isNull(l.revokedAt),
+    or(isNull(l.expiresAt), gt(l.expiresAt, now)),
+    sql`not ${stopped}`,
+  );
 }
 
 export interface ShareSessionGrant {

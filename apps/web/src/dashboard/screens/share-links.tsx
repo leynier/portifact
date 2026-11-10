@@ -16,6 +16,7 @@ import { CircleAlert, Info, Link2, Link2Off, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
+import { useOwnerPolicy } from "../space.tsx";
 import { errorMessage } from "./artifact-list.tsx";
 
 export const shareLinksQuery = (artifactId: string) =>
@@ -45,6 +46,21 @@ export function ShareLinksPanel({
     queryFn: () => api.listShareLinks(artifact.id),
   });
   const [created, setCreated] = useState<ShareLinkCreated | null>(null);
+  // The workspace's link policy (decision 0015): a note names it, and the form is not offered
+  // while links are disabled. The API refuses what the policy does not allow either way.
+  const workspacePolicy = useOwnerPolicy(artifact.owner);
+  const linksDisabled = workspacePolicy?.shareLinks === "disabled";
+  const policyNotes = workspacePolicy
+    ? [
+        ...(linksDisabled ? [t("policies.note.linksDisabled")] : []),
+        ...(workspacePolicy.shareLinks === "password_required"
+          ? [t("policies.note.linksPassword")]
+          : []),
+        ...(workspacePolicy.shareLinkMaxDays !== null && !linksDisabled
+          ? [t("policies.note.linksLifetime", { days: workspacePolicy.shareLinkMaxDays })]
+          : []),
+      ]
+    : [];
 
   let body: React.ReactNode;
   if (links.isPending) body = <LoadingState label={t("shareLinks.loading")} />;
@@ -73,12 +89,17 @@ export function ShareLinksPanel({
             {list.links.length > 0 ? t("shareLinks.paused") : t("shareLinks.paid")}
           </Callout>
         )}
+        {policyNotes.map((note) => (
+          <p key={note} className="text-sm font-medium">
+            {note}
+          </p>
+        ))}
         {artifact.accessMode === "public" && list.enabled ? (
           <p className="text-sm text-text-muted">{t("shareLinks.publicNote")}</p>
         ) : null}
         {created ? <CreatedLink created={created} onDone={() => setCreated(null)} /> : null}
         <LinkList artifactId={artifact.id} links={list.links} disabled={disabled} />
-        {list.enabled ? (
+        {list.enabled && !linksDisabled ? (
           <CreateLinkForm
             artifactId={artifact.id}
             disabled={disabled || active >= list.activeLimit}

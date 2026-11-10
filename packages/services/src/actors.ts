@@ -23,12 +23,20 @@ import {
   fail,
   ok,
   personalActor,
+  policyOf,
   type Result,
   restrictionAllows,
   restrictionOf,
   storedTokenScopes,
 } from "@portifact/domain";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+
+/**
+ * Whether the workspace has a verified email domain, evaluated only when its policy's default
+ * access is `domain` (1 otherwise), in the membership's own query: the publish path needs it and
+ * no other path pays for it.
+ */
+const domainVerifiedSql = sql<number>`case when json_extract(${schema.workspaces.policy}, '$.defaultAccess') = 'domain' then exists (select 1 from ${schema.workspaceDomains} where ${schema.workspaceDomains.workspaceId} = ${schema.workspaces.id} and ${schema.workspaceDomains.state} = 'verified') else 1 end`;
 
 /**
  * An artifact a role is asked about: its owner, and what a service token's restriction is checked
@@ -63,7 +71,13 @@ export async function actorOn(
   const ownerId = ownerOfTarget(target);
   if (!isWorkspaceId(ownerId)) return ownerId === userId ? personalActor(userId) : null;
   const [row] = await global
-    .select({ role: schema.workspaceMembers.role, region: schema.workspaces.region })
+    .select({
+      role: schema.workspaceMembers.role,
+      region: schema.workspaces.region,
+      // The policies come with the membership, so applying them costs no read (decision 0015).
+      policy: schema.workspaces.policy,
+      domainVerified: domainVerifiedSql,
+    })
     .from(schema.workspaceMembers)
     .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
     .where(
@@ -75,7 +89,14 @@ export async function actorOn(
     .limit(1);
   if (!row) return null;
   if (!isRegion(row.region)) throw new Error(`Workspace ${ownerId} is in an unknown region`);
-  return { userId, ownerId, role: row.role, region: row.region };
+  return {
+    userId,
+    ownerId,
+    role: row.role,
+    region: row.region,
+    policy: policyOf(row.policy),
+    domainVerified: Number(row.domainVerified) === 1,
+  };
 }
 
 async function tokenActorOn(
@@ -95,6 +116,8 @@ async function tokenActorOn(
       createdAt: t.createdAt,
       label: t.label,
       region: schema.workspaces.region,
+      policy: schema.workspaces.policy,
+      domainVerified: domainVerifiedSql,
     })
     .from(t)
     .innerJoin(schema.workspaces, eq(schema.workspaces.id, t.workspaceId))
@@ -109,6 +132,8 @@ async function tokenActorOn(
     ownerId,
     role: row.role,
     region: row.region,
+    policy: policyOf(row.policy),
+    domainVerified: Number(row.domainVerified) === 1,
     token: {
       restriction,
       scopes: storedTokenScopes(row.scopes),
