@@ -26,6 +26,7 @@ import {
   type CustomDomainView,
   ERROR_STATUS,
   type ErrorCode,
+  type FeedbackItem,
   IdempotencyKey,
   type ManifestFile,
   PLANS,
@@ -36,6 +37,7 @@ import {
   ShareLinkCreate,
   type ShareLinkView,
   type SourceOrigin,
+  UNTRUSTED_ANNOTATIONS_NOTICE,
   UploadedPart,
   VERSION_DIFF,
   type WebhookAttempt,
@@ -167,6 +169,11 @@ export interface FakeApiState {
   auditQueries: string[];
   /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
   stats: Map<string, ArtifactStatsView>;
+  /**
+   * Open feedback by space (`personal` or a workspace slug), newest first, as GET /feedback pages
+   * it; a workspace's needs `workspaces` in `usage.plan.features`.
+   */
+  feedback: Map<string, FeedbackItem[]>;
   /** Share links by artifact, newest first, without their tokens. */
   shareLinks: Map<string, ShareLinkView[]>;
   /** Tokens of the links created, which the CLI may print only once, at creation. */
@@ -246,6 +253,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     audit: new Map(),
     auditQueries: [],
     stats: new Map(),
+    feedback: new Map(),
     shareLinks: new Map(),
     shareTokens: [],
     shareLinksEnabled: true,
@@ -1447,7 +1455,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       };
     }
     const workspace = url.searchParams.get("workspace") ?? undefined;
-    if (["POST /publishes", "GET /artifacts", "GET /usage"].includes(route)) {
+    if (["POST /publishes", "GET /artifacts", "GET /usage", "GET /feedback"].includes(route)) {
       state.workspaceParams.push(`${route} ${workspace ?? "personal"}`);
       if (workspace !== undefined && !state.workspaces.some((w) => w.slug === workspace)) {
         return error("not_found", "Workspace not found.");
@@ -1469,6 +1477,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     if (route === "GET /artifacts") return listArtifacts(url, workspace);
     if (route === "GET /usage") return { status: 200, body: state.usage };
+    if (route === "GET /feedback") return feedbackPageOf(state, url, workspace);
     const statsPath = /^\/artifacts\/([^/]+)\/stats$/.exec(path);
     if (statsPath && method === "GET") {
       const id = decodeURIComponent(statsPath[1] as string);
@@ -1541,7 +1550,33 @@ export function createFakeApi(origin: () => string, clock: () => number) {
 }
 
 /** The scope each API route needs, as apps/app/src/api/routes.ts checks it. */
+/** A page of GET /feedback: the cursor is the index of the next item. */
+function feedbackPageOf(state: FakeApiState, url: URL, workspace: string | undefined): Reply {
+  if (workspace !== undefined && !state.usage.plan.features.includes("workspaces")) {
+    return planRequired("workspaces");
+  }
+  const items = state.feedback.get(workspace ?? "personal") ?? [];
+  const limit = Number(url.searchParams.get("limit") ?? 20);
+  const cursor = url.searchParams.get("cursor");
+  const start = cursor === null ? 0 : Number(cursor);
+  if (!Number.isInteger(start) || start < 0) return error("invalid_input", "Invalid cursor.");
+  const page = items.slice(start, start + limit);
+  const next = start + limit < items.length ? String(start + limit) : null;
+  const ws = state.workspaces.find((one) => one.slug === workspace);
+  return {
+    status: 200,
+    body: {
+      notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+      owner: ws ? { kind: "workspace", slug: ws.slug, name: ws.name } : { kind: "personal" },
+      role: "owner",
+      items: page,
+      nextCursor: next,
+    },
+  };
+}
+
 export function scopeFor(method: string, path: string): string {
+  if (path === "/api/v1/feedback") return "annotations:read";
   if (path.startsWith("/api/v1/publishes")) return "artifacts:write";
   if (/\/access$/.test(path)) return method === "PATCH" ? "artifacts:share" : "artifacts:read";
   if (/\/share-links(\/|$)/.test(path)) return "artifacts:share";

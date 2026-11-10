@@ -83,6 +83,15 @@ export const ANNOTATION_LIMITS = {
 } as const;
 
 /**
+ * A space's open feedback (premium plan T9): open threads across every artifact of an owner in
+ * one call. The page size is a safety cap: each page reads its threads' messages.
+ */
+export const FEEDBACK_LIMITS = {
+  pageDefault: 20,
+  pageMax: 50,
+} as const;
+
+/**
  * Presigned multipart uploads (plan section 9, "Carga y commit"): an object larger than
  * `thresholdBytes` is uploaded in parts of `partBytes` (the last one smaller), each to its own
  * presigned URL, so a large upload resumes part by part. R2 needs every part but the last to be
