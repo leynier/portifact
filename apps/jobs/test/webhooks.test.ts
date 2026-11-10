@@ -75,7 +75,7 @@ describe("webhook deliveries in the jobs Worker", () => {
     const batch = batchOf(job);
     const ack = vi.spyOn(batch.messages[0] as Message<unknown>, "ack");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    await runQueue(batch, keyed, NOW, fetcher);
+    await runQueue(batch, keyed, NOW, undefined, fetcher);
     expect(sent).toEqual(["https://hooks.example.com/in"]);
     expect(ack).toHaveBeenCalled();
     // The log line names the job, never the URL, the secret or the body.
@@ -92,7 +92,7 @@ describe("webhook deliveries in the jobs Worker", () => {
     const retry = vi.spyOn(batch.messages[0] as Message<unknown>, "retry");
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const fetcher = vi.fn(async () => new Response("ok"));
-    await runQueue(batch, env, NOW, fetcher);
+    await runQueue(batch, env, NOW, undefined, fetcher);
     expect(fetcher).not.toHaveBeenCalled();
     expect(retry).toHaveBeenCalled();
     error.mockRestore();
@@ -105,7 +105,7 @@ describe("webhook deliveries in the jobs Worker", () => {
     const { job } = await hookWithTest();
     const fetcher = vi.fn(async () => new Response("ok"));
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    await runQueue(batchOf(job), { ...keyed, WEBHOOKS_PAUSED: "1" }, NOW, fetcher);
+    await runQueue(batchOf(job), { ...keyed, WEBHOOKS_PAUSED: "1" }, NOW, undefined, fetcher);
     log.mockRestore();
     expect(fetcher).not.toHaveBeenCalled();
     const [row] = await db().select().from(schema.outbox).where(eq(schema.outbox.id, job.id));
@@ -139,6 +139,7 @@ describe("webhook deliveries in the jobs Worker", () => {
     const result = await runScheduled(
       { ...keyed, WEBHOOK_KEY: NEXT_KEY, WEBHOOK_KEY_PREVIOUS: KEY },
       NOW,
+      undefined,
       {
         relay: false,
       },
@@ -167,10 +168,12 @@ describe("webhooks switched off and the consumer batch", () => {
       expect((await webhookDepsFromEnv({ ...keyed, WEBHOOKS_ENABLED: value })).enabled).toBe(false);
     }
     expect((await webhookDepsFromEnv(keyed)).enabled).toBe(true);
-    await runQueue(batchOf(job), { ...env, WEBHOOK_KEY: KEY }, NOW, fetcher);
+    await runQueue(batchOf(job), { ...env, WEBHOOK_KEY: KEY }, NOW, undefined, fetcher);
     expect(fetcher).not.toHaveBeenCalled();
     expect(await db().select().from(schema.outbox).where(eq(schema.outbox.id, job.id))).toEqual([]);
-    const result = await runScheduled({ ...env, WEBHOOK_KEY: KEY }, NOW, { relay: false });
+    const result = await runScheduled({ ...env, WEBHOOK_KEY: KEY }, NOW, undefined, {
+      relay: false,
+    });
     log.mockRestore();
     expect(result.webhooksStopped).toBeGreaterThanOrEqual(1);
     const [row] = await db()
@@ -217,7 +220,7 @@ describe("webhooks switched off and the consumer batch", () => {
       },
     ]);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
-    await runQueue(batch, keyed, NOW, slow);
+    await runQueue(batch, keyed, NOW, undefined, slow);
     log.mockRestore();
     expect(purgedFirst).toBe(true);
   });

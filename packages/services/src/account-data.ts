@@ -23,6 +23,7 @@ import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
+import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
@@ -117,6 +118,8 @@ export async function exportAccount(
         .orderBy(asc(schema.annotationThreads.createdAt))),
     );
   }
+
+  const customDomains = await exportOwnerDomains(db.global, input.userId, input.now);
 
   const versionIds = [...versionsByArtifact.values()].flat().map((version) => version.id);
   const files = new Map<string, (typeof schema.versionFiles.$inferSelect)[]>();
@@ -227,6 +230,11 @@ export async function exportAccount(
       accessMode: artifact.accessMode,
       readers: readers.get(artifact.id) ?? [],
       // Never the token or its hash: only what the owner sees in the list.
+      customDomains: (customDomains.get(artifact.id) ?? []).map((domain) => ({
+        hostname: domain.hostname,
+        state: domain.state,
+        verifiedAt: isoOrNull(domain.verifiedAt),
+      })),
       shareLinks: (shareLinks.get(artifact.id) ?? []).map((link) => ({
         label: link.label,
         state: shareLinkStatus(link, input.now),
@@ -549,6 +557,9 @@ export async function advanceAccountDeletion(
     .from(schema.accountDeletions)
     .where(eq(schema.accountDeletions.userId, userId));
   if (!deletion) return "absent";
+  // The account's custom domains and claims go first: they are global, and its artifacts are
+  // being purged (each purge also releases its own).
+  await releaseOwnerDomains(domainDbsOf(db), userId, "account_deleted", now);
   await db.batch([
     ...claimArtifacts(db, userId, now),
     // Links the account created on artifacts it did not own (a workspace's) keep no trace of it.

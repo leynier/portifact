@@ -13,6 +13,7 @@ export const OutboxTopic = z.enum([
   "comment_notice",
   "owner_retention",
   "webhook_delivery",
+  "delete_custom_hostname",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 

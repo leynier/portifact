@@ -20,6 +20,8 @@ import {
   type CommentNoticeMute,
   type CommentScope,
   type ConnectedApp,
+  type CustomDomainList,
+  type CustomDomainView,
   DocumentPreviewRequest,
   type ErrorCode,
   type FileChange,
@@ -370,6 +372,12 @@ export interface FakeServer {
   shareLinks: Record<string, ShareLinkView[]>;
   /** Whether the owner's plan includes share links. */
   shareLinksEnabled: boolean;
+  /** Custom domains and pending claims, oldest first. */
+  domains: CustomDomainView[];
+  /** Whether the owner's plan includes custom domains (one, like Pro). */
+  domainsEnabled: boolean;
+  /** Whether the deployment serves custom domains. */
+  domainsAvailable: boolean;
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -418,6 +426,9 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     stats: {},
     shareLinks: {},
     shareLinksEnabled: true,
+    domains: [],
+    domainsEnabled: true,
+    domainsAvailable: true,
     commentNotices: {},
     bodies: [],
     pageSize: 50,
@@ -930,6 +941,55 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       );
     }
     return json({ ...body, from: url.searchParams.get("from") ?? body.from });
+  }
+  if (path === "/api/v1/domains" && method === "GET") {
+    const artifactId = url.searchParams.get("artifactId");
+    return json({
+      available: server.domainsAvailable,
+      enabled: server.domainsEnabled,
+      limit: server.domainsEnabled ? 1 : 0,
+      used: server.domains.filter((d) => d.state === "active" || d.state === "provisioning").length,
+      cnameTarget: "domains.portifact.dev",
+      domains: server.domains.filter((d) => artifactId === null || d.artifactId === artifactId),
+    } satisfies CustomDomainList);
+  }
+  const addDomain = /^\/api\/v1\/artifacts\/([^/]+)\/domain$/.exec(path);
+  if (addDomain && method === "POST") {
+    if (!server.domainsEnabled) return apiError("plan_required", 403);
+    const hostname = (server.bodies.at(-1) as { hostname: string }).hostname.toLowerCase();
+    const view: CustomDomainView = {
+      hostname,
+      artifactId: addDomain[1] as string,
+      state: "pending",
+      records: [
+        {
+          type: "TXT",
+          name: `_portifact.${hostname}`,
+          value: `portifact-verify=${"a".repeat(32)}`,
+        },
+        { type: "CNAME", name: hostname, value: "domains.portifact.dev" },
+      ],
+      claimExpiresAt: "2026-11-17T12:00:00.000Z",
+      verifiedAt: null,
+      checkedAt: null,
+      missedChecks: 0,
+      problem: null,
+    };
+    server.domains = [...server.domains.filter((d) => d.hostname !== hostname), view];
+    return json(view, 201);
+  }
+  const named = /^\/api\/v1\/domains\/([^/]+)(\/verify)?$/.exec(path);
+  if (named) {
+    const hostname = decodeURIComponent(named[1] as string);
+    const found = server.domains.find((d) => d.hostname === hostname);
+    if (!found) return apiError("not_found", 404);
+    if (method === "POST" && named[2]) return json(found);
+    if (method === "DELETE" && !named[2]) {
+      server.domains = server.domains.map((d) =>
+        d.hostname === hostname ? { ...d, state: "removing" as const } : d,
+      );
+      return json({ hostname, removed: true });
+    }
   }
   const log = /^\/api\/v1\/artifacts\/([^/]+)\/access-log$/.exec(path);
   if (log && method === "GET") {

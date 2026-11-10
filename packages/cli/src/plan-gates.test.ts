@@ -83,6 +83,12 @@ const GATED: GatedCommand[] = [
     method: "POST",
     path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}\/test$/,
   },
+  {
+    feature: "customDomains",
+    args: (id) => ["domains", "add", id, "docs.example.com"],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/domain$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {

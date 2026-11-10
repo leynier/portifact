@@ -134,6 +134,29 @@ The dashboard uploads to and downloads from the `portifact-artifacts` bucket's S
 
 Only the app origin is allowed: never add `*.portifact.dev` or `*`. The URLs are still presigned, so CORS only decides which page may read the answers. `host` and `content-length` are signed too, but the browser sets them and they are not CORS request headers. For local development against a real bucket, add `http://localhost:8787` in a separate rule and remove it afterwards. The dashboard's `connect-src` already allows `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` (`dashboardCsp` in `apps/app/src/app-host.ts`).
 
+### Custom domains (switched off)
+
+Custom domains ([decision 0006](decisions/0006-custom-domains.md), "Custom domains" in [security.md](security.md)) ship switched off. Nothing in production calls Cloudflare until all three values below are set on both the `portifact-app` Worker (adding and checking domains) and the `portifact-jobs` Worker (activation, the daily check, the deletion job): without them adding or checking a domain answers `503 capacity_unavailable`, the dashboard says custom domains are not available yet, the jobs skip every Cloudflare call and the content Worker serves exactly as before.
+
+| Name                     | Kind   | Value                                                                                                                                                                                     |
+| ------------------------ | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CUSTOM_DOMAINS_ENABLED` | var    | Exactly `"true"` switches the feature on; anything else or nothing leaves it off. Not in either `wrangler.jsonc` yet.                                                                     |
+| `CF_CONTENT_ZONE_ID`     | var    | The `portifact.dev` zone's ID (32 hex characters). Public, but added only together with the switch.                                                                                       |
+| `CF_HOSTNAMES_TOKEN`     | secret | The API token `portifact-custom-hostnames`: Zone, SSL and Certificates, Edit, on the `portifact.dev` zone only, one year. Never on the content Worker; never logged (errors carry codes). |
+
+Once enabled, the platform makes these outbound requests and no others for custom domains: `POST`, `GET`, `DELETE` and a paginated `GET` (operator `reconcile-domains` only) on `https://api.cloudflare.com/client/v4/zones/<CF_CONTENT_ZONE_ID>/custom_hostnames`, and `GET https://cloudflare-dns.com/dns-query?name=_portifact.<hostname>&type=TXT` (DNS over HTTPS) when a domain is checked.
+
+The order, with the maintainer, never ahead of it:
+
+1. Merge the second part of P7 (serving on custom hosts in the content Worker), so a domain that turns active is also served. This first part only stores and checks domains.
+2. Run the checklist in decision 0006 ("Checklist for the maintainer") steps 1 and 2: enable Cloudflare for SaaS on `portifact.dev` and create the fallback origin `domains.portifact.dev` (a proxied `AAAA 100::`).
+3. Change the content Worker's route, in a branch, in `apps/content/wrangler.jsonc`, from `"routes": [{ "pattern": "*.portifact.dev/*", "zone_name": "portifact.dev" }]` to `"routes": [{ "pattern": "*/*", "zone_name": "portifact.dev" }]`, deploy, and check that `<id>.portifact.dev`, the apex `portifact.dev` and `domains.portifact.dev` answer as before (an artifact, and 404 for the other two). Add no other route on the zone: a more specific one would let a customer's proxied CNAME skip the Worker. This PR does not change the route.
+4. Create the token (checklist step 4) and set it, piped, with `wrangler secret put CF_HOSTNAMES_TOKEN --name portifact-app` from `apps/app` and `--name portifact-jobs` from `apps/jobs`.
+5. Add `CUSTOM_DOMAINS_ENABLED: "true"` and `CF_CONTENT_ZONE_ID` to `vars` in both `apps/app/wrangler.jsonc` and `apps/jobs/wrangler.jsonc` in one pull request and deploy.
+6. Run the rest of the checklist (steps 5 to 9) with a hostname you control, through the dashboard, and the verification in "Custom domains" in [operations.md](operations.md).
+
+To switch it off again, remove `CUSTOM_DOMAINS_ENABLED` (or set it to anything but `"true"`) and deploy: existing domains stay as they are and can still be removed, and their deletion jobs wait in the outbox until the switch is back or the operator deletes the hostnames by hand.
+
 ### Content Worker configuration
 
 `apps/content/wrangler.jsonc` holds `CONTENT_DOMAIN` and `APP_ORIGIN` as `vars`. One secret is set once on the `portifact-content` Worker and survives deploys:

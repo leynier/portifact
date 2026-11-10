@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "84f0ef7e-134b-4cfc-a8d3-817a4887a35e",
+  "id": "84b2db8f-3807-4cc4-968b-ec977ef2dcf4",
   "prevId": "49e7c5e0-d02b-4010-bc3e-b1f3dcf2f799",
   "tables": {
     "abuse_reports": {
@@ -1042,6 +1042,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "custom_host": {
+          "name": "custom_host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1049,6 +1056,12 @@
           "name": "artifacts_owner_state_idx",
           "columns": ["owner_id", "state"],
           "isUnique": false
+        },
+        "artifacts_custom_host_idx": {
+          "name": "artifacts_custom_host_idx",
+          "columns": ["custom_host"],
+          "isUnique": true,
+          "where": "\"artifacts\".\"custom_host\" is not null"
         },
         "artifacts_pinned_owner_idx": {
           "name": "artifacts_pinned_owner_idx",
@@ -1300,6 +1313,211 @@
           "value": "\"comment_notices\".\"created\" in (0, 1) and \"comment_notices\".\"resolved\" in (0, 1) and \"comment_notices\".\"replies\" between 0 and 200"
         }
       }
+    },
+    "custom_domains": {
+      "name": "custom_domains",
+      "columns": {
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cf_hostname_id": {
+          "name": "cf_hostname_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "missed_checks": {
+          "name": "missed_checks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "problem": {
+          "name": "problem",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detach_reason": {
+          "name": "detach_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "custom_domains_owner_idx": {
+          "name": "custom_domains_owner_idx",
+          "columns": ["owner_id", "verified_at"],
+          "isUnique": false
+        },
+        "custom_domains_artifact_idx": {
+          "name": "custom_domains_artifact_idx",
+          "columns": ["artifact_id"],
+          "isUnique": false
+        },
+        "custom_domains_check_idx": {
+          "name": "custom_domains_check_idx",
+          "columns": ["state", "checked_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "custom_domains_state": {
+          "name": "custom_domains_state",
+          "value": "\"custom_domains\".\"state\" in ('provisioning', 'active', 'detaching')"
+        }
+      }
+    },
+    "domain_claims": {
+      "name": "domain_claims",
+      "columns": {
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "domain_claims_owner_idx": {
+          "name": "domain_claims_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false
+        },
+        "domain_claims_artifact_idx": {
+          "name": "domain_claims_artifact_idx",
+          "columns": ["artifact_id"],
+          "isUnique": false
+        },
+        "domain_claims_expires_idx": {
+          "name": "domain_claims_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "domain_claims_hostname_owner_id_pk": {
+          "columns": ["hostname", "owner_id"],
+          "name": "domain_claims_hostname_owner_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "email_counters": {
       "name": "email_counters",
@@ -3496,354 +3714,6 @@
         "versions_bytes_nonnegative": {
           "name": "versions_bytes_nonnegative",
           "value": "\"versions\".\"published_bytes\" >= 0 and \"versions\".\"source_bytes\" >= 0"
-        }
-      }
-    },
-    "webhook_deliveries": {
-      "name": "webhook_deliveries",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "webhook_id": {
-          "name": "webhook_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "delivery_id": {
-          "name": "delivery_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "attempt": {
-          "name": "attempt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "at": {
-          "name": "at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "webhook_deliveries_webhook_idx": {
-          "name": "webhook_deliveries_webhook_idx",
-          "columns": ["webhook_id", "at"],
-          "isUnique": false
-        },
-        "webhook_deliveries_owner_idx": {
-          "name": "webhook_deliveries_owner_idx",
-          "columns": ["owner_id", "at"],
-          "isUnique": false
-        },
-        "webhook_deliveries_at_idx": {
-          "name": "webhook_deliveries_at_idx",
-          "columns": ["at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "webhook_deliveries_webhook_id_webhooks_id_fk": {
-          "name": "webhook_deliveries_webhook_id_webhooks_id_fk",
-          "tableFrom": "webhook_deliveries",
-          "tableTo": "webhooks",
-          "columnsFrom": ["webhook_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "webhook_events": {
-      "name": "webhook_events",
-      "columns": {
-        "webhook_id": {
-          "name": "webhook_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "count": {
-          "name": "count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "first_at": {
-          "name": "first_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_at": {
-          "name": "last_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "actor_id": {
-          "name": "actor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "access": {
-          "name": "access",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "webhook_events_first_idx": {
-          "name": "webhook_events_first_idx",
-          "columns": ["webhook_id", "first_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "webhook_events_webhook_id_webhooks_id_fk": {
-          "name": "webhook_events_webhook_id_webhooks_id_fk",
-          "tableFrom": "webhook_events",
-          "tableTo": "webhooks",
-          "columnsFrom": ["webhook_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "webhook_events_webhook_id_artifact_id_type_pk": {
-          "columns": ["webhook_id", "artifact_id", "type"],
-          "name": "webhook_events_webhook_id_artifact_id_type_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "webhooks": {
-      "name": "webhooks",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "host": {
-          "name": "host",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "format": {
-          "name": "format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "events": {
-          "name": "events",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "key_id": {
-          "name": "key_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "url_box": {
-          "name": "url_box",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "secret_box": {
-          "name": "secret_box",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "disabled_reason": {
-          "name": "disabled_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "failures": {
-          "name": "failures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "probation": {
-          "name": "probation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "reenables": {
-          "name": "reenables",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "reenable_day": {
-          "name": "reenable_day",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_via": {
-          "name": "created_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "webhooks_owner_idx": {
-          "name": "webhooks_owner_idx",
-          "columns": ["owner_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "webhooks_events": {
-          "name": "webhooks_events",
-          "value": "\"webhooks\".\"events\" between 1 and 31"
-        },
-        "webhooks_failures": {
-          "name": "webhooks_failures",
-          "value": "\"webhooks\".\"failures\" >= 0"
         }
       }
     },

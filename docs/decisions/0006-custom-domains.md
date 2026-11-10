@@ -1,6 +1,6 @@
 # 0006 Custom domains
 
-- Status: proposed (spike S2 of the paid plans programme; blocks P7)
+- Status: accepted; first part of P7 implemented on 2026-11-10 (see "Implementation notes")
 - Date: 2026-11-09
 - Spike: [spikes/custom-domains](../../spikes/custom-domains)
 
@@ -189,3 +189,20 @@ Run once, on real resources, before P7.6 ships. None of it was run by the spike.
 7. Fetch `http://<test host>/` and check whether the zone's Always Use HTTPS redirects before the Worker.
 8. Delete the test hostname and confirm the host stops at once and leaves the usage count; check the billing page for how a hostname is charged (period, Moved state) and the quota response for `hard_cap`.
 9. Try to create the same test hostname a second time on the zone and record Cloudflare's answer: the design assumes one Cloudflare hostname per name on the zone, kept across transfers.
+
+## Implementation notes
+
+The first part of P7 (2026-11-10) covers the data model, the proof, the operations in the API, MCP, the CLI and the dashboard, the jobs, the lifecycle and the operator commands; it ships switched off ([releasing.md](../releasing.md), "Custom domains (switched off)"). Delivery on custom hosts (section 5, the content Worker rows of section 6, `host` on `read_handoffs` and `review_handoffs`, the viewer's `frame-src`, the review iframe origin, the `.dev` redirect, the `http` upgrade, cookie cleanup only on `.dev`, the document policy from the request host, `customHost` in the artifact list and info) is the second part. Where the code differs from the record above:
+
+- **Product decision since the record.** With the bar on, a visit to the custom domain still ends in the viewer. The bar is never changed automatically: the dashboard explains it when a domain is attached and offers to turn the bar off; the CLI and the MCP tools say the same.
+- **The TXT token is stored, not hashed.** `domain_claims.token` and `custom_domains.token` keep the value. It is the content of a public DNS record and proves control only by being found there, and the dashboard, the CLI and MCP must show the record again for the daily check to keep passing. It is still never logged, exported or put in an error.
+- **A claim keeps its token while it lasts.** Adding the same name again for the same owner keeps the token (and moves the claim to the artifact named), so a retry never invalidates a record already published; a new token comes only once the claim expired.
+- **Verifying is gated too**, on the plan of the owner whose claim or domain it is; listing, reading and removing never are.
+- **The count is enforced in the proof's write**, conditioned on the owner's domains, so two proofs at once cannot pass the limit; adding checks it too for an early answer.
+- **Apex domains are refused in the domain rules** as names with fewer than three labels. A registrable domain under a two-label public suffix (`example.co.uk`) passes the rule but cannot validate without apex proxying; it is detached after the 7 days of provisioning.
+- **One region.** The `delete_custom_hostname` job is written in the global batch, as the record says; today the global and regional databases are the same binding, so the relay sees it. A second region (E5) must relay the global outbox too.
+- **Purges and account deletion** release domains in a separate step before their own batches (detach, then the artifact or account goes), because no batch spans the global and regional databases; the order keeps the host from serving first. Suspension clears `custom_host` in its own regional batch, as the record says.
+- **Downgrade grace without email.** The grace of 7 days past `valid_until` is applied (`domainLimitAt` reads the plan as it was a week earlier); the email to the owner before the grace ends is not written yet.
+- **States in the API.** Views show `pending` for a claim and `removing` for `detaching`, and carry `problem` (`txt_missing`, `certificate_pending`, `cloudflare_unavailable`), stored on the row for proven domains.
+- **Extra surface.** `get_custom_domain` mirrors `GET /api/v1/domains/:hostname` and `portifact domains info`; `GET /api/v1/domains` and `list_custom_domains` take an optional `artifactId`, which the dashboard uses with the owner's plan.
+- **Not yet.** The operator block list of names (section 7) and an email when a daily check starts missing are not implemented.

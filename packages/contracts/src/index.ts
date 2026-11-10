@@ -7,6 +7,7 @@ export * from "./anchors.ts";
 export * from "./annotation-tools.ts";
 export * from "./annotations.ts";
 export * from "./core.ts";
+export * from "./custom-domains.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
 export * from "./human.ts";

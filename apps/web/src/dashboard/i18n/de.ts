@@ -1172,6 +1172,74 @@ export const de = {
   "shareLinks.password.hint":
     "Mindestens {min} Zeichen. Besucher geben es ein, bevor sich das Artifact öffnet. Schick es getrennt vom Link.",
   "shareLinks.password.short": "Verwende mindestens {min} Zeichen oder lass das Feld leer.",
+  "domains.title": "Eigene Domain",
+  "domains.description":
+    "Liefern Sie dieses Artifact unter einer eigenen Domain aus, etwa docs.example.com. Die Portifact-Adresse funktioniert weiterhin.",
+  "domains.loading": "Eigene Domain wird geladen",
+  "domains.loadFailed": "Die eigene Domain wurde nicht geladen",
+  "domains.paidTitle": "Eigene Domains gehören zu einem kostenpflichtigen Tarif",
+  "domains.paid":
+    "Mit einem kostenpflichtigen Tarif können Sie dieses Artifact unter Ihrer eigenen Domain ausliefern.",
+  "domains.unavailableTitle": "Eigene Domains sind noch nicht verfügbar",
+  "domains.unavailable":
+    "Portifact liefert noch keine eigenen Domains aus. Dieser Bereich wird freigeschaltet, sobald es so weit ist.",
+  "domains.removingNote": "{hostname} wird entfernt.",
+  "domains.cardLabel": "Eigene Domain {hostname}",
+  "domains.state.pending": "Warten auf DNS",
+  "domains.state.provisioning": "Wird eingerichtet",
+  "domains.state.active": "Aktiv",
+  "domains.state.removing": "Wird entfernt",
+  "domains.next.pending":
+    "Legen Sie die beiden Einträge unten bei Ihrem DNS-Anbieter an und prüfen Sie dann erneut.",
+  "domains.next.provisioning":
+    "Ihre Domain ist bestätigt. Das Zertifikat dauert meist ein paar Minuten; prüfen Sie gleich erneut.",
+  "domains.next.active":
+    "Ihr Artifact wird unter dieser Domain ausgeliefert. Behalten Sie den TXT-Eintrag: Er wird täglich geprüft.",
+  "domains.next.removing": "Die Domain wird entfernt.",
+  "domains.problem.txt_missing": "Der TXT-Eintrag wurde nicht gefunden",
+  "domains.problem.txt_missing.hint":
+    "Prüfen Sie, ob Name und Wert des Eintrags genau übereinstimmen. DNS-Änderungen können einige Minuten brauchen.",
+  "domains.problem.certificate_pending": "Das Zertifikat ist noch nicht bereit",
+  "domains.problem.certificate_pending.hint":
+    "Prüfen Sie, ob der CNAME-Eintrag auf den Wert unten zeigt, und prüfen Sie in ein paar Minuten erneut.",
+  "domains.problem.cloudflare_unavailable": "Der Zertifikatsdienst hat nicht geantwortet",
+  "domains.problem.cloudflare_unavailable.hint":
+    "Auf Ihrer Seite ist alles in Ordnung. Es wird gleich erneut versucht.",
+  "domains.missedChecks":
+    "{count, plural, one {Der TXT-Eintrag fehlte bei der letzten täglichen Prüfung. Nach 3 Fehlschlägen in Folge wird die Domain entfernt.} other {Der TXT-Eintrag fehlte bei den letzten # täglichen Prüfungen. Nach 3 Fehlschlägen in Folge wird die Domain entfernt.}}",
+  "domains.records": "Anzulegende Einträge",
+  "domains.records.type": "{type}-Eintrag",
+  "domains.records.txtHint":
+    "Beweist, dass Sie die Domain kontrollieren. Behalten Sie ihn, wenn die Domain aktiv ist.",
+  "domains.records.cnameHint": "Lässt Ihre Domain auf Portifact zeigen.",
+  "domains.records.name": "Name",
+  "domains.records.value": "Wert",
+  "domains.records.copy": "Kopieren",
+  "domains.claimExpires":
+    "Legen Sie die Einträge vor dem {date} an oder fügen Sie die Domain erneut hinzu.",
+  "domains.check": "Erneut prüfen",
+  "domains.checkFailed": "Die Domain wurde nicht geprüft",
+  "domains.remove": "Domain entfernen",
+  "domains.removed": "{hostname} wurde entfernt.",
+  "domains.removeFailed": "Die Domain wurde nicht entfernt",
+  "domains.confirm.title": "{hostname} entfernen?",
+  "domains.confirm.body":
+    "Das Artifact wird sofort nicht mehr unter dieser Domain ausgeliefert und behält seine Portifact-Adresse. Ein erneutes Hinzufügen erfordert eine neue DNS-Prüfung.",
+  "domains.cancel": "Abbrechen",
+  "domains.bar.title": "Besuche öffnen sich im Viewer, solange die Portifact-Leiste aktiv ist",
+  "domains.bar.body":
+    "Solange die Leiste aktiv ist, landen Besucher Ihrer Domain im Viewer auf app.portifact.com. Schalten Sie die Leiste aus, damit Ihre Domain in der Adressleiste bleibt.",
+  "domains.bar.turnOff": "Leiste ausschalten",
+  "domains.bar.done": "Die Portifact-Leiste ist ausgeschaltet.",
+  "domains.add": "Domain hinzufügen",
+  "domains.added": "{hostname} wurde hinzugefügt. Legen Sie jetzt die DNS-Einträge an.",
+  "domains.addFailed": "Die Domain wurde nicht hinzugefügt",
+  "domains.full":
+    "{count, plural, one {Ihr Tarif umfasst # eigene Domain, und sie wird bereits genutzt.} other {Ihr Tarif umfasst # eigene Domains, und alle werden genutzt.}}",
+  "domains.hostname.label": "Hostname",
+  "domains.hostname.hint":
+    "Eine Subdomain, die Sie kontrollieren, etwa docs.example.com. Stammdomains und Platzhalter werden nicht unterstützt.",
+  "domains.hostname.invalid": "Geben Sie einen Hostnamen wie docs.example.com ein.",
   "accessLog.shareLink": "Freigabelink: {label}",
   "webhooks.title": "Webhooks",
   "webhooks.description":

@@ -32,7 +32,7 @@ export default defineConfig(async () => {
         provider: "istanbul" as const,
         reporter: ["text", "json-summary"],
         include: ["src/**/*.ts"],
-        exclude: ["src/index.ts"],
+        exclude: ["src/index.ts", "src/testing/**"],
         thresholds: { lines: 95, branches: 90, functions: 95, statements: 95 },
       },
     },

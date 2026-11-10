@@ -1130,6 +1130,70 @@ export const en = {
   "shareLinks.password.hint":
     "At least {min} characters. Visitors type it before the artifact opens. Send it separately from the link.",
   "shareLinks.password.short": "Use at least {min} characters, or leave it empty.",
+  "domains.title": "Custom domain",
+  "domains.description":
+    "Serve this artifact from a domain you own, such as docs.example.com. Its Portifact address keeps working.",
+  "domains.loading": "Loading the custom domain",
+  "domains.loadFailed": "The custom domain did not load",
+  "domains.paidTitle": "Custom domains are part of a paid plan",
+  "domains.paid": "With a paid plan you can serve this artifact from your own domain.",
+  "domains.unavailableTitle": "Custom domains are not available yet",
+  "domains.unavailable":
+    "Portifact is not serving custom domains yet. This section opens when they are.",
+  "domains.removingNote": "{hostname} is being removed.",
+  "domains.cardLabel": "Custom domain {hostname}",
+  "domains.state.pending": "Waiting for DNS",
+  "domains.state.provisioning": "Setting up",
+  "domains.state.active": "Active",
+  "domains.state.removing": "Removing",
+  "domains.next.pending": "Create the two records below at your DNS provider, then check again.",
+  "domains.next.provisioning":
+    "Your domain is verified. The certificate usually takes a few minutes; check again shortly.",
+  "domains.next.active":
+    "Your artifact is served on this domain. Keep the TXT record: it is checked every day.",
+  "domains.next.removing": "The domain is being removed.",
+  "domains.problem.txt_missing": "The TXT record was not found",
+  "domains.problem.txt_missing.hint":
+    "Check that the record's name and value match exactly. DNS changes can take a few minutes to appear.",
+  "domains.problem.certificate_pending": "The certificate is not ready yet",
+  "domains.problem.certificate_pending.hint":
+    "Check that the CNAME record points at the value below, then check again in a few minutes.",
+  "domains.problem.cloudflare_unavailable": "The certificate service did not answer",
+  "domains.problem.cloudflare_unavailable.hint":
+    "Nothing is wrong on your side. It is tried again shortly.",
+  "domains.missedChecks":
+    "{count, plural, one {The TXT record was missing at the last daily check. After 3 misses in a row the domain is removed.} other {The TXT record was missing at the last # daily checks. After 3 misses in a row the domain is removed.}}",
+  "domains.records": "Records to create",
+  "domains.records.type": "{type} record",
+  "domains.records.txtHint": "Proves you control the domain. Keep it after the domain is active.",
+  "domains.records.cnameHint": "Points your domain at Portifact.",
+  "domains.records.name": "Name",
+  "domains.records.value": "Value",
+  "domains.records.copy": "Copy",
+  "domains.claimExpires": "Add the records before {date}, or add the domain again.",
+  "domains.check": "Check again",
+  "domains.checkFailed": "The domain was not checked",
+  "domains.remove": "Remove domain",
+  "domains.removed": "Removed {hostname}.",
+  "domains.removeFailed": "The domain was not removed",
+  "domains.confirm.title": "Remove {hostname}?",
+  "domains.confirm.body":
+    "The artifact stops being served on this domain right away and keeps its Portifact address. Adding the domain again needs a new DNS check.",
+  "domains.cancel": "Cancel",
+  "domains.bar.title": "Visits open in the viewer while the Portifact bar is on",
+  "domains.bar.body":
+    "While the bar is on, people who open your domain end up in the viewer on app.portifact.com. Turn the bar off to keep your domain in the address bar.",
+  "domains.bar.turnOff": "Turn off the bar",
+  "domains.bar.done": "The Portifact bar is off.",
+  "domains.add": "Add domain",
+  "domains.added": "Added {hostname}. Create its DNS records next.",
+  "domains.addFailed": "The domain was not added",
+  "domains.full":
+    "{count, plural, one {Your plan includes # custom domain, and it is in use.} other {Your plan includes # custom domains, and all are in use.}}",
+  "domains.hostname.label": "Hostname",
+  "domains.hostname.hint":
+    "A subdomain you control, such as docs.example.com. Root domains and wildcards are not supported.",
+  "domains.hostname.invalid": "Type a hostname such as docs.example.com.",
   "accessLog.shareLink": "Share link: {label}",
   "webhooks.title": "Webhooks",
   "webhooks.description": "Send events about your artifacts to your own systems, Slack or Discord.",

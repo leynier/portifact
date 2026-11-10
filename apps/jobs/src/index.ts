@@ -10,6 +10,11 @@
 import { EmailSendingEvent, JobMessage } from "@portifact/contracts";
 import { createAccessDb, type Db, regionsFromEnv } from "@portifact/db";
 import {
+  checkCustomDomains,
+  type DomainDeps,
+  type DomainEnv,
+  domainDbs,
+  domainDepsFromEnv,
   personalHandles,
   pruneAccessEvents,
   reconcileStorage,
@@ -26,7 +31,7 @@ import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
 import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
 
-export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, WebhookEnv {
+export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, WebhookEnv {
   DB: D1Database;
   /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
   ACCESS_DB: D1Database;
@@ -43,6 +48,11 @@ export const FAILED_RETRY_SECONDS = 60;
 export const EMAIL_EVENTS_QUEUE = "portifact-email-events";
 
 const errorName = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+/** Cloudflare's custom hostnames and DNS, or null while custom domains are switched off. */
+export function domainsFromEnv(env: Env, fetcher: typeof fetch = fetch): DomainDeps | null {
+  return domainDepsFromEnv(env, (input, init) => fetcher(input, init));
+}
 
 /** The schedule that only relays the outbox, every minute, so webhook deliveries go within minutes. */
 export const RELAY_CRON = "* * * * *";
@@ -62,10 +72,24 @@ export async function runRelay(env: Env, now: number): Promise<number | "failed"
  * The maintenance run. The relay runs on its own one-minute schedule in production
  * (`relay: false` here); tests and a run by hand keep it.
  */
-export async function runScheduled(env: Env, now: number, options: { relay?: boolean } = {}) {
+export async function runScheduled(
+  env: Env,
+  now: number,
+  domains = domainsFromEnv(env),
+  options: { relay?: boolean } = {},
+) {
   // One region for now; with a second (E5) the scans run once per region (decision 0005).
-  const db = personalHandles(regionsFromEnv(env)).db;
+  const regions = regionsFromEnv(env);
+  const db = personalHandles(regions).db;
   const maintenance = await runMaintenance(db, env.ARTIFACTS, now);
+  // Custom domains call Cloudflare and DNS: a failure must not hide the rest of the run.
+  let customDomains: Awaited<ReturnType<typeof checkCustomDomains>> | "failed";
+  try {
+    customDomains = await checkCustomDomains(domainDbs(regions), domains, now);
+  } catch (error) {
+    customDomains = "failed";
+    console.error(JSON.stringify({ event: "custom_domains_failed", error: errorName(error) }));
+  }
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
   const relayed = options.relay === false ? "scheduled" : await runRelay(env, now);
   // Webhooks sealed with `WEBHOOK_KEY_PREVIOUS` move to the current key (docs/releasing.md).
@@ -92,6 +116,7 @@ export async function runScheduled(env: Env, now: number, options: { relay?: boo
     webhookKeysRewrapped: webhookKeyRotation.rewrapped,
     webhookKeysLeft: webhookKeyRotation.left,
     webhooksStopped,
+    customDomains,
   };
   console.log(JSON.stringify({ event: "maintenance", ...result }));
   return result;
@@ -154,6 +179,7 @@ export async function runQueue(
   batch: MessageBatch<unknown>,
   env: Env,
   now: number,
+  domains = domainsFromEnv(env),
   fetcher?: Fetch,
 ) {
   const db = personalHandles(regionsFromEnv(env)).db;
@@ -176,6 +202,7 @@ export async function runQueue(
         notifier,
         commentNotifier,
         webhooks,
+        domains,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });
@@ -206,7 +233,9 @@ export default {
       ctx.waitUntil(runRelay(env, controller.scheduledTime));
       return;
     }
-    ctx.waitUntil(runScheduled(env, controller.scheduledTime, { relay: false }));
+    ctx.waitUntil(
+      runScheduled(env, controller.scheduledTime, domainsFromEnv(env), { relay: false }),
+    );
     // Independent of maintenance: a failing scan must not stop the budget's protection.
     ctx.waitUntil(runScheduledBudget(env, controller.scheduledTime));
   },

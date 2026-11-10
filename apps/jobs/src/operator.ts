@@ -4,7 +4,8 @@
 // for the budget (plan section 12): show the state and the alerts, and override the automatic
 // protection; for email delivery (plan section 17): list and lift suppressed addresses; and for
 // paid plans (premium plan section 3, F1): show, grant, change and remove an owner's plan, the
-// only way a plan is ever granted. They run only from `scripts/operator.ts` on the operator's machine, with the deploy
+// only way a plan is ever granted; and for custom domains (decision 0006): show one, detach one
+// (abuse on a customer's domain) and reconcile with Cloudflare after a restore. They run only from `scripts/operator.ts` on the operator's machine, with the deploy
 // credentials, against the D1 binding; no web route reaches them. Each command calls the same
 // services the tests cover, and prints plain text without secrets.
 import {
@@ -30,6 +31,9 @@ import {
   applyTombstones,
   type BudgetState,
   clearBudgetOverride,
+  type DomainDeps,
+  detachDomain,
+  domainDbsOf,
   exportOwnerPlans,
   exportTombstones,
   getBudgetState,
@@ -42,6 +46,7 @@ import {
   listStorageFindings,
   type OwnerPlanState,
   rebuildArtifactDirectory,
+  reconcileCustomDomains,
   reinstateAccount,
   reinstateArtifact,
   removeOwnerPlan,
@@ -77,6 +82,9 @@ Commands:
   budget-override clear
   email-suppressions [--limit N]
   lift-email-suppression <email>
+  show-domain <hostname>
+  detach-domain <hostname>
+  reconcile-domains            (needs CF_CONTENT_ZONE_ID and CF_HOSTNAMES_TOKEN in the environment)
   plan <user-id|email>
   set-plan <user-id|email> <plan> [--seats N] [--until <ISO date>] [--note <text>]
            [--overrides <json>]
@@ -387,6 +395,7 @@ export async function runOperator(
   argv: readonly string[],
   now: number,
   files: OperatorFiles = noFiles,
+  domains: DomainDeps | null = null,
 ): Promise<OperatorResult> {
   const { positional, options } = parseArgs(argv);
   const [command, ...args] = positional;
@@ -687,6 +696,72 @@ export async function runOperator(
         );
       }
       return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "show-domain": {
+      const [hostname] = args;
+      if (!hostname) return usage("show-domain needs a hostname.");
+      const name = hostname.trim().toLowerCase().replace(/\.$/, "");
+      const [row] = await db
+        .select()
+        .from(schema.customDomains)
+        .where(eq(schema.customDomains.hostname, name))
+        .limit(1);
+      const claims = await db
+        .select({
+          ownerId: schema.domainClaims.ownerId,
+          artifactId: schema.domainClaims.artifactId,
+        })
+        .from(schema.domainClaims)
+        .where(eq(schema.domainClaims.hostname, name));
+      if (!row && claims.length === 0) return { exitCode: 1, output: "No custom domain or claim." };
+      const lines: string[] = [];
+      if (row) {
+        lines.push(
+          `domain    ${row.hostname}`,
+          `state     ${row.state}${row.detachReason ? ` (${row.detachReason})` : ""}`,
+          `artifact  ${row.artifactId}`,
+          `owner     ${row.ownerId}`,
+          `verified  ${iso(row.verifiedAt)}, checked ${iso(row.checkedAt)}, ${row.missedChecks} missed`,
+          `cloudflare ${row.cfHostnameId ?? "none yet"}`,
+        );
+      }
+      for (const claim of claims) lines.push(`claim     ${claim.ownerId} for ${claim.artifactId}`);
+      return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "detach-domain": {
+      const [hostname] = args;
+      if (!hostname) return usage("detach-domain needs a hostname.");
+      const name = hostname.trim().toLowerCase().replace(/\.$/, "");
+      const detached = await detachDomain(domainDbsOf(db), name, "operator", now);
+      return detached
+        ? {
+            exitCode: 0,
+            output: `Detached ${name}: it no longer serves, and the queue deletes its Cloudflare hostname.`,
+          }
+        : {
+            exitCode: 1,
+            output: "No attached domain with that hostname (or it is already being removed).",
+          };
+    }
+    case "reconcile-domains": {
+      if (!domains) {
+        return {
+          exitCode: 1,
+          output:
+            "reconcile-domains needs CF_CONTENT_ZONE_ID and CF_HOSTNAMES_TOKEN in the environment.",
+        };
+      }
+      const result = await reconcileCustomDomains(domainDbsOf(db), [db], domains, now);
+      const section = (label: string, names: string[]) =>
+        `${label}: ${names.length === 0 ? "none" : names.join(", ")}`;
+      return {
+        exitCode: 0,
+        output: [
+          section("Detached (Cloudflare no longer has them)", result.detached),
+          section("Deleted from Cloudflare (no row)", result.removed),
+          section("Cleared from artifacts (no active domain)", result.cleared),
+        ].join("\n"),
+      };
     }
     default:
       return usage(command ? `Unknown command: ${command}` : "No command given.");

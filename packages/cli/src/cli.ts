@@ -19,6 +19,7 @@ import {
 } from "./artifacts.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { diff } from "./diff.ts";
+import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "./domains.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
 import { pullHistory } from "./history.ts";
 import { logs } from "./logs.ts";
@@ -69,6 +70,15 @@ A share link lets anyone who has it read the artifact's current version without 
 account: no comments, and visitors are never identified. Treat the URL like a password: it is
 printed only by \`share create\`. Share links are part of a paid plan. Revoking ends the link and
 its sessions within a minute.
+`;
+
+const DOMAINS_HELP = `
+A custom domain serves one artifact from a hostname you control, such as docs.example.com (a
+subdomain; not a root domain or a wildcard). \`domains add\` prints a TXT record that proves you
+control the name and a CNAME to Portifact: create both, then run \`domains verify\` until the
+domain is active. Keep the TXT record: it is checked daily and the domain is removed after three
+misses. While the artifact's Portifact bar is on, visits open in the viewer; turn it off with
+\`portifact access bar <id> off\`. Custom domains are part of a paid plan.
 `;
 
 const PUBLISH_HELP = `
@@ -651,6 +661,67 @@ export async function run(
     .action(
       execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string, link: string) =>
         revokeShare(io, runtime, id, link, {
+          yes: options.yes === true,
+          json: options.json === true,
+        }),
+      ),
+    );
+
+  const domains = program
+    .command("domains")
+    .description("Serve an artifact from your own domain: add, verify, list, info or remove")
+    .enablePositionalOptions()
+    .addHelpText("after", DOMAINS_HELP);
+  domains
+    .command("add")
+    .description("Add a custom domain to an artifact and print the DNS records to create")
+    .argument("<id>", "artifact ID")
+    .argument("<hostname>", "the hostname, for example docs.example.com")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, hostname: string) =>
+        addDomain(io, runtime, id, hostname, { json: options.json === true }),
+      ),
+    );
+  domains
+    .command("verify")
+    .description("Check a domain's DNS records and certificate again")
+    .argument("<hostname>", "the hostname")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, hostname: string) =>
+        verifyDomain(io, runtime, hostname, { json: options.json === true }),
+      ),
+    );
+  domains
+    .command("list")
+    .description("List your custom domains and what your plan allows")
+    .option("--artifact <id>", "only this artifact's domain")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { artifact?: string; json?: boolean }) =>
+        listDomains(io, runtime, { artifact: options.artifact, json: options.json === true }),
+      ),
+    );
+  domains
+    .command("info")
+    .description("Show one domain's state and DNS records")
+    .argument("<hostname>", "the hostname")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, hostname: string) =>
+        domainInfo(io, runtime, hostname, { json: options.json === true }),
+      ),
+    );
+  domains
+    .command("remove")
+    .description("Stop serving an artifact on a domain, after a confirmation")
+    .argument("<hostname>", "the hostname")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, hostname: string) =>
+        removeDomain(io, runtime, hostname, {
           yes: options.yes === true,
           json: options.json === true,
         }),
