@@ -98,6 +98,30 @@ describe("portifact search", () => {
   });
 });
 
+describe("bidi controls and line separators", () => {
+  it("never reach the terminal from a snippet, a name or a path", async () => {
+    h.signIn();
+    const artifact = server.api.seed({ name: "Report\u202Egnp.exe" });
+    server.api.search.set("personal", {
+      items: [
+        {
+          artifact: listItemOf(artifact),
+          path: "docs/\u2066evil\u2069.html",
+          snippet: { text: "safe \u202Eword\u202C and\u2028more", highlights: [[0, 4]] },
+          partial: false,
+        },
+      ],
+      nextCursor: null,
+    });
+    const result = await h.invoke("search", "safe");
+    expect(result.code).toBe(0);
+    expect(result.stdout).not.toMatch(/[\u2028\u2029\u202a-\u202e\u2066-\u2069]/);
+    expect(result.stdout).toBe(
+      `${artifact.id}  Reportgnp.exe  docs/evil.html\n  «safe» word andmore\n`,
+    );
+  });
+});
+
 describe("markedSnippet", () => {
   it("marks ranges, skips ranges out of order or bounds and keeps one line", () => {
     expect(

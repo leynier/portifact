@@ -3,6 +3,7 @@
 // and editors only, on a plan with content search: otherwise the API answers forbidden or
 // plan_required. Snippets are text from the artifacts, printed as plain text.
 import { SearchResults, type SearchSnippet } from "@portifact/contracts";
+import { plain } from "./annotations.ts";
 import { callApi } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { messages } from "./messages.ts";
@@ -17,7 +18,7 @@ export interface SearchOptions extends OutputOptions {
 
 /**
  * The snippet on one line with each highlight between « and ». The server already removed
- * control characters; new lines and tabs become spaces here.
+ * control characters; bidi controls and line separators go here, and white space becomes spaces.
  */
 export function markedSnippet(snippet: SearchSnippet): string {
   let out = "";
@@ -27,7 +28,11 @@ export function markedSnippet(snippet: SearchSnippet): string {
     out += `${snippet.text.slice(at, start)}«${snippet.text.slice(start, end)}»`;
     at = end;
   }
-  return (out + snippet.text.slice(at)).replace(/\s+/g, " ").trim();
+  // Marks first, so the ranges still index the server's text; then nothing a terminal would act
+  // on (bidi controls, line separators) survives.
+  return plain(out + snippet.text.slice(at))
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export async function search(
@@ -57,7 +62,7 @@ export async function search(
   }
   for (const item of page.items) {
     const partial = item.partial ? ` ${messages.searchPartial}` : "";
-    io.stdout(`${item.artifact.id}  ${item.artifact.name}  ${item.path}${partial}\n`);
+    io.stdout(`${item.artifact.id}  ${plain(item.artifact.name)}  ${plain(item.path)}${partial}\n`);
     io.stdout(`  ${markedSnippet(item.snippet)}\n`);
   }
   if (page.nextCursor !== null) {
