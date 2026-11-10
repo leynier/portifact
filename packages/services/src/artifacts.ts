@@ -25,7 +25,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
-import { approvalReviewColumn, approvalSummaryOf } from "./approval-reviews.ts";
+import { approvalReviewColumn, approvalSummaries } from "./approval-reviews.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { retainedVersionSql } from "./retention.ts";
 
@@ -151,7 +151,10 @@ function activityColumns(retention: VersionRetention, now: number) {
  * The owner's artifacts that match the filters, most recently updated first, each with its
  * activity. Deleted artifacts are not listed. Listing is for admins and editors of the owner.
  */
-export async function listArtifacts(db: Db, input: ListInput): Promise<Result<ArtifactPage>> {
+export async function listArtifacts(
+  db: RegionalDb,
+  input: ListInput,
+): Promise<Result<ArtifactPage>> {
   const allowed = authorize(input.actor, "list");
   if (!allowed.ok) return allowed;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
@@ -181,28 +184,35 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
     )
     .orderBy(desc(t.updatedAt), desc(t.id))
     .limit(input.limit + 1);
-  const items = rows
-    .slice(0, input.limit)
-    .map(
-      ({
+  const page = rows.slice(0, input.limit);
+  // One read of the verdicts' authors for the whole page (approval reviews, decision 0013).
+  const reviews = await approvalSummaries(
+    db,
+    page.map((row) => row.approvalReview),
+  );
+  const items = page.map(
+    (
+      {
         activityVersions,
         activityCurrentBytes,
         activityOpenThreads,
         activityLastAnnotationAt,
-        approvalReview,
+        approvalReview: _review,
         ...row
-      }) => ({
-        ...row,
-        review: approvalSummaryOf(approvalReview),
-        activity: {
-          versions: Number(activityVersions),
-          currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
-          openThreads: Number(activityOpenThreads),
-          lastAnnotationAt:
-            activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
-        },
-      }),
-    );
+      },
+      index,
+    ) => ({
+      ...row,
+      review: reviews[index] as ApprovalSummary,
+      activity: {
+        versions: Number(activityVersions),
+        currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
+        openThreads: Number(activityOpenThreads),
+        lastAnnotationAt:
+          activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
+      },
+    }),
+  );
   const last = items.at(-1);
   return ok({ items, nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null });
 }
@@ -231,5 +241,6 @@ export async function getArtifact(
   const { approvalReview, ...row } = found;
   const actor = await authorizeOn(db, input.userId, row, "list", missing);
   if (!actor.ok) return actor;
-  return ok({ ...row, review: approvalSummaryOf(approvalReview) });
+  const [review] = await approvalSummaries(db, [approvalReview]);
+  return ok({ ...row, review: review as ApprovalSummary });
 }

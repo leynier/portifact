@@ -31,6 +31,8 @@ export const APPROVAL_MESSAGES = {
   verdictsLimited: "Too many verdicts on this artifact. Wait a while and try again.",
   cannotOpen: (email: string) =>
     `${email} cannot open this artifact or comment on it yet. Share it with them first, then ask again.`,
+  cannotOpenSome:
+    "At least one of these addresses cannot open this artifact or comment on it yet. Share it with them first, then ask again.",
   tooMany: `A review can name at most ${APPROVALS.reviewersPerRequest} reviewers.`,
   required: (reviewers: number) =>
     `The required approvals must be between 1 and the number of reviewers (${reviewers}).`,

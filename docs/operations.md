@@ -72,7 +72,7 @@ A share link (`app.portifact.com/s#<token>`, [decision 0008](decisions/0008-shar
 
 ## Approval reviews
 
-Approval reviews ([decision 0013](decisions/0013-approval-reviews.md)) need no operator action. The maintenance scan `recheckApprovalReviewers` (`approvalReviewers` in the `maintenance` log line) re-checks up to 100 open requests a run, the ones checked longest ago, and drops reviewers who can no longer open the artifact from the count (or counts them again once they can). A request goes with its artifact; a restore that rewinds a cancellation or a verdict needs nothing re-applied, because neither deletes anything. Reviews send no email yet.
+Approval reviews ([decision 0013](decisions/0013-approval-reviews.md)) need no operator action. The maintenance scan `recheckApprovalReviewers` (`approvalReviewers` in the `maintenance` log line) runs last in the run and re-checks up to 30 open requests (at most 243 D1 calls and 5 seconds), in ID order from the `approval_reviewers` cursor in `maintenance_cursors`; it drops reviewers who can no longer open the artifact from the count (or counts them again once they can) and deletes verdicts whose author no longer holds the address. A request goes with its artifact; a restore that rewinds a cancellation or a verdict needs nothing re-applied, because neither deletes anything. Reviews send no email yet.
 
 ## Custom domains
 

@@ -4,10 +4,14 @@
 // current version; each reviewer answers with a verdict and an optional note.
 //
 // Who may be a reviewer is exactly who the access rules already let open the artifact and take
-// part in its comments (`addressTakesPart` in ./annotations.ts): requesting grants nothing.
+// part in its comments (`participation` in ./annotations.ts): requesting grants nothing.
 // Reviewers are kept by email address and matched to the caller by verified address, like the
 // reader list. A reviewer who can no longer open the artifact is dropped from the count
-// (`dropped_at`): when a verdict is refused, and by the maintenance scan every 15 minutes.
+// (`dropped_at`): by the access change that removes them (`approvalAccessStatements`), by a
+// verdict that would make the status final, and by the maintenance scan for membership and
+// email domain loss. A verdict counts only while the address it was given for is still its
+// author's verified address. Names are shown only for addresses that gave a verdict here or are
+// the owner's own people, so asking for a review never tells who has an account.
 //
 // Every write is one batch conditioned on what the request read: the open request (its
 // revision for owner-side changes, its version for verdicts), the artifact's current version and
@@ -28,9 +32,11 @@ import {
 } from "@portifact/contracts";
 import { type Db, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import {
+  type Actor,
   APPROVAL_FEATURE,
   APPROVAL_MESSAGES,
   type ApprovalReviewerFacts,
+  approvalComplete,
   approvalEntryVisible,
   approvalStatusVisible,
   approvalSummary,
@@ -46,11 +52,12 @@ import {
   hasFeature,
   ok,
   type Result,
+  seesReaders,
 } from "@portifact/domain";
-import { and, desc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn } from "./actors.ts";
-import { addressTakesPart, commentStanding } from "./annotations.ts";
+import { commentStanding, participation } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
 
@@ -58,6 +65,9 @@ const rq = schema.reviewRequests;
 const rr = schema.reviewReviewers;
 const rv = schema.reviewVerdicts;
 const a = schema.artifacts;
+
+/** D1 binds at most 100 parameters per statement. */
+const IN_CHUNK = 80;
 
 const missing = () => fail<never>("not_found", APPROVAL_MESSAGES.missingArtifact);
 const noRequest = () => fail<never>("not_found", APPROVAL_MESSAGES.noRequest);
@@ -96,7 +106,7 @@ async function loadManaged(db: RegionalDb, userId: string, artifactId: string) {
   if (!artifact) return missing();
   const actor = await authorizeOn(db, userId, artifact, "approvals", missing);
   if (!actor.ok) return actor;
-  return ok(artifact);
+  return ok({ artifact, actor: actor.value });
 }
 
 async function openRequest(db: RegionalDb, artifactId: string): Promise<RequestRow | undefined> {
@@ -203,16 +213,26 @@ async function limitRequests(db: RegionalDb, ownerId: string, userId: string, no
   return limited ? fail<never>("rate_limited", APPROVAL_MESSAGES.rateLimited) : ok(true);
 }
 
-/** Refuses the first address the access rules do not let open the artifact and comment on it. */
+/**
+ * Refuses the first address the access rules do not let open the artifact and comment on it. A
+ * person is told which (they typed it, and the answer depends only on the listed data and the
+ * owner's own people, never on whether an account exists); a service token gets one message for
+ * every address, so it learns nothing about membership.
+ */
 async function checkCanTakePart(
   db: RegionalDb,
   artifact: ArtifactRow,
   emails: readonly string[],
   owner: Entitlements,
+  actor: Actor,
 ): Promise<Result<true>> {
+  const found = await participation(db, artifact, emails, owner);
   for (const email of emails) {
-    const { takesPart } = await addressTakesPart(db, artifact, email, owner);
-    if (!takesPart) return fail("invalid_input", APPROVAL_MESSAGES.cannotOpen(email));
+    if (found.get(email)?.takesPart) continue;
+    return fail(
+      "invalid_input",
+      actor.token ? APPROVAL_MESSAGES.cannotOpenSome : APPROVAL_MESSAGES.cannotOpen(email),
+    );
   }
   return ok(true);
 }
@@ -237,7 +257,7 @@ export async function requestApprovalReview(
 ): Promise<Result<ApprovalReviewView>> {
   const managed = await loadManaged(db, input.userId, input.artifactId);
   if (!managed.ok) return managed;
-  const artifact = managed.value;
+  const { artifact, actor } = managed.value;
   const gate = await requireOwnerFeature(db.global, artifact, APPROVAL_FEATURE, input.now);
   if (!gate.ok) return gate;
   const owner = gate.value;
@@ -254,7 +274,7 @@ export async function requestApprovalReview(
   if (await openRequest(db, artifact.id)) {
     return fail("invalid_input", APPROVAL_MESSAGES.alreadyOpen);
   }
-  const eligible = await checkCanTakePart(db, artifact, reviewers.value, owner);
+  const eligible = await checkCanTakePart(db, artifact, reviewers.value, owner, actor);
   if (!eligible.ok) return eligible;
   const limited = await limitRequests(db, artifact.ownerId, input.userId, input.now);
   if (!limited.ok) return limited;
@@ -323,7 +343,7 @@ export async function changeApprovalReview(
 ): Promise<Result<ApprovalReviewView>> {
   const managed = await loadManaged(db, input.userId, input.artifactId);
   if (!managed.ok) return managed;
-  const artifact = managed.value;
+  const { artifact, actor } = managed.value;
   const gate = await requireOwnerFeature(db.global, artifact, APPROVAL_FEATURE, input.now);
   if (!gate.ok) return gate;
   const owner = gate.value;
@@ -349,7 +369,7 @@ export async function changeApprovalReview(
     // A change that changes nothing records nothing.
     return getApprovalReview(db, { userId: input.userId, artifactId: artifact.id, now: input.now });
   }
-  const eligible = await checkCanTakePart(db, artifact, added, owner);
+  const eligible = await checkCanTakePart(db, artifact, added, owner, actor);
   if (!eligible.ok) return eligible;
   if (added.length > 0) {
     const limited = await limitRequests(db, artifact.ownerId, input.userId, input.now);
@@ -432,7 +452,7 @@ export async function cancelApprovalReview(
 ): Promise<Result<ApprovalReviewView>> {
   const managed = await loadManaged(db, input.userId, input.artifactId);
   if (!managed.ok) return managed;
-  const artifact = managed.value;
+  const { artifact } = managed.value;
   const request = await openRequest(db, artifact.id);
   if (!request) return noRequest();
   const live = and(eq(rq.id, request.id), isNull(rq.cancelledAt), stillOwned(artifact));
@@ -470,13 +490,110 @@ export interface ApprovalVerdictRequest {
   now: number;
 }
 
+type VerdictRow = typeof schema.reviewVerdicts.$inferSelect;
+
+/** Accounts by ID: name and current verified address (null when it is not verified). */
+async function accountsById(db: RegionalDb, ids: readonly string[]) {
+  const found = new Map<string, { name: string; email: string | null }>();
+  const unique = [...new Set(ids)].filter((id) => !isServiceTokenId(id));
+  for (let i = 0; i < unique.length; i += IN_CHUNK) {
+    const rows = await db.global
+      .select({
+        id: schema.users.id,
+        name: schema.users.name,
+        email: schema.users.email,
+        verified: schema.users.emailVerified,
+      })
+      .from(schema.users)
+      .where(inArray(schema.users.id, unique.slice(i, i + IN_CHUNK)));
+    for (const row of rows) {
+      found.set(row.id, { name: row.name, email: row.verified ? row.email.toLowerCase() : null });
+    }
+  }
+  return found;
+}
+
+/**
+ * Whether a verdict still belongs to its address: given by the account whose verified address it
+ * still is. A verdict whose author changed address, or was deleted, counts for nobody (the scan
+ * deletes it), so whoever verifies that address later never inherits it.
+ */
+function verdictHolds(
+  verdict: { email: string; authorId: string },
+  accounts: Map<string, { email: string | null }>,
+): boolean {
+  return accounts.get(verdict.authorId)?.email === verdict.email;
+}
+
+/** The verdicts of a version under review, and those that no longer hold. */
+async function currentVerdicts(db: RegionalDb, request: RequestRow) {
+  const rows = await db
+    .select()
+    .from(rv)
+    .where(and(eq(rv.requestId, request.id), eq(rv.versionId, request.versionId)));
+  const accounts = await accountsById(
+    db,
+    rows.map((row) => row.authorId),
+  );
+  const holding = new Map<string, VerdictRow>();
+  const stale: VerdictRow[] = [];
+  for (const row of rows) {
+    if (verdictHolds(row, accounts)) holding.set(row.email, row);
+    else stale.push(row);
+  }
+  return { holding, stale, accounts };
+}
+
+/** Deletes verdicts that no longer hold, each on the author and update time read. */
+function deleteStale(db: Db, stale: readonly VerdictRow[], condition: SQL): BatchItem<"sqlite">[] {
+  return stale.map((row) =>
+    db
+      .delete(rv)
+      .where(
+        and(
+          eq(rv.requestId, row.requestId),
+          eq(rv.email, row.email),
+          eq(rv.versionId, row.versionId),
+          eq(rv.authorId, row.authorId),
+          eq(rv.updatedAt, row.updatedAt),
+          condition,
+        ),
+      ),
+  );
+}
+
+/** Marks reviewers who no longer take part as dropped, each only while they still count. */
+function dropReviewers(
+  db: Db,
+  requestId: string,
+  emails: readonly string[],
+  now: number,
+  condition: SQL,
+): BatchItem<"sqlite">[] {
+  if (emails.length === 0) return [];
+  return [
+    db
+      .update(rr)
+      .set({ droppedAt: now })
+      .where(
+        and(
+          eq(rr.requestId, requestId),
+          inArray(rr.email, [...emails]),
+          isNull(rr.droppedAt),
+          condition,
+        ),
+      ),
+  ];
+}
+
 /**
  * A requested reviewer's verdict on the version under review, or a change of it while that
  * version is current. Only a signed-in person whose verified address is listed and who can open
  * the artifact now; a service token never gives one. Anyone who cannot open the artifact gets
  * what a missing artifact gives; anyone else who is not listed (or when there is no open
  * request) gets the same `forbidden`, so it tells nothing about a hidden request. Never behind
- * the plan.
+ * the plan. A verdict that would make the status final first re-checks the other counting
+ * reviewers, so one who lost access is dropped in the same batch instead of counting.
  */
 export async function submitApprovalVerdict(
   db: RegionalDb,
@@ -491,11 +608,8 @@ export async function submitApprovalVerdict(
   const email = await verifiedEmailOf(db, standing);
   const request = await openRequest(db, artifact.id);
   if (!request || email === null) return notReviewer();
-  const [listed] = await db
-    .select()
-    .from(rr)
-    .where(and(eq(rr.requestId, request.id), eq(rr.email, email)))
-    .limit(1);
+  const reviewers = await reviewersOf(db, request.id);
+  const listed = reviewers.find((row) => row.email === email);
   if (!listed) return notReviewer();
   const target = checkVerdictTarget({
     state: standing.state,
@@ -506,12 +620,15 @@ export async function submitApprovalVerdict(
   if (!target.ok) return target;
   const versionId = target.value;
   const note = input.note === undefined || input.note === "" ? null : input.note;
-  const [previous] = await db
-    .select({ verdict: rv.verdict, note: rv.note })
-    .from(rv)
-    .where(and(eq(rv.requestId, request.id), eq(rv.email, email), eq(rv.versionId, versionId)))
-    .limit(1);
-  if (previous?.verdict === input.verdict && previous.note === note && listed.droppedAt === null) {
+  const { holding, stale } = await currentVerdicts(db, request);
+  const mine = holding.get(email);
+  const mineByMe = mine?.authorId === input.userId ? mine : undefined;
+  if (
+    mineByMe?.verdict === input.verdict &&
+    mineByMe.note === note &&
+    listed.droppedAt === null &&
+    stale.length === 0
+  ) {
     // Giving the same verdict again changes nothing and records nothing.
     return getApprovalReview(db, input);
   }
@@ -525,11 +642,33 @@ export async function submitApprovalVerdict(
     return fail("rate_limited", APPROVAL_MESSAGES.verdictsLimited);
   }
 
+  // Would this verdict make the status final? Then the other counting reviewers are asked again,
+  // so one who lost access does not decide it.
+  const others = reviewers.filter((row) => row.email !== email && row.droppedAt === null);
+  const facts = (gone: ReadonlySet<string>) => [
+    { active: true, verdict: input.verdict },
+    ...others.map((row) => ({
+      active: !gone.has(row.email),
+      verdict: holding.get(row.email)?.verdict ?? null,
+    })),
+  ];
+  let gone = new Set<string>();
+  if (approvalComplete(approvalSummary({ required: request.required }, facts(gone)).status)) {
+    const found = await participation(
+      db,
+      artifact,
+      others.map((row) => row.email),
+      standing.entitlements,
+    );
+    gone = new Set(others.filter((row) => !found.get(row.email)?.takesPart).map((r) => r.email));
+  }
+
   // The request is still open on this version, the reviewer still listed, and the artifact still
   // has it as current under the owner read: a publish, a cancel, a removal or a transfer in
   // between makes the whole batch a no-op.
   const guard = sql`exists (select 1 from ${rq} where ${rq.id} = ${request.id} and ${rq.cancelledAt} is null and ${rq.versionId} = ${versionId}) and exists (select 1 from ${rr} where ${rr.requestId} = ${request.id} and ${rr.email} = ${email}) and ${stillCurrent(artifact, versionId)}`;
-  const differs = sql`not exists (select 1 from ${rv} where ${rv.requestId} = ${request.id} and ${rv.email} = ${email} and ${rv.versionId} = ${versionId} and ${rv.verdict} = ${input.verdict} and ${rv.note} is ${note})`;
+  const differs = sql`not exists (select 1 from ${rv} where ${rv.requestId} = ${request.id} and ${rv.email} = ${email} and ${rv.versionId} = ${versionId} and ${rv.authorId} = ${input.userId} and ${rv.verdict} = ${input.verdict} and ${rv.note} is ${note})`;
+  const noteBytes = note === null ? 0 : utf8Length(note);
   const results = await db.batch([
     auditEvent(
       db,
@@ -547,21 +686,30 @@ export async function submitApprovalVerdict(
       },
       sql`${guard} and (${differs} or exists (select 1 from ${rr} where ${rr.requestId} = ${request.id} and ${rr.email} = ${email} and ${rr.droppedAt} is not null))`,
     ),
+    // Verdicts that no longer hold go first, this address's included when another account gave
+    // it: this one is the caller's own, never a continuation of someone else's.
+    ...deleteStale(db, stale, guard),
+    db
+      .delete(rv)
+      .where(
+        and(
+          eq(rv.requestId, request.id),
+          eq(rv.email, email),
+          eq(rv.versionId, versionId),
+          ne(rv.authorId, input.userId),
+          guard,
+        ),
+      ),
     db
       .insert(rv)
       // Columns in schema order: request, email, version, author, verdict, note, bytes, created, updated.
       .select(
-        sql`select ${request.id}, ${email}, ${versionId}, ${input.userId}, ${input.verdict}, ${note}, ${note === null ? 0 : utf8Length(note)}, ${input.now}, ${input.now} where ${guard}`,
+        sql`select ${request.id}, ${email}, ${versionId}, ${input.userId}, ${input.verdict}, ${note}, ${noteBytes}, ${input.now}, ${input.now} where ${guard}`,
       )
       .onConflictDoUpdate({
         target: [rv.requestId, rv.email, rv.versionId],
-        set: {
-          authorId: input.userId,
-          verdict: input.verdict,
-          note,
-          noteBytes: note === null ? 0 : utf8Length(note),
-          updatedAt: input.now,
-        },
+        set: { verdict: input.verdict, note, noteBytes, updatedAt: input.now },
+        setWhere: eq(rv.authorId, input.userId),
       })
       .returning({ email: rv.email }),
     // They can open it now, so they count again if the scan had dropped them.
@@ -569,13 +717,15 @@ export async function submitApprovalVerdict(
       .update(rr)
       .set({ droppedAt: null })
       .where(and(eq(rr.requestId, request.id), eq(rr.email, email), guard)),
+    ...dropReviewers(db, request.id, [...gone], input.now, guard),
     db
       .update(rq)
       .set({ revision: sql`${rq.revision} + 1`, updatedAt: input.now })
       .where(and(eq(rq.id, request.id), guard)),
     announce(db, request.id, guard),
   ]);
-  if ((results[1] as unknown[]).length === 0) {
+  const inserted = results[2 + stale.length] as unknown[];
+  if (inserted.length === 0) {
     const now = await openRequest(db, artifact.id);
     const [fresh] = await db.select().from(a).where(eq(a.id, artifact.id)).limit(1);
     if (!now || now.id !== request.id) return notReviewer();
@@ -585,40 +735,6 @@ export async function submitApprovalVerdict(
     return changed();
   }
   return getApprovalReview(db, input);
-}
-
-interface ReviewerIdentity {
-  id: string;
-  name: string;
-}
-
-/** The accounts whose verified address is one of `emails`, by address. */
-async function identities(db: RegionalDb, emails: readonly string[]) {
-  const found = new Map<string, ReviewerIdentity>();
-  if (emails.length === 0) return found;
-  const rows = await db.global
-    .select({
-      id: schema.users.id,
-      name: schema.users.name,
-      email: schema.users.email,
-      verified: schema.users.emailVerified,
-    })
-    .from(schema.users)
-    .where(inArray(schema.users.email, [...emails]));
-  for (const row of rows) {
-    if (row.verified) found.set(row.email, { id: row.id, name: row.name });
-  }
-  return found;
-}
-
-async function nameOf(db: RegionalDb, userId: string | null): Promise<string | null> {
-  if (userId === null || isServiceTokenId(userId)) return null;
-  const [row] = await db.global
-    .select({ name: schema.users.name })
-    .from(schema.users)
-    .where(eq(schema.users.id, userId))
-    .limit(1);
-  return row?.name ?? null;
 }
 
 function iso(ms: number): string {
@@ -636,10 +752,18 @@ async function reviewerKey(requestId: string, email: string): Promise<string> {
 
 /**
  * The review as the caller may see it. The owner side (and a service token that may manage it)
- * sees everything; a reviewer sees the request and the verdicts within their comment scope, and
- * always their own; anyone else who can open the artifact sees the overall status only when the
- * request shows it, and otherwise exactly what an artifact without a request gives. Anyone who
- * cannot open the artifact gets what a missing one gives. Never behind the plan.
+ * sees the whole request; a reviewer sees the request and the verdicts within their comment
+ * scope, and always their own; anyone else who can open the artifact sees the overall status
+ * only when the request shows it, and otherwise exactly what an artifact without a request
+ * gives. Anyone who is not the owner side gets what a missing artifact gives while the artifact
+ * is not active (archived, past its expiry or suspended), as the annotation rules do. Never
+ * behind the plan.
+ *
+ * Names: a reviewer is named only once they gave a verdict on this artifact (from the verdict's
+ * author) or when the address is the owner side or a member of the owning workspace; anyone else
+ * stays an address (to the owner side) or anonymous, so a request never tells whether an address
+ * has an account. A service token sees addresses only with `artifacts:share` (`seesReaders`) and
+ * never notes: they are people's words, like comments.
  */
 export async function getApprovalReview(
   db: RegionalDb,
@@ -651,16 +775,19 @@ export async function getApprovalReview(
   let scope: "all" | "own" = "all";
   let ownerSide: readonly string[] = [];
   let owner: Entitlements;
+  let actor: Actor | null = null;
   if (isServiceTokenId(input.userId)) {
     const managed = await loadManaged(db, input.userId, input.artifactId);
     if (!managed.ok) return managed.code === "forbidden" ? missing() : managed;
-    artifact = managed.value;
+    ({ artifact, actor } = managed.value);
     role = "owner";
     owner = await ownerEntitlements(db.global, artifact.ownerId, input.now);
   } else {
     const standing = await commentStanding(db, input);
     if (!standing || standing.role === null) return missing();
     if (["draft", "purging", "deleted"].includes(standing.state)) return missing();
+    // Visitors lose the review with the content, like the comments.
+    if (standing.role !== "owner" && standing.state !== "active") return missing();
     artifact = standing.artifact;
     role = standing.role;
     viewerEmail = await verifiedEmailOf(db, standing);
@@ -676,14 +803,10 @@ export async function getApprovalReview(
   const base = { artifactId: artifact.id, role: viewerRole, available };
   if (!request) return ok({ ...base, review: approvalSummary(null, []), request: null });
 
-  const verdicts = await db
-    .select()
-    .from(rv)
-    .where(and(eq(rv.requestId, request.id), eq(rv.versionId, request.versionId)));
-  const verdictOf = new Map(verdicts.map((row) => [row.email, row]));
+  const { holding, accounts } = await currentVerdicts(db, request);
   const facts: ApprovalReviewerFacts[] = reviewers.map((row) => ({
     active: row.droppedAt === null,
-    verdict: verdictOf.get(row.email)?.verdict ?? null,
+    verdict: holding.get(row.email)?.verdict ?? null,
   }));
   const review: ApprovalSummary = approvalSummary({ required: request.required }, facts);
   if (viewerRole === "reader") {
@@ -694,32 +817,50 @@ export async function getApprovalReview(
     );
   }
 
-  const people = await identities(
+  const token = actor?.token;
+  const showEmails = viewerRole === "owner" && seesReaders(token);
+  const showNotes = token === undefined;
+  // The owner's own people among the reviewers; nobody else is looked up by address.
+  const people = await participation(
     db,
+    artifact,
     reviewers.map((row) => row.email),
+    owner,
+  );
+  const known = await accountsById(
+    db,
+    [...people.values()].flatMap((p) => (p.knownUserId ? [p.knownUserId] : [])),
   );
   const entries: ApprovalReviewerView[] = [];
   for (const row of reviewers) {
-    const person = people.get(row.email) ?? null;
+    const verdict = holding.get(row.email);
+    const knownId = people.get(row.email)?.knownUserId ?? null;
+    const reviewerId = verdict?.authorId ?? knownId;
+    const name = verdict
+      ? (accounts.get(verdict.authorId)?.name ?? null)
+      : knownId
+        ? (known.get(knownId)?.name ?? null)
+        : null;
+    const you = row.email === viewerEmail;
     const visible = approvalEntryVisible({
       role: viewerRole,
       scope,
       viewerId: input.userId,
       ownerSide,
-      reviewerId: person?.id ?? null,
+      reviewerId,
     });
-    const you = row.email === viewerEmail;
     if (!visible && !you) continue;
-    const verdict = verdictOf.get(row.email);
+    // A verdict is the caller's own only when they gave it.
+    const shown = you && verdict && verdict.authorId !== input.userId ? undefined : verdict;
     entries.push({
       id: await reviewerKey(request.id, row.email),
-      name: person?.name ?? null,
-      email: viewerRole === "owner" ? row.email : null,
+      name,
+      email: showEmails ? row.email : null,
       active: row.droppedAt === null,
       you,
-      verdict: verdict?.verdict ?? null,
-      note: verdict?.note ?? null,
-      decidedAt: verdict ? iso(verdict.updatedAt) : null,
+      verdict: shown?.verdict ?? null,
+      note: showNotes ? (shown?.note ?? null) : null,
+      decidedAt: shown ? iso(shown.updatedAt) : null,
     });
   }
 
@@ -732,16 +873,17 @@ export async function getApprovalReview(
       .where(and(eq(rq.artifactId, artifact.id), sql`${rv.versionId} <> ${request.versionId}`))
       .orderBy(desc(rv.updatedAt))
       .limit(APPROVALS.historyListed);
-    const names = await identities(db, [
-      ...new Set(earlier.map((row) => row.review_verdicts.email)),
-    ]);
+    const authors = await accountsById(
+      db,
+      earlier.map((row) => row.review_verdicts.authorId),
+    );
     history = await Promise.all(
       earlier.map(async ({ review_verdicts: row }) => ({
         reviewer: await reviewerKey(row.requestId, row.email),
-        name: names.get(row.email)?.name ?? null,
+        name: authors.get(row.authorId)?.name ?? null,
         versionId: row.versionId,
         verdict: row.verdict,
-        note: row.note,
+        note: showNotes ? row.note : null,
         decidedAt: iso(row.updatedAt),
       })),
     );
@@ -757,7 +899,11 @@ export async function getApprovalReview(
       showStatus: request.showStatus,
       requestedAt: iso(request.createdAt),
       updatedAt: iso(request.updatedAt),
-      requestedBy: await nameOf(db, request.requestedBy),
+      requestedBy:
+        request.requestedBy === null
+          ? null
+          : ((await accountsById(db, [request.requestedBy])).get(request.requestedBy)?.name ??
+            null),
       reviewers: entries,
       history,
     },
@@ -812,30 +958,108 @@ export function eraseApprovalAuthor(db: Db, userId: string): BatchItem<"sqlite">
 }
 
 /**
- * Maintenance: re-checks who can still open the artifact for the open requests checked longest
- * ago, dropping reviewers who cannot (they stop counting) and counting again those who can.
- * Idempotent; a request whose artifact is not active is only marked checked.
+ * An access change: the reviewers of the open request who would no longer take part under the
+ * policy about to be written (its mode and whole reader list) are dropped in the change's own
+ * batch, on its condition, so a removed reader's approval stops counting with the removal. Reads
+ * before the batch: the open request, its reviewers and one batched participation check.
+ */
+export async function approvalAccessStatements(
+  db: RegionalDb,
+  input: {
+    artifact: Pick<ArtifactRow, "id" | "ownerId" | "accessMode">;
+    policy: { mode: ArtifactRow["accessMode"]; readers: readonly string[] };
+    owner: Entitlements;
+    condition: SQL;
+    now: number;
+  },
+): Promise<BatchItem<"sqlite">[]> {
+  const request = await openRequest(db, input.artifact.id);
+  if (!request) return [];
+  const counting = (await reviewersOf(db, request.id)).filter((row) => row.droppedAt === null);
+  if (counting.length === 0) return [];
+  const found = await participation(
+    db,
+    input.artifact,
+    counting.map((row) => row.email),
+    input.owner,
+    input.policy,
+  );
+  const gone = counting.filter((row) => !found.get(row.email)?.takesPart).map((row) => row.email);
+  if (gone.length === 0) return [];
+  const open = sql`exists (select 1 from ${rq} where ${rq.id} = ${request.id} and ${rq.cancelledAt} is null)`;
+  return [
+    ...dropReviewers(db, request.id, gone, input.now, input.condition),
+    db
+      .update(rq)
+      .set({ revision: sql`${rq.revision} + 1`, updatedAt: input.now })
+      .where(and(eq(rq.id, request.id), input.condition)),
+    announce(db, request.id, sql`${open} and ${input.condition}`),
+  ];
+}
+
+/**
+ * The scan's budget. One request costs at most `RECHECK_CALLS_PER_REQUEST` D1 calls: its
+ * reviewers, the owner's plan (once per owner and run), two participation reads (the owner's
+ * people, and the reader list or the email domains), its verdicts and their authors, and one
+ * write batch. A run adds three: the cursor, the page of requests and the cursor's write. So a
+ * run takes at most `floor((RECHECK_BUDGET.calls - 3) / RECHECK_CALLS_PER_REQUEST)` requests (30)
+ * and makes at most 243 calls, whatever the backlog, and stops early past `RECHECK_BUDGET.ms`.
+ */
+export const RECHECK_CALLS_PER_REQUEST = 8;
+export const RECHECK_BUDGET = { calls: 250, ms: 5_000 } as const;
+const RECHECK_CURSOR = "approval_reviewers";
+
+/**
+ * Maintenance: re-checks who can still open the artifact for open requests, in ID order from a
+ * cursor in `maintenance_cursors`, dropping reviewers who cannot (they stop counting), counting
+ * again those who can, and deleting verdicts that no longer hold (their author changed address
+ * or is gone). Stops before the call or time budget would be passed and resumes from the cursor
+ * on the next run; a pass that reaches the end starts again from the first request. Idempotent.
  */
 export async function recheckApprovalReviewers(
   db: RegionalDb,
   now: number,
-  limit: number = APPROVALS.recheckPerRun,
+  options: { limit?: number; clock?: () => number } = {},
 ): Promise<{ checked: number; dropped: number }> {
+  const limit = Math.min(
+    options.limit ?? APPROVALS.recheckPerRun,
+    Math.floor((RECHECK_BUDGET.calls - 3) / RECHECK_CALLS_PER_REQUEST),
+  );
+  const clock = options.clock ?? Date.now;
+  const started = clock();
+  const c = schema.maintenanceCursors;
+  const [saved] = await db.select().from(c).where(eq(c.name, RECHECK_CURSOR)).limit(1);
+  const after = saved?.cursor ?? "";
   const due = await db
     .select({ request: rq, artifact: a })
     .from(rq)
     .innerJoin(a, eq(a.id, rq.artifactId))
-    .where(isNull(rq.cancelledAt))
-    .orderBy(rq.checkedAt)
+    .where(and(isNull(rq.cancelledAt), sql`${rq.id} > ${after}`))
+    .orderBy(rq.id)
     .limit(limit);
+  const plans = new Map<string, Entitlements>();
   let dropped = 0;
+  let checked = 0;
+  let last = after;
   for (const { request, artifact } of due) {
-    const owner = await ownerEntitlements(db.global, artifact.ownerId, now);
+    if (clock() - started > RECHECK_BUDGET.ms) break;
+    let owner = plans.get(artifact.ownerId);
+    if (!owner) {
+      owner = await ownerEntitlements(db.global, artifact.ownerId, now);
+      plans.set(artifact.ownerId, owner);
+    }
     const reviewers = await reviewersOf(db, request.id);
     const statements: BatchItem<"sqlite">[] = [];
-    if (stateOf(artifact, now) === "active") {
+    const open = sql`exists (select 1 from ${rq} where ${rq.id} = ${request.id} and ${rq.cancelledAt} is null)`;
+    if (stateOf(artifact, now) === "active" && reviewers.length > 0) {
+      const found = await participation(
+        db,
+        artifact,
+        reviewers.map((row) => row.email),
+        owner,
+      );
       for (const row of reviewers) {
-        const { takesPart } = await addressTakesPart(db, artifact, row.email, owner);
+        const takesPart = found.get(row.email)?.takesPart ?? false;
         if (takesPart === (row.droppedAt === null)) continue;
         if (!takesPart) dropped += 1;
         statements.push(
@@ -851,43 +1075,84 @@ export async function recheckApprovalReviewers(
             ),
         );
       }
+      const { stale } = await currentVerdicts(db, request);
+      statements.push(...deleteStale(db, stale, open));
     }
-    const open = sql`exists (select 1 from ${rq} where ${rq.id} = ${request.id} and ${rq.cancelledAt} is null)`;
     statements.push(
       db.update(rq).set({ checkedAt: now }).where(eq(rq.id, request.id)),
       announce(db, request.id, open),
     );
     await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+    checked += 1;
+    last = request.id;
   }
-  return { checked: due.length, dropped };
+  const finished = checked === due.length && due.length < limit;
+  const next = finished ? "" : last;
+  await db
+    .insert(c)
+    .values({ name: RECHECK_CURSOR, cursor: next, passStartedAt: now, updatedAt: now })
+    .onConflictDoUpdate({ target: c.name, set: { cursor: next, updatedAt: now } });
+  return { checked, dropped };
 }
 
 /**
  * The open request of the artifact whose ID `artifactId` names, as one JSON value for a list
- * or lookup query (null without one): its required number and each reviewer's standing and
- * verdict on the version under review. `approvalSummaryOf` turns it into the block.
+ * or lookup query (null without one): its required number and each reviewer's standing, verdict
+ * on the version under review and that verdict's author. `approvalSummaries` turns them into the
+ * blocks, keeping only verdicts that still hold.
  */
 export function approvalReviewColumn(artifactId: SQL): SQL<string | null> {
   const q = sql.identifier("approval_rq");
   const r = sql.identifier("approval_rr");
   const v = sql.identifier("approval_rv");
+  const verdictOf = (column: string) =>
+    sql`(select ${v}.${sql.identifier(column)} from "review_verdicts" as ${v} where ${v}."request_id" = ${q}."id" and ${v}."email" = ${r}."email" and ${v}."version_id" = ${q}."version_id")`;
   return sql<
     string | null
-  >`(select json_object('required', ${q}."required", 'reviewers', json_group_array(json_object('active', ${r}."dropped_at" is null, 'verdict', (select ${v}."verdict" from "review_verdicts" as ${v} where ${v}."request_id" = ${q}."id" and ${v}."email" = ${r}."email" and ${v}."version_id" = ${q}."version_id")))) from "review_requests" as ${q} join "review_reviewers" as ${r} on ${r}."request_id" = ${q}."id" where ${q}."artifact_id" = ${artifactId} and ${q}."cancelled_at" is null group by ${q}."id")`;
+  >`(select json_object('required', ${q}."required", 'reviewers', json_group_array(json_object('email', ${r}."email", 'active', ${r}."dropped_at" is null, 'verdict', ${verdictOf("verdict")}, 'author', ${verdictOf("author_id")}))) from "review_requests" as ${q} join "review_reviewers" as ${r} on ${r}."request_id" = ${q}."id" where ${q}."artifact_id" = ${artifactId} and ${q}."cancelled_at" is null group by ${q}."id")`;
 }
 
-/** The block of the artifact list and view, from `approvalReviewColumn`'s value. */
-export function approvalSummaryOf(value: string | null): ApprovalSummary {
-  if (value === null) return approvalSummary(null, []);
-  const parsed = JSON.parse(value) as {
-    required: number | null;
-    reviewers: { active: number | boolean; verdict: ApprovalVerdict | null }[];
-  };
-  return approvalSummary(
-    { required: parsed.required },
-    parsed.reviewers.map((reviewer) => ({
-      active: Boolean(reviewer.active),
-      verdict: reviewer.verdict,
-    })),
+interface ColumnValue {
+  required: number | null;
+  reviewers: {
+    email: string;
+    active: number | boolean;
+    verdict: ApprovalVerdict | null;
+    author: string | null;
+  }[];
+}
+
+/**
+ * The blocks of the artifact list and view from `approvalReviewColumn`'s values: one read of the
+ * verdicts' authors for the whole page, so a verdict whose author no longer holds its address
+ * does not count.
+ */
+export async function approvalSummaries(
+  db: RegionalDb,
+  values: readonly (string | null)[],
+): Promise<ApprovalSummary[]> {
+  const parsed = values.map((value) =>
+    value === null ? null : (JSON.parse(value) as ColumnValue),
+  );
+  const accounts = await accountsById(
+    db,
+    parsed.flatMap((value) =>
+      (value?.reviewers ?? []).flatMap((reviewer) => (reviewer.author ? [reviewer.author] : [])),
+    ),
+  );
+  return parsed.map((value) =>
+    value === null
+      ? approvalSummary(null, [])
+      : approvalSummary(
+          { required: value.required },
+          value.reviewers.map((reviewer) => ({
+            active: Boolean(reviewer.active),
+            verdict:
+              reviewer.author &&
+              verdictHolds({ email: reviewer.email, authorId: reviewer.author }, accounts)
+                ? reviewer.verdict
+                : null,
+          })),
+        ),
   );
 }

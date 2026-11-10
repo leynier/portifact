@@ -556,7 +556,6 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
-    approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
     workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,
     expiredInvitations: await pruneExpiredInvitations(db.global, now),
@@ -572,5 +571,8 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     prunedAuditEvents:
       (await pruneAuditEvents(db, db.global, now)) +
       (await pruneAuditEvents(db.global, db.global, now)),
+    // Last, with its own call and time budget, so a backlog of review requests never keeps the
+    // deletions and prunes above from running.
+    approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
   };
 }

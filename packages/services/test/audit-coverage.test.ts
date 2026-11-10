@@ -62,6 +62,9 @@ const reason = (why: string, names: string[]) => {
 reason("approval reviews: who can still open the artifact counts again; nobody's choice changed", [
   "recheckApprovalReviewers",
 ]);
+reason("statements for an access change's own batch, which records access.changed", [
+  "approvalAccessStatements",
+]);
 reason("upload steps: the publish is recorded when it commits", [
   "preparePublish",
   "abortPublish",
@@ -210,7 +213,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  */
 const READ_NAMES = new Set([
   "accessAudience",
-  "addressTakesPart",
+  "approvalSummaries",
+  "participation",
   "authorizeUploadOn",
   "policyDomains",
   "scoped",
