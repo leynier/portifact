@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { ANNOTATION_LIMITS, type AnnotationTarget } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -20,8 +20,10 @@ import {
   setAnnotationMode,
   setAnnotationThreadState,
 } from "../src/annotations.ts";
+import { setOwnerPlan } from "../src/plans.ts";
+import { grantPlan } from "./fixtures.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const NOW = Date.UTC(2026, 10, 8, 12);
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -941,7 +943,7 @@ describe("moderation and resolution", () => {
     const thread = await started(w, w.reader);
     const [reader] = await db().select().from(schema.users).where(eq(schema.users.id, w.reader));
     await updateAccess(db(), {
-      ownerId: w.owner,
+      userId: w.owner,
       artifactId: w.id,
       change: { removeReaders: [reader?.email ?? ""] },
       now: NOW,
@@ -1267,6 +1269,26 @@ describe("limits", () => {
     });
   });
 
+  it("caps the owner's stored messages by the owner's plan, not the writer's", async () => {
+    const w = await world();
+    await started(w, w.reader, "First");
+    await started(w, w.reader, "Second", NOW + MINUTE);
+    // The writer's plan changes nothing; the artifact owner's plan sets the quota.
+    await grantPlan(w.reader, "pro", { overrides: { limits: { annotationMessages: 1 } } });
+    expect(code(await start(w, w.reader, "Third", NOW + 2 * MINUTE))).toBe("ok");
+    await grantPlan(w.owner, "pro", { overrides: { limits: { annotationMessages: 3 } } });
+    expect(await start(w, w.reader, "Fourth", NOW + 3 * MINUTE)).toEqual({
+      ok: false,
+      code: "quota_exceeded",
+      message: "The owner of this artifact has no room for more comments.",
+    });
+    await grantPlan(w.owner, "pro", {
+      validUntil: NOW + 3 * MINUTE,
+      overrides: { limits: { annotationMessages: 3 } },
+    });
+    expect(code(await start(w, w.reader, "Fourth", NOW + 3 * MINUTE))).toBe("ok");
+  });
+
   it("caps the owner's stored messages and bytes, and edits that shrink still pass", async () => {
     const w = await world();
     const thread = await started(w, w.reader, "A longer first message");
@@ -1321,6 +1343,64 @@ function racing(before: () => Promise<unknown>, after: () => Promise<unknown> = 
     },
   }) as ReturnType<typeof db>;
 }
+
+describe("annotations on a granted plan", () => {
+  const setPlan = (ownerId: string, annotationMessages?: number) =>
+    setOwnerPlan(db(), {
+      ownerId,
+      plan: "pro",
+      seats: 1,
+      validUntil: null,
+      overrides: annotationMessages === undefined ? null : { limits: { annotationMessages } },
+      grantedBy: "operator",
+      note: null,
+      now: NOW,
+    });
+
+  it("keeps the plan's columns when comments create the usage row, and a lower plan keeps every comment", async () => {
+    const w = await world({ comments: "everyone" });
+    await db().delete(schema.annotationUsage).where(eq(schema.annotationUsage.ownerId, w.owner));
+    expect(await setPlan(w.owner)).toMatchObject({ ok: true });
+    const first = await started(w, w.reader, "First");
+    await started(w, w.reader, "Second", NOW + MINUTE);
+    const [usage] = await db()
+      .select()
+      .from(schema.annotationUsage)
+      .where(eq(schema.annotationUsage.ownerId, w.owner));
+    expect(usage).toMatchObject({ messages: 2, messagesLimit: 25_000 });
+
+    // Lowered to one message: the column stays at the two in use and nothing is removed.
+    await setPlan(w.owner, 1);
+    const [lowered] = await db()
+      .select()
+      .from(schema.annotationUsage)
+      .where(eq(schema.annotationUsage.ownerId, w.owner));
+    expect(lowered).toMatchObject({ messages: 2, messagesLimit: 2 });
+    expect(await start(w, w.reader, "Third", NOW + 2 * MINUTE)).toMatchObject({
+      ok: false,
+      code: "quota_exceeded",
+    });
+    const listed = await list(w, w.owner);
+    expect(listed.ok && listed.value.threads).toHaveLength(2);
+    const exported = await exportAnnotations(db(), {
+      userId: w.owner,
+      artifactId: w.id,
+      version: "all",
+      now: NOW,
+    });
+    expect(exported.ok).toBe(true);
+    expect(
+      code(
+        await deleteOwnAnnotationMessage(db(), {
+          userId: w.reader,
+          artifactId: w.id,
+          messageId: first.messages[0]?.id ?? "",
+          now: NOW + 2 * MINUTE,
+        }),
+      ),
+    ).toBe("ok");
+  });
+});
 
 describe("concurrency", () => {
   it("applies exactly one of two edits based on the same revision", async () => {
@@ -1414,7 +1494,7 @@ describe("concurrency", () => {
     const [reader] = await db().select().from(schema.users).where(eq(schema.users.id, w.reader));
     const revoke = () =>
       updateAccess(db(), {
-        ownerId: w.owner,
+        userId: w.owner,
         artifactId: w.id,
         change: { removeReaders: [reader?.email ?? ""] },
         now: NOW,
@@ -1440,7 +1520,7 @@ describe("concurrency", () => {
     const thread = await started(w, w.reader);
     const toggle = () =>
       updateAccess(db(), {
-        ownerId: w.owner,
+        userId: w.owner,
         artifactId: w.id,
         change: { indexable: false },
         now: NOW,
@@ -1799,7 +1879,7 @@ describe("comment visibility", () => {
     return other.id;
   }
   const setVisibility = (w: World, change: Parameters<typeof updateAccess>[1]["change"]) =>
-    updateAccess(db(), { ownerId: w.owner, artifactId: w.id, change, now: NOW });
+    updateAccess(db(), { userId: w.owner, artifactId: w.id, change, now: NOW });
   const ids = async (w: World, userId: string) => {
     const page = await list(w, userId);
     if (!page.ok) throw new Error(page.code);
@@ -1999,7 +2079,7 @@ describe("comment visibility", () => {
     });
     const page = await list(w, w.reader, { cursor: encodeAnnotationCursor(0) });
     expect(page.ok).toBe(true);
-    await listAnnotations(createDb(recording), {
+    await listAnnotations(regionalDb(recording, globalDb(recording)), {
       userId: w.reader,
       artifactId: w.id,
       limit: 25,

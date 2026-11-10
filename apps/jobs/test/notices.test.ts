@@ -1,5 +1,5 @@
 import { createExecutionContext, createMessageBatch, env, getQueueResult } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { RecipientSuppressedError } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { expiryNotifierFromEnv, NOTICE_SENDER, noticeEmail } from "../src/notice
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 12, 9);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 type Sent = Parameters<SendEmail["send"]>[0];
 
@@ -46,6 +46,11 @@ describe("expiry notice email", () => {
     expect(german.text).toContain("https://app.portifact.com/artifacts/k7d2qm4xab");
     expect(noticeEmail(env, [ARTIFACT], null)).toEqual(noticeEmail(env, [ARTIFACT]));
   });
+
+  it("says how long the owner's plan keeps the archive", () => {
+    expect(noticeEmail(env, [ARTIFACT]).text).toBe(noticeEmail(env, [ARTIFACT], null, 6).text);
+    expect(noticeEmail(env, [ARTIFACT], null, 12).text).not.toBe(noticeEmail(env, [ARTIFACT]).text);
+  });
 });
 
 describe("expiryNotifierFromEnv", () => {
@@ -55,10 +60,11 @@ describe("expiryNotifierFromEnv", () => {
       to: "ada@example.com",
       artifacts: [ARTIFACT],
       locale: "ru",
+      archiveMonths: 12,
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ from: NOTICE_SENDER, to: "ada@example.com" });
-    expect(sent[0]).toMatchObject(noticeEmail(env, [ARTIFACT], "ru"));
+    expect(sent[0]).toMatchObject(noticeEmail(env, [ARTIFACT], "ru", 12));
   });
 
   it("turns the provider's suppression refusal into RecipientSuppressedError", async () => {
@@ -72,6 +78,7 @@ describe("expiryNotifierFromEnv", () => {
           to: "ada@example.com",
           artifacts: [ARTIFACT],
           locale: null,
+          archiveMonths: 6,
         }),
       ).rejects.toBeInstanceOf(RecipientSuppressedError);
     }
@@ -83,6 +90,7 @@ describe("expiryNotifierFromEnv", () => {
       to: "ada@example.com",
       artifacts: [ARTIFACT],
       locale: null,
+      archiveMonths: 6,
     });
     await expect(sending).rejects.toThrow(/^email delivery failed$/);
   });

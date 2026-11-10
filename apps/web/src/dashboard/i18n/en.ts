@@ -73,6 +73,7 @@ export const en = {
   "list.refreshFailed.title": "The list could not be refreshed",
   "list.refreshFailed.body": "It shows what was loaded last. Portifact tries again shortly.",
   "list.never": "Never",
+  "list.pinned": "Pinned",
   "list.column.access": "Access",
   "list.captionFiltered": "Your artifacts that match the search and filters",
   "list.countFiltered":
@@ -165,6 +166,14 @@ export const en = {
   "detail.restore.body": "Restore it before it is deleted for good to put it back online.",
   "detail.noActions": "No actions are available in this state.",
   "detail.renew": "Renew for 30 days",
+  "detail.pin": "Pin",
+  "detail.unpin": "Unpin",
+  "detail.pinned.body": "Pinned: it stays online with no expiry until you unpin it.",
+  "detail.pin.paid":
+    "Pinning keeps an artifact online with no expiry. It is part of the {plan} plan.",
+  "detail.expiresNever": "Never, it is pinned",
+  "detail.pinnedDone": "Artifact pinned. It stays online with no expiry.",
+  "detail.unpinnedDone": "Artifact unpinned. It now expires on {date}.",
   "detail.archive": "Archive",
   "detail.restore": "Restore",
   "detail.delete": "Delete",
@@ -410,6 +419,16 @@ export const en = {
   "settings.notices.saved": "Email notices saved.",
   "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
   "settings.notices.failed": "Your email notices were not saved",
+  "settings.notices.comments.label": "Email me about new comments",
+  "settings.notices.comments.hint":
+    "At most one email every 10 minutes, with how many threads, replies and resolutions are new on each artifact, never what was written. Only for artifacts whose owner's plan includes comment notices.",
+  "commentNotices.label": "Email me about new comments on this artifact",
+  "commentNotices.hint":
+    "At most one email every 10 minutes, with counts only. Turn every comment email off in your settings.",
+  "commentNotices.muted": "Comment emails for this artifact turned off.",
+  "commentNotices.unmuted": "Comment emails for this artifact turned on.",
+  "commentNotices.failed": "Your choice was not saved",
+  "commentNotices.planRequired": "Email notices of new comments are part of the {plan} plan.",
   "settings.danger.title": "Danger zone",
   "settings.danger.hint": "These actions cannot be undone.",
   "account.data.title": "Your data",
@@ -455,6 +474,15 @@ export const en = {
   "usage.description":
     "Your quotas and what your artifacts served this month. Traffic is counted every few seconds, so it can lag slightly behind.",
   "usage.meterPercent": "{used} of {limit} ({percent})",
+  "usage.plan.section": "Plan",
+  "usage.plan.hint": "Your plan sets the limits on this page.",
+  "usage.plan.name": "Current plan",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Seats",
+  "usage.plan.until": "Valid until",
   "usage.traffic.section": "Traffic this month",
   "usage.traffic.hint":
     "Counted for your whole account, across all your artifacts. Reaching either limit pauses every artifact until the reset.",
@@ -604,13 +632,14 @@ export const en = {
   "publish.startOver": "Start over",
   "publish.done.title": "Published version {number}",
   "publish.done.body": "It is live at {url} and expires on {date}.",
+  "publish.done.pinned": "It is live at {url}. It is pinned, so it does not expire.",
   "publish.done.open": "Open the artifact page",
   "publish.done.another": "Publish something else",
   "publish.announce.done": "Published version {number} of {name}.",
 
   "manifest.empty": "There is nothing to publish: every file was left out or the source is empty.",
   "manifest.too_many_files": "A version can hold at most {detail} files.",
-  "manifest.too_large": "A version can hold at most 250 MB.",
+  "manifest.too_large": "A version can hold at most {detail}.",
   "manifest.invalid_path": "A file path is not allowed: {detail}",
   "manifest.missing_entry":
     "The entry page {detail} is not among the files. Change the entry page or add it.",
@@ -959,10 +988,13 @@ export const en = {
   "error.artifact_archived": "The artifact is archived. Restore it first.",
   "error.account_too_new_for_public": "New accounts cannot make artifacts public yet.",
   "error.capacity_unavailable": "Portifact is at capacity right now. Try again later.",
+  "error.sole_workspace_admin":
+    "You are the only admin of a workspace. Make another member an admin or delete the workspace before deleting your account.",
   "error.rate_limited": "Too many requests. Wait a moment and try again.",
   "error.reauthentication_required": "Sign in again to do that.",
   "error.human_verification_required":
     "Your first comments on other people's artifacts need a quick check that you are human. Complete it, then post again.",
+  "error.plan_required": "This feature is not part of the plan of the artifact's owner.",
 } as const;
 
 export type MessageId = keyof typeof en;

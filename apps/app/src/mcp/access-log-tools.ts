@@ -2,16 +2,21 @@
 // same service as GET /api/v1/artifacts/:id/access-log and returns the same body with the same
 // scope.
 import { AccessLogView, GetAccessLogsInput, type OAuthScope } from "@portifact/contracts";
-import { createAccessDb, type Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import { getAccessLog } from "@portifact/services";
 import { accessLogView } from "../api/access-log.ts";
+import { accessDbOf, artifactRegion } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 export const ACCESS_LOG_TOOL_SCOPES: [string, OAuthScope][] = [
   ["get_access_logs", "artifacts:read"],
 ];
 
-export function registerAccessLogTools(register: RegisterTool, context: ToolContext, db: Db): void {
+export function registerAccessLogTools(
+  register: RegisterTool,
+  context: ToolContext,
+  db: RegionalDb,
+): void {
   register(
     "get_access_logs",
     {
@@ -23,8 +28,9 @@ export function registerAccessLogTools(register: RegisterTool, context: ToolCont
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ artifactId, since, cursor, limit }) => {
-      const result = await getAccessLog(db, createAccessDb(context.env.ACCESS_DB), {
-        ownerId: context.userId,
+      const region = await artifactRegion(context.env, artifactId);
+      const result = await getAccessLog(region.db, accessDbOf(region), {
+        userId: context.userId,
         artifactId,
         cursor,
         limit,

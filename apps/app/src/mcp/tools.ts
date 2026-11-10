@@ -27,7 +27,7 @@ import {
   SetCommentVisibilityInput,
   SetPortifactBarInput,
 } from "@portifact/contracts";
-import { createDb, type Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import type { MultipartConfig } from "@portifact/domain";
 import type { HumanCheck } from "@portifact/services";
 import {
@@ -37,13 +37,16 @@ import {
   hashRequest,
   type LifecycleOutcome,
   listArtifacts,
+  pinArtifact,
   renewArtifact,
   restoreArtifact,
   runIdempotent,
+  unpinArtifact,
   updateAccess,
 } from "@portifact/services";
 import type { Presigner } from "../api/presign.ts";
 import type { Env } from "../env.ts";
+import { artifactDb, defaultDb, personalScope } from "../regions.ts";
 import { ACCESS_LOG_TOOL_SCOPES, registerAccessLogTools } from "./access-log-tools.ts";
 import { ACCESS_TOOL_SCOPES, registerAccessTools } from "./access-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
@@ -67,6 +70,8 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ["renew_artifact", "artifacts:write"],
   ["archive_artifact", "artifacts:write"],
   ["restore_artifact", "artifacts:write"],
+  ["pin_artifact", "artifacts:write"],
+  ["unpin_artifact", "artifacts:write"],
   ["delete_artifact", "artifacts:delete"],
   // The bar and who sees comments are part of the access policy (PATCH /api/v1/artifacts/:id/access).
   ["set_portifact_bar", "artifacts:share"],
@@ -120,7 +125,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
     { name: "portifact", title: "Portifact", version: "1.0.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
-  const db = createDb(context.env.DB);
+  // Idempotency records and uploads live in the default region until a second one exists (E5).
+  const db = defaultDb(context.env);
   const register = <Input extends StandardSchemaWithJSON>(
     name: string,
     config: ToolConfig<Input>,
@@ -145,17 +151,18 @@ export function createPortifactServer(context: ToolContext): McpServer {
     },
     async (args: ListArtifactsInput) => {
       const { cursor, limit, ...filters } = args;
-      const page = await listArtifacts(db, {
-        ownerId: context.userId,
+      const { actor, db: owned } = await personalScope(context.env, context.userId);
+      const page = await listArtifacts(owned, {
+        actor,
         cursor,
         limit,
         filters,
         now: context.now(),
       });
-      if (!page) return failure("invalid_input", "Invalid cursor.");
+      if (!page.ok) return failure(page.code, page.message);
       const body = ArtifactList.parse({
-        items: page.items.map((row) => artifactListItem(context.env, row)),
-        nextCursor: page.nextCursor,
+        items: page.value.items.map((row) => artifactListItem(context.env, row)),
+        nextCursor: page.value.nextCursor,
       });
       const lines = body.items.map(
         (item) =>
@@ -179,9 +186,12 @@ export function createPortifactServer(context: ToolContext): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args: ArtifactRef) => {
-      const row = await getArtifact(db, { ownerId: context.userId, artifactId: args.artifactId });
-      if (!row) return failure("not_found", "Artifact not found.");
-      const body = artifactSummary(context.env, row);
+      const row = await getArtifact(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
+        artifactId: args.artifactId,
+      });
+      if (!row.ok) return failure(row.code, row.message);
+      const body = artifactSummary(context.env, row.value);
       return success(
         `${body.id} "${body.name}" is ${body.state}, access ${body.accessMode}, current version ${body.currentVersionId}, expires ${body.expiresAt}. URL: ${body.url}`,
         body,
@@ -194,7 +204,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
     {
       title: "Publish a document",
       description:
-        "Publish a small document sent inline: Markdown, plain text or one self-contained HTML page, up to 256 KiB. Without artifactId it creates a new artifact with the user's defaults for new artifacts (private to the user unless they changed them in the dashboard's settings). With artifactId and baseVersionId (the currentVersionId from get_artifact) it publishes a new version of that artifact; its access settings do not change. Publishing restarts the 30 days before the artifact is archived. Returns the URL, version and expiry. For folders, several files or larger content, use prepare_upload and commit_upload, or the portifact CLI.",
+        "Publish a small document sent inline: Markdown, plain text or one self-contained HTML page, up to 256 KiB. Without artifactId it creates a new artifact with the user's defaults for new artifacts (private to the user unless they changed them in the dashboard's settings). With artifactId and baseVersionId (the currentVersionId from get_artifact) it publishes a new version of that artifact; its access settings do not change. Publishing restarts the 30 days before the artifact is archived; a pinned artifact stays pinned, with no expiry. Returns the URL, version and expiry. For folders, several files or larger content, use prepare_upload and commit_upload, or the portifact CLI.",
       inputSchema: PublishDocumentInput,
       outputSchema: CommittedPublish,
       annotations: {
@@ -207,8 +217,11 @@ export function createPortifactServer(context: ToolContext): McpServer {
     async (args: PublishDocumentInput) => {
       const { idempotencyKey, ...request } = args;
       const run = async () => {
-        const result = await publishInline(db, context.env.ARTIFACTS, {
-          ownerId: context.userId,
+        const target = request.artifactId
+          ? await artifactDb(context.env, request.artifactId)
+          : (await personalScope(context.env, context.userId)).db;
+        const result = await publishInline(target, context.env.ARTIFACTS, {
+          userId: context.userId,
           type: request.type,
           name: request.name,
           content: request.content,
@@ -238,8 +251,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
     description: string,
     annotations: { destructiveHint: boolean; idempotentHint: boolean },
     action: (
-      db: Db,
-      input: { ownerId: string; artifactId: string; now: number },
+      db: RegionalDb,
+      input: { userId: string; artifactId: string; now: number },
     ) => Promise<Outcome<LifecycleOutcome>>,
   ) =>
     register(
@@ -254,8 +267,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
       async (args: ArtifactRef) =>
         lifecycleResponse(
           args.artifactId,
-          await action(db, {
-            ownerId: context.userId,
+          await action(await artifactDb(context.env, args.artifactId), {
+            userId: context.userId,
             artifactId: args.artifactId,
             now: context.now(),
           }),
@@ -265,14 +278,14 @@ export function createPortifactServer(context: ToolContext): McpServer {
   lifecycle(
     "renew_artifact",
     "Renew an artifact",
-    "Restart the 30 days an active artifact stays published before it is archived. Fails for archived artifacts: restore those instead.",
+    "Restart the 30 days an active artifact stays published before it is archived. A pinned artifact has no expiry, so renewing it changes nothing. Fails for archived artifacts: restore those instead.",
     { destructiveHint: false, idempotentHint: true },
     renewArtifact,
   );
   lifecycle(
     "archive_artifact",
     "Archive an artifact",
-    "Stop serving an active artifact now. It is kept for six months, then deleted; only its owner can restore it before that. Ask the user before archiving.",
+    "Stop serving an active artifact now; a pinned one is unpinned. It is kept for the months of its owner's plan (six on free, twelve on paid plans), then deleted; only its owner can restore it before that. Ask the user before archiving.",
     { destructiveHint: true, idempotentHint: false },
     archiveArtifact,
   );
@@ -282,6 +295,20 @@ export function createPortifactServer(context: ToolContext): McpServer {
     "Publish an archived artifact again, with the same URL, content and access, for another 30 days. Needs a free active slot.",
     { destructiveHint: false, idempotentHint: false },
     restoreArtifact,
+  );
+  lifecycle(
+    "pin_artifact",
+    "Pin an artifact",
+    "Keep an active artifact published with no expiry until it is unpinned, so it is never archived for lack of renewal. Part of a paid plan: on a plan without it the call fails with plan_required. Pinning a pinned artifact changes nothing.",
+    { destructiveHint: false, idempotentHint: true },
+    pinArtifact,
+  );
+  lifecycle(
+    "unpin_artifact",
+    "Unpin an artifact",
+    "Stop pinning an active artifact: it gets the usual 30 days from now and is archived after them unless renewed. Works on any plan. Unpinning an artifact that is not pinned changes nothing.",
+    { destructiveHint: false, idempotentHint: true },
+    unpinArtifact,
   );
 
   register(
@@ -308,11 +335,15 @@ export function createPortifactServer(context: ToolContext): McpServer {
       }
       return lifecycleResponse(
         args.artifactId,
-        await deleteArtifact(db, context.env.ARTIFACTS, {
-          ownerId: context.userId,
-          artifactId: args.artifactId,
-          now: context.now(),
-        }),
+        await deleteArtifact(
+          await artifactDb(context.env, args.artifactId),
+          context.env.ARTIFACTS,
+          {
+            userId: context.userId,
+            artifactId: args.artifactId,
+            now: context.now(),
+          },
+        ),
       );
     },
   );
@@ -333,8 +364,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
       },
     },
     async (args: SetPortifactBarInput) => {
-      const result = await updateAccess(db, {
-        ownerId: context.userId,
+      const result = await updateAccess(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
         artifactId: args.artifactId,
         change: { bar: args.enabled },
         now: context.now(),
@@ -372,8 +403,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
       if (!change.success) {
         return failure("invalid_input", change.error.issues[0]?.message ?? "Invalid change.");
       }
-      const result = await updateAccess(db, {
-        ownerId: context.userId,
+      const result = await updateAccess(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
         artifactId: args.artifactId,
         change: change.data,
         now: context.now(),
@@ -403,7 +434,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
  * response is the API-shaped body, so a retry returns exactly the first result.
  */
 async function idempotent(
-  db: Db,
+  db: RegionalDb,
   context: ToolContext,
   key: string,
   request: Omit<PublishDocumentInput, "idempotencyKey">,
@@ -444,6 +475,7 @@ function lifecycleResponse(artifactId: string, result: Outcome<LifecycleOutcome>
   if (!result.ok) return failure(result.code, result.message);
   const body = lifecycleResult(result.value);
   const dates = [
+    body.pinned ? "pinned, with no expiry" : null,
     body.expiresAt ? `expires ${body.expiresAt}` : null,
     body.purgeAt ? `will be deleted ${body.purgeAt} unless restored` : null,
   ].filter(Boolean);

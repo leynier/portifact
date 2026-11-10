@@ -84,6 +84,17 @@ const messages = {
     failed: "No se pudo enviar la denuncia. Inténtalo de nuevo o escribe a abuse@portifact.com.",
     sent: "Denuncia enviada.",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "Este enlace está incompleto. Abre de nuevo el enlace del correo o desactiva los avisos de comentarios en tu configuración.",
+    invalid: "Este enlace ya no funciona. Desactiva los avisos de comentarios en tu configuración.",
+    rateLimited: "Demasiados intentos desde aquí. Inténtalo de nuevo en unos minutos.",
+    network: "No se pudo conectar con Portifact. Revisa tu conexión e inténtalo de nuevo.",
+    failed:
+      "No se pudieron desactivar los avisos de comentarios. Inténtalo de nuevo o desactívalos en tu configuración.",
+    done: "Avisos de comentarios desactivados.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -199,5 +210,15 @@ export const es: AuthCatalog = {
     "report.doneHeading": "Gracias, recibimos tu denuncia",
     "report.doneBody":
       'Revisamos cada denuncia. También puedes escribir a <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>.',
+
+    // unsubscribe.html
+    "unsubscribe.title": "Desactivar los avisos de comentarios de Portifact",
+    "unsubscribe.heading": "Desactivar los avisos de comentarios",
+    "unsubscribe.intro":
+      "Dejarás de recibir correos sobre comentarios nuevos en artifacts de Portifact. Los avisos de vencimiento y los correos para iniciar sesión no cambian.",
+    "unsubscribe.confirm": "Desactivar los avisos de comentarios",
+    "unsubscribe.doneHeading": "Los avisos de comentarios están desactivados",
+    "unsubscribe.doneBody":
+      'Puedes volver a activarlos en tu <a href="/settings">configuración</a>.',
   },
 };

@@ -3,9 +3,11 @@
 // roll back. A rollback is a new publish of retained content: a new version that references the
 // same stored objects, made current under the same base-version check as a commit. Access belongs
 // to the artifact, not to its versions, so a rollback never brings back a removed reader.
-import { CURRENT_VERSION, type DownloadKind, LIMITS } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { CURRENT_VERSION, type DownloadKind, LIMITS, type RoleAction } from "@portifact/contracts";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  type Actor,
+  can,
   checkPublish,
   fail,
   nextExpiry,
@@ -28,6 +30,8 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { actorOn, authorizeOn } from "./actors.ts";
+import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
 
@@ -81,7 +85,8 @@ export interface DownloadPlan {
 }
 
 export interface RollbackInput {
-  ownerId: string;
+  /** The signed-in user; an admin or editor of the artifact's owner may roll it back. */
+  userId: string;
   artifactId: string;
   /** The retained version whose files become current again. */
   versionId: string;
@@ -94,7 +99,8 @@ export interface RollbackOutcome {
   artifactId: string;
   versionId: string;
   versionNumber: number;
-  expiresAt: number;
+  /** Null while the artifact is pinned: a rollback keeps the pin. */
+  expiresAt: number | null;
   fromVersionId: string;
   fromVersionNumber: number;
 }
@@ -107,15 +113,25 @@ const missingVersion = () =>
     "This version does not exist, is no longer retained or your account cannot download it.",
   );
 
-/** An artifact of `ownerId` that still exists; someone else's looks the same as a missing one. */
-async function ownedArtifact(
-  db: Db,
-  ownerId: string,
+/**
+ * An artifact that still exists, for a user whose role on its owner allows `action`. An owner
+ * the user has no role on looks the same as a missing artifact (`missing`).
+ */
+async function managedArtifact(
+  db: RegionalDb,
+  userId: string,
   artifactId: string,
-): Promise<ArtifactRow | undefined> {
+  action: RoleAction,
+  missing: () => Result<never>,
+): Promise<Result<{ artifact: ArtifactRow; actor: Actor }>> {
   const artifact = await loadArtifact(db, artifactId);
-  return artifact?.ownerId === ownerId ? artifact : undefined;
+  if (!artifact) return missing();
+  const actor = await authorizeOn(db, userId, artifact.ownerId, action, missing);
+  if (!actor.ok) return actor;
+  return ok({ artifact, actor: actor.value });
 }
+
+const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
 
 async function loadArtifact(db: Db, artifactId: string): Promise<ArtifactRow | undefined> {
   const [artifact] = await db
@@ -241,17 +257,24 @@ function decodeVersionCursor(cursor: string): number | undefined {
 
 /** The owner's retained versions of an artifact, newest first. Archived artifacts keep theirs. */
 export async function listVersions(
-  db: Db,
+  db: RegionalDb,
   input: {
-    ownerId: string;
+    userId: string;
     artifactId: string;
     now: number;
     cursor?: string | undefined;
     limit: number;
   },
 ): Promise<Result<VersionPage>> {
-  const artifact = await ownedArtifact(db, input.ownerId, input.artifactId);
-  if (!artifact) return fail("not_found", "Artifact not found.");
+  const managed = await managedArtifact(
+    db,
+    input.userId,
+    input.artifactId,
+    "versions",
+    missingArtifact,
+  );
+  if (!managed.ok) return managed;
+  const { artifact } = managed.value;
   const before = input.cursor === undefined ? undefined : decodeVersionCursor(input.cursor);
   if (input.cursor !== undefined && before === undefined) {
     return fail("invalid_input", "Invalid cursor.");
@@ -279,11 +302,18 @@ export async function listVersions(
 
 /** A retained version and all of its files, published and source. Owner only. */
 export async function getVersionManifest(
-  db: Db,
-  input: { ownerId: string; artifactId: string; versionId: string; now: number },
+  db: RegionalDb,
+  input: { userId: string; artifactId: string; versionId: string; now: number },
 ): Promise<Result<VersionManifestResult>> {
-  const artifact = await ownedArtifact(db, input.ownerId, input.artifactId);
-  if (!artifact) return missingVersion();
+  const managed = await managedArtifact(
+    db,
+    input.userId,
+    input.artifactId,
+    "versions",
+    missingVersion,
+  );
+  if (!managed.ok) return managed;
+  const { artifact } = managed.value;
   const version = await resolveVersion(db, artifact, input.versionId, input.now);
   if (!version) return missingVersion();
   const files = await db
@@ -311,13 +341,13 @@ export async function getVersionManifest(
 }
 
 /**
- * What a download of one kind of files of a version may fetch. The owner downloads published
- * files and sources of any retained version. Anyone else gets only the published files of the
+ * What a download of one kind of files of a version may fetch. An admin or editor of the owner
+ * downloads published files and sources of any retained version. Anyone else gets only the published files of the
  * current version of a Markdown or text artifact they can read now (plan section 5); everything
  * else answers like a missing version, so it reveals nothing.
  */
 export async function getVersionDownload(
-  db: Db,
+  db: RegionalDb,
   input: {
     userId: string;
     artifactId: string;
@@ -335,7 +365,8 @@ export async function getVersionDownload(
   }
   const artifact = await loadArtifact(db, input.artifactId);
   if (!artifact) return missingVersion();
-  if (artifact.ownerId !== input.userId) {
+  const actor = await actorOn(db.global, input.userId, artifact.ownerId);
+  if (!(actor && can(actor, "versions"))) {
     if (input.kind !== "published" || artifact.type === "site") return missingVersion();
     const ref = input.versionId === CURRENT_VERSION ? artifact.currentVersionId : input.versionId;
     if (ref === null || ref !== artifact.currentVersionId) return missingVersion();
@@ -392,11 +423,19 @@ export async function getVersionDownload(
  * `version_conflict` with nothing applied. Callers make it idempotent with a key.
  */
 export async function rollbackArtifact(
-  db: Db,
+  db: RegionalDb,
   input: RollbackInput,
 ): Promise<Result<RollbackOutcome>> {
-  const artifact = await ownedArtifact(db, input.ownerId, input.artifactId);
-  if (!artifact) return fail("not_found", "Artifact not found.");
+  const managed = await managedArtifact(
+    db,
+    input.userId,
+    input.artifactId,
+    "rollback",
+    missingArtifact,
+  );
+  if (!managed.ok) return managed;
+  const { artifact } = managed.value;
+  const ownerId = artifact.ownerId;
   if (artifact.state === "suspended") {
     return fail("forbidden", "This artifact is suspended; it cannot be rolled back.");
   }
@@ -418,18 +457,21 @@ export async function rollbackArtifact(
     return fail("invalid_input", "That version is already the current one.");
   }
 
-  // A rollback publishes: it counts against the publishes per 24 hours and the version limits,
-  // but uploads nothing and opens no upload, so storage and upload limits do not apply.
+  // A rollback publishes: it counts against the publishes per 24 hours and the file limit, but
+  // uploads nothing and opens no upload, so storage and upload limits do not apply. Nor does the
+  // plan's per-artifact size: the retained version fit the plan it was published under and adds
+  // no bytes, and a lower plan never blocks going back to it (premium plan, downgrades).
   const [usageRow] = await db
     .select({ activeArtifacts: schema.accountUsage.activeArtifacts })
     .from(schema.accountUsage)
-    .where(eq(schema.accountUsage.ownerId, input.ownerId))
+    .where(eq(schema.accountUsage.ownerId, ownerId))
     .limit(1);
+  const owner = await ownerEntitlements(db, ownerId, input.now);
   const admission = checkPublish(
     {
       activeArtifacts: usageRow?.activeArtifacts ?? 0,
       storedBytes: 0,
-      publishesLast24h: await windowSum(db, input.ownerId, "publish", input.now - DAY_MS),
+      publishesLast24h: await windowSum(db, ownerId, "publish", input.now - DAY_MS),
       openUploads: 0,
       newFilesLast24h: 0,
       newBytesLast24h: 0,
@@ -437,11 +479,12 @@ export async function rollbackArtifact(
     },
     {
       createsArtifact: false,
-      versionBytes: target.publishedBytes,
+      versionBytes: 0,
       files: target.publishedFiles + target.sourceFiles,
       newBytes: 0,
       newFiles: 0,
     },
+    owner.limits,
   );
   if (!admission.ok) return admission;
 
@@ -471,20 +514,20 @@ export async function rollbackArtifact(
       .update(schema.artifacts)
       .set({
         currentVersionId: versionId,
-        expiresAt,
+        expiresAt: sql`case when ${schema.artifacts.pinned} then null else ${expiresAt} end`,
         lifecycleGeneration: sql`${schema.artifacts.lifecycleGeneration} + 1`,
         updatedAt: input.now,
       })
       .where(
         and(
           eq(schema.artifacts.id, artifact.id),
-          eq(schema.artifacts.ownerId, input.ownerId),
+          eq(schema.artifacts.ownerId, ownerId),
           eq(schema.artifacts.state, "active"),
           eq(schema.artifacts.currentVersionId, input.baseVersionId),
           targetRetained,
         ),
       )
-      .returning({ id: schema.artifacts.id }),
+      .returning({ id: schema.artifacts.id, pinned: schema.artifacts.pinned }),
     db.insert(v).select(
       db
         .select({
@@ -495,7 +538,7 @@ export async function rollbackArtifact(
             sql<number>`(select coalesce(max("prior"."number"), 0) + 1 from ${v} as "prior" where "prior"."artifact_id" = ${artifact.id})`.as(
               "number",
             ),
-          authorId: sql<string>`${input.ownerId}`.as("author_id"),
+          authorId: sql<string>`${input.userId}`.as("author_id"),
           state: sql<"committed">`'committed'`.as("state"),
           entrypoint: v.entrypoint,
           publishedBytes: v.publishedBytes,
@@ -545,11 +588,11 @@ export async function rollbackArtifact(
     // exactly as commitPublish must do on a publish.
     db
       .insert(schema.usageEvents)
-      .select(sql`select null, ${input.ownerId}, 'publish', 1, ${input.now} where ${switched}`),
+      .select(sql`select null, ${ownerId}, 'publish', 1, ${input.now} where ${switched}`),
     db
       .insert(schema.lifecycleEvents)
       .select(
-        sql`select null, ${artifact.id}, ${input.ownerId}, 'system', 'rolled_back', ${JSON.stringify({ fromVersionId: target.id, versionId })}, ${input.now} where ${switched}`,
+        sql`select null, ${artifact.id}, ${input.userId}, 'system', 'rolled_back', ${JSON.stringify({ fromVersionId: target.id, versionId })}, ${input.now} where ${switched}`,
       ),
   ]);
 
@@ -568,7 +611,7 @@ export async function rollbackArtifact(
     artifactId: artifact.id,
     versionId,
     versionNumber: created?.number ?? 0,
-    expiresAt,
+    expiresAt: switchedRows[0]?.pinned ? null : expiresAt,
     fromVersionId: target.id,
     fromVersionNumber: target.number,
   });

@@ -14,7 +14,7 @@ import {
   PublishRequest,
   UploadedPart,
 } from "@portifact/contracts";
-import { createDb, type Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import type { MultipartConfig } from "@portifact/domain";
 import {
   type ArtifactRow,
@@ -26,9 +26,11 @@ import {
   getArtifact,
   type LifecycleOutcome,
   listArtifacts,
+  pinArtifact,
   renewArtifact,
   reportUploadedPart,
   restoreArtifact,
+  unpinArtifact,
   updateAccess,
   uploadProgress,
 } from "@portifact/services";
@@ -37,6 +39,7 @@ import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { artifactListItem } from "../mcp/present.ts";
+import { artifactDb, defaultDb, personalScope } from "../regions.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
@@ -91,7 +94,9 @@ export function apiRoutes(deps: ApiDeps) {
     guarded("artifacts:write", async (c, userId) => {
       const body = await readJson(c, PublishRequest);
       if (!body.ok) return body.response;
-      const db = createDb(c.env.DB);
+      const db = body.value.artifactId
+        ? await artifactDb(c.env, body.value.artifactId)
+        : (await personalScope(c.env, userId)).db;
       const now = deps.now();
       return idempotent(c, { userId, operation: "publish.prepare", request: body.value, now }, () =>
         prepareUpload(
@@ -114,8 +119,8 @@ export function apiRoutes(deps: ApiDeps) {
     "/api/v1/publishes/:uploadId",
     guarded("artifacts:write", async (c, userId) => {
       const now = deps.now();
-      const result = await uploadProgress(createDb(c.env.DB), {
-        ownerId: userId,
+      const result = await uploadProgress(defaultDb(c.env), {
+        userId,
         sessionId: c.req.param("uploadId") as string,
         now,
       });
@@ -130,8 +135,8 @@ export function apiRoutes(deps: ApiDeps) {
     guarded("artifacts:write", async (c, userId) => {
       const body = await readJson(c, UploadedPart);
       if (!body.ok) return body.response;
-      const result = await reportUploadedPart(createDb(c.env.DB), {
-        ownerId: userId,
+      const result = await reportUploadedPart(defaultDb(c.env), {
+        userId,
         sessionId: c.req.param("uploadId") as string,
         ...body.value,
         now: deps.now(),
@@ -144,8 +149,8 @@ export function apiRoutes(deps: ApiDeps) {
   api.post(
     "/api/v1/publishes/:uploadId/commit",
     guarded("artifacts:write", async (c, userId) => {
-      const result = await commitPublish(createDb(c.env.DB), c.env.ARTIFACTS, {
-        ownerId: userId,
+      const result = await commitPublish(defaultDb(c.env), c.env.ARTIFACTS, {
+        userId,
         sessionId: c.req.param("uploadId") as string,
         now: deps.now(),
       });
@@ -156,7 +161,7 @@ export function apiRoutes(deps: ApiDeps) {
           versionId: result.value.versionId,
           versionNumber: result.value.versionNumber,
           url: contentUrl(c.env, result.value.artifactId),
-          expiresAt: iso(result.value.expiresAt),
+          expiresAt: result.value.expiresAt === null ? null : iso(result.value.expiresAt),
         }),
       );
     }),
@@ -165,8 +170,8 @@ export function apiRoutes(deps: ApiDeps) {
   api.delete(
     "/api/v1/publishes/:uploadId",
     guarded("artifacts:write", async (c, userId) => {
-      const result = await abortPublish(createDb(c.env.DB), {
-        ownerId: userId,
+      const result = await abortPublish(defaultDb(c.env), {
+        userId,
         sessionId: c.req.param("uploadId") as string,
         now: deps.now(),
       });
@@ -197,18 +202,13 @@ export function apiRoutes(deps: ApiDeps) {
         );
       }
       const { cursor, limit, ...filters } = query.data;
-      const page = await listArtifacts(createDb(c.env.DB), {
-        ownerId: userId,
-        cursor,
-        limit,
-        filters,
-        now: deps.now(),
-      });
-      if (!page) return error(c, "invalid_input", "Invalid cursor.");
+      const { actor, db } = await personalScope(c.env, userId);
+      const page = await listArtifacts(db, { actor, cursor, limit, filters, now: deps.now() });
+      if (!page.ok) return error(c, page.code, page.message);
       return c.json(
         ArtifactList.parse({
-          items: page.items.map((row) => artifactListItem(c.env, row)),
-          nextCursor: page.nextCursor,
+          items: page.value.items.map((row) => artifactListItem(c.env, row)),
+          nextCursor: page.value.nextCursor,
         }),
       );
     }),
@@ -217,22 +217,18 @@ export function apiRoutes(deps: ApiDeps) {
   api.get(
     "/api/v1/artifacts/:artifactId",
     guarded("artifacts:read", async (c, userId) => {
-      const row = await getArtifact(createDb(c.env.DB), {
-        ownerId: userId,
-        artifactId: c.req.param("artifactId") as string,
-      });
-      if (!row) return error(c, "not_found", "Artifact not found.");
-      return c.json(summary(c.env, row));
+      const artifactId = c.req.param("artifactId") as string;
+      const row = await getArtifact(await artifactDb(c.env, artifactId), { userId, artifactId });
+      if (!row.ok) return error(c, row.code, row.message);
+      return c.json(summary(c.env, row.value));
     }),
   );
 
   api.get(
     "/api/v1/artifacts/:artifactId/access",
     guarded("artifacts:read", async (c, userId) => {
-      const result = await getAccess(createDb(c.env.DB), {
-        ownerId: userId,
-        artifactId: c.req.param("artifactId") as string,
-      });
+      const artifactId = c.req.param("artifactId") as string;
+      const result = await getAccess(await artifactDb(c.env, artifactId), { userId, artifactId });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(AccessPolicyView.parse(result.value));
     }),
@@ -244,9 +240,10 @@ export function apiRoutes(deps: ApiDeps) {
     guarded("artifacts:share", async (c, userId) => {
       const body = await readJson(c, AccessUpdate);
       if (!body.ok) return body.response;
-      const result = await updateAccess(createDb(c.env.DB), {
-        ownerId: userId,
-        artifactId: c.req.param("artifactId") as string,
+      const artifactId = c.req.param("artifactId") as string;
+      const result = await updateAccess(await artifactDb(c.env, artifactId), {
+        userId,
+        artifactId,
         change: body.value,
         now: deps.now(),
       });
@@ -257,18 +254,19 @@ export function apiRoutes(deps: ApiDeps) {
 
   const lifecycle = (
     action: (
-      db: Db,
+      db: RegionalDb,
       bucket: R2Bucket,
-      input: { ownerId: string; artifactId: string; now: number },
+      input: { userId: string; artifactId: string; now: number },
     ) => Promise<
       { ok: true; value: LifecycleOutcome } | { ok: false; code: ErrorCode; message: string }
     >,
     scope: OAuthScope,
   ) =>
     guarded(scope, async (c, userId) => {
-      const result = await action(createDb(c.env.DB), c.env.ARTIFACTS, {
-        ownerId: userId,
-        artifactId: c.req.param("artifactId") as string,
+      const artifactId = c.req.param("artifactId") as string;
+      const result = await action(await artifactDb(c.env, artifactId), c.env.ARTIFACTS, {
+        userId,
+        artifactId,
         now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
@@ -277,6 +275,7 @@ export function apiRoutes(deps: ApiDeps) {
           state: result.value.state,
           expiresAt: result.value.expiresAt === null ? null : iso(result.value.expiresAt),
           purgeAt: result.value.purgeAt === null ? null : iso(result.value.purgeAt),
+          pinned: result.value.pinned,
         }),
       );
     });
@@ -292,6 +291,15 @@ export function apiRoutes(deps: ApiDeps) {
   api.post(
     "/api/v1/artifacts/:artifactId/restore",
     lifecycle((db, _b, i) => restoreArtifact(db, i), "artifacts:write"),
+  );
+  // Pinning is a paid feature (premium plan P2); unpinning always works. Both are idempotent.
+  api.post(
+    "/api/v1/artifacts/:artifactId/pin",
+    lifecycle((db, _b, i) => pinArtifact(db, i), "artifacts:write"),
+  );
+  api.post(
+    "/api/v1/artifacts/:artifactId/unpin",
+    lifecycle((db, _b, i) => unpinArtifact(db, i), "artifacts:write"),
   );
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
@@ -317,6 +325,7 @@ function summary(env: Env, row: ArtifactRow) {
     expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
     archivedAt: row.archivedAt === null ? null : iso(row.archivedAt),
     purgeAt: row.purgeAt === null ? null : iso(row.purgeAt),
+    pinned: row.pinned,
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),

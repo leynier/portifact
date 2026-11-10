@@ -1,15 +1,16 @@
 // GET /api/v1/usage (plan section 6, "Uso"): the account's quotas, current counters, 24-hour
 // windows and block reasons. The MCP tool get_usage returns the same body through `usageView`.
 import { AccountUsageView } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
-import { type AccountUsageReport, getAccountUsage } from "@portifact/services";
+import { type AccountUsageReport, getAccountUsage, planView } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
-import { type Guarded, iso } from "./http.ts";
+import { personalScope } from "../regions.ts";
+import { error, type Guarded, iso } from "./http.ts";
 
 export function usageView(report: AccountUsageReport): AccountUsageView {
   return AccountUsageView.parse({
     ...report,
+    plan: planView(report.plan),
     newObjectsThisMonth: {
       ...report.newObjectsThisMonth,
       resetsAt: iso(report.newObjectsThisMonth.resetsAt),
@@ -30,8 +31,10 @@ export function usageRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now:
   api.get(
     "/api/v1/usage",
     guarded("artifacts:read", async (c, userId) => {
-      const report = await getAccountUsage(createDb(c.env.DB), { ownerId: userId, now: now() });
-      return c.json(usageView(report));
+      const { actor, db } = await personalScope(c.env, userId);
+      const report = await getAccountUsage(db, { actor, now: now() });
+      if (!report.ok) return error(c, report.code, report.message);
+      return c.json(usageView(report.value));
     }),
   );
 }

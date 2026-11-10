@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
 import {
   API_RESOURCE,
@@ -41,7 +41,7 @@ export async function insertDeviceClient(): Promise<string> {
   deviceClients += 1;
   const clientId = `test-device-client-${deviceClients}-${crypto.randomUUID()}`;
   const now = new Date();
-  const db = createDb(env.DB);
+  const db = regionsFromEnv(env).get("default").db;
   await db.insert(schema.oauthClients).values({
     id: clientId,
     clientId,

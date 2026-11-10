@@ -77,6 +77,7 @@ export const ja = {
   "list.refreshFailed.body":
     "最後に読み込んだ内容を表示しています。Portifactはまもなく再試行します。",
   "list.never": "なし",
+  "list.pinned": "固定中",
   "list.column.access": "アクセス",
   "list.captionFiltered": "検索とフィルターに一致するartifact",
   "list.countFiltered":
@@ -172,6 +173,13 @@ export const ja = {
   "detail.restore.body": "完全に削除される前に復元すると、再びオンラインになります。",
   "detail.noActions": "この状態で実行できる操作はありません。",
   "detail.renew": "30日間延長",
+  "detail.pin": "固定",
+  "detail.unpin": "固定を解除",
+  "detail.pinned.body": "固定中: 固定を解除するまで有効期限なしで公開されます。",
+  "detail.pin.paid": "固定するとartifactは有効期限なしで公開されます。{plan}プランの機能です。",
+  "detail.expiresNever": "なし（固定中）",
+  "detail.pinnedDone": "artifactを固定しました。有効期限なしで公開されます。",
+  "detail.unpinnedDone": "artifactの固定を解除しました。有効期限は{date}です。",
   "detail.archive": "アーカイブ",
   "detail.restore": "復元",
   "detail.delete": "削除",
@@ -415,6 +423,16 @@ export const ja = {
   "settings.notices.saved": "メール通知を保存しました。",
   "settings.notices.unchanged": "保存する変更はありません。メール通知はすでにこの設定です。",
   "settings.notices.failed": "メール通知を保存できませんでした",
+  "settings.notices.comments.label": "新しいコメントをメールで通知",
+  "settings.notices.comments.hint":
+    "メールは最大10分に1通で、artifactごとの新しいスレッド、返信、解決の件数だけを伝え、書かれた内容は含みません。所有者のプランにコメント通知が含まれるartifactのみが対象です。",
+  "commentNotices.label": "このartifactの新しいコメントをメールで通知",
+  "commentNotices.hint":
+    "メールは最大10分に1通で、件数のみです。すべてのコメントメールは設定でオフにできます。",
+  "commentNotices.muted": "このartifactのコメントメールをオフにしました。",
+  "commentNotices.unmuted": "このartifactのコメントメールをオンにしました。",
+  "commentNotices.failed": "選択を保存できませんでした",
+  "commentNotices.planRequired": "新しいコメントのメール通知は{plan}プランに含まれます。",
   "settings.danger.title": "危険な操作",
   "settings.danger.hint": "これらの操作は元に戻せません。",
   "account.data.title": "あなたのデータ",
@@ -461,6 +479,15 @@ export const ja = {
   "usage.description":
     "あなたの上限と、今月artifactが配信した量です。トラフィックは数秒ごとに集計されるため、少し遅れて反映されることがあります。",
   "usage.meterPercent": "{used}/{limit}（{percent}）",
+  "usage.plan.section": "プラン",
+  "usage.plan.hint": "このページの上限はプランで決まります。",
+  "usage.plan.name": "現在のプラン",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "シート数",
+  "usage.plan.until": "有効期限",
   "usage.traffic.section": "今月のトラフィック",
   "usage.traffic.hint":
     "すべてのartifactを合わせて、アカウント全体で集計されます。どちらかの上限に達すると、リセットされるまですべてのartifactが一時停止します。",
@@ -612,13 +639,14 @@ export const ja = {
   "publish.startOver": "最初からやり直す",
   "publish.done.title": "バージョン{number}を公開しました",
   "publish.done.body": "{url}で公開中です。有効期限は{date}です。",
+  "publish.done.pinned": "{url}で公開中です。固定されているため、有効期限はありません。",
   "publish.done.open": "artifactのページを開く",
   "publish.done.another": "ほかのものを公開",
   "publish.announce.done": "{name}のバージョン{number}を公開しました。",
 
   "manifest.empty": "公開するものがありません。すべてのファイルが除外されたか、ソースが空です。",
   "manifest.too_many_files": "1つのバージョンに含められるファイルは最大{detail}個です。",
-  "manifest.too_large": "1つのバージョンの上限は250 MBです。",
+  "manifest.too_large": "1つのバージョンの上限は{detail}です。",
   "manifest.invalid_path": "使用できないファイルパスがあります：{detail}",
   "manifest.missing_entry":
     "エントリーページ{detail}がファイルの中にありません。エントリーページを変更するか、ファイルを追加してください。",
@@ -978,8 +1006,11 @@ export const ja = {
   "error.account_too_new_for_public": "新しいアカウントはまだartifactを一般公開できません。",
   "error.capacity_unavailable":
     "Portifactは現在処理能力の上限に達しています。しばらくしてからもう一度お試しください。",
+  "error.sole_workspace_admin":
+    "あなたはワークスペースの唯一の管理者です。アカウントを削除する前に、別のメンバーを管理者にするか、ワークスペースを削除してください。",
   "error.rate_limited": "リクエストが多すぎます。少し待ってから、もう一度お試しください。",
   "error.reauthentication_required": "この操作を行うには、もう一度サインインしてください。",
   "error.human_verification_required":
     "ほかの人のartifactへの最初のコメントでは、人間であることの簡単な確認が必要です。確認を完了してから、もう一度投稿してください。",
+  "error.plan_required": "この機能は、artifactの所有者のプランに含まれていません。",
 } satisfies Catalog;

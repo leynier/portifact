@@ -2,7 +2,8 @@
 // One user holds an API token and an MCP token; every operation runs through both, at the same
 // controlled time, and must give the same body, the same error and the same permission boundary.
 import { env } from "cloudflare:workers";
-import { createDb } from "@portifact/db";
+import { PLANS } from "@portifact/contracts";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -222,7 +223,7 @@ describe("API and MCP parity", () => {
       fromTool(await b.tool("publish_document", { type: "text", name: "Held", content: "h" }))
         .body as { artifactId: string }
     ).artifactId;
-    await suspendArtifact(createDb(env.DB), {
+    await suspendArtifact(regionsFromEnv(env).get("default").db, {
       artifactId: id,
       reason: "phishing",
       note: "operator only",
@@ -320,6 +321,78 @@ describe("API and MCP parity", () => {
       expect(fromTool(await b.tool(tool, args)), tool).toEqual(apiResult);
       expect(apiResult.ok, tool).toBe(true);
     }
+  });
+
+  it("pin and unpin give the same states, views and errors", async () => {
+    const b = await both("parity-pin@example.test");
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({
+        ownerId: await ownerId(b),
+        plan: "pro",
+        seats: 1,
+        grantedBy: "test",
+        updatedAt: NOW,
+      });
+    const publish = async (name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type: "text", name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const viaApi = await publish("api");
+    const viaMcp = await publish("mcp");
+    const post = (id: string, action: string) =>
+      b.apiCall(`/api/v1/artifacts/${id}/${action}`, { method: "POST" });
+
+    // Pin, pin again, renew a pinned one, then unpin twice: every answer is the same.
+    const steps: [string, string][] = [
+      ["pin_artifact", "pin"],
+      ["pin_artifact", "pin"],
+      ["renew_artifact", "renew"],
+      ["unpin_artifact", "unpin"],
+      ["unpin_artifact", "unpin"],
+    ];
+    let at = NOW;
+    for (const [tool, action] of steps) {
+      at += 60 * 1000;
+      vi.setSystemTime(at);
+      const apiResult = await fromApi(await post(viaApi, action));
+      expect(fromTool(await b.tool(tool, { artifactId: viaMcp })), tool).toEqual(apiResult);
+      expect(apiResult.ok, tool).toBe(true);
+    }
+
+    // Pinned, the views show it with no expiry, the same way.
+    await post(viaApi, "pin");
+    await b.tool("pin_artifact", { artifactId: viaMcp });
+    const viewed = await fromApi(await b.apiCall(`/api/v1/artifacts/${viaApi}`));
+    expect(viewed.body).toMatchObject({ pinned: true, expiresAt: null });
+    expect(fromTool(await b.tool("get_artifact", { artifactId: viaMcp })).body).toMatchObject({
+      pinned: true,
+      expiresAt: null,
+    });
+    const listed = fromTool(await b.tool("list_artifacts", {})).body as {
+      items: { id: string; pinned: boolean }[];
+    };
+    expect(listed.items.find((item) => item.id === viaMcp)?.pinned).toBe(true);
+
+    // Archiving unpins; pinning an archived one is refused the same way.
+    await post(viaApi, "archive");
+    await b.tool("archive_artifact", { artifactId: viaMcp });
+    expect(fromTool(await b.tool("pin_artifact", { artifactId: viaMcp }))).toEqual(
+      await fromApi(await post(viaApi, "pin")),
+    );
+    expect((await fromApi(await post(viaApi, "pin"))).body).toMatchObject({
+      error: { code: "artifact_archived" },
+    });
+    // A stranger gets the missing-artifact answer from both.
+    const stranger = await both("parity-pin-stranger@example.test");
+    expect(fromTool(await stranger.tool("unpin_artifact", { artifactId: viaMcp }))).toEqual(
+      await fromApi(
+        await stranger.apiCall(`/api/v1/artifacts/${viaApi}/unpin`, { method: "POST" }),
+      ),
+    );
   });
 
   it("the Portifact bar turns off and on with the same policy, errors and scope", async () => {
@@ -668,6 +741,40 @@ describe("API and MCP parity for usage and source origins", () => {
       // Rendered pages are written by the server and do not count as uploaded files.
       newFilesLast24h: { used: 2 },
     });
+  });
+
+  it("usage gives the same plan, limits and features, and only the caller's", async () => {
+    const b = await both("parity-plan@example.test");
+    const other = await both("parity-plan-other@example.test");
+    const free = fromTool(await b.tool("get_usage", {}));
+    expect(free).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(free.body).toMatchObject({
+      plan: { name: "free", validUntil: null, seats: 1, limits: PLANS.free.limits, features: [] },
+    });
+
+    await env.DB.prepare(
+      "insert into owner_plans (owner_id, plan, seats, valid_until, granted_by, updated_at) values (?, 'team', 2, ?, 'test', ?)",
+    )
+      .bind(await ownerId(b), Date.UTC(2027, 0, 1), NOW)
+      .run();
+    const team = fromTool(await b.tool("get_usage", {}));
+    expect(team).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(team.body).toMatchObject({
+      plan: {
+        name: "team",
+        validUntil: "2027-01-01T00:00:00.000Z",
+        seats: 2,
+        limits: { accountBytes: 60_000_000_000, requestsPerMonth: 6_000_000 },
+        features: [...PLANS.team.features],
+      },
+      activeArtifacts: { limit: 2_000 },
+      storage: { limit: 60_000_000_000 },
+      trafficThisMonth: { requests: { limit: 6_000_000 }, bytes: { limit: 1_000_000_000_000 } },
+      versionLimits: { publishedBytes: 2_000_000_000 },
+    });
+    const theirs = fromTool(await other.tool("get_usage", {}));
+    expect(theirs).toEqual(await fromApi(await other.apiCall("/api/v1/usage")));
+    expect(theirs.body).toMatchObject({ plan: { name: "free" }, activeArtifacts: { limit: 50 } });
   });
 
   it("usage reports the same traffic and traffic block, and only the caller's", async () => {
@@ -1620,10 +1727,16 @@ describe("API and MCP parity under budget protection", () => {
   const DOC = { schema: 1, path: "index.md", anchor: { kind: "document" } };
 
   async function protect(level: "slow75" | "protect100", steps = 1) {
-    await setBudgetOverride(createDb(env.DB), { level, steps, until: null, note: null, now: NOW });
+    await setBudgetOverride(regionsFromEnv(env).get("default").db, {
+      level,
+      steps,
+      until: null,
+      note: null,
+      now: NOW,
+    });
   }
   afterEach(async () => {
-    await clearBudgetOverride(createDb(env.DB), NOW);
+    await clearBudgetOverride(regionsFromEnv(env).get("default").db, NOW);
   });
 
   it("refuses new artifacts, then uploads, with the same error, and keeps updates and reads", async () => {

@@ -14,7 +14,14 @@ const CYCLE = Date.UTC(2026, 10, 1);
 
 describe("delivery queries", () => {
   beforeEach(async () => {
-    for (const table of ["version_files", "versions", "objects", "artifacts", "traffic_counters"]) {
+    for (const table of [
+      "version_files",
+      "versions",
+      "objects",
+      "artifacts",
+      "traffic_counters",
+      "owner_plans",
+    ]) {
       await env.DB.exec(`DELETE FROM ${table}`);
     }
     await db().insert(schema.artifacts).values({
@@ -86,6 +93,45 @@ describe("delivery queries", () => {
       requests: 0,
       bytes: 0,
     });
+  });
+
+  it("joins the owner's plan row, null without one, never another owner's", async () => {
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: "u_other", plan: "enterprise", grantedBy: "test", updatedAt: CYCLE });
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+    await db()
+      .insert(schema.ownerPlans)
+      .values({
+        ownerId: "u_owner",
+        plan: "team",
+        seats: 3,
+        validUntil: CYCLE + 1,
+        overrides: { limits: { activeArtifacts: 9 } },
+        grantedBy: "test",
+        updatedAt: CYCLE,
+      });
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toEqual({
+      plan: "team",
+      seats: 3,
+      validUntil: CYCLE + 1,
+      overrides: { limits: { activeArtifacts: 9 } },
+    });
+  });
+
+  it("refuses a plan the schema does not know and fewer than one seat", async () => {
+    const row = { ownerId: "u_x", grantedBy: "test", updatedAt: CYCLE };
+    await expect(
+      env.DB.exec(
+        "INSERT INTO owner_plans (owner_id, plan, granted_by, updated_at) VALUES ('u_x', 'gold', 't', 0)",
+      ),
+    ).rejects.toThrow();
+    await expect(
+      db()
+        .insert(schema.ownerPlans)
+        .values({ ...row, plan: "pro", seats: 0 }),
+    ).rejects.toThrow();
   });
 
   it("has no entrypoint before the first version is current", async () => {

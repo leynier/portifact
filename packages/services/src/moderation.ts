@@ -7,6 +7,7 @@ import { type Db, schema } from "@portifact/db";
 import { fail, ok, purgeDate, type Result } from "@portifact/domain";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { ownerEntitlements } from "./plans.ts";
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 
@@ -216,6 +217,9 @@ export async function reinstateArtifact(
     }
   }
 
+  // An artifact that goes back to the archive is kept for its owner's plan's months from now.
+  const archiveMonths = (await ownerEntitlements(db, artifact.ownerId, input.now)).limits
+    .archiveMonths;
   const back = async (state: "active" | "archived") => {
     const a = schema.artifacts;
     const s = schema.suspensions;
@@ -224,7 +228,10 @@ export async function reinstateArtifact(
     const readState = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.state} = 'suspended' and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration})`;
     const archive =
       state === "archived" && open.previousState === "active"
-        ? { archivedAt: input.now, purgeAt: purgeDate(new Date(input.now)).getTime() }
+        ? {
+            archivedAt: input.now,
+            purgeAt: purgeDate(new Date(input.now), archiveMonths).getTime(),
+          }
         : {};
     const statements: Batch = [
       db
@@ -241,6 +248,8 @@ export async function reinstateArtifact(
         .set({
           state,
           ...archive,
+          // Only an active artifact stays pinned; one that goes to the archive loses its pin.
+          ...(state === "archived" ? { pinned: false } : {}),
           suspensionReason: null,
           lifecycleGeneration: artifact.lifecycleGeneration + 1,
           updatedAt: input.now,

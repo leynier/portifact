@@ -40,6 +40,8 @@ describe("portifact cli", () => {
       "renew",
       "archive",
       "restore",
+      "pin",
+      "unpin",
       "delete",
       "access",
     ]) {

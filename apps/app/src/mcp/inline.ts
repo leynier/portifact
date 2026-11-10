@@ -2,7 +2,7 @@
 // files, so a small document arrives in the tool call. It still goes through the same manifest,
 // reservation and commit as any upload: the Worker only stands in for the client's PUT.
 import { type ArtifactType, type ErrorCode, LIMITS } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import {
   abortPublish,
   type CommittedPublish,
@@ -20,7 +20,8 @@ export const INLINE_FILES: Record<ArtifactType, { path: string; contentType: str
 };
 
 export interface InlinePublish {
-  ownerId: string;
+  /** The signed-in user; the services resolve their role on the owner. */
+  userId: string;
   type: ArtifactType;
   name: string;
   content: string;
@@ -30,7 +31,7 @@ export interface InlinePublish {
 }
 
 export async function publishInline(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   input: InlinePublish,
 ): Promise<Outcome<CommittedPublish>> {
@@ -49,7 +50,7 @@ export async function publishInline(
   const file = INLINE_FILES[input.type];
   const sha256 = await sha256Hex(bytes);
   const prepared = await preparePublish(db, {
-    ownerId: input.ownerId,
+    userId: input.userId,
     ...(input.artifactId ? { artifactId: input.artifactId } : {}),
     type: input.type,
     name: input.name,
@@ -60,7 +61,7 @@ export async function publishInline(
   });
   if (!prepared.ok) return prepared;
 
-  const session = { ownerId: input.ownerId, sessionId: prepared.value.sessionId, now: input.now };
+  const session = { userId: input.userId, sessionId: prepared.value.sessionId, now: input.now };
   try {
     // Nothing to send when the account already stores these exact bytes.
     for (const upload of prepared.value.uploads) {

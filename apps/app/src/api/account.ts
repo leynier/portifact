@@ -9,7 +9,10 @@ import {
   AccountSettings,
   AccountSettingsUpdate,
   type AppResource,
+  ArtifactId,
   BrowserSessionList,
+  CommentNoticeMute,
+  CommentNoticeMuteUpdate,
   type ConnectedApp,
   ConnectedAppList,
   DisconnectResult,
@@ -17,21 +20,23 @@ import {
   type ErrorCode,
   SignOutOthersResult,
 } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
 import {
   type ConnectedAppRow,
   disconnectApp,
   exportAccount,
   getAccountSettings,
+  getCommentNoticeMute,
   listBrowserSessions,
   listConnectedApps,
   requestAccountDeletion,
+  setCommentNoticeMute,
   updateAccountSettings,
 } from "@portifact/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import type { Env } from "../env.ts";
+import { artifactDb, defaultDb, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
 
@@ -85,7 +90,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     "/api/v1/account/sessions",
     sessionOnly(async (c, session) => {
-      const rows = await listBrowserSessions(createDb(c.env.DB), {
+      const rows = await listBrowserSessions(regionsOf(c.env).global, {
         userId: session.userId,
         currentSessionId: session.sessionId,
         now: deps.now(),
@@ -108,7 +113,7 @@ export function accountRoutes(deps: AccountDeps) {
     "/api/v1/account/sessions/sign-out-others",
     sessionOnly(async (c, session) => {
       const others = (
-        await listBrowserSessions(createDb(c.env.DB), {
+        await listBrowserSessions(regionsOf(c.env).global, {
           userId: session.userId,
           currentSessionId: session.sessionId,
           now: deps.now(),
@@ -122,7 +127,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     "/api/v1/account/apps",
     sessionOnly(async (c, session) => {
-      const rows = await listConnectedApps(createDb(c.env.DB), {
+      const rows = await listConnectedApps(regionsOf(c.env).global, {
         userId: session.userId,
         now: deps.now(),
       });
@@ -134,7 +139,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.delete(
     "/api/v1/account/apps/:clientId",
     sessionOnly(async (c, session) => {
-      const result = await disconnectApp(createDb(c.env.DB), {
+      const result = await disconnectApp(regionsOf(c.env).global, {
         userId: session.userId,
         clientId: c.req.param("clientId") as string,
       });
@@ -149,7 +154,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     "/api/v1/account/settings",
     sessionOnly(async (c, session) => {
-      const result = await getAccountSettings(createDb(c.env.DB), { userId: session.userId });
+      const result = await getAccountSettings(regionsOf(c.env).global, { userId: session.userId });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(AccountSettings.parse(result.value));
     }),
@@ -160,7 +165,7 @@ export function accountRoutes(deps: AccountDeps) {
     sessionOnly(async (c, session) => {
       const body = await readJson(c, AccountSettingsUpdate, 1024);
       if (!body.ok) return body.response;
-      const result = await updateAccountSettings(createDb(c.env.DB), {
+      const result = await updateAccountSettings(regionsOf(c.env).global, {
         userId: session.userId,
         update: body.value,
         now: deps.now(),
@@ -170,12 +175,48 @@ export function accountRoutes(deps: AccountDeps) {
     }),
   );
 
+  // The caller's comment notices for one artifact: whether the owner's plan has them and the
+  // caller's mute. A personal preference, like the settings, so it has no MCP tool or CLI command.
+  const muteRoute = "/api/v1/account/comment-notices/:artifactId";
+  routes.get(
+    muteRoute,
+    sessionOnly(async (c, session) => {
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const result = await getCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
+        userId: session.userId,
+        artifactId: artifactId.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(CommentNoticeMute.parse(result.value));
+    }),
+  );
+
+  routes.put(
+    muteRoute,
+    sessionOnly(async (c, session) => {
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const body = await readJson(c, CommentNoticeMuteUpdate, 256);
+      if (!body.ok) return body.response;
+      const result = await setCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
+        userId: session.userId,
+        artifactId: artifactId.data,
+        muted: body.value.muted,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(CommentNoticeMute.parse(result.value));
+    }),
+  );
+
   // The account's data as a JSON download, offered before deletion (plan section 5).
   routes.get(
     "/api/v1/account/export",
     sessionOnly(async (c, session) => {
       const now = deps.now();
-      const result = await exportAccount(createDb(c.env.DB), { userId: session.userId, now });
+      const result = await exportAccount(defaultDb(c.env), { userId: session.userId, now });
       if (!result.ok) return error(c, result.code, result.message);
       const day = new Date(now).toISOString().slice(0, 10);
       c.header("Content-Disposition", `attachment; filename="portifact-export-${day}.json"`);
@@ -189,7 +230,7 @@ export function accountRoutes(deps: AccountDeps) {
     sessionOnly(async (c, session) => {
       const body = await readJson(c, AccountDeletionInput, 1024);
       if (!body.ok) return body.response;
-      const result = await requestAccountDeletion(createDb(c.env.DB), {
+      const result = await requestAccountDeletion(defaultDb(c.env), {
         userId: session.userId,
         sessionId: session.sessionId,
         confirmEmail: body.value.confirmEmail,

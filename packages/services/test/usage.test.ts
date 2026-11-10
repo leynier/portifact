@@ -1,18 +1,20 @@
 // Account usage: the counters and windows the publish admission reads, and the blocks they cause.
 import { env } from "cloudflare:test";
-import { LIMITS } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { LIMITS, PLANS } from "@portifact/contracts";
+import { regionsFromEnv, schema } from "@portifact/db";
+import { personalActor } from "@portifact/domain";
 import { beforeEach, describe, expect, it } from "vitest";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { recordTraffic } from "../src/traffic.ts";
 import { getAccountUsage } from "../src/usage.ts";
+import { value } from "./fixtures.ts";
 
 const OWNER = "u_owner";
 const OTHER = "u_other";
 const NOW = Date.UTC(2026, 10, 20, 12);
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -21,7 +23,7 @@ async function sha256(text: string): Promise<string> {
 
 async function prepare(ownerId: string, body: string, now = NOW) {
   const prepared = await preparePublish(db(), {
-    ownerId,
+    userId: ownerId,
     type: "text",
     name: "Notes",
     entrypoint: "notes.txt",
@@ -46,7 +48,7 @@ async function publish(ownerId: string, body: string, now = NOW) {
   const hash = await sha256(body);
   await env.ARTIFACTS.put(`objects/${ownerId}/${hash}`, body, { sha256: hash });
   const committed = await commitPublish(db(), env.ARTIFACTS, {
-    ownerId,
+    userId: ownerId,
     sessionId: prepared.sessionId,
     now,
   });
@@ -86,8 +88,9 @@ beforeEach(async () => {
 
 describe("getAccountUsage", () => {
   it("reports an account that never published as empty, with the plan's limits", async () => {
-    const usage = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    const usage = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(usage).toEqual({
+      plan: { plan: "free", seats: 1, validUntil: null, limits: PLANS.free.limits, features: [] },
       activeArtifacts: { used: 0, limit: 50 },
       storage: { used: 0, reserved: 0, limit: 2_500_000_000 },
       publishesLast24h: { used: 0, limit: 100 },
@@ -115,7 +118,7 @@ describe("getAccountUsage", () => {
     // Outside the 24-hour window.
     await publish(OWNER, "old", NOW - DAY - 1);
 
-    const usage = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    const usage = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(usage.activeArtifacts.used).toBe(4);
     expect(usage.publishesLast24h.used).toBe(3);
     expect(usage.newFilesLast24h.used).toBe(2);
@@ -131,7 +134,7 @@ describe("getAccountUsage", () => {
   it("reports open uploads and their reserved bytes, blocking at the limit until one expires", async () => {
     const first = await prepare(OWNER, "first", NOW - 2 * HOUR);
     await prepare(OWNER, "second", NOW - HOUR);
-    const usage = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    const usage = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(usage.openUploads).toEqual({ used: 2, limit: LIMITS.concurrentUploads });
     expect(usage.storage.reserved).toBe(11);
     expect(usage.blocks).toEqual([
@@ -156,7 +159,7 @@ describe("getAccountUsage", () => {
         .insert(schema.usageEvents)
         .values(events.slice(i, i + 20));
     }
-    const usage = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    const usage = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(usage.publishesLast24h.used).toBe(100);
     expect(usage.blocks).toEqual([
       expect.objectContaining({ reason: "publishes_per_24h", until: NOW + 60_000 }),
@@ -173,19 +176,21 @@ describe("getAccountUsage", () => {
         newObjectsThisMonth: LIMITS.newObjectsPerMonth,
         monthStartedAt: Date.UTC(2026, 9, 1),
       });
-    const lastMonth = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    const lastMonth = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(lastMonth.newObjectsThisMonth.used).toBe(0);
     expect(lastMonth.blocks).toEqual([]);
 
     await db()
       .update(schema.accountUsage)
       .set({ monthStartedAt: Date.UTC(2026, 10, 1) });
-    const thisMonth = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    const thisMonth = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(thisMonth.blocks).toEqual([
       expect.objectContaining({ reason: "new_objects_per_month", until: Date.UTC(2026, 11, 1) }),
     ]);
 
-    const fresh = await getAccountUsage(db(), { ownerId: "u_missing", now: NOW });
+    const fresh = value(
+      await getAccountUsage(db(), { actor: personalActor("u_missing"), now: NOW }),
+    );
     expect(fresh.publicAccessFrom).toBe(NOW + 15 * 60_000);
     expect(fresh.blocks.map((block) => block.reason)).toEqual(["account_too_new_for_public"]);
   });
@@ -201,7 +206,7 @@ describe("getAccountUsage", () => {
       ],
       NOW,
     );
-    const usage = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
+    const usage = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(usage.trafficThisMonth).toEqual({
       requests: { used: 10, limit: 1_000_000 },
       bytes: { used: 1_000, limit: 25_000_000_000 },
@@ -209,7 +214,7 @@ describe("getAccountUsage", () => {
     });
     expect(usage.blocks).toEqual([]);
 
-    const other = await getAccountUsage(db(), { ownerId: OTHER, now: NOW });
+    const other = value(await getAccountUsage(db(), { actor: personalActor(OTHER), now: NOW }));
     expect(other.blocks).toEqual([
       {
         reason: "traffic",
@@ -219,7 +224,9 @@ describe("getAccountUsage", () => {
       },
     ]);
     // A new month starts from zero.
-    const december = await getAccountUsage(db(), { ownerId: OTHER, now: Date.UTC(2026, 11, 1) });
+    const december = value(
+      await getAccountUsage(db(), { actor: personalActor(OTHER), now: Date.UTC(2026, 11, 1) }),
+    );
     expect(december.trafficThisMonth.requests.used).toBe(0);
     expect(december.blocks).toEqual([]);
   });

@@ -1,16 +1,19 @@
 // Seeding and inspection for the end-to-end tests, through the same services and tables the
 // Workers use. Only the e2e Worker has these routes, on a host the browsers cannot reach.
 import { TERMS_VERSION } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import {
   commitPublish,
   createAnnotationThread,
   issueReviewHandoff,
   preparePublish,
+  runJob,
+  scheduleCommentNotices,
   updateAccess,
 } from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
+import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
 import { setContentClockOffset } from "./clock.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
@@ -176,7 +179,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   if (path === "/echo") return Response.json(Object.fromEntries(request.headers));
   if (path === "/storage") return storagePut(request, env, url);
   const input = (await request.json()) as unknown;
-  const db = createDb(env.DB);
+  const db = regionsFromEnv(env).get("default").db;
   const now = Date.now();
 
   if (path === "/user") {
@@ -224,7 +227,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       })),
     );
     const prepared = await preparePublish(db, {
-      ownerId: publish.ownerId,
+      userId: publish.ownerId,
       type: publish.type,
       name: publish.name,
       entrypoint: entries[0]?.[0] ?? "index.html",
@@ -240,7 +243,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       await env.ARTIFACTS.put(`objects/${publish.ownerId}/${hash}`, body, { sha256: hash });
     }
     const committed = await commitPublish(db, env.ARTIFACTS, {
-      ownerId: publish.ownerId,
+      userId: publish.ownerId,
       sessionId: prepared.value.sessionId,
       now,
     });
@@ -305,7 +308,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   if (path === "/access") {
     const { ownerId, artifactId, removeReaders, addReaders } = input as AccessInput;
     const result = await updateAccess(db, {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { removeReaders, addReaders },
       now,
@@ -326,6 +329,34 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     return object
       ? new Response(object.body, { headers: { "content-type": "application/json" } })
       : Response.json({ error: "no email" }, { status: 404 });
+  }
+
+  // The jobs Worker's comment notices, run now: the scan, then each job with the real notifier,
+  // whose emails land where `/mail` reads them instead of Email Service.
+  if (path === "/comment-notices") {
+    const scheduled = await scheduleCommentNotices(db, now);
+    const captured = {
+      async send(message: { to: string }) {
+        await env.ARTIFACTS.put(
+          `${MAIL_PREFIX}${message.to.toLowerCase()}`,
+          JSON.stringify(message),
+        );
+        return { messageId: crypto.randomUUID() };
+      },
+    } as unknown as SendEmail;
+    const commentNotifier = commentNotifierFromEnv({
+      EMAIL: captured,
+      APP_ORIGIN: env.APP_ORIGIN,
+      CONTENT_DOMAIN: env.CONTENT_DOMAIN,
+      UNSUBSCRIBE_SECRET: env.UNSUBSCRIBE_SECRET,
+    });
+    const { results } = await env.DB.prepare(
+      "select id from outbox where topic = 'comment_notice'",
+    ).all<{ id: number }>();
+    for (const { id } of results) {
+      await runJob(db, env.ARTIFACTS, { id, topic: "comment_notice" }, now, { commentNotifier });
+    }
+    return Response.json({ scheduled: scheduled.recipients, ran: results.length });
   }
 
   if (path === "/sql") {

@@ -1,11 +1,11 @@
 // Accounts and artifacts published through the real publish flow, for the moderation and
 // account-data tests. Every helper uses a fresh user, so tests in a file do not share rows.
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 
-export const db = () => createDb(env.DB);
+export const db = () => regionsFromEnv(env).get("default").db;
 export const NOW = Date.UTC(2026, 10, 8, 12);
 export const MINUTE = 60_000;
 export const DAY = 86_400_000;
@@ -64,7 +64,7 @@ export async function publishSite(
     })),
   );
   const prepared = await preparePublish(db(), {
-    ownerId,
+    userId: ownerId,
     type: "site",
     name: "Plan",
     entrypoint: "index.html",
@@ -78,7 +78,7 @@ export async function publishSite(
     await env.ARTIFACTS.put(`objects/${ownerId}/${await sha256(body)}`, body);
   }
   const committed = await commitPublish(db(), env.ARTIFACTS, {
-    ownerId,
+    userId: ownerId,
     sessionId: prepared.value.sessionId,
     now,
   });
@@ -116,4 +116,41 @@ export function racing(before: () => Promise<unknown>) {
       };
     },
   }) as ReturnType<typeof db>;
+}
+
+/**
+ * Gives an owner a plan by writing its `owner_plans` row directly: nothing in the product grants
+ * plans yet, and the database CHECK constraints still hold the free limits.
+ */
+export async function grantPlan(
+  ownerId: string,
+  plan: "free" | "pro" | "team" | "enterprise",
+  options: { seats?: number; validUntil?: number | null; overrides?: unknown } = {},
+): Promise<void> {
+  await db()
+    .insert(schema.ownerPlans)
+    .values({
+      ownerId,
+      plan,
+      seats: options.seats ?? 1,
+      validUntil: options.validUntil ?? null,
+      overrides: options.overrides ?? null,
+      grantedBy: "test",
+      updatedAt: NOW,
+    })
+    .onConflictDoUpdate({
+      target: schema.ownerPlans.ownerId,
+      set: {
+        plan,
+        seats: options.seats ?? 1,
+        validUntil: options.validUntil ?? null,
+        overrides: options.overrides ?? null,
+      },
+    });
+}
+
+/** The value of a successful result; fails the test with the error otherwise. */
+export function value<T>(result: { ok: true; value: T } | { ok: false; message: string }): T {
+  if (!result.ok) throw new Error(result.message);
+  return result.value;
 }

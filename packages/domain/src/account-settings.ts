@@ -8,7 +8,7 @@ import { ok, type Result } from "./result.ts";
 
 /**
  * What an account starts with: private to the owner, comments off, owner visibility, bar on, and
- * expiry notices on.
+ * expiry and comment notices on.
  */
 export const BUILT_IN_SETTINGS: AccountSettings = {
   defaultAccessMode: "restricted",
@@ -16,6 +16,7 @@ export const BUILT_IN_SETTINGS: AccountSettings = {
   defaultCommentVisibility: "owner",
   defaultBar: true,
   expiryNotices: true,
+  commentNotices: true,
   locale: null,
 };
 
@@ -35,6 +36,7 @@ export function changeSettings(
     defaultCommentVisibility: update.defaultCommentVisibility ?? current.defaultCommentVisibility,
     defaultBar: update.defaultBar ?? current.defaultBar,
     expiryNotices: update.expiryNotices ?? current.expiryNotices,
+    commentNotices: update.commentNotices ?? current.commentNotices,
     // null is a choice of its own (follow the browser), so only a missing field keeps the old one.
     locale: update.locale === undefined ? current.locale : update.locale,
   };

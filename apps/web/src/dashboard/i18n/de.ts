@@ -80,6 +80,7 @@ export const de = {
   "list.refreshFailed.body":
     "Sie zeigt den zuletzt geladenen Stand. Portifact versucht es gleich noch einmal.",
   "list.never": "Nie",
+  "list.pinned": "Angeheftet",
   "list.column.access": "Zugriff",
   "list.captionFiltered": "Deine Artifacts, die zur Suche und zu den Filtern passen",
   "list.countFiltered":
@@ -177,6 +178,14 @@ export const de = {
     "Stell es wieder her, bevor es endgültig gelöscht wird, um es wieder online zu bringen.",
   "detail.noActions": "In diesem Status sind keine Aktionen verfügbar.",
   "detail.renew": "Um 30 Tage verlängern",
+  "detail.pin": "Anheften",
+  "detail.unpin": "Lösen",
+  "detail.pinned.body": "Angeheftet: Es bleibt ohne Ablaufdatum online, bis du es löst.",
+  "detail.pin.paid":
+    "Anheften hält ein Artifact ohne Ablaufdatum online. Es ist Teil des Plans {plan}.",
+  "detail.expiresNever": "Nie, es ist angeheftet",
+  "detail.pinnedDone": "Artifact angeheftet. Es bleibt ohne Ablaufdatum online.",
+  "detail.unpinnedDone": "Artifact gelöst. Es läuft jetzt am {date} ab.",
   "detail.archive": "Archivieren",
   "detail.restore": "Wiederherstellen",
   "detail.delete": "Löschen",
@@ -431,6 +440,16 @@ export const de = {
   "settings.notices.unchanged":
     "Nichts zu speichern: Deine E-Mail-Hinweise sind bereits so eingestellt.",
   "settings.notices.failed": "Deine E-Mail-Hinweise wurden nicht gespeichert",
+  "settings.notices.comments.label": "E-Mail bei neuen Kommentaren",
+  "settings.notices.comments.hint":
+    "Höchstens eine E-Mail alle 10 Minuten, mit der Zahl neuer Threads, Antworten und erledigter Threads je Artifact, nie mit dem, was geschrieben wurde. Nur für Artifacts, deren Eigentümer einen Plan mit Kommentarhinweisen hat.",
+  "commentNotices.label": "E-Mail bei neuen Kommentaren zu diesem Artifact",
+  "commentNotices.hint":
+    "Höchstens eine E-Mail alle 10 Minuten, nur mit Zahlen. Alle Kommentar-E-Mails schaltest du in deinen Einstellungen ab.",
+  "commentNotices.muted": "Kommentar-E-Mails für dieses Artifact abgeschaltet.",
+  "commentNotices.unmuted": "Kommentar-E-Mails für dieses Artifact eingeschaltet.",
+  "commentNotices.failed": "Deine Auswahl wurde nicht gespeichert",
+  "commentNotices.planRequired": "E-Mail-Hinweise zu neuen Kommentaren sind Teil des Plans {plan}.",
   "settings.danger.title": "Gefahrenbereich",
   "settings.danger.hint": "Diese Aktionen können nicht rückgängig gemacht werden.",
   "account.data.title": "Deine Daten",
@@ -478,6 +497,15 @@ export const de = {
   "usage.description":
     "Deine Kontingente und was deine Artifacts in diesem Monat ausgeliefert haben. Traffic wird alle paar Sekunden gezählt und kann daher etwas hinterherhinken.",
   "usage.meterPercent": "{used} von {limit} ({percent})",
+  "usage.plan.section": "Tarif",
+  "usage.plan.hint": "Dein Tarif legt die Grenzen auf dieser Seite fest.",
+  "usage.plan.name": "Aktueller Tarif",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Plätze",
+  "usage.plan.until": "Gültig bis",
   "usage.traffic.section": "Traffic in diesem Monat",
   "usage.traffic.hint":
     "Gezählt für dein ganzes Konto, über alle deine Artifacts. Wird eines der Limits erreicht, sind alle Artifacts bis zum Zurücksetzen pausiert.",
@@ -631,6 +659,7 @@ export const de = {
   "publish.startOver": "Neu beginnen",
   "publish.done.title": "Version {number} veröffentlicht",
   "publish.done.body": "Es ist unter {url} online und läuft am {date} ab.",
+  "publish.done.pinned": "Es ist unter {url} online. Es ist angeheftet und läuft daher nicht ab.",
   "publish.done.open": "Seite des Artifacts öffnen",
   "publish.done.another": "Etwas anderes veröffentlichen",
   "publish.announce.done": "Version {number} von {name} veröffentlicht.",
@@ -638,7 +667,7 @@ export const de = {
   "manifest.empty":
     "Es gibt nichts zu veröffentlichen: Alle Dateien wurden ausgelassen oder die Quelle ist leer.",
   "manifest.too_many_files": "Eine Version kann höchstens {detail} Dateien enthalten.",
-  "manifest.too_large": "Eine Version kann höchstens 250 MB enthalten.",
+  "manifest.too_large": "Eine Version kann höchstens {detail} enthalten.",
   "manifest.invalid_path": "Ein Dateipfad ist nicht erlaubt: {detail}",
   "manifest.missing_entry":
     "Die Startseite {detail} ist nicht unter den Dateien. Ändere die Startseite oder füge sie hinzu.",
@@ -999,8 +1028,12 @@ export const de = {
   "error.artifact_archived": "Das Artifact ist archiviert. Stell es zuerst wieder her.",
   "error.account_too_new_for_public": "Neue Konten können Artifacts noch nicht öffentlich machen.",
   "error.capacity_unavailable": "Portifact ist gerade ausgelastet. Versuch es später noch einmal.",
+  "error.sole_workspace_admin":
+    "Du bist die einzige Person mit Adminrechten in einem Workspace. Mach ein anderes Mitglied zum Admin oder lösche den Workspace, bevor du dein Konto löschst.",
   "error.rate_limited": "Zu viele Anfragen. Warte einen Moment und versuch es noch einmal.",
   "error.reauthentication_required": "Melde dich erneut an, um das zu tun.",
   "error.human_verification_required":
     "Deine ersten Kommentare zu Artifacts anderer Personen brauchen eine kurze Prüfung, dass du ein Mensch bist. Schließ sie ab und sende dann erneut.",
+  "error.plan_required":
+    "Diese Funktion ist nicht im Plan des Eigentümers des Artifacts enthalten.",
 } satisfies Catalog;

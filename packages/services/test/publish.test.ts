@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { LIMITS } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -17,7 +17,7 @@ import { racing } from "./fixtures.ts";
 const OWNER = "u_owner";
 const NOW = Date.UTC(2026, 10, 8, 12);
 const DAY = 86_400_000;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -38,7 +38,7 @@ async function site(bodies: Record<string, string>): Promise<ManifestEntry[]> {
 
 function input(files: ManifestEntry[], overrides: Partial<PrepareInput> = {}): PrepareInput {
   return {
-    ownerId: OWNER,
+    userId: OWNER,
     type: "site",
     name: "Migration plan",
     entrypoint: "index.html",
@@ -75,7 +75,7 @@ async function prepared(files: ManifestEntry[], overrides: Partial<PrepareInput>
 }
 
 async function committed(sessionId: string, now = NOW) {
-  const result = await commitPublish(db(), env.ARTIFACTS, { ownerId: OWNER, sessionId, now });
+  const result = await commitPublish(db(), env.ARTIFACTS, { userId: OWNER, sessionId, now });
   if (!result.ok) throw new Error(`commit failed: ${result.code} ${result.message}`);
   return result.value;
 }
@@ -305,7 +305,7 @@ describe("prepare", () => {
           }),
         ),
       );
-    expect(await update({ ownerId: "u_other" })).toMatchObject({ ok: false, code: "not_found" });
+    expect(await update({ userId: "u_other" })).toMatchObject({ ok: false, code: "not_found" });
     expect(await update({ type: "markdown" })).toMatchObject({ ok: false, code: "invalid_input" });
     expect(await update({ baseVersionId: "ver_stale" })).toMatchObject({
       ok: false,
@@ -376,7 +376,7 @@ describe("commit", () => {
     expect(second.uploads.map((u) => u.sha256).sort()).toEqual(
       abandoned.uploads.map((u) => u.sha256).sort(),
     );
-    await abortPublish(db(), { ownerId: OWNER, sessionId: abandoned.sessionId, now: NOW });
+    await abortPublish(db(), { userId: OWNER, sessionId: abandoned.sessionId, now: NOW });
     await upload(v1);
     expect((await committed(second.sessionId)).versionNumber).toBe(1);
   });
@@ -450,7 +450,7 @@ describe("commit", () => {
     await corrupt();
 
     const result = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: first.sessionId,
       now: NOW,
     });
@@ -467,7 +467,7 @@ describe("commit", () => {
     expect(
       (
         await commitPublish(db(), env.ARTIFACTS, {
-          ownerId: OWNER,
+          userId: OWNER,
           sessionId: first.sessionId,
           now: NOW,
         })
@@ -500,7 +500,7 @@ describe("commit", () => {
 
     await committed(a.sessionId, NOW + 1);
     const loser = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: b.sessionId,
       now: NOW + 2,
     });
@@ -518,20 +518,20 @@ describe("commit", () => {
 
   it("refuses expired, foreign and closed uploads", async () => {
     const first = await prepared(await site(v1));
-    const commit = (overrides: { ownerId?: string; now?: number }) =>
+    const commit = (overrides: { userId?: string; now?: number }) =>
       commitPublish(db(), env.ARTIFACTS, {
-        ownerId: OWNER,
+        userId: OWNER,
         sessionId: first.sessionId,
         now: NOW,
         ...overrides,
       });
 
-    expect(await commit({ ownerId: "u_other" })).toMatchObject({ ok: false, code: "not_found" });
+    expect(await commit({ userId: "u_other" })).toMatchObject({ ok: false, code: "not_found" });
     expect(await commit({ now: NOW + DAY })).toMatchObject({
       ok: false,
       code: "upload_incomplete",
     });
-    await abortPublish(db(), { ownerId: OWNER, sessionId: first.sessionId, now: NOW });
+    await abortPublish(db(), { userId: OWNER, sessionId: first.sessionId, now: NOW });
     expect(await commit({})).toMatchObject({ ok: false, code: "upload_incomplete" });
   });
 });
@@ -539,8 +539,7 @@ describe("commit", () => {
 describe("abort", () => {
   it("releases the reservation exactly once and removes the never-published artifact", async () => {
     const first = await prepared(await site(v1));
-    const abort = () =>
-      abortPublish(db(), { ownerId: OWNER, sessionId: first.sessionId, now: NOW });
+    const abort = () => abortPublish(db(), { userId: OWNER, sessionId: first.sessionId, now: NOW });
 
     await Promise.all([abort(), abort()]);
     expect((await abort()).ok).toBe(true);
@@ -558,7 +557,7 @@ describe("abort", () => {
       baseVersionId: first.versionId,
     });
 
-    await abortPublish(db(), { ownerId: OWNER, sessionId: update.sessionId, now: NOW });
+    await abortPublish(db(), { userId: OWNER, sessionId: update.sessionId, now: NOW });
 
     const [artifact] = await db().select().from(schema.artifacts);
     expect(artifact).toMatchObject({ state: "active", currentVersionId: first.versionId });
@@ -568,7 +567,7 @@ describe("abort", () => {
   it("only lets the owner abort", async () => {
     const first = await prepared(await site(v1));
     expect(
-      await abortPublish(db(), { ownerId: "u_other", sessionId: first.sessionId, now: NOW }),
+      await abortPublish(db(), { userId: "u_other", sessionId: first.sessionId, now: NOW }),
     ).toMatchObject({
       ok: false,
       code: "not_found",
@@ -580,7 +579,7 @@ describe("upload progress", () => {
   it("lists the objects still pending of an open upload, and nothing once committed", async () => {
     const first = await prepared(await site(v1));
     const progress = await uploadProgress(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: first.sessionId,
       now: NOW,
     });
@@ -591,7 +590,7 @@ describe("upload progress", () => {
     await upload(v1);
     await committed(first.sessionId);
     const after = await uploadProgress(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: first.sessionId,
       now: NOW,
     });
@@ -601,14 +600,14 @@ describe("upload progress", () => {
   it("hides another account's upload and refuses an expired one", async () => {
     const open = await prepared(await site(v1));
     expect(
-      await uploadProgress(db(), { ownerId: "u_else", sessionId: open.sessionId, now: NOW }),
+      await uploadProgress(db(), { userId: "u_else", sessionId: open.sessionId, now: NOW }),
     ).toMatchObject({ ok: false, code: "not_found" });
     expect(
-      await uploadProgress(db(), { ownerId: OWNER, sessionId: "upl_missing", now: NOW }),
+      await uploadProgress(db(), { userId: OWNER, sessionId: "upl_missing", now: NOW }),
     ).toMatchObject({ ok: false, code: "not_found" });
     expect(
       await uploadProgress(db(), {
-        ownerId: OWNER,
+        userId: OWNER,
         sessionId: open.sessionId,
         now: open.expiresAt,
       }),

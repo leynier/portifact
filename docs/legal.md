@@ -51,9 +51,17 @@ New accounts also need a solved human check (Cloudflare Turnstile, `__Host-pf_hu
 
 The Privacy Policy lists the two preference cookies (`__Secure-pf_theme`, `__Secure-pf_lang`) that `portifact.com` and `app.portifact.com` share, and says they never reach `portifact.dev`; keep it in sync with "Cookies and sessions" in [security.md](security.md). They were added on the version of 2026-11-08 without a new `TERMS_VERSION`: they are strictly functional, hold only the theme or language the visitor chose and no identifier, are set only when the visitor chooses, and change no one's rights.
 
+The Terms and the Privacy Policy describe a fixed lifecycle: an artifact expires 30 days after its last publish or renewal and is kept archived for 6 months before it is deleted. Since pins and archive length by plan (premium plan P2), both depend on the owner's plan: a paid plan can pin an artifact so it does not expire, and an archive is kept for the plan's `archiveMonths` when it is archived (12 on paid plans). The free plan, and every account without a plan, still behaves exactly as the pages say, so the texts were left unchanged and `TERMS_VERSION` was not bumped; change them in one go with the other plan-dependent terms when paid plans are offered.
+
 `terms_version` and `terms_accepted_at` are Better Auth `additionalFields` with `input: false`, so no request body can set them; `get-session` returns them to the login page.
 
 Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.
+
+## Pending changes to the legal texts
+
+Changes that shipped and that the legal pages do not describe yet, to be written in one go with the next update of the texts (and a `TERMS_VERSION` bump if the change is material):
+
+- Comment notices (premium plan P5): a new kind of email. The Privacy page must say that on artifacts whose owner's plan includes them, Portifact emails the owner side and the people who took part in a thread a digest of new comment activity, at most every 10 minutes; that the email holds the artifact's name, counts of new threads, replies and resolutions and links, never what was written or who wrote it; that it is on by default and turned off in the settings, per artifact with a mute, or with the one-click unsubscribe link in every email; and what is stored for it: pending activity per recipient and thread (IDs, counts and a time, deleted once the digest is scheduled, with the thread, the artifact or the account), the mutes, the setting and when it last changed, all part of the account export. The Terms may also mention it among the paid features.
 
 ## Changing the texts
 

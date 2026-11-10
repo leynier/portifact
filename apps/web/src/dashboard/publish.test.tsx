@@ -51,6 +51,37 @@ async function review() {
   return screen.findByRole("heading", { name: "Review before publishing" });
 }
 
+describe("publishing with the owner's plan", () => {
+  // Injected small limits stand in for real sizes: a version of 20 bytes on the plan that
+  // refuses, 100 on the one that accepts, and a single 60-byte file between them.
+  const big = () => file("data.html", "x".repeat(60));
+
+  it("refuses a file above the plan's per-artifact size before hashing, naming the size", async () => {
+    server.usage.plan.limits.artifactBytes = 20;
+    renderDashboard("/publish", server);
+    await pick("Choose files", [big()]);
+    expect(await screen.findByText("A version can hold at most 20 bytes.")).toBeTruthy();
+    expect(publishes()).toHaveLength(0);
+  });
+
+  it("publishes a single file above the free size within a Pro plan", async () => {
+    server.usage = {
+      ...server.usage,
+      plan: {
+        ...server.usage.plan,
+        name: "pro",
+        limits: { ...server.usage.plan.limits, artifactBytes: 100 },
+      },
+    };
+    renderDashboard("/publish", server);
+    await pick("Choose files", [big()]);
+    await review();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(await screen.findByText("Published version 1")).toBeTruthy();
+    expect(server.uploads.at(-1)?.request.files.map((f) => f.size)).toEqual([60]);
+  });
+});
+
 describe("publishing a new artifact", () => {
   it("publishes a folder after showing what is published, what is left out and who can open it", async () => {
     const { container } = renderDashboard("/publish", server);

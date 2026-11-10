@@ -1,4 +1,4 @@
-// portifact usage: the account's quotas, counters, 24-hour windows, this month's traffic and what
+// portifact usage: the account's plan, quotas, counters, 24-hour windows, this month's traffic and what
 // blocks it now, as
 // GET /api/v1/usage reports them. The server computes everything; this only presents it.
 import { AccountUsageView, type UsageMeter } from "@portifact/contracts";
@@ -18,6 +18,7 @@ export async function usage(io: Io, runtime: Runtime, options: OutputOptions): P
   const bytes = (meter: UsageMeter) =>
     messages.usageMeter(formatBytes(meter.used), formatBytes(meter.limit));
   const lines: [string, string][] = [
+    ["Plan", messages.usagePlan(view.plan.name, view.plan.seats, view.plan.validUntil)],
     ["Active artifacts", count(view.activeArtifacts)],
     [
       "Storage",
@@ -40,6 +41,7 @@ export async function usage(io: Io, runtime: Runtime, options: OutputOptions): P
       `${formatBytes(view.versionLimits.publishedBytes)} published, ${view.versionLimits.files} files, ${formatBytes(view.versionLimits.documentBytes)} per document`,
     ],
     ["Public access allowed from", formatDate(view.publicAccessFrom)],
+    ["Plan features", messages.usageFeatures(view.plan.features)],
   ];
   io.stdout(`${messages.usage(lines)}\n`);
   if (view.blocks.length === 0) {

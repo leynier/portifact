@@ -2,7 +2,7 @@
 // inside workerd against local D1 and R2, so they also prove the renderer works in the runtime.
 import { env } from "cloudflare:test";
 import { LIMITS } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH, RENDERER_VERSION } from "@portifact/render";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ import {
 
 const OWNER = "u_owner";
 const NOW = Date.UTC(2026, 10, 8, 12);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const encode = (text: string) => new TextEncoder().encode(text);
 
 async function sha256(bytes: Uint8Array): Promise<string> {
@@ -52,7 +52,7 @@ function input(
   overrides: Partial<PrepareInput> = {},
 ): PrepareInput {
   return {
-    ownerId: OWNER,
+    userId: OWNER,
     type,
     name: "Release <notes>",
     entrypoint: files[0]?.path ?? "",
@@ -70,7 +70,7 @@ async function prepared(...args: Parameters<typeof input>) {
 }
 
 const commit = (sessionId: string, now = NOW) =>
-  commitPublish(db(), env.ARTIFACTS, { ownerId: OWNER, sessionId, now });
+  commitPublish(db(), env.ARTIFACTS, { userId: OWNER, sessionId, now });
 
 /** Prepares, uploads and commits a single document. */
 async function publish(
@@ -334,7 +334,7 @@ describe("commit a document", () => {
       contentType: "text/html; charset=utf-8",
     });
     const progress = await uploadProgress(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: upload.sessionId,
       now: NOW,
     });
@@ -434,6 +434,18 @@ describe("security re-render", () => {
     expect(await text(page?.sha256 ?? "")).toContain("<strong>today</strong>");
     // The old page was freed after the new one was counted at the limit.
     expect((await usage())?.storedBytes).toBe(LIMITS.accountBytes - oldSize);
+  });
+
+  it("counts a fix up to the account's own storage limit, not the free plan's", async () => {
+    const result = await publish("markdown", "plan.md", MARKDOWN);
+    const { oldSize } = await makeOutdated(result.versionId, "0");
+    const raised = LIMITS.accountBytes * 2;
+    await env.DB.prepare("UPDATE account_usage SET stored_bytes = ?, bytes_limit = ?")
+      .bind(raised, raised)
+      .run();
+
+    expect(await rerenderDocuments(db(), env.ARTIFACTS, NOW)).toEqual({ processed: 1 });
+    expect((await usage())?.storedBytes).toBe(raised - oldSize);
   });
 
   it("re-renders archived documents but not sites, deleted artifacts or lost sources", async () => {

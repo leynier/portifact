@@ -2,11 +2,19 @@
 // reinstate artifacts and accounts; for backups (plan section 10): review the storage
 // reconciliation's findings, and export and re-apply tombstones around a D1 Time Travel restore;
 // for the budget (plan section 12): show the state and the alerts, and override the automatic
-// protection; and for email delivery (plan section 17): list and lift suppressed addresses. They run only from `scripts/operator.ts` on the operator's machine, with the deploy
+// protection; for email delivery (plan section 17): list and lift suppressed addresses; and for
+// paid plans (premium plan section 3, F1): show, grant, change and remove an owner's plan, the
+// only way a plan is ever granted. They run only from `scripts/operator.ts` on the operator's machine, with the deploy
 // credentials, against the D1 binding; no web route reaches them. Each command calls the same
 // services the tests cover, and prints plain text without secrets.
-import { AbuseReason, TombstoneMarker } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import {
+  AbuseReason,
+  OwnerPlanExport,
+  PLAN_NAMES,
+  PlanName,
+  TombstoneMarker,
+} from "@portifact/contracts";
+import { type Db, regionsFromEnv, schema } from "@portifact/db";
 import {
   BUDGET_LEVELS,
   type BudgetLevel,
@@ -16,20 +24,27 @@ import {
 } from "@portifact/domain";
 import {
   accountSuspension,
+  applyOwnerPlans,
   applyTombstones,
   type BudgetState,
   clearBudgetOverride,
+  exportOwnerPlans,
   exportTombstones,
   getBudgetState,
+  getOwnerPlan,
   liftEmailSuppression,
   listAbuseReports,
   listBudgetAlerts,
   listEmailSuppressions,
   listStorageFindings,
+  type OwnerPlanState,
+  rebuildArtifactDirectory,
   reinstateAccount,
   reinstateArtifact,
+  removeOwnerPlan,
   resolveAbuseReport,
   setBudgetOverride,
+  setOwnerPlan,
   suspendAccount,
   suspendArtifact,
 } from "@portifact/services";
@@ -58,8 +73,15 @@ Commands:
   budget-override clear
   email-suppressions [--limit N]
   lift-email-suppression <email>
+  plan <user-id|email>
+  set-plan <user-id|email> <plan> [--seats N] [--until <ISO date>] [--note <text>]
+           [--overrides <json>]
+  remove-plan <user-id|email>
+  export-plans --out <file>
+  apply-plans --file <file>
 
 Reasons: ${AbuseReason.options.join(", ")}
+Plans: ${PLAN_NAMES.join(", ")} (--overrides: {"limits":{...},"features":{...}}, totals after seats)
 Budget levels: ${BUDGET_LEVELS.join(", ")} (--steps applies to protect100)`;
 
 /** Files the backup commands read and write; the script passes the real file system. */
@@ -73,13 +95,13 @@ const noFiles: OperatorFiles = {
   write: async () => Promise.reject(new Error("No file access.")),
 };
 
-/** Parses the JSON lines `export-tombstones` writes; any bad line refuses the whole file. */
-export function parseTombstones(
+/** Parses JSON lines against a schema; any bad line refuses the whole file. */
+function parseJsonLines<T>(
   text: string,
-): { ok: true; markers: TombstoneMarker[] } | { ok: false; line: number } {
-  const markers: TombstoneMarker[] = [];
-  const lines = text.split("\n");
-  for (const [index, line] of lines.entries()) {
+  schema: { safeParse(value: unknown): { success: true; data: T } | { success: false } },
+): { ok: true; items: T[] } | { ok: false; line: number } {
+  const items: T[] = [];
+  for (const [index, line] of text.split("\n").entries()) {
     if (line.trim() === "") continue;
     let value: unknown;
     try {
@@ -87,11 +109,19 @@ export function parseTombstones(
     } catch {
       return { ok: false, line: index + 1 };
     }
-    const parsed = TombstoneMarker.safeParse(value);
+    const parsed = schema.safeParse(value);
     if (!parsed.success) return { ok: false, line: index + 1 };
-    markers.push(parsed.data);
+    items.push(parsed.data);
   }
-  return { ok: true, markers };
+  return { ok: true, items };
+}
+
+/** Parses the JSON lines `export-tombstones` writes; any bad line refuses the whole file. */
+export function parseTombstones(
+  text: string,
+): { ok: true; markers: TombstoneMarker[] } | { ok: false; line: number } {
+  const parsed = parseJsonLines(text, TombstoneMarker);
+  return parsed.ok ? { ok: true, markers: parsed.items } : parsed;
 }
 
 /** Which database the script binds: production, the local dev state or another configuration. */
@@ -245,6 +275,98 @@ function alertLine(a: {
   notifiedAt: number | null;
 }) {
   return `${iso(a.createdAt)}  ${a.kind}  ${usd(a.projectedUsd)}  ${a.notifiedAt ? "emailed" : "not emailed"}`;
+}
+
+const count = (value: number) => value.toLocaleString("en-US");
+
+function meter(label: string, used: number, limit: number, column: number | undefined): string {
+  const stored = column === undefined ? "no row yet, defaults to free" : `column ${count(column)}`;
+  return `${label.padEnd(12)}${count(used)} of ${count(limit)} (${stored})`;
+}
+
+function planLines(ownerId: string, state: OwnerPlanState): string[] {
+  const { row, entitlements: e, account, annotations } = state;
+  const until = (value: number | null) => (value === null ? "no end" : `until ${iso(value)}`);
+  const lines = [`owner       ${ownerId}`];
+  if (row) {
+    const overrides = row.overrides === null ? "" : `, overrides ${JSON.stringify(row.overrides)}`;
+    const note = row.note ? `: ${oneLine(row.note)}` : "";
+    lines.push(
+      `row         ${row.plan}, ${row.seats} seat(s), ${until(row.validUntil)}${overrides}`,
+      `granted     by ${oneLine(row.grantedBy)}, ${iso(row.createdAt)}, updated ${iso(row.updatedAt)}${note}`,
+    );
+  } else {
+    lines.push("row         none (free)");
+  }
+  lines.push(
+    `effective   ${e.plan}, ${e.seats} seat(s), ${until(e.validUntil)}`,
+    `features    ${list(e.features)}`,
+    meter("active", account?.activeArtifacts ?? 0, e.limits.activeArtifacts, account?.activeLimit),
+    meter(
+      "storage",
+      (account?.storedBytes ?? 0) + (account?.reservedBytes ?? 0),
+      e.limits.accountBytes,
+      account?.bytesLimit,
+    ),
+    meter(
+      "comments",
+      annotations?.messages ?? 0,
+      e.limits.annotationMessages,
+      annotations?.messagesLimit,
+    ),
+    meter("comment B", annotations?.bytes ?? 0, e.limits.annotationBytes, annotations?.bytesLimit),
+    `per version ${count(e.limits.artifactBytes)} bytes; traffic ${count(e.limits.requestsPerMonth)} requests and ${count(e.limits.bytesPerMonth)} bytes a month`,
+  );
+  return lines;
+}
+
+/** `--until`: an ISO date or date and time, read as UTC. */
+function parseUntil(value: string | undefined): number | null | "invalid" {
+  if (value === undefined) return null;
+  if (!/^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/.test(value)) return "invalid";
+  const ms = Date.parse(value.length === 10 ? `${value}T00:00:00Z` : value);
+  return Number.isFinite(ms) ? ms : "invalid";
+}
+
+async function setPlan(
+  db: Db,
+  args: string[],
+  options: Map<string, string>,
+  now: number,
+): Promise<OperatorResult> {
+  const [who, plan] = args;
+  const name = PlanName.safeParse(plan);
+  if (!who || !name.success) return usage("set-plan needs a user ID or email and a plan.");
+  const seats = options.has("seats") ? Number(options.get("seats")) : 1;
+  const validUntil = parseUntil(options.get("until"));
+  if (validUntil === "invalid") return usage("--until must be an ISO date, like 2027-01-31.");
+  let overrides: unknown = null;
+  if (options.has("overrides")) {
+    try {
+      overrides = JSON.parse(options.get("overrides") ?? "");
+    } catch {
+      return usage("--overrides must be JSON.");
+    }
+  }
+  const userId = await userIdFor(db, who);
+  if (!userId) return { exitCode: 1, output: "Account not found." };
+  const result = await setOwnerPlan(db, {
+    ownerId: userId,
+    plan: name.data,
+    seats,
+    validUntil,
+    overrides,
+    grantedBy: "operator",
+    note: options.get("note")?.trim() || null,
+    now,
+  });
+  if (!result.ok) return { exitCode: 1, output: result.message };
+  return {
+    exitCode: 0,
+    output: [`Set the plan of ${userId} to ${name.data}.`, ...planLines(userId, result.value)].join(
+      "\n",
+    ),
+  };
 }
 
 /** Runs one operator command against the database. */
@@ -418,9 +540,15 @@ export async function runOperator(
         markers = parsed.markers;
       }
       const result = await applyTombstones(db, markers, now);
+      // A restore of the global database rewinds the artifact directory too (decision 0005).
+      const regions = regionsFromEnv({ DB: db.$client });
+      let directory = 0;
+      for (const handles of regions.all()) {
+        directory += await rebuildArtifactDirectory(regions.global, handles.db, handles.region);
+      }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {
@@ -472,6 +600,59 @@ export async function runOperator(
           ? `Lifted the suppression of ${emailHint(email)}. Email Service keeps its own list: remove the address there too if sends still fail (docs/operations.md).`
           : `No suppression for ${emailHint(email)}.`,
       };
+    }
+    case "plan": {
+      const [who] = args;
+      if (!who) return usage("plan needs a user ID or email.");
+      const userId = await userIdFor(db, who);
+      if (!userId) return { exitCode: 1, output: "Account not found." };
+      return {
+        exitCode: 0,
+        output: planLines(userId, await getOwnerPlan(db, userId, now)).join("\n"),
+      };
+    }
+    case "set-plan":
+      return setPlan(db, args, options, now);
+    case "remove-plan": {
+      const [who] = args;
+      if (!who) return usage("remove-plan needs a user ID or email.");
+      const userId = await userIdFor(db, who);
+      if (!userId) return { exitCode: 1, output: "Account not found." };
+      const result = await removeOwnerPlan(db, { ownerId: userId, now });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      const head = result.value.removed
+        ? `Removed the plan of ${userId}; it is on free.`
+        : `${userId} had no plan.`;
+      return { exitCode: 0, output: [head, ...planLines(userId, result.value.state)].join("\n") };
+    }
+    case "export-plans": {
+      const out = options.get("out");
+      if (!out) return usage("export-plans needs --out <file>.");
+      const plans = await exportOwnerPlans(db);
+      await files.write(out, plans.map((plan) => `${JSON.stringify(plan)}\n`).join(""));
+      return { exitCode: 0, output: `Wrote ${plans.length} plan(s) to ${out}.` };
+    }
+    case "apply-plans": {
+      const file = options.get("file");
+      if (!file) return usage("apply-plans needs --file <file>.");
+      const parsed = parseJsonLines(await files.read(file), OwnerPlanExport);
+      if (!parsed.ok) {
+        return {
+          exitCode: 1,
+          output: `Line ${parsed.line} of ${file} is not an exported plan; nothing was applied.`,
+        };
+      }
+      const result = await applyOwnerPlans(db, parsed.items, now);
+      const lines = [
+        `Applied ${result.applied} plan(s); skipped ${result.skipped} (ended, or the account is gone).`,
+      ];
+      if (result.extra.length > 0) {
+        lines.push(
+          `${result.extra.length} owner(s) have a plan the file does not list; remove each with remove-plan if it ended after the export:`,
+          ...result.extra.map((ownerId) => `  ${ownerId}`),
+        );
+      }
+      return { exitCode: 0, output: lines.join("\n") };
     }
     default:
       return usage(command ? `Unknown command: ${command}` : "No command given.");

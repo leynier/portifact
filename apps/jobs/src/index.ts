@@ -1,5 +1,5 @@
 // The jobs Worker. Its schedule runs the maintenance scans (the safety net, and the scan that
-// schedules expiry notices, which the consumer emails to owners), relays pending
+// schedules expiry and comment notices, which the consumer emails), relays pending
 // outbox rows to the `portifact-jobs` queue, reconciles a slice of storage with D1 and runs the
 // budget run (alerts and automatic protection, plan section 12). Its queue consumer runs the
 // relayed jobs (including the erasure of access logs in the separate access log database), and the
@@ -8,8 +8,9 @@
 // complaints Cloudflare Email Service reports. Every job is idempotent and guards every
 // transition, so overlapping runs, retries and duplicate deliveries are safe.
 import { EmailSendingEvent, JobMessage } from "@portifact/contracts";
-import { createAccessDb, createDb, type Db } from "@portifact/db";
+import { createAccessDb, type Db, regionsFromEnv } from "@portifact/db";
 import {
+  personalHandles,
   pruneAccessEvents,
   reconcileStorage,
   recordEmailEvent,
@@ -19,7 +20,7 @@ import {
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
-import { expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
+import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
 
 export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv {
   DB: D1Database;
@@ -40,7 +41,8 @@ export const EMAIL_EVENTS_QUEUE = "portifact-email-events";
 const errorName = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 export async function runScheduled(env: Env, now: number) {
-  const db = createDb(env.DB);
+  // One region for now; with a second (E5) the scans run once per region (decision 0005).
+  const db = personalHandles(regionsFromEnv(env)).db;
   const maintenance = await runMaintenance(db, env.ARTIFACTS, now);
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
   let relayed: number | "failed";
@@ -70,7 +72,7 @@ export async function runScheduledBudget(
   now: number,
   fetcher: Fetcher = (input, init) => fetch(input, init),
 ) {
-  const result = await runBudget(createDb(env.DB), now, {
+  const result = await runBudget(regionsFromEnv(env).global, now, {
     analytics: analyticsFromEnv(env, fetcher),
     notifier: notifierFromEnv(env),
   });
@@ -118,10 +120,11 @@ function safeJson(text: string): unknown {
 }
 
 export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: number) {
-  const db = createDb(env.DB);
+  const db = personalHandles(regionsFromEnv(env)).db;
   const access = createAccessDb(env.ACCESS_DB);
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   const notifier = expiryNotifierFromEnv(env);
+  const commentNotifier = commentNotifierFromEnv(env);
   for (const message of batch.messages) {
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {
@@ -131,7 +134,11 @@ export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: numb
       continue;
     }
     try {
-      const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, { access, notifier });
+      const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, {
+        access,
+        notifier,
+        commentNotifier,
+      });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });
       } else {

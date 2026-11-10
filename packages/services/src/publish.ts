@@ -2,8 +2,10 @@
 // it (verify the uploaded bytes, then switch the current version atomically). Adapters (API,
 // MCP, CLI flows) call these; they never reimplement the rules.
 import { type ArtifactType, LIMITS } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  type Actor,
+  authorize,
   checkDocumentManifest,
   checkPublish,
   checkPublishCapacity,
@@ -13,7 +15,6 @@ import {
   DOCUMENT_CONTENT_TYPES,
   type DocumentType,
   fail,
-  generateArtifactId,
   isDocumentType,
   type MultipartConfig,
   nextExpiry,
@@ -24,7 +25,9 @@ import {
 } from "@portifact/domain";
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { newArtifactDefaults } from "./account-settings.ts";
+import { actorOn, authorizeOn } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
+import { claimNewArtifactId } from "./directory.ts";
 import {
   type DocumentRendering,
   renderDocument,
@@ -41,6 +44,7 @@ import {
   openMultipartUploads,
 } from "./multipart.ts";
 import { hex, objectKey } from "./objects.ts";
+import { ownerEntitlements } from "./plans.ts";
 
 export { objectKey } from "./objects.ts";
 
@@ -62,7 +66,13 @@ export interface ManifestEntry {
 }
 
 export interface PrepareInput {
-  ownerId: string;
+  /** The signed-in user; their role on the owner decides whether they may publish. */
+  userId: string;
+  /**
+   * The owner a new artifact is created for; the user's personal space when omitted. Ignored
+   * with `artifactId`, whose owner it is.
+   */
+  targetOwnerId?: string | undefined;
   /** Existing artifact to update; omitted to create a new one. */
   artifactId?: string;
   type: ArtifactType;
@@ -214,9 +224,11 @@ function monthStart(now: number): number {
 
 /** Validates, deduplicates and admits a publish, then reserves its capacity in one transaction. */
 export async function preparePublish(
-  db: Db,
+  db: RegionalDb,
   input: PrepareInput,
   multipart?: MultipartOption,
+  /** Draws new artifact IDs; only tests replace it. */
+  drawArtifactId?: () => string,
 ): Promise<Result<PreparedUpload>> {
   const validated = validateManifest(input);
   if (!validated.ok) return validated;
@@ -233,7 +245,7 @@ export async function preparePublish(
   const name = input.name.trim();
   if (name.length === 0 || name.length > 200)
     return fail("invalid_input", "Name must be 1 to 200 characters.");
-  if (await accountSuspension(db, input.ownerId)) {
+  if (await accountSuspension(db, input.userId)) {
     return fail(
       "forbidden",
       "Your account is suspended, so it cannot publish. Contact abuse@portifact.com.",
@@ -242,15 +254,24 @@ export async function preparePublish(
 
   let artifactId = input.artifactId;
   let versionNumber = 1;
+  let actor: Actor;
   if (artifactId) {
     const [artifact] = await db
       .select()
       .from(schema.artifacts)
       .where(eq(schema.artifacts.id, artifactId))
       .limit(1);
-    // Someone else's artifact looks the same as a missing one.
-    if (!artifact || artifact.ownerId !== input.ownerId)
-      return fail("not_found", "Artifact not found.");
+    // An artifact of an owner the user has no role on looks the same as a missing one.
+    if (!artifact) return missingArtifact();
+    const allowed = await authorizeOn(
+      db,
+      input.userId,
+      artifact.ownerId,
+      "update",
+      missingArtifact,
+    );
+    if (!allowed.ok) return allowed;
+    actor = allowed.value;
     if (artifact.type !== input.type) {
       return fail(
         "invalid_input",
@@ -271,7 +292,16 @@ export async function preparePublish(
       .from(schema.versions)
       .where(eq(schema.versions.artifactId, artifactId));
     versionNumber = Number(last?.number ?? 0) + 1;
+  } else {
+    const allowed = authorize(
+      await actorOn(db.global, input.userId, input.targetOwnerId ?? input.userId),
+      "publish",
+    );
+    if (!allowed.ok) return allowed;
+    actor = allowed.value;
   }
+  // Quotas, storage and the plan are the owner's: a workspace's, or the user's own.
+  const ownerId = actor.ownerId;
   const createsArtifact = !artifactId;
   // Budget protection (plan section 12): the brake stops new artifacts, the first step every upload.
   const capacity = checkPublishCapacity(
@@ -282,27 +312,28 @@ export async function preparePublish(
 
   const unique = new Map<string, number>();
   for (const file of manifest.value) unique.set(file.sha256, file.size);
-  const stored = await existingObjects(db, input.ownerId, [...unique.keys()]);
+  const stored = await existingObjects(db, ownerId, [...unique.keys()]);
   const uploads: PendingUpload[] = [...unique]
     .filter(([sha256]) => !stored.has(sha256))
-    .map(([sha256, size]) => ({ sha256, size, r2Key: objectKey(input.ownerId, sha256) }));
+    .map(([sha256, size]) => ({ sha256, size, r2Key: objectKey(ownerId, sha256) }));
 
   const [usageRow] = await db
     .select()
     .from(schema.accountUsage)
-    .where(eq(schema.accountUsage.ownerId, input.ownerId))
+    .where(eq(schema.accountUsage.ownerId, ownerId))
     .limit(1);
   const since = input.now - DAY_MS;
   const sameMonth = usageRow && usageRow.monthStartedAt === monthStart(input.now);
   const newBytes = uploads.reduce((sum, upload) => sum + upload.size, 0);
+  const owner = await ownerEntitlements(db, ownerId, input.now);
   const admission = checkPublish(
     {
       activeArtifacts: usageRow?.activeArtifacts ?? 0,
       storedBytes: (usageRow?.storedBytes ?? 0) + (usageRow?.reservedBytes ?? 0),
-      publishesLast24h: await windowSum(db, input.ownerId, "publish", since),
+      publishesLast24h: await windowSum(db, ownerId, "publish", since),
       openUploads: usageRow?.openUploads ?? 0,
-      newFilesLast24h: await windowSum(db, input.ownerId, "new_files", since),
-      newBytesLast24h: await windowSum(db, input.ownerId, "new_bytes", since),
+      newFilesLast24h: await windowSum(db, ownerId, "new_files", since),
+      newBytesLast24h: await windowSum(db, ownerId, "new_bytes", since),
       newObjectsThisMonth: sameMonth ? usageRow.newObjectsThisMonth : 0,
     },
     {
@@ -314,13 +345,19 @@ export async function preparePublish(
       newBytes,
       newFiles: uploads.length,
     },
+    owner.limits,
   );
   if (!admission.ok) return admission;
 
   // A new artifact starts with the owner's defaults (access, comments, the bar); updates keep
   // the artifact's own policy.
-  const policy = createsArtifact ? await newArtifactDefaults(db, input.ownerId, input.now) : null;
-  artifactId ??= generateArtifactId();
+  const policy = createsArtifact ? await newArtifactDefaults(db, actor, input.now) : null;
+  if (!artifactId) {
+    // The ID is claimed in the global directory before the regional batch (decision 0005).
+    const claimed = await claimNewArtifactId(db.global, actor.region, input.now, drawArtifactId);
+    if (!claimed) return fail("version_conflict", "Try again.");
+    artifactId = claimed;
+  }
   const versionId = newId("ver");
   const sessionId = newId("upl");
   const expiresAt = input.now + UPLOAD_TTL_MS;
@@ -331,7 +368,7 @@ export async function preparePublish(
 
   const multipartRows = multipart
     ? await openMultipartUploads(multipart.bucket, {
-        ownerId: input.ownerId,
+        ownerId,
         sessionId,
         objects: uploads,
         config: multipart.config ?? DEFAULT_MULTIPART,
@@ -343,7 +380,7 @@ export async function preparePublish(
     await db.batch([
       db
         .insert(schema.accountUsage)
-        .values({ ownerId: input.ownerId, monthStartedAt: monthStart(input.now) })
+        .values({ ownerId: ownerId, monthStartedAt: monthStart(input.now) })
         .onConflictDoNothing(),
       db
         .update(schema.accountUsage)
@@ -356,12 +393,12 @@ export async function preparePublish(
           monthStartedAt: monthStart(input.now),
           updatedAt: input.now,
         })
-        .where(eq(schema.accountUsage.ownerId, input.ownerId)),
+        .where(eq(schema.accountUsage.ownerId, ownerId)),
       ...(policy
         ? [
             db.insert(schema.artifacts).values({
               id: artifactId,
-              ownerId: input.ownerId,
+              ownerId,
               type: input.type,
               name,
               ...policy,
@@ -374,7 +411,7 @@ export async function preparePublish(
         id: versionId,
         artifactId,
         number: versionNumber,
-        authorId: input.ownerId,
+        authorId: input.userId,
         entrypoint,
         publishedBytes,
         sourceBytes: manifest.value
@@ -387,7 +424,7 @@ export async function preparePublish(
           versionId,
           kind: file.kind,
           path: file.path,
-          ownerId: input.ownerId,
+          ownerId,
           sha256: file.sha256,
           size: file.size,
           contentType: file.contentType,
@@ -410,7 +447,7 @@ export async function preparePublish(
               .insert(schema.objects)
               .values(
                 uploads.map((upload) => ({
-                  ownerId: input.ownerId,
+                  ownerId,
                   sha256: upload.sha256,
                   size: upload.size,
                   r2Key: upload.r2Key,
@@ -422,7 +459,7 @@ export async function preparePublish(
         : []),
       db.insert(schema.uploadSessions).values({
         id: sessionId,
-        ownerId: input.ownerId,
+        ownerId,
         artifactId,
         versionId,
         baseVersionId: input.baseVersionId,
@@ -488,16 +525,33 @@ function withMultipart(
 }
 
 export interface CommitInput {
-  ownerId: string;
+  /** The signed-in user; an admin or editor of the upload's owner may commit or cancel it. */
+  userId: string;
   sessionId: string;
   now: number;
+}
+
+const missingUpload = () => fail<never>("not_found", "Upload not found.");
+const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
+
+/**
+ * Whether the user may act on an upload of `ownerId`: an upload of an owner the user has no role
+ * on answers like a missing one.
+ */
+async function authorizeUpload(
+  db: RegionalDb,
+  userId: string,
+  ownerId: string,
+): Promise<Result<Actor>> {
+  return authorizeOn(db, userId, ownerId, "publish", missingUpload);
 }
 
 export interface CommittedPublish {
   artifactId: string;
   versionId: string;
   versionNumber: number;
-  expiresAt: number;
+  /** Null while the artifact is pinned. */
+  expiresAt: number | null;
 }
 
 /** SHA-256 of an R2 object: the checksum R2 verified at upload, or a streamed recomputation. */
@@ -515,7 +569,7 @@ async function objectSha256(object: R2ObjectBody): Promise<string> {
  * concurrent publish produces a clean `version_conflict` with nothing half-applied.
  */
 export async function commitPublish(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   input: CommitInput,
 ): Promise<Result<CommittedPublish>> {
@@ -524,7 +578,10 @@ export async function commitPublish(
     .from(schema.uploadSessions)
     .where(eq(schema.uploadSessions.id, input.sessionId))
     .limit(1);
-  if (!session || session.ownerId !== input.ownerId) return fail("not_found", "Upload not found.");
+  if (!session) return missingUpload();
+  const allowed = await authorizeUpload(db, input.userId, session.ownerId);
+  if (!allowed.ok) return allowed;
+  const ownerId = session.ownerId;
   if (session.state === "committed") {
     const [version] = await db
       .select()
@@ -541,7 +598,7 @@ export async function commitPublish(
       artifactId: session.artifactId,
       versionId: session.versionId,
       versionNumber: version?.number ?? 0,
-      expiresAt: artifact?.expiresAt ?? 0,
+      expiresAt: artifact?.expiresAt ?? null,
     });
   }
   if (session.state !== "uploading" && session.state !== "ready") {
@@ -568,7 +625,7 @@ export async function commitPublish(
       and(
         eq(schema.versionFiles.versionId, session.versionId),
         inArray(schema.versionFiles.kind, UPLOADED_KINDS),
-        eq(schema.objects.ownerId, input.ownerId),
+        eq(schema.objects.ownerId, ownerId),
         eq(schema.objects.state, "pending"),
       ),
     )
@@ -626,18 +683,19 @@ export async function commitPublish(
   let rendering: DocumentRendering | null = null;
   if (version && artifact && isDocumentType(artifact.type)) {
     const rendered = await renderVersion(db, bucket, {
-      ownerId: input.ownerId,
+      ownerId,
       versionId: session.versionId,
       type: artifact.type,
       name: artifact.name,
       entrypoint: version.entrypoint,
       publishedBytes: version.publishedBytes,
+      artifactBytes: (await ownerEntitlements(db, ownerId, input.now)).limits.artifactBytes,
       guard: sessionOpen,
       now: input.now,
     });
     if (!rendered.ok) {
       // The same bytes would fail again, so the upload cannot succeed; release it now.
-      await abortPublish(db, { ...input, sessionId: session.id }, "failed");
+      await closeUploadSession(db, { ownerId, sessionId: session.id, now: input.now }, "failed");
       return rendered;
     }
     rendering = rendered.value;
@@ -656,7 +714,8 @@ export async function commitPublish(
       .set({
         currentVersionId: session.versionId,
         state: "active",
-        expiresAt,
+        // A pinned artifact stays pinned through a publish: it keeps no expiry.
+        expiresAt: sql`case when ${schema.artifacts.pinned} then null else ${expiresAt} end`,
         archivedAt: null,
         purgeAt: null,
         lifecycleGeneration: sql`${schema.artifacts.lifecycleGeneration} + 1`,
@@ -665,13 +724,14 @@ export async function commitPublish(
       .where(
         and(
           eq(schema.artifacts.id, session.artifactId),
-          eq(schema.artifacts.ownerId, input.ownerId),
+          eq(schema.artifacts.ownerId, ownerId),
           inArray(schema.artifacts.state, ["draft", "active"]),
           session.baseVersionId === null
             ? sql`${schema.artifacts.currentVersionId} is null`
             : eq(schema.artifacts.currentVersionId, session.baseVersionId),
         ),
-      ),
+      )
+      .returning({ pinned: schema.artifacts.pinned }),
     db
       .update(schema.versions)
       .set({
@@ -695,7 +755,7 @@ export async function commitPublish(
             .set({ state: "verified" })
             .where(
               and(
-                eq(schema.objects.ownerId, input.ownerId),
+                eq(schema.objects.ownerId, ownerId),
                 inArray(schema.objects.sha256, verified),
                 switched,
               ),
@@ -709,15 +769,15 @@ export async function commitPublish(
           db
             .update(schema.accountUsage)
             .set({
-              storedBytes: sql`${schema.accountUsage.storedBytes} + (select coalesce(sum(${schema.objects.size}), 0) from ${schema.objects} where ${schema.objects.ownerId} = ${input.ownerId} and ${inArray(schema.objects.sha256, renderedHashes)} and ${schema.objects.state} = 'pending')`,
+              storedBytes: sql`${schema.accountUsage.storedBytes} + (select coalesce(sum(${schema.objects.size}), 0) from ${schema.objects} where ${schema.objects.ownerId} = ${ownerId} and ${inArray(schema.objects.sha256, renderedHashes)} and ${schema.objects.state} = 'pending')`,
             })
-            .where(and(eq(schema.accountUsage.ownerId, input.ownerId), switched)),
+            .where(and(eq(schema.accountUsage.ownerId, ownerId), switched)),
           db
             .update(schema.objects)
             .set({ state: "verified" })
             .where(
               and(
-                eq(schema.objects.ownerId, input.ownerId),
+                eq(schema.objects.ownerId, ownerId),
                 inArray(schema.objects.sha256, renderedHashes),
                 switched,
               ),
@@ -733,24 +793,24 @@ export async function commitPublish(
         newObjectsThisMonth: sql`${schema.accountUsage.newObjectsThisMonth} + ${session.reservedFiles}`,
         updatedAt: input.now,
       })
-      .where(and(eq(schema.accountUsage.ownerId, input.ownerId), switched)),
+      .where(and(eq(schema.accountUsage.ownerId, ownerId), switched)),
     db
       .insert(schema.usageEvents)
-      .select(sql`select null, ${input.ownerId}, 'publish', 1, ${input.now} where ${switched}`),
+      .select(sql`select null, ${ownerId}, 'publish', 1, ${input.now} where ${switched}`),
     db
       .insert(schema.usageEvents)
       .select(
-        sql`select null, ${input.ownerId}, 'new_files', ${session.reservedFiles}, ${input.now} where ${switched}`,
+        sql`select null, ${ownerId}, 'new_files', ${session.reservedFiles}, ${input.now} where ${switched}`,
       ),
     db
       .insert(schema.usageEvents)
       .select(
-        sql`select null, ${input.ownerId}, 'new_bytes', ${session.reservedBytes}, ${input.now} where ${switched}`,
+        sql`select null, ${ownerId}, 'new_bytes', ${session.reservedBytes}, ${input.now} where ${switched}`,
       ),
     db
       .insert(schema.lifecycleEvents)
       .select(
-        sql`select null, ${session.artifactId}, ${input.ownerId}, 'system', 'published', null, ${input.now} where ${switched}`,
+        sql`select null, ${session.artifactId}, ${input.userId}, 'system', 'published', null, ${input.now} where ${switched}`,
       ),
     abortMultipartJob(db, session.id, switched, input.now),
     db
@@ -764,17 +824,13 @@ export async function commitPublish(
     throw error;
   });
   if (outcome === null) {
-    await abortPublish(db, { ...input, sessionId: session.id }, "failed");
+    await closeUploadSession(db, { ownerId, sessionId: session.id, now: input.now }, "failed");
     return fail("quota_exceeded", "With its rendered page, this publish exceeds your storage.");
   }
   const [switchResult] = outcome;
 
-  if (changes(switchResult) === 0) {
-    await abortPublish(
-      db,
-      { ownerId: input.ownerId, sessionId: session.id, now: input.now },
-      "failed",
-    );
+  if (switchResult.length === 0) {
+    await closeUploadSession(db, { ownerId, sessionId: session.id, now: input.now }, "failed");
     return fail(
       "version_conflict",
       "Another publish changed this artifact first. Fetch it and try again.",
@@ -784,7 +840,7 @@ export async function commitPublish(
     artifactId: session.artifactId,
     versionId: session.versionId,
     versionNumber: version?.number ?? 0,
-    expiresAt,
+    expiresAt: switchResult[0]?.pinned ? null : expiresAt,
   });
 }
 
@@ -795,6 +851,8 @@ interface RenderVersionInput {
   name: string;
   entrypoint: string;
   publishedBytes: number;
+  /** The owner's per-artifact size (their plan), which the rendering counts toward. */
+  artifactBytes: number;
   guard: SQL;
   now: number;
 }
@@ -834,7 +892,9 @@ async function renderVersion(
     sourceSha256: source.sha256,
   });
   if (!rendered.ok) return rendered;
-  const fits = checkRenderedVersion(input.publishedBytes, rendered.value.bytes);
+  const fits = checkRenderedVersion(input.publishedBytes, rendered.value.bytes, {
+    artifactBytes: input.artifactBytes,
+  });
   if (!fits.ok) return fits;
   // Rows first: the version references the objects before their bytes exist, so the orphan
   // sweep never deletes them, and a failed commit leaves them to the abandoned-version cleanup.
@@ -858,8 +918,8 @@ async function renderVersion(
  * client can resume after its upload URLs expired.
  */
 export async function uploadProgress(
-  db: Db,
-  input: { ownerId: string; sessionId: string; now: number },
+  db: RegionalDb,
+  input: { userId: string; sessionId: string; now: number },
 ): Promise<Result<PreparedUpload>> {
   const [session] = await db
     .select({
@@ -874,7 +934,9 @@ export async function uploadProgress(
     .innerJoin(schema.versions, eq(schema.versions.id, schema.uploadSessions.versionId))
     .where(eq(schema.uploadSessions.id, input.sessionId))
     .limit(1);
-  if (!session || session.ownerId !== input.ownerId) return fail("not_found", "Upload not found.");
+  if (!session) return missingUpload();
+  const allowed = await authorizeUpload(db, input.userId, session.ownerId);
+  if (!allowed.ok) return allowed;
   if (
     (session.state !== "uploading" && session.state !== "ready") ||
     input.now >= session.expiresAt
@@ -899,7 +961,7 @@ export async function uploadProgress(
       and(
         eq(schema.versionFiles.versionId, session.versionId),
         inArray(schema.versionFiles.kind, UPLOADED_KINDS),
-        eq(schema.objects.ownerId, input.ownerId),
+        eq(schema.objects.ownerId, session.ownerId),
         eq(schema.objects.state, "pending"),
       ),
     )
@@ -914,18 +976,38 @@ export async function uploadProgress(
   });
 }
 
-/** Cancels an open upload and releases its reservations. Idempotent. */
-export async function abortPublish(
+/** Cancels an open upload for the user and releases its reservations. Idempotent. */
+export async function abortPublish(db: RegionalDb, input: CommitInput): Promise<Result<true>> {
+  const [session] = await db
+    .select({ ownerId: schema.uploadSessions.ownerId })
+    .from(schema.uploadSessions)
+    .where(eq(schema.uploadSessions.id, input.sessionId))
+    .limit(1);
+  if (!session) return missingUpload();
+  const allowed = await authorizeUpload(db, input.userId, session.ownerId);
+  if (!allowed.ok) return allowed;
+  return closeUploadSession(
+    db,
+    { ownerId: session.ownerId, sessionId: input.sessionId, now: input.now },
+    "aborted",
+  );
+}
+
+/**
+ * Closes an open upload of `ownerId` and releases its reservations, with no role check: for the
+ * services' own flows (a failed commit, an expired upload). Idempotent.
+ */
+export async function closeUploadSession(
   db: Db,
-  input: CommitInput,
-  finalState: "aborted" | "failed" | "expired" = "aborted",
+  input: { ownerId: string; sessionId: string; now: number },
+  finalState: "aborted" | "failed" | "expired",
 ): Promise<Result<true>> {
   const [session] = await db
     .select()
     .from(schema.uploadSessions)
     .where(eq(schema.uploadSessions.id, input.sessionId))
     .limit(1);
-  if (!session || session.ownerId !== input.ownerId) return fail("not_found", "Upload not found.");
+  if (!session || session.ownerId !== input.ownerId) return missingUpload();
   if (session.state !== "uploading" && session.state !== "ready") return ok(true);
 
   // The release reads the reservation from the session only while it is still open, and the
@@ -961,11 +1043,6 @@ export async function abortPublish(
       ),
   ]);
   return ok(true);
-}
-
-function changes(result: unknown): number {
-  const meta = (result as { meta?: { changes?: number } } | undefined)?.meta;
-  return meta?.changes ?? 0;
 }
 
 function constraintFailed(error: unknown, kind: "UNIQUE" | "CHECK"): boolean {

@@ -3,11 +3,14 @@ export * from "./access-log.ts";
 export * from "./account.ts";
 export * from "./account-data.ts";
 export * from "./account-settings.ts";
+export * from "./actors.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";
 export * from "./backups.ts";
 export * from "./budget.ts";
+export * from "./comment-notices.ts";
+export * from "./directory.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";
@@ -23,6 +26,7 @@ export {
   stagingKey,
 } from "./multipart.ts";
 export * from "./outbox.ts";
+export * from "./plans.ts";
 export * from "./publish.ts";
 export * from "./read-access.ts";
 export * from "./read-file.ts";

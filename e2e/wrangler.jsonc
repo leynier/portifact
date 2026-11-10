@@ -28,6 +28,7 @@
     "R2_SECRET_ACCESS_KEY": "e2e",
     "BETTER_AUTH_SECRET": "e2e-only-better-auth-secret-0123456789abcdef",
     "READ_SESSION_SECRET": "e2e-only-read-session-secret-0123456789abcdef",
+    "UNSUBSCRIBE_SECRET": "e2e-only-unsubscribe-secret-0123456789abcdef",
     // The human check runs against a fake Turnstile: the test front end serves the script at its
     // real URL (src/turnstile-fake.ts) and the e2e Worker fakes siteverify (worker/index.ts), so
     // nothing leaves the machine. Not secrets.

@@ -1,5 +1,5 @@
 import { createScheduledController, env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { describe, expect, it, vi } from "vitest";
 import worker, { runScheduled } from "../src/index.ts";
 
@@ -8,8 +8,9 @@ const NOW = Date.UTC(2026, 10, 8);
 
 describe("scheduled maintenance", () => {
   it("archives expired artifacts on each run", async () => {
-    await createDb(env.DB)
-      .insert(schema.artifacts)
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.artifacts)
       .values({
         id: "k7d2qm4xab",
         ownerId: "u_owner",
@@ -20,7 +21,7 @@ describe("scheduled maintenance", () => {
       });
 
     expect(await runScheduled(env, NOW)).toMatchObject({ archived: 1, purged: 0 });
-    const [row] = await createDb(env.DB).select().from(schema.artifacts);
+    const [row] = await regionsFromEnv(env).get("default").db.select().from(schema.artifacts);
     expect(row?.state).toBe("archived");
   });
 

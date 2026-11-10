@@ -14,6 +14,10 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { sessions, users } from "./auth-schema.ts";
 
+/** Regions and roles, as in @portifact/contracts (packages/db does not depend on it). */
+export const REGIONS = ["default"] as const;
+export const WORKSPACE_ROLES = ["admin", "editor", "member"] as const;
+
 /** Categories of the Acceptable Use Policy, for reports and suspensions (contracts: AbuseReason). */
 export const ABUSE_REASONS = [
   "phishing",
@@ -86,9 +90,17 @@ export const artifacts = sqliteTable(
     commentVisibility: text("comment_visibility", { enum: ["owner", "everyone"] })
       .notNull()
       .default("owner"),
+    /**
+     * Pinned (premium plan P2, feature `pin`): the artifact stays active with no `expires_at`
+     * until it is unpinned. Only an active or suspended artifact is pinned; archiving clears it.
+     * Kept last because `ALTER TABLE ADD COLUMN` appends it.
+     */
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
+    // The scan that unpins the artifacts of owners whose plan no longer includes `pin`.
+    index("artifacts_pinned_owner_idx").on(t.ownerId).where(sql`${t.pinned} = 1`),
     index("artifacts_state_expires_idx").on(t.state, t.expiresAt),
     index("artifacts_state_purge_idx").on(t.state, t.purgeAt),
     check("artifacts_id_format", sql`length(${t.id}) = 10`),
@@ -446,14 +458,25 @@ export const accountUsage = sqliteTable(
     newObjectsThisMonth: integer("new_objects_this_month").notNull().default(0),
     monthStartedAt: timestamp("month_started_at").notNull(),
     updatedAt: timestamp("updated_at").notNull().default(sql`(unixepoch() * 1000)`),
+    /**
+     * The account's limits, compared by the CHECK constraints below. The defaults are the free
+     * plan (LIMITS.activeArtifacts and LIMITS.accountBytes in contracts; a test fails if they
+     * drift). SQLite cannot alter a CHECK, so a plan changes these columns instead.
+     */
+    activeLimit: integer("active_limit").notNull().default(50),
+    bytesLimit: integer("bytes_limit").notNull().default(2_500_000_000),
   },
   (t) => [
     check(
       "account_usage_nonnegative",
       sql`${t.activeArtifacts} >= 0 and ${t.storedBytes} >= 0 and ${t.reservedBytes} >= 0 and ${t.openUploads} >= 0`,
     ),
-    check("account_usage_active_limit", sql`${t.activeArtifacts} <= 50`),
-    check("account_usage_bytes_limit", sql`${t.storedBytes} + ${t.reservedBytes} <= 2500000000`),
+    check("account_usage_limits_nonnegative", sql`${t.activeLimit} >= 0 and ${t.bytesLimit} >= 0`),
+    check("account_usage_active_limit", sql`${t.activeArtifacts} <= ${t.activeLimit}`),
+    check(
+      "account_usage_bytes_limit",
+      sql`${t.storedBytes} + ${t.reservedBytes} <= ${t.bytesLimit}`,
+    ),
   ],
 );
 
@@ -515,6 +538,7 @@ export const OUTBOX_TOPICS = [
   "abort_multipart",
   "erase_access_events",
   "expiry_notice",
+  "comment_notice",
 ] as const;
 
 /**
@@ -799,6 +823,60 @@ export const annotationEvents = sqliteTable(
 );
 
 /**
+ * Comment activity waiting for a notice (packages/services/src/comment-notices.ts): one row per
+ * recipient and thread, written in the batch of the comment, reply or resolution that caused it,
+ * and only when the artifact owner's plan includes comment notices. It holds counts and IDs,
+ * never text. The scheduled scan turns a recipient's rows into one `comment_notice` outbox job and
+ * deletes them in the same batch. Rows go with their thread and artifact by the foreign keys, and
+ * with the recipient's account in the deletion batches (`recipient_id` has no foreign key: users
+ * are global, comments regional).
+ */
+export const commentNotices = sqliteTable(
+  "comment_notices",
+  {
+    recipientId: text("recipient_id").notNull(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => annotationThreads.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** 1 when the thread itself is new. */
+    created: integer("created").notNull().default(0),
+    replies: integer("replies").notNull().default(0),
+    /** 1 when the thread was resolved. */
+    resolved: integer("resolved").notNull().default(0),
+    /** When the first activity of the row happened; the notice waits for it to settle. */
+    firstAt: timestamp("first_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.recipientId, t.threadId] }),
+    index("comment_notices_recipient_first_idx").on(t.recipientId, t.firstAt),
+    index("comment_notices_first_idx").on(t.firstAt),
+    check(
+      "comment_notices_counts",
+      sql`${t.created} in (0, 1) and ${t.resolved} in (0, 1) and ${t.replies} between 0 and 200`,
+    ),
+  ],
+);
+
+/** Artifacts whose comment notices a user turned off. Removed with the artifact, and with the account. */
+export const commentNoticeMutes = sqliteTable(
+  "comment_notice_mutes",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.userId] }),
+    index("comment_notice_mutes_user_idx").on(t.userId),
+  ],
+);
+
+/**
  * Annotation usage per artifact owner: live messages and logical bytes (message bodies plus
  * thread targets). Triggers in `0007_annotation_usage_triggers.sql` keep it exact on every
  * insert, update and delete, cascades included, and the CHECK constraints refuse a write past
@@ -810,11 +888,22 @@ export const annotationUsage = sqliteTable(
     ownerId: text("owner_id").primaryKey(),
     messages: integer("messages").notNull().default(0),
     bytes: integer("bytes").notNull().default(0),
+    /**
+     * The owner's limits, compared by the CHECK constraints below. The defaults are the free plan
+     * (ANNOTATION_LIMITS.messagesPerOwner and bytesPerOwner in contracts; a test fails if they
+     * drift).
+     */
+    messagesLimit: integer("messages_limit").notNull().default(5000),
+    bytesLimit: integer("bytes_limit").notNull().default(50_000_000),
   },
   (t) => [
     check("annotation_usage_nonnegative", sql`${t.messages} >= 0 and ${t.bytes} >= 0`),
-    check("annotation_usage_messages_limit", sql`${t.messages} <= 5000`),
-    check("annotation_usage_bytes_limit", sql`${t.bytes} <= 50000000`),
+    check(
+      "annotation_usage_limits_nonnegative",
+      sql`${t.messagesLimit} >= 0 and ${t.bytesLimit} >= 0`,
+    ),
+    check("annotation_usage_messages_limit", sql`${t.messages} <= ${t.messagesLimit}`),
+    check("annotation_usage_bytes_limit", sql`${t.bytes} <= ${t.bytesLimit}`),
   ],
 );
 
@@ -943,6 +1032,13 @@ export const accountSettings = sqliteTable(
     defaultBar: integer("default_bar", { mode: "boolean" }).notNull().default(true),
     /** Email the owner before their artifacts expire; on unless they turn it off. */
     expiryNotices: integer("expiry_notices", { mode: "boolean" }).notNull().default(true),
+    /** Email digests of new comment activity (packages/domain/src/comment-notices.ts); on by default. */
+    commentNotices: integer("comment_notices", { mode: "boolean" }).notNull().default(true),
+    /**
+     * When `comment_notices` last changed. An unsubscribe link issued before it is refused, so an
+     * old link never turns the notices off again after the user turned them back on.
+     */
+    commentNoticesChangedAt: timestamp("comment_notices_changed_at"),
     // The account's language (a code of LOCALES in @portifact/contracts); null follows the
     // browser. No CHECK: adding a language must not need a migration, and reads drop codes
     // that are no longer listed.
@@ -961,5 +1057,93 @@ export const accountSettings = sqliteTable(
     ),
   ],
 );
+
+/** Plan names; their limits and features live in PLANS (@portifact/contracts). */
+export const OWNER_PLAN_NAMES = ["free", "pro", "team", "enterprise"] as const;
+
+/**
+ * The plan of one owner (premium plan section 3, F1). No row means `free`. `owner_id` has no
+ * foreign key because an owner will also be a workspace; account deletion removes the row
+ * (`advanceAccountDeletion`). `overrides` is JSON validated by `PlanOverrides` when it is read
+ * (`entitlements` in @portifact/domain ignores anything else). No payment columns: an operator,
+ * and later a billing webhook, writes this row.
+ */
+export const ownerPlans = sqliteTable(
+  "owner_plans",
+  {
+    ownerId: text("owner_id").primaryKey(),
+    plan: text("plan", { enum: OWNER_PLAN_NAMES }).notNull(),
+    seats: integer("seats").notNull().default(1),
+    /** When the plan ends and the owner reads as `free`; null when it does not end. */
+    validUntil: timestamp("valid_until"),
+    overrides: text("overrides", { mode: "json" }),
+    /** Who granted the plan (an operator or, later, the billing system). */
+    grantedBy: text("granted_by").notNull(),
+    note: text("note"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    check("owner_plans_plan", sql`${t.plan} in ('free', 'pro', 'team', 'enterprise')`),
+    check("owner_plans_seats", sql`${t.seats} >= 1`),
+  ],
+);
+
+/**
+ * Workspaces (premium plan F3, decision 0004): an owner that is not a user. Changed only by
+ * packages/services, in D1 batches; Better Auth never sees these tables. The region is fixed at
+ * creation (decision 0005): a trigger in 0029_workspaces.sql refuses changing it.
+ */
+export const workspaces = sqliteTable(
+  "workspaces",
+  {
+    /** `ws_` and 32 hex characters (contracts: WorkspaceId); never a user or artifact ID. */
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    region: text("region", { enum: REGIONS }).notNull().default("default"),
+    /** The user who created it. No foreign key: the workspace outlives its creator's account. */
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("workspaces_slug_idx").on(t.slug)],
+);
+
+/**
+ * Who belongs to a workspace and with which role (contracts: WORKSPACE_ROLES). A membership
+ * goes with its user and with its workspace. External readers listed by email are not members.
+ */
+export const workspaceMembers = sqliteTable(
+  "workspace_members",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: WORKSPACE_ROLES }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.userId] }),
+    index("workspace_members_user_idx").on(t.userId),
+    check("workspace_members_role", sql`${t.role} in ('admin', 'editor', 'member')`),
+  ],
+);
+
+/**
+ * The global artifact directory (decision 0005, section 2): which region holds each artifact ID
+ * ever handed out. No owner, no name. A row is claimed before the artifact is written in its
+ * region and is never updated or deleted (triggers in 0029_workspaces.sql refuse both), so no ID
+ * is reused in any region.
+ */
+export const artifactDirectory = sqliteTable("artifact_directory", {
+  id: text("id").primaryKey(),
+  region: text("region", { enum: REGIONS }).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+});
 
 export * from "./auth-schema.ts";

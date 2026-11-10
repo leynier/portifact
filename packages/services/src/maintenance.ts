@@ -1,20 +1,21 @@
 // Maintenance jobs (plan section 10). Each job takes a small batch, is idempotent and safe to
 // run concurrently: state changes are conditional on the lifecycle generation, and storage is
 // released only by the statement that actually deletes the object rows.
-import { LIMITS } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
-import { purgeDate } from "@portifact/domain";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { type Entitlements, purgeDate } from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
 import { and, eq, inArray, isNotNull, lte, ne, notExists, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
+import { scheduleCommentNotices } from "./comment-notices.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
-import { abortPublish } from "./publish.ts";
+import { alignPlanLimits, ownerEntitlements, unpinLapsedPlans } from "./plans.ts";
+import { closeUploadSession } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
@@ -26,7 +27,11 @@ export interface JobResult {
   processed: number;
 }
 
-/** Archives active artifacts whose 30 days are over. Delivery already treats them as archived. */
+/**
+ * Archives active artifacts whose 30 days are over. Delivery already treats them as archived.
+ * Pinned artifacts have no expiry, so they are never due. Each archive is kept for the months of
+ * its owner's plan at this moment.
+ */
 export async function archiveExpired(
   db: Db,
   now: number,
@@ -35,6 +40,7 @@ export async function archiveExpired(
   const due = await db
     .select({
       id: schema.artifacts.id,
+      ownerId: schema.artifacts.ownerId,
       generation: schema.artifacts.lifecycleGeneration,
       expiresAt: schema.artifacts.expiresAt,
     })
@@ -43,15 +49,21 @@ export async function archiveExpired(
     .limit(limit);
 
   let processed = 0;
+  const owners = new Map<string, Entitlements>();
   for (const artifact of due) {
     // The archive starts at the expiry, not when this job happens to run.
     const archivedAt = artifact.expiresAt ?? now;
+    let owner = owners.get(artifact.ownerId);
+    if (!owner) {
+      owner = await ownerEntitlements(db, artifact.ownerId, now);
+      owners.set(artifact.ownerId, owner);
+    }
     const archived = await db
       .update(schema.artifacts)
       .set({
         state: "archived",
         archivedAt,
-        purgeAt: purgeDate(new Date(archivedAt)).getTime(),
+        purgeAt: purgeDate(new Date(archivedAt), owner.limits.archiveMonths).getTime(),
         lifecycleGeneration: artifact.generation + 1,
         updatedAt: now,
       })
@@ -94,7 +106,11 @@ export async function expireUploads(
     )
     .limit(limit);
   for (const session of stale) {
-    await abortPublish(db, { ownerId: session.ownerId, sessionId: session.id, now }, "expired");
+    await closeUploadSession(
+      db,
+      { ownerId: session.ownerId, sessionId: session.id, now },
+      "expired",
+    );
   }
   return { processed: stale.length };
 }
@@ -419,7 +435,7 @@ export async function rerenderDocuments(
       db
         .update(schema.accountUsage)
         .set({
-          storedBytes: sql`min(${schema.accountUsage.storedBytes} + ${file.bytes.byteLength}, ${LIMITS.accountBytes} - ${schema.accountUsage.reservedBytes})`,
+          storedBytes: sql`min(${schema.accountUsage.storedBytes} + ${file.bytes.byteLength}, ${schema.accountUsage.bytesLimit} - ${schema.accountUsage.reservedBytes})`,
           updatedAt: now,
         })
         .where(
@@ -456,10 +472,11 @@ export async function rerenderDocuments(
 }
 
 /** Runs every job once. Called from the scheduled handler. */
-export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
+export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: number) {
   return {
     archived: (await archiveExpired(db, now)).processed,
     expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
+    commentNotices: (await scheduleCommentNotices(db, now)).recipients,
     expiredUploads: (await expireUploads(db, now)).processed,
     prunedVersions: (await pruneVersions(db, bucket, now)).processed,
     purged: (await purgeArchived(db, bucket, now)).processed,
@@ -472,5 +489,7 @@ export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
     prunedEmailCounters: await pruneEmailCounters(db, now),
     prunedEmailSuppressions: await pruneEmailSuppressions(db, now),
+    alignedPlanLimits: (await alignPlanLimits(db, now)).processed,
+    unpinned: (await unpinLapsedPlans(db, now)).processed,
   };
 }

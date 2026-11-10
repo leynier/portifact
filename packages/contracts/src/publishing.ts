@@ -22,7 +22,7 @@ export const ManifestFile = z.object({
   path: z.string().min(1).max(LIMITS.pathMaxLength),
   kind: z.enum(["published", "source"]).default("published"),
   sha256: Sha256Hex,
-  size: z.number().int().min(0).max(LIMITS.artifactBytes),
+  size: z.number().int().min(0).max(LIMITS.fileBytesCap),
   contentType: z.string().min(1).max(255),
 });
 export type ManifestFile = z.infer<typeof ManifestFile>;
@@ -139,7 +139,8 @@ export const CommittedPublish = z.object({
   versionId: z.string(),
   versionNumber: z.number().int().min(1),
   url: z.url(),
-  expiresAt: z.iso.datetime(),
+  /** When it is archived unless renewed; null while it is pinned. */
+  expiresAt: z.iso.datetime().nullable(),
 });
 export type CommittedPublish = z.infer<typeof CommittedPublish>;
 
@@ -152,9 +153,12 @@ export const ArtifactSummary = z.object({
   annotations: AnnotationsState,
   currentVersionId: z.string().nullable(),
   url: z.url(),
+  /** When it is archived unless renewed; null while it is pinned or not active. */
   expiresAt: z.iso.datetime().nullable(),
   archivedAt: z.iso.datetime().nullable(),
   purgeAt: z.iso.datetime().nullable(),
+  /** Pinned: it stays active with no expiry until unpinned (a paid plan's `pin` feature). */
+  pinned: z.boolean(),
   /** Why an operator suspended it; present only while `state` is `suspended`. */
   suspension: SuspensionView.optional(),
   createdAt: z.iso.datetime(),
@@ -222,6 +226,7 @@ export const LifecycleResult = z.object({
   state: z.enum(["active", "archived", "deleted"]),
   expiresAt: z.iso.datetime().nullable(),
   purgeAt: z.iso.datetime().nullable(),
+  pinned: z.boolean(),
 });
 export type LifecycleResult = z.infer<typeof LifecycleResult>;
 
@@ -307,4 +312,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   reauthentication_required: 403,
   human_verification_required: 403,
   capacity_unavailable: 503,
+  sole_workspace_admin: 409,
+  plan_required: 403,
 };

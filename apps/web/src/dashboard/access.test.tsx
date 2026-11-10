@@ -121,6 +121,46 @@ describe("access settings", () => {
     await waitFor(() => expect(facts.textContent).toContain("Anyone signed in to Portifact"));
   });
 
+  it("says comment emails are part of the Pro plan when the owner's plan lacks them", async () => {
+    const { container } = renderDashboard(PATH, server);
+    const region = await screen.findByRole("region", { name: "Comment settings" });
+    expect(
+      await within(region).findByText("Email notices of new comments are part of the Pro plan."),
+    ).toBeTruthy();
+    expect(within(region).queryByRole("button", { name: /upgrade|buy/i })).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("lets the owner mute the artifact's comment emails when the plan has them", async () => {
+    server.commentNotices[ID] = { available: true, muted: true };
+    renderDashboard(PATH, server);
+    const region = await screen.findByRole("region", { name: "Comment settings" });
+    const box = (await within(region).findByRole("checkbox", {
+      name: "Email me about new comments on this artifact",
+    })) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect(await screen.findByText("Comment emails for this artifact turned on.")).toBeTruthy();
+    expect(server.bodies.at(-1)).toEqual({ muted: false });
+  });
+
+  it("shows why a mute was not saved", async () => {
+    server.commentNotices[ID] = { available: true, muted: false };
+    server.fail("PUT", `/api/v1/account/comment-notices/${ID}`, {
+      status: 429,
+      code: "rate_limited",
+    });
+    renderDashboard(PATH, server);
+    const region = await screen.findByRole("region", { name: "Comment settings" });
+    fireEvent.click(
+      await within(region).findByRole("checkbox", {
+        name: "Email me about new comments on this artifact",
+      }),
+    );
+    const alert = await within(region).findByRole("alert");
+    expect(alert.textContent).toContain("Your choice was not saved");
+  });
+
   it("explains who sees comments, defaults to the owner and saves a change to everyone", async () => {
     const { container } = renderDashboard(PATH, server);
     const region = await screen.findByRole("region", { name: "Comment settings" });

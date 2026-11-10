@@ -2,7 +2,6 @@
 // payloads of outbox rows, and the tombstone markers the operator exports before restoring a
 // backup and applies after it (docs/operations.md).
 import { z } from "zod";
-import { LIMITS } from "./limits.ts";
 
 export const OutboxTopic = z.enum([
   "purge_artifact",
@@ -11,6 +10,7 @@ export const OutboxTopic = z.enum([
   "abort_multipart",
   "erase_access_events",
   "expiry_notice",
+  "comment_notice",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -36,6 +36,13 @@ export const EraseAccessEventsPayload = z.strictObject({
 export type EraseAccessEventsPayload = z.infer<typeof EraseAccessEventsPayload>;
 
 /**
+ * Artifacts one expiry notice lists at most: a safety cap on the payload (a queue message) and the
+ * email, not a plan limit. An owner with more expiring at once gets the rest, soonest first, in
+ * the next notices (one a day while they stay inside the notice window).
+ */
+export const EXPIRY_NOTICE_ARTIFACTS_MAX = 1_000;
+
+/**
  * Payload of an `expiry_notice` job (its subject is the owner): the artifacts it tells the owner
  * about, each with the expiry it was scheduled for. The job skips an artifact whose expiry changed
  * since (renewed or published again) or that is no longer active.
@@ -49,9 +56,40 @@ export const ExpiryNoticePayload = z.strictObject({
       }),
     )
     .min(1)
-    .max(LIMITS.activeArtifacts),
+    .max(EXPIRY_NOTICE_ARTIFACTS_MAX),
 });
 export type ExpiryNoticePayload = z.infer<typeof ExpiryNoticePayload>;
+
+/**
+ * Threads one comment notice covers at most: a safety cap on the payload (a queue message), not a
+ * plan limit. Activity past it stays pending and goes in the recipient's next notice.
+ */
+export const COMMENT_NOTICE_THREADS_MAX = 200;
+
+/**
+ * Payload of a `comment_notice` job (its subject is the recipient's user ID): the threads with new
+ * activity and what happened in each. IDs and counts only, never comment text or authors. The job
+ * counts only the threads the recipient may still see when it sends.
+ */
+export const CommentNoticePayload = z.strictObject({
+  /** Unique per scheduling; the scan's batch consumes the pending rows only for its own job. */
+  claim: z.string().min(1).max(100),
+  threads: z
+    .array(
+      z.strictObject({
+        artifactId: z.string().min(1).max(200),
+        threadId: z.string().min(1).max(200),
+        /** 1 when the thread is new. */
+        created: z.number().int().min(0).max(1),
+        replies: z.number().int().min(0).max(200),
+        /** 1 when the thread was resolved. */
+        resolved: z.number().int().min(0).max(1),
+      }),
+    )
+    .min(1)
+    .max(COMMENT_NOTICE_THREADS_MAX),
+});
+export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
 
 /** One purged or deleted artifact or account that a restored backup must not bring back. */
 export const TombstoneMarker = z.strictObject({

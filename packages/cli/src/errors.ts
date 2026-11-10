@@ -56,11 +56,13 @@ export function exitCodeFor(code: CliErrorCode): number {
     case "version_conflict":
     case "upload_incomplete":
     case "artifact_archived":
+    case "sole_workspace_admin":
       return EXIT.conflict;
     case "quota_exceeded":
     case "traffic_exceeded":
     case "account_too_new_for_public":
     case "human_verification_required":
+    case "plan_required":
       return EXIT.limit;
     default:
       return EXIT.failure;

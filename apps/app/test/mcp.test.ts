@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { LIMITS } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { regionsFromEnv } from "@portifact/db";
 import { commitPublish, hashRequest, preparePublish } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { publishInline } from "../src/mcp/inline.ts";
@@ -28,12 +28,14 @@ const TOOLS = [
   "get_version",
   "list_artifacts",
   "list_versions",
+  "pin_artifact",
   "publish_document",
   "renew_artifact",
   "restore_artifact",
   "rollback_artifact",
   "set_comment_visibility",
   "set_portifact_bar",
+  "unpin_artifact",
   ...["set_access", "add_reader", "remove_reader"],
   ...["prepare_upload", "get_upload_status", "commit_upload", "read_artifact"],
   ...[
@@ -116,9 +118,23 @@ describe("the MCP endpoint", () => {
       "after the user asked for exactly that",
     );
     expect(byName.get("add_reader")?.inputSchema.required).toEqual(["artifactId", "emails"]);
-    for (const name of ["prepare_upload", "get_upload_status", "commit_upload"]) {
+    for (const name of [
+      "prepare_upload",
+      "get_upload_status",
+      "commit_upload",
+      "pin_artifact",
+      "unpin_artifact",
+    ]) {
       expect(TOOL_SCOPES.get(name), name).toBe("artifacts:write");
     }
+    for (const name of ["pin_artifact", "unpin_artifact"]) {
+      expect(byName.get(name)?.annotations, name).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      });
+    }
+    expect(byName.get("pin_artifact")?.description).toContain("plan_required");
     expect(byName.get("prepare_upload")?.inputSchema.required).toEqual(
       expect.arrayContaining(["type", "name", "entrypoint", "files", "idempotencyKey"]),
     );
@@ -516,8 +532,8 @@ describe("publishing inline", () => {
 
   it("loses cleanly to a publish on the same base that commits first", async () => {
     const owner = "owner-race";
-    const db = createDb(env.DB);
-    const base = { ownerId: owner, type: "text" as const, name: "Race" };
+    const db = regionsFromEnv(env).get("default").db;
+    const base = { userId: owner, type: "text" as const, name: "Race" };
     const first = await publishInline(db, env.ARTIFACTS, {
       ...base,
       content: "v1",
@@ -555,7 +571,7 @@ describe("publishing inline", () => {
         if (!prepared.ok) throw new Error(prepared.message);
         await env.ARTIFACTS.put(`objects/${owner}/${sha}`, other, { sha256: sha });
         await commitPublish(db, env.ARTIFACTS, {
-          ownerId: owner,
+          userId: owner,
           sessionId: prepared.value.sessionId,
           now: Date.now(),
         });
@@ -588,7 +604,7 @@ describe("publishing inline", () => {
 
   it("releases the reservation when writing the bytes fails", async () => {
     const owner = "owner-put-fails";
-    const db = createDb(env.DB);
+    const db = regionsFromEnv(env).get("default").db;
     const failing = {
       put: async () => {
         throw new Error("R2 unavailable");
@@ -597,7 +613,7 @@ describe("publishing inline", () => {
     } as unknown as R2Bucket;
     await expect(
       publishInline(db, failing, {
-        ownerId: owner,
+        userId: owner,
         type: "text",
         name: "x",
         content: "never stored",

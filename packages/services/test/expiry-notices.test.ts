@@ -107,7 +107,7 @@ describe("scheduleExpiryNotices", () => {
     const ada = await user();
     const archived = await expiring(ada.id, DAY);
     expect(
-      (await archiveArtifact(db(), { ownerId: ada.id, artifactId: archived, now: NOW })).ok,
+      (await archiveArtifact(db(), { userId: ada.id, artifactId: archived, now: NOW })).ok,
     ).toBe(true);
     await expiring(ada.id, 0);
     expect(await scheduleExpiryNotices(db(), NOW)).toEqual({ owners: 0, artifacts: 0 });
@@ -118,9 +118,7 @@ describe("scheduleExpiryNotices", () => {
     const id = await expiring(ada.id, DAY);
     await scheduleExpiryNotices(db(), NOW);
     await db().delete(schema.outbox);
-    expect((await renewArtifact(db(), { ownerId: ada.id, artifactId: id, now: NOW })).ok).toBe(
-      true,
-    );
+    expect((await renewArtifact(db(), { userId: ada.id, artifactId: id, now: NOW })).ok).toBe(true);
     const renewed = NOW + ACTIVE;
     expect(await scheduleExpiryNotices(db(), renewed - 3 * DAY - 1)).toEqual({
       owners: 0,
@@ -193,6 +191,7 @@ describe("the expiry_notice job", () => {
           { id: ids[0], name: "Plan", expiresAt: NOW + 2 * DAY },
         ],
         locale: null,
+        archiveMonths: 6,
       },
     ]);
     expect(await emailsSentInCycle(db(), NOW + HOUR)).toBe(1);
@@ -214,14 +213,14 @@ describe("the expiry_notice job", () => {
 
   it("leaves out artifacts renewed or archived since, and sends nothing when none is left", async () => {
     const { owner, ids, job } = await scheduled();
-    await renewArtifact(db(), { ownerId: owner.id, artifactId: ids[0] as string, now: NOW });
+    await renewArtifact(db(), { userId: owner.id, artifactId: ids[0] as string, now: NOW });
     const { notifier, sent } = fakeNotifier();
     expect(await runJob(db(), env.ARTIFACTS, message(job), NOW, { notifier })).toBe("done");
     expect(sent[0]?.artifacts.map((artifact) => artifact.id)).toEqual([ids[1]]);
 
     const other = await scheduled([DAY]);
     await archiveArtifact(db(), {
-      ownerId: other.owner.id,
+      userId: other.owner.id,
       artifactId: other.ids[0] as string,
       now: NOW,
     });

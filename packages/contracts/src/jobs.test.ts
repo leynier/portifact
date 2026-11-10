@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  COMMENT_NOTICE_THREADS_MAX,
+  CommentNoticePayload,
   DeleteObjectsPayload,
+  EXPIRY_NOTICE_ARTIFACTS_MAX,
   ExpiryNoticePayload,
   JobMessage,
   LIMITS,
+  OutboxTopic,
   TombstoneMarker,
 } from "./index.ts";
 
@@ -33,12 +37,13 @@ describe("job contracts", () => {
     expect(DeleteObjectsPayload.safeParse({ keys: Array(101).fill("k") }).success).toBe(false);
   });
 
-  it("bounds the artifacts of an expiry_notice payload by the active artifact limit", () => {
+  it("bounds the artifacts of an expiry_notice payload by its safety cap, above the free plan", () => {
     const entry = { id: "k7d2qm4xab", expiresAt: 1 };
     expect(JobMessage.parse({ id: 3, topic: "expiry_notice" }).topic).toBe("expiry_notice");
     expect(ExpiryNoticePayload.parse({ artifacts: [entry] })).toEqual({ artifacts: [entry] });
     expect(ExpiryNoticePayload.safeParse({ artifacts: [] }).success).toBe(false);
-    const full = Array(LIMITS.activeArtifacts).fill(entry);
+    expect(EXPIRY_NOTICE_ARTIFACTS_MAX).toBeGreaterThan(LIMITS.activeArtifacts);
+    const full = Array(EXPIRY_NOTICE_ARTIFACTS_MAX).fill(entry);
     expect(ExpiryNoticePayload.safeParse({ artifacts: full }).success).toBe(true);
     expect(ExpiryNoticePayload.safeParse({ artifacts: [...full, entry] }).success).toBe(false);
     expect(
@@ -55,5 +60,44 @@ describe("job contracts", () => {
     expect(TombstoneMarker.safeParse({ ...marker, kind: "version" }).success).toBe(false);
     expect(TombstoneMarker.safeParse({ ...marker, deletedAt: -1 }).success).toBe(false);
     expect(TombstoneMarker.safeParse({ ...marker, extra: true }).success).toBe(false);
+  });
+});
+
+describe("CommentNoticePayload", () => {
+  const thread = {
+    artifactId: "k7d2qm4xab",
+    threadId: "8b7e2c1a-thread",
+    created: 1,
+    replies: 3,
+    resolved: 0,
+  };
+
+  it("carries IDs and counts only, up to the cap", () => {
+    expect(CommentNoticePayload.parse({ claim: "claim-1", threads: [thread] })).toEqual({
+      claim: "claim-1",
+      threads: [thread],
+    });
+    expect(CommentNoticePayload.safeParse({ claim: "", threads: [thread] }).success).toBe(false);
+    expect(CommentNoticePayload.safeParse({ claim: "c", threads: [] }).success).toBe(false);
+    expect(CommentNoticePayload.safeParse({ threads: [thread] }).success).toBe(false);
+    const full = Array(COMMENT_NOTICE_THREADS_MAX).fill(thread);
+    expect(CommentNoticePayload.safeParse({ claim: "c", threads: full }).success).toBe(true);
+    expect(CommentNoticePayload.safeParse({ claim: "c", threads: [...full, thread] }).success).toBe(
+      false,
+    );
+    for (const wrong of [
+      { ...thread, created: 2 },
+      { ...thread, resolved: -1 },
+      { ...thread, replies: 201 },
+      { ...thread, body: "text" },
+      { ...thread, artifactId: "" },
+      { ...thread, threadId: "" },
+    ]) {
+      expect(CommentNoticePayload.safeParse({ claim: "c", threads: [wrong] }).success).toBe(false);
+    }
+  });
+
+  it("is a topic of the outbox", () => {
+    expect(OutboxTopic.parse("comment_notice")).toBe("comment_notice");
   });
 });

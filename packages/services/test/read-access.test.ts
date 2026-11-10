@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -19,7 +19,7 @@ const NOW = Date.UTC(2026, 10, 8, 12);
 const DAY = 86_400_000;
 const HANDOFF_MS = READ_SESSION.handoffTtlSeconds * 1000;
 const SESSION_MS = READ_SESSION.sessionTtlSeconds * 1000;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const OWNER = "u_owner";
 const READER = "u_reader";

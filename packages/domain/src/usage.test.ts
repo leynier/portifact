@@ -1,14 +1,16 @@
-import { LIMITS, TRAFFIC_LIMITS } from "@portifact/contracts";
+import { LIMITS, PLANS, TRAFFIC_LIMITS } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
   nextMonthStart,
   publicAccessFrom,
   type UsageSnapshot,
-  usageBlocks,
+  usageBlocks as usageBlocksWith,
   windowReleaseAt,
   windowTotal,
 } from "./usage.ts";
+
+const usageBlocks = (usage: UsageSnapshot) => usageBlocksWith(usage, PLANS.free.limits);
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse("2026-11-20T12:00:00Z");

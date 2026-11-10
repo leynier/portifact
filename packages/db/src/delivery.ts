@@ -2,7 +2,14 @@
 // single indexed lookup.
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "./index.ts";
-import { artifacts, objects, trafficCounters, versionFiles, versions } from "./schema.ts";
+import {
+  artifacts,
+  objects,
+  ownerPlans,
+  trafficCounters,
+  versionFiles,
+  versions,
+} from "./schema.ts";
 
 export interface DeliveryArtifact {
   id: string;
@@ -22,11 +29,21 @@ export interface DeliveryArtifact {
   archivedAt: number | null;
   /** What the owner's artifacts served in the cycle asked for; zero without a counter yet. */
   traffic: { requests: number; bytes: number };
+  /** The owner's plan row, which decides its traffic quota; null when it has none (free). */
+  plan: DeliveryPlan | null;
+}
+
+/** The `owner_plans` columns `entitlements` (@portifact/domain) reads. */
+export interface DeliveryPlan {
+  plan: string;
+  seats: number;
+  validUntil: number | null;
+  overrides: unknown;
 }
 
 /**
- * The artifact, its current version's entrypoint and the owner's traffic counter for the cycle
- * that starts at `cycleStart`, in one lookup.
+ * The artifact, its current version's entrypoint, the owner's traffic counter for the cycle
+ * that starts at `cycleStart` and the owner's plan, in one lookup.
  */
 export async function findDeliveryArtifact(
   db: Db,
@@ -50,6 +67,10 @@ export async function findDeliveryArtifact(
       archivedAt: artifacts.archivedAt,
       requests: sql<number>`coalesce(${trafficCounters.requests}, 0)`,
       bytes: sql<number>`coalesce(${trafficCounters.bytes}, 0)`,
+      plan: ownerPlans.plan,
+      seats: ownerPlans.seats,
+      validUntil: ownerPlans.validUntil,
+      overrides: ownerPlans.overrides,
     })
     .from(artifacts)
     .leftJoin(versions, eq(versions.id, artifacts.currentVersionId))
@@ -60,11 +81,19 @@ export async function findDeliveryArtifact(
         eq(trafficCounters.cycleStart, cycleStart),
       ),
     )
+    .leftJoin(ownerPlans, eq(ownerPlans.ownerId, artifacts.ownerId))
     .where(eq(artifacts.id, id))
     .limit(1);
   if (!row) return null;
-  const { requests, bytes, ...artifact } = row;
-  return { ...artifact, traffic: { requests: Number(requests), bytes: Number(bytes) } };
+  const { requests, bytes, plan, seats, validUntil, overrides, ...artifact } = row;
+  return {
+    ...artifact,
+    traffic: { requests: Number(requests), bytes: Number(bytes) },
+    plan:
+      plan === null || seats === null
+        ? null
+        : { plan, seats, validUntil, overrides: overrides ?? null },
+  };
 }
 
 export interface DeliveryFile {

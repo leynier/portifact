@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { AccountSettings } from "./account.ts";
 import { ArtifactId, Email } from "./core.ts";
+import { PlanView } from "./plans.ts";
 
 /** Categories of the Acceptable Use Policy, used by reports and by suspensions. */
 export const AbuseReason = z.enum([
@@ -152,6 +153,7 @@ export const ExportArtifact = z.object({
   indexable: z.boolean(),
   embeddable: z.boolean(),
   bar: z.boolean(),
+  pinned: z.boolean(),
   suspension: SuspensionView.nullable(),
   createdAt: Iso,
   updatedAt: Iso,
@@ -176,6 +178,10 @@ export const AccountExport = z.object({
     signInMethods: z.array(z.object({ provider: z.string(), connectedAt: Iso })),
     /** The defaults for new artifacts, the built-in ones when the owner never changed them. */
     settings: AccountSettings,
+    /** The account's plan as it applies at the export, `free` when it has none. */
+    plan: PlanView,
+    /** Artifacts whose comment notices the account muted. */
+    commentNoticeMutes: z.array(z.string()),
   }),
   artifacts: z.array(ExportArtifact),
   /**

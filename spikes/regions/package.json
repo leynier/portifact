@@ -1,0 +1,19 @@
+{
+  "name": "@portifact/spike-regions",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike S4: EU data residency with a global database and one database and bucket per region, in workerd with local D1 and R2 only. Never deployed.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.6.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

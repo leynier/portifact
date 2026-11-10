@@ -10,10 +10,11 @@ import {
   EraseAccessEventsPayload,
   type JobMessage,
 } from "@portifact/contracts";
-import { type AccessDb, type Db, schema } from "@portifact/db";
+import { type AccessDb, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
+import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
@@ -122,11 +123,13 @@ export interface JobDeps {
   access?: AccessDb | undefined;
   /** Sends `expiry_notice` emails. */
   notifier?: ExpiryNotifier | undefined;
+  /** Sends `comment_notice` emails. */
+  commentNotifier?: CommentNotifier | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
 export async function runJob(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   message: JobMessage,
   now: number,
@@ -143,11 +146,11 @@ export async function runJob(
 }
 
 async function runRow(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  { access, notifier }: JobDeps,
+  { access, notifier, commentNotifier }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -170,6 +173,9 @@ async function runRow(
     case "expiry_notice":
       if (!notifier) throw new Error("expiry_notice needs the notifier");
       return sendExpiryNotice(db, row, now, notifier);
+    case "comment_notice":
+      if (!commentNotifier) throw new Error("comment_notice needs the comment notifier");
+      return sendCommentNotice(db, row, now, commentNotifier);
   }
 }
 

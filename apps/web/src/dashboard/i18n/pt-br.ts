@@ -79,6 +79,7 @@ export const ptBR = {
   "list.refreshFailed.body":
     "Ela mostra o que foi carregado por último. O Portifact tenta de novo em instantes.",
   "list.never": "Nunca",
+  "list.pinned": "Fixado",
   "list.column.access": "Acesso",
   "list.captionFiltered": "Seus artifacts que correspondem à busca e aos filtros",
   "list.countFiltered":
@@ -175,6 +176,13 @@ export const ptBR = {
     "Restaure-o antes que seja excluído definitivamente para colocá-lo de volta no ar.",
   "detail.noActions": "Nenhuma ação está disponível neste estado.",
   "detail.renew": "Renovar por 30 dias",
+  "detail.pin": "Fixar",
+  "detail.unpin": "Desafixar",
+  "detail.pinned.body": "Fixado: fica no ar sem expiração até você desafixar.",
+  "detail.pin.paid": "Fixar mantém um artifact no ar sem expiração. Faz parte do plano {plan}.",
+  "detail.expiresNever": "Nunca, está fixado",
+  "detail.pinnedDone": "Artifact fixado. Fica no ar sem expiração.",
+  "detail.unpinnedDone": "Artifact desafixado. Agora expira em {date}.",
   "detail.archive": "Arquivar",
   "detail.restore": "Restaurar",
   "detail.delete": "Excluir",
@@ -420,6 +428,17 @@ export const ptBR = {
   "settings.notices.saved": "Avisos por e-mail salvos.",
   "settings.notices.unchanged": "Nada para salvar: seus avisos por e-mail já estão assim.",
   "settings.notices.failed": "Seus avisos por e-mail não foram salvos",
+  "settings.notices.comments.label": "Enviar um e-mail quando houver novos comentários",
+  "settings.notices.comments.hint":
+    "No máximo um e-mail a cada 10 minutos, com quantas conversas, respostas e resoluções são novas em cada artifact, nunca o que foi escrito. Só em artifacts cujo proprietário tem um plano com avisos de comentários.",
+  "commentNotices.label": "Enviar um e-mail quando houver novos comentários neste artifact",
+  "commentNotices.hint":
+    "No máximo um e-mail a cada 10 minutos, só com contagens. Desative todos os e-mails de comentários nas suas configurações.",
+  "commentNotices.muted": "E-mails de comentários desativados para este artifact.",
+  "commentNotices.unmuted": "E-mails de comentários ativados para este artifact.",
+  "commentNotices.failed": "Sua escolha não foi salva",
+  "commentNotices.planRequired":
+    "Avisos por e-mail de novos comentários fazem parte do plano {plan}.",
   "settings.danger.title": "Zona de perigo",
   "settings.danger.hint": "Estas ações não podem ser desfeitas.",
   "account.data.title": "Seus dados",
@@ -466,6 +485,15 @@ export const ptBR = {
   "usage.description":
     "Suas cotas e o que seus artifacts serviram neste mês. O tráfego é contado a cada poucos segundos, então pode ficar um pouco atrasado.",
   "usage.meterPercent": "{used} de {limit} ({percent})",
+  "usage.plan.section": "Plano",
+  "usage.plan.hint": "Seu plano define os limites desta página.",
+  "usage.plan.name": "Plano atual",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Assentos",
+  "usage.plan.until": "Válido até",
   "usage.traffic.section": "Tráfego deste mês",
   "usage.traffic.hint":
     "Contado para a sua conta inteira, somando todos os seus artifacts. Atingir qualquer um dos limites pausa todos os artifacts até a renovação.",
@@ -618,6 +646,7 @@ export const ptBR = {
   "publish.startOver": "Recomeçar",
   "publish.done.title": "Versão {number} publicada",
   "publish.done.body": "Está no ar em {url} e expira em {date}.",
+  "publish.done.pinned": "Está no ar em {url}. Está fixado, então não expira.",
   "publish.done.open": "Abrir a página do artifact",
   "publish.done.another": "Publicar outra coisa",
   "publish.announce.done": "Versão {number} de {name} publicada.",
@@ -625,7 +654,7 @@ export const ptBR = {
   "manifest.empty":
     "Não há nada para publicar: todos os arquivos foram deixados de fora ou a origem está vazia.",
   "manifest.too_many_files": "Uma versão pode ter no máximo {detail} arquivos.",
-  "manifest.too_large": "Uma versão pode ter no máximo 250 MB.",
+  "manifest.too_large": "Uma versão pode ter no máximo {detail}.",
   "manifest.invalid_path": "Um caminho de arquivo não é permitido: {detail}",
   "manifest.missing_entry":
     "A página de entrada {detail} não está entre os arquivos. Altere a página de entrada ou adicione-a.",
@@ -986,8 +1015,11 @@ export const ptBR = {
   "error.account_too_new_for_public": "Contas novas ainda não podem tornar artifacts públicos.",
   "error.capacity_unavailable":
     "O Portifact está no limite da capacidade agora. Tente de novo mais tarde.",
+  "error.sole_workspace_admin":
+    "Você é a única pessoa administradora de um workspace. Torne outro membro administrador ou exclua o workspace antes de excluir sua conta.",
   "error.rate_limited": "Solicitações demais. Aguarde um momento e tente de novo.",
   "error.reauthentication_required": "Entre de novo para fazer isso.",
   "error.human_verification_required":
     "Seus primeiros comentários em artifacts de outras pessoas precisam de uma verificação rápida de que você é humano. Conclua-a e depois publique de novo.",
+  "error.plan_required": "Este recurso não faz parte do plano do dono do artifact.",
 } satisfies Catalog;

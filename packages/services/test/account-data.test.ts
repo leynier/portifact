@@ -24,6 +24,7 @@ import {
   artifactRow,
   DAY,
   db,
+  grantPlan,
   MINUTE,
   NOW,
   publishSite,
@@ -39,7 +40,7 @@ const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "
 async function shared(ownerId: string, readers: { email: string }[]) {
   const published = await publishSite(ownerId);
   await updateAccess(db(), {
-    ownerId,
+    userId: ownerId,
     artifactId: published.artifactId,
     // Every reader sees every thread, so readers can answer each other's threads.
     change: {
@@ -191,7 +192,7 @@ describe("exporting the account", () => {
     const own = await thread(theirs.artifactId, theirs.versionId, replier.id, "My own topic");
     // The owner narrows who sees comments: the replier no longer sees the starter's thread.
     await updateAccess(db(), {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: theirs.artifactId,
       change: { commentVisibility: "owner" },
       now: NOW,
@@ -221,6 +222,27 @@ describe("exporting the account", () => {
     const exported = await exportAccount(db(), { userId: owner.id, now: NOW });
     expect(exported.ok && exported.value.artifacts[0]?.suspension).toEqual({ reason: "phishing" });
     expect(JSON.stringify(exported)).not.toContain("secret");
+  });
+
+  it("includes the account's own plan, free without a row", async () => {
+    const owner = await user();
+    const other = await user();
+    const before = await exportAccount(db(), { userId: owner.id, now: NOW });
+    expect(before.ok && before.value.account.plan).toMatchObject({
+      name: "free",
+      validUntil: null,
+      seats: 1,
+      features: [],
+    });
+    await grantPlan(owner.id, "team", { seats: 2, validUntil: NOW + DAY });
+    await grantPlan(other.id, "enterprise");
+    const exported = await exportAccount(db(), { userId: owner.id, now: NOW });
+    expect(exported.ok && AccountExport.parse(exported.value).account.plan).toMatchObject({
+      name: "team",
+      seats: 2,
+      validUntil: new Date(NOW + DAY).toISOString(),
+      limits: { accountBytes: 60_000_000_000 },
+    });
   });
 
   it("refuses an account that does not exist", async () => {
@@ -374,6 +396,8 @@ describe("finishing the deletion", () => {
         { ownerId: owner.id, cycleStart: 0, requests: 3, bytes: 30, updatedAt: NOW },
         { ownerId: "u_bystander", cycleStart: 0, requests: 1, bytes: 1, updatedAt: NOW },
       ]);
+    await grantPlan(owner.id, "pro");
+    await grantPlan("u_bystander", "team");
     // Without the purge, the account cannot finish.
     await processAccountDeletions(db(), env.ARTIFACTS, NOW + 1, 100);
     expect(await deletion(owner.id)).toBeDefined();
@@ -391,6 +415,10 @@ describe("finishing the deletion", () => {
     for (const table of [schema.objects, schema.accountUsage, schema.trafficCounters]) {
       expect(await db().select().from(table).where(eq(table.ownerId, owner.id))).toEqual([]);
     }
+    // The plan row has no foreign key, so the deletion removes it, and only the account's.
+    const plans = await db().select().from(schema.ownerPlans);
+    expect(plans.map((row) => row.ownerId)).not.toContain(owner.id);
+    expect(plans.map((row) => row.ownerId)).toContain("u_bystander");
     const bystander = eq(schema.trafficCounters.ownerId, "u_bystander");
     expect(await db().select().from(schema.trafficCounters).where(bystander)).toHaveLength(1);
     expect(

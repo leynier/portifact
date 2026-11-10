@@ -23,6 +23,7 @@ import {
   type ArtifactListFilters,
   ArtifactSummary,
   BrowserSessionList,
+  CommentNoticeMute,
   CommittedPublish,
   ConnectedAppList,
   type CreateThreadRequest,
@@ -64,7 +65,7 @@ export class ApiFailure extends Error {
   }
 }
 
-export type LifecycleAction = "renew" | "archive" | "restore" | "delete";
+export type LifecycleAction = "renew" | "archive" | "restore" | "delete" | "pin" | "unpin";
 
 export interface Account {
   email: string;
@@ -97,6 +98,10 @@ export interface DashboardApi {
   /** The defaults new artifacts start with. */
   accountSettings(): Promise<AccountSettings>;
   updateAccountSettings(update: AccountSettingsUpdate): Promise<AccountSettings>;
+  /** Whether the artifact's owner has comment notices, and whether the caller muted it. */
+  commentNoticeMute(artifactId: string): Promise<CommentNoticeMute>;
+  /** Mutes or unmutes the artifact's comment notices for the caller. */
+  setCommentNoticeMute(artifactId: string, muted: boolean): Promise<CommentNoticeMute>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** The account's quotas, this month's traffic and what blocks it now. */
@@ -319,6 +324,20 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     updateAccountSettings(update) {
       return call("/api/v1/account/settings", AccountSettings, "PATCH", update);
+    },
+    commentNoticeMute(artifactId) {
+      return call(
+        `/api/v1/account/comment-notices/${encodeURIComponent(artifactId)}`,
+        CommentNoticeMute,
+      );
+    },
+    setCommentNoticeMute(artifactId, muted) {
+      return call(
+        `/api/v1/account/comment-notices/${encodeURIComponent(artifactId)}`,
+        CommentNoticeMute,
+        "PUT",
+        { muted },
+      );
     },
     deleteAccount(confirmEmail) {
       return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });

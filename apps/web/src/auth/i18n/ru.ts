@@ -83,6 +83,17 @@ const messages = {
     failed: "Не удалось отправить жалобу. Попробуйте ещё раз или напишите на abuse@portifact.com.",
     sent: "Жалоба отправлена.",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "Ссылка неполная. Откройте ссылку из письма ещё раз или отключите уведомления о комментариях в настройках.",
+    invalid: "Эта ссылка больше не работает. Отключите уведомления о комментариях в настройках.",
+    rateLimited: "Слишком много попыток отсюда. Повторите через несколько минут.",
+    network: "Не удалось связаться с Portifact. Проверьте подключение и повторите попытку.",
+    failed:
+      "Не удалось отключить уведомления о комментариях. Повторите попытку или отключите их в настройках.",
+    done: "Уведомления о комментариях отключены.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -200,5 +211,14 @@ export const ru: AuthCatalog = {
     "report.doneHeading": "Спасибо, мы получили вашу жалобу",
     "report.doneBody":
       'Мы рассматриваем каждую жалобу. Также можно написать на <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>.',
+
+    // unsubscribe.html
+    "unsubscribe.title": "Отключить уведомления о комментариях Portifact",
+    "unsubscribe.heading": "Отключить уведомления о комментариях",
+    "unsubscribe.intro":
+      "Вы больше не будете получать письма о новых комментариях к artifacts в Portifact. Напоминания об истечении срока и письма для входа не изменятся.",
+    "unsubscribe.confirm": "Отключить уведомления о комментариях",
+    "unsubscribe.doneHeading": "Уведомления о комментариях отключены",
+    "unsubscribe.doneBody": 'Их можно снова включить в <a href="/settings">настройках</a>.',
   },
 };

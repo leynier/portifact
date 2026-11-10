@@ -1,9 +1,15 @@
 // The owner's defaults for new artifacts: read them, change them, and the policy a publish gives
 // an artifact it creates (`preparePublish`). The same settings hold the expiry notices opt-out and
 // the account's language. The rules are in packages/domain/src/account-settings.ts.
-import { type AccountSettings, type AccountSettingsUpdate, isLocale } from "@portifact/contracts";
+import {
+  type AccountSettings,
+  type AccountSettingsUpdate,
+  isLocale,
+  isWorkspaceId,
+} from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import {
+  type Actor,
   BUILT_IN_SETTINGS,
   changeSettings,
   fail,
@@ -12,7 +18,7 @@ import {
   ok,
   type Result,
 } from "@portifact/domain";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 /** The stored defaults, or the built-in ones without a row. */
 export async function loadSettings(db: Db, userId: string): Promise<AccountSettings> {
@@ -23,6 +29,7 @@ export async function loadSettings(db: Db, userId: string): Promise<AccountSetti
       defaultCommentVisibility: schema.accountSettings.defaultCommentVisibility,
       defaultBar: schema.accountSettings.defaultBar,
       expiryNotices: schema.accountSettings.expiryNotices,
+      commentNotices: schema.accountSettings.commentNotices,
       locale: schema.accountSettings.locale,
     })
     .from(schema.accountSettings)
@@ -71,25 +78,44 @@ export async function updateAccountSettings(
   );
   if (!next.ok) return next;
   const values = { ...next.value, updatedAt: input.now };
+  const s = schema.accountSettings;
   await db
-    .insert(schema.accountSettings)
-    .values({ userId: input.userId, ...values })
-    .onConflictDoUpdate({ target: schema.accountSettings.userId, set: values });
+    .insert(s)
+    .values({
+      userId: input.userId,
+      ...values,
+      // A new row only changes the notices from their default when it turns them off.
+      commentNoticesChangedAt: values.commentNotices ? null : input.now,
+    })
+    .onConflictDoUpdate({
+      target: s.userId,
+      set: {
+        ...values,
+        // Unsubscribe links issued before a change of the preference stop working
+        // (`unsubscribeUsable`), so an old link never undoes turning the notices back on.
+        commentNoticesChangedAt: sql`case when ${s.commentNotices} = ${values.commentNotices ? 1 : 0} then ${s.commentNoticesChangedAt} else ${input.now} end`,
+      },
+    });
   return next;
 }
 
 /**
- * The policy of an artifact `ownerId` creates now, from their defaults. A public default is
- * checked against the account age again; when it does not pass, the artifact starts private.
+ * The policy of an artifact the actor creates now. In the user's personal space it comes from
+ * their defaults, and a public default is checked against the account age again (when it does
+ * not pass, the artifact starts private). Personal settings never apply in a workspace: a new
+ * workspace artifact starts from the built-in defaults.
  */
 export async function newArtifactDefaults(
   db: Db,
-  ownerId: string,
+  actor: Actor,
   now: number,
 ): Promise<NewArtifactPolicy> {
+  if (isWorkspaceId(actor.ownerId)) {
+    return newArtifactPolicy(BUILT_IN_SETTINGS, new Date(now), new Date(now));
+  }
   const [settings, createdAt] = await Promise.all([
-    loadSettings(db, ownerId),
-    accountCreatedAt(db, ownerId),
+    loadSettings(db, actor.userId),
+    accountCreatedAt(db, actor.userId),
   ]);
   // Without a user row there is nothing to be eligible with: start from the safe defaults.
   return newArtifactPolicy(

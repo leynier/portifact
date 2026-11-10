@@ -19,6 +19,13 @@ export const LIMITS = {
   /** New accounts wait this long before making an artifact public (abuse protection). */
   publicAccessMinAccountAgeMinutes: 15,
   pathMaxLength: 1_024,
+  /**
+   * The largest file, read offset or anchor position any boundary accepts. A safety cap above
+   * every plan's per-artifact size (`PLANS`); the owner's own `artifactBytes` is checked by
+   * `checkPublish` with their plan, so this never decides what an owner may publish. A contract
+   * that allows a larger artifact needs this raised too.
+   */
+  fileBytesCap: 5_000_000_000,
   /** Bounds the reader list of a restricted artifact; not a product tier, a safety cap. */
   readersPerArtifact: 500,
   readersPerChange: 100,

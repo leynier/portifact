@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { type ArtifactType, LIMITS } from "@portifact/contracts";
+import { type ArtifactType, LIMITS, PLANS } from "@portifact/contracts";
 import {
   contentTypeOf,
   DEFAULT_ENTRY,
@@ -55,6 +55,11 @@ export interface ManifestOptions {
   entry?: string | undefined;
   /** Folder of assets a Markdown document links to, published next to it. */
   assets?: string | undefined;
+  /**
+   * The largest version the owner's plan allows (`plan.limits.artifactBytes` of the usage
+   * endpoint); the free plan's when not given. The API checks the plan again.
+   */
+  maxBytes?: number | undefined;
 }
 
 /** A file found for a manifest; ZIP entries arrive already hashed. */
@@ -70,6 +75,7 @@ export async function buildManifest(
   options: ManifestOptions,
 ): Promise<LocalManifest> {
   const root = resolve(input);
+  const maxBytes = options.maxBytes ?? PLANS.free.limits.artifactBytes;
   const info = await lstatOrFail(root, input);
   if (info.isSymbolicLink()) throw new CliError("invalid_input", messages.errors.symlink(input));
   if (!info.isFile() && !info.isDirectory()) {
@@ -97,7 +103,7 @@ export async function buildManifest(
   let temporary: string | undefined;
   if (isZip) {
     const zip = await extractZip(root, input, {
-      maxBytes: LIMITS.artifactBytes,
+      maxBytes,
       exclude: (path) => excludedPrefix(path, "all"),
     });
     temporary = zip.directory;
@@ -127,7 +133,7 @@ export async function buildManifest(
     ]);
     if (!entry.ok) throw new CliError("invalid_input", entry.message);
     const entryPath = entry.value[0] as string;
-    const hashed = await hashCandidates(found, LIMITS.artifactBytes, (path) =>
+    const hashed = await hashCandidates(found, maxBytes, (path) =>
       contentTypeFor(type, path, entryPath),
     );
     if (!hashed.files.some((file) => file.path === entryPath)) {
@@ -174,10 +180,14 @@ export async function hashCandidates(
       file.sha256 !== undefined && file.size !== undefined
         ? { sha256: file.sha256, size: file.size }
         : await hashFile(file.source);
-    if (size > LIMITS.artifactBytes) {
-      throw new CliError("quota_exceeded", messages.errors.tooLarge(LIMITS.artifactBytes));
-    }
     totalBytes += size;
+    // Sizes again after hashing: a file may have grown since it was listed.
+    if (size > LIMITS.fileBytesCap || totalBytes > maxBytes) {
+      throw new CliError(
+        "quota_exceeded",
+        messages.errors.tooLarge(Math.min(maxBytes, LIMITS.fileBytesCap)),
+      );
+    }
     files.push({ path, source: file.source, size, sha256, contentType: contentType(path) });
   }
   return { files, totalBytes };

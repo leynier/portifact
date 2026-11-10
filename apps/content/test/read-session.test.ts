@@ -3,7 +3,7 @@
 // apps/app/test/read-handoff.test.ts covers the app route itself.
 import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { issueReadHandoff, suspendArtifact } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { LogOpening, Opening } from "../src/access-log.ts";
@@ -30,7 +30,7 @@ const CLAIMS_MS = READ_SESSION.claimsTtlSeconds * 1000;
 const HANDOFF_MS = READ_SESSION.handoffTtlSeconds * 1000;
 const SESSION_MS = READ_SESSION.sessionTtlSeconds * 1000;
 const PAGE = "<h1>Plan</h1>";
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const OWNER = "u_owner";
 const READER = "u_reader";

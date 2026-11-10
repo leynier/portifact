@@ -23,7 +23,7 @@ import {
   ThreadRef,
   UNTRUSTED_ANNOTATIONS_NOTICE,
 } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import {
   annotationsToMarkdown,
   createAnnotationThread,
@@ -41,6 +41,7 @@ import {
   setAnnotationThreadState,
 } from "@portifact/services";
 import { z } from "zod";
+import { artifactDb } from "../regions.ts";
 import type { Outcome } from "./inline.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
@@ -72,7 +73,7 @@ const DeletedThread = z.object({ threadId: z.string() });
 export function registerAnnotationTools(
   register: RegisterTool,
   context: ToolContext,
-  db: Db,
+  db: RegionalDb,
 ): void {
   const actor = (artifactId: string) => ({
     userId: context.userId,
@@ -91,7 +92,10 @@ export function registerAnnotationTools(
       annotations: { ...WRITE, destructiveHint: false, idempotentHint: true },
     },
     async (args: SetAnnotationsInput) => {
-      const result = await setAnnotationMode(db, { ...actor(args.artifactId), mode: args.mode });
+      const result = await setAnnotationMode(await artifactDb(context.env, args.artifactId), {
+        ...actor(args.artifactId),
+        mode: args.mode,
+      });
       if (!result.ok) return failure(result.code, result.message);
       const body = AnnotationModeView.parse(result.value);
       return success(`Annotations on ${args.artifactId} are now ${body.annotations}.`, body);
@@ -108,7 +112,7 @@ export function registerAnnotationTools(
       annotations: READ_ONLY,
     },
     async (args: ListAnnotationsInput) => {
-      const result = await listAnnotations(db, {
+      const result = await listAnnotations(await artifactDb(context.env, args.artifactId), {
         ...actor(args.artifactId),
         cursor: args.cursor,
         limit: args.limit,
@@ -145,7 +149,7 @@ export function registerAnnotationTools(
       annotations: READ_ONLY,
     },
     async (args: ThreadRef) => {
-      const result = await getAnnotationThread(db, {
+      const result = await getAnnotationThread(await artifactDb(context.env, args.artifactId), {
         ...actor(args.artifactId),
         threadId: args.threadId,
       });
@@ -163,7 +167,7 @@ export function registerAnnotationTools(
       annotations: READ_ONLY,
     },
     async (args: ExportAnnotationsInput) => {
-      const result = await exportAnnotations(db, {
+      const result = await exportAnnotations(await artifactDb(context.env, args.artifactId), {
         ...actor(args.artifactId),
         version: args.version,
         state: args.state,
@@ -202,8 +206,8 @@ export function registerAnnotationTools(
         idempotencyKey,
         "mcp.create_annotation",
         [artifactId, request],
-        () =>
-          createAnnotationThread(db, {
+        async () =>
+          createAnnotationThread(await artifactDb(context.env, artifactId), {
             userId: context.userId,
             artifactId,
             ...request,
@@ -234,8 +238,8 @@ export function registerAnnotationTools(
         idempotencyKey,
         "mcp.reply_annotation",
         [artifactId, threadId, { body }],
-        () =>
-          replyToAnnotationThread(db, {
+        async () =>
+          replyToAnnotationThread(await artifactDb(context.env, artifactId), {
             userId: context.userId,
             artifactId,
             threadId,
@@ -260,7 +264,7 @@ export function registerAnnotationTools(
       annotations: { ...WRITE, destructiveHint: true, idempotentHint: false },
     },
     async (args: EditAnnotationInput) => {
-      const result = await editAnnotationMessage(db, {
+      const result = await editAnnotationMessage(await artifactDb(context.env, args.artifactId), {
         ...actor(args.artifactId),
         messageId: args.messageId,
         body: args.body,
@@ -293,7 +297,7 @@ export function registerAnnotationTools(
     },
     async (args: MessageRef) =>
       deleteResponse(
-        await deleteOwnAnnotationMessage(db, {
+        await deleteOwnAnnotationMessage(await artifactDb(context.env, args.artifactId), {
           ...actor(args.artifactId),
           messageId: args.messageId,
         }),
@@ -326,7 +330,7 @@ export function registerAnnotationTools(
       },
       async (args: ThreadRef) =>
         threadResponse(
-          await setAnnotationThreadState(db, {
+          await setAnnotationThreadState(await artifactDb(context.env, args.artifactId), {
             ...actor(args.artifactId),
             threadId: args.threadId,
             state,
@@ -354,7 +358,7 @@ export function registerAnnotationTools(
         );
       }
       return deleteResponse(
-        await moderateAnnotationMessage(db, {
+        await moderateAnnotationMessage(await artifactDb(context.env, args.artifactId), {
           ...actor(args.artifactId),
           messageId: args.messageId,
           action: args.action,
@@ -381,7 +385,7 @@ export function registerAnnotationTools(
           "Deleting needs confirm set to the thread ID, after the user confirmed the deletion.",
         );
       }
-      const result = await deleteAnnotationThread(db, {
+      const result = await deleteAnnotationThread(await artifactDb(context.env, args.artifactId), {
         ...actor(args.artifactId),
         threadId: args.threadId,
       });
@@ -415,7 +419,7 @@ function deleteResponse(result: Outcome<AnnotationDeleteResult>, summary: string
  * same key and arguments returns the first result, and a key reused for other arguments fails.
  */
 async function idempotent(
-  db: Db,
+  db: RegionalDb,
   context: ToolContext,
   key: string,
   operation: string,

@@ -37,12 +37,13 @@ import {
   UNTRUSTED_ANNOTATIONS_NOTICE,
   utf8Length,
 } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type AnnotationAction,
   type AnnotationRole,
   type AnnotationUsageSnapshot,
   type AnnotationWrite,
+  actsForOwner,
   canRead,
   checkAnnotationAction,
   checkAnnotationCapacity,
@@ -54,7 +55,9 @@ import {
   checkResolve,
   checkThreadWritable,
   commentScope,
+  type Entitlements,
   effectiveState,
+  entitlements,
   fail,
   type HumanVerdict,
   type ModerationAction,
@@ -68,7 +71,9 @@ import {
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { actorOn, ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
+import { markCommentActivity } from "./comment-activity.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -91,6 +96,16 @@ interface Loaded {
   viewerId: string;
   verifiedEmail: string | null;
   scope: CommentScope;
+  /**
+   * Who acts for the artifact's owner: the user of a personal space, or a workspace's admins and
+   * editors. Their threads are "the owner's" in the `own` scope.
+   */
+  ownerSide: readonly string[];
+  /**
+   * What the owner's plan grants, read with the artifact: the annotation quota and whether a
+   * write marks comment notice activity, with no read of its own.
+   */
+  entitlements: Entitlements;
 }
 
 interface Authorized extends Loaded {
@@ -129,13 +144,19 @@ const changed = () =>
 
 // Loading and authorization
 
-async function load(db: Db, input: AnnotationActor): Promise<Loaded | undefined> {
-  const [artifact] = await db
-    .select()
+async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | undefined> {
+  const p = schema.ownerPlans;
+  const [row] = await db
+    .select({
+      artifact: schema.artifacts,
+      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+    })
     .from(schema.artifacts)
+    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (!artifact) return undefined;
+  if (!row) return undefined;
+  const { artifact } = row;
   const state = effectiveState(
     {
       state: artifact.state,
@@ -145,13 +166,17 @@ async function load(db: Db, input: AnnotationActor): Promise<Loaded | undefined>
     new Date(input.now),
   );
   const { role, verifiedEmail, exception } = await roleOf(db, artifact, input.userId);
+  const scope = commentScope(role ?? "participant", artifact.commentVisibility, exception);
   return {
     artifact,
     state,
     role,
     viewerId: input.userId,
     verifiedEmail,
-    scope: commentScope(role ?? "participant", artifact.commentVisibility, exception),
+    scope,
+    // A personal space needs no read.
+    ownerSide: await ownerSide(db.global, artifact.ownerId),
+    entitlements: entitlements(row.plan, input.now),
   };
 }
 
@@ -162,9 +187,16 @@ interface Caller {
   exception: CommentScope | null;
 }
 
-/** The owner, a reader admitted by the access policy, or nobody. */
-async function roleOf(db: Db, artifact: ArtifactRow, userId: string): Promise<Caller> {
-  if (artifact.ownerId === userId) return { role: "owner", verifiedEmail: null, exception: null };
+/**
+ * The owner (an admin or editor of the artifact's owner), a reader admitted by the access
+ * policy, or nobody. Members of a workspace are readers like anyone else unless the policy
+ * admits them.
+ */
+async function roleOf(db: RegionalDb, artifact: ArtifactRow, userId: string): Promise<Caller> {
+  const actor = await actorOn(db.global, userId, artifact.ownerId);
+  if (actsForOwner(actor, artifact.ownerId)) {
+    return { role: "owner", verifiedEmail: null, exception: null };
+  }
   const [user] = await db
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
@@ -192,6 +224,7 @@ async function roleOf(db: Db, artifact: ArtifactRow, userId: string): Promise<Ca
       readers: artifact.accessMode === "restricted" ? listed.map((row) => row.email) : [],
     },
     { userId, verifiedEmails: verifiedEmail === null ? [] : [verifiedEmail] },
+    actor,
   );
   const exception =
     verifiedEmail === null
@@ -202,17 +235,17 @@ async function roleOf(db: Db, artifact: ArtifactRow, userId: string): Promise<Ca
 
 /** Whether the caller sees a thread started by `authorId`. */
 function inScope(loaded: Loaded, authorId: string): boolean {
-  return threadInScope(loaded.scope, loaded.viewerId, loaded.artifact.ownerId, authorId);
+  return threadInScope(loaded.scope, loaded.viewerId, loaded.ownerSide, authorId);
 }
 
 /** The threads of the caller's scope, as a filter on `annotation_threads`. */
 function scopeFilter(loaded: Loaded): SQL | undefined {
   if (loaded.scope === "all") return undefined;
-  return inArray(schema.annotationThreads.authorId, [loaded.viewerId, loaded.artifact.ownerId]);
+  return inArray(schema.annotationThreads.authorId, [loaded.viewerId, ...loaded.ownerSide]);
 }
 
 async function authorize(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor,
   action: AnnotationAction,
 ): Promise<Result<Authorized>> {
@@ -226,7 +259,7 @@ async function authorize(
   return ok(loaded as Authorized);
 }
 
-async function findThread(db: Db, loaded: Authorized, threadId: string) {
+async function findThread(db: RegionalDb, loaded: Authorized, threadId: string) {
   const [thread] = await db
     .select()
     .from(schema.annotationThreads)
@@ -249,7 +282,7 @@ async function findThread(db: Db, loaded: Authorized, threadId: string) {
   return thread;
 }
 
-async function findMessage(db: Db, loaded: Authorized, messageId: string) {
+async function findMessage(db: RegionalDb, loaded: Authorized, messageId: string) {
   const [message] = await db
     .select()
     .from(schema.annotationMessages)
@@ -270,7 +303,7 @@ async function findMessage(db: Db, loaded: Authorized, messageId: string) {
  * their words (plan section 8), also in a thread they no longer see. Anyone else's message
  * needs its thread in scope, so the answer for it stays that of a missing one.
  */
-async function findOwnMessage(db: Db, loaded: Authorized, messageId: string) {
+async function findOwnMessage(db: RegionalDb, loaded: Authorized, messageId: string) {
   const [message] = await db
     .select()
     .from(schema.annotationMessages)
@@ -299,7 +332,7 @@ async function findOwnMessage(db: Db, loaded: Authorized, messageId: string) {
  * more). The caller is loaded again, so a visibility change that landed meanwhile counts.
  */
 async function threadIfVisible(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor,
   threadId: string,
 ): Promise<Result<AnnotationDeleteResult>> {
@@ -352,7 +385,11 @@ function scopeGuard(loaded: Authorized, threadId: string): SQL {
     loaded.verifiedEmail === null
       ? setting
       : sql`coalesce((select ${r.commentVisibility} from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${loaded.verifiedEmail}), ${setting})`;
-  return sql`exists (select 1 from ${th} join ${t} on ${t.id} = ${th.artifactId} where ${th.id} = ${threadId} and (${th.authorId} = ${loaded.viewerId} or ${th.authorId} = ${t.ownerId} or ${scope} = 'all'))`;
+  const owners = sql.join(
+    [loaded.viewerId, ...loaded.ownerSide].map((id) => sql`${id}`),
+    sql`, `,
+  );
+  return sql`exists (select 1 from ${th} join ${t} on ${t.id} = ${th.artifactId} where ${th.id} = ${threadId} and (${th.authorId} in (${owners}) or ${scope} = 'all'))`;
 }
 
 /** The author and the artifact are under their write limits. */
@@ -383,7 +420,7 @@ interface Claim {
 }
 
 /** Inserts the event that claims a change, only when `guard` holds. Returns its ID if it did. */
-function claim(db: Db, writeId: string, event: Claim, guard: SQL) {
+function claim(db: RegionalDb, writeId: string, event: Claim, guard: SQL) {
   // Drizzle lists every column in schema order for an insert from raw SQL; `null` is the ID.
   return db
     .insert(schema.annotationEvents)
@@ -394,7 +431,7 @@ function claim(db: Db, writeId: string, event: Claim, guard: SQL) {
 }
 
 /** Bumps the thread's revision and points its refresh cursor at the claiming event. */
-function touchThread(db: Db, threadId: string, writeId: string, now: number, extra = {}) {
+function touchThread(db: RegionalDb, threadId: string, writeId: string, now: number, extra = {}) {
   const th = schema.annotationThreads;
   return db
     .update(th)
@@ -409,11 +446,33 @@ function touchThread(db: Db, threadId: string, writeId: string, now: number, ext
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 
+/** The comment notice mark of a claimed write, when the owner's plan has comment notices. */
+function noticeMark(
+  db: RegionalDb,
+  loaded: Loaded,
+  writeId: string,
+  mark: {
+    threadId: string;
+    actorId: string;
+    activity: "thread" | "reply" | "resolved";
+    now: number;
+  },
+): BatchItem<"sqlite">[] {
+  const statement = markCommentActivity(db, {
+    ...mark,
+    entitlements: loaded.entitlements,
+    artifactId: loaded.artifact.id,
+    ownerSide: loaded.ownerSide,
+    claimed: claimed(writeId),
+  });
+  return statement ? [statement] : [];
+}
+
 /**
  * Runs a claimed batch. Returns whether the claim happened; a CHECK constraint failure (the
  * owner's quota or a full thread, after a race) becomes `quota_exceeded`.
  */
-async function runClaimed(db: Db, statements: Batch): Promise<Result<boolean>> {
+async function runClaimed(db: RegionalDb, statements: Batch): Promise<Result<boolean>> {
   try {
     const [first] = (await db.batch(statements)) as [{ id: number }[]];
     return ok(first.length === 1);
@@ -443,7 +502,7 @@ function causeMatches(error: unknown, pattern: RegExp): boolean {
  * Comments by the author on artifacts they do not own, counted up to the number that still
  * needs a human check. Events go with their artifact, so deleting one may ask again.
  */
-async function commentsOnOthersArtifacts(db: Db, userId: string): Promise<number> {
+async function commentsOnOthersArtifacts(db: RegionalDb, userId: string): Promise<number> {
   const e = schema.annotationEvents;
   const t = schema.artifacts;
   const [row] = await db.all<{ count: number }>(
@@ -456,7 +515,7 @@ async function commentsOnOthersArtifacts(db: Db, userId: string): Promise<number
  * Decides the human check of one comment. The token is single use at the provider and a
  * write that loses its claim runs its checks again, so the verdict is fetched at most once.
  */
-function humanGate(db: Db, userId: string, check: HumanCheck) {
+function humanGate(db: RegionalDb, userId: string, check: HumanCheck) {
   let verdict: Promise<HumanVerdict> | undefined;
   return async (loaded: Authorized): Promise<Result<true>> => {
     if (!needsHumanCheck(loaded.role, await commentsOnOthersArtifacts(db, userId))) {
@@ -486,7 +545,7 @@ async function guardedWrite<T, P>(
 }
 
 async function usage(
-  db: Db,
+  db: RegionalDb,
   loaded: Authorized,
   actorId: string,
   now: number,
@@ -519,7 +578,7 @@ async function usage(
 }
 
 async function checkLimits(
-  db: Db,
+  db: RegionalDb,
   loaded: Authorized,
   actorId: string,
   now: number,
@@ -529,14 +588,19 @@ async function checkLimits(
   // Budget protection pauses new comments (plan section 12); moderation never passes through here.
   const capacity = checkAnnotationCapacity((await platformProtection(db, now)).actions);
   if (!capacity.ok) return capacity;
-  return checkAnnotationWrite(await usage(db, loaded, actorId, now, threadMessages), write);
+  // The quota is the artifact owner's, so it follows the owner's plan, whoever writes.
+  return checkAnnotationWrite(
+    await usage(db, loaded, actorId, now, threadMessages),
+    write,
+    loaded.entitlements.limits,
+  );
 }
 
 // Mode
 
 /** Turns annotations off, opens them or locks them. Owner only; threads are never deleted. */
 export async function setAnnotationMode(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { mode: AnnotationsState },
 ): Promise<Result<{ annotations: AnnotationsState }>> {
   const loaded = await load(db, input);
@@ -551,7 +615,7 @@ export async function setAnnotationMode(
     .where(
       and(
         eq(t.id, loaded.artifact.id),
-        eq(t.ownerId, input.userId),
+        eq(t.ownerId, loaded.artifact.ownerId),
         inArray(t.state, ["active", "archived"]),
       ),
     )
@@ -572,7 +636,7 @@ export async function setAnnotationMode(
 
 /** Starts a thread with its first message on the artifact's current version. */
 export async function createAnnotationThread(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & {
     versionId: string;
     target: AnnotationTarget;
@@ -649,6 +713,12 @@ export async function createAnnotationThread(
           now: input.now,
           writeId,
         }),
+        ...noticeMark(db, loaded, writeId, {
+          threadId,
+          actorId: input.userId,
+          activity: "thread",
+          now: input.now,
+        }),
       ]);
     },
     (loaded) => threadResult(db, loaded, input.userId, threadId),
@@ -656,7 +726,7 @@ export async function createAnnotationThread(
 }
 
 function insertMessage(
-  db: Db,
+  db: RegionalDb,
   m: {
     id: string;
     threadId: string;
@@ -679,7 +749,7 @@ function insertMessage(
 
 /** Adds a reply to a thread of the current version. */
 export async function replyToAnnotationThread(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { threadId: string; body: string; humanCheck: HumanCheck },
 ): Promise<Result<AnnotationThreadView>> {
   const bodyBytes = utf8Length(input.body);
@@ -739,6 +809,12 @@ export async function replyToAnnotationThread(
         touchThread(db, input.threadId, writeId, input.now, {
           messageCount: sql`${schema.annotationThreads.messageCount} + 1`,
         }),
+        ...noticeMark(db, loaded, writeId, {
+          threadId: input.threadId,
+          actorId: input.userId,
+          activity: "reply",
+          now: input.now,
+        }),
       ]);
     },
     (loaded) => threadResult(db, loaded, input.userId, input.threadId),
@@ -750,7 +826,7 @@ export async function replyToAnnotationThread(
  * it even in a thread they no longer see; the answer is then `{ threadId, thread: null }`.
  */
 export async function editAnnotationMessage(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { messageId: string; body: string; revision: number },
 ): Promise<Result<AnnotationEditResult>> {
   const bodyBytes = utf8Length(input.body);
@@ -821,7 +897,7 @@ export async function editAnnotationMessage(
  * `thread` is `null`). A thread left without live messages is removed.
  */
 export async function deleteOwnAnnotationMessage(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { messageId: string },
 ): Promise<Result<AnnotationDeleteResult>> {
   return removeMessage(db, input, "delete_own");
@@ -829,7 +905,7 @@ export async function deleteOwnAnnotationMessage(
 
 /** Owner moderation: hide, unhide or delete another person's message. */
 export async function moderateAnnotationMessage(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { messageId: string; action: ModerationAction },
 ): Promise<Result<AnnotationDeleteResult>> {
   if (input.action === "delete") return removeMessage(db, input, "moderate");
@@ -882,7 +958,7 @@ export async function moderateAnnotationMessage(
  * the thread is left, the thread is removed. Deleting a deleted message changes nothing.
  */
 async function removeMessage(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { messageId: string },
   action: "delete_own" | "moderate",
 ): Promise<Result<AnnotationDeleteResult>> {
@@ -961,7 +1037,7 @@ async function removeMessage(
 
 /** Resolves or reopens a thread: the owner any thread, a participant the threads they started. */
 export async function setAnnotationThreadState(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { threadId: string; state: AnnotationThreadState },
 ): Promise<Result<AnnotationThreadView>> {
   const writeId = crypto.randomUUID();
@@ -1001,6 +1077,15 @@ export async function setAnnotationThreadState(
           resolvedAt: resolved ? input.now : null,
           resolvedBy: resolved ? input.userId : null,
         }),
+        // Reopening a thread is not news for anyone.
+        ...(resolved
+          ? noticeMark(db, loaded, writeId, {
+              threadId: thread.id,
+              actorId: input.userId,
+              activity: "resolved",
+              now: input.now,
+            })
+          : []),
       ]);
     },
     ({ loaded, thread }) => threadResult(db, loaded, input.userId, thread.id),
@@ -1009,7 +1094,7 @@ export async function setAnnotationThreadState(
 
 /** Owner moderation: removes a whole thread and its messages. */
 export async function deleteAnnotationThread(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { threadId: string },
 ): Promise<Result<{ threadId: string }>> {
   const writeId = crypto.randomUUID();
@@ -1046,7 +1131,7 @@ export async function deleteAnnotationThread(
 
 /** One thread with its messages, if the caller can see it. */
 export async function getAnnotationThread(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & { threadId: string },
 ): Promise<Result<AnnotationThreadView>> {
   const loaded = await authorize(db, input, "read");
@@ -1055,7 +1140,7 @@ export async function getAnnotationThread(
 }
 
 async function threadResult(
-  db: Db,
+  db: RegionalDb,
   loaded: Authorized,
   viewerId: string,
   threadId: string,
@@ -1115,7 +1200,11 @@ function eventScopeFilter(loaded: Loaded): SQL | undefined {
   if (loaded.scope === "all") return undefined;
   const e = schema.annotationEvents;
   // Interpolating an alias renders only its name, so the FROM clause names the table itself.
-  return sql`${e.threadId} in (select created.thread_id from ${e} as created where created.artifact_id = ${loaded.artifact.id} and created.kind = 'thread_created' and created.actor_id in (${loaded.viewerId}, ${loaded.artifact.ownerId}))`;
+  const owners = sql.join(
+    [loaded.viewerId, ...loaded.ownerSide].map((id) => sql`${id}`),
+    sql`, `,
+  );
+  return sql`${e.threadId} in (select created.thread_id from ${e} as created where created.artifact_id = ${loaded.artifact.id} and created.kind = 'thread_created' and created.actor_id in (${owners}))`;
 }
 
 /**
@@ -1124,7 +1213,7 @@ function eventScopeFilter(loaded: Loaded): SQL | undefined {
  * longer match the filter, so a client can refresh incrementally.
  */
 export async function listAnnotations(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationListInput,
 ): Promise<Result<AnnotationPage>> {
   const authorized = await authorize(db, input, "read");
@@ -1206,7 +1295,7 @@ export async function listAnnotations(
 
 /** Every thread the caller can see, oldest first, for JSON or Markdown export. */
 export async function exportAnnotations(
-  db: Db,
+  db: RegionalDb,
   input: AnnotationActor & {
     version: AnnotationVersionFilter;
     state?: AnnotationThreadState | undefined;
@@ -1247,7 +1336,7 @@ function chunks<T>(items: readonly T[]): T[][] {
 }
 
 async function threadViews(
-  db: Db,
+  db: RegionalDb,
   loaded: Authorized,
   viewerId: string,
   threads: readonly ThreadRow[],
@@ -1299,7 +1388,7 @@ async function threadViews(
     state: thread.state,
     author: authors.get(thread.authorId) ?? null,
     own: thread.authorId === viewerId,
-    byOwner: thread.authorId === loaded.artifact.ownerId,
+    byOwner: loaded.ownerSide.includes(thread.authorId),
     revision: thread.revision,
     createdAt: iso(thread.createdAt),
     updatedAt: iso(thread.updatedAt),
@@ -1321,7 +1410,7 @@ function iso(ms: number): string {
  * thread changed.
  */
 export async function eraseAuthorFromThread(
-  db: Db,
+  db: RegionalDb,
   input: { authorId: string; threadId: string; now: number },
 ): Promise<boolean> {
   const th = schema.annotationThreads;
@@ -1385,4 +1474,62 @@ export async function eraseAuthorFromThread(
       ];
   const [first] = (await db.batch(statements)) as [{ id: number }[]];
   return first.length === 1;
+}
+
+// Comment notices
+
+/** What a recipient may see of one artifact's threads when their comment notice is sent. */
+export interface NoticeView {
+  name: string;
+  entitlements: Entitlements;
+  /** The threads among those asked about that the recipient may read now. */
+  threadIds: Set<string>;
+}
+
+/**
+ * The threads among `threadIds` that `userId` may read now, by the same rules as every read
+ * path (the role on the artifact, its state and comment mode, the comment scope and the version
+ * a visitor sees), or null when they may read none of the artifact's comments any more.
+ */
+export async function noticeView(
+  db: RegionalDb,
+  input: AnnotationActor & { threadIds: readonly string[] },
+): Promise<NoticeView | null> {
+  const authorized = await authorize(db, input, "read");
+  if (!authorized.ok) return null;
+  const loaded = authorized.value;
+  const th = schema.annotationThreads;
+  const visible = new Set<string>();
+  for (let i = 0; i < input.threadIds.length; i += IN_CHUNK) {
+    const rows = await db
+      .select({ id: th.id, versionId: th.versionId, authorId: th.authorId })
+      .from(th)
+      .where(
+        and(
+          eq(th.artifactId, loaded.artifact.id),
+          inArray(th.id, input.threadIds.slice(i, i + IN_CHUNK)),
+        ),
+      );
+    for (const thread of rows) {
+      if (
+        threadVisible(loaded.role, thread.versionId, loaded.artifact.currentVersionId) &&
+        inScope(loaded, thread.authorId)
+      ) {
+        visible.add(thread.id);
+      }
+    }
+  }
+  return { name: loaded.artifact.name, entitlements: loaded.entitlements, threadIds: visible };
+}
+
+/**
+ * Whether `userId` may read the artifact's comments: the same authorization as listing them.
+ * Gives the owner's entitlements, for the comment notice preference of the artifact.
+ */
+export async function annotationReader(
+  db: RegionalDb,
+  input: AnnotationActor,
+): Promise<Result<{ entitlements: Entitlements }>> {
+  const authorized = await authorize(db, input, "read");
+  return authorized.ok ? ok({ entitlements: authorized.value.entitlements }) : authorized;
 }

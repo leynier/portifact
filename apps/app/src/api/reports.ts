@@ -10,12 +10,12 @@ import {
   REPORT_LIMITS,
   reportedArtifactId,
 } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
 import { submitAbuseReport } from "@portifact/services";
 import { Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
 import { checkLimits } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
+import { regionsOf } from "../regions.ts";
 import { type ApiContext, error, readJson } from "./http.ts";
 
 export const REPORTS_PATH = "/api/v1/reports";
@@ -57,7 +57,7 @@ export function reportRoutes(deps: { now(): number }) {
     );
     if (!wider.ok) return limited(c, wider.retryAfterSeconds);
 
-    await submitAbuseReport(createDb(c.env.DB), {
+    await submitAbuseReport(regionsOf(c.env).global, {
       artifactId,
       reason: body.value.reason,
       details: body.value.details,

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -20,7 +20,7 @@ const STRANGER = "u_stranger";
 const NOW = Date.UTC(2026, 10, 8, 12);
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -71,7 +71,7 @@ async function publish(
   const now = options.now ?? NOW;
   const entrypoint = Object.keys(files.published)[0] as string;
   const prepared = await preparePublish(db(), {
-    ownerId: OWNER,
+    userId: OWNER,
     ...(options.artifactId ? { artifactId: options.artifactId } : {}),
     type: options.type ?? "markdown",
     name: "Plan",
@@ -86,7 +86,7 @@ async function publish(
     await env.ARTIFACTS.put(`objects/${OWNER}/${hash}`, body, { sha256: hash });
   }
   const committed = await commitPublish(db(), env.ARTIFACTS, {
-    ownerId: OWNER,
+    userId: OWNER,
     sessionId: prepared.value.sessionId,
     now,
   });
@@ -158,7 +158,7 @@ describe("listVersions", () => {
   it("lists retained versions newest first, with the current one marked and no expiry", async () => {
     const { id, v1, v2, v3 } = await threeVersions();
     const page = await listVersions(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       now: NOW + 3 * HOUR,
       limit: 50,
@@ -191,12 +191,12 @@ describe("listVersions", () => {
 
   it("pages with a cursor and refuses a forged one", async () => {
     const { id, v1, v2, v3 } = await threeVersions();
-    const first = await listVersions(db(), { ownerId: OWNER, artifactId: id, now: NOW, limit: 2 });
+    const first = await listVersions(db(), { userId: OWNER, artifactId: id, now: NOW, limit: 2 });
     if (!first.ok) throw new Error(first.message);
     expect(first.value.items.map((item) => item.id)).toEqual([v3.versionId, v2.versionId]);
     expect(first.value.nextCursor).toBe("2");
     const second = await listVersions(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       now: NOW,
       limit: 2,
@@ -206,7 +206,7 @@ describe("listVersions", () => {
     if (second.ok) expect(second.value.items.map((item) => item.id)).toEqual([v1.versionId]);
     for (const cursor of ["0", "x", "-1", "1234567890", ""]) {
       expect(
-        await listVersions(db(), { ownerId: OWNER, artifactId: id, now: NOW, limit: 2, cursor }),
+        await listVersions(db(), { userId: OWNER, artifactId: id, now: NOW, limit: 2, cursor }),
       ).toMatchObject({ ok: false, code: "invalid_input" });
     }
   });
@@ -215,7 +215,7 @@ describe("listVersions", () => {
     const { id, v1, v2, v3 } = await threeVersions();
     // An upload prepared on top of v3 and never committed.
     await preparePublish(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       type: "markdown",
       name: "Plan",
@@ -226,7 +226,7 @@ describe("listVersions", () => {
     });
     // v1 stopped being current at NOW + 1h, so at exactly 7 days later it is gone.
     const later = await listVersions(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       now: NOW + HOUR + 7 * DAY,
       limit: 50,
@@ -238,9 +238,9 @@ describe("listVersions", () => {
 
   it("keeps the versions of an archived artifact visible to its owner", async () => {
     const { id, v3 } = await threeVersions();
-    await archiveArtifact(db(), { ownerId: OWNER, artifactId: id, now: NOW + 3 * HOUR });
+    await archiveArtifact(db(), { userId: OWNER, artifactId: id, now: NOW + 3 * HOUR });
     const page = await listVersions(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       now: NOW + 3 * HOUR,
       limit: 1,
@@ -255,14 +255,16 @@ describe("listVersions", () => {
       [STRANGER, id],
       [OWNER, "abcdefghij"],
     ] as const) {
-      expect(await listVersions(db(), { ownerId, artifactId, now: NOW, limit: 10 })).toMatchObject({
+      expect(
+        await listVersions(db(), { userId: ownerId, artifactId, now: NOW, limit: 10 }),
+      ).toMatchObject({
         ok: false,
         code: "not_found",
       });
     }
     await env.DB.prepare("update artifacts set state = 'deleted' where id = ?").bind(id).run();
     expect(
-      await listVersions(db(), { ownerId: OWNER, artifactId: id, now: NOW, limit: 10 }),
+      await listVersions(db(), { userId: OWNER, artifactId: id, now: NOW, limit: 10 }),
     ).toMatchObject({ ok: false, code: "not_found" });
   });
 });
@@ -271,7 +273,7 @@ describe("getVersionManifest", () => {
   it("returns every file of a version, published and source, and resolves current", async () => {
     const { id, v1, v3 } = await threeVersions();
     const old = await getVersionManifest(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       versionId: v1.versionId,
       now: NOW + 3 * HOUR,
@@ -296,7 +298,7 @@ describe("getVersionManifest", () => {
       },
     ]);
     const current = await getVersionManifest(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       versionId: "current",
       now: NOW,
@@ -313,7 +315,7 @@ describe("getVersionManifest", () => {
     const missing = { ok: false, code: "not_found" };
     expect(
       await getVersionManifest(db(), {
-        ownerId: STRANGER,
+        userId: STRANGER,
         artifactId: id,
         versionId: v1.versionId,
         now: NOW,
@@ -321,7 +323,7 @@ describe("getVersionManifest", () => {
     ).toMatchObject(missing);
     expect(
       await getVersionManifest(db(), {
-        ownerId: OWNER,
+        userId: OWNER,
         artifactId: id,
         versionId: v1.versionId,
         now: NOW + HOUR + 7 * DAY,
@@ -329,7 +331,7 @@ describe("getVersionManifest", () => {
     ).toMatchObject(missing);
     expect(
       await getVersionManifest(db(), {
-        ownerId: OWNER,
+        userId: OWNER,
         artifactId: id,
         versionId: other.versionId,
         now: NOW,
@@ -423,7 +425,7 @@ describe("getVersionDownload", () => {
   it("stops a reader's downloads once access is revoked or the artifact is archived", async () => {
     const { id } = await readable();
     await updateAccess(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       change: { removeReaders: ["reader@example.com"] },
       now: NOW + HOUR,
@@ -431,7 +433,7 @@ describe("getVersionDownload", () => {
     expect(await download(READER, id, "current")).toMatchObject({ ok: false, code: "not_found" });
 
     const other = await readable();
-    await archiveArtifact(db(), { ownerId: OWNER, artifactId: other.id, now: NOW + HOUR });
+    await archiveArtifact(db(), { userId: OWNER, artifactId: other.id, now: NOW + HOUR });
     expect(await download(READER, other.id, "current")).toMatchObject({
       ok: false,
       code: "not_found",
@@ -465,7 +467,7 @@ describe("rollbackArtifact", () => {
     versionId: string,
     baseVersionId: string,
     now = NOW + 3 * HOUR,
-  ) => rollbackArtifact(db(), { ownerId: OWNER, artifactId, versionId, baseVersionId, now });
+  ) => rollbackArtifact(db(), { userId: OWNER, artifactId, versionId, baseVersionId, now });
 
   it("publishes the files of a retained version as a new current version", async () => {
     const { id, v1, v3 } = await threeVersions();
@@ -493,7 +495,7 @@ describe("rollbackArtifact", () => {
     });
     const manifestOf = async (versionId: string) => {
       const m = await getVersionManifest(db(), {
-        ownerId: OWNER,
+        userId: OWNER,
         artifactId: id,
         versionId,
         now: at,
@@ -544,7 +546,7 @@ describe("rollbackArtifact", () => {
       .insert(schema.artifactReaders)
       .values({ artifactId: id, email: "reader@example.com" });
     const removed = await updateAccess(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       change: { removeReaders: ["reader@example.com"], mode: "restricted" },
       now: NOW + 2 * HOUR,
@@ -607,7 +609,7 @@ describe("rollbackArtifact", () => {
     const { id, v1, v3 } = await threeVersions();
     expect(
       await rollbackArtifact(db(), {
-        ownerId: STRANGER,
+        userId: STRANGER,
         artifactId: id,
         versionId: v1.versionId,
         baseVersionId: v3.versionId,
@@ -671,7 +673,7 @@ describe("rollbackArtifact", () => {
     const { id, v1, v3 } = await threeVersions();
     const body = "# Four";
     const prepared = await preparePublish(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: id,
       type: "markdown",
       name: "Plan",
@@ -690,7 +692,7 @@ describe("rollbackArtifact", () => {
     const hash = await sha256(body);
     await env.ARTIFACTS.put(`objects/${OWNER}/${hash}`, body, { sha256: hash });
     const commit = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: prepared.value.sessionId,
       now: NOW + 3 * HOUR,
     });

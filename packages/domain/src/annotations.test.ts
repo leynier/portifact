@@ -1,4 +1,9 @@
-import { ANNOTATION_LIMITS, type AnnotationsState, type ArtifactState } from "@portifact/contracts";
+import {
+  ANNOTATION_LIMITS,
+  type AnnotationsState,
+  type ArtifactState,
+  PLANS,
+} from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   type AnnotationAction,
@@ -200,12 +205,20 @@ describe("comment visibility", () => {
   });
 
   it("limits `own` to the caller's threads and the owner's, with every reply", () => {
-    expect(threadInScope("own", "ana", "olga", "ana")).toBe(true);
-    expect(threadInScope("own", "ana", "olga", "olga")).toBe(true);
-    expect(threadInScope("own", "ana", "olga", "bea")).toBe(false);
-    expect(threadInScope("all", "ana", "olga", "bea")).toBe(true);
+    expect(threadInScope("own", "ana", ["olga"], "ana")).toBe(true);
+    expect(threadInScope("own", "ana", ["olga"], "olga")).toBe(true);
+    expect(threadInScope("own", "ana", ["olga"], "bea")).toBe(false);
+    expect(threadInScope("all", "ana", ["olga"], "bea")).toBe(true);
     // The owner's scope is always all, so the owner sees a reader's thread.
-    expect(threadInScope(commentScope("owner", "owner", null), "olga", "olga", "bea")).toBe(true);
+    expect(threadInScope(commentScope("owner", "owner", null), "olga", ["olga"], "bea")).toBe(true);
+  });
+
+  it("counts every admin and editor of a workspace as the owner in `own`", () => {
+    const side = ["olga", "eda"];
+    expect(threadInScope("own", "ana", side, "eda")).toBe(true);
+    expect(threadInScope("own", "ana", side, "olga")).toBe(true);
+    expect(threadInScope("own", "ana", side, "mia")).toBe(false);
+    expect(threadInScope("own", "ana", [], "olga")).toBe(false);
   });
 });
 
@@ -221,7 +234,7 @@ describe("annotation limits", () => {
   };
   const thread = { kind: "thread", addedBytes: 100 } as const;
   const code = (usage: Partial<AnnotationUsageSnapshot>, write: AnnotationWrite = thread) => {
-    const result = checkAnnotationWrite({ ...idle, ...usage }, write);
+    const result = checkAnnotationWrite({ ...idle, ...usage }, write, PLANS.free.limits);
     return result.ok ? "ok" : result.code;
   };
 
@@ -238,7 +251,11 @@ describe("annotation limits", () => {
 
   it("checks rate limits before quotas", () => {
     expect(
-      checkAnnotationWrite({ ...idle, authorWritesLastMinute: 5, ownerMessages: 5_000 }, thread),
+      checkAnnotationWrite(
+        { ...idle, authorWritesLastMinute: 5, ownerMessages: 5_000 },
+        thread,
+        PLANS.free.limits,
+      ),
     ).toMatchObject({ code: "rate_limited" });
   });
 

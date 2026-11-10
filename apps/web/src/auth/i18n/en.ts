@@ -84,6 +84,17 @@ export const en = {
     failed: "The report could not be sent. Try again or write to abuse@portifact.com.",
     sent: "Report sent.",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "This link is incomplete. Open the link from the email again, or turn comment notices off in your settings.",
+    invalid: "This link does not work any more. Turn comment notices off in your settings instead.",
+    rateLimited: "Too many tries from here. Try again in a few minutes.",
+    network: "Portifact could not be reached. Check your connection and try again.",
+    failed:
+      "Comment notices could not be turned off. Try again, or turn them off in your settings.",
+    done: "Comment notices turned off.",
+  },
 };
 
 /** The script messages of the auth pages; every catalog provides all of them. */

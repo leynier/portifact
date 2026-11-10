@@ -7,10 +7,14 @@ import {
   type ArtifactState,
   type CommentScope,
   type CommentVisibility,
+  type PlanLimits,
 } from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
 
-/** `owner` manages the artifact; `participant` can read it through its access policy. */
+/**
+ * `owner` acts for the artifact's owner (the user of a personal space, or an admin or editor of
+ * a workspace); `participant` can read it through its access policy.
+ */
 export type AnnotationRole = "owner" | "participant";
 
 export interface AnnotationContext {
@@ -113,16 +117,18 @@ export function commentScope(
 
 /**
  * Whether a thread is within the caller's scope: with `own`, the threads the caller or the
- * owner started, with every reply in them whoever wrote it. A reply never makes someone else's
- * thread visible to its writer. A thread outside the scope answers like a missing one.
+ * owner started, with every reply in them whoever wrote it. "The owner" is everyone who acts for
+ * it (`ownerSide`: the user of a personal space, or a workspace's admins and editors). A reply
+ * never makes someone else's thread visible to its writer. A thread outside the scope answers
+ * like a missing one.
  */
 export function threadInScope(
   scope: CommentScope,
   viewerId: string,
-  ownerId: string,
+  ownerSide: readonly string[],
   threadAuthorId: string,
 ): boolean {
-  return scope === "all" || threadAuthorId === viewerId || threadAuthorId === ownerId;
+  return scope === "all" || threadAuthorId === viewerId || ownerSide.includes(threadAuthorId);
 }
 
 /** New messages and edits go only to threads of the current version. */
@@ -224,10 +230,17 @@ export interface AnnotationWrite {
   addedBytes: number;
 }
 
-/** Applies the rate limits first, then the stored-data quotas. */
+/** The per-owner annotation quota of the owner's plan. */
+export type AnnotationOwnerLimits = Pick<PlanLimits, "annotationMessages" | "annotationBytes">;
+
+/**
+ * Applies the rate limits first, then the stored-data quotas; `limits` are those of the
+ * artifact owner's plan.
+ */
 export function checkAnnotationWrite(
   usage: AnnotationUsageSnapshot,
   write: AnnotationWrite,
+  limits: AnnotationOwnerLimits,
 ): Result<true> {
   if (usage.authorWritesLastMinute >= ANNOTATION_LIMITS.writesPerMinute) {
     return fail(
@@ -258,8 +271,8 @@ export function checkAnnotationWrite(
   }
   const addedMessages = write.kind === "edit" ? 0 : 1;
   if (
-    usage.ownerMessages + addedMessages > ANNOTATION_LIMITS.messagesPerOwner ||
-    usage.ownerBytes + write.addedBytes > ANNOTATION_LIMITS.bytesPerOwner
+    usage.ownerMessages + addedMessages > limits.annotationMessages ||
+    usage.ownerBytes + write.addedBytes > limits.annotationBytes
   ) {
     return fail("quota_exceeded", "The owner of this artifact has no room for more comments.");
   }

@@ -12,3 +12,11 @@ useDefault = true
 description = "Idempotency keys are request identifiers, not secrets"
 regexTarget = "match"
 regexes = ['''(?i)^idempotency[-_]?key"?\s*[:=]\s*"[a-z0-9-]+"$''']
+
+# The unsubscribe page's accessibility test opens the page with a made-up link token: the format's
+# prefix, the base64 of the words "user" and "signature", and no key. It signs nothing and no
+# Worker would accept it. Only that exact value is dropped.
+[[allowlists]]
+description = "The unsubscribe page test's placeholder token is not a credential"
+regexTarget = "match"
+regexes = ['''cn1\.dXNlcg\.1\.c2lnbmF0dXJl''']

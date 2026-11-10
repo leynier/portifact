@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -18,11 +18,12 @@ import {
   runMaintenance,
   sweepOrphanObjects,
 } from "../src/index.ts";
+import { grantPlan } from "./fixtures.ts";
 
 const OWNER = "u_owner";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 0, 10, 12);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -48,7 +49,7 @@ async function publish(
   base?: { artifactId: string; versionId: string },
 ) {
   const prepared = await preparePublish(db(), {
-    ownerId: OWNER,
+    userId: OWNER,
     type: "site",
     name: "Plan",
     entrypoint: "index.html",
@@ -62,7 +63,7 @@ async function publish(
     await env.ARTIFACTS.put(`objects/${OWNER}/${await sha256(body)}`, body);
   }
   const committed = await commitPublish(db(), env.ARTIFACTS, {
-    ownerId: OWNER,
+    userId: OWNER,
     sessionId: prepared.value.sessionId,
     now,
   });
@@ -87,7 +88,7 @@ async function r2Keys() {
   return (await env.ARTIFACTS.list()).objects.map((o) => o.key).sort();
 }
 
-const input = (artifactId: string, now: number, ownerId = OWNER) => ({ ownerId, artifactId, now });
+const input = (artifactId: string, now: number, userId = OWNER) => ({ userId, artifactId, now });
 
 beforeEach(async () => {
   const listed = await env.ARTIFACTS.list();
@@ -99,6 +100,7 @@ beforeEach(async () => {
     "artifacts",
     "upload_sessions",
     "account_usage",
+    "owner_plans",
     "usage_events",
     "lifecycle_events",
     "tombstones",
@@ -146,7 +148,7 @@ describe("owner lifecycle actions", () => {
     const a = await publish({ "index.html": "<h1>a</h1>" });
     expect(await renewArtifact(db(), input(a.artifactId, T0 + 10 * DAY))).toEqual({
       ok: true,
-      value: { state: "active", expiresAt: T0 + 40 * DAY, purgeAt: null },
+      value: { state: "active", expiresAt: T0 + 40 * DAY, purgeAt: null, pinned: false },
     });
   });
 
@@ -171,7 +173,7 @@ describe("owner lifecycle actions", () => {
     const restored = await restoreArtifact(db(), input(a.artifactId, T0 + 60 * DAY));
     expect(restored).toEqual({
       ok: true,
-      value: { state: "active", expiresAt: T0 + 90 * DAY, purgeAt: null },
+      value: { state: "active", expiresAt: T0 + 90 * DAY, purgeAt: null, pinned: false },
     });
     expect(await artifact(a.artifactId)).toMatchObject({
       state: "active",
@@ -197,6 +199,25 @@ describe("owner lifecycle actions", () => {
     expect(await restoreArtifact(db(), input(a.artifactId, T0 + 2 * DAY))).toMatchObject({
       code: "quota_exceeded",
     });
+  });
+
+  it("restores with the active slots of the owner's plan, and an expired plan reads as free", async () => {
+    const a = await publish({ "index.html": "<h1>a</h1>" });
+    const b = await publish({ "index.html": "<h1>b</h1>" });
+    await archiveArtifact(db(), input(a.artifactId, T0 + DAY));
+    // Below the free CHECK, so only the plan's limit can refuse.
+    await grantPlan(OWNER, "pro", { overrides: { limits: { activeArtifacts: 1 } } });
+    expect(await restoreArtifact(db(), input(a.artifactId, T0 + 2 * DAY))).toEqual({
+      ok: false,
+      code: "quota_exceeded",
+      message: "You already have 1 active artifacts.",
+    });
+    await grantPlan(OWNER, "pro", {
+      validUntil: T0 + 2 * DAY,
+      overrides: { limits: { activeArtifacts: 1 } },
+    });
+    expect((await restoreArtifact(db(), input(a.artifactId, T0 + 2 * DAY))).ok).toBe(true);
+    expect(b.artifactId).not.toBe(a.artifactId);
   });
 
   it("refuses invalid transitions", async () => {
@@ -326,7 +347,7 @@ describe("pruning versions and uploads", () => {
   it("releases abandoned uploads and removes what they left behind", async () => {
     const a = await publish({ "index.html": "<h1>v1</h1>" });
     const pending = await preparePublish(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       type: "site",
       name: "Plan",
       entrypoint: "index.html",
@@ -362,7 +383,7 @@ describe("pruning versions and uploads", () => {
 
   it("lets an aborted first upload leave nothing behind", async () => {
     const pending = await preparePublish(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       type: "site",
       name: "Plan",
       entrypoint: "index.html",
@@ -372,7 +393,7 @@ describe("pruning versions and uploads", () => {
     });
     if (!pending.ok) throw new Error(pending.message);
     await env.ARTIFACTS.put(pending.value.uploads[0]?.r2Key ?? "", "<h1>draft</h1>");
-    await abortPublish(db(), { ownerId: OWNER, sessionId: pending.value.sessionId, now: T0 });
+    await abortPublish(db(), { userId: OWNER, sessionId: pending.value.sessionId, now: T0 });
 
     expect(await sweepOrphanObjects(db(), env.ARTIFACTS, T0)).toEqual({ processed: 1 });
     expect(await db().select().from(schema.objects)).toEqual([]);
@@ -412,6 +433,7 @@ describe("purging archives", () => {
     expect(await runMaintenance(db(), env.ARTIFACTS, T0 + 31 * DAY)).toEqual({
       archived: 1,
       expiryNotices: 0,
+      commentNotices: 0,
       expiredUploads: 0,
       prunedVersions: 0,
       purged: 0,
@@ -424,6 +446,8 @@ describe("purging archives", () => {
       prunedTrafficCounters: 0,
       prunedEmailCounters: 0,
       prunedEmailSuppressions: 0,
+      alignedPlanLimits: 0,
+      unpinned: 0,
     });
   });
 });

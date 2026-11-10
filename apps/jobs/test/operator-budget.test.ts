@@ -1,10 +1,10 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { recordBudgetMeasurement } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import { OPERATOR_USAGE, runOperator } from "../src/operator.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 // November has 30 days: the 16th at 00:00 is half the cycle, so counters project to double.
 const MID = Date.UTC(2026, 10, 16);
 const run = (...argv: string[]) => runOperator(db(), argv, MID);

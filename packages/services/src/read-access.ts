@@ -3,10 +3,11 @@
 // session and later renews the session's claims through the same access check. A missing
 // artifact and a forbidden one give the same answer.
 import { READ_SESSION } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import { canRead, effectiveState, fail, ok, type Result } from "@portifact/domain";
 import { and, eq, exists, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { actorOn } from "./actors.ts";
 
 const SECOND_MS = 1000;
 /** Rows each prune deletes per run, like the other maintenance jobs. */
@@ -63,10 +64,11 @@ export function randomToken(): string {
 
 /**
  * Whether `userId` may read the artifact now: it must be servable (active, not expired, with a
- * current version) and the access policy must admit the account and its verified email.
+ * current version) and the access policy must admit the account, its verified email or its role
+ * on the owner (an admin or editor of a workspace reads every artifact of it).
  */
 export async function checkReadAccess(
-  db: Db,
+  db: RegionalDb,
   input: { artifactId: string; userId: string; now: number },
 ): Promise<Result<ReadGrant>> {
   const [artifact] = await db
@@ -93,7 +95,7 @@ export async function checkReadAccess(
   );
   if (state !== "active") return unavailable();
 
-  const [user] = await db
+  const [user] = await db.global
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
     .where(eq(schema.users.id, input.userId))
@@ -115,6 +117,7 @@ export async function checkReadAccess(
       userId: input.userId,
       verifiedEmails: user.emailVerified ? [user.email.toLowerCase()] : [],
     },
+    await actorOn(db.global, input.userId, artifact.ownerId),
   );
   if (!decision.ok) return unavailable();
   return ok({ userId: input.userId, policyGeneration: artifact.policyGeneration });
@@ -126,7 +129,7 @@ export async function checkReadAccess(
  * transaction nonce (`state`). Returns the code, which is shown once and stored only as a hash.
  */
 export async function issueReadHandoff(
-  db: Db,
+  db: RegionalDb,
   input: { artifactId: string; userId: string; authSessionId: string; state: string; now: number },
 ): Promise<Result<{ code: string; expiresAt: number }>> {
   const access = await checkReadAccess(db, input);
@@ -220,7 +223,7 @@ export async function redeemReadHandoff(
  * account must still pass the current access policy.
  */
 export async function refreshReadSession(
-  db: Db,
+  db: RegionalDb,
   input: { sessionId: string; artifactId: string; now: number },
 ): Promise<Result<ReadSessionGrant>> {
   const [session] = await db

@@ -65,6 +65,7 @@ import {
 import { useDocumentTitle } from "../use-document-title.ts";
 import { artifactQuery } from "./artifact-detail.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
+import { USAGE_QUERY } from "./usage.tsx";
 
 /** Where a pasted document is published, by type. */
 export const PASTED_FILE: Record<Exclude<ArtifactType, "site">, string> = {
@@ -270,8 +271,13 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
     controller.current = abort;
     setStage({ step: "building" });
     try {
+      // The plan's per-artifact size, checked before hashing; the API checks the plan again.
+      const usage = await queryClient
+        .fetchQuery({ queryKey: USAGE_QUERY, queryFn: () => api.usage() })
+        .catch(() => undefined);
+      const maxBytes = usage?.plan.limits.artifactBytes;
       const manifest = await manifests.build(
-        { source, options: { type, entry } },
+        { source, options: { type, entry, maxBytes } },
         (progress) => showBuild(progress, progress.doneFiles === progress.totalFiles),
         abort.signal,
       );
@@ -469,10 +475,12 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
             icon={<CircleCheck className="size-5" />}
           >
             <p>
-              {t("publish.done.body", {
-                url: committed.url,
-                date: formatDate(committed.expiresAt),
-              })}
+              {committed.expiresAt === null
+                ? t("publish.done.pinned", { url: committed.url })
+                : t("publish.done.body", {
+                    url: committed.url,
+                    date: formatDate(committed.expiresAt),
+                  })}
             </p>
           </Callout>
           <CopyField
@@ -520,7 +528,7 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
                 title={t("publish.buildFailed.title")}
                 icon={<CircleAlert className="size-5" />}
               >
-                {publishFailureMessage(t, stage.error)}
+                {publishFailureMessage(t, stage.error, formatBytes)}
               </Callout>
             ) : null}
             {base ? null : (
@@ -750,7 +758,7 @@ function Review({
             </div>
           }
         >
-          {publishFailureMessage(t, stage.error)}
+          {publishFailureMessage(t, stage.error, formatBytes)}
         </Callout>
       ) : null}
 

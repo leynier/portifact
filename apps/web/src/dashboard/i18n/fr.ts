@@ -81,6 +81,7 @@ export const fr = {
   "list.refreshFailed.body":
     "Elle affiche ce qui a été chargé en dernier. Portifact réessaie dans un instant.",
   "list.never": "Jamais",
+  "list.pinned": "Épinglé",
   "list.column.access": "Accès",
   "list.captionFiltered": "Vos artifacts correspondant à la recherche et aux filtres",
   "list.countFiltered":
@@ -177,6 +178,15 @@ export const fr = {
   "detail.restore.body": "Restaurez-le avant sa suppression définitive pour le remettre en ligne.",
   "detail.noActions": "Aucune action n’est disponible dans cet état.",
   "detail.renew": "Renouveler pour 30 jours",
+  "detail.pin": "Épingler",
+  "detail.unpin": "Désépingler",
+  "detail.pinned.body":
+    "Épinglé : il reste en ligne sans expiration jusqu’à ce que vous le désépingliez.",
+  "detail.pin.paid":
+    "Épingler garde un artifact en ligne sans expiration. Cela fait partie de l’offre {plan}.",
+  "detail.expiresNever": "Jamais, il est épinglé",
+  "detail.pinnedDone": "Artifact épinglé. Il reste en ligne sans expiration.",
+  "detail.unpinnedDone": "Artifact désépinglé. Il expire maintenant le {date}.",
   "detail.archive": "Archiver",
   "detail.restore": "Restaurer",
   "detail.delete": "Supprimer",
@@ -431,6 +441,17 @@ export const fr = {
   "settings.notices.unchanged":
     "Rien à enregistrer : vos avis par e-mail sont déjà configurés ainsi.",
   "settings.notices.failed": "Vos avis par e-mail n’ont pas été enregistrés",
+  "settings.notices.comments.label": "M’envoyer un e-mail en cas de nouveaux commentaires",
+  "settings.notices.comments.hint":
+    "Au plus un e-mail toutes les 10 minutes, avec le nombre de nouveaux fils, réponses et résolutions sur chaque artifact, jamais ce qui a été écrit. Seulement pour les artifacts dont le propriétaire a un plan avec les avis de commentaires.",
+  "commentNotices.label": "M’envoyer un e-mail en cas de nouveaux commentaires sur cet artifact",
+  "commentNotices.hint":
+    "Au plus un e-mail toutes les 10 minutes, avec des nombres seulement. Désactivez tous les e-mails de commentaires dans vos paramètres.",
+  "commentNotices.muted": "E-mails de commentaires désactivés pour cet artifact.",
+  "commentNotices.unmuted": "E-mails de commentaires activés pour cet artifact.",
+  "commentNotices.failed": "Votre choix n’a pas été enregistré",
+  "commentNotices.planRequired":
+    "Les avis par e-mail des nouveaux commentaires font partie du plan {plan}.",
   "settings.danger.title": "Zone de danger",
   "settings.danger.hint": "Ces actions sont irréversibles.",
   "account.data.title": "Vos données",
@@ -478,6 +499,15 @@ export const fr = {
   "usage.description":
     "Vos quotas et ce que vos artifacts ont servi ce mois-ci. Le trafic est compté toutes les quelques secondes, il peut donc avoir un léger retard.",
   "usage.meterPercent": "{used} sur {limit} ({percent})",
+  "usage.plan.section": "Formule",
+  "usage.plan.hint": "Votre formule fixe les limites de cette page.",
+  "usage.plan.name": "Formule actuelle",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Places",
+  "usage.plan.until": "Valable jusqu’au",
   "usage.traffic.section": "Trafic ce mois-ci",
   "usage.traffic.hint":
     "Compté pour tout votre compte, sur l’ensemble de vos artifacts. Atteindre l’une des limites suspend tous les artifacts jusqu’à la réinitialisation.",
@@ -631,6 +661,7 @@ export const fr = {
   "publish.startOver": "Recommencer",
   "publish.done.title": "Version {number} publiée",
   "publish.done.body": "Elle est en ligne à {url} et expire le {date}.",
+  "publish.done.pinned": "Elle est en ligne à {url}. Elle est épinglée, donc elle n’expire pas.",
   "publish.done.open": "Ouvrir la page de l’artifact",
   "publish.done.another": "Publier autre chose",
   "publish.announce.done": "Version {number} de {name} publiée.",
@@ -638,7 +669,7 @@ export const fr = {
   "manifest.empty":
     "Il n’y a rien à publier : tous les fichiers ont été exclus ou la source est vide.",
   "manifest.too_many_files": "Une version peut contenir au maximum {detail} fichiers.",
-  "manifest.too_large": "Une version peut contenir au maximum 250 Mo.",
+  "manifest.too_large": "Une version peut contenir au maximum {detail}.",
   "manifest.invalid_path": "Un chemin de fichier n’est pas autorisé : {detail}",
   "manifest.missing_entry":
     "La page d’entrée {detail} ne fait pas partie des fichiers. Changez la page d’entrée ou ajoutez-la.",
@@ -1000,8 +1031,12 @@ export const fr = {
     "Les nouveaux comptes ne peuvent pas encore rendre des artifacts publics.",
   "error.capacity_unavailable":
     "Portifact a atteint sa capacité pour le moment. Réessayez plus tard.",
+  "error.sole_workspace_admin":
+    "Vous êtes la seule personne à administrer un workspace. Nommez un autre membre administrateur ou supprimez le workspace avant de supprimer votre compte.",
   "error.rate_limited": "Trop de requêtes. Patientez un instant et réessayez.",
   "error.reauthentication_required": "Reconnectez-vous pour faire cela.",
   "error.human_verification_required":
     "Vos premiers commentaires sur les artifacts d’autres personnes nécessitent une vérification rapide que vous êtes humain. Terminez-la, puis publiez de nouveau.",
+  "error.plan_required":
+    "Cette fonctionnalité ne fait pas partie de l’offre du propriétaire de l’artifact.",
 } satisfies Catalog;

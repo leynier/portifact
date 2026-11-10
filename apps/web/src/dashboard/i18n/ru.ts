@@ -79,6 +79,7 @@ export const ru = {
   "list.refreshFailed.body":
     "Показано то, что загрузилось в последний раз. Portifact скоро попробует снова.",
   "list.never": "Никогда",
+  "list.pinned": "Закреплён",
   "list.column.access": "Доступ",
   "list.captionFiltered": "Ваши artifacts, подходящие под поиск и фильтры",
   "list.countFiltered":
@@ -174,6 +175,13 @@ export const ru = {
     "Восстановите его до окончательного удаления, чтобы снова сделать доступным.",
   "detail.noActions": "В этом состоянии действия недоступны.",
   "detail.renew": "Продлить на 30 дней",
+  "detail.pin": "Закрепить",
+  "detail.unpin": "Открепить",
+  "detail.pinned.body": "Закреплён: остаётся онлайн без срока, пока вы его не открепите.",
+  "detail.pin.paid": "Закрепление оставляет artifact онлайн без срока. Это часть тарифа {plan}.",
+  "detail.expiresNever": "Никогда, он закреплён",
+  "detail.pinnedDone": "Artifact закреплён. Он остаётся онлайн без срока.",
+  "detail.unpinnedDone": "Artifact откреплён. Теперь он истекает {date}.",
   "detail.archive": "В архив",
   "detail.restore": "Восстановить",
   "detail.delete": "Удалить",
@@ -422,6 +430,16 @@ export const ru = {
   "settings.notices.saved": "Уведомления по почте сохранены.",
   "settings.notices.unchanged": "Нечего сохранять: уведомления уже настроены так.",
   "settings.notices.failed": "Уведомления по почте не сохранены",
+  "settings.notices.comments.label": "Сообщать по почте о новых комментариях",
+  "settings.notices.comments.hint":
+    "Не чаще одного письма в 10 минут: сколько новых веток, ответов и закрытых веток в каждом artifact, без текста комментариев. Только для artifacts, у владельца которых тариф с уведомлениями о комментариях.",
+  "commentNotices.label": "Сообщать по почте о новых комментариях к этому artifact",
+  "commentNotices.hint":
+    "Не чаще одного письма в 10 минут, только числа. Все письма о комментариях отключаются в настройках.",
+  "commentNotices.muted": "Письма о комментариях к этому artifact отключены.",
+  "commentNotices.unmuted": "Письма о комментариях к этому artifact включены.",
+  "commentNotices.failed": "Ваш выбор не сохранён",
+  "commentNotices.planRequired": "Уведомления о новых комментариях по почте входят в тариф {plan}.",
   "settings.danger.title": "Опасная зона",
   "settings.danger.hint": "Эти действия нельзя отменить.",
   "account.data.title": "Ваши данные",
@@ -468,6 +486,15 @@ export const ru = {
   "usage.description":
     "Ваши квоты и то, что ваши artifacts отдали в этом месяце. Трафик считается раз в несколько секунд, поэтому может немного отставать.",
   "usage.meterPercent": "{used} из {limit} ({percent})",
+  "usage.plan.section": "Тариф",
+  "usage.plan.hint": "Ваш тариф задаёт лимиты на этой странице.",
+  "usage.plan.name": "Текущий тариф",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Места",
+  "usage.plan.until": "Действует до",
   "usage.traffic.section": "Трафик за месяц",
   "usage.traffic.hint":
     "Считается для всего аккаунта, по всем вашим artifacts. Достижение любого лимита приостанавливает все artifacts до сброса.",
@@ -623,13 +650,14 @@ export const ru = {
   "publish.startOver": "Начать заново",
   "publish.done.title": "Опубликована версия {number}",
   "publish.done.body": "Она доступна по адресу {url} и истекает {date}.",
+  "publish.done.pinned": "Она доступна по адресу {url}. Она закреплена, поэтому не истекает.",
   "publish.done.open": "Открыть страницу artifact",
   "publish.done.another": "Опубликовать что-то ещё",
   "publish.announce.done": "Опубликована версия {number} artifact «{name}».",
 
   "manifest.empty": "Публиковать нечего: все файлы исключены или источник пуст.",
   "manifest.too_many_files": "В версии может быть не больше {detail} файлов.",
-  "manifest.too_large": "Версия может занимать не больше 250 МБ.",
+  "manifest.too_large": "Версия может занимать не больше {detail}.",
   "manifest.invalid_path": "Недопустимый путь к файлу: {detail}",
   "manifest.missing_entry":
     "Начальной страницы {detail} нет среди файлов. Измените начальную страницу или добавьте её.",
@@ -988,8 +1016,11 @@ export const ru = {
   "error.artifact_archived": "Artifact в архиве. Сначала восстановите его.",
   "error.account_too_new_for_public": "Новые аккаунты пока не могут делать artifacts публичными.",
   "error.capacity_unavailable": "Сейчас Portifact перегружен. Попробуйте позже.",
+  "error.sole_workspace_admin":
+    "Вы единственный администратор рабочего пространства. Назначьте администратором другого участника или удалите рабочее пространство, прежде чем удалять аккаунт.",
   "error.rate_limited": "Слишком много запросов. Подождите немного и попробуйте ещё раз.",
   "error.reauthentication_required": "Для этого войдите снова.",
   "error.human_verification_required":
     "Первым комментариям к чужим artifacts нужна короткая проверка, что вы человек. Пройдите её и отправьте снова.",
+  "error.plan_required": "Эта функция не входит в план владельца artifact.",
 } satisfies Catalog;
