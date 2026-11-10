@@ -37,6 +37,7 @@ import {
   authorize,
   can,
   checkDomainCount,
+  checkPointing,
   checkProvenDomain,
   claimExpiry,
   type DetachReason,
@@ -47,8 +48,12 @@ import {
   entitlements,
   fail,
   holdsTxt,
+  hostnameRefusal,
+  isBlockedHostname,
+  normalizeBlockName,
   normalizeHostname,
   ok,
+  type Pointing,
   provisioningExpired,
   type Result,
   recheckDue,
@@ -57,6 +62,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, lte, ne, or, type SQL, sql } 
 import { actorOn, artifactHandles, authorizeOn } from "./actors.ts";
 import { type AuditActor, auditEvent } from "./audit.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
+import { scheduleDomainNotices } from "./domain-notices.ts";
 import type { JobOutcome } from "./outbox.ts";
 import { requireOwnerFeature } from "./plans.ts";
 
@@ -209,6 +215,8 @@ export async function addCustomDomain(
   const normalized = normalizeHostname(input.hostname, input.contentDomain);
   if (!normalized.ok) return normalized;
   const hostname = normalized.value;
+  const refused = await refusedName(regions.global, deps, hostname);
+  if (refused) return refused;
 
   const owned = await regions.global
     .select()
@@ -350,8 +358,43 @@ async function lookupTxt(deps: DomainDeps, hostname: string): Promise<string[] |
   }
 }
 
+/** Where the name points now, or `unknown` when DNS could not be asked. */
+async function lookupPointing(deps: DomainDeps, hostname: string): Promise<Pointing> {
+  try {
+    return (await deps.pointing(hostname)) ? "here" : "elsewhere";
+  } catch {
+    return "unknown";
+  }
+}
+
 const dnsUnavailable = () =>
   fail<never>("capacity_unavailable", "DNS could not be checked right now. Try again in a minute.");
+
+/** The operator's block list: a small table read whole. */
+export async function blockedNames(global: Db): Promise<string[]> {
+  return (
+    await global.select({ name: schema.blockedHostnames.name }).from(schema.blockedHostnames)
+  ).map((row) => row.name);
+}
+
+/**
+ * Why a normalized hostname cannot be a custom domain beyond its shape: the operator blocked it
+ * (or a name above it), or it is the apex of its DNS zone. Null when it may be used.
+ */
+async function refusedName(
+  global: Db,
+  deps: DomainDeps,
+  hostname: string,
+): Promise<Result<never> | null> {
+  if (isBlockedHostname(hostname, await blockedNames(global))) return hostnameRefusal("blocked");
+  let apex: boolean;
+  try {
+    apex = await deps.apex(hostname);
+  } catch {
+    return dnsUnavailable();
+  }
+  return apex ? hostnameRefusal("zone_apex") : null;
+}
 
 async function proveClaim(
   dbs: DomainDbs,
@@ -364,6 +407,15 @@ async function proveClaim(
   const values = await lookupTxt(deps, claim.hostname);
   if (values === null) return dnsUnavailable();
   if (!holdsTxt(values, txtRecordValue(claim.token))) return ok(claimRecord(claim, "txt_missing"));
+  // Checked again before anything reaches Cloudflare: the operator may have blocked the name, and
+  // a zone apex can never hold the CNAME (it would wait out the provisioning grace for nothing).
+  const refused = await refusedName(dbs.global, deps, claim.hostname);
+  if (refused) {
+    await dbs.global
+      .delete(k)
+      .where(and(eq(k.hostname, claim.hostname), eq(k.ownerId, claim.ownerId)));
+    return refused;
+  }
 
   const hostname = claim.hostname;
   const artifact = await loadArtifact(dbs.regional(claim.region), claim.artifactId);
@@ -432,14 +484,16 @@ async function proveClaim(
         missedChecks: 0,
         problem: null,
         detachReason: null,
+        noticeFor: null,
+        missedPointChecks: 0,
       })
       .where(and(eq(c.hostname, hostname), ne(c.state, "detaching"), live, fits)),
     // Columns in schema order: hostname, owner, artifact, region, state, token, Cloudflare ID,
-    // verified, checked, missed checks, problem, detach reason, created.
+    // verified, checked, missed checks, problem, detach reason, created, notice, missed point checks.
     dbs.global
       .insert(c)
       .select(
-        sql`select ${hostname}, ${claim.ownerId}, ${claim.artifactId}, ${claim.region}, 'provisioning', ${claim.token}, null, ${now}, ${now}, 0, null, null, ${now} where not exists (select 1 from ${c} where ${c.hostname} = ${hostname}) and ${live} and ${fits}`,
+        sql`select ${hostname}, ${claim.ownerId}, ${claim.artifactId}, ${claim.region}, 'provisioning', ${claim.token}, null, ${now}, ${now}, 0, null, null, ${now}, null, 0 where not exists (select 1 from ${c} where ${c.hostname} = ${hostname}) and ${live} and ${fits}`,
       ),
     // Every claim of the name is spent: the next owner must publish a token of their own.
     dbs.global.delete(k).where(and(eq(k.hostname, hostname), proven)),
@@ -477,12 +531,19 @@ async function checkAgain(
   if (row.state === "detaching") return busy(row.hostname);
   if (row.state === "provisioning") return ok(domainRecord(await provision(dbs, deps, row, now)));
   const values = await lookupTxt(deps, row.hostname);
-  if (values === null) return dnsUnavailable();
+  const pointing = await lookupPointing(deps, row.hostname);
+  if (values === null || pointing === "unknown") return dnsUnavailable();
   const held = holdsTxt(values, txtRecordValue(row.token));
-  // Only the daily check counts misses; a held record clears them.
+  const here = pointing === "here";
+  // Only the daily check counts misses; a record found again clears its own count.
   await dbs.global
     .update(c)
-    .set(held ? { problem: null, missedChecks: 0, checkedAt: now } : { problem: "txt_missing" })
+    .set({
+      problem: !held ? "txt_missing" : !here ? "cname_elsewhere" : null,
+      ...(held ? { missedChecks: 0 } : {}),
+      ...(here ? { missedPointChecks: 0 } : {}),
+      ...(held && here ? { checkedAt: now } : {}),
+    })
     .where(and(eq(c.hostname, row.hostname), eq(c.state, "active"), eq(c.token, row.token)));
   return ok(domainRecord((await domainRow(dbs.global, row.hostname)) ?? row));
 }
@@ -556,6 +617,18 @@ export async function provision(
     await detachDomain(dbs, row.hostname, "cloudflare_gone", now);
     return reread();
   }
+  // Activated only while the name resolves to Portifact's target, so a certificate Cloudflare
+  // issued earlier never serves a name already pointed elsewhere; the provisioning grace still
+  // applies. DNS that could not be asked waits for the next run.
+  const pointing = await lookupPointing(deps, row.hostname);
+  if (pointing !== "here") {
+    if (provisioningExpired(row.verifiedAt, now)) {
+      await detachDomain(dbs, row.hostname, "provisioning_timeout", now);
+    } else if (pointing === "elsewhere") {
+      await setProblem(dbs.global, row, "cname_elsewhere", now);
+    }
+    return reread();
+  }
   await activate(dbs, row, now);
   return reread();
 }
@@ -569,15 +642,12 @@ async function removeQuietly(deps: DomainDeps, id: string) {
 }
 
 /**
- * The artifact takes the host (only while it is still the owner's, active and without another
- * host), then the row turns active. If the artifact cannot take it, the domain is detached; if
- * the row changed meanwhile, the artifact gives the host back.
+ * The artifact takes the host only while it is still the owner's, active and without another
+ * host. True when it holds it after this call.
  */
-async function activate(dbs: DomainDbs, row: DomainRow, now: number) {
-  const regional = dbs.regional(row.region);
-  let bound: { id: string }[];
+async function bindHost(regional: Db, row: DomainRow): Promise<boolean> {
   try {
-    bound = await regional
+    const bound = await regional
       .update(a)
       .set({ customHost: row.hostname })
       .where(
@@ -589,15 +659,26 @@ async function activate(dbs: DomainDbs, row: DomainRow, now: number) {
         ),
       )
       .returning({ id: a.id });
+    return bound.length > 0;
   } catch {
     // The unique index: another artifact still holds the name. It is cleared before a transfer,
     // so this is a leftover that the detach and its job clean up.
-    bound = [];
+    return false;
   }
-  if (bound.length === 0) {
-    await detachDomain(dbs, row.hostname, "artifact_unavailable", now);
-    return;
-  }
+}
+
+/**
+ * The row turns active first (only while it is still this owner's claim for this artifact), then
+ * the artifact takes the host. Every path that sends a visitor to a custom host needs both (the
+ * content Worker's lookup matches the regional column, its `.dev` redirect also the hint from the
+ * active row, the app's entries `activeCustomHost`), so in between nothing is served or sent
+ * there: the custom host answers 404 and `.dev` serves as before. The opposite order would leave
+ * a moment where the regional column names a host whose row is still provisioning, which a new
+ * holder of the name could take. If the artifact cannot take the host, the domain is detached; a
+ * Worker that stops in between leaves an active row without the regional column, which the daily
+ * check binds again (`recheck`).
+ */
+async function activate(dbs: DomainDbs, row: DomainRow, now: number) {
   const activated = await dbs.global
     .update(c)
     .set({ state: "active", problem: null, checkedAt: now, missedChecks: 0 })
@@ -611,13 +692,9 @@ async function activate(dbs: DomainDbs, row: DomainRow, now: number) {
       ),
     )
     .returning({ hostname: c.hostname });
-  if (activated.length === 0) {
-    const current = await domainRow(dbs.global, row.hostname);
-    const stillOurs =
-      current?.state === "active" &&
-      current.artifactId === row.artifactId &&
-      current.ownerId === row.ownerId;
-    if (!stillOurs) await clearHost(regional, row.artifactId, row.hostname);
+  if (activated.length === 0) return;
+  if (!(await bindHost(dbs.regional(row.region), row))) {
+    await detachDomain(dbs, row.hostname, "artifact_unavailable", now);
   }
 }
 
@@ -882,6 +959,8 @@ export interface DomainCheckResult {
   activated: number;
   checked: number;
   detached: number;
+  /** Owners scheduled a downgrade notice. */
+  notices: number;
 }
 
 /**
@@ -896,7 +975,13 @@ export async function checkCustomDomains(
   now: number,
   batch = DOMAIN_CHECK_BATCH,
 ): Promise<DomainCheckResult> {
-  const result: DomainCheckResult = { prunedClaims: 0, activated: 0, checked: 0, detached: 0 };
+  const result: DomainCheckResult = {
+    prunedClaims: 0,
+    activated: 0,
+    checked: 0,
+    detached: 0,
+    notices: 0,
+  };
   const expired = await dbs.global
     .delete(k)
     .where(
@@ -930,17 +1015,32 @@ export async function checkCustomDomains(
     }
   }
   result.detached += await enforceDomainLimits(dbs, now);
+  result.notices = await scheduleDomainNotices(dbs.global, now);
   return result;
 }
 
 /** The daily check of an active domain. True when it detached it. */
 async function recheck(dbs: DomainDbs, deps: DomainDeps, row: DomainRow, now: number) {
+  if (isBlockedHostname(row.hostname, await blockedNames(dbs.global))) {
+    return detachDomain(dbs, row.hostname, "blocked", now, { artifactId: row.artifactId });
+  }
   const [artifact] = await dbs
     .regional(row.region)
     .select({ state: a.state, customHost: a.customHost, ownerId: a.ownerId })
     .from(a)
     .where(eq(a.id, row.artifactId))
     .limit(1);
+  // An active row whose artifact never took the host (a Worker stopped inside `activate`) binds
+  // it now, under the same conditions.
+  if (
+    artifact &&
+    artifact.customHost === null &&
+    artifact.ownerId === row.ownerId &&
+    artifact.state === "active" &&
+    (await bindHost(dbs.regional(row.region), row))
+  ) {
+    artifact.customHost = row.hostname;
+  }
   // An archived artifact keeps its domain (restoring it serves it again); anything else that
   // stopped holding the host gives the name up.
   if (
@@ -970,11 +1070,27 @@ async function recheck(dbs: DomainDbs, deps: DomainDeps, row: DomainRow, now: nu
   if (decision.action === "detach") {
     return detachDomain(dbs, row.hostname, decision.reason, now, { artifactId: row.artifactId });
   }
+  const pointing = await lookupPointing(deps, row.hostname);
+  const points = checkPointing({ missedPointChecks: row.missedPointChecks, pointing });
+  if (points.action === "detach") {
+    return detachDomain(dbs, row.hostname, points.reason, now, { artifactId: row.artifactId });
+  }
   const problem: CustomDomainProblem | null =
-    txt === "missing" ? "txt_missing" : cloudflare === "unknown" ? "cloudflare_unavailable" : null;
+    txt === "missing"
+      ? "txt_missing"
+      : pointing === "elsewhere"
+        ? "cname_elsewhere"
+        : cloudflare === "unknown"
+          ? "cloudflare_unavailable"
+          : null;
   await dbs.global
     .update(c)
-    .set({ missedChecks: decision.missedChecks, checkedAt: now, problem })
+    .set({
+      missedChecks: decision.missedChecks,
+      missedPointChecks: points.missedPointChecks,
+      checkedAt: now,
+      problem,
+    })
     .where(and(eq(c.hostname, row.hostname), eq(c.state, "active"), eq(c.token, row.token)));
   return false;
 }
@@ -1106,4 +1222,102 @@ export async function exportOwnerDomains(
     ]);
   }
   return byArtifact;
+}
+
+/**
+ * The artifact's active custom host, or null: the regional `custom_host` is the authority, and
+ * the global row must agree (active, same artifact), so a host left behind by a restore or a
+ * race is never used. For the app's entries, which choose where a code goes; two indexed reads,
+ * none while custom domains are switched off.
+ */
+export async function activeCustomHost(
+  db: RegionalDb,
+  artifactId: string,
+  /** Whether this Worker serves custom hosts (`customDomainsServing`); off means `.dev` only. */
+  enabled: boolean,
+): Promise<string | null> {
+  if (!enabled) return null;
+  const [artifact] = await db
+    .select({ customHost: a.customHost })
+    .from(a)
+    .where(eq(a.id, artifactId))
+    .limit(1);
+  const host = artifact?.customHost ?? null;
+  if (host === null) return null;
+  const [row] = await db.global
+    .select({ hostname: c.hostname })
+    .from(c)
+    .where(and(eq(c.hostname, host), eq(c.state, "active"), eq(c.artifactId, artifactId)))
+    .limit(1);
+  return row ? host : null;
+}
+
+/** Where a custom host points, from the global table: the content Worker's hint. */
+export async function customHostHint(
+  global: Db,
+  hostname: string,
+): Promise<{ artifactId: string; region: Region } | null> {
+  const [row] = await global
+    .select({ artifactId: c.artifactId, region: c.region })
+    .from(c)
+    .where(and(eq(c.hostname, hostname), eq(c.state, "active")))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Operator: blocks a name (and every name under it) as a custom domain, detaches the domains it
+ * covers and drops their claims. Returns the normalized name and the hostnames detached.
+ */
+export async function blockHostname(
+  dbs: DomainDbs,
+  input: { name: string; note?: string | undefined; now: number },
+): Promise<Result<{ name: string; detached: string[] }>> {
+  const name = normalizeBlockName(input.name);
+  if (name === null) return fail("invalid_input", "That is not a hostname.");
+  await dbs.global
+    .insert(schema.blockedHostnames)
+    .values({ name, note: input.note ?? null, createdAt: input.now })
+    .onConflictDoUpdate({
+      target: schema.blockedHostnames.name,
+      set: { note: input.note ?? null },
+    });
+  const covered = (
+    await dbs.global
+      .select({ hostname: c.hostname })
+      .from(c)
+      .where(
+        and(
+          ne(c.state, "detaching"),
+          sql`(${c.hostname} = ${name} or ${c.hostname} like ${`%.${name}`})`,
+        ),
+      )
+  ).map((row) => row.hostname);
+  const detached: string[] = [];
+  for (const hostname of covered) {
+    if (await detachDomain(dbs, hostname, "blocked", input.now)) detached.push(hostname);
+  }
+  await dbs.global
+    .delete(k)
+    .where(sql`(${k.hostname} = ${name} or ${k.hostname} like ${`%.${name}`})`);
+  return ok({ name, detached });
+}
+
+/** Operator: lifts a block. Domains it detached stay detached; their owners add them again. */
+export async function unblockHostname(global: Db, name: string): Promise<boolean> {
+  const normalized = normalizeBlockName(name);
+  if (normalized === null) return false;
+  const deleted = await global
+    .delete(schema.blockedHostnames)
+    .where(eq(schema.blockedHostnames.name, normalized))
+    .returning({ name: schema.blockedHostnames.name });
+  return deleted.length > 0;
+}
+
+/** Operator: the block list, oldest first. */
+export async function listBlockedHostnames(global: Db) {
+  return global
+    .select()
+    .from(schema.blockedHostnames)
+    .orderBy(asc(schema.blockedHostnames.createdAt), asc(schema.blockedHostnames.name));
 }

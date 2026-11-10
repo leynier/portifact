@@ -33,6 +33,7 @@ import {
   applyOwnerPlans,
   applyTombstones,
   type BudgetState,
+  blockHostname,
   checkGrant,
   clearBudgetOverride,
   createWorkspace,
@@ -49,6 +50,7 @@ import {
   liftEmailSuppression,
   listAbuseReports,
   listAllWorkspaces,
+  listBlockedHostnames,
   listBudgetAlerts,
   listEmailSuppressions,
   listStorageFindings,
@@ -66,6 +68,7 @@ import {
   suspendAccount,
   suspendArtifact,
   suspendBrand,
+  unblockHostname,
   type WorkspaceDetail,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
@@ -99,6 +102,9 @@ Commands:
   lift-email-suppression <email>
   show-domain <hostname>
   detach-domain <hostname>
+  block-domain <name> --note <text>   (also every name under it; detaches the domains it covers)
+  unblock-domain <name>
+  blocked-domains
   reconcile-domains            (needs CF_CONTENT_ZONE_ID and CF_HOSTNAMES_TOKEN in the environment)
   plan <owner>
   set-plan <owner> <plan> [--seats N] [--until <ISO date>] [--note <text>]
@@ -990,6 +996,38 @@ export async function runOperator(
             exitCode: 1,
             output: "No attached domain with that hostname (or it is already being removed).",
           };
+    }
+    case "block-domain": {
+      const [name] = args;
+      const note = options.get("note")?.trim();
+      if (!name || !note) return usage("block-domain needs a name and --note with the reason.");
+      const result = await blockHostname(domainDbsOf(db), { name, note, now });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      const { detached } = result.value;
+      return {
+        exitCode: 0,
+        output: `Blocked ${result.value.name} and every name under it. Detached: ${detached.length === 0 ? "none" : detached.join(", ")}.`,
+      };
+    }
+    case "unblock-domain": {
+      const [name] = args;
+      if (!name) return usage("unblock-domain needs a name.");
+      return (await unblockHostname(db, name))
+        ? {
+            exitCode: 0,
+            output: `Unblocked ${name.trim().toLowerCase()}. Detached domains stay detached.`,
+          }
+        : { exitCode: 1, output: "That name is not blocked." };
+    }
+    case "blocked-domains": {
+      const rows = await listBlockedHostnames(db);
+      if (rows.length === 0) return { exitCode: 0, output: "No blocked names." };
+      return {
+        exitCode: 0,
+        output: rows
+          .map((row) => `${row.name}  ${iso(row.createdAt)}  ${oneLine(row.note)}`)
+          .join("\n"),
+      };
     }
     case "reconcile-domains": {
       if (!domains) {

@@ -44,6 +44,8 @@ export const DOMAIN_DETACH_REASONS = [
   "account_deleted",
   "reconciled",
   "operator",
+  "blocked",
+  "cname_elsewhere",
 ] as const;
 export const DomainDetachReason = z.enum(DOMAIN_DETACH_REASONS);
 export type DomainDetachReason = z.infer<typeof DomainDetachReason>;

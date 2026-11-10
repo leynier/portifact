@@ -1182,6 +1182,9 @@ export const ja = {
   "domains.problem.cloudflare_unavailable": "証明書サービスが応答しませんでした",
   "domains.problem.cloudflare_unavailable.hint":
     "お客様側の問題ではありません。まもなく再試行します。",
+  "domains.problem.cname_elsewhere": "ドメインが Portifact を指していません",
+  "domains.problem.cname_elsewhere.hint":
+    "DNS が下の CNAME ターゲットを指さなくなっています。元に戻してください。この状態が毎日の確認で 3 回続くと、有効なドメインは削除されます。",
   "domains.missedChecks":
     "{count, plural, one {直近 # 回の毎日の確認で TXT レコードが見つかりませんでした。3 回続けて見つからないとドメインは削除されます。} other {直近 # 回の毎日の確認で TXT レコードが見つかりませんでした。3 回続けて見つからないとドメインは削除されます。}}",
   "domains.records": "作成するレコード",

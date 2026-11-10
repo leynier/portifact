@@ -17,6 +17,7 @@ export * from "./comment-notices.ts";
 export * from "./custom-domains.ts";
 export * from "./directory.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
+export * from "./domain-notices.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";
 export * from "./idempotency.ts";

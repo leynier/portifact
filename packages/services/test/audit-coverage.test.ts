@@ -113,6 +113,14 @@ reason("operator moderation and platform controls, kept by the operator tool's o
   "liftEmailSuppression",
   "applyTombstones",
   "rebuildArtifactDirectory",
+  // Detaching the domains a block covers records `domain.removed` (reason `blocked`).
+  "blockHostname",
+  "unblockHostname",
+]);
+reason("reads that find a custom host or the operator's block list", [
+  "activeCustomHost",
+  "blockedNames",
+  "customHostHint",
 ]);
 reason("scheduled jobs and their consequences of changes already recorded", [
   "archiveExpired",
@@ -133,6 +141,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "scheduleCommentNotices",
   "sendExpiryNotice",
   "sendCommentNotice",
+  "scheduleDomainNotices",
+  "sendDomainNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
   "applyOwnerRetention",

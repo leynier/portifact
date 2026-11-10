@@ -3,6 +3,7 @@
 import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { commentNoticeEmail } from "./comment-notice.ts";
+import { domainNoticeEmail } from "./domain-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
 import { invitationEmail } from "./invitation.ts";
 import type { EmailContent } from "./message.ts";
@@ -153,6 +154,25 @@ export function previews(): Preview[] {
           commentArtifact("k7d2qm4xab", "Q3 launch plan", 3, 5, 1),
           commentArtifact("p4n8rt2vcd", "Design review notes", 1, 1, 0),
         ],
+      }),
+    })),
+    {
+      name: "domain-notice",
+      email: domainNoticeEmail({
+        hostnames: ["docs.example.com", "handbook.example.com"],
+        detachAt: CREATED_AT + 7 * 86_400_000,
+        limit: 1,
+        usageUrl: "https://app.portifact.com/usage",
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `domain-notice-${locale.toLowerCase()}`,
+      email: domainNoticeEmail({
+        hostnames: ["docs.example.com"],
+        detachAt: CREATED_AT + 7 * 86_400_000,
+        limit: 0,
+        usageUrl: "https://app.portifact.com/usage",
+        locale,
       }),
     })),
     ...TRANSLATED.map((locale) => ({

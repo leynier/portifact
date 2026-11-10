@@ -1192,6 +1192,9 @@ export const ptBR = {
   "domains.problem.cloudflare_unavailable": "O serviço de certificados não respondeu",
   "domains.problem.cloudflare_unavailable.hint":
     "Não há nada errado do seu lado. Uma nova tentativa é feita em breve.",
+  "domains.problem.cname_elsewhere": "O domínio não aponta para o Portifact",
+  "domains.problem.cname_elsewhere.hint":
+    "O DNS dele não leva mais ao destino CNAME abaixo. Aponte de novo; um domínio ativo é removido após 3 verificações diárias seguidas assim.",
   "domains.missedChecks":
     "{count, plural, one {O registro TXT faltou na última verificação diária. Depois de 3 falhas seguidas o domínio é removido.} other {O registro TXT faltou nas últimas # verificações diárias. Depois de 3 falhas seguidas o domínio é removido.}}",
   "domains.records": "Registros a criar",

@@ -13,6 +13,7 @@ import type {
   LifecycleOutcome,
   ListedArtifact,
 } from "@portifact/services";
+import { customDomainsServing } from "@portifact/services";
 import type { Env } from "../env.ts";
 
 /** An artifact's summary, with where it lives (`ownerView` in the services). */
@@ -25,7 +26,7 @@ export function artifactSummary(env: Env, row: ArtifactRow, owner: OwnerView): A
     accessMode: row.accessMode,
     annotations: row.annotations,
     currentVersionId: row.currentVersionId,
-    url: contentUrl(env, row.id),
+    url: artifactUrl(env, row),
     owner,
     expiresAt: isoOrNull(row.expiresAt),
     archivedAt: isoOrNull(row.archivedAt),
@@ -34,6 +35,7 @@ export function artifactSummary(env: Env, row: ArtifactRow, owner: OwnerView): A
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),
+    ...(servedHost(env, row) ? { customHost: servedHost(env, row) } : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });
@@ -74,6 +76,17 @@ export function lifecycleResult(value: LifecycleOutcome): LifecycleResult {
     purgeAt: isoOrNull(value.purgeAt),
     pinned: value.pinned,
   });
+}
+
+/** The custom host the artifact is served on: none while this deployment does not serve them. */
+function servedHost(env: Env, row: { customHost: string | null }): string | null {
+  return customDomainsServing(env) ? row.customHost : null;
+}
+
+/** The address people should use: the active custom host, otherwise the `.dev` origin. */
+function artifactUrl(env: Env, row: { id: string; customHost: string | null }): string {
+  const host = servedHost(env, row);
+  return host ? `https://${host}/` : contentUrl(env, row.id);
 }
 
 function contentUrl(env: Env, artifactId: string): string {

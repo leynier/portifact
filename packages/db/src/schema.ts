@@ -174,6 +174,12 @@ export const readHandoffs = sqliteTable(
     usedAt: timestamp("used_at"),
     sessionId: text("session_id"),
     createdAt: createdAt(),
+    /**
+     * The exact hostname the code was sent to: the artifact's `.dev` host or its active custom
+     * host (decision 0006). Redemption is conditioned on the request's host; null (codes issued
+     * before this column) counts as the `.dev` host. Kept last because `ALTER TABLE` appends it.
+     */
+    host: text("host"),
   },
   (t) => [
     index("read_handoffs_expires_idx").on(t.expiresAt),
@@ -269,6 +275,12 @@ export const shareHandoffs = sqliteTable(
     usedAt: timestamp("used_at"),
     sessionId: text("session_id"),
     createdAt: createdAt(),
+    /**
+     * The exact hostname the code was sent to: the artifact's `.dev` host or its active custom
+     * host (decision 0006). Redemption is conditioned on the request's host; null (codes issued
+     * before this column) counts as the `.dev` host. Kept last because `ALTER TABLE` appends it.
+     */
+    host: text("host"),
   },
   (t) => [index("share_handoffs_expires_idx").on(t.expiresAt)],
 );
@@ -330,6 +342,12 @@ export const reviewHandoffs = sqliteTable(
     kind: text("kind", { enum: ["frame", "tab"] })
       .notNull()
       .default("frame"),
+    /**
+     * The exact hostname the code was sent to: the artifact's `.dev` host or its active custom
+     * host (decision 0006). Redemption is conditioned on the request's host; null (codes issued
+     * before this column) counts as the `.dev` host. Kept last because `ALTER TABLE` appends it.
+     */
+    host: text("host"),
   },
   (t) => [
     index("review_handoffs_expires_idx").on(t.expiresAt),
@@ -649,6 +667,7 @@ export const OUTBOX_TOPICS = [
   "delete_custom_hostname",
   "workspace_deletion",
   "access_history_move",
+  "domain_notice",
 ] as const;
 
 /**
@@ -1509,11 +1528,21 @@ export const customDomains = sqliteTable(
     missedChecks: integer("missed_checks").notNull().default(0),
     /** What the last check found wrong (contracts: CustomDomainProblem), or null. */
     problem: text("problem", {
-      enum: ["txt_missing", "certificate_pending", "cloudflare_unavailable"],
+      enum: ["txt_missing", "certificate_pending", "cloudflare_unavailable", "cname_elsewhere"],
     }),
     /** Why it was detached (domain: DetachReason); null unless `detaching`. */
     detachReason: text("detach_reason"),
     createdAt: createdAt(),
+    /**
+     * The detach time the owner was emailed about when a plan that ended no longer covers this
+     * domain (the downgrade notice); null until then. A renewal makes it irrelevant.
+     */
+    noticeFor: timestamp("notice_for"),
+    /**
+     * Daily checks in a row that found the name not pointing at Portifact's target (decision
+     * 0006, "Where the name points"); counted apart from the TXT misses, with the same limit.
+     */
+    missedPointChecks: integer("missed_point_checks").notNull().default(0),
   },
   (t) => [
     index("custom_domains_owner_idx").on(t.ownerId, t.verifiedAt),
@@ -1522,6 +1551,17 @@ export const customDomains = sqliteTable(
     check("custom_domains_state", sql`${t.state} in ('provisioning', 'active', 'detaching')`),
   ],
 );
+
+/**
+ * Hostnames the operator refused as custom domains (abuse, impersonation): a name blocks itself
+ * and every name under it. Global, changed only by the operator tool; adding, verifying and the
+ * daily check consult it.
+ */
+export const blockedHostnames = sqliteTable("blocked_hostnames", {
+  name: text("name").primaryKey(),
+  note: text("note"),
+  createdAt: createdAt(),
+});
 
 export * from "./auth-schema.ts";
 

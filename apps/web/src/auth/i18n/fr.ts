@@ -49,6 +49,15 @@ const messages = {
       "Ce compte a ouvert trop d’artifacts en peu de temps. Patientez quelques minutes et ouvrez de nouveau le lien.",
   },
   providerErrorFallback: "La connexion n’a pas abouti. Réessayez.",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "Ouvrir à sa propre adresse",
+    body: (host: string) =>
+      `Cet artifact se trouve sur ${host}, une adresse gérée par son propriétaire. Continuez seulement si vous vouliez l’ouvrir là.`,
+    continue: "Continuer",
+    missing:
+      "Le lien était incomplet. Ouvrez-le de nouveau depuis l’endroit où vous l’avez trouvé.",
+  },
   deviceCodeRequired: "Saisissez le code affiché dans votre terminal.",
   deviceCodeInvalid:
     "Ce code n’est pas valide ou a expiré. Exécutez de nouveau la commande de connexion.",

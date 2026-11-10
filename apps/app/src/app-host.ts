@@ -9,10 +9,11 @@ import {
 } from "@portifact/contracts";
 import { isLocale } from "@portifact/contracts/locales";
 import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
-import { needsTermsAcceptance } from "@portifact/domain";
+import { needsTermsAcceptance, viewerFrameOrigin } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
+import { customDomainsServing, getViewerArtifact } from "@portifact/services";
 import { Hono } from "hono";
-import type { SessionLookup } from "./api/access.ts";
+import { hasSessionCookie, type SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { noticeRoutes } from "./api/notices.ts";
 import { r2Presigner } from "./api/presign.ts";
@@ -36,6 +37,7 @@ import { authRoutes } from "./auth/routes.ts";
 import type { Env } from "./env.ts";
 import { mcpRoutes } from "./mcp/routes.ts";
 import { readRoutes } from "./read.ts";
+import { artifactDb } from "./regions.ts";
 
 /**
  * Pages built by apps/web and served from static assets on this host only: the auth pages, the
@@ -177,22 +179,55 @@ export async function dashboardCsp(
 /**
  * The viewer's policy: the dashboard's, with `frame-src` narrowed to the one artifact it shows
  * (and the human check), so its frame can never be navigated to another artifact or site, and
- * `img-src` widened to that one origin for the owner's logo. Its
- * links to the dashboard load a new page, which gets the dashboard's own policy.
+ * `img-src` widened to that one origin for the owner's logo. Its links to the dashboard load a
+ * new page, which gets the dashboard's own policy. The frame's origin is the artifact's `.dev`
+ * origin unless `frameOrigin` (from `viewerFrameOrigin`) names its custom host for a visitor who
+ * may read it; the logo comes from the same origin.
  */
 export async function viewerCsp(
   env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">,
   artifactId: string,
+  frameOrigin = `https://${artifactId}.${env.CONTENT_DOMAIN}`,
 ): Promise<string> {
-  const origin = `https://${artifactId}.${env.CONTENT_DOMAIN}`;
   // The owner's logo on a branded bar comes from that same artifact origin
   // (`/__portifact/brand/<sha256>`), so `img-src` adds exactly it and no host an owner chose.
   return dashboardPolicy(
     storageOrigin(env.R2_ACCOUNT_ID),
     await documentStylesheetSource(),
     env.CONTENT_DOMAIN,
-    origin,
-  ).replace("img-src 'self'", `img-src 'self' ${origin}`);
+    frameOrigin,
+  ).replace("img-src 'self'", `img-src 'self' ${frameOrigin}`);
+}
+
+/**
+ * The origin the viewer page frames (decision 0006): while custom domains are on, the artifact's
+ * active custom host when the visitor may read the artifact, through the same lookup as the
+ * viewer's API (`getViewerArtifact`); otherwise, and for everyone who may not read it, the `.dev`
+ * origin, so the header never tells them whether the artifact has a domain.
+ */
+async function viewerFrameOriginFor(
+  env: Env,
+  request: Request,
+  artifactId: string,
+  userFor: (request: Request) => Promise<string | undefined>,
+): Promise<string | undefined> {
+  // The same switch as the content Worker's and every other app entry's.
+  if (!customDomainsServing(env)) return undefined;
+  const userId = hasSessionCookie(request.headers.get("cookie"))
+    ? ((await userFor(request)) ?? null)
+    : null;
+  const found = await getViewerArtifact(await artifactDb(env, artifactId), {
+    artifactId,
+    userId,
+    now: Date.now(),
+    customDomains: true,
+  });
+  return viewerFrameOrigin({
+    artifactId,
+    contentDomain: env.CONTENT_DOMAIN,
+    readable: found.ok,
+    activeHost: found.ok ? found.value.customHost : null,
+  });
 }
 
 export function createAppHost(depsFor: (env: Env) => AuthDeps) {
@@ -400,7 +435,11 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     if (!ArtifactId.safeParse(artifactId).success) return c.notFound();
     const page = trustedPage(
       await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
-      await viewerCsp(c.env, artifactId),
+      await viewerCsp(
+        c.env,
+        artifactId,
+        await viewerFrameOriginFor(c.env, c.req.raw, artifactId, sessionUserFor(c.env)),
+      ),
     );
     page.headers.set("X-Robots-Tag", "noindex");
     return withSiteKey(page, c.env.TURNSTILE_SITE_KEY);

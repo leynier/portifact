@@ -1163,6 +1163,9 @@ export const en = {
   "domains.problem.cloudflare_unavailable": "The certificate service did not answer",
   "domains.problem.cloudflare_unavailable.hint":
     "Nothing is wrong on your side. It is tried again shortly.",
+  "domains.problem.cname_elsewhere": "The domain does not point at Portifact",
+  "domains.problem.cname_elsewhere.hint":
+    "Its DNS no longer leads to the CNAME target below. Point it back; an active domain is removed after 3 daily checks in a row like this.",
   "domains.missedChecks":
     "{count, plural, one {The TXT record was missing at the last daily check. After 3 misses in a row the domain is removed.} other {The TXT record was missing at the last # daily checks. After 3 misses in a row the domain is removed.}}",
   "domains.records": "Records to create",

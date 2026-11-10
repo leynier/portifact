@@ -164,3 +164,22 @@ describe("custom domain", () => {
     ).toBe(true);
   });
 });
+
+describe("the address people should use", () => {
+  it("is the custom domain on the artifact's page while one is active", async () => {
+    const withDomain = fakeServer([
+      artifact(ID, {
+        name: "Launch plan",
+        url: "https://docs.example.com/",
+        customHost: "docs.example.com",
+      }),
+    ]);
+    renderDashboard(PATH, withDomain);
+    const links = await screen.findAllByRole(
+      "link",
+      { name: /docs\.example\.com/ },
+      { timeout: 10_000 },
+    );
+    expect(links[0]?.getAttribute("href")).toBe("https://docs.example.com/");
+  });
+});
