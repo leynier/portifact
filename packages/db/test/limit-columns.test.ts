@@ -24,7 +24,7 @@ async function rejects(statement: Promise<unknown>, pattern: RegExp) {
 }
 
 /**
- * An artifact row in raw SQL: the schema has columns added by later migrations (`pinned`, 0031)
+ * An artifact row in raw SQL: the schema has columns added by later migrations (`pinned`, 0030)
  * that this database at 0027 does not have, so Drizzle's insert would name them.
  */
 async function insertArtifact(id: string, ownerId: string, state: "active" | "draft") {
