@@ -1614,7 +1614,7 @@ export const ja = {
   "tokens.create.scopesError": "少なくとも1つ選んでください。",
   "tokens.create.expiry": "有効期限",
   "tokens.create.expiryHint": "期限が切れたら新しいトークンに置き換えます。",
-  "tokens.create.days": "{days, plural, other {#日}}",
+  "tokens.create.days": "{days, plural, one {#日} other {#日}}",
   "tokens.create.restriction": "対象の制限",
   "tokens.create.prefix": "キーのプレフィックス",
   "tokens.create.prefixHint": "公開するすべてのartifactに、これで始まるキーが必要です(例: pr-)。",

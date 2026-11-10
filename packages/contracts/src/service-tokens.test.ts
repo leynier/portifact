@@ -7,7 +7,9 @@ import {
   SERVICE_TOKEN_SCOPES,
   SERVICE_TOKENS,
   ServiceTokenCreate,
+  ServiceTokenCreated,
   ServiceTokenId,
+  ServiceTokenList,
   ServiceTokenRole,
 } from "./service-tokens.ts";
 
@@ -20,6 +22,8 @@ describe("service token IDs and secrets", () => {
     expect(ServiceTokenId.safeParse(`st_${"0".repeat(32)}`).success).toBe(true);
     expect(ServiceTokenId.safeParse(`st_${"0".repeat(31)}`).success).toBe(false);
     expect(ServiceTokenId.safeParse(`ws_${"0".repeat(32)}`).success).toBe(false);
+    expect(ServiceTokenId.safeParse(`xst_${"0".repeat(32)}`).success).toBe(false);
+    expect(ServiceTokenId.safeParse(`st_${"0".repeat(32)}x`).success).toBe(false);
     expect(isServiceTokenId(`st_${"0".repeat(32)}`)).toBe(true);
     expect(isServiceTokenId(`ws_${"0".repeat(32)}`)).toBe(false);
     expect(isServiceTokenId("u_st_1")).toBe(false);
@@ -126,5 +130,38 @@ describe("publish keys", () => {
     expect(publish.key).toBe("pr-1");
     expect(ArtifactListQuery.parse({ key: "pr-1" }).key).toBe("pr-1");
     expect(ArtifactListQuery.safeParse({ key: "bad key" }).success).toBe(false);
+  });
+});
+
+describe("token views", () => {
+  const view = {
+    id: `st_${"a".repeat(32)}`,
+    label: "CI",
+    role: "editor",
+    scopes: ["artifacts:read"],
+    restriction: { kind: "own" },
+    createdAt: "2026-11-10T00:00:00.000Z",
+    expiresAt: "2026-12-10T00:00:00.000Z",
+    lastUsedAt: null,
+    createdBy: { name: "Ada" },
+    expired: false,
+  };
+
+  it("lists views and shows a secret only in the create answer, in its shape", () => {
+    expect(ServiceTokenList.parse({ items: [view], available: true, limit: 20 })).toEqual({
+      items: [view],
+      available: true,
+      limit: 20,
+    });
+    for (const bad of [
+      { items: [{ ...view, role: "admin" }], available: true, limit: 20 },
+      { items: [{ ...view, createdBy: { name: 1 } }], available: true, limit: 20 },
+      { items: [view], available: true, limit: 0 },
+      { items: [{ ...view, id: "u_1" }], available: true, limit: 20 },
+    ]) {
+      expect(ServiceTokenList.safeParse(bad).success).toBe(false);
+    }
+    expect(ServiceTokenCreated.safeParse({ token: view, secret: secret(BODY) }).success).toBe(true);
+    expect(ServiceTokenCreated.safeParse({ token: view, secret: "whsec_x" }).success).toBe(false);
   });
 });

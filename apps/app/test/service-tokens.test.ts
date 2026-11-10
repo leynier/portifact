@@ -190,6 +190,21 @@ describe("managing tokens from the dashboard", () => {
     }
   });
 
+  it("answers a malformed slug or token ID like a missing one", async () => {
+    const t = await team("stx");
+    const missing = { status: 404 };
+    for (const [method, path, body] of [
+      ["GET", "/api/v1/workspaces/Not_A_Slug/service-tokens", undefined],
+      ["POST", "/api/v1/workspaces/Not_A_Slug/service-tokens", TOKEN],
+      ["DELETE", `/api/v1/workspaces/Not_A_Slug/service-tokens/st_${"0".repeat(32)}`, undefined],
+      ["DELETE", `/api/v1/workspaces/${t.slug}/service-tokens/not-a-token`, undefined],
+      ["DELETE", `/api/v1/workspaces/${t.slug}/service-tokens/st_${"0".repeat(32)}`, undefined],
+    ] as const) {
+      const response = await t.h.request(path, dashboard(t.adminCookie, method, body));
+      expect({ status: response.status }, `${method} ${path}`).toEqual(missing);
+    }
+  });
+
   it("refuses creating on a workspace without the feature with plan_required", async () => {
     const t = await team("stp", "pro");
     const response = await t.h.request(

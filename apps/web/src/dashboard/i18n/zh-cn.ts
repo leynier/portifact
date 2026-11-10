@@ -1494,7 +1494,7 @@ export const zhCN = {
   "tokens.create.scopesError": "至少选择一项。",
   "tokens.create.expiry": "有效期",
   "tokens.create.expiryHint": "过期后用新令牌替换它。",
-  "tokens.create.days": "{days, plural, other {# 天}}",
+  "tokens.create.days": "{days, plural, one {# 天} other {# 天}}",
   "tokens.create.restriction": "限定范围",
   "tokens.create.prefix": "键前缀",
   "tokens.create.prefixHint": "它发布的每个 artifact 都必须有以此开头的键，例如 pr-。",
