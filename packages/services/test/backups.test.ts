@@ -249,6 +249,7 @@ describe("tombstones after a restore", () => {
       workspaces: 0,
       shareLinks: 0,
       webhooks: 0,
+      serviceTokens: 0,
       domains: 0,
     });
     expect((await artifactRow(purged.artifactId))?.state).toBe("purging");
@@ -302,6 +303,7 @@ describe("tombstones after a restore", () => {
       workspaces: 0,
       shareLinks: 0,
       webhooks: 0,
+      serviceTokens: 0,
       domains: 0,
     });
     expect((await artifactRow(kept.artifactId))?.state).toBe("active");

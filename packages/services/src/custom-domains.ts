@@ -165,7 +165,14 @@ async function domainRow(global: Db, hostname: string): Promise<DomainRow | unde
 
 async function loadArtifact(db: Db, artifactId: string) {
   const [artifact] = await db
-    .select({ id: a.id, ownerId: a.ownerId, state: a.state, customHost: a.customHost })
+    .select({
+      id: a.id,
+      ownerId: a.ownerId,
+      state: a.state,
+      customHost: a.customHost,
+      createdBy: a.createdBy,
+      externalKey: a.externalKey,
+    })
     .from(a)
     .where(eq(a.id, artifactId))
     .limit(1);
@@ -197,13 +204,7 @@ export async function addCustomDomain(
   if (!handles) return missingArtifact();
   const artifact = await loadArtifact(handles.db, input.artifactId);
   if (!artifact) return missingArtifact();
-  const actor = await authorizeOn(
-    handles.db,
-    input.userId,
-    artifact.ownerId,
-    "access",
-    missingArtifact,
-  );
+  const actor = await authorizeOn(handles.db, input.userId, artifact, "domains", missingArtifact);
   if (!actor.ok) return actor;
   const gate = await requireOwnerFeature(regions.global, artifact, "customDomains", input.now);
   if (!gate.ok) return gate;
@@ -290,7 +291,7 @@ async function reach(
   const allowed = async (ownerId: string) => {
     const actor = await actorOn(global, userId, ownerId);
     if (!actor) return false;
-    if (can(actor, "access")) return true;
+    if (can(actor, "domains")) return true;
     forbidden = true;
     return false;
   };
@@ -820,7 +821,7 @@ export async function listCustomDomains(
   deps: DomainDeps | null,
   input: { actor: Actor; now: number },
 ): Promise<Result<DomainListing>> {
-  const allowed = authorize(input.actor, "access");
+  const allowed = authorize(input.actor, "domains");
   if (!allowed.ok) return allowed;
   const owner = entitlements(await planRow(regions.global, input.actor.ownerId), input.now);
   return ok(await listing(regions.global, deps, input.actor.ownerId, owner, {}, input.now));
@@ -839,13 +840,7 @@ export async function artifactCustomDomains(
   if (!handles) return missingArtifact();
   const artifact = await loadArtifact(handles.db, input.artifactId);
   if (!artifact) return missingArtifact();
-  const actor = await authorizeOn(
-    handles.db,
-    input.userId,
-    artifact.ownerId,
-    "access",
-    missingArtifact,
-  );
+  const actor = await authorizeOn(handles.db, input.userId, artifact, "domains", missingArtifact);
   if (!actor.ok) return actor;
   const owner = entitlements(await planRow(regions.global, artifact.ownerId), input.now);
   return ok(

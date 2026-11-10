@@ -16,11 +16,13 @@ import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   checkAccessChange,
+  checkCommentVisibilityChange,
   entitlements,
   fail,
   ok,
   type Result,
   requireFeature,
+  seesReaders,
 } from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -134,7 +136,7 @@ async function loadManaged(
     .limit(1);
   const artifact = row?.artifact;
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
+  const actor = await authorizeOn(db, userId, artifact, "access", missing);
   if (!actor.ok) return actor;
   return ok({ artifact, actor: actor.value, plan: row.plan });
 }
@@ -160,8 +162,9 @@ export async function getAccess(
 ): Promise<Result<AccessPolicyState>> {
   const loaded = await loadManaged(db, input.userId, input.artifactId);
   if (!loaded.ok) return loaded;
-  const { artifact } = loaded.value;
-  const rows = await readerRows(db, artifact.id);
+  const { artifact, actor } = loaded.value;
+  // A token without `artifacts:share` reads the policy without the readers' addresses.
+  const rows = seesReaders(actor.token) ? await readerRows(db, artifact.id) : [];
   const audience = await accessAudience(
     db.global,
     artifact.ownerId,
@@ -201,14 +204,19 @@ export async function updateAccess(
     return fail("forbidden", "This artifact is suspended; its access cannot change.");
   }
   const { change } = input;
+  const visibility = checkCommentVisibilityChange(actor.token, change);
+  if (!visibility.ok) return visibility;
   // Widening the audience is checked against the age of the account making the change (the
   // owner's, in a personal space); narrowing it never is.
   if (change.mode && change.mode !== artifact.accessMode) {
-    const [actingUser] = await db.global
-      .select({ createdAt: schema.users.createdAt })
-      .from(schema.users)
-      .where(eq(schema.users.id, actor.userId))
-      .limit(1);
+    // A service token has no account: its own age counts (decision 0011).
+    const [actingUser] = actor.token
+      ? [{ createdAt: new Date(actor.token.createdAt) }]
+      : await db.global
+          .select({ createdAt: schema.users.createdAt })
+          .from(schema.users)
+          .where(eq(schema.users.id, actor.userId))
+          .limit(1);
     const allowed = checkAccessChange(
       change.mode,
       actingUser?.createdAt ?? new Date(input.now),

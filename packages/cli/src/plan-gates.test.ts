@@ -101,6 +101,15 @@ const GATED: GatedCommand[] = [
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/domain$/,
   },
+  // A service token of a workspace whose plan lost the feature (decision 0011) is refused on
+  // every request; with PORTIFACT_TOKEN set it goes through the same error path
+  // (service-tokens.test.ts).
+  {
+    feature: "serviceTokens",
+    args: () => ["list"],
+    method: "GET",
+    path: /^\/api\/v1\/artifacts$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {

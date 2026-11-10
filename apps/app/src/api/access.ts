@@ -1,12 +1,16 @@
 // Who is calling /api/v1. OAuth clients (CLI, MCP later) send a bearer token for the API
-// resource; the dashboard on the same origin sends its session cookie. Both paths end in the
-// same principal, a user ID, and the same scope check, so a route behaves the same for either.
-import { CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
+// resource; the dashboard on the same origin sends its session cookie; automation sends a
+// workspace's service token (decision 0011). Every path ends in the same principal, an ID the
+// services resolve a role for, and the same scope check, so a route behaves the same for each.
+import { CREDENTIALS_SCOPE, OAuthScope, SERVICE_TOKEN_SECRET_PREFIX } from "@portifact/contracts";
+import type { ServiceTokenAuth } from "@portifact/services";
 import { COOKIE_PREFIX } from "../auth/auth.ts";
+import { bearerToken } from "../auth/introspection.ts";
 import {
   authorizeResourceRequest,
   type Introspect,
   type ProtectedResource,
+  protectedResourceMetadataUrl,
 } from "../auth/resource.ts";
 
 /** The Better Auth session cookie, matched exactly and case-sensitively (docs/security.md). */
@@ -23,10 +27,15 @@ export const SESSION_SCOPES: readonly OAuthScope[] = OAuthScope.options;
 
 export type ApiDecision = { ok: true; userId: string } | { ok: false; response: Response };
 
+/** Authenticates a service token's secret (`authenticateServiceToken` in the services). */
+export type ServiceTokenLookup = (secret: string) => Promise<ServiceTokenAuth>;
+
 export interface ApiCaller {
   introspect: Introspect;
   resource: ProtectedResource;
   session: SessionLookup;
+  /** Absent where service tokens are not accepted; `/api/v1` passes it. */
+  serviceToken?: ServiceTokenLookup;
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
@@ -36,6 +45,10 @@ export async function authorizeApiRequest(
   request: Request,
   scope: OAuthScope,
 ): Promise<ApiDecision> {
+  const bearer = bearerToken(request.headers.get("authorization"));
+  if (caller.serviceToken && bearer?.startsWith(SERVICE_TOKEN_SECRET_PREFIX)) {
+    return serviceTokenDecision(await caller.serviceToken(bearer), scope, caller.resource);
+  }
   // A bearer token always wins: OAuth clients never act through a browser session.
   if (!request.headers.has("authorization") && hasSessionCookie(request.headers.get("cookie"))) {
     if (!fromAppOrigin(request, new URL(caller.resource.identifier).origin)) {
@@ -81,6 +94,55 @@ export async function authorizeAccountRequest(
   return decision.ok
     ? { ok: true, userId: decision.principal.userId, via: decision.principal.clientId }
     : decision;
+}
+
+/**
+ * The answer for a service token (decision 0011): refused like an unknown token when revoked,
+ * malformed or of a deleted workspace, with its own message when expired, `plan_required` when
+ * the workspace's plan no longer includes the feature, and `insufficient_scope` when the route's
+ * scope is not one the admin chose.
+ */
+function serviceTokenDecision(
+  auth: ServiceTokenAuth,
+  scope: OAuthScope,
+  resource: ProtectedResource,
+): ApiDecision {
+  if (!auth.ok) {
+    if (auth.reason === "plan") {
+      return { ok: false, response: apiError(403, "plan_required", auth.message) };
+    }
+    const message =
+      auth.reason === "expired"
+        ? `This service token expired on ${new Date(auth.expiresAt).toISOString().slice(0, 10)}. Ask a workspace admin for a new one.`
+        : "This service token is not valid. It may have been revoked.";
+    return {
+      ok: false,
+      response: apiError(401, "unauthenticated", message, {
+        "WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${protectedResourceMetadataUrl(resource)}"`,
+      }),
+    };
+  }
+  if (!(auth.scopes as readonly string[]).includes(scope)) {
+    return {
+      ok: false,
+      response: apiError(403, "forbidden", `This service token does not have the ${scope} scope.`, {
+        "WWW-Authenticate": `Bearer error="insufficient_scope", scope="${scope}"`,
+      }),
+    };
+  }
+  return { ok: true, userId: auth.tokenId };
+}
+
+function apiError(
+  status: 401 | 403,
+  code: "unauthenticated" | "forbidden" | "plan_required",
+  message: string,
+  headers: Record<string, string> = {},
+): Response {
+  return Response.json(
+    { error: { code, message } },
+    { status, headers: { ...headers, "Cache-Control": "no-store" } },
+  );
 }
 
 export function hasSessionCookie(header: string | null): boolean {

@@ -21,6 +21,16 @@ description = "The unsubscribe page test's placeholder token is not a credential
 regexTarget = "match"
 regexes = ['''cn1\.dXNlcg\.1\.c2lnbmF0dXJl''']
 
+# Portifact's own service tokens (decision 0011): `pfst_` and 43 base64url characters, 32 random
+# bytes. A real one in the repository is a leak: revoke it (docs/operations.md, "A leaked service
+# token"). Tests build sample tokens at run time and documents write `pfst_…`, so nothing
+# committed matches; never allowlist this rule.
+[[rules]]
+id = "portifact-service-token"
+description = "Portifact service token"
+regex = '''pfst_[A-Za-z0-9_-]{43}'''
+keywords = ["pfst_"]
+
 # The email domain proof's tests use a made-up TXT token: the hex digits in order, twice. It is a
 # placeholder for a value that is published in public DNS anyway, never a credential. Only that
 # exact value is dropped.

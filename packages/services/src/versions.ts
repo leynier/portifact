@@ -125,7 +125,7 @@ export async function managedArtifact(
 ): Promise<Result<{ artifact: ArtifactRow; actor: Actor; owner: Entitlements }>> {
   const artifact = await loadArtifact(db, artifactId);
   if (!artifact) return missing();
-  const actor = await authorizeOn(db, userId, artifact.ownerId, action, missing);
+  const actor = await authorizeOn(db, userId, artifact, action, missing);
   if (!actor.ok) return actor;
   // Retention and paid features follow the owner's plan, a workspace's for a workspace.
   const owner = await ownerEntitlements(db, artifact.ownerId, now);
@@ -380,7 +380,7 @@ export async function getVersionDownload(
   }
   const artifact = await loadArtifact(db, input.artifactId);
   if (!artifact) return missingVersion();
-  const actor = await actorOn(db.global, input.userId, artifact.ownerId);
+  const actor = await actorOn(db.global, input.userId, artifact);
   if (!(actor && can(actor, "versions"))) {
     if (input.kind !== "published" || artifact.type === "site") return missingVersion();
     const ref = input.versionId === CURRENT_VERSION ? artifact.currentVersionId : input.versionId;

@@ -293,7 +293,7 @@ describe("operator backup commands", () => {
       // Other tests in this file write artifacts without directory rows, so the count varies.
       output: expect.stringMatching(
         new RegExp(
-          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
+          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, 0 service token\\(s\\) deleted again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
         ),
       ),
     });
@@ -304,7 +304,7 @@ describe("operator backup commands", () => {
     expect(
       (await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files)).output,
     ).toBe(
-      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 share link(s) revoked again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
+      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 share link(s) revoked again, 0 service token(s) deleted again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
     );
     expect((await run("apply-tombstones")).exitCode).toBe(0);
   });
@@ -374,6 +374,60 @@ describe("operator share link lookup", () => {
     expect((await runOperator(db(), ["find-share-link"], NOW, stdin("not a token"))).exitCode).toBe(
       2,
     );
+  });
+});
+
+describe("operator service token commands", () => {
+  it("finds a leaked token from standard input and revokes it, never printing the secret", async () => {
+    const { id: adminId } = await owner();
+    const workspaceId = `ws_${"c".repeat(32)}`;
+    await db().insert(schema.workspaces).values({
+      id: workspaceId,
+      slug: "leaky",
+      name: "Leaky",
+      createdBy: adminId,
+      updatedAt: NOW,
+    });
+    // Built at run time so nothing committed matches the secret scanner's rule for the prefix.
+    const secret = ["pf", "st_", "L".repeat(43)].join("");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+    const tokenHash = [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const tokenId = `st_${"d".repeat(32)}`;
+    await db()
+      .insert(schema.serviceTokens)
+      .values({
+        id: tokenId,
+        workspaceId,
+        label: "CI",
+        role: "editor",
+        scopes: "artifacts:read",
+        tokenHash,
+        createdBy: adminId,
+        createdAt: NOW,
+        expiresAt: NOW + 86_400_000,
+      });
+    const stdin = (text: string) => memoryFiles({ "/dev/stdin": text });
+    const found = await runOperator(db(), ["find-service-token"], NOW, stdin(`${secret}\n`));
+    expect(found.exitCode).toBe(0);
+    expect(found.output).toContain(`token      ${tokenId}  CI`);
+    expect(found.output).toContain("workspace  leaky");
+    expect(found.output).not.toContain(secret);
+    expect(await runOperator(db(), ["revoke-service-token", "st_bad"], NOW)).toMatchObject({
+      exitCode: 2,
+    });
+    expect((await runOperator(db(), ["revoke-service-token", tokenId], NOW)).exitCode).toBe(0);
+    expect((await runOperator(db(), ["revoke-service-token", tokenId], NOW)).exitCode).toBe(1);
+    expect(await runOperator(db(), ["find-service-token"], NOW, stdin(secret))).toEqual({
+      exitCode: 1,
+      output: "No service token has this secret.",
+    });
+    const [tombstone] = await db()
+      .select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, tokenId));
+    expect(tombstone?.kind).toBe("service_token");
   });
 });
 

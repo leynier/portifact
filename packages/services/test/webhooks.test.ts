@@ -1794,3 +1794,44 @@ describe("review fixes", () => {
     });
   });
 });
+
+describe("service tokens in deliveries (decision 0011)", () => {
+  it("names a service token of the owner by its label when it acted alone", async () => {
+    const admin = await person("Ada Admin");
+    const ws = await workspace([[admin.id, "admin"]]);
+    await grantPlan(ws, "team", { seats: 3 });
+    const a = await artifact(ws);
+    const tokenId = `st_${"e".repeat(32)}`;
+    await db()
+      .insert(schema.serviceTokens)
+      .values({
+        id: tokenId,
+        workspaceId: ws,
+        label: "CI previews",
+        role: "editor",
+        scopes: "artifacts:share",
+        tokenHash: "f".repeat(64),
+        createdBy: admin.id,
+        createdAt: NOW - DAY,
+        expiresAt: NOW + DAY,
+      });
+    const { webhook } = await addHook(await actorIn(admin.id, ws), {
+      events: ["artifact.access_changed"],
+    });
+    value(
+      await updateAccess(db(), {
+        userId: tokenId,
+        artifactId: a.id,
+        change: { mode: "authenticated" },
+        now: NOW,
+      }),
+    );
+    const net = network();
+    await runDue(webhook.id, AFTER, await deps(net.fetch));
+    const body = JSON.parse(net.sent[0]?.body ?? "{}") as WebhookDeliveryBody;
+    expect(body.events[0]).toMatchObject({
+      type: "artifact.access_changed",
+      actor: { name: "CI previews (service token)" },
+    });
+  });
+});

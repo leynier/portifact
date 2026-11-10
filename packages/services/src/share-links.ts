@@ -137,12 +137,14 @@ async function loadManaged(db: RegionalDb, userId: string, artifactId: string) {
       id: schema.artifacts.id,
       ownerId: schema.artifacts.ownerId,
       state: schema.artifacts.state,
+      createdBy: schema.artifacts.createdBy,
+      externalKey: schema.artifacts.externalKey,
     })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
+  const actor = await authorizeOn(db, userId, artifact, "access", missing);
   if (!actor.ok) return actor;
   return ok(artifact);
 }

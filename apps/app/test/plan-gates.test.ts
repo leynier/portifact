@@ -13,6 +13,9 @@
 // (a workspace on a plan with the feature, acted on by an editor whose own space is free, is not
 // refused; a free workspace acted on by an editor with a paid plan is).
 //
+// Service tokens (decision 0011) have one line: using a token of a workspace without the feature;
+// creating one is session-only and tested with the same body in service-tokens.test.ts.
+//
 // Owner-level gates served only to the dashboard session, with no MCP tool or CLI command, are
 // not lines here: the brand (`branding`) is gated and tested in branding.test.ts with the same
 // body, and its owner-plan and role rules in packages/services/test/branding.test.ts.
@@ -27,6 +30,7 @@ import { regionsFromEnv, schema } from "@portifact/db";
 import {
   authorizeOn,
   commitPublish,
+  newServiceTokenSecret,
   preparePublish,
   requireOwnerFeature,
 } from "@portifact/services";
@@ -226,6 +230,13 @@ const GATED: GatedOperation[] = [
     "add_custom_domain",
     (id) => ({ artifactId: id, hostname: `gate-${id}.example.com` }),
   ),
+  {
+    feature: "serviceTokens",
+    name: "use a service token",
+    scope: "owner",
+    run: (who) => withServiceToken(who),
+  },
+  probe("workspaces"),
   ...(["workspace", "domain"] as const).map(
     (mode): GatedOperation => ({
       feature: "workspaces",
@@ -257,6 +268,51 @@ const GATED: GatedOperation[] = [
   ),
   probe("sso"),
 ];
+
+/**
+ * Calls the API with a service token of a workspace the caller administers, whose plan is set to
+ * the caller's personal plan so the table's plans apply to it (decision 0011). Creating tokens is
+ * session-only, so the token row is written as the create route writes it. No MCP: it refuses
+ * service tokens.
+ */
+async function withServiceToken(who: Client): Promise<Answers> {
+  const [plan] = await db()
+    .select()
+    .from(schema.ownerPlans)
+    .where(eq(schema.ownerPlans.ownerId, who.userId));
+  const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+  await db()
+    .insert(schema.workspaces)
+    .values({
+      id: workspaceId,
+      slug: workspaceId.slice(3, 23),
+      name: "Team",
+      createdBy: who.userId,
+      updatedAt: NOW,
+    });
+  await db()
+    .insert(schema.workspaceMembers)
+    .values({ workspaceId, userId: who.userId, role: "admin", updatedAt: NOW });
+  await onPlan(workspaceId, plan?.plan ?? "free");
+  const secret = newServiceTokenSecret();
+  await db()
+    .insert(schema.serviceTokens)
+    .values({
+      id: `st_${crypto.randomUUID().replaceAll("-", "")}`,
+      workspaceId,
+      label: "Gate",
+      role: "editor",
+      scopes: "artifacts:read",
+      tokenHash: await sha256(secret),
+      createdBy: who.userId,
+      createdAt: NOW,
+      expiresAt: NOW + 86_400_000,
+    });
+  const response = await who.apiCall("/api/v1/artifacts", {
+    headers: { authorization: `Bearer ${secret}` },
+  });
+  return { api: { status: response.status, body: await response.json<unknown>() } };
+}
 
 const WEBHOOK = {
   url: "https://hooks.example.com/in",

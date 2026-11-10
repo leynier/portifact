@@ -34,6 +34,7 @@ import {
   type AnnotationVersionFilter,
   type ArtifactState,
   type CommentScope,
+  isServiceTokenId,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   utf8Length,
 } from "@portifact/contracts";
@@ -202,6 +203,9 @@ async function roleOf(
   userId: string,
   owner: Entitlements,
 ): Promise<Caller> {
+  // Comments are people's words: a service token takes no part, whatever its role (decision
+  // 0011), and gets what a missing artifact gives.
+  if (isServiceTokenId(userId)) return { role: null, verifiedEmail: null, exception: null };
   const actor = await actorOn(db.global, userId, artifact.ownerId);
   if (actsForOwner(actor, artifact.ownerId)) {
     return { role: "owner", verifiedEmail: null, exception: null };

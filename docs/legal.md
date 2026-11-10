@@ -97,6 +97,12 @@ Changes that shipped and that the legal pages do not describe yet, to be written
 
   The Terms and Acceptable Use changes are material (new obligations for owners), so they go in the wave's single `TERMS_VERSION` bump.
 
+- Service tokens and publish keys (premium plan T4 and T5, [decision 0011](decisions/0011-service-tokens.md)). The texts must say:
+  - **Terms.** A workspace's admins can create service tokens that act for the workspace from automation such as CI; the workspace is responsible for everything done with its tokens and for keeping them secret, and admins revoke a token to stop it; tokens stop while the plan does not include them and when they expire.
+  - **Privacy.** For a token Portifact keeps its label, role, scopes, restriction, creation and expiry, who created it (cleared when that account is deleted), a hash of the secret (never the secret) and when it was last used, to the hour; versions and lifecycle events record the token as their author. Tokens are listed, without secrets, in the export of the workspace's admins, and deleted with the workspace. Publish keys are names the owner chooses for artifacts and are kept with the artifact.
+
+  No new processor and no new data about visitors; the Terms change (responsibility for tokens) goes in the wave's single `TERMS_VERSION` bump.
+
 ## Changing the texts
 
 1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.

@@ -13,6 +13,7 @@ import {
   Email,
   LIMITS,
   LifecycleResult,
+  PublishKey,
   ReaderCommentVisibility,
 } from "@portifact/contracts";
 import { callApi } from "./api.ts";
@@ -20,6 +21,7 @@ import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { formatDate, messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import type { Session } from "./session.ts";
 import { chosenWorkspace, ownerLabel, workspaceQuery } from "./workspaces.ts";
 
 export function parseArtifactId(value: string): string {
@@ -187,6 +189,71 @@ export async function lifecycle(
     delete: () => messages.deleted(artifactId),
   }[action]();
   io.stdout(`${text}\n`);
+}
+
+/**
+ * `portifact delete --key`: finds the space's artifact with the key and deletes it by ID through
+ * the same route, scopes and confirmation. A key nothing holds deletes nothing and succeeds, so
+ * a CI job that cleans up a closed pull request can run twice.
+ */
+export async function deleteByKey(
+  io: Io,
+  runtime: Runtime,
+  rawKey: string,
+  options: LifecycleOptions & { workspace?: string | undefined },
+): Promise<void> {
+  const key = parsePublishKey(rawKey);
+  if (!options.yes && !runtime.prompt) {
+    throw new CliError("invalid_input", messages.errors.keyConfirmationRequired(key));
+  }
+  const session = await openSession(io, runtime);
+  const artifact = await artifactWithKey(
+    session,
+    key,
+    await chosenWorkspace(session, options.workspace),
+  );
+  if (!artifact) {
+    if (options.json) writeJson(io, { key, deleted: false });
+    else io.stdout(`${messages.nothingWithKey(key)}\n`);
+    return;
+  }
+  if (!options.yes && runtime.prompt) {
+    const answer = await runtime.prompt(messages.confirmDelete(artifact.id, artifact.name));
+    if (answer.trim().toLowerCase() !== artifact.id) {
+      throw new CliError("cancelled", messages.errors.deleteCancelled);
+    }
+  }
+  const result = await callApi(session, {
+    method: "DELETE",
+    path: `/artifacts/${artifact.id}`,
+    schema: LifecycleResult,
+  });
+  if (options.json) {
+    writeJson(io, { key, artifactId: artifact.id, deleted: true, ...result });
+    return;
+  }
+  io.stdout(`${messages.deleted(artifact.id)}\n`);
+}
+
+/** A publish key from the command line, checked like the API checks it. */
+export function parsePublishKey(value: string): string {
+  const parsed = PublishKey.safeParse(value);
+  if (!parsed.success) throw new CliError("invalid_input", messages.errors.invalidKey(value));
+  return parsed.data;
+}
+
+/** The artifact of the space that holds `key`, if any. */
+export async function artifactWithKey(
+  session: Session,
+  key: string,
+  workspace: string | undefined,
+): Promise<ArtifactSummary | undefined> {
+  const list = await callApi(session, {
+    method: "GET",
+    path: `/artifacts${workspaceQuery(workspace, new URLSearchParams({ key }))}`,
+    schema: ArtifactList,
+  });
+  return list.items[0];
 }
 
 export async function showAccess(

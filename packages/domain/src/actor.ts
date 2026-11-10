@@ -1,16 +1,36 @@
 // Who acts on an owner, and what each role may do (premium plan F3, decision 0004). The role
 // comes only from `resolveActor` in packages/services, from the membership (or, in a personal
 // space, from the user being its owner); this module only decides what a role allows.
-import type { Region, RoleAction, WorkspaceRole } from "@portifact/contracts";
+import type {
+  Region,
+  RoleAction,
+  ServiceTokenRestriction,
+  ServiceTokenScope,
+  WorkspaceRole,
+} from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
 
-/** A user acting with a role on an owner, in the owner's region. */
+/** What a service token acting on its workspace may reach (decision 0011). */
+export interface TokenReach {
+  restriction: ServiceTokenRestriction;
+  /** The scopes its admin chose, for the few rules a scope narrows inside one action. */
+  scopes: readonly ServiceTokenScope[];
+  /** When the token was created: its age stands for an account's age in the rules that use one. */
+  createdAt: number;
+  label: string;
+}
+
+/**
+ * A user, or a service token, acting with a role on an owner, in the owner's region. For a token
+ * `userId` is the token's ID and `token` is set.
+ */
 export interface Actor {
   userId: string;
   /** The user's own ID for their personal space, or a workspace ID. */
   ownerId: string;
   role: WorkspaceRole;
   region: Region;
+  token?: TokenReach;
 }
 
 const MEMBER: readonly RoleAction[] = ["read", "comment"];
@@ -28,6 +48,7 @@ const EDITOR: readonly RoleAction[] = [
   "moderate",
   "access_log",
   "usage",
+  "domains",
 ];
 const ADMIN: readonly RoleAction[] = [
   ...EDITOR,
@@ -40,7 +61,27 @@ const ADMIN: readonly RoleAction[] = [
   "webhooks",
   // The owner's brand on the viewer's bar (premium plan P9): what visitors see as the owner.
   "brand",
+  // Service tokens of a workspace (decision 0011).
+  "tokens",
 ];
+
+/**
+ * What a service token may ever do, whatever its role (decision 0011): publishing and managing
+ * artifacts. Never comments, moderation, transfers, the access log and analytics (visitors'
+ * data), members, plans, policies, webhooks, branding or tokens.
+ */
+export const TOKEN_ACTIONS: ReadonlySet<RoleAction> = new Set<RoleAction>([
+  "read",
+  "manage",
+  "list",
+  "publish",
+  "update",
+  "access",
+  "lifecycle",
+  "versions",
+  "rollback",
+  "usage",
+]);
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {
   admin: new Set(ADMIN),
@@ -53,8 +94,9 @@ export function roleAllows(role: WorkspaceRole, action: RoleAction): boolean {
   return ALLOWED[role].has(action);
 }
 
-/** Whether the actor may do the action on its owner. */
+/** Whether the actor may do the action on its owner: its role, and for a token its allowlist. */
 export function can(actor: Actor, action: RoleAction): boolean {
+  if (actor.token && !TOKEN_ACTIONS.has(action)) return false;
   return roleAllows(actor.role, action);
 }
 

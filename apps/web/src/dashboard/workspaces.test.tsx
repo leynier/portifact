@@ -112,7 +112,16 @@ describe("the space menu", () => {
       ["/", ["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Branding", "Settings"]],
       [
         "/?workspace=a",
-        ["Artifacts", "Publish", "Apps", "Usage", "Branding", "Members", "Settings"],
+        [
+          "Artifacts",
+          "Publish",
+          "Apps",
+          "Usage",
+          "Branding",
+          "Members",
+          "Service tokens",
+          "Settings",
+        ],
       ],
       ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Members", "Settings"]],
       ["/?workspace=m", ["Artifacts", "Apps", "Members", "Settings"]],

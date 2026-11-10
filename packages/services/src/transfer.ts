@@ -61,6 +61,12 @@ const noRoom = () =>
     "The target space has no room for this artifact: free an active slot, storage or comment space there first.",
   );
 
+const keyTaken = () =>
+  fail<never>(
+    "invalid_input",
+    "The target space already has an artifact with this publish key. Delete that artifact or publish this one again without the key, then move it.",
+  );
+
 /**
  * Moves an artifact to another space. A retry after a move that happened answers the artifact as
  * it is now. Refused across regions, while an upload to the artifact is open, and when the target
@@ -74,7 +80,7 @@ export async function transferArtifact(
   const a = schema.artifacts;
   const [artifact] = await db.select().from(a).where(eq(a.id, input.artifactId)).limit(1);
   if (!artifact) return missingArtifact();
-  const source = await authorizeOn(db, input.userId, artifact.ownerId, "transfer", missingArtifact);
+  const source = await authorizeOn(db, input.userId, artifact, "transfer", missingArtifact);
   if (!source.ok) return source;
 
   const targetId = await targetOwner(db.global, input.userId, input.workspace);
@@ -238,6 +244,8 @@ export async function transferArtifact(
     ])) as unknown[];
   } catch (error) {
     if (causeIncludes(error, "CHECK constraint failed")) return noRoom();
+    // The partial unique index on (owner, publish key): the target already publishes under it.
+    if (causeIncludes(error, "artifacts.external_key")) return keyTaken();
     throw error;
   }
   if ((results.at(-1) as unknown[]).length === 0) {

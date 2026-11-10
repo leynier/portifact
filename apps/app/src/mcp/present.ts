@@ -32,6 +32,7 @@ export function artifactSummary(env: Env, row: ArtifactRow, owner: OwnerView): A
     archivedAt: isoOrNull(row.archivedAt),
     purgeAt: isoOrNull(row.purgeAt),
     pinned: row.pinned,
+    key: row.externalKey,
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),

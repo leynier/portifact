@@ -112,7 +112,15 @@ export type DomainNoticePayload = z.infer<typeof DomainNoticePayload>;
  * or lapsed workspace email domain (by row ID), that a restored backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account", "share_link", "workspace", "webhook", "workspace_domain"]),
+  kind: z.enum([
+    "artifact",
+    "account",
+    "share_link",
+    "workspace",
+    "webhook",
+    "service_token",
+    "workspace_domain",
+  ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

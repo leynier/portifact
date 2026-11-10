@@ -22,6 +22,7 @@ import { MembersScreen } from "./screens/members.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
 import { ProfileScreen } from "./screens/profile.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
+import { ServiceTokensScreen } from "./screens/service-tokens.tsx";
 import { SettingsScreen } from "./screens/settings.tsx";
 import { Shell } from "./screens/shell.tsx";
 import { UsageScreen } from "./screens/usage.tsx";
@@ -135,6 +136,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/members",
     component: MembersScreen,
   });
+  const serviceTokens = createRoute({
+    getParentRoute: () => root,
+    path: "/service-tokens",
+    component: ServiceTokensScreen,
+  });
   const invitations = createRoute({
     getParentRoute: () => root,
     path: "/invitations",
@@ -169,6 +175,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       branding,
       settings,
       members,
+      serviceTokens,
       invitations,
       account,
       viewer,
