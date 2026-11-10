@@ -52,6 +52,14 @@ import {
   VersionList,
   VersionManifest,
   ViewerInfo,
+  type WebhookCreate,
+  WebhookCreated,
+  WebhookDeliveries,
+  WebhookList,
+  WebhookRemoved,
+  WebhookTestQueued,
+  type WebhookUpdate,
+  WebhookView,
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
@@ -120,6 +128,14 @@ export interface DashboardApi {
     input: { label: string; expiresAt?: string; password?: string },
   ): Promise<ShareLinkCreated>;
   revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
+  /** The account's webhooks (decision 0009). */
+  webhooks(): Promise<WebhookList>;
+  /** Adds a webhook; the answer holds its signing secret once. */
+  createWebhook(webhook: WebhookCreate): Promise<WebhookCreated>;
+  updateWebhook(webhookId: string, update: WebhookUpdate): Promise<WebhookView>;
+  removeWebhook(webhookId: string): Promise<WebhookRemoved>;
+  testWebhook(webhookId: string): Promise<WebhookTestQueued>;
+  webhookDeliveries(webhookId: string): Promise<WebhookDeliveries>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
@@ -353,6 +369,36 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     updateAccountSettings(update) {
       return call("/api/v1/account/settings", AccountSettings, "PATCH", update);
+    },
+    webhooks() {
+      return call("/api/v1/webhooks", WebhookList);
+    },
+    createWebhook(webhook) {
+      return call("/api/v1/webhooks", WebhookCreated, "POST", webhook);
+    },
+    updateWebhook(webhookId, update) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}`,
+        WebhookView,
+        "PATCH",
+        update,
+      );
+    },
+    removeWebhook(webhookId) {
+      return call(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, WebhookRemoved, "DELETE");
+    },
+    testWebhook(webhookId) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
+        WebhookTestQueued,
+        "POST",
+      );
+    },
+    webhookDeliveries(webhookId) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`,
+        WebhookDeliveries,
+      );
     },
     commentNoticeMute(artifactId) {
       return call(

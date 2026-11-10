@@ -233,6 +233,8 @@ export interface ApplyTombstonesResult {
   accounts: number;
   /** Share links the restore brought back unrevoked, revoked again. */
   shareLinks: number;
+  /** Webhooks removed before the restore that it brought back, removed again. */
+  webhooks: number;
 }
 
 /**
@@ -268,7 +270,7 @@ export async function applyTombstones(
   const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
 
   const l = schema.shareLinks;
-  const [, deletions, , artifacts, shareLinks] = await db.batch([
+  const results = await db.batch([
     db
       .insert(schema.outbox)
       .select(
@@ -309,12 +311,24 @@ export async function applyTombstones(
     db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
+    // Removed webhooks and those of deleted accounts: a restored destination must never receive.
+    db
+      .delete(schema.webhooks)
+      .where(
+        sql`${schema.webhooks.id} in (select ${t.id} from ${t} where ${t.kind} = 'webhook') or ${schema.webhooks.ownerId} in (${tombstonedAccounts})`,
+      )
+      .returning({ id: schema.webhooks.id }),
   ]);
+  const deletions = results[1] as { userId: string }[];
+  const artifacts = results[3] as { id: string }[];
+  const shareLinks = results[4] as { id: string }[];
+  const webhooks = results[9] as { id: string }[];
   return {
     inserted,
     artifacts: artifacts.length,
     accounts: deletions.length,
     shareLinks: shareLinks.length,
+    webhooks: webhooks.length,
   };
 }
 

@@ -39,6 +39,8 @@ import {
   type UsageBlock,
   type VersionSummary,
   type ViewerInfo,
+  type WebhookAttempt,
+  type WebhookView,
 } from "@portifact/contracts";
 import { diffText, textDiffEligibility } from "@portifact/domain";
 import { createMemoryHistory } from "@tanstack/react-router";
@@ -347,6 +349,10 @@ export interface FakeServer {
   commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
+  /** The account's webhooks and whether its plan includes them, as /api/v1/webhooks keeps them. */
+  webhooks: { list: WebhookView[]; available: boolean; attempts: Record<string, WebhookAttempt[]> };
+  /** Webhooks a test event was queued for. */
+  webhookTests: string[];
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
   /**
@@ -400,6 +406,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       locale: null,
     },
     usage: usageView(),
+    webhooks: { list: [], available: true, attempts: {} },
+    webhookTests: [],
     accessLogs: {},
     stats: {},
     shareLinks: {},
@@ -936,6 +944,90 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   if (path === "/api/v1/usage" && method === "GET") {
     return Response.json(server.usage);
+  }
+  if (path.startsWith("/api/v1/webhooks")) {
+    const hooks = server.webhooks;
+    const refused = () =>
+      Response.json(
+        { error: { code: "plan_required", message: "Webhooks is part of the Pro plan." } },
+        { status: 403 },
+      );
+    if (path === "/api/v1/webhooks" && method === "GET") {
+      return Response.json({ webhooks: hooks.list, available: hooks.available, limit: 10 });
+    }
+    if (path === "/api/v1/webhooks" && method === "POST") {
+      if (!hooks.available) return refused();
+      const body = server.bodies.at(-1) as {
+        url: string;
+        format: WebhookView["format"];
+        events: WebhookView["events"];
+      };
+      let host: string;
+      try {
+        const url = new URL(body.url);
+        if (url.protocol !== "https:") throw new Error("http");
+        host = url.hostname;
+      } catch {
+        return Response.json(
+          { error: { code: "invalid_input", message: "The URL must start with https://." } },
+          { status: 400 },
+        );
+      }
+      const webhook: WebhookView = {
+        id: `wh_${String(hooks.list.length + 1).padStart(32, "0")}`,
+        host,
+        format: body.format,
+        events: body.events,
+        state: "active",
+        disabledReason: null,
+        disabledAt: null,
+        failures: 0,
+        createdAt: "2026-11-10T09:00:00.000Z",
+        lastAttempt: null,
+      };
+      hooks.list = [...hooks.list, webhook];
+      return Response.json(
+        { webhook, secret: body.format === "generic" ? "whsec_sample-secret-for-tests" : null },
+        { status: 201 },
+      );
+    }
+    const match = /^\/api\/v1\/webhooks\/([^/]+)(\/test|\/deliveries)?$/.exec(path);
+    const webhook = match && hooks.list.find((w) => w.id === match[1]);
+    if (!match || !webhook) {
+      return Response.json(
+        { error: { code: "not_found", message: "Webhook not found." } },
+        { status: 404 },
+      );
+    }
+    if (match[2] === "/deliveries") {
+      return Response.json({
+        webhookId: webhook.id,
+        attempts: hooks.attempts[webhook.id] ?? [],
+        retentionDays: 7,
+      });
+    }
+    if (match[2] === "/test") {
+      if (!hooks.available) return refused();
+      server.webhookTests.push(webhook.id);
+      return Response.json({ webhookId: webhook.id, queued: true }, { status: 202 });
+    }
+    if (method === "DELETE") {
+      hooks.list = hooks.list.filter((w) => w.id !== webhook.id);
+      return Response.json({ webhookId: webhook.id, removed: true });
+    }
+    const change = server.bodies.at(-1) as { enabled?: boolean };
+    if (change.enabled === true && !hooks.available) return refused();
+    const next: WebhookView =
+      change.enabled === false
+        ? {
+            ...webhook,
+            state: "disabled",
+            disabledReason: "manual",
+            disabledAt: "2026-11-10T10:00:00.000Z",
+          }
+        : { ...webhook, state: "active", disabledReason: null, disabledAt: null, failures: 0 };
+    hooks.list = hooks.list.map((w) => (w.id === webhook.id ? next : w));
+    return Response.json(next);
   }
   if (path === "/api/v1/account/apps" && method === "GET") {
     return Response.json({ items: server.apps });

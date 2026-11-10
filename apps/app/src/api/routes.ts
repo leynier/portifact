@@ -51,6 +51,7 @@ import { statsRoutes } from "./stats.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
+import { webhookRoutes } from "./webhooks.ts";
 
 export interface ApiDeps {
   introspect(env: Env): Introspect;
@@ -312,6 +313,7 @@ export function apiRoutes(deps: ApiDeps) {
   accessLogRoutes(api, guarded, deps.now);
   shareLinkRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  webhookRoutes(api, guarded, deps.now);
 
   return api;
 }

@@ -60,6 +60,11 @@ interface Answers {
 interface GatedOperation {
   feature: PlanFeature;
   name: string;
+  /**
+   * `owner` for operations on the caller's own space (webhooks), which the interfaces cannot aim
+   * at a workspace yet: the plan that counts is the caller's personal space's.
+   */
+  scope?: "artifact" | "owner";
   /** Runs the operation as `who` on artifact `id` through both interfaces. */
   run: (who: Client, id: string) => Promise<Answers>;
 }
@@ -169,9 +174,99 @@ const GATED: GatedOperation[] = [
     "diff_version_file",
     (id) => ({ artifactId: id, fromVersionId: "current", path: "index.md" }),
   ),
+  {
+    ...route(
+      "webhooks",
+      "create a webhook",
+      () => [
+        "/api/v1/webhooks",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(WEBHOOK),
+        },
+      ],
+      "create_webhook",
+      () => WEBHOOK,
+    ),
+    scope: "owner",
+  },
+  {
+    feature: "webhooks",
+    name: "enable a webhook",
+    scope: "owner",
+    run: (who) => onWebhook(who, "enable"),
+  },
+  {
+    feature: "webhooks",
+    name: "send a test event",
+    scope: "owner",
+    run: (who) => onWebhook(who, "test"),
+  },
   probe("workspaces"),
   probe("sso"),
 ];
+
+const WEBHOOK = {
+  url: "https://hooks.example.com/in",
+  format: "generic",
+  events: ["artifact.published"],
+};
+
+/**
+ * Enables or tests a webhook the caller made while on a plan with the feature, after setting the
+ * plan the test chose: the row is written as a grant would, the webhook is disabled for `enable`.
+ */
+async function onWebhook(who: Client, operation: "enable" | "test"): Promise<Answers> {
+  const [plan] = await db()
+    .select()
+    .from(schema.ownerPlans)
+    .where(eq(schema.ownerPlans.ownerId, who.userId));
+  await onPlan(who.userId, "pro");
+  const created = await who.apiCall("/api/v1/webhooks", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(WEBHOOK),
+  });
+  const { webhook } = await created.json<{ webhook: { id: string } }>();
+  if (operation === "enable") {
+    await db()
+      .update(schema.webhooks)
+      .set({ disabledAt: NOW, disabledReason: "manual" })
+      .where(eq(schema.webhooks.id, webhook.id));
+  }
+  await onPlan(who.userId, plan?.plan ?? "free");
+  const [path, method, body, tool, args] =
+    operation === "enable"
+      ? [
+          `/api/v1/webhooks/${webhook.id}`,
+          "PATCH",
+          { enabled: true },
+          "update_webhook",
+          { webhookId: webhook.id, enabled: true },
+        ]
+      : [
+          `/api/v1/webhooks/${webhook.id}/test`,
+          "POST",
+          undefined,
+          "test_webhook",
+          { webhookId: webhook.id },
+        ];
+  const response = await who.apiCall(path, {
+    method,
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const api = { status: response.status, body: await response.json<unknown>() };
+  if (operation === "enable") {
+    await db()
+      .update(schema.webhooks)
+      .set({ disabledAt: NOW, disabledReason: "manual" })
+      .where(eq(schema.webhooks.id, webhook.id));
+  }
+  const result = await who.tool(tool, args);
+  return { api, mcp: { ok: result.isError !== true, body: result.structuredContent } };
+}
 
 async function client(email: string): Promise<Client> {
   const h = createHarness();
@@ -253,7 +348,12 @@ describe.each(GATED)("$feature: $name", (op) => {
     await onPlan(owner.userId, lowestPlanWith(op.feature));
     expectNotRefused(await op.run(owner, id), lowestPlanWith(op.feature));
   });
+});
 
+// Operations on the caller's own space have no artifact owner to follow.
+const ON_ARTIFACTS = GATED.filter((op) => op.scope !== "owner");
+
+describe.each(ON_ARTIFACTS)("$feature: $name, on a workspace's artifact", (op) => {
   it("follows the artifact owner's plan, not the caller's", async () => {
     const editor = await client(`gate-editor-${slug(op)}@example.test`);
     const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;

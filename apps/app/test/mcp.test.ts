@@ -56,6 +56,14 @@ const TOOLS = [
     "resolve_annotation",
     "set_annotations",
   ],
+  ...[
+    "list_webhooks",
+    "create_webhook",
+    "update_webhook",
+    "delete_webhook",
+    "test_webhook",
+    "list_webhook_deliveries",
+  ],
 ].sort();
 
 interface Committed {
@@ -138,6 +146,25 @@ describe("the MCP endpoint", () => {
     expect(byName.get("list_share_links")?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get("revoke_share_link")?.annotations?.destructiveHint).toBe(true);
     expect(client.getInstructions()).toContain("creating a share link");
+    // Webhooks send the owner's activity to a third party: sharing scope, and ask first.
+    for (const name of [
+      "list_webhooks",
+      "create_webhook",
+      "update_webhook",
+      "delete_webhook",
+      "test_webhook",
+      "list_webhook_deliveries",
+    ]) {
+      expect(TOOL_SCOPES.get(name), name).toBe("artifacts:share");
+    }
+    for (const name of ["create_webhook", "update_webhook", "test_webhook"]) {
+      expect(byName.get(name)?.description, name).toContain(
+        "only call it after the user asked for exactly this destination",
+      );
+    }
+    expect(byName.get("create_webhook")?.description).toContain("never store it or send it");
+    expect(byName.get("delete_webhook")?.annotations?.destructiveHint).toBe(true);
+    expect(byName.get("list_webhooks")?.annotations?.readOnlyHint).toBe(true);
     for (const name of [
       "prepare_upload",
       "get_upload_status",

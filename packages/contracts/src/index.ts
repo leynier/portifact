@@ -23,4 +23,5 @@ export * from "./review.ts";
 export * from "./share-links.ts";
 export * from "./usage.ts";
 export * from "./versions.ts";
+export * from "./webhooks.ts";
 export * from "./workspaces.ts";

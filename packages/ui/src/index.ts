@@ -28,6 +28,7 @@ export { EmptyState, type EmptyStateProps } from "./components/empty-state.tsx";
 export {
   Checkbox,
   type CheckboxProps,
+  FieldError,
   RadioGroup,
   type RadioGroupProps,
   type RadioOption,

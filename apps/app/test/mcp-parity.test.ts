@@ -2736,3 +2736,186 @@ describe("API and MCP parity for reading content", () => {
     expect(denied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
   });
 });
+
+describe("API and MCP parity for webhooks", () => {
+  const SHARE = "artifacts:read artifacts:write artifacts:share offline_access";
+  const json = (method: string, body?: unknown): RequestInit => ({
+    method,
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const hook = {
+    url: "https://hooks.example.com/in?token=abc",
+    format: "generic",
+    events: ["comment.created", "artifact.published"],
+  };
+  async function onPro(email: string) {
+    const b = await both(email, SHARE);
+    await env.DB.prepare(
+      "insert into owner_plans (owner_id, plan, seats, granted_by, updated_at) values (?, 'pro', 1, 'test', ?)",
+    )
+      .bind(await ownerId(b), NOW)
+      .run();
+    return b;
+  }
+  /** A created webhook without what names it: the ID, and the secret, shown once each. */
+  function created(body: unknown) {
+    const { webhook, secret } = body as { webhook: { id: string }; secret: string | null };
+    const { id, ...rest } = webhook;
+    return { id, rest, secret };
+  }
+
+  it("create, list, update, test, deliveries and delete give the same bodies", async () => {
+    const b = await onPro("parity-webhooks@example.test");
+    const viaApi = await fromApi(await b.apiCall("/api/v1/webhooks", json("POST", hook)));
+    const viaMcp = fromTool(await b.tool("create_webhook", hook));
+    expect(viaApi.ok && viaMcp.ok).toBe(true);
+    const a = created(viaApi.body);
+    const m = created(viaMcp.body);
+    expect(m.rest).toEqual(a.rest);
+    expect(a.rest).toMatchObject({ host: "hooks.example.com", state: "active", failures: 0 });
+    expect(a.secret).toMatch(/^whsec_/);
+    expect(m.secret).toMatch(/^whsec_/);
+    expect(m.secret).not.toBe(a.secret);
+    // Nothing shows the URL after creation.
+    const listed = fromTool(await b.tool("list_webhooks", {}));
+    expect(listed).toEqual(await fromApi(await b.apiCall("/api/v1/webhooks")));
+    expect(JSON.stringify(listed.body)).not.toContain("token=abc");
+    expect(listed.body).toMatchObject({ available: true, limit: 10 });
+
+    const disable = { enabled: false };
+    const apiUpdated = await fromApi(
+      await b.apiCall(`/api/v1/webhooks/${a.id}`, json("PATCH", disable)),
+    );
+    const mcpUpdated = fromTool(await b.tool("update_webhook", { webhookId: m.id, ...disable }));
+    expect({ ...(mcpUpdated.body as object), id: a.id }).toEqual(apiUpdated.body);
+    expect(apiUpdated.body).toMatchObject({ state: "disabled", disabledReason: "manual" });
+    const empty = await fromApi(await b.apiCall(`/api/v1/webhooks/${a.id}`, json("PATCH", {})));
+    expect(fromTool(await b.tool("update_webhook", { webhookId: m.id }))).toEqual(empty);
+    expect(empty.body).toMatchObject({ error: { code: "invalid_input" } });
+
+    // A disabled webhook takes no test, the same way.
+    const apiTest = await fromApi(await b.apiCall(`/api/v1/webhooks/${a.id}/test`, json("POST")));
+    expect(fromTool(await b.tool("test_webhook", { webhookId: m.id }))).toEqual(apiTest);
+    expect(apiTest.body).toMatchObject({ error: { code: "invalid_input" } });
+    await b.apiCall(`/api/v1/webhooks/${a.id}`, json("PATCH", { enabled: true }));
+    await b.tool("update_webhook", { webhookId: m.id, enabled: true });
+    const queued = await b.apiCall(`/api/v1/webhooks/${a.id}/test`, json("POST"));
+    expect(queued.status).toBe(202);
+    expect(await queued.json()).toEqual({ webhookId: a.id, queued: true });
+    expect(fromTool(await b.tool("test_webhook", { webhookId: m.id }))).toEqual({
+      ok: true,
+      body: { webhookId: m.id, queued: true },
+    });
+
+    const apiLog = await fromApi(await b.apiCall(`/api/v1/webhooks/${a.id}/deliveries`));
+    expect(apiLog).toEqual({ ok: true, body: { webhookId: a.id, attempts: [], retentionDays: 7 } });
+    expect(fromTool(await b.tool("list_webhook_deliveries", { webhookId: m.id }))).toEqual({
+      ok: true,
+      body: { webhookId: m.id, attempts: [], retentionDays: 7 },
+    });
+
+    const apiRemoved = await fromApi(await b.apiCall(`/api/v1/webhooks/${a.id}`, json("DELETE")));
+    expect(apiRemoved).toEqual({ ok: true, body: { webhookId: a.id, removed: true } });
+    expect(fromTool(await b.tool("delete_webhook", { webhookId: m.id }))).toEqual({
+      ok: true,
+      body: { webhookId: m.id, removed: true },
+    });
+    expect(await fromApi(await b.apiCall("/api/v1/webhooks"))).toMatchObject({
+      body: { webhooks: [] },
+    });
+  });
+
+  it("refuses the same way: a free plan, a bad URL, another user's or a missing webhook", async () => {
+    const free = await both("parity-webhooks-free@example.test", SHARE);
+    const refused = await fromApi(await free.apiCall("/api/v1/webhooks", json("POST", hook)));
+    expect(refused.body).toMatchObject({ error: { code: "plan_required" } });
+    expect(fromTool(await free.tool("create_webhook", hook))).toEqual(refused);
+    expect(fromTool(await free.tool("list_webhooks", {}))).toEqual(
+      await fromApi(await free.apiCall("/api/v1/webhooks")),
+    );
+
+    const b = await onPro("parity-webhooks-owner@example.test");
+    for (const url of [
+      "http://hooks.example.com/",
+      "https://127.0.0.1/",
+      "https://app.portifact.com/",
+    ]) {
+      const bad = { ...hook, url };
+      const apiBad = await fromApi(await b.apiCall("/api/v1/webhooks", json("POST", bad)));
+      expect(apiBad.body, url).toMatchObject({ error: { code: "invalid_input" } });
+      expect(fromTool(await b.tool("create_webhook", bad)), url).toEqual(apiBad);
+    }
+    const { webhook } = (await (
+      await b.apiCall("/api/v1/webhooks", json("POST", hook))
+    ).json()) as {
+      webhook: { id: string };
+    };
+    const other = await onPro("parity-webhooks-other@example.test");
+    for (const webhookId of [webhook.id, `wh_${"0".repeat(32)}`]) {
+      const cases: [string, RequestInit, string, Record<string, unknown>][] = [
+        [
+          `/api/v1/webhooks/${webhookId}`,
+          json("PATCH", { enabled: false }),
+          "update_webhook",
+          { enabled: false },
+        ],
+        [`/api/v1/webhooks/${webhookId}`, json("DELETE"), "delete_webhook", {}],
+        [`/api/v1/webhooks/${webhookId}/test`, json("POST"), "test_webhook", {}],
+        [`/api/v1/webhooks/${webhookId}/deliveries`, json("GET"), "list_webhook_deliveries", {}],
+      ];
+      for (const [path, init, tool, args] of cases) {
+        const apiResult = await fromApi(await other.apiCall(path, init));
+        expect(apiResult, tool).toEqual({
+          ok: false,
+          body: { error: { code: "not_found", message: "Webhook not found." } },
+        });
+        expect(fromTool(await other.tool(tool, { webhookId, ...args })), tool).toEqual(apiResult);
+      }
+    }
+    // A malformed ID in the path answers like a missing webhook.
+    expect(await fromApi(await other.apiCall("/api/v1/webhooks/nope/deliveries"))).toEqual({
+      ok: false,
+      body: { error: { code: "not_found", message: "Webhook not found." } },
+    });
+  });
+
+  it("needs artifacts:share at both, for every webhook operation", async () => {
+    const b = await onPro("parity-webhooks-scope@example.test");
+    const reader = await mcpToken(
+      b.h,
+      "parity-webhooks-scope@example.test",
+      "artifacts:read artifacts:write",
+    );
+    const id = `wh_${"1".repeat(32)}`;
+    for (const [tool, args] of [
+      ["list_webhooks", {}],
+      ["create_webhook", hook],
+      ["update_webhook", { webhookId: id, enabled: false }],
+      ["delete_webhook", { webhookId: id }],
+      ["test_webhook", { webhookId: id }],
+      ["list_webhook_deliveries", { webhookId: id }],
+    ] as const) {
+      const denied = await rawCall(b.h, reader, tool, args);
+      expect(denied.status, tool).toBe(403);
+      expect(denied.headers.get("www-authenticate"), tool).toContain('scope="artifacts:share"');
+    }
+    const token = await apiToken(
+      b.h,
+      "parity-webhooks-scope@example.test",
+      "artifacts:read artifacts:write",
+    );
+    for (const [path, init] of [
+      ["/api/v1/webhooks", json("GET")],
+      ["/api/v1/webhooks", json("POST", hook)],
+      [`/api/v1/webhooks/${id}`, json("PATCH", { enabled: false })],
+      [`/api/v1/webhooks/${id}`, json("DELETE")],
+      [`/api/v1/webhooks/${id}/test`, json("POST")],
+      [`/api/v1/webhooks/${id}/deliveries`, json("GET")],
+    ] as const) {
+      const denied = await api(b.h, token, path, init);
+      expect(denied.status, path).toBe(403);
+      expect(denied.headers.get("www-authenticate"), path).toContain('scope="artifacts:share"');
+    }
+  });
+});

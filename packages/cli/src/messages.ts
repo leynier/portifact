@@ -189,6 +189,19 @@ export const messages = {
     `Revoked share link ${linkId} of ${id}. Sessions opened with it end within a minute.`,
 
   // Tokens.
+  webhooksEmpty:
+    "You have no webhooks. Add one with `portifact webhooks add <url> --events <list>`.",
+  webhooksUnavailable:
+    "Your plan does not include webhooks: they are kept but send nothing until it does again.",
+  webhookSecret: (secret: string) =>
+    `Signing secret (shown once, keep it in your receiver's configuration): ${secret}`,
+  webhookAdded: (id: string, host: string) => `Added webhook ${id} for ${host}.`,
+  webhookRemoved: (id: string) => `Removed webhook ${id}. It receives nothing more.`,
+  webhookTestQueued: (id: string) =>
+    `Queued a test event for ${id}. It goes within about two minutes; check \`portifact webhooks deliveries ${id}\`.`,
+  webhookDeliveriesEmpty: (days: number) => `No delivery attempts in the last ${days} days.`,
+  confirmWebhookRemove: (id: string, host: string) =>
+    `This removes webhook ${id} for ${host} and its delivery log.\nType "remove" to confirm: `,
   tokensEmpty: "No app holds tokens for your account.",
   tokensUnnamed: "Unnamed app",
   tokensNote:
@@ -240,6 +253,13 @@ export const messages = {
     invalidExpiry: (value: string) =>
       `${JSON.stringify(value)} is not an expiry. Use a duration like 12h or 7d, or an ISO date like 2026-12-01T00:00:00Z.`,
     emptyPassword: "The password file is empty. Put the password on its first line.",
+    invalidWebhookId: (value: string) =>
+      `${JSON.stringify(value)} is not a webhook ID. Run \`portifact webhooks list\` to see them.`,
+    invalidWebhookEvents: (value: string) =>
+      `${JSON.stringify(value)} is not a list of events. Use comma-separated names from: comment.created, thread.resolved, artifact.published, artifact.expiring, artifact.access_changed.`,
+    webhookRemoveConfirmationRequired: (id: string) =>
+      `Removing stops the webhook for good. Run \`portifact webhooks remove ${id} --yes\` to confirm without a prompt.`,
+    webhookRemoveCancelled: 'Nothing was removed: the confirmation was not "remove".',
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
     invalidMode: (value: string) =>

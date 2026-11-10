@@ -192,6 +192,18 @@ export const AccountExport = z.object({
     plan: PlanView,
     /** Artifacts whose comment notices the account muted. */
     commentNoticeMutes: z.array(z.string()),
+    /** The account's webhooks (decision 0009): the host only, never the URL or the secret. */
+    webhooks: z.array(
+      z.object({
+        id: z.string(),
+        host: z.string(),
+        format: z.enum(["generic", "slack", "discord"]),
+        events: z.array(z.string()),
+        disabled: z.boolean(),
+        disabledReason: z.string().nullable(),
+        createdAt: z.iso.datetime(),
+      }),
+    ),
   }),
   artifacts: z.array(ExportArtifact),
   /**

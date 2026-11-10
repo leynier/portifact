@@ -28,7 +28,15 @@ const EDITOR: readonly RoleAction[] = [
   "access_log",
   "usage",
 ];
-const ADMIN: readonly RoleAction[] = [...EDITOR, "members", "plan", "policies", "delete_workspace"];
+const ADMIN: readonly RoleAction[] = [
+  ...EDITOR,
+  "members",
+  "plan",
+  "policies",
+  "delete_workspace",
+  // Webhooks send the owner's activity to a destination outside Portifact (decision 0009).
+  "webhooks",
+];
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {
   admin: new Set(ADMIN),

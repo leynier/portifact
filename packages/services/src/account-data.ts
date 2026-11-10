@@ -26,6 +26,7 @@ import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
+import { exportWebhooks } from "./webhooks.ts";
 
 const IN_CHUNK = 80;
 
@@ -215,6 +216,8 @@ export async function exportAccount(
       settings: await loadSettings(db, input.userId),
       plan: planView(owner),
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
+      // Destinations only by host: never the URL or the signing secret.
+      webhooks: await exportWebhooks(db, input.userId),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
@@ -443,6 +446,8 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, input.userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, input.userId)),
     closeJobs(db, "comment_notice", input.userId, sql`1`),
+    // The account's webhooks stop at once; no foreign key (an owner may be a workspace).
+    db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, input.userId)),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
@@ -587,6 +592,7 @@ export async function advanceAccountDeletion(
       .delete(schema.commentNoticeMutes)
       .where(and(eq(schema.commentNoticeMutes.userId, userId), nothingLeft)),
     closeJobs(db, "comment_notice", userId, nothingLeft),
+    db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, userId), nothingLeft)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
     db

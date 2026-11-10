@@ -65,6 +65,24 @@ const GATED: GatedCommand[] = [
     method: "GET",
     path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current\/file$/,
   },
+  {
+    feature: "webhooks",
+    args: () => ["webhooks", "add", "https://hooks.example.com/in", "--events", "all"],
+    method: "POST",
+    path: /^\/api\/v1\/webhooks$/,
+  },
+  {
+    feature: "webhooks",
+    args: () => ["webhooks", "enable", `wh_${"a".repeat(32)}`],
+    method: "PATCH",
+    path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}$/,
+  },
+  {
+    feature: "webhooks",
+    args: () => ["webhooks", "test", `wh_${"a".repeat(32)}`],
+    method: "POST",
+    path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}\/test$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {

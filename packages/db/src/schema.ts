@@ -632,6 +632,7 @@ export const OUTBOX_TOPICS = [
   "expiry_notice",
   "comment_notice",
   "owner_retention",
+  "webhook_delivery",
 ] as const;
 
 /**
@@ -703,8 +704,11 @@ export const lifecycleEvents = sqliteTable(
 export const tombstones = sqliteTable(
   "tombstones",
   {
-    /** `share_link` marks a revoked share link (decision 0008), so a restore cannot revive it. */
-    kind: text("kind", { enum: ["artifact", "account", "share_link"] }).notNull(),
+    /**
+     * `share_link` marks a revoked share link (decision 0008) and `webhook` a removed webhook
+     * (decision 0009), so a restore cannot revive them.
+     */
+    kind: text("kind", { enum: ["artifact", "account", "share_link", "webhook"] }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
@@ -951,6 +955,97 @@ export const commentNotices = sqliteTable(
       "comment_notices_counts",
       sql`${t.created} in (0, 1) and ${t.resolved} in (0, 1) and ${t.replies} between 0 and 200`,
     ),
+  ],
+);
+
+/** Formats a webhook delivers in (decision 0009). */
+export const WEBHOOK_FORMATS = ["generic", "slack", "discord"] as const;
+/** Why a webhook stopped: an admin, repeated failures, a 410 from the receiver, or a URL that no longer passes. */
+export const WEBHOOK_DISABLED_REASONS = ["manual", "failures", "gone", "invalid_url"] as const;
+
+/**
+ * Webhooks of an owner (decision 0009, packages/services/src/webhooks.ts): HTTPS destinations
+ * that receive events about every artifact of the owner. The URL and the signing secret are
+ * sealed with a key derived from `WEBHOOK_KEY` (`key_id` names it); only the host is kept in
+ * clear. `events` is a bit set of `WEBHOOK_EVENT_BITS`. `owner_id` has no foreign key (an owner
+ * is a user or a workspace): account deletion deletes the rows, and removing one writes a
+ * `webhook` tombstone so a restore cannot bring it back.
+ */
+export const webhooks = sqliteTable(
+  "webhooks",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    host: text("host").notNull(),
+    format: text("format", { enum: WEBHOOK_FORMATS }).notNull(),
+    events: integer("events").notNull(),
+    keyId: text("key_id").notNull(),
+    urlBox: text("url_box").notNull(),
+    secretBox: text("secret_box"),
+    createdAt: createdAt(),
+    disabledAt: timestamp("disabled_at"),
+    disabledReason: text("disabled_reason", { enum: WEBHOOK_DISABLED_REASONS }),
+    /** Failed attempts in a row; reset by a success and by enabling the webhook again. */
+    failures: integer("failures").notNull().default(0),
+  },
+  (t) => [
+    index("webhooks_owner_idx").on(t.ownerId),
+    check("webhooks_events", sql`${t.events} between 1 and 31`),
+    check("webhooks_failures", sql`${t.failures} >= 0`),
+  ],
+);
+
+/**
+ * Events waiting for a webhook's next delivery: one row per webhook, artifact (empty for the test
+ * event) and type, written in the batch of the write that caused it and coalesced there. Counts,
+ * times and IDs only, never text. The delivery job claims rows by subtracting what it sent.
+ */
+export const webhookEvents = sqliteTable(
+  "webhook_events",
+  {
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id").notNull(),
+    type: text("type").notNull(),
+    count: integer("count").notNull(),
+    firstAt: timestamp("first_at").notNull(),
+    lastAt: timestamp("last_at").notNull(),
+    /** The user who acted, while every write of the row was by one person on the owner side. */
+    actorId: text("actor_id"),
+    version: integer("version"),
+    access: text("access"),
+    expiresAt: timestamp("expires_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.webhookId, t.artifactId, t.type] }),
+    index("webhook_events_first_idx").on(t.webhookId, t.firstAt),
+  ],
+);
+
+/**
+ * The delivery log of the last 7 days: one row per attempt (and per daily-cap deferral), with the
+ * outcome and the HTTP status, never the body or the response. Pruned by the maintenance run.
+ */
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    deliveryId: text("delivery_id").notNull(),
+    attempt: integer("attempt").notNull(),
+    at: timestamp("at").notNull(),
+    outcome: text("outcome", { enum: ["delivered", "failed", "skipped"] }).notNull(),
+    status: integer("status"),
+    error: text("error"),
+  },
+  (t) => [
+    index("webhook_deliveries_webhook_idx").on(t.webhookId, t.at),
+    index("webhook_deliveries_owner_idx").on(t.ownerId, t.at),
+    index("webhook_deliveries_at_idx").on(t.at),
   ],
 );
 

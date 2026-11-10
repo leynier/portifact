@@ -428,8 +428,9 @@ describe("marking activity on the write path", () => {
 
     expect(onPro.calls.roundTrips).toBe(onFree.calls.roundTrips);
     expect(onFree.calls.batchSizes).toHaveLength(1);
-    // The Pro write carries exactly one more statement in its one batch: the mark.
-    expect(onPro.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 1]);
+    // The Pro write carries three more statements in its one batch: the mark, and the two
+    // webhook statements (decision 0009), which match no row without a webhook.
+    expect(onPro.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 3]);
     expect(await pending(reader.id)).toHaveLength(1);
   });
 });
