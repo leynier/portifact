@@ -12,6 +12,17 @@ export default defineConfig(async () => {
   );
   return {
     plugins: [
+      // The pool sends every module a test file's graph already transformed in one WebSocket
+      // message, which workerd caps at 32 MiB, and inline source maps were most of each
+      // dependency's code. Dependencies keep no map here; this package's code keeps its own,
+      // so coverage and stack traces into src are unchanged.
+      {
+        name: "portifact:no-dependency-sourcemaps",
+        enforce: "post",
+        transform(code: string, id: string) {
+          return id.includes("/node_modules/") ? { code, map: { mappings: "" } } : undefined;
+        },
+      },
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
