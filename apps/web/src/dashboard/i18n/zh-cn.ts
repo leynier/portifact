@@ -965,8 +965,6 @@ export const zhCN = {
     "工作区必须保留一位管理员，而你是唯一的管理员。请先将另一位成员设为管理员，或通过 hello@portifact.com 请 Portifact 删除该工作区。",
   "error.seats_exhausted":
     "该工作区的席位已全部占用。请移除一位成员或撤销一个邀请，或申请更多席位。",
-  "error.email_suppressed":
-    "由于之前发往此地址的邮件被退回或被标记为垃圾邮件，Portifact 无法向此地址发送邮件。",
   "error.rate_limited": "请求过多。请稍等片刻后重试。",
   "error.reauthentication_required": "请重新登录后再执行此操作。",
   "error.human_verification_required":

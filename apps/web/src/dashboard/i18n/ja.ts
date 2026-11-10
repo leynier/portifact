@@ -1042,8 +1042,6 @@ export const ja = {
     "ワークスペースには管理者が必要で、あなたが唯一の管理者です。先に別のメンバーを管理者にするか、hello@portifact.com でPortifactにワークスペースの削除を依頼してください。",
   "error.seats_exhausted":
     "ワークスペースの席がすべて使われています。メンバーを削除するか招待を取り消すか、席の追加を依頼してください。",
-  "error.email_suppressed":
-    "以前のメールが届かなかったか迷惑メールとして報告されたため、Portifactはこのアドレスにメールを送信できません。",
   "error.rate_limited": "リクエストが多すぎます。少し待ってから、もう一度お試しください。",
   "error.reauthentication_required": "この操作を行うには、もう一度サインインしてください。",
   "error.human_verification_required":

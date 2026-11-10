@@ -1064,8 +1064,6 @@ export const de = {
     "Ein Workspace braucht eine Person mit Adminrechten, und du bist die einzige. Mach zuerst ein anderes Mitglied zum Admin oder bitte Portifact unter hello@portifact.com, den Workspace zu löschen.",
   "error.seats_exhausted":
     "Der Workspace nutzt alle seine Plätze. Entferne ein Mitglied oder widerrufe eine Einladung, oder frag nach mehr Plätzen.",
-  "error.email_suppressed":
-    "Portifact kann keine E-Mails an diese Adresse senden, weil frühere Nachrichten zurückkamen oder als Spam gemeldet wurden.",
   "error.rate_limited": "Zu viele Anfragen. Warte einen Moment und versuch es noch einmal.",
   "error.reauthentication_required": "Melde dich erneut an, um das zu tun.",
   "error.human_verification_required":

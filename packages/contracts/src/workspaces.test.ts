@@ -84,9 +84,8 @@ describe("workspace contracts", () => {
     expect(ERROR_STATUS.sole_workspace_admin).toBe(409);
   });
 
-  it("answers seats and suppressed addresses with their own codes", () => {
+  it("answers a full workspace with its own code", () => {
     expect(ERROR_STATUS.seats_exhausted).toBe(409);
-    expect(ERROR_STATUS.email_suppressed).toBe(403);
   });
 
   it("shows where an artifact lives", () => {

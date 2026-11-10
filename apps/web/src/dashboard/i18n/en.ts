@@ -1025,8 +1025,6 @@ export const en = {
     "A workspace must keep an admin, and you are its only one. Make another member an admin first, or ask Portifact at hello@portifact.com to delete the workspace.",
   "error.seats_exhausted":
     "The workspace uses all of its seats. Remove a member or revoke an invitation, or ask for more seats.",
-  "error.email_suppressed":
-    "Portifact cannot send email to this address because earlier messages to it bounced or were reported as spam.",
   "error.rate_limited": "Too many requests. Wait a moment and try again.",
   "error.reauthentication_required": "Sign in again to do that.",
   "error.human_verification_required":

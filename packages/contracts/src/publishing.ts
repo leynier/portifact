@@ -317,6 +317,5 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   capacity_unavailable: 503,
   sole_workspace_admin: 409,
   seats_exhausted: 409,
-  email_suppressed: 403,
   plan_required: 403,
 };
