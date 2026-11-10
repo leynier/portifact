@@ -1648,6 +1648,17 @@ export const zhCN = {
   "audit.kind.planRemoved": "移除了方案，空间回到 Free",
   "audit.kind.tokenCreated": "创建了一个 {days, plural, one {# 天} other {# 天}}后过期的服务令牌",
   "audit.kind.tokenRevoked": "撤销了一个服务令牌",
+  "audit.export.label": "导出审计日志",
+  "audit.export.csv": "导出为 CSV",
+  "audit.export.jsonl": "导出为 JSON Lines",
+  "audit.export.hint":
+    "按从新到旧的顺序下载所有符合筛选条件的已保存更改。成员以名称显示，绝不显示地址。",
+  "audit.export.doneCsv": "审计日志已导出为 CSV。",
+  "audit.export.doneJsonl": "审计日志已导出为 JSON Lines。",
+  "audit.export.failed": "无法导出审计日志",
+  "audit.export.planRequired": "导出审计日志属于 {plan} 套餐。",
+  "audit.kind.exported":
+    "{format, select, csv {将审计日志导出为 CSV} other {将审计日志导出为 JSON Lines}}",
   "audit.kind.emailDomainVerified": "验证了邮箱域名 {domain}",
   "audit.kind.emailDomainRemoved":
     "{reason, select, removed {移除了邮箱域名 {domain}} claimed {邮箱域名 {domain} 已被移除，因为另一个工作区证明了它} other {邮箱域名 {domain} 已被移除，因为缺少其 DNS 记录}}",

@@ -24,7 +24,9 @@ import {
   type ArtifactStatsView,
   type ArtifactSummary,
   type ArtifactType,
+  AUDIT_EXPORT_CURSOR_HEADER,
   type AuditEventView,
+  AuditExportFormat,
   type CommentScope,
   type CommentVisibility,
   CustomDomainAdd,
@@ -52,7 +54,15 @@ import {
   WebhookUpdate,
   type WebhookView,
 } from "@portifact/contracts";
-import { decodeUtf8, diffText, pageHunks, textDiffEligibility } from "@portifact/domain";
+import {
+  auditExportContentType,
+  auditExportLine,
+  auditExportPreamble,
+  decodeUtf8,
+  diffText,
+  pageHunks,
+  textDiffEligibility,
+} from "@portifact/domain";
 
 export interface Reply {
   status: number;
@@ -174,6 +184,10 @@ export interface FakeApiState {
   audit: Map<string, AuditEventView[]>;
   /** The query strings GET /audit received, in order. */
   auditQueries: string[];
+  /** The query strings GET /audit/export received, in order. */
+  auditExportQueries: string[];
+  /** Events per export part, so tests follow the cursor through several parts. */
+  auditExportPart: number;
   /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
   stats: Map<string, ArtifactStatsView>;
   /** Search pages by space (`personal` or a slug), as GET /search returns them for any query. */
@@ -267,6 +281,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     accessLogs: new Map(),
     audit: new Map(),
     auditQueries: [],
+    auditExportQueries: [],
+    auditExportPart: 2,
     stats: new Map(),
     search: new Map(),
     searchQueries: [],
@@ -1618,6 +1634,30 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     const hooks = webhookRoute(method, path, raw);
     if (hooks) return hooks;
+    if (route === "GET /audit/export") {
+      state.auditExportQueries.push(url.search);
+      const space = url.searchParams.get("workspace") ?? "personal";
+      const all = state.audit.get(space);
+      if (!all) return error("not_found", "Workspace not found.");
+      const format = AuditExportFormat.parse(url.searchParams.get("format"));
+      const cursor = url.searchParams.get("cursor");
+      const offset = Number(cursor ?? "0");
+      const next = offset + state.auditExportPart;
+      const text =
+        (cursor === null ? auditExportPreamble(format) : "") +
+        all
+          .slice(offset, next)
+          .map((event) => auditExportLine(format, event))
+          .join("");
+      return {
+        status: 200,
+        body: text,
+        headers: {
+          "content-type": auditExportContentType(format),
+          ...(next < all.length ? { [AUDIT_EXPORT_CURSOR_HEADER]: String(next) } : {}),
+        },
+      };
+    }
     if (route === "GET /search") {
       state.searchQueries.push(url.search);
       const body = state.search.get(url.searchParams.get("workspace") ?? "personal");
@@ -1641,6 +1681,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
           events: all.slice(offset, next),
           nextCursor: next < all.length ? String(next) : null,
           retentionDays: 90,
+          exportable: true,
         },
       };
     }

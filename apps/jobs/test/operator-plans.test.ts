@@ -73,6 +73,22 @@ describe("operator plan commands", () => {
     expect((await run("plan", owner.id)).output).toContain("effective   team, 2 seat(s)");
   });
 
+  it("sets how long audit events are kept, from 30 days to seven years", async () => {
+    const owner = await account();
+    expect((await run("plan", owner.id)).output).toContain("audit log   kept 90 days");
+    for (const days of [30, 2557]) {
+      const granted = await run(
+        "set-plan",
+        owner.id,
+        "enterprise",
+        "--overrides",
+        `{"limits":{"auditRetentionDays":${days}}}`,
+      );
+      expect(granted.exitCode).toBe(0);
+      expect(granted.output).toContain(`audit log   kept ${days.toLocaleString("en-US")} days`);
+    }
+  });
+
   it("changes and removes a plan", async () => {
     const owner = await account();
     await run("set-plan", owner.id, "team");
@@ -113,6 +129,20 @@ describe("operator plan commands", () => {
       [
         ["set-plan", owner.id, "pro", "--overrides", '{"limits":{"activeArtifacts":-1}}'],
         "The overrides are not valid.",
+      ],
+      [
+        ["set-plan", owner.id, "enterprise", "--overrides", '{"limits":{"auditRetentionDays":29}}'],
+        "The overrides are not valid: auditRetentionDays must be a whole number of days from 30 to 2557.",
+      ],
+      [
+        [
+          "set-plan",
+          owner.id,
+          "enterprise",
+          "--overrides",
+          '{"limits":{"auditRetentionDays":2558}}',
+        ],
+        "The overrides are not valid: auditRetentionDays must be a whole number of days from 30 to 2557.",
       ],
       [["set-plan", "nobody@example.test", "pro"], "Account or workspace not found."],
       [["set-plan", "u_missing", "pro"], "Account or workspace not found."],

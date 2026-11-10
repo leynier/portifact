@@ -60,7 +60,12 @@ import {
   type WorkspaceMemberView,
   type WorkspaceView,
 } from "@portifact/contracts";
-import { diffText, textDiffEligibility } from "@portifact/domain";
+import {
+  auditExportLine,
+  auditExportPreamble,
+  diffText,
+  textDiffEligibility,
+} from "@portifact/domain";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
@@ -454,6 +459,12 @@ export interface FakeServer {
    * answers `plan_required`; a workspace role other than admin answers `forbidden`.
    */
   audit: Record<string, AuditEventView[]>;
+  /** Spaces whose plan includes exporting the audit log (`exportable`); none by default. */
+  auditExportable: Set<string>;
+  /** Events per export part, so the dashboard follows the cursor. */
+  auditExportPart: number;
+  /** The owner's plan's `auditRetentionDays`, as the audit page reports it. */
+  auditRetentionDays: number;
   /**
    * Analytics by artifact ID. An artifact without an entry answers `plan_required`, like an
    * owner on the free plan; the range asked for comes back as `from`.
@@ -537,6 +548,9 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     accessLogs: {},
     search: {},
     audit: {},
+    auditExportable: new Set(),
+    auditExportPart: 2,
+    auditRetentionDays: 90,
     stats: {},
     shareLinks: {},
     approvals: {},
@@ -1363,8 +1377,33 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       owner: slug === "" ? { kind: "personal" } : { kind: "workspace", slug, name: slug },
       events: page,
       nextCursor: next < all.length ? String(next) : null,
-      retentionDays: 90,
+      retentionDays: server.auditRetentionDays,
+      exportable: server.auditExportable.has(slug),
     } satisfies AuditLogView);
+  }
+  if (path === "/api/v1/audit/export" && method === "GET") {
+    const slug = url.searchParams.get("workspace") ?? "";
+    const events = server.audit[slug];
+    if (!events) return apiError("plan_required", 403);
+    if (!server.auditExportable.has(slug)) return apiError("plan_required", 403);
+    const format = url.searchParams.get("format") === "csv" ? "csv" : "jsonl";
+    const kinds = url.searchParams.getAll("kind");
+    const all = events.filter((event) => kinds.length === 0 || kinds.includes(event.kind));
+    const cursor = url.searchParams.get("cursor");
+    const offset = Number(cursor ?? "0");
+    const next = offset + server.auditExportPart;
+    const text =
+      (cursor === null ? auditExportPreamble(format) : "") +
+      all
+        .slice(offset, next)
+        .map((event) => auditExportLine(format, event))
+        .join("");
+    return new Response(text, {
+      headers: {
+        "content-type": format === "csv" ? "text/csv; charset=utf-8" : "application/jsonl",
+        ...(next < all.length ? { "portifact-next-cursor": String(next) } : {}),
+      },
+    });
   }
   if (path === "/api/v1/search" && method === "GET") {
     const slug = url.searchParams.get("workspace") ?? "";

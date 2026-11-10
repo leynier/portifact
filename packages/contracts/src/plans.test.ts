@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ErrorCode } from "./core.ts";
 import { ACCESS_LOG, ANNOTATION_LIMITS, LIMITS, TRAFFIC_LIMITS } from "./limits.ts";
 import {
+  AUDIT_RETENTION_BOUNDS,
   AVAILABLE_PLAN_FEATURES,
   lowestPlanWith,
   PLAN_FEATURE_LABELS,
@@ -154,6 +155,23 @@ describe("plan_required", () => {
   });
 });
 
+describe("audit retention overrides", () => {
+  const parse = (days: unknown) =>
+    PlanOverrides.safeParse({ limits: { auditRetentionDays: days } }).success;
+
+  it("accepts 30 days to seven years and refuses anything outside or fractional", () => {
+    expect(AUDIT_RETENTION_BOUNDS).toEqual({ minDays: 30, maxDays: 2557 });
+    expect(parse(30)).toBe(true);
+    expect(parse(365)).toBe(true);
+    expect(parse(2557)).toBe(true);
+    expect(parse(29)).toBe(false);
+    expect(parse(2558)).toBe(false);
+    expect(parse(0)).toBe(false);
+    expect(parse(90.5)).toBe(false);
+    expect(parse("365")).toBe(false);
+  });
+});
+
 describe("plan offers", () => {
   it("lists the features available today, in PLAN_FEATURES order", () => {
     expect([...AVAILABLE_PLAN_FEATURES]).toEqual([
@@ -168,6 +186,7 @@ describe("plan offers", () => {
       "reviews",
       "contentSearch",
       "audit",
+      "auditExport",
     ]);
     expect([...AVAILABLE_PLAN_FEATURES]).toEqual(
       PLAN_FEATURES.filter((feature) => planFeatureAvailable(feature)),

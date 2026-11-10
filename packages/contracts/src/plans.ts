@@ -47,6 +47,12 @@ const count = z.number().int().min(0);
 export const AUDIT_RETENTION_DAYS = 90;
 
 /**
+ * The bounds of an `auditRetentionDays` override (premium plan E3): at least 30 days, at most
+ * seven years (7 × 365 days plus two leap days). Only the operator sets it, with `set-plan`.
+ */
+export const AUDIT_RETENTION_BOUNDS = { minDays: 30, maxDays: 2_557 } as const;
+
+/**
  * The limits a plan sets. Sizes are decimal bytes. `bytesPerMonth` is the traffic served, an
  * abuse cap. `accessLogRetentionDays` is how long the access log and the analytics view counters
  * are kept, `auditRetentionDays` how long audit events are. Version and domain values are carried for later features; nothing applies them yet.
@@ -200,6 +206,7 @@ export const AVAILABLE_PLAN_FEATURES = [
   "reviews",
   "contentSearch",
   "audit",
+  "auditExport",
 ] as const satisfies readonly PlanFeature[];
 
 /** Whether a paid feature works in the product today (`AVAILABLE_PLAN_FEATURES`). */
@@ -261,7 +268,15 @@ export const PlanOverrides = z
   .object({
     // A per-artifact size above the boundaries' file cap could never be used.
     limits: PlanLimits.partial()
-      .extend({ artifactBytes: count.max(LIMITS.fileBytesCap).optional() })
+      .extend({
+        artifactBytes: count.max(LIMITS.fileBytesCap).optional(),
+        auditRetentionDays: z
+          .number()
+          .int()
+          .min(AUDIT_RETENTION_BOUNDS.minDays)
+          .max(AUDIT_RETENTION_BOUNDS.maxDays)
+          .optional(),
+      })
       .strict()
       .optional(),
     features: z.partialRecord(PlanFeature, z.boolean()).optional(),

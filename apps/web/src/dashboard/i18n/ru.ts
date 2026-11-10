@@ -1808,6 +1808,17 @@ export const ru = {
   "audit.kind.tokenCreated":
     "Создал сервисный токен, который истекает через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
   "audit.kind.tokenRevoked": "Отозвал сервисный токен",
+  "audit.export.label": "Экспорт журнала аудита",
+  "audit.export.csv": "Экспорт в CSV",
+  "audit.export.jsonl": "Экспорт в JSON Lines",
+  "audit.export.hint":
+    "Скачивает все сохранённые изменения, подходящие под фильтры, от новых к старым. Участники указаны по имени, никогда по адресу.",
+  "audit.export.doneCsv": "Журнал аудита экспортирован в CSV.",
+  "audit.export.doneJsonl": "Журнал аудита экспортирован в JSON Lines.",
+  "audit.export.failed": "Не удалось экспортировать журнал аудита",
+  "audit.export.planRequired": "Экспорт журнала аудита входит в тариф {plan}.",
+  "audit.kind.exported":
+    "{format, select, csv {Экспортировал журнал аудита в CSV} other {Экспортировал журнал аудита в JSON Lines}}",
   "audit.kind.emailDomainVerified": "Подтвердил(а) почтовый домен {domain}",
   "audit.kind.emailDomainRemoved":
     "{reason, select, removed {Удалил(а) почтовый домен {domain}} claimed {Почтовый домен {domain} удалён, потому что его подтвердил другой workspace} other {Почтовый домен {domain} удалён, потому что отсутствует его DNS-запись}}",

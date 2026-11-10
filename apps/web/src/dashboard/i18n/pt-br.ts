@@ -1797,6 +1797,17 @@ export const ptBR = {
   "audit.kind.tokenCreated":
     "Criou um token de serviço que expira em {days, plural, one {# dia} other {# dias}}",
   "audit.kind.tokenRevoked": "Revogou um token de serviço",
+  "audit.export.label": "Exportar o log de auditoria",
+  "audit.export.csv": "Exportar como CSV",
+  "audit.export.jsonl": "Exportar como JSON Lines",
+  "audit.export.hint":
+    "Baixa todas as mudanças guardadas que correspondem aos filtros, das mais recentes para as mais antigas. Os membros aparecem pelo nome, nunca pelo endereço.",
+  "audit.export.doneCsv": "O log de auditoria foi exportado como CSV.",
+  "audit.export.doneJsonl": "O log de auditoria foi exportado como JSON Lines.",
+  "audit.export.failed": "Não foi possível exportar o log de auditoria",
+  "audit.export.planRequired": "Exportar o log de auditoria faz parte do plano {plan}.",
+  "audit.kind.exported":
+    "{format, select, csv {Exportou o log de auditoria como CSV} other {Exportou o log de auditoria como JSON Lines}}",
   "audit.kind.emailDomainVerified": "Verificou o domínio de email {domain}",
   "audit.kind.emailDomainRemoved":
     "{reason, select, removed {Removeu o domínio de email {domain}} claimed {O domínio de email {domain} foi removido porque outro workspace o comprovou} other {O domínio de email {domain} foi removido porque o registro DNS está ausente}}",

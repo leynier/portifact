@@ -1,4 +1,7 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { AUDIT_KINDS, type AuditEventView, type AuditKind } from "@portifact/contracts";
+import { auditCsvHeader, auditCsvRow, auditJsonLine } from "@portifact/domain";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { auditActor, auditSummary } from "./audit.ts";
 import { type FakeServer, startFakeServer } from "./testing/fake-server.ts";
@@ -127,6 +130,172 @@ describe("portifact audit", () => {
   });
 });
 
+describe("portifact audit export", () => {
+  beforeEach(async () => {
+    await mkdir(h.workspace, { recursive: true });
+  });
+
+  const FIVE = () => [
+    event(0, { actor: { type: "member", id: "u_ada", name: "=SUM(A1)" } }),
+    event(1, { actor: { type: "removed_member", id: "u_gone" }, kind: "artifact.deleted" }),
+    event(2, {
+      kind: "member.role_changed",
+      artifact: null,
+      target: { type: "member", id: "u_ed" },
+      detail: { from: "editor", to: "admin" },
+    }),
+    event(3, { artifact: { id: "abcdefghij", name: 'Plan, "final"\nv2 ✓' } }),
+    event(4, { actor: { type: "operator" }, kind: "plan.removed", artifact: null }),
+  ];
+
+  it("follows the cursor to stdout and writes exactly the API's parts, in order", async () => {
+    h.signIn();
+    const events = FIVE();
+    server.api.audit.set("personal", events);
+    const result = await h.invoke("audit", "export", "--format", "csv");
+    expect(result.code).toBe(0);
+    // Three parts of two, two and one events: the bytes are the header and the rows, in order.
+    expect(server.api.auditExportQueries.map((q) => new URLSearchParams(q).get("cursor"))).toEqual([
+      null,
+      "2",
+      "4",
+    ]);
+    expect(result.stdout).toBe(auditCsvHeader() + events.map(auditCsvRow).join(""));
+    expect(result.stdout).toContain("'=SUM(A1)");
+    expect(result.stderr).toContain("never by address");
+  });
+
+  it("writes JSON Lines to a new file, sends the filters, and never overwrites a file", async () => {
+    h.signIn();
+    const events = FIVE();
+    server.api.audit.set("team", events);
+    const out = join(h.workspace, "audit.jsonl");
+    const result = await h.invoke(
+      "audit",
+      "export",
+      "--format",
+      "jsonl",
+      "--out",
+      out,
+      "--workspace",
+      "team",
+      "--kind",
+      "artifact.archived,plan.removed",
+      "--actor",
+      "u_ada",
+      "--target",
+      "abcdefghij",
+      "--since",
+      "2026-11-01",
+      "--until",
+      "2026-11-08",
+    );
+    expect(result.code).toBe(0);
+    const written = await readFile(out, "utf8");
+    expect(written).toBe(events.map(auditJsonLine).join(""));
+    expect(
+      written
+        .trimEnd()
+        .split("\n")
+        .map((line) => JSON.parse(line)),
+    ).toEqual(events);
+    expect(result.stdout).toBe(
+      `Exported the audit log as JSONL to ${out} (${Buffer.byteLength(written)} bytes).\n`,
+    );
+    const first = new URLSearchParams(server.api.auditExportQueries[0]);
+    expect(first.get("format")).toBe("jsonl");
+    expect(first.get("workspace")).toBe("team");
+    expect(first.getAll("kind")).toEqual(["artifact.archived", "plan.removed"]);
+    expect(first.get("actor")).toBe("u_ada");
+    expect(first.get("target")).toBe("abcdefghij");
+    expect(first.get("from")).toBe("2026-11-01T00:00:00.000Z");
+    expect(first.get("to")).toBe("2026-11-08T00:00:00.000Z");
+    // Every part asks with the same filters.
+    for (const query of server.api.auditExportQueries) {
+      expect(new URLSearchParams(query).getAll("kind")).toEqual([
+        "artifact.archived",
+        "plan.removed",
+      ]);
+    }
+
+    const again = await h.invoke("audit", "export", "--format", "csv", "--out", out, "--json");
+    expect(again.code).toBe(2);
+    expect(JSON.parse(again.stdout).error.message).toContain("already exists");
+    expect(await readFile(out, "utf8")).toBe(written);
+
+    const summaryOut = join(h.workspace, "audit.csv");
+    const summary = await h.invoke(
+      "audit",
+      "export",
+      "--format",
+      "csv",
+      "--out",
+      summaryOut,
+      "--workspace",
+      "team",
+      "--json",
+    );
+    expect(JSON.parse(summary.stdout)).toEqual({
+      format: "csv",
+      out: summaryOut,
+      bytes: (await readFile(summaryOut)).length,
+    });
+  });
+
+  it("refuses a missing or unknown format and an unknown kind before calling the API", async () => {
+    h.signIn();
+    server.api.audit.set("personal", FIVE());
+    const missing = await h.invoke("audit", "export");
+    expect(missing.code).not.toBe(0);
+    const pdf = await h.invoke("audit", "export", "--format", "pdf");
+    expect(pdf.code).toBe(2);
+    expect(pdf.stderr).toContain("--format must be csv or jsonl.");
+    const kind = await h.invoke("audit", "export", "--format", "csv", "--kind", "nope");
+    expect(kind.code).toBe(2);
+    expect(server.api.auditExportQueries).toEqual([]);
+  });
+
+  it("removes the file it started when a part fails, and shows the API's error", async () => {
+    h.signIn();
+    server.api.audit.set("personal", FIVE());
+    server.faults.push({
+      method: "GET",
+      path: /^\/api\/v1\/audit\/export$/,
+      reply: {
+        status: 403,
+        body: {
+          error: {
+            code: "plan_required",
+            message: "Exporting the audit log is part of the Enterprise plan.",
+          },
+        },
+      },
+    });
+    const out = join(h.workspace, "refused.csv");
+    const result = await h.invoke("audit", "export", "--format", "csv", "--out", out);
+    expect(result.code).toBe(7);
+    expect(result.stderr).toContain("Exporting the audit log is part of the Enterprise plan.");
+    await expect(readFile(out)).rejects.toThrow();
+  });
+
+  it("refuses a path it cannot create", async () => {
+    h.signIn();
+    server.api.audit.set("personal", FIVE());
+    const blocker = join(h.workspace, "file");
+    await writeFile(blocker, "x");
+    const result = await h.invoke(
+      "audit",
+      "export",
+      "--format",
+      "csv",
+      "--out",
+      join(blocker, "inside.csv"),
+    );
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain("Could not write");
+  });
+});
+
 describe("plain words for every kind", () => {
   const details: Record<AuditKind, Record<string, unknown>> = {
     "artifact.published": { version: 3, first: false },
@@ -176,6 +345,7 @@ describe("plain words for every kind", () => {
     "service_token.revoked": {},
     "email_domain.verified": { domain: "corp.example" },
     "email_domain.removed": { domain: "corp.example", reason: "removed" },
+    "audit.exported": { format: "csv", kinds: 0, from: "2026-01-01" },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -215,6 +385,7 @@ describe("plain words for every kind", () => {
     "service_token.revoked": "Revoked a service token",
     "email_domain.verified": "Verified the email domain corp.example",
     "email_domain.removed": "Removed the email domain corp.example",
+    "audit.exported": "Exported the audit log as CSV (2026-01-01 to now)",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {

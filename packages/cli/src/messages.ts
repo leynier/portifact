@@ -460,6 +460,16 @@ export const messages = {
     historyDirty: (out: string) =>
       `${out} has uncommitted changes to files Portifact wrote. Commit or discard them, then run the command again.`,
   },
+  auditExport: {
+    formatNeeded: "--format must be csv or jsonl.",
+    outExists: (path: string) =>
+      `${path} already exists. Export writes a new file; choose a path that does not exist.`,
+    cannotWrite: (path: string) => `Could not write ${path}.`,
+    exported: (format: string, out: string, bytes: number) =>
+      `Exported the audit log as ${format.toUpperCase()} to ${out} (${bytes} ${plural(bytes, "byte", "bytes")}).`,
+    notice:
+      "The export names members by display name and opaque ID, never by address. Keep it as private as the audit log.",
+  },
 } as const;
 
 /** Text of the `annotations` commands. Reviewer-written values are passed in already cleaned. */

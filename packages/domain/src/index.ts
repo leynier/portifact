@@ -6,6 +6,7 @@ export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./approval-reviews.ts";
 export * from "./audit.ts";
+export * from "./audit-export.ts";
 export * from "./branding.ts";
 export * from "./budget.ts";
 export * from "./cloudflare-hosts.ts";

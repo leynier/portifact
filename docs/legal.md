@@ -106,6 +106,11 @@ Changes that shipped and that the legal pages do not describe yet, to be written
   - **Privacy.** For a token Portifact keeps its label, role, scopes, restriction, creation and expiry, who created it (cleared when that account is deleted), a hash of the secret (never the secret) and when it was last used, to the hour; versions and lifecycle events record the token as their author. Tokens are listed, without secrets, in the export of the workspace's admins, and deleted with the workspace. Publish keys are names the owner chooses for artifacts and are kept with the artifact.
 
   No new processor and no new data about visitors; the Terms change (responsibility for tokens) goes in the wave's single `TERMS_VERSION` bump.
+- Audit log export and retention by contract (premium plan E3). The texts must say:
+  - **Privacy.** The audit log is kept 90 days unless an Enterprise contract sets another period, from 30 days to seven years; a shorter period deletes older events, and the record is still deleted with the account or workspace. On Enterprise, the owner's admins can download the log as CSV or JSON Lines; the file holds the same thing the page shows (members by display name and opaque ID, never email or IP addresses), and starting a download is itself recorded in the log. Once downloaded, the file is the owner's to protect.
+  - **Terms.** An Enterprise owner who exports the log is responsible for the copies it makes.
+
+  A retention longer than 90 days is new personal data kept for longer, so it is material for the Privacy Policy and goes in the Enterprise wave's single `TERMS_VERSION` bump; until then, a contract that sets a longer retention must say so itself.
 
 ## Changing the texts
 

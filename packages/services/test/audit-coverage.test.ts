@@ -52,6 +52,8 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   operatorRevokeServiceToken: ["service_token.revoked"],
   // The workspaces the account was in each record that the member is gone.
   requestAccountDeletion: ["member.left"],
+  // A read that records that it was asked for, before it streams (the one event outside a batch).
+  exportAuditLog: ["audit.exported"],
 };
 
 /** Changes that record no event, and why. */

@@ -1824,6 +1824,17 @@ export const de = {
   "audit.kind.tokenCreated":
     "Hat ein Service-Token erstellt, das in {days, plural, one {# Tag} other {# Tagen}} abläuft",
   "audit.kind.tokenRevoked": "Hat ein Service-Token widerrufen",
+  "audit.export.label": "Audit-Log exportieren",
+  "audit.export.csv": "Als CSV exportieren",
+  "audit.export.jsonl": "Als JSON Lines exportieren",
+  "audit.export.hint":
+    "Lädt alle gespeicherten Änderungen herunter, die zu den Filtern passen, die neuesten zuerst. Mitglieder erscheinen mit Namen, nie mit Adresse.",
+  "audit.export.doneCsv": "Das Audit-Log wurde als CSV exportiert.",
+  "audit.export.doneJsonl": "Das Audit-Log wurde als JSON Lines exportiert.",
+  "audit.export.failed": "Das Audit-Log konnte nicht exportiert werden",
+  "audit.export.planRequired": "Das Exportieren des Audit-Logs ist Teil des {plan}-Plans.",
+  "audit.kind.exported":
+    "{format, select, csv {Hat das Audit-Log als CSV exportiert} other {Hat das Audit-Log als JSON Lines exportiert}}",
   "audit.kind.emailDomainVerified": "Hat die E-Mail-Domain {domain} verifiziert",
   "audit.kind.emailDomainRemoved":
     "{reason, select, removed {Hat die E-Mail-Domain {domain} entfernt} claimed {Die E-Mail-Domain {domain} wurde entfernt, weil ein anderer Workspace sie nachgewiesen hat} other {Die E-Mail-Domain {domain} wurde entfernt, weil ihr DNS-Eintrag fehlt}}",
