@@ -1557,6 +1557,100 @@ export const en = {
   "webhooks.personalOnly.title": "Webhooks are set in your personal space",
   "webhooks.personalOnly.body":
     "For now, webhooks send events about the artifacts of your personal space only. Switch to it to manage them.",
+  "shell.auditLink": "Audit log",
+  "audit.title": "Audit log",
+  "audit.description": "Who changed what in this space. Changes are kept {days} days.",
+  "audit.planTitle": "The audit log is part of a paid plan",
+  "audit.planRequired":
+    "The audit log is part of the {plan} plan. Changes are already recorded, so the last 90 days show here once the plan includes it.",
+  "audit.forbidden.title": "Only admins can read the audit log",
+  "audit.forbidden.body":
+    "Ask an admin of this workspace if you need to know who changed something.",
+  "audit.loading": "Loading the audit log",
+  "audit.error.title": "The audit log did not load",
+  "audit.empty.title": "No changes recorded",
+  "audit.empty.body": "Nothing matches these filters in the last {days} days.",
+  "audit.caption": "Changes in this space, newest first",
+  "audit.column.when": "When",
+  "audit.column.who": "Who",
+  "audit.column.what": "What",
+  "audit.column.on": "On",
+  "audit.loadMore": "Show older changes",
+  "audit.filters": "Filter the audit log",
+  "audit.filter.kind": "Kind of change",
+  "audit.filter.actor": "Who",
+  "audit.filter.period": "Period",
+  "audit.group.all": "All changes",
+  "audit.group.access": "Access and sharing",
+  "audit.group.lifecycle": "Publishing and lifecycle",
+  "audit.group.integrations": "Domains, webhooks and brand",
+  "audit.group.members": "Members and plan",
+  "audit.actor.all": "Anyone",
+  "audit.period.day": "Last 24 hours",
+  "audit.period.week": "Last 7 days",
+  "audit.period.month": "Last 30 days",
+  "audit.period.all": "Everything kept",
+  "audit.actor.removed": "Removed member",
+  "audit.actor.operator": "Portifact operator",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Deleted artifact",
+  "audit.target.space": "This space",
+  "audit.target.invitation": "An invitation",
+  "audit.kind.published": "Published version {version}",
+  "audit.kind.publishedFirst": "Created it with version {version}",
+  "audit.kind.rolledBack": "Rolled back to the files of version {from}, now version {version}",
+  "audit.kind.renewed": "Renewed it",
+  "audit.kind.archived": "Archived it",
+  "audit.kind.restored": "Restored it",
+  "audit.kind.deleted": "Deleted it",
+  "audit.kind.pinned": "Pinned it",
+  "audit.kind.unpinned": "Unpinned it",
+  "audit.kind.transferredIn":
+    "Moved it here from {from, select, workspace {a workspace} other {a personal space}}",
+  "audit.kind.transferredOut":
+    "Moved it to {to, select, workspace {a workspace} other {a personal space}}",
+  "audit.kind.accessChanged": "Changed access: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {made it public} authenticated {opened it to anyone signed in} other {restricted it to listed readers}}",
+  "audit.access.readersAdded": "{count, plural, one {added # reader} other {added # readers}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {removed # reader} other {removed # readers}}",
+  "audit.access.domains": "at {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {changed # reader's comment visibility} other {changed # readers' comment visibility}}",
+  "audit.access.bar":
+    "{on, select, true {turned the Portifact bar on} other {turned the Portifact bar off}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {showed comments to everyone} other {showed comments to the owner side only}}",
+  "audit.access.indexable":
+    "{on, select, true {allowed search indexing} other {stopped search indexing}}",
+  "audit.access.embeddable": "{on, select, true {allowed embedding} other {stopped embedding}}",
+  "audit.kind.shareLinkCreated":
+    "Created a share link{password, select, true { with a password} other {}}{expires, select, true {, which expires} other {}}",
+  "audit.kind.shareLinkRevoked": "Revoked a share link",
+  "audit.kind.domainAttached": "Attached the domain {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Removed the domain {hostname}} operator {Portifact removed the domain {hostname}} other {The domain {hostname} was detached automatically}}",
+  "audit.kind.webhookCreated":
+    "Added a {format, select, slack {Slack} discord {Discord} other {signed}} webhook to {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Enabled a webhook} false {Disabled a webhook} other {Changed a webhook's events}}",
+  "audit.kind.webhookRemoved": "Removed a webhook",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Changed the brand's logo} other {Changed the brand's name, color or link}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Removed the brand's logo} other {Removed the brand}}",
+  "audit.kind.memberInvited": "Invited someone at {domain} as {role}",
+  "audit.kind.invitationRevoked": "Revoked an invitation",
+  "audit.kind.memberJoined": "{member} joined as {role}",
+  "audit.kind.roleChanged": "Changed {member} from {from} to {to}",
+  "audit.kind.memberRemoved": "Removed {member}",
+  "audit.kind.memberLeft": "{member} left",
+  "audit.kind.planGranted":
+    "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}}",
+  "audit.kind.planGrantedUntil":
+    "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}} until {until}",
+  "audit.kind.planRemoved": "Removed the plan, so the space is back on Free",
 } as const;
 
 export type MessageId = keyof typeof en;

@@ -44,6 +44,7 @@ import { artifactDb, defaultDb, ownerOf, ownerScope, personalScope } from "../re
 import { authorizeAccountRequest, authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
+import { auditRoutes } from "./audit.ts";
 import { documentRoutes } from "./documents.ts";
 import { domainRoutes } from "./domains.ts";
 import {
@@ -378,6 +379,7 @@ export function apiRoutes(deps: ApiDeps) {
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);
   accessLogRoutes(api, guarded, deps.now);
+  auditRoutes(api, guarded, deps.now);
   workspaceReadRoutes(api, guarded);
   shareLinkRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);

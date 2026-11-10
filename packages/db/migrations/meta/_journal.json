@@ -267,6 +267,13 @@
       "when": 1794307063234,
       "tag": "0037_webhooks",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1794313397041,
+      "tag": "0038_audit_events",
+      "breakpoints": true
     }
   ]
 }

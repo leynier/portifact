@@ -21,6 +21,7 @@ import {
   Layers,
   Mail,
   Palette,
+  ScrollText,
   Settings,
   Upload,
   Users,
@@ -136,7 +137,7 @@ function MissingSpace() {
 }
 
 /** Pages that show one space: switching keeps the page, everything else goes to the list. */
-const SPACE_PAGES = new Set(["/", "/publish", "/usage", "/branding", "/members"]);
+const SPACE_PAGES = new Set(["/", "/publish", "/usage", "/branding", "/members", "/audit"]);
 
 /** The space menu above the navigation: Personal and each workspace, with the role there. */
 function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
@@ -280,6 +281,12 @@ export function Shell() {
       label: t("shell.membersLink"),
       icon: <Users className="size-4" />,
       render: (props) => <Link to="/members" {...props} />,
+    },
+    allowed("audit") && {
+      key: "audit",
+      label: t("shell.auditLink"),
+      icon: <ScrollText className="size-4" />,
+      render: (props) => <Link to="/audit" {...props} />,
     },
     {
       key: "settings",

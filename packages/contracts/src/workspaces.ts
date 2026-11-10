@@ -76,6 +76,8 @@ export const ROLE_ACTIONS = [
   "delete_workspace",
   "webhooks",
   "brand",
+  /** Reading the audit log (premium plan T10): what every member did. */
+  "audit",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;

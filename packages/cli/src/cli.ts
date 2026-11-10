@@ -18,6 +18,7 @@ import {
   parseArtifactId,
   showAccess,
 } from "./artifacts.ts";
+import { audit } from "./audit.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { diff } from "./diff.ts";
 import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "./domains.ts";
@@ -598,6 +599,36 @@ export async function run(
     .action(
       execute((io, runtime, options: { since?: string; json?: boolean }, id: string) =>
         logs(io, runtime, id, { since: options.since, json: options.json === true }),
+      ),
+    );
+
+  program
+    .command("audit")
+    .description("Show who changed what in your space or a workspace (admins, Team plan and above)")
+    .option("--workspace <slug>", "this workspace's audit log, or personal")
+    .option("--kind <kind...>", "only these event kinds (repeat or separate with commas)")
+    .option("--actor <id>", "only events by this account ID")
+    .option("--target <id>", "only events about this artifact, member, link or webhook ID")
+    .option("--since <time>", "only events since a duration ago (30m, 12h, 7d) or an ISO date")
+    .option("--until <time>", "only events before a duration ago or an ISO date")
+    .option("--limit <n>", "at most n events, following pages (default 100, up to 1000)")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: {
+            workspace?: string;
+            kind?: string[];
+            actor?: string;
+            target?: string;
+            since?: string;
+            until?: string;
+            limit?: string;
+            json?: boolean;
+          },
+        ) => audit(io, runtime, { ...options, json: options.json === true }),
       ),
     );
 

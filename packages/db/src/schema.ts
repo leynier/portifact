@@ -1524,3 +1524,34 @@ export const customDomains = sqliteTable(
 );
 
 export * from "./auth-schema.ts";
+
+/**
+ * The audit log (premium plan T10): one row per change that matters for accountability, keyed by
+ * the owner it happened to, written by the services in the batch of the change, on the same
+ * condition, so a row exists exactly when the change does. Append only: nothing updates a row;
+ * the retention scan and the owner's erasure delete them. Every control database has the table
+ * (one migration history, decision 0005): an owner's events live in its region, and the changes
+ * to global rows (members, invitations, plans) are recorded in the global database, in their own
+ * batch. No foreign keys: an event outlives the artifact, member or webhook it names, and goes
+ * only with its owner. `actor_id` is an opaque account ID (null for the operator and jobs);
+ * `detail` holds the kind's small structured detail (`AUDIT_DETAILS` in contracts), never text a
+ * person wrote.
+ */
+export const auditEvents = sqliteTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    at: timestamp("at").notNull(),
+    kind: text("kind").notNull(),
+    actorType: text("actor_type", { enum: ["user", "operator", "system"] }).notNull(),
+    actorId: text("actor_id"),
+    targetId: text("target_id"),
+    artifactId: text("artifact_id"),
+    detail: text("detail", { mode: "json" }).notNull(),
+  },
+  (t) => [
+    index("audit_events_owner_at_idx").on(t.ownerId, t.at, t.id),
+    index("audit_events_at_idx").on(t.at),
+  ],
+);

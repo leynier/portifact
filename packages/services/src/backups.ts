@@ -7,6 +7,7 @@
 import type { TombstoneMarker } from "@portifact/contracts";
 import { type Db, type GlobalDb, type Region, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { eraseAuditEventsOf } from "./audit.ts";
 import { purgeJobs } from "./outbox.ts";
 import { revokedShareLinks } from "./share-links.ts";
 
@@ -342,6 +343,8 @@ export async function applyTombstones(
         sql`${schema.webhooks.id} in (select ${t.id} from ${t} where ${t.kind} = 'webhook') or ${schema.webhooks.ownerId} in (${tombstonedOwners})`,
       )
       .returning({ id: schema.webhooks.id }),
+    // The audit log of deleted accounts and workspaces (the restore brought it back).
+    eraseAuditEventsOf(db, tombstonedOwners),
   ]);
   return {
     inserted,

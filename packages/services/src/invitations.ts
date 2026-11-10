@@ -10,10 +10,12 @@ import {
   checkInvitee,
   checkNoticeCapacity,
   checkSeat,
+  emailDomain,
   entitlements,
   fail,
   invitationExpiry,
   MISSING_INVITATION,
+  newAuditEventId,
   normalizeEmail,
   ok,
   type Result,
@@ -21,6 +23,7 @@ import {
 import { and, asc, eq, gt, lte, type SQL, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn } from "./actors.ts";
+import { auditEvent, withdrawAuditEvent } from "./audit.ts";
 import {
   emailHash,
   emailsSentInCycle,
@@ -31,6 +34,7 @@ import {
 } from "./email.ts";
 import { hex } from "./objects.ts";
 import {
+  memberEvent,
   missingWorkspace,
   regionOf,
   type Seats,
@@ -202,26 +206,44 @@ export async function inviteMember(
 
   const token = newInvitationToken();
   const id = newInvitationId();
+  const eventId = newAuditEventId();
   const expiresAt = invitationExpiry(input.now);
   const tokenHash = await invitationTokenHash(token);
-  const inserted = await global
-    .insert(inv)
-    // Columns in schema order: id, workspace, email, role, token hash, invited by, created, expires.
-    .select(
-      sql`select ${id}, ${workspace.id}, ${email}, ${input.role}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt} where ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} < ${limit} and ${stillAdmin(workspace.id, input.userId)} and ${planUnchanged}`,
-    )
-    .onConflictDoUpdate({
-      target: [inv.workspaceId, inv.email],
-      set: {
-        id: sql`excluded.id`,
-        role: sql`excluded.role`,
-        tokenHash: sql`excluded.token_hash`,
-        invitedBy: sql`excluded.invited_by`,
-        createdAt: sql`excluded.created_at`,
-        expiresAt: sql`excluded.expires_at`,
+  const [inserted] = await global.batch([
+    global
+      .insert(inv)
+      // Columns in schema order: id, workspace, email, role, token hash, invited by, created, expires.
+      .select(
+        sql`select ${id}, ${workspace.id}, ${email}, ${input.role}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt} where ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} < ${limit} and ${stillAdmin(workspace.id, input.userId)} and ${planUnchanged}`,
+      )
+      .onConflictDoUpdate({
+        target: [inv.workspaceId, inv.email],
+        set: {
+          id: sql`excluded.id`,
+          role: sql`excluded.role`,
+          tokenHash: sql`excluded.token_hash`,
+          invitedBy: sql`excluded.invited_by`,
+          createdAt: sql`excluded.created_at`,
+          expiresAt: sql`excluded.expires_at`,
+        },
+      })
+      .returning({ id: inv.id }),
+    // After the upsert, on the invitation it wrote (its ID is new to this request): the role and
+    // the address's domain, never the address.
+    auditEvent(
+      global,
+      {
+        id: eventId,
+        ownerId: workspace.id,
+        kind: "member.invited",
+        actor: { type: "user", id: input.userId },
+        targetId: id,
+        detail: { role: input.role, emailDomain: emailDomain(email) },
+        now: input.now,
       },
-    })
-    .returning({ id: inv.id });
+      sql`exists (select 1 from ${inv} where ${inv.id} = ${id})`,
+    ),
+  ]);
   if (inserted.length === 0) {
     const again = await adminScope(global, input.userId, input.slug);
     if (!again.ok) return again;
@@ -268,7 +290,11 @@ export async function inviteMember(
       notSent("suppressed");
       return ok(invitation);
     }
-    await global.delete(inv).where(and(eq(inv.id, id), eq(inv.tokenHash, tokenHash)));
+    // The invitation is withdrawn, and so is its event: it never stood.
+    await global.batch([
+      global.delete(inv).where(and(eq(inv.id, id), eq(inv.tokenHash, tokenHash))),
+      withdrawAuditEvent(global, eventId),
+    ]);
     throw error;
   }
   await recordEmailsSent(global, input.now);
@@ -301,20 +327,30 @@ export async function listInvitations(
 /** Revokes a pending invitation, for an admin; its link stops working and its seat is free. */
 export async function revokeInvitation(
   global: GlobalDb,
-  input: { userId: string; slug: string; invitationId: string },
+  input: { userId: string; slug: string; invitationId: string; now?: number | undefined },
 ): Promise<Result<{ revoked: true }>> {
   const scope = await adminScope(global, input.userId, input.slug);
   if (!scope.ok) return scope;
-  const deleted = await global
-    .delete(inv)
-    .where(
-      and(
-        eq(inv.id, input.invitationId),
-        eq(inv.workspaceId, scope.value.id),
-        stillAdmin(scope.value.id, input.userId),
-      ),
-    )
-    .returning({ id: inv.id });
+  const where = and(
+    eq(inv.id, input.invitationId),
+    eq(inv.workspaceId, scope.value.id),
+    stillAdmin(scope.value.id, input.userId),
+  ) as SQL;
+  const [, deleted] = await global.batch([
+    auditEvent(
+      global,
+      {
+        ownerId: scope.value.id,
+        kind: "member.invitation_revoked",
+        actor: { type: "user", id: input.userId },
+        targetId: input.invitationId,
+        detail: {},
+        now: input.now ?? Date.now(),
+      },
+      sql`exists (select 1 from ${inv} where ${where})`,
+    ),
+    global.delete(inv).where(where).returning({ id: inv.id }),
+  ]);
   if (deleted.length === 1) return ok({ revoked: true });
   const again = await adminScope(global, input.userId, input.slug);
   return again.ok ? fail("not_found", "Invitation not found.") : again;
@@ -417,12 +453,26 @@ export async function acceptInvitation(
   const pending = sql`exists (select 1 from ${inv} where ${inv.id} = ${invitation.id} and ${inv.expiresAt} > ${input.now})`;
   const member = sql`exists (select 1 from ${m} where ${m.workspaceId} = ${invitation.workspaceId} and ${m.userId} = ${input.userId})`;
   const active = sql`not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${input.userId})`;
-  const [inserted, deleted] = (await global.batch([
+  const joins = sql`${pending} and ${active} and not ${member} and ${seatsUsedSql(invitation.workspaceId, input.now, false)} < ${limit} and ${planUnchanged}`;
+  const [, inserted, deleted] = (await global.batch([
+    // Before the insert, on its own condition: a retried accept finds the member and records nothing.
+    memberEvent(
+      global,
+      {
+        workspaceId: invitation.workspaceId,
+        memberId: input.userId,
+        now: input.now,
+        actor: { type: "user", id: input.userId },
+      },
+      "member.joined",
+      { role: invitation.role },
+      joins,
+    ),
     global
       .insert(m)
       // Columns in schema order: workspace, user, role, created at, updated at.
       .select(
-        sql`select ${invitation.workspaceId}, ${input.userId}, ${invitation.role}, ${input.now}, ${input.now} where ${pending} and ${active} and not ${member} and ${seatsUsedSql(invitation.workspaceId, input.now, false)} < ${limit} and ${planUnchanged}`,
+        sql`select ${invitation.workspaceId}, ${input.userId}, ${invitation.role}, ${input.now}, ${input.now} where ${joins}`,
       )
       .onConflictDoNothing()
       .returning({ userId: m.userId }),
@@ -430,7 +480,7 @@ export async function acceptInvitation(
       .delete(inv)
       .where(and(eq(inv.id, invitation.id), member))
       .returning({ id: inv.id }),
-  ])) as [unknown[], unknown[]];
+  ])) as [unknown, unknown[], unknown[]];
   if (inserted.length === 0 && deleted.length === 0) {
     const still = await findInvitation(global, { invitationId: invitation.id });
     if (!still || still.expiresAt <= input.now) return fail("not_found", MISSING_INVITATION);

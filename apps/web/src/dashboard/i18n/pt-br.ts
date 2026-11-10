@@ -1591,4 +1591,101 @@ export const ptBR = {
   "webhooks.personalOnly.title": "Os webhooks ficam no seu espaço pessoal",
   "webhooks.personalOnly.body":
     "Por enquanto, os webhooks só enviam eventos dos artifacts do seu espaço pessoal. Mude para ele para gerenciá-los.",
+  "shell.auditLink": "Auditoria",
+  "audit.title": "Auditoria",
+  "audit.description":
+    "Quem mudou o quê neste espaço. As mudanças ficam guardadas por {days} dias.",
+  "audit.planTitle": "A auditoria faz parte de um plano pago",
+  "audit.planRequired":
+    "A auditoria faz parte do plano {plan}. As mudanças já são registradas, então os últimos 90 dias aparecem aqui quando o plano a incluir.",
+  "audit.forbidden.title": "Só administradores podem ver a auditoria",
+  "audit.forbidden.body":
+    "Peça a um administrador deste espaço de trabalho se precisar saber quem mudou algo.",
+  "audit.loading": "Carregando a auditoria",
+  "audit.error.title": "Não foi possível carregar a auditoria",
+  "audit.empty.title": "Nenhuma mudança registrada",
+  "audit.empty.body": "Nada corresponde a estes filtros nos últimos {days} dias.",
+  "audit.caption": "Mudanças neste espaço, da mais recente para a mais antiga",
+  "audit.column.when": "Quando",
+  "audit.column.who": "Quem",
+  "audit.column.what": "O quê",
+  "audit.column.on": "Em",
+  "audit.loadMore": "Mostrar mudanças anteriores",
+  "audit.filters": "Filtrar a auditoria",
+  "audit.filter.kind": "Tipo de mudança",
+  "audit.filter.actor": "Quem",
+  "audit.filter.period": "Período",
+  "audit.group.all": "Todas as mudanças",
+  "audit.group.access": "Acesso e compartilhamento",
+  "audit.group.lifecycle": "Publicação e ciclo de vida",
+  "audit.group.integrations": "Domínios, webhooks e marca",
+  "audit.group.members": "Membros e plano",
+  "audit.actor.all": "Qualquer pessoa",
+  "audit.period.day": "Últimas 24 horas",
+  "audit.period.week": "Últimos 7 dias",
+  "audit.period.month": "Últimos 30 dias",
+  "audit.period.all": "Tudo o que está guardado",
+  "audit.actor.removed": "Membro removido",
+  "audit.actor.operator": "Operador do Portifact",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Artifact excluído",
+  "audit.target.space": "Este espaço",
+  "audit.target.invitation": "Um convite",
+  "audit.kind.published": "Publicou a versão {version}",
+  "audit.kind.publishedFirst": "Criou com a versão {version}",
+  "audit.kind.rolledBack": "Voltou aos arquivos da versão {from}, agora versão {version}",
+  "audit.kind.renewed": "Renovou",
+  "audit.kind.archived": "Arquivou",
+  "audit.kind.restored": "Restaurou",
+  "audit.kind.deleted": "Excluiu",
+  "audit.kind.pinned": "Fixou",
+  "audit.kind.unpinned": "Desafixou",
+  "audit.kind.transferredIn":
+    "Trouxe para cá de {from, select, workspace {um espaço de trabalho} other {um espaço pessoal}}",
+  "audit.kind.transferredOut":
+    "Moveu para {to, select, workspace {um espaço de trabalho} other {um espaço pessoal}}",
+  "audit.kind.accessChanged": "Mudou o acesso: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {tornou público} authenticated {abriu para qualquer pessoa conectada} other {restringiu aos leitores da lista}}",
+  "audit.access.readersAdded":
+    "{count, plural, one {adicionou # leitor} other {adicionou # leitores}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {removeu # leitor} other {removeu # leitores}}",
+  "audit.access.domains": "em {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {mudou quais comentários # leitor vê} other {mudou quais comentários # leitores veem}}",
+  "audit.access.bar":
+    "{on, select, true {ativou a barra do Portifact} other {desativou a barra do Portifact}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {mostrou os comentários a todos} other {mostrou os comentários só ao dono}}",
+  "audit.access.indexable":
+    "{on, select, true {permitiu a indexação em buscadores} other {parou a indexação em buscadores}}",
+  "audit.access.embeddable":
+    "{on, select, true {permitiu incorporar} other {parou de permitir incorporar}}",
+  "audit.kind.shareLinkCreated":
+    "Criou um link de compartilhamento{password, select, true { com senha} other {}}{expires, select, true {, que expira} other {}}",
+  "audit.kind.shareLinkRevoked": "Revogou um link de compartilhamento",
+  "audit.kind.domainAttached": "Conectou o domínio {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Removeu o domínio {hostname}} operator {O Portifact removeu o domínio {hostname}} other {O domínio {hostname} foi desconectado automaticamente}}",
+  "audit.kind.webhookCreated":
+    "Adicionou um webhook {format, select, slack {do Slack} discord {do Discord} other {assinado}} para {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Ativou um webhook} false {Desativou um webhook} other {Mudou os eventos de um webhook}}",
+  "audit.kind.webhookRemoved": "Removeu um webhook",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Mudou o logo da marca} other {Mudou o nome, a cor ou o link da marca}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Removeu o logo da marca} other {Removeu a marca}}",
+  "audit.kind.memberInvited": "Convidou alguém de {domain} como {role}",
+  "audit.kind.invitationRevoked": "Revogou um convite",
+  "audit.kind.memberJoined": "{member} entrou como {role}",
+  "audit.kind.roleChanged": "Mudou {member} de {from} para {to}",
+  "audit.kind.memberRemoved": "Removeu {member}",
+  "audit.kind.memberLeft": "{member} saiu",
+  "audit.kind.planGranted":
+    "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}}",
+  "audit.kind.planGrantedUntil":
+    "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}} até {until}",
+  "audit.kind.planRemoved": "Removeu o plano, e o espaço voltou ao Free",
 } satisfies Catalog;

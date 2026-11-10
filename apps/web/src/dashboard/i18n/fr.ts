@@ -1618,4 +1618,102 @@ export const fr = {
   "webhooks.personalOnly.title": "Les webhooks se règlent dans votre espace personnel",
   "webhooks.personalOnly.body":
     "Pour l’instant, les webhooks n’envoient que les événements des artifacts de votre espace personnel. Passez-y pour les gérer.",
+  "shell.auditLink": "Journal d'audit",
+  "audit.title": "Journal d'audit",
+  "audit.description":
+    "Qui a changé quoi dans cet espace. Les changements sont conservés {days} jours.",
+  "audit.planTitle": "Le journal d'audit fait partie d'une offre payante",
+  "audit.planRequired":
+    "Le journal d'audit fait partie de l'offre {plan}. Les changements sont déjà enregistrés : les 90 derniers jours s'afficheront ici quand l'offre l'inclura.",
+  "audit.forbidden.title": "Seuls les administrateurs peuvent lire le journal d'audit",
+  "audit.forbidden.body":
+    "Demandez à un administrateur de cet espace de travail si vous devez savoir qui a changé quelque chose.",
+  "audit.loading": "Chargement du journal d'audit",
+  "audit.error.title": "Le journal d'audit n'a pas pu être chargé",
+  "audit.empty.title": "Aucun changement enregistré",
+  "audit.empty.body": "Rien ne correspond à ces filtres sur les {days} derniers jours.",
+  "audit.caption": "Changements dans cet espace, du plus récent au plus ancien",
+  "audit.column.when": "Quand",
+  "audit.column.who": "Qui",
+  "audit.column.what": "Quoi",
+  "audit.column.on": "Sur",
+  "audit.loadMore": "Afficher les changements plus anciens",
+  "audit.filters": "Filtrer le journal d'audit",
+  "audit.filter.kind": "Type de changement",
+  "audit.filter.actor": "Qui",
+  "audit.filter.period": "Période",
+  "audit.group.all": "Tous les changements",
+  "audit.group.access": "Accès et partage",
+  "audit.group.lifecycle": "Publication et cycle de vie",
+  "audit.group.integrations": "Domaines, webhooks et marque",
+  "audit.group.members": "Membres et offre",
+  "audit.actor.all": "N'importe qui",
+  "audit.period.day": "Dernières 24 heures",
+  "audit.period.week": "7 derniers jours",
+  "audit.period.month": "30 derniers jours",
+  "audit.period.all": "Tout ce qui est conservé",
+  "audit.actor.removed": "Membre retiré",
+  "audit.actor.operator": "Opérateur de Portifact",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Artifact supprimé",
+  "audit.target.space": "Cet espace",
+  "audit.target.invitation": "Une invitation",
+  "audit.kind.published": "A publié la version {version}",
+  "audit.kind.publishedFirst": "L'a créé avec la version {version}",
+  "audit.kind.rolledBack":
+    "Est revenu aux fichiers de la version {from}, désormais version {version}",
+  "audit.kind.renewed": "L'a renouvelé",
+  "audit.kind.archived": "L'a archivé",
+  "audit.kind.restored": "L'a restauré",
+  "audit.kind.deleted": "L'a supprimé",
+  "audit.kind.pinned": "L'a épinglé",
+  "audit.kind.unpinned": "L'a désépinglé",
+  "audit.kind.transferredIn":
+    "L'a déplacé ici depuis {from, select, workspace {un espace de travail} other {un espace personnel}}",
+  "audit.kind.transferredOut":
+    "L'a déplacé vers {to, select, workspace {un espace de travail} other {un espace personnel}}",
+  "audit.kind.accessChanged": "A changé l'accès : {changes}",
+  "audit.access.mode":
+    "{mode, select, public {l'a rendu public} authenticated {l'a ouvert à toute personne connectée} other {l'a réservé aux lecteurs de la liste}}",
+  "audit.access.readersAdded":
+    "{count, plural, one {a ajouté # lecteur} other {a ajouté # lecteurs}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {a retiré # lecteur} other {a retiré # lecteurs}}",
+  "audit.access.domains": "chez {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {a changé les commentaires visibles par # lecteur} other {a changé les commentaires visibles par # lecteurs}}",
+  "audit.access.bar":
+    "{on, select, true {a activé la barre Portifact} other {a désactivé la barre Portifact}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {a montré les commentaires à tous} other {a montré les commentaires au propriétaire seulement}}",
+  "audit.access.indexable":
+    "{on, select, true {a autorisé l'indexation} other {a arrêté l'indexation}}",
+  "audit.access.embeddable":
+    "{on, select, true {a autorisé l'intégration} other {a arrêté l'intégration}}",
+  "audit.kind.shareLinkCreated":
+    "A créé un lien de partage{password, select, true { avec mot de passe} other {}}{expires, select, true {, qui expire} other {}}",
+  "audit.kind.shareLinkRevoked": "A révoqué un lien de partage",
+  "audit.kind.domainAttached": "A rattaché le domaine {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {A retiré le domaine {hostname}} operator {Portifact a retiré le domaine {hostname}} other {Le domaine {hostname} a été détaché automatiquement}}",
+  "audit.kind.webhookCreated":
+    "A ajouté un webhook {format, select, slack {Slack} discord {Discord} other {signé}} vers {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {A activé un webhook} false {A désactivé un webhook} other {A changé les événements d'un webhook}}",
+  "audit.kind.webhookRemoved": "A retiré un webhook",
+  "audit.kind.brandChanged":
+    "{logo, select, true {A changé le logo de la marque} other {A changé le nom, la couleur ou le lien de la marque}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {A retiré le logo de la marque} other {A retiré la marque}}",
+  "audit.kind.memberInvited": "A invité une personne de {domain} comme {role}",
+  "audit.kind.invitationRevoked": "A révoqué une invitation",
+  "audit.kind.memberJoined": "{member} a rejoint comme {role}",
+  "audit.kind.roleChanged": "A changé {member} de {from} à {to}",
+  "audit.kind.memberRemoved": "A retiré {member}",
+  "audit.kind.memberLeft": "{member} est parti",
+  "audit.kind.planGranted":
+    "A défini l'offre {plan} avec {seats, plural, one {# siège} other {# sièges}}",
+  "audit.kind.planGrantedUntil":
+    "A défini l'offre {plan} avec {seats, plural, one {# siège} other {# sièges}} jusqu'au {until}",
+  "audit.kind.planRemoved": "A retiré l'offre : l'espace revient à Free",
 } satisfies Catalog;

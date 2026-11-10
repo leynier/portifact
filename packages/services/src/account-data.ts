@@ -22,6 +22,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
+import { eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
@@ -223,6 +224,7 @@ export async function exportAccount(
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
       // Destinations only by host: never the URL or the signing secret.
       webhooks: await exportWebhooks(db, input.userId),
+      auditEvents: await exportAuditEvents(db, input.userId, input.now),
       brand: await exportedBrand(db, input.userId),
     },
     artifacts: artifacts.map((artifact) => ({
@@ -639,6 +641,8 @@ export async function advanceAccountDeletion(
       .where(eq(schema.webhooks.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
+    // The audit log goes with its owner (the global copy, the plan's events, below).
+    eraseOwnerAuditEvents(db, userId, nothingLeft),
     db
       .delete(schema.accountUsage)
       .where(
@@ -671,5 +675,8 @@ export async function advanceAccountDeletion(
       .where(and(eq(schema.accountDeletions.userId, userId), nothingLeft, tombstoned))
       .returning({ userId: schema.accountDeletions.userId }),
   ])) as unknown[];
-  return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
+  const finished = (results.at(-1) as unknown[]).length === 1;
+  // The account's events in the global database (its plan's), once nothing else is left.
+  if (finished) await db.global.batch([eraseOwnerAuditEvents(db.global, userId)]);
+  return finished ? "finished" : "pending";
 }

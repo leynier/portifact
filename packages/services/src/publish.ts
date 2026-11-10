@@ -27,6 +27,7 @@ import {
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { newArtifactDefaults } from "./account-settings.ts";
 import { actorOn, authorizeOn } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { claimNewArtifactId } from "./directory.ts";
 import {
@@ -834,6 +835,19 @@ export async function commitPublish(
       .select(
         sql`select null, ${session.artifactId}, ${input.userId}, 'system', 'published', null, ${input.now} where ${switched}`,
       ),
+    auditEvent(
+      db,
+      {
+        ownerId,
+        kind: "artifact.published",
+        actor: { type: "user", id: input.userId },
+        targetId: session.artifactId,
+        artifactId: session.artifactId,
+        detail: { version: version?.number ?? 1, first: session.baseVersionId === null },
+        now: input.now,
+      },
+      switched,
+    ),
     abortMultipartJob(db, session.id, switched, input.now),
     db
       .update(schema.uploadSessions)

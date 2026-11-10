@@ -14,6 +14,7 @@ import {
 import { AppsScreen } from "./screens/apps.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx";
+import { AuditScreen } from "./screens/audit.tsx";
 import { BrandingScreen } from "./screens/branding.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
@@ -130,6 +131,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/branding",
     component: BrandingScreen,
   });
+  const audit = createRoute({
+    getParentRoute: () => root,
+    path: "/audit",
+    component: AuditScreen,
+  });
   const members = createRoute({
     getParentRoute: () => root,
     path: "/members",
@@ -169,6 +175,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       branding,
       settings,
       members,
+      audit,
       invitations,
       account,
       viewer,

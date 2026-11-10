@@ -1578,4 +1578,96 @@ export const ja = {
   "webhooks.personalOnly.title": "webhookは個人スペースで設定します",
   "webhooks.personalOnly.body":
     "現在、webhookは個人スペースのartifactのイベントだけを送信します。管理するには個人スペースに切り替えてください。",
+  "shell.auditLink": "監査ログ",
+  "audit.title": "監査ログ",
+  "audit.description": "このスペースで誰が何を変更したか。変更は {days} 日間保存されます。",
+  "audit.planTitle": "監査ログは有料プランの機能です",
+  "audit.planRequired":
+    "監査ログは {plan} プランに含まれます。変更はすでに記録されているため、プランに含まれると直近 90 日分がここに表示されます。",
+  "audit.forbidden.title": "監査ログを見られるのは管理者だけです",
+  "audit.forbidden.body":
+    "誰が何を変更したか知る必要がある場合は、このワークスペースの管理者に確認してください。",
+  "audit.loading": "監査ログを読み込んでいます",
+  "audit.error.title": "監査ログを読み込めませんでした",
+  "audit.empty.title": "記録された変更はありません",
+  "audit.empty.body": "直近 {days} 日間で、このフィルターに一致するものはありません。",
+  "audit.caption": "このスペースの変更 (新しい順)",
+  "audit.column.when": "日時",
+  "audit.column.who": "誰が",
+  "audit.column.what": "内容",
+  "audit.column.on": "対象",
+  "audit.loadMore": "さらに前の変更を表示",
+  "audit.filters": "監査ログを絞り込む",
+  "audit.filter.kind": "変更の種類",
+  "audit.filter.actor": "誰が",
+  "audit.filter.period": "期間",
+  "audit.group.all": "すべての変更",
+  "audit.group.access": "アクセスと共有",
+  "audit.group.lifecycle": "公開とライフサイクル",
+  "audit.group.integrations": "ドメイン、Webhook、ブランド",
+  "audit.group.members": "メンバーとプラン",
+  "audit.actor.all": "全員",
+  "audit.period.day": "過去 24 時間",
+  "audit.period.week": "過去 7 日間",
+  "audit.period.month": "過去 30 日間",
+  "audit.period.all": "保存されているすべて",
+  "audit.actor.removed": "削除されたメンバー",
+  "audit.actor.operator": "Portifact の運営者",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "削除された Artifact",
+  "audit.target.space": "このスペース",
+  "audit.target.invitation": "招待",
+  "audit.kind.published": "バージョン {version} を公開しました",
+  "audit.kind.publishedFirst": "バージョン {version} で作成しました",
+  "audit.kind.rolledBack": "バージョン {from} のファイルに戻しました (現在はバージョン {version})",
+  "audit.kind.renewed": "更新しました",
+  "audit.kind.archived": "アーカイブしました",
+  "audit.kind.restored": "復元しました",
+  "audit.kind.deleted": "削除しました",
+  "audit.kind.pinned": "固定しました",
+  "audit.kind.unpinned": "固定を解除しました",
+  "audit.kind.transferredIn":
+    "{from, select, workspace {ワークスペース} other {個人スペース}}からここに移動しました",
+  "audit.kind.transferredOut":
+    "{to, select, workspace {ワークスペース} other {個人スペース}}に移動しました",
+  "audit.kind.accessChanged": "アクセスを変更しました: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {公開にした} authenticated {サインインした全員に開いた} other {リストの閲覧者だけに制限した}}",
+  "audit.access.readersAdded": "{count, plural, one {閲覧者を # 人追加} other {閲覧者を # 人追加}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {閲覧者を # 人削除} other {閲覧者を # 人削除}}",
+  "audit.access.domains": "({domains})",
+  "audit.access.exceptions":
+    "{count, plural, one {# 人の閲覧者のコメント表示を変更} other {# 人の閲覧者のコメント表示を変更}}",
+  "audit.access.bar": "{on, select, true {Portifact バーをオン} other {Portifact バーをオフ}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {コメントを全員に表示} other {コメントを所有者側だけに表示}}",
+  "audit.access.indexable":
+    "{on, select, true {検索エンジンのインデックスを許可} other {検索エンジンのインデックスを停止}}",
+  "audit.access.embeddable": "{on, select, true {埋め込みを許可} other {埋め込みを停止}}",
+  "audit.kind.shareLinkCreated":
+    "共有リンクを作成しました{password, select, true { (パスワード付き)} other {}}{expires, select, true { (期限あり)} other {}}",
+  "audit.kind.shareLinkRevoked": "共有リンクを取り消しました",
+  "audit.kind.domainAttached": "ドメイン {hostname} を接続しました",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {ドメイン {hostname} を削除しました} operator {Portifact がドメイン {hostname} を削除しました} other {ドメイン {hostname} は自動的に切り離されました}}",
+  "audit.kind.webhookCreated":
+    "{host} への{format, select, slack {Slack} discord {Discord} other {署名付き}} Webhook を追加しました",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Webhook をオンにしました} false {Webhook をオフにしました} other {Webhook のイベントを変更しました}}",
+  "audit.kind.webhookRemoved": "Webhook を削除しました",
+  "audit.kind.brandChanged":
+    "{logo, select, true {ブランドのロゴを変更しました} other {ブランドの名前、色、リンクを変更しました}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {ブランドのロゴを削除しました} other {ブランドを削除しました}}",
+  "audit.kind.memberInvited": "{domain} のユーザーを{role}として招待しました",
+  "audit.kind.invitationRevoked": "招待を取り消しました",
+  "audit.kind.memberJoined": "{member} が{role}として参加しました",
+  "audit.kind.roleChanged": "{member} を{from}から{to}に変更しました",
+  "audit.kind.memberRemoved": "{member} を削除しました",
+  "audit.kind.memberLeft": "{member} が退出しました",
+  "audit.kind.planGranted": "プランを {plan} ({seats, plural, one {# 席} other {# 席}}) にしました",
+  "audit.kind.planGrantedUntil":
+    "プランを {plan} ({seats, plural, one {# 席} other {# 席}}) にしました ({until} まで)",
+  "audit.kind.planRemoved": "プランを削除しました。スペースは Free に戻りました",
 } satisfies Catalog;
