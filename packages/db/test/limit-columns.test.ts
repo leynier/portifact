@@ -77,7 +77,7 @@ describe("migration 0027: account limits as columns", () => {
     triggersBefore = await triggers();
     indexesBefore = [await indexCount("account_usage"), await indexCount("annotation_usage")];
 
-    // Up to 0027 only: later migrations add triggers of their own (0030 on workspaces).
+    // Up to 0027 only: later migrations add triggers of their own (0029 on workspaces).
     await applyD1Migrations(env.MIGRATION_DB, all.slice(0, at + 1));
   });
 

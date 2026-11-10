@@ -354,7 +354,7 @@ export async function requestAccountDeletion(
     );
   }
   // A workspace never loses its last admin with an account (premium plan F3). A trigger on
-  // `users` (0030_workspaces.sql) refuses the delete as well, so a race fails the whole batch.
+  // `users` (0029_workspaces.sql) refuses the delete as well, so a race fails the whole batch.
   if (await soleAdminOf(db.global, input.userId)) return soleAdmin();
   const email = found.email.toLowerCase();
   const userExists = sql`exists (select 1 from ${schema.users} where ${schema.users.id} = ${input.userId})`;

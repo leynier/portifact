@@ -1022,7 +1022,7 @@ export const ownerPlans = sqliteTable(
 /**
  * Workspaces (premium plan F3, decision 0004): an owner that is not a user. Changed only by
  * packages/services, in D1 batches; Better Auth never sees these tables. The region is fixed at
- * creation (decision 0005): a trigger in 0030_workspaces.sql refuses changing it.
+ * creation (decision 0005): a trigger in 0029_workspaces.sql refuses changing it.
  */
 export const workspaces = sqliteTable(
   "workspaces",
@@ -1067,7 +1067,7 @@ export const workspaceMembers = sqliteTable(
 /**
  * The global artifact directory (decision 0005, section 2): which region holds each artifact ID
  * ever handed out. No owner, no name. A row is claimed before the artifact is written in its
- * region and is never updated or deleted (triggers in 0030_workspaces.sql refuse both), so no ID
+ * region and is never updated or deleted (triggers in 0029_workspaces.sql refuse both), so no ID
  * is reused in any region.
  */
 export const artifactDirectory = sqliteTable("artifact_directory", {

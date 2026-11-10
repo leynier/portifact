@@ -1,4 +1,4 @@
-// Migration 0030: workspaces, memberships and the global artifact directory (decisions 0004 and
+// Migration 0029: workspaces, memberships and the global artifact directory (decisions 0004 and
 // 0005). The backfill runs on a database with artifacts and tombstones written before it; the
 // triggers are checked on the fully migrated test database.
 import { applyD1Migrations, env } from "cloudflare:test";
@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { createDb, schema } from "../src/index.ts";
 
 const NOW = Date.UTC(2026, 10, 9);
-const MIGRATION = "0030_workspaces.sql";
+const MIGRATION = "0029_workspaces.sql";
 const WS = "ws_0123456789abcdef0123456789abcdef";
 
 /** Asserts the database refused the statement; Drizzle wraps the SQLite error in `cause`. */
@@ -22,7 +22,7 @@ async function rejects(statement: Promise<unknown>, pattern: RegExp) {
   expect(messages.join("\n")).toMatch(pattern);
 }
 
-describe("migration 0030: the directory backfill", () => {
+describe("migration 0029: the directory backfill", () => {
   const migrated = () => createDb(env.MIGRATION_DB);
 
   beforeAll(async () => {
@@ -54,7 +54,7 @@ describe("migration 0030: the directory backfill", () => {
   });
 });
 
-describe("migration 0030: the triggers", () => {
+describe("migration 0029: the triggers", () => {
   const db = () => createDb(env.DB);
 
   async function workspace(id = WS, slug = `s-${crypto.randomUUID().slice(0, 8)}`) {
