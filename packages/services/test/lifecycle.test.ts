@@ -148,7 +148,7 @@ describe("owner lifecycle actions", () => {
     const a = await publish({ "index.html": "<h1>a</h1>" });
     expect(await renewArtifact(db(), input(a.artifactId, T0 + 10 * DAY))).toEqual({
       ok: true,
-      value: { state: "active", expiresAt: T0 + 40 * DAY, purgeAt: null },
+      value: { state: "active", expiresAt: T0 + 40 * DAY, purgeAt: null, pinned: false },
     });
   });
 
@@ -173,7 +173,7 @@ describe("owner lifecycle actions", () => {
     const restored = await restoreArtifact(db(), input(a.artifactId, T0 + 60 * DAY));
     expect(restored).toEqual({
       ok: true,
-      value: { state: "active", expiresAt: T0 + 90 * DAY, purgeAt: null },
+      value: { state: "active", expiresAt: T0 + 90 * DAY, purgeAt: null, pinned: false },
     });
     expect(await artifact(a.artifactId)).toMatchObject({
       state: "active",
@@ -433,12 +433,14 @@ describe("purging archives", () => {
     expect(await runMaintenance(db(), env.ARTIFACTS, T0 + 31 * DAY)).toEqual({
       archived: 1,
       expiryNotices: 0,
+      commentNotices: 0,
       expiredUploads: 0,
       prunedVersions: 0,
       purged: 0,
       orphanObjects: 0,
       prunedOperations: 0,
       readSessions: 0,
+      shareLinks: 0,
       reviewSessions: 0,
       rerendered: 0,
       accountDeletions: 0,
@@ -448,6 +450,7 @@ describe("purging archives", () => {
       prunedEmailCounters: 0,
       prunedEmailSuppressions: 0,
       alignedPlanLimits: 0,
+      unpinned: 0,
     });
   });
 });

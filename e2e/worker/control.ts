@@ -5,12 +5,17 @@ import { regionsFromEnv, schema } from "@portifact/db";
 import {
   commitPublish,
   createAnnotationThread,
+  createShareLink,
   issueReviewHandoff,
   preparePublish,
+  revokeShareLink,
+  runJob,
+  scheduleCommentNotices,
   updateAccess,
 } from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
+import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
 import { setContentClockOffset } from "./clock.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
@@ -85,6 +90,16 @@ interface AccessInput {
   artifactId: string;
   removeReaders?: string[];
   addReaders?: string[];
+}
+
+interface ShareLinkInput {
+  ownerId: string;
+  artifactId: string;
+  label?: string;
+  expiresAt?: number;
+  password?: string;
+  /** Revokes this link instead of creating one. */
+  revoke?: string;
 }
 
 interface ClockInput {
@@ -313,6 +328,35 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     return Response.json(result, { status: result.ok ? 200 : 400 });
   }
 
+  // The owner's share links, through the same services the API, MCP and dashboard call. The
+  // owner's plan must include them; tests grant it with a row in owner_plans.
+  if (path === "/share-link") {
+    const { ownerId, artifactId, label, expiresAt, password, revoke } = input as ShareLinkInput;
+    if (revoke) {
+      const result = await revokeShareLink(db, {
+        userId: ownerId,
+        artifactId,
+        linkId: revoke,
+        now,
+      });
+      return Response.json(result, { status: result.ok ? 200 : 400 });
+    }
+    const result = await createShareLink(db, {
+      userId: ownerId,
+      artifactId,
+      label: label ?? "E2E",
+      expiresAt: expiresAt ?? null,
+      password,
+      now,
+    });
+    if (!result.ok) return Response.json(result, { status: 400 });
+    return Response.json({
+      id: result.value.link.id,
+      url: `${env.APP_ORIGIN}/s#${result.value.token}`,
+      token: result.value.token,
+    });
+  }
+
   if (path === "/clock") {
     const { artifactId, offsetMs } = input as ClockInput;
     setContentClockOffset(artifactId, offsetMs);
@@ -326,6 +370,34 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     return object
       ? new Response(object.body, { headers: { "content-type": "application/json" } })
       : Response.json({ error: "no email" }, { status: 404 });
+  }
+
+  // The jobs Worker's comment notices, run now: the scan, then each job with the real notifier,
+  // whose emails land where `/mail` reads them instead of Email Service.
+  if (path === "/comment-notices") {
+    const scheduled = await scheduleCommentNotices(db, now);
+    const captured = {
+      async send(message: { to: string }) {
+        await env.ARTIFACTS.put(
+          `${MAIL_PREFIX}${message.to.toLowerCase()}`,
+          JSON.stringify(message),
+        );
+        return { messageId: crypto.randomUUID() };
+      },
+    } as unknown as SendEmail;
+    const commentNotifier = commentNotifierFromEnv({
+      EMAIL: captured,
+      APP_ORIGIN: env.APP_ORIGIN,
+      CONTENT_DOMAIN: env.CONTENT_DOMAIN,
+      UNSUBSCRIBE_SECRET: env.UNSUBSCRIBE_SECRET,
+    });
+    const { results } = await env.DB.prepare(
+      "select id from outbox where topic = 'comment_notice'",
+    ).all<{ id: number }>();
+    for (const { id } of results) {
+      await runJob(db, env.ARTIFACTS, { id, topic: "comment_notice" }, now, { commentNotifier });
+    }
+    return Response.json({ scheduled: scheduled.recipients, ran: results.length });
   }
 
   if (path === "/sql") {

@@ -14,6 +14,7 @@ import { type AccessDb, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
+import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
@@ -123,6 +124,8 @@ export interface JobDeps {
   access?: AccessDb | undefined;
   /** Sends `expiry_notice` emails. */
   notifier?: ExpiryNotifier | undefined;
+  /** Sends `comment_notice` emails. */
+  commentNotifier?: CommentNotifier | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -148,7 +151,7 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  { access, notifier }: JobDeps,
+  { access, notifier, commentNotifier }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -175,6 +178,9 @@ async function runRow(
       const state = await advanceWorkspaceDeletion(db, bucket, row.subject ?? "", now);
       return state === "absent" ? "stale" : state === "finished" ? "done" : "pending";
     }
+    case "comment_notice":
+      if (!commentNotifier) throw new Error("comment_notice needs the comment notifier");
+      return sendCommentNotice(db, row, now, commentNotifier);
   }
 }
 

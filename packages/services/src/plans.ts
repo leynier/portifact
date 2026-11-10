@@ -11,6 +11,7 @@
 // columns back in line when a plan expires or usage falls; a column never drops below usage.
 import {
   OwnerPlanExport,
+  type PlanFeature,
   type PlanName,
   PlanName as PlanNameSchema,
   PlanOverrides,
@@ -25,11 +26,14 @@ import {
   fail,
   type LimitColumns,
   limitColumns,
+  nextExpiry,
   type OwnerPlanRecord,
   ok,
+  pinsLapse,
   type Result,
+  requireFeature,
 } from "@portifact/domain";
-import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 /** What the owner's plan grants at `now`; `free` without a row or once it expired. */
@@ -49,6 +53,23 @@ export async function ownerEntitlements(
     .where(eq(schema.ownerPlans.ownerId, ownerId))
     .limit(1);
   return entitlements(row ?? null, now);
+}
+
+/**
+ * Refuses a paid feature the owner's plan does not include with `plan_required`, or gives back
+ * the owner's entitlements so the caller needs no second read. `owner` is the artifact's owner
+ * (or the actor from `authorizeOn`/`resolveActor`, whose `ownerId` is that owner): a feature
+ * belongs to the owner's plan, a workspace's for a workspace, never to the acting user's. Call it
+ * after authorization, so a user with no role still gets what a missing artifact gives. A caller
+ * that already holds the owner's entitlements calls `requireFeature` instead.
+ */
+export async function requireOwnerFeature(
+  db: Db,
+  owner: { ownerId: string },
+  feature: PlanFeature,
+  now: number,
+): Promise<Result<Entitlements>> {
+  return requireFeature(await ownerEntitlements(db, owner.ownerId, now), feature);
 }
 
 /** The plan as the usage endpoint, the CLI, MCP and the account export show it. */
@@ -405,6 +426,82 @@ export async function alignPlanLimits(db: Db, now: number, limit = 50): Promise<
       processed += 1;
     }
     if (owners.length < ALIGN_PAGE) break;
+  }
+  return { processed };
+}
+
+const PIN_PAGE = 100;
+
+/**
+ * Unpins the artifacts of owners whose plan no longer includes `pin` (expired, removed or
+ * lowered), a maintenance scan (premium plan P2). Each gets the normal 30-day expiry from `now`,
+ * which also makes it due for the normal expiry notice; nothing is archived or deleted on the
+ * spot. Owners that still have the feature are read but never written. At most `limit`
+ * artifacts per run; each owner's writes are conditioned on the plan row they were decided from
+ * being unchanged, so a grant that lands meanwhile keeps the pins, and on the artifact still
+ * being pinned and active, so a run that repeats or races another changes nothing twice.
+ */
+export async function unpinLapsedPlans(db: Db, now: number, limit = 50): Promise<AlignResult> {
+  const a = schema.artifacts;
+  const pinnedActive = sql`${a.pinned} = 1 and ${a.state} = 'active'`;
+  const expiresAt = nextExpiry(new Date(now)).getTime();
+  let processed = 0;
+  let cursor = "";
+  while (processed < limit) {
+    const owners = (
+      await db
+        .selectDistinct({ ownerId: a.ownerId })
+        .from(a)
+        .where(and(pinnedActive, gt(a.ownerId, cursor)))
+        .orderBy(asc(a.ownerId))
+        .limit(PIN_PAGE)
+    ).map((row) => row.ownerId);
+    if (owners.length === 0) break;
+    cursor = owners.at(-1) as string;
+    const plans = new Map(
+      (
+        await db
+          .select({
+            ownerId: schema.ownerPlans.ownerId,
+            plan: schema.ownerPlans.plan,
+            seats: schema.ownerPlans.seats,
+            validUntil: schema.ownerPlans.validUntil,
+            overrides: schema.ownerPlans.overrides,
+            updatedAt: schema.ownerPlans.updatedAt,
+          })
+          .from(schema.ownerPlans)
+          .where(inArray(schema.ownerPlans.ownerId, owners))
+      ).map((row) => [row.ownerId, row]),
+    );
+    for (const ownerId of owners) {
+      if (processed >= limit) break;
+      const plan = plans.get(ownerId);
+      if (!pinsLapse(entitlements(plan ?? null, now))) continue;
+      const unchanged = plan
+        ? sql`exists (select 1 from ${schema.ownerPlans} where ${schema.ownerPlans.ownerId} = ${ownerId} and ${schema.ownerPlans.updatedAt} = ${plan.updatedAt})`
+        : sql`not exists (select 1 from ${schema.ownerPlans} where ${schema.ownerPlans.ownerId} = ${ownerId})`;
+      const targets = sql`select ${a.id} from ${a} where ${a.ownerId} = ${ownerId} and ${pinnedActive} and ${unchanged} order by ${a.id} limit ${limit - processed}`;
+      // The events are written first, from the same rows the update then changes.
+      const [, unpinned] = await db.batch([
+        db
+          .insert(schema.lifecycleEvents)
+          .select(
+            sql`select null, ${a.id}, null, 'system', 'unpinned', ${JSON.stringify({ reason: "plan" })}, ${now} from ${a} where ${a.id} in (${targets})`,
+          ),
+        db
+          .update(a)
+          .set({
+            pinned: false,
+            expiresAt,
+            lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
+            updatedAt: now,
+          })
+          .where(sql`${a.id} in (${targets})`)
+          .returning({ id: a.id }),
+      ]);
+      processed += unpinned.length;
+    }
+    if (owners.length < PIN_PAGE) break;
   }
   return { processed };
 }

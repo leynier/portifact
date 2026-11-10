@@ -16,6 +16,7 @@ import {
   ArtifactListQuery,
   type ArtifactSummary,
   type BrowserSession,
+  type CommentNoticeMute,
   type CommentScope,
   type ConnectedApp,
   DocumentPreviewRequest,
@@ -25,8 +26,12 @@ import {
   PLANS,
   type PreparedPublish,
   PublishRequest,
+  planRequiredMessage,
   type ReviewStart,
   RollbackRequest,
+  type ShareLinkCreated,
+  type ShareLinkList,
+  type ShareLinkView,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
@@ -99,6 +104,7 @@ export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): 
     expiresAt: "2026-12-08T12:00:00.000Z",
     archivedAt: null,
     purgeAt: null,
+    pinned: false,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -333,10 +339,16 @@ export interface FakeServer {
   apps: ConnectedApp[];
   /** The account's defaults for new artifacts. */
   settings: AccountSettings;
+  /** Comment notices by artifact: whether the owner's plan has them and the caller's mute. */
+  commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
+  /** Share links by artifact ID, newest first, as the API lists them. */
+  shareLinks: Record<string, ShareLinkView[]>;
+  /** Whether the owner's plan includes share links. */
+  shareLinksEnabled: boolean;
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -375,10 +387,14 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       defaultCommentVisibility: "owner",
       defaultBar: true,
       expiryNotices: true,
+      commentNotices: true,
       locale: null,
     },
     usage: usageView(),
     accessLogs: {},
+    shareLinks: {},
+    shareLinksEnabled: true,
+    commentNotices: {},
     bodies: [],
     pageSize: 50,
     requests: [],
@@ -557,6 +573,7 @@ function publishingRoute(
         expiresAt: null,
         archivedAt: null,
         purgeAt: null,
+        pinned: false,
         createdAt: NOW,
         updatedAt: NOW,
       };
@@ -736,6 +753,16 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
   }
+  const mute = /^\/api\/v1\/account\/comment-notices\/([^/]+)$/.exec(path);
+  if (mute) {
+    const id = decodeURIComponent(mute[1] as string);
+    const current = server.commentNotices[id] ?? { available: false, muted: false };
+    if (method === "PUT") {
+      const { muted } = server.bodies.at(-1) as { muted: boolean };
+      server.commentNotices[id] = { ...current, muted };
+    }
+    return Response.json(server.commentNotices[id] ?? current);
+  }
   if (path === "/api/v1/account/settings" && method === "GET") {
     return Response.json(server.settings);
   }
@@ -757,6 +784,44 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     }
     server.email = null;
     return Response.json({ deleted: true });
+  }
+  const shares = /^\/api\/v1\/artifacts\/([^/]+)\/share-links(?:\/([^/]+))?$/.exec(path);
+  if (shares) {
+    const artifact = server.artifacts.find((a) => a.id === shares[1]);
+    if (!artifact) return apiError("not_found", 404);
+    const links = server.shareLinks[artifact.id] ?? [];
+    if (method === "GET" && !shares[2]) {
+      return json({
+        artifactId: artifact.id,
+        enabled: server.shareLinksEnabled,
+        links,
+        activeLimit: 20,
+      } satisfies ShareLinkList);
+    }
+    if (method === "POST" && !shares[2]) {
+      if (!server.shareLinksEnabled) return apiError("plan_required", 403);
+      const body = server.bodies.at(-1) as { label: string; expiresAt?: string; password?: string };
+      const link: ShareLinkView = {
+        id: `sl_${String(links.length + 1).padStart(32, "0")}`,
+        label: body.label,
+        state: "active",
+        hasPassword: body.password !== undefined,
+        createdAt: "2026-11-10T12:00:00.000Z",
+        expiresAt: body.expiresAt ?? null,
+        lastUsedOn: null,
+      };
+      server.shareLinks[artifact.id] = [link, ...links];
+      return json(
+        { link, url: `https://app.portifact.com/s#${"T".repeat(43)}` } satisfies ShareLinkCreated,
+        201,
+      );
+    }
+    if (method === "DELETE" && shares[2]) {
+      const id = decodeURIComponent(shares[2]);
+      if (!links.some((link) => link.id === id)) return apiError("not_found", 404);
+      server.shareLinks[artifact.id] = links.filter((link) => link.id !== id);
+      return json({ id, revoked: true });
+    }
   }
   const log = /^\/api\/v1\/artifacts\/([^/]+)\/access-log$/.exec(path);
   if (log && method === "GET") {
@@ -836,7 +901,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       nextCursor: next < matching.length ? String(next) : null,
     });
   }
-  const match = /^\/api\/v1\/artifacts\/([^/]+)(?:\/(renew|archive|restore))?$/.exec(path);
+  const match = /^\/api\/v1\/artifacts\/([^/]+)(?:\/(renew|archive|restore|pin|unpin))?$/.exec(
+    path,
+  );
   const found = match && server.artifacts.find((a) => a.id === match[1]);
   if (!match || !found) {
     return Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
@@ -844,12 +911,23 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   if (method === "GET" && !match[2]) return Response.json(found);
   if (method === "DELETE" && !match[2]) {
     server.artifacts = server.artifacts.filter((a) => a !== found);
-    return Response.json({ state: "deleted", expiresAt: null, purgeAt: null });
+    return Response.json({ state: "deleted", expiresAt: null, purgeAt: null, pinned: false });
   }
   const action = match[2];
-  if (action === "archive") {
+  if (action === "pin" && !server.usage.plan.features.includes("pin")) {
+    return Response.json(
+      { error: { code: "plan_required", message: planRequiredMessage("pin") } },
+      { status: 403 },
+    );
+  }
+  if (action === "pin") {
+    Object.assign(found, { pinned: true, expiresAt: null });
+  } else if (action === "unpin") {
+    Object.assign(found, { pinned: false, expiresAt: "2027-01-07T12:00:00.000Z" });
+  } else if (action === "archive") {
     Object.assign(found, {
       state: "archived",
+      pinned: false,
       archivedAt: NOW,
       purgeAt: "2027-05-08T12:00:00.000Z",
     });
@@ -861,7 +939,12 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       expiresAt: "2027-01-07T12:00:00.000Z",
     });
   }
-  return Response.json({ state: found.state, expiresAt: found.expiresAt, purgeAt: found.purgeAt });
+  return Response.json({
+    state: found.state,
+    expiresAt: found.expiresAt,
+    purgeAt: found.purgeAt,
+    pinned: found.pinned,
+  });
 }
 
 const missing = () =>

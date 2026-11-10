@@ -215,8 +215,29 @@
     {
       "idx": 30,
       "version": "6",
-      "when": 1794287816493,
-      "tag": "0030_workspace_members_invitations",
+      "when": 1794288579562,
+      "tag": "0030_artifact_pins",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1794292052845,
+      "tag": "0031_comment_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1794293225635,
+      "tag": "0032_share_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1794294535395,
+      "tag": "0033_workspace_members_invitations",
       "breakpoints": true
     }
   ]

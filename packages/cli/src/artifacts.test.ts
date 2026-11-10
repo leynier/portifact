@@ -1,3 +1,4 @@
+import { PLANS } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { table } from "./artifacts.ts";
 import type { FakeArtifact } from "./testing/fake-api.ts";
@@ -81,6 +82,7 @@ describe("portifact list", () => {
           expiresAt: "2026-12-08T12:00:00.000Z",
           archivedAt: null,
           purgeAt: null,
+          pinned: false,
           createdAt: "2026-11-07T12:00:00.000Z",
           updatedAt: "2026-11-07T12:00:00.000Z",
           // The fake seeds no versions or threads for this artifact.
@@ -218,6 +220,7 @@ describe("portifact info", () => {
         "Annotations  off",
         `URL          https://${artifact.id}.portifact.dev/`,
         "Space        Personal space",
+        "Pinned       no",
         "Expires      2026-12-08 12:00 UTC",
         "Archived     never",
         "Purge        never",
@@ -322,6 +325,7 @@ describe("portifact renew, archive and restore", () => {
       state: "archived",
       expiresAt: null,
       purgeAt: "2027-05-09T12:00:00.000Z",
+      pinned: false,
     });
 
     const text = await h.invoke("info", artifact.id);
@@ -354,6 +358,95 @@ describe("portifact renew, archive and restore", () => {
   });
 });
 
+describe("portifact pin and unpin", () => {
+  const onPro = () => {
+    server.api.usage.plan = {
+      ...server.api.usage.plan,
+      name: "pro",
+      features: [...PLANS.pro.features],
+    };
+  };
+
+  it("pins an artifact on a plan with pin, and info and list show it", async () => {
+    h.signIn();
+    onPro();
+    const artifact = seed();
+
+    const result = await h.invoke("pin", artifact.id);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(
+      `Pinned ${artifact.id}. It stays published with no expiry until you run \`portifact unpin ${artifact.id}\`.\n`,
+    );
+    expect(requests("POST", /\/pin$/)).toHaveLength(1);
+
+    const info = await h.invoke("info", artifact.id);
+    expect(info.stdout).toContain("Pinned       yes, no expiry");
+    expect(info.stdout).toContain("Expires      never");
+    const listed = await h.invoke("list");
+    expect(listed.stdout).toMatch(new RegExp(`^${artifact.id} +active +\\S+ +\\S+ +pinned `, "m"));
+    expect(json(await h.invoke("info", artifact.id, "--json"))).toMatchObject({
+      pinned: true,
+      expiresAt: null,
+    });
+  });
+
+  it("pins with stable JSON, and pinning again changes nothing", async () => {
+    h.signIn();
+    onPro();
+    const artifact = seed();
+    const expected = {
+      artifactId: artifact.id,
+      state: "active",
+      expiresAt: null,
+      purgeAt: null,
+      pinned: true,
+    };
+    expect(json(await h.invoke("pin", artifact.id, "--json"))).toEqual(expected);
+    expect(json(await h.invoke("pin", artifact.id, "--json"))).toEqual(expected);
+  });
+
+  it("unpins with a fresh 30 days, on any plan", async () => {
+    h.signIn();
+    const artifact = seed({ pinned: true, expiresAt: null });
+
+    const result = await h.invoke("unpin", artifact.id);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe(
+      `Unpinned ${artifact.id}. It stays published until 2026-12-08 12:00 UTC unless you renew it.\n`,
+    );
+    expect(json(await h.invoke("unpin", artifact.id, "--json"))).toEqual({
+      artifactId: artifact.id,
+      state: "active",
+      expiresAt: "2026-12-08T12:00:00.000Z",
+      purgeAt: null,
+      pinned: false,
+    });
+  });
+
+  it("says a pinned artifact has nothing to renew", async () => {
+    h.signIn();
+    const artifact = seed({ pinned: true, expiresAt: null });
+    const result = await h.invoke("renew", artifact.id);
+    expect(result.stdout).toBe(`${artifact.id} is pinned, so it has no expiry to renew.\n`);
+  });
+
+  it("refuses to pin an archived artifact with the conflict exit code", async () => {
+    h.signIn();
+    onPro();
+    const artifact = seed({ state: "archived", expiresAt: null });
+    const result = await h.invoke("pin", artifact.id, "--json");
+    expect(result.code).toBe(6);
+    expect(json(result).error.code).toBe("artifact_archived");
+  });
+
+  it("checks the ID before any request", async () => {
+    h.signIn();
+    const result = await h.invoke("pin", "not an id", "--json");
+    expect(result.code).toBe(2);
+    expect(requests("POST", /\/pin$/)).toHaveLength(0);
+  });
+});
+
 describe("portifact delete", () => {
   it("deletes without a prompt when --yes is given", async () => {
     h.signIn();
@@ -367,6 +460,7 @@ describe("portifact delete", () => {
       state: "deleted",
       expiresAt: null,
       purgeAt: null,
+      pinned: false,
     });
     expect(server.api.artifacts.get(artifact.id)?.state).toBe("deleted");
   });

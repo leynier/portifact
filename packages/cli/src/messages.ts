@@ -74,11 +74,11 @@ export const messages = {
   committing: "Making the new version current.",
   aborted: "Cancelled the upload and released its reservation.",
   abortFailed: "Could not cancel the upload. Its reservation is released within 24 hours.",
-  published: (url: string, artifactId: string, version: number, expiresAt: string) =>
+  published: (url: string, artifactId: string, version: number, expiresAt: string | null) =>
     [
       `Published version ${version} of ${artifactId}.`,
       `URL: ${url}`,
-      `Expires: ${formatDate(expiresAt)}`,
+      `Expires: ${formatExpiry(expiresAt)}`,
     ].join("\n"),
   starSuggestion: (command: string) =>
     `Enjoying Portifact? A GitHub star helps other people find it. If you want to, run: ${command}`,
@@ -89,7 +89,13 @@ export const messages = {
     `More artifacts: run \`portifact list --cursor ${cursor}${filterFlags}\`.`,
   listNoMatch: "No artifacts match these filters.",
   renewed: (id: string, expiresAt: string | null) =>
-    `Renewed ${id}. It stays published until ${formatDate(expiresAt)}.`,
+    expiresAt === null
+      ? `${id} is pinned, so it has no expiry to renew.`
+      : `Renewed ${id}. It stays published until ${formatDate(expiresAt)}.`,
+  pinned: (id: string) =>
+    `Pinned ${id}. It stays published with no expiry until you run \`portifact unpin ${id}\`.`,
+  unpinned: (id: string, expiresAt: string | null) =>
+    `Unpinned ${id}. It stays published until ${formatDate(expiresAt)} unless you renew it.`,
   archived: (id: string, purgeAt: string | null) =>
     purgeAt === null
       ? `Archived ${id}. Restore it with \`portifact restore ${id}\`.`
@@ -115,12 +121,13 @@ export const messages = {
   logsEmpty: (id: string, days: number) =>
     `No signed-in visitor opened ${id} in the last ${days} days.`,
   logsNote: (minutes: number, days: number) =>
-    `One entry per visitor every ${minutes} minutes, kept ${days} days. Only artifacts restricted to listed readers record openings, your own visits are not recorded, and some openings may be missing.`,
-  rolledBack: (id: string, version: number, from: number, url: string, expiresAt: string) =>
+    `One entry per visitor every ${minutes} minutes, kept ${days} days. Only artifacts restricted to listed readers record signed-in openings, share link openings name only the link, your own visits are not recorded, and some openings may be missing.`,
+  logsShareLink: (label: string) => `share link: ${label}`,
+  rolledBack: (id: string, version: number, from: number, url: string, expiresAt: string | null) =>
     [
       `Rolled back ${id}: version ${version} has the files of version ${from}. Access did not change.`,
       `URL: ${url}`,
-      `Expires: ${formatDate(expiresAt)}`,
+      `Expires: ${formatExpiry(expiresAt)}`,
     ].join("\n"),
   downloaded: (done: number, total: number) => `Downloaded ${done} of ${total}.`,
   usage: (lines: readonly [string, string][]) =>
@@ -134,6 +141,21 @@ export const messages = {
   usageBlocksHeader: "Blocked now:",
   usageBlock: (message: string, until: string | null) =>
     `  ${message}${until === null ? "" : ` Lifts ${formatDate(until)}.`}`,
+
+  // Share links.
+  shareCreated: (linkId: string, id: string, url: string, expiresAt: string | null) =>
+    [
+      `Created share link ${linkId} for ${id}. Anyone with this link can read the artifact without an account:`,
+      url,
+      `It is shown only this once: copy it now. ${expiresAt === null ? "It works until you revoke it." : `It stops working ${formatDate(expiresAt)}.`}`,
+    ].join("\n"),
+  sharesEmpty: (id: string) => `${id} has no share links.`,
+  sharesPaused:
+    "Your plan does not include share links now, so these links do not open. They work again if the plan includes them; you can still revoke them.",
+  confirmShareRevoke: (linkId: string) =>
+    `Anyone with share link ${linkId} loses access, and it cannot be undone.\nType "revoke" to confirm: `,
+  shareRevoked: (linkId: string, id: string) =>
+    `Revoked share link ${linkId} of ${id}. Sessions opened with it end within a minute.`,
 
   // Tokens.
   tokensEmpty: "No app holds tokens for your account.",
@@ -179,6 +201,14 @@ export const messages = {
     revokeConfirmationRequired: (id: string) =>
       `Revoking disconnects the app on every device. Run \`portifact tokens revoke ${id} --yes\` to confirm without a prompt.`,
     revokeCancelled: 'Nothing was revoked: the confirmation was not "revoke".',
+    invalidShareLinkId: (value: string) =>
+      `${JSON.stringify(value)} is not a share link ID. Run \`portifact share list <id>\` to see them.`,
+    shareRevokeConfirmationRequired: (id: string, linkId: string) =>
+      `Revoking a share link cannot be undone. Run \`portifact share revoke ${id} ${linkId} --yes\` to confirm without a prompt.`,
+    shareRevokeCancelled: 'Nothing was revoked: the confirmation was not "revoke".',
+    invalidExpiry: (value: string) =>
+      `${JSON.stringify(value)} is not an expiry. Use a duration like 12h or 7d, or an ISO date like 2026-12-01T00:00:00Z.`,
+    emptyPassword: "The password file is empty. Put the password on its first line.",
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
     invalidMode: (value: string) =>
@@ -377,6 +407,11 @@ export function formatBytes(bytes: number): string {
 }
 
 /** An instant as a readable UTC date and time; "never" when there is none. */
+/** An artifact's expiry: a date, or "never (pinned)" for a pinned artifact, which has none. */
+export function formatExpiry(value: string | null): string {
+  return value === null ? "never (pinned)" : formatDate(value);
+}
+
 export function formatDate(value: string | null): string {
   if (value === null) return "never";
   return `${value.slice(0, 10)} ${value.slice(11, 16)} UTC`;

@@ -191,6 +191,7 @@ describe("the expiry_notice job", () => {
           { id: ids[0], name: "Plan", expiresAt: NOW + 2 * DAY },
         ],
         locale: null,
+        archiveMonths: 6,
       },
     ]);
     expect(await emailsSentInCycle(db(), NOW + HOUR)).toBe(1);

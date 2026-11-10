@@ -2,6 +2,7 @@
 // samples here, so `bun run --cwd packages/emails preview` always shows all of them.
 import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { budgetAlertEmail } from "./budget-alert.ts";
+import { commentNoticeEmail } from "./comment-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
 import { invitationEmail } from "./invitation.ts";
 import type { EmailContent } from "./message.ts";
@@ -25,6 +26,26 @@ const notice = {
   settingsUrl: "https://app.portifact.com/settings",
   activeDays: 30,
   archiveMonths: 6,
+};
+
+const commentArtifact = (
+  id: string,
+  name: string,
+  newThreads: number,
+  newReplies: number,
+  resolvedThreads: number,
+) => ({
+  name,
+  url: `https://app.portifact.com/view/${id}`,
+  newThreads,
+  newReplies,
+  resolvedThreads,
+});
+const comments = {
+  settingsUrl: "https://app.portifact.com/settings",
+  unsubscribeUrl: "https://app.portifact.com/unsubscribe?token=cn1.sample.1794200000000.signature",
+  names: true,
+  more: 0,
 };
 
 /** Every language besides English, each previewed in every user-facing email. */
@@ -93,6 +114,47 @@ export function previews(): Preview[] {
         artifacts: [noticeArtifact("k7d2qm4xab", "Q3 launch plan", 70)],
       }),
     },
+    {
+      name: "comment-notice",
+      email: commentNoticeEmail({
+        ...comments,
+        more: 3,
+        artifacts: [
+          commentArtifact("k7d2qm4xab", "Q3 launch plan", 2, 5, 1),
+          commentArtifact("p4n8rt2vcd", "Design review notes", 0, 1, 0),
+        ],
+      }),
+    },
+    {
+      name: "comment-notice-one",
+      email: commentNoticeEmail({
+        ...comments,
+        artifacts: [commentArtifact("k7d2qm4xab", "Q3 launch plan", 1, 0, 0)],
+      }),
+    },
+    {
+      name: "comment-notice-without-names",
+      email: commentNoticeEmail({
+        ...comments,
+        names: false,
+        artifacts: [
+          commentArtifact("k7d2qm4xab", "Q3 launch plan", 1, 2, 0),
+          commentArtifact("p4n8rt2vcd", "Design review notes", 0, 0, 2),
+        ],
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `comment-notice-${locale.toLowerCase()}`,
+      email: commentNoticeEmail({
+        ...comments,
+        locale,
+        more: 2,
+        artifacts: [
+          commentArtifact("k7d2qm4xab", "Q3 launch plan", 3, 5, 1),
+          commentArtifact("p4n8rt2vcd", "Design review notes", 1, 1, 0),
+        ],
+      }),
+    })),
     ...TRANSLATED.map((locale) => ({
       name: `expiry-notice-${locale.toLowerCase()}`,
       email: expiryNoticeEmail({

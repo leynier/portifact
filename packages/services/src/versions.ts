@@ -99,7 +99,8 @@ export interface RollbackOutcome {
   artifactId: string;
   versionId: string;
   versionNumber: number;
-  expiresAt: number;
+  /** Null while the artifact is pinned: a rollback keeps the pin. */
+  expiresAt: number | null;
   fromVersionId: string;
   fromVersionNumber: number;
 }
@@ -519,7 +520,7 @@ export async function rollbackArtifact(
       .update(schema.artifacts)
       .set({
         currentVersionId: versionId,
-        expiresAt,
+        expiresAt: sql`case when ${schema.artifacts.pinned} then null else ${expiresAt} end`,
         lifecycleGeneration: sql`${schema.artifacts.lifecycleGeneration} + 1`,
         updatedAt: input.now,
       })
@@ -532,7 +533,7 @@ export async function rollbackArtifact(
           targetRetained,
         ),
       )
-      .returning({ id: schema.artifacts.id }),
+      .returning({ id: schema.artifacts.id, pinned: schema.artifacts.pinned }),
     db.insert(v).select(
       db
         .select({
@@ -616,7 +617,7 @@ export async function rollbackArtifact(
     artifactId: artifact.id,
     versionId,
     versionNumber: created?.number ?? 0,
-    expiresAt,
+    expiresAt: switchedRows[0]?.pinned ? null : expiresAt,
     fromVersionId: target.id,
     fromVersionNumber: target.number,
   });

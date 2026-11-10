@@ -73,6 +73,7 @@ export const en = {
   "list.refreshFailed.title": "The list could not be refreshed",
   "list.refreshFailed.body": "It shows what was loaded last. Portifact tries again shortly.",
   "list.never": "Never",
+  "list.pinned": "Pinned",
   "list.column.access": "Access",
   "list.captionFiltered": "Your artifacts that match the search and filters",
   "list.countFiltered":
@@ -165,6 +166,14 @@ export const en = {
   "detail.restore.body": "Restore it before it is deleted for good to put it back online.",
   "detail.noActions": "No actions are available in this state.",
   "detail.renew": "Renew for 30 days",
+  "detail.pin": "Pin",
+  "detail.unpin": "Unpin",
+  "detail.pinned.body": "Pinned: it stays online with no expiry until you unpin it.",
+  "detail.pin.paid":
+    "Pinning keeps an artifact online with no expiry. It is part of the {plan} plan.",
+  "detail.expiresNever": "Never, it is pinned",
+  "detail.pinnedDone": "Artifact pinned. It stays online with no expiry.",
+  "detail.unpinnedDone": "Artifact unpinned. It now expires on {date}.",
   "detail.archive": "Archive",
   "detail.restore": "Restore",
   "detail.delete": "Delete",
@@ -410,6 +419,16 @@ export const en = {
   "settings.notices.saved": "Email notices saved.",
   "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
   "settings.notices.failed": "Your email notices were not saved",
+  "settings.notices.comments.label": "Email me about new comments",
+  "settings.notices.comments.hint":
+    "At most one email every 10 minutes, with how many threads, replies and resolutions are new on each artifact, never what was written. Only for artifacts whose owner's plan includes comment notices.",
+  "commentNotices.label": "Email me about new comments on this artifact",
+  "commentNotices.hint":
+    "At most one email every 10 minutes, with counts only. Turn every comment email off in your settings.",
+  "commentNotices.muted": "Comment emails for this artifact turned off.",
+  "commentNotices.unmuted": "Comment emails for this artifact turned on.",
+  "commentNotices.failed": "Your choice was not saved",
+  "commentNotices.planRequired": "Email notices of new comments are part of the {plan} plan.",
   "settings.danger.title": "Danger zone",
   "settings.danger.hint": "These actions cannot be undone.",
   "account.data.title": "Your data",
@@ -613,6 +632,7 @@ export const en = {
   "publish.startOver": "Start over",
   "publish.done.title": "Published version {number}",
   "publish.done.body": "It is live at {url} and expires on {date}.",
+  "publish.done.pinned": "It is live at {url}. It is pinned, so it does not expire.",
   "publish.done.open": "Open the artifact page",
   "publish.done.another": "Publish something else",
   "publish.announce.done": "Published version {number} of {name}.",
@@ -978,6 +998,58 @@ export const en = {
   "error.reauthentication_required": "Sign in again to do that.",
   "error.human_verification_required":
     "Your first comments on other people's artifacts need a quick check that you are human. Complete it, then post again.",
+  "error.plan_required": "This feature is not part of the plan of the artifact's owner.",
+  "shareLinks.title": "Share links",
+  "shareLinks.description":
+    "Links that let anyone who has them read this artifact without an account. Visitors only read the current version: they cannot comment and are never identified.",
+  "shareLinks.loading": "Loading share links",
+  "shareLinks.loadFailed": "Share links did not load",
+  "shareLinks.paidTitle": "Share links are part of a paid plan",
+  "shareLinks.paid":
+    "Your plan does not include share links. Adding people and public access work as before.",
+  "shareLinks.paused":
+    "Your plan does not include share links now, so these links do not open. They are kept and work again if the plan includes share links. You can still revoke them.",
+  "shareLinks.publicNote":
+    "This artifact is public, so anyone can already open it. Share links matter if you narrow access later.",
+  "shareLinks.created.title": 'Link "{label}" created',
+  "shareLinks.created.once":
+    "Copy it now: for your safety it is shown only this once. Anyone with this link can read the artifact.",
+  "shareLinks.created.label": "Share link",
+  "shareLinks.created.copy": "Copy link",
+  "shareLinks.created.done": "Done",
+  "shareLinks.created.announce": "Share link created. Copy it now; it is shown only once.",
+  "shareLinks.empty": "No share links yet.",
+  "shareLinks.list": "Share links of this artifact",
+  "shareLinks.expired": "Expired",
+  "shareLinks.noExpiry": "No expiry",
+  "shareLinks.expires": "Expires {date}",
+  "shareLinks.withPassword": "Password",
+  "shareLinks.noPassword": "No password",
+  "shareLinks.neverUsed": "Not used yet",
+  "shareLinks.lastUsed": "Last used {date}",
+  "shareLinks.revoke": "Revoke",
+  "shareLinks.revokeLabel": "Revoke the link {label}",
+  "shareLinks.revoked": "Revoked the link {label}.",
+  "shareLinks.revokeFailed": "The link was not revoked",
+  "shareLinks.confirm.title": 'Revoke "{label}"?',
+  "shareLinks.confirm.body":
+    "Anyone with this link loses access within a minute. It cannot be undone; a new link has a new address.",
+  "shareLinks.cancel": "Cancel",
+  "shareLinks.create": "Create link",
+  "shareLinks.createFailed": "The link was not created",
+  "shareLinks.full":
+    "This artifact has {max} active links, the most it can have. Revoke one to create another.",
+  "shareLinks.label.label": "Label",
+  "shareLinks.label.hint": "Only you see it, for example who the link is for.",
+  "shareLinks.label.invalid": "Give the link a label of 1 to {max} characters.",
+  "shareLinks.expiry.label": "Expires after",
+  "shareLinks.expiry.never": "Never",
+  "shareLinks.expiry.days": "{count, plural, one {# day} other {# days}}",
+  "shareLinks.password.label": "Password (optional)",
+  "shareLinks.password.hint":
+    "At least {min} characters. Visitors type it before the artifact opens. Send it separately from the link.",
+  "shareLinks.password.short": "Use at least {min} characters, or leave it empty.",
+  "accessLog.shareLink": "Share link: {label}",
 } as const;
 
 export type MessageId = keyof typeof en;

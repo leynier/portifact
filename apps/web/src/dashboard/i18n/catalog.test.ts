@@ -1,4 +1,5 @@
 import { compileMessage } from "@lingui/message-utils/compileMessage";
+import { ErrorCode } from "@portifact/contracts";
 import { LOCALE_CODES } from "@portifact/contracts/locales";
 import { describe, expect, it } from "vitest";
 import { type Catalog, en } from "./en.ts";
@@ -97,5 +98,11 @@ describe("activateLocale", () => {
     await expect(activateLocale(i18n, "es", offline)).rejects.toThrow("offline");
     expect(i18n.locale).toBe("en");
     expect(i18n._("language.title")).toBe("Language");
+  });
+});
+
+describe("error messages", () => {
+  it("translate every shared error code, which the dashboard shows by its code", () => {
+    for (const code of ErrorCode.options) expect(ids, code).toContain(`error.${code}`);
   });
 });

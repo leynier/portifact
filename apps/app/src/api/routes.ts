@@ -25,10 +25,12 @@ import {
   getArtifact,
   type LifecycleOutcome,
   listArtifacts,
+  pinArtifact,
   renewArtifact,
   reportUploadedPart,
   restoreArtifact,
   transferArtifact,
+  unpinArtifact,
   updateAccess,
   uploadProgress,
 } from "@portifact/services";
@@ -52,6 +54,7 @@ import {
   workspaceParam,
 } from "./http.ts";
 import type { Presigner } from "./presign.ts";
+import { shareLinkRoutes } from "./share-links.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
@@ -180,7 +183,7 @@ export function apiRoutes(deps: ApiDeps) {
           versionId: result.value.versionId,
           versionNumber: result.value.versionNumber,
           url: contentUrl(c.env, result.value.artifactId),
-          expiresAt: iso(result.value.expiresAt),
+          expiresAt: result.value.expiresAt === null ? null : iso(result.value.expiresAt),
         }),
       );
     }),
@@ -320,6 +323,7 @@ export function apiRoutes(deps: ApiDeps) {
           state: result.value.state,
           expiresAt: result.value.expiresAt === null ? null : iso(result.value.expiresAt),
           purgeAt: result.value.purgeAt === null ? null : iso(result.value.purgeAt),
+          pinned: result.value.pinned,
         }),
       );
     });
@@ -336,6 +340,15 @@ export function apiRoutes(deps: ApiDeps) {
     "/api/v1/artifacts/:artifactId/restore",
     lifecycle((db, _b, i) => restoreArtifact(db, i), "artifacts:write"),
   );
+  // Pinning is a paid feature (premium plan P2); unpinning always works. Both are idempotent.
+  api.post(
+    "/api/v1/artifacts/:artifactId/pin",
+    lifecycle((db, _b, i) => pinArtifact(db, i), "artifacts:write"),
+  );
+  api.post(
+    "/api/v1/artifacts/:artifactId/unpin",
+    lifecycle((db, _b, i) => unpinArtifact(db, i), "artifacts:write"),
+  );
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
   api.route("/", annotationRoutes(guarded, deps.now, deps.siteverify));
@@ -344,6 +357,7 @@ export function apiRoutes(deps: ApiDeps) {
   usageRoutes(api, guarded, deps.now);
   accessLogRoutes(api, guarded, deps.now);
   workspaceReadRoutes(api, guarded, deps.now);
+  shareLinkRoutes(api, guarded, deps.now);
 
   return api;
 }

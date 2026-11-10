@@ -28,6 +28,7 @@ import {
   suppressEmail,
 } from "./email.ts";
 import type { JobOutcome } from "./outbox.ts";
+import { ownerEntitlements } from "./plans.ts";
 
 /** One artifact as the notice lists it. */
 export interface ExpiringArtifact {
@@ -47,6 +48,8 @@ export interface ExpiryNotifier {
     artifacts: ExpiringArtifact[];
     /** The owner's language (account settings); null when they chose none, which means English. */
     locale: LocaleCode | null;
+    /** How long the owner's plan keeps an archive (`archiveMonths`), for the email's text. */
+    archiveMonths: number;
   }): Promise<void>;
 }
 
@@ -216,6 +219,7 @@ export async function sendExpiryNotice(
     .sort((x, y) => x.expiresAt - y.expiresAt || (x.id < y.id ? -1 : 1));
   if (artifacts.length === 0) return skipped("nothing_due", scheduled.length);
 
+  const { archiveMonths } = (await ownerEntitlements(db, ownerId, now)).limits;
   let sent = 0;
   let skip: Skip = "suppressed";
   for (const recipient of opted) {
@@ -228,7 +232,12 @@ export async function sendExpiryNotice(
       break;
     }
     try {
-      await notifier.send({ to: recipient.email, artifacts, locale: recipient.locale });
+      await notifier.send({
+        to: recipient.email,
+        artifacts,
+        locale: recipient.locale,
+        archiveMonths,
+      });
     } catch (error) {
       if (error instanceof RecipientSuppressedError) {
         await suppressEmail(db, { email: recipient.email, reason: "provider", now });

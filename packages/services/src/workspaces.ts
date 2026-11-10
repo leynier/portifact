@@ -2,7 +2,7 @@
 // workspaces, members and roles, and the operator's create, show, list and delete. Every role
 // comes from `actorOn`; a user who is not a member of a workspace gets exactly what a missing one
 // gives. Membership writes are D1 batches conditioned on the state the request read, and the
-// triggers in 0030 refuse leaving a workspace without an admin even when a race slips past.
+// triggers of the workspace_members_invitations migration refuse leaving a workspace without an admin even when a race slips past.
 import {
   DEFAULT_REGION,
   isWorkspaceId,

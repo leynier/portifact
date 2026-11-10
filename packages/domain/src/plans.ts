@@ -8,7 +8,9 @@ import {
   type PlanLimits,
   PlanName,
   PlanOverrides,
+  planRequiredMessage,
 } from "@portifact/contracts";
+import { fail, ok, type Result } from "./result.ts";
 
 /** The columns of an `owner_plans` row that decide what it grants. */
 export interface OwnerPlanRecord {
@@ -73,6 +75,17 @@ export function entitlements(record: OwnerPlanRecord | null, now: number): Entit
 /** Whether the owner's plan includes a feature. */
 export function hasFeature(owner: Entitlements, feature: PlanFeature): boolean {
   return owner.features.includes(feature);
+}
+
+/**
+ * The one way to refuse a paid feature: the owner's entitlements back when its plan includes the
+ * feature, `plan_required` naming the feature and the lowest plan with it otherwise. Pass the
+ * entitlements of the artifact's owner (a workspace's plan for a workspace), never the caller's.
+ */
+export function requireFeature(owner: Entitlements, feature: PlanFeature): Result<Entitlements> {
+  return hasFeature(owner, feature)
+    ? ok(owner)
+    : fail("plan_required", planRequiredMessage(feature));
 }
 
 /**

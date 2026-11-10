@@ -177,7 +177,7 @@ export async function transferArtifact(
         // Columns in schema order: id, artifact, actor, channel, event, details, at.
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'transferred', ${JSON.stringify({ from, to })}, ${input.now} where ${unchanged}`,
       ),
-      // The triggers in 0030 move the active slot and the annotation usage with these updates.
+      // The triggers of the workspace_members_invitations migration move the active slot and the annotation usage with these updates.
       db
         .update(a)
         .set({ ownerId: to, updatedAt: input.now })

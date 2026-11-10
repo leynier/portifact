@@ -79,6 +79,7 @@ export const ptBR = {
   "list.refreshFailed.body":
     "Ela mostra o que foi carregado por último. O Portifact tenta de novo em instantes.",
   "list.never": "Nunca",
+  "list.pinned": "Fixado",
   "list.column.access": "Acesso",
   "list.captionFiltered": "Seus artifacts que correspondem à busca e aos filtros",
   "list.countFiltered":
@@ -175,6 +176,13 @@ export const ptBR = {
     "Restaure-o antes que seja excluído definitivamente para colocá-lo de volta no ar.",
   "detail.noActions": "Nenhuma ação está disponível neste estado.",
   "detail.renew": "Renovar por 30 dias",
+  "detail.pin": "Fixar",
+  "detail.unpin": "Desafixar",
+  "detail.pinned.body": "Fixado: fica no ar sem expiração até você desafixar.",
+  "detail.pin.paid": "Fixar mantém um artifact no ar sem expiração. Faz parte do plano {plan}.",
+  "detail.expiresNever": "Nunca, está fixado",
+  "detail.pinnedDone": "Artifact fixado. Fica no ar sem expiração.",
+  "detail.unpinnedDone": "Artifact desafixado. Agora expira em {date}.",
   "detail.archive": "Arquivar",
   "detail.restore": "Restaurar",
   "detail.delete": "Excluir",
@@ -420,6 +428,17 @@ export const ptBR = {
   "settings.notices.saved": "Avisos por e-mail salvos.",
   "settings.notices.unchanged": "Nada para salvar: seus avisos por e-mail já estão assim.",
   "settings.notices.failed": "Seus avisos por e-mail não foram salvos",
+  "settings.notices.comments.label": "Enviar um e-mail quando houver novos comentários",
+  "settings.notices.comments.hint":
+    "No máximo um e-mail a cada 10 minutos, com quantas conversas, respostas e resoluções são novas em cada artifact, nunca o que foi escrito. Só em artifacts cujo proprietário tem um plano com avisos de comentários.",
+  "commentNotices.label": "Enviar um e-mail quando houver novos comentários neste artifact",
+  "commentNotices.hint":
+    "No máximo um e-mail a cada 10 minutos, só com contagens. Desative todos os e-mails de comentários nas suas configurações.",
+  "commentNotices.muted": "E-mails de comentários desativados para este artifact.",
+  "commentNotices.unmuted": "E-mails de comentários ativados para este artifact.",
+  "commentNotices.failed": "Sua escolha não foi salva",
+  "commentNotices.planRequired":
+    "Avisos por e-mail de novos comentários fazem parte do plano {plan}.",
   "settings.danger.title": "Zona de perigo",
   "settings.danger.hint": "Estas ações não podem ser desfeitas.",
   "account.data.title": "Seus dados",
@@ -627,6 +646,7 @@ export const ptBR = {
   "publish.startOver": "Recomeçar",
   "publish.done.title": "Versão {number} publicada",
   "publish.done.body": "Está no ar em {url} e expira em {date}.",
+  "publish.done.pinned": "Está no ar em {url}. Está fixado, então não expira.",
   "publish.done.open": "Abrir a página do artifact",
   "publish.done.another": "Publicar outra coisa",
   "publish.announce.done": "Versão {number} de {name} publicada.",
@@ -1005,4 +1025,57 @@ export const ptBR = {
   "error.reauthentication_required": "Entre de novo para fazer isso.",
   "error.human_verification_required":
     "Seus primeiros comentários em artifacts de outras pessoas precisam de uma verificação rápida de que você é humano. Conclua-a e depois publique de novo.",
+  "error.plan_required": "Este recurso não faz parte do plano do dono do artifact.",
+  "shareLinks.title": "Links de compartilhamento",
+  "shareLinks.description":
+    "Links que permitem que qualquer pessoa que os tenha leia este artifact sem uma conta. Os visitantes só leem a versão atual: não podem comentar e nunca são identificados.",
+  "shareLinks.loading": "Carregando os links de compartilhamento",
+  "shareLinks.loadFailed": "Os links de compartilhamento não carregaram",
+  "shareLinks.paidTitle": "Links de compartilhamento fazem parte de um plano pago",
+  "shareLinks.paid":
+    "Seu plano não inclui links de compartilhamento. Adicionar pessoas e o acesso público funcionam como antes.",
+  "shareLinks.paused":
+    "Seu plano não inclui mais links de compartilhamento, então estes links não abrem. Eles são mantidos e voltam a funcionar se o plano incluir links de compartilhamento. Você ainda pode revogá-los.",
+  "shareLinks.publicNote":
+    "Este artifact é público, então qualquer pessoa já pode abri-lo. Links de compartilhamento fazem diferença se você restringir o acesso depois.",
+  "shareLinks.created.title": 'Link "{label}" criado',
+  "shareLinks.created.once":
+    "Copie agora: por segurança ele é mostrado só desta vez. Qualquer pessoa com este link pode ler o artifact.",
+  "shareLinks.created.label": "Link de compartilhamento",
+  "shareLinks.created.copy": "Copiar link",
+  "shareLinks.created.done": "Concluído",
+  "shareLinks.created.announce":
+    "Link de compartilhamento criado. Copie agora; ele é mostrado só uma vez.",
+  "shareLinks.empty": "Ainda não há links de compartilhamento.",
+  "shareLinks.list": "Links de compartilhamento deste artifact",
+  "shareLinks.expired": "Expirado",
+  "shareLinks.noExpiry": "Sem expiração",
+  "shareLinks.expires": "Expira em {date}",
+  "shareLinks.withPassword": "Senha",
+  "shareLinks.noPassword": "Sem senha",
+  "shareLinks.neverUsed": "Ainda não usado",
+  "shareLinks.lastUsed": "Usado pela última vez em {date}",
+  "shareLinks.revoke": "Revogar",
+  "shareLinks.revokeLabel": "Revogar o link {label}",
+  "shareLinks.revoked": "O link {label} foi revogado.",
+  "shareLinks.revokeFailed": "O link não foi revogado",
+  "shareLinks.confirm.title": 'Revogar "{label}"?',
+  "shareLinks.confirm.body":
+    "Quem tiver este link perde o acesso em até um minuto. Não dá para desfazer; um link novo tem outro endereço.",
+  "shareLinks.cancel": "Cancelar",
+  "shareLinks.create": "Criar link",
+  "shareLinks.createFailed": "O link não foi criado",
+  "shareLinks.full":
+    "Este artifact tem {max} links ativos, o máximo possível. Revogue um para criar outro.",
+  "shareLinks.label.label": "Rótulo",
+  "shareLinks.label.hint": "Só você vê, por exemplo para quem é o link.",
+  "shareLinks.label.invalid": "Dê ao link um rótulo de 1 a {max} caracteres.",
+  "shareLinks.expiry.label": "Expira depois de",
+  "shareLinks.expiry.never": "Nunca",
+  "shareLinks.expiry.days": "{count, plural, one {# dia} other {# dias}}",
+  "shareLinks.password.label": "Senha (opcional)",
+  "shareLinks.password.hint":
+    "Pelo menos {min} caracteres. Os visitantes a digitam antes de o artifact abrir. Envie-a separada do link.",
+  "shareLinks.password.short": "Use pelo menos {min} caracteres ou deixe vazio.",
+  "accessLog.shareLink": "Link de compartilhamento: {label}",
 } satisfies Catalog;

@@ -23,6 +23,18 @@ async function rejects(statement: Promise<unknown>, pattern: RegExp) {
   expect(messages.join("\n")).toMatch(pattern);
 }
 
+/**
+ * An artifact row in raw SQL: the schema has columns added by later migrations (`pinned`, 0030)
+ * that this database at 0027 does not have, so Drizzle's insert would name them.
+ */
+async function insertArtifact(id: string, ownerId: string, state: "active" | "draft") {
+  await env.MIGRATION_DB.prepare(
+    "INSERT INTO artifacts (id, owner_id, type, name, state) VALUES (?, ?, 'site', 'Plan', ?)",
+  )
+    .bind(id, ownerId, state)
+    .run();
+}
+
 async function triggers() {
   const { results } = await env.MIGRATION_DB.prepare(
     "SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY name",
@@ -134,9 +146,7 @@ describe("migration 0027: account limits as columns", () => {
     await db()
       .insert(schema.accountUsage)
       .values({ ownerId: owner, activeArtifacts: 1, monthStartedAt: NOW });
-    await db()
-      .insert(schema.artifacts)
-      .values({ id: "lifecycl01", ownerId: owner, type: "site", name: "Plan", state: "active" });
+    await insertArtifact("lifecycl01", owner, "active");
     const setState = (state: "active" | "archived" | "suspended") =>
       db().update(schema.artifacts).set({ state }).where(eq(schema.artifacts.id, "lifecycl01"));
     const active = async () =>
@@ -184,9 +194,7 @@ describe("migration 0027: account limits as columns", () => {
 
   it("still keeps annotation usage on every write and refuses one past the limit", async () => {
     const owner = "u_annotator";
-    await db()
-      .insert(schema.artifacts)
-      .values({ id: "annotate01", ownerId: owner, type: "site", name: "Plan" });
+    await insertArtifact("annotate01", owner, "draft");
     await db().insert(schema.annotationThreads).values({
       id: "t1",
       artifactId: "annotate01",

@@ -28,10 +28,11 @@ const BUILT_IN = {
   defaultCommentVisibility: "owner",
   defaultBar: true,
   expiryNotices: true,
+  commentNotices: true,
   locale: null,
 } as const;
 
-const { expiryNotices: _, ...DEFAULTS } = BUILT_IN;
+const { expiryNotices: _, commentNotices: __, ...DEFAULTS } = BUILT_IN;
 
 async function notices() {
   const section = await screen.findByRole("region", { name: "Email notices" });
@@ -207,6 +208,20 @@ describe("email notices", () => {
     expect(
       (within(comments).getByRole("radio", { name: /Open/ }) as HTMLInputElement).checked,
     ).toBe(true);
+  });
+
+  it("turns comment notices off on their own", async () => {
+    renderDashboard("/settings", server);
+    const section = await notices();
+    const box = within(section).getByRole("checkbox", {
+      name: "Email me about new comments",
+    }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    fireEvent.click(within(section).getByRole("button", { name: "Save email notices" }));
+    expect(await screen.findByText("Email notices saved.")).toBeTruthy();
+    expect(server.bodies.at(-1)).toEqual({ commentNotices: false });
+    expect(server.settings).toMatchObject({ commentNotices: false, expiryNotices: true });
   });
 
   it("shows them off when saved off, and turns them back on", async () => {

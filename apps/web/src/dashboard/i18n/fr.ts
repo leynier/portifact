@@ -81,6 +81,7 @@ export const fr = {
   "list.refreshFailed.body":
     "Elle affiche ce qui a été chargé en dernier. Portifact réessaie dans un instant.",
   "list.never": "Jamais",
+  "list.pinned": "Épinglé",
   "list.column.access": "Accès",
   "list.captionFiltered": "Vos artifacts correspondant à la recherche et aux filtres",
   "list.countFiltered":
@@ -177,6 +178,15 @@ export const fr = {
   "detail.restore.body": "Restaurez-le avant sa suppression définitive pour le remettre en ligne.",
   "detail.noActions": "Aucune action n’est disponible dans cet état.",
   "detail.renew": "Renouveler pour 30 jours",
+  "detail.pin": "Épingler",
+  "detail.unpin": "Désépingler",
+  "detail.pinned.body":
+    "Épinglé : il reste en ligne sans expiration jusqu’à ce que vous le désépingliez.",
+  "detail.pin.paid":
+    "Épingler garde un artifact en ligne sans expiration. Cela fait partie de l’offre {plan}.",
+  "detail.expiresNever": "Jamais, il est épinglé",
+  "detail.pinnedDone": "Artifact épinglé. Il reste en ligne sans expiration.",
+  "detail.unpinnedDone": "Artifact désépinglé. Il expire maintenant le {date}.",
   "detail.archive": "Archiver",
   "detail.restore": "Restaurer",
   "detail.delete": "Supprimer",
@@ -431,6 +441,17 @@ export const fr = {
   "settings.notices.unchanged":
     "Rien à enregistrer : vos avis par e-mail sont déjà configurés ainsi.",
   "settings.notices.failed": "Vos avis par e-mail n’ont pas été enregistrés",
+  "settings.notices.comments.label": "M’envoyer un e-mail en cas de nouveaux commentaires",
+  "settings.notices.comments.hint":
+    "Au plus un e-mail toutes les 10 minutes, avec le nombre de nouveaux fils, réponses et résolutions sur chaque artifact, jamais ce qui a été écrit. Seulement pour les artifacts dont le propriétaire a un plan avec les avis de commentaires.",
+  "commentNotices.label": "M’envoyer un e-mail en cas de nouveaux commentaires sur cet artifact",
+  "commentNotices.hint":
+    "Au plus un e-mail toutes les 10 minutes, avec des nombres seulement. Désactivez tous les e-mails de commentaires dans vos paramètres.",
+  "commentNotices.muted": "E-mails de commentaires désactivés pour cet artifact.",
+  "commentNotices.unmuted": "E-mails de commentaires activés pour cet artifact.",
+  "commentNotices.failed": "Votre choix n’a pas été enregistré",
+  "commentNotices.planRequired":
+    "Les avis par e-mail des nouveaux commentaires font partie du plan {plan}.",
   "settings.danger.title": "Zone de danger",
   "settings.danger.hint": "Ces actions sont irréversibles.",
   "account.data.title": "Vos données",
@@ -640,6 +661,7 @@ export const fr = {
   "publish.startOver": "Recommencer",
   "publish.done.title": "Version {number} publiée",
   "publish.done.body": "Elle est en ligne à {url} et expire le {date}.",
+  "publish.done.pinned": "Elle est en ligne à {url}. Elle est épinglée, donc elle n’expire pas.",
   "publish.done.open": "Ouvrir la page de l’artifact",
   "publish.done.another": "Publier autre chose",
   "publish.announce.done": "Version {number} de {name} publiée.",
@@ -1019,4 +1041,58 @@ export const fr = {
   "error.reauthentication_required": "Reconnectez-vous pour faire cela.",
   "error.human_verification_required":
     "Vos premiers commentaires sur les artifacts d’autres personnes nécessitent une vérification rapide que vous êtes humain. Terminez-la, puis publiez de nouveau.",
+  "error.plan_required":
+    "Cette fonctionnalité ne fait pas partie de l’offre du propriétaire de l’artifact.",
+  "shareLinks.title": "Liens de partage",
+  "shareLinks.description":
+    "Des liens qui permettent à toute personne qui les a de lire cet artifact sans compte. Les visiteurs lisent seulement la version actuelle : ils ne peuvent pas commenter et ne sont jamais identifiés.",
+  "shareLinks.loading": "Chargement des liens de partage",
+  "shareLinks.loadFailed": "Les liens de partage n'ont pas pu être chargés",
+  "shareLinks.paidTitle": "Les liens de partage font partie d'une offre payante",
+  "shareLinks.paid":
+    "Votre offre n'inclut pas les liens de partage. Ajouter des personnes et l'accès public fonctionnent comme avant.",
+  "shareLinks.paused":
+    "Votre offre n'inclut plus les liens de partage, ces liens ne s'ouvrent donc pas. Ils sont conservés et fonctionnent à nouveau si l'offre inclut les liens de partage. Vous pouvez toujours les révoquer.",
+  "shareLinks.publicNote":
+    "Cet artifact est public, donc tout le monde peut déjà l'ouvrir. Les liens de partage comptent si vous restreignez l'accès plus tard.",
+  "shareLinks.created.title": "Lien « {label} » créé",
+  "shareLinks.created.once":
+    "Copiez-le maintenant : par sécurité, il n'est affiché que cette fois. Toute personne qui a ce lien peut lire l'artifact.",
+  "shareLinks.created.label": "Lien de partage",
+  "shareLinks.created.copy": "Copier le lien",
+  "shareLinks.created.done": "Terminé",
+  "shareLinks.created.announce":
+    "Lien de partage créé. Copiez-le maintenant ; il n'est affiché qu'une fois.",
+  "shareLinks.empty": "Aucun lien de partage pour l'instant.",
+  "shareLinks.list": "Liens de partage de cet artifact",
+  "shareLinks.expired": "Expiré",
+  "shareLinks.noExpiry": "Sans expiration",
+  "shareLinks.expires": "Expire le {date}",
+  "shareLinks.withPassword": "Mot de passe",
+  "shareLinks.noPassword": "Sans mot de passe",
+  "shareLinks.neverUsed": "Pas encore utilisé",
+  "shareLinks.lastUsed": "Dernière utilisation le {date}",
+  "shareLinks.revoke": "Révoquer",
+  "shareLinks.revokeLabel": "Révoquer le lien {label}",
+  "shareLinks.revoked": "Le lien {label} a été révoqué.",
+  "shareLinks.revokeFailed": "Le lien n'a pas été révoqué",
+  "shareLinks.confirm.title": "Révoquer « {label} » ?",
+  "shareLinks.confirm.body":
+    "Toute personne qui a ce lien perd l'accès en moins d'une minute. C'est définitif ; un nouveau lien a une nouvelle adresse.",
+  "shareLinks.cancel": "Annuler",
+  "shareLinks.create": "Créer un lien",
+  "shareLinks.createFailed": "Le lien n'a pas été créé",
+  "shareLinks.full":
+    "Cet artifact a {max} liens actifs, le maximum. Révoquez-en un pour en créer un autre.",
+  "shareLinks.label.label": "Libellé",
+  "shareLinks.label.hint": "Vous seul le voyez, par exemple pour qui est le lien.",
+  "shareLinks.label.invalid": "Donnez au lien un libellé de 1 à {max} caractères.",
+  "shareLinks.expiry.label": "Expire après",
+  "shareLinks.expiry.never": "Jamais",
+  "shareLinks.expiry.days": "{count, plural, one {# jour} other {# jours}}",
+  "shareLinks.password.label": "Mot de passe (facultatif)",
+  "shareLinks.password.hint":
+    "Au moins {min} caractères. Les visiteurs le saisissent avant que l'artifact s'ouvre. Envoyez-le séparément du lien.",
+  "shareLinks.password.short": "Utilisez au moins {min} caractères, ou laissez vide.",
+  "accessLog.shareLink": "Lien de partage : {label}",
 } satisfies Catalog;

@@ -84,11 +84,11 @@ describe("access log", () => {
     expect(saved[0]?.fileName).toBe(`${ID}-access-log.csv`);
     expect(await saved[0]?.blob.text()).toBe(
       [
-        "openedAt,email",
-        `${new Date(NOW).toISOString()},visitor0@example.test`,
-        `${new Date(NOW - HOUR).toISOString()},visitor1@example.test`,
-        `${new Date(NOW - 2 * HOUR).toISOString()},visitor2@example.test`,
-        `2026-11-01T00:00:00.000Z,"'=1+1@example.test"`,
+        "openedAt,email,shareLink",
+        `${new Date(NOW).toISOString()},visitor0@example.test,`,
+        `${new Date(NOW - HOUR).toISOString()},visitor1@example.test,`,
+        `${new Date(NOW - 2 * HOUR).toISOString()},visitor2@example.test,`,
+        `2026-11-01T00:00:00.000Z,"'=1+1@example.test",`,
         "",
       ].join("\r\n"),
     );

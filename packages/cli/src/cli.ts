@@ -26,6 +26,7 @@ import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
+import { createShare, listShares, revokeShare } from "./share.ts";
 import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
 import { listTokens, revokeToken } from "./tokens.ts";
 import { usage } from "./usage.ts";
@@ -53,6 +54,13 @@ With --json, a failure prints {"error":{"code","message"}} on stdout.
 
 Portifact is free software under AGPL-3.0: https://github.com/leynier/portifact
 \`portifact licenses\` prints the notices of the open source software in this binary.
+`;
+
+const SHARE_HELP = `
+A share link lets anyone who has it read the artifact's current version without a Portifact
+account: no comments, and visitors are never identified. Treat the URL like a password: it is
+printed only by \`share create\`. Share links are part of a paid plan. Revoking ends the link and
+its sessions within a minute.
 `;
 
 const PUBLISH_HELP = `
@@ -316,8 +324,10 @@ export async function run(
 
   const lifecycleCommands: [LifecycleAction, string][] = [
     ["renew", "Keep an artifact published for another 30 days"],
-    ["archive", "Stop serving an artifact; its owner can restore it for six months"],
+    ["archive", "Stop serving an artifact; its owner can restore it for the plan's archive months"],
     ["restore", "Publish an archived artifact again"],
+    ["pin", "Keep an artifact published with no expiry until unpinned (paid plans)"],
+    ["unpin", "Stop pinning an artifact; it gets 30 days from now"],
   ];
   for (const [action, description] of lifecycleCommands) {
     program
@@ -573,6 +583,61 @@ export async function run(
     .action(
       execute((io, runtime, options: { to: string; json?: boolean }, id: string) =>
         transfer(io, runtime, { to: options.to, json: options.json === true }, parseArtifactId(id)),
+      ),
+    );
+
+  const share = program
+    .command("share")
+    .description("Create, list or revoke links that let anyone read an artifact without an account")
+    .enablePositionalOptions()
+    .addHelpText("after", SHARE_HELP);
+  share
+    .command("create")
+    .description("Create a share link; its URL is printed once")
+    .argument("<id>", "artifact ID")
+    .requiredOption("--label <label>", "a name for the link that only you see")
+    .option("--expires <time>", "when it stops working: a duration (12h, 7d) or an ISO date")
+    .option("--password-file <path>", "require the password on the first line of this file")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { label: string; expires?: string; passwordFile?: string; json?: boolean },
+          id: string,
+        ) =>
+          createShare(io, runtime, id, {
+            label: options.label,
+            expires: options.expires,
+            passwordFile: options.passwordFile,
+            json: options.json === true,
+          }),
+      ),
+    );
+  share
+    .command("list")
+    .description("List an artifact's share links, without their URLs")
+    .argument("<id>", "artifact ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        listShares(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  share
+    .command("revoke")
+    .description("Revoke a share link, after a confirmation")
+    .argument("<id>", "artifact ID")
+    .argument("<link-id>", "the link's ID from `portifact share list`")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string, link: string) =>
+        revokeShare(io, runtime, id, link, {
+          yes: options.yes === true,
+          json: options.json === true,
+        }),
       ),
     );
 

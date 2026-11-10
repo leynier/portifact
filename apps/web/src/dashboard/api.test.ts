@@ -110,17 +110,26 @@ describe("dashboard API client", () => {
   });
 
   it("sends lifecycle actions to their routes", async () => {
-    const result = { state: "archived", expiresAt: null, purgeAt: "2027-05-08T12:00:00.000Z" };
+    const result = {
+      state: "archived",
+      expiresAt: null,
+      purgeAt: "2027-05-08T12:00:00.000Z",
+      pinned: false,
+    };
     const { api, calls } = client(() => Response.json(result));
     expect(await api.lifecycle("k7d2qm4xab", "archive")).toEqual(result);
     await api.lifecycle("k7d2qm4xab", "renew");
     await api.lifecycle("k7d2qm4xab", "restore");
     await api.lifecycle("k7d2qm4xab", "delete");
+    await api.lifecycle("k7d2qm4xab", "pin");
+    await api.lifecycle("k7d2qm4xab", "unpin");
     expect(calls.map((c) => `${c.init.method} ${c.path}`)).toEqual([
       "POST /api/v1/artifacts/k7d2qm4xab/archive",
       "POST /api/v1/artifacts/k7d2qm4xab/renew",
       "POST /api/v1/artifacts/k7d2qm4xab/restore",
       "DELETE /api/v1/artifacts/k7d2qm4xab",
+      "POST /api/v1/artifacts/k7d2qm4xab/pin",
+      "POST /api/v1/artifacts/k7d2qm4xab/unpin",
     ]);
   });
 
@@ -272,6 +281,7 @@ describe("dashboard API client", () => {
       defaultCommentVisibility: "owner",
       defaultBar: true,
       expiryNotices: true,
+      commentNotices: true,
       locale: null,
     };
     const at = "2026-11-08T12:00:00.000Z";
@@ -306,5 +316,23 @@ describe("dashboard API client", () => {
       path: "/api/v1/account/settings",
       init: { method: "PATCH", body: '{"defaultBar":false}' },
     });
+  });
+
+  it("reads and changes an artifact's comment notice mute by its route", async () => {
+    const { api, calls } = client((_path, init) =>
+      Response.json({ available: true, muted: init.method === "PUT" }),
+    );
+    expect(await api.commentNoticeMute("k7d2qm4xab")).toEqual({ available: true, muted: false });
+    expect(await api.setCommentNoticeMute("k7d2qm4xab", true)).toEqual({
+      available: true,
+      muted: true,
+    });
+    expect(calls).toMatchObject([
+      { path: "/api/v1/account/comment-notices/k7d2qm4xab" },
+      {
+        path: "/api/v1/account/comment-notices/k7d2qm4xab",
+        init: { method: "PUT", body: '{"muted":true}' },
+      },
+    ]);
   });
 });

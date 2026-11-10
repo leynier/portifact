@@ -142,6 +142,15 @@ export const ExportThread = z.object({
   messages: z.array(ExportMessage),
 });
 
+/** A share link of an exported artifact: never its token or the token's hash. */
+export const ExportShareLink = z.strictObject({
+  label: z.string(),
+  state: z.enum(["active", "expired", "revoked"]),
+  hasPassword: z.boolean(),
+  createdAt: Iso,
+  expiresAt: IsoOrNull,
+});
+
 export const ExportArtifact = z.object({
   id: z.string(),
   name: z.string(),
@@ -153,6 +162,7 @@ export const ExportArtifact = z.object({
   indexable: z.boolean(),
   embeddable: z.boolean(),
   bar: z.boolean(),
+  pinned: z.boolean(),
   suspension: SuspensionView.nullable(),
   createdAt: Iso,
   updatedAt: Iso,
@@ -161,6 +171,7 @@ export const ExportArtifact = z.object({
   purgeAt: IsoOrNull,
   versions: z.array(ExportVersion),
   threads: z.array(ExportThread),
+  shareLinks: z.array(ExportShareLink),
 });
 
 /** The account's data as JSON (plan section 5): offered before deletion, at any time. */
@@ -179,6 +190,8 @@ export const AccountExport = z.object({
     settings: AccountSettings,
     /** The account's plan as it applies at the export, `free` when it has none. */
     plan: PlanView,
+    /** Artifacts whose comment notices the account muted. */
+    commentNoticeMutes: z.array(z.string()),
   }),
   artifacts: z.array(ExportArtifact),
   /** The workspaces the account is a member of, with its role; not their artifacts. */

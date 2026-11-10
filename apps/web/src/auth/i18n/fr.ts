@@ -86,6 +86,31 @@ const messages = {
     failed: "Le signalement n’a pas pu être envoyé. Réessayez ou écrivez à abuse@portifact.com.",
     sent: "Signalement envoyé.",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "Vérification du lien.",
+    opening: "Ouverture de l'artifact.",
+    passwordRequired: "Saisissez le mot de passe.",
+    refused: "Le mot de passe est incorrect, ou le lien a expiré ou a été révoqué.",
+    humanCheckShown:
+      "Confirmez ci-dessous que vous êtes humain. Le mot de passe est réessayé quand vous avez terminé.",
+    humanCheckUnavailable:
+      "La vérification humaine n'a pas pu se charger. Autorisez challenges.cloudflare.com ou réessayez plus tard.",
+    rateLimited: "Trop de tentatives. Patientez quelques minutes puis réessayez.",
+    network: "Impossible de joindre Portifact. Vérifiez votre connexion et réessayez.",
+    failed: "Le lien n'a pas pu être ouvert. Réessayez.",
+  },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "Ce lien est incomplet. Ouvrez de nouveau le lien de l’e-mail, ou désactivez les avis de commentaires dans vos paramètres.",
+    invalid: "Ce lien ne fonctionne plus. Désactivez les avis de commentaires dans vos paramètres.",
+    rateLimited: "Trop de tentatives depuis cet endroit. Réessayez dans quelques minutes.",
+    network: "Portifact est injoignable. Vérifiez votre connexion et réessayez.",
+    failed:
+      "Les avis de commentaires n’ont pas pu être désactivés. Réessayez, ou désactivez-les dans vos paramètres.",
+    done: "Avis de commentaires désactivés.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -204,5 +229,33 @@ export const fr: AuthCatalog = {
     "report.doneHeading": "Merci, nous avons reçu votre signalement",
     "report.doneBody":
       'Nous examinons chaque signalement. Vous pouvez aussi écrire à <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>.',
+    // share.html
+    "share.title": "Ouvrir un artifact partagé",
+    "share.heading": "Ouvrir un artifact partagé",
+    "share.passwordIntro":
+      "La personne qui a partagé cet artifact l'a protégé par un mot de passe.",
+    "share.passwordLabel": "Mot de passe",
+    "share.humanCheckHint":
+      "Après plusieurs mots de passe incorrects, confirmez que vous êtes humain pour réessayer.",
+    "share.open": "Ouvrir",
+    "share.unavailableHeading": "Ce lien ne fonctionne pas",
+    "share.unavailableBody":
+      "Il a peut-être expiré ou été révoqué, ou ce n'est pas un lien de partage. Demandez un nouveau lien à la personne qui l'a partagé.",
+    "share.incompleteHeading": "Ouvrez le lien à nouveau",
+    "share.incompleteBody":
+      "Cette page a besoin du lien complet, y compris la partie après #. Par sécurité, elle retire cette partie de la barre d'adresse : après un rechargement, ouvrez à nouveau le lien depuis l'endroit où vous l'avez reçu.",
+    "share.privacy":
+      "Vous lisez l'artifact sans compte. Portifact n'enregistre pas qui vous êtes ; le propriétaire voit seulement que le lien a été utilisé. L'artifact est écrit par son auteur, pas par Portifact : n'y saisissez ni mot de passe ni données personnelles.",
+    "share.report": "Signaler un abus",
+
+    // unsubscribe.html
+    "unsubscribe.title": "Désactiver les avis de commentaires de Portifact",
+    "unsubscribe.heading": "Désactiver les avis de commentaires",
+    "unsubscribe.intro":
+      "Vous ne recevrez plus d’e-mails sur les nouveaux commentaires des artifacts Portifact. Les avis d’expiration et les e-mails de connexion ne changent pas.",
+    "unsubscribe.confirm": "Désactiver les avis de commentaires",
+    "unsubscribe.doneHeading": "Les avis de commentaires sont désactivés",
+    "unsubscribe.doneBody":
+      'Vous pouvez les réactiver dans vos <a href="/settings">paramètres</a>.',
   },
 };

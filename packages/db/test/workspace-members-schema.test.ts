@@ -1,4 +1,4 @@
-// Migration 0030: invitations, workspace deletions, the last-admin triggers, the triggers that move
+// The workspace_members_invitations migration: invitations, workspace deletions, the last-admin triggers, the triggers that move
 // usage with a transferred artifact, and object rows that share an R2 key.
 import { env } from "cloudflare:test";
 import { and, eq } from "drizzle-orm";
@@ -67,7 +67,7 @@ const roleOf = async (workspaceId: string, userId: string) =>
       )
   )[0]?.role;
 
-describe("migration 0030: a workspace keeps an admin", () => {
+describe("workspace members migration: a workspace keeps an admin", () => {
   it("refuses demoting or removing the last admin, and allows it while another remains", async () => {
     const ws = await workspace();
     const [a, b] = [await user(), await user()];
@@ -144,7 +144,7 @@ describe("migration 0030: a workspace keeps an admin", () => {
   });
 });
 
-describe("migration 0030: invitations", () => {
+describe("workspace members migration: invitations", () => {
   it("keeps one invitation per workspace and address, unique tokens, and goes with the workspace", async () => {
     const ws = await workspace();
     const admin = await user();
@@ -216,7 +216,7 @@ describe("migration 0030: invitations", () => {
   });
 });
 
-describe("migration 0030: transfers", () => {
+describe("workspace members migration: transfers", () => {
   const usageOf = async (ownerId: string) =>
     (
       await db()

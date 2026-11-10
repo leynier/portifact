@@ -1,4 +1,5 @@
-// list, info, the lifecycle commands (renew, archive, restore, delete) and access control. Each
+// list, info, the lifecycle commands (renew, archive, restore, delete, pin, unpin) and access
+// control. Each
 // is a thin call to the API; the server applies every rule and the CLI only shapes the output.
 import {
   AccessMode,
@@ -84,7 +85,7 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
       item.state,
       item.accessMode,
       item.type,
-      item.expiresAt === null ? "never" : item.expiresAt.slice(0, 10),
+      item.pinned ? "pinned" : item.expiresAt === null ? "never" : item.expiresAt.slice(0, 10),
       item.name,
     ]),
   ];
@@ -122,6 +123,7 @@ export async function info(
       ["Annotations", artifact.annotations],
       ["URL", artifact.url],
       ["Space", ownerLabel(artifact.owner)],
+      ["Pinned", artifact.pinned ? "yes, no expiry" : "no"],
       ["Expires", formatDate(artifact.expiresAt)],
       ["Archived", formatDate(artifact.archivedAt)],
       ["Purge", formatDate(artifact.purgeAt)],
@@ -131,7 +133,7 @@ export async function info(
   );
 }
 
-export type LifecycleAction = "renew" | "archive" | "restore" | "delete";
+export type LifecycleAction = "renew" | "archive" | "restore" | "delete" | "pin" | "unpin";
 
 export interface LifecycleOptions extends OutputOptions {
   /** Confirms a permanent deletion without a prompt. */
@@ -176,6 +178,8 @@ export async function lifecycle(
     renew: () => messages.renewed(artifactId, result.expiresAt),
     archive: () => messages.archived(artifactId, result.purgeAt),
     restore: () => messages.restored(artifactId, result.expiresAt),
+    pin: () => messages.pinned(artifactId),
+    unpin: () => messages.unpinned(artifactId, result.expiresAt),
     delete: () => messages.deleted(artifactId),
   }[action]();
   io.stdout(`${text}\n`);

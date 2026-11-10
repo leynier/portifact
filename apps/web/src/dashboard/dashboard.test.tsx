@@ -651,6 +651,90 @@ describe("artifact detail", () => {
   });
 });
 
+describe("pinned artifacts", () => {
+  const onPro = () => {
+    server.usage = usageView({
+      plan: {
+        name: "pro",
+        validUntil: null,
+        seats: 1,
+        limits: { ...usageView().plan.limits, archiveMonths: 12 },
+        features: ["pin"],
+      },
+    });
+  };
+
+  it("explains that pinning is part of a paid plan, with no button, on free", async () => {
+    const { container } = renderDashboard("/artifacts/k7d2qm4xab", server);
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(
+      await within(details).findByText(
+        "Pinning keeps an artifact online with no expiry. It is part of the Pro plan.",
+      ),
+    ).toBeTruthy();
+    expect(within(details).queryByRole("button", { name: "Pin" })).toBeNull();
+    expect(within(details).queryByRole("link", { name: /upgrade|plan/i })).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("pins and unpins on a plan with pin, announcing each", async () => {
+    onPro();
+    const { container } = renderDashboard("/artifacts/k7d2qm4xab", server);
+    const details = await screen.findByRole("region", { name: "Details" });
+    fireEvent.click(await within(details).findByRole("button", { name: "Pin" }));
+    expect(
+      await screen.findByText("Artifact pinned. It stays online with no expiry."),
+    ).toBeTruthy();
+    expect(server.requests).toContainEqual({
+      method: "POST",
+      path: "/api/v1/artifacts/k7d2qm4xab/pin",
+    });
+    expect(await within(details).findByRole("button", { name: "Unpin" })).toBeTruthy();
+    expect(
+      within(details)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Unpin"]);
+    expect(details.textContent).toContain("Never, it is pinned");
+    expect(details.textContent).toContain(
+      "Pinned: it stays online with no expiry until you unpin it.",
+    );
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.click(button("Unpin"));
+    expect(
+      await screen.findByText("Artifact unpinned. It now expires on Jan 7, 2027."),
+    ).toBeTruthy();
+    expect(await within(details).findByRole("button", { name: "Pin" })).toBeTruthy();
+  });
+
+  it("shows why pinning was refused", async () => {
+    onPro();
+    server.fail("POST", "/api/v1/artifacts/k7d2qm4xab/pin", {
+      status: 403,
+      code: "plan_required",
+    });
+    renderDashboard("/artifacts/k7d2qm4xab", server);
+    fireEvent.click(await screen.findByRole("button", { name: "Pin" }));
+    expect(
+      await screen.findByText("This feature is not part of the plan of the artifact's owner."),
+    ).toBeTruthy();
+  });
+
+  it("marks a pinned artifact in the list where the expiry is", async () => {
+    server.artifacts[0] = {
+      ...(server.artifacts[0] as (typeof server.artifacts)[number]),
+      pinned: true,
+      expiresAt: null,
+    };
+    const { container } = renderDashboard("/", server);
+    const table = await screen.findByRole("table", { name: "Your artifacts" });
+    const [first] = within(table).getAllByRole("row").slice(1) as [HTMLElement];
+    expect(within(first).getAllByRole("cell")[3]?.textContent).toBe("ExpiresPinned");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
 describe("accessibility", () => {
   it("has no axe violations on the list, the empty list and the detail with its dialog", async () => {
     const list = renderDashboard("/", server);

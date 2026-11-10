@@ -203,6 +203,7 @@ describe("publishing contracts", () => {
       expiresAt: null,
       archivedAt: null,
       purgeAt: null,
+      pinned: false,
       createdAt: "2026-11-08T00:00:00.000Z",
       updatedAt: "2026-11-08T00:00:00.000Z",
       activity: {
@@ -215,6 +216,12 @@ describe("publishing contracts", () => {
     expect(ArtifactList.parse({ items: [item], nextCursor: null }).items[0]?.activity).toEqual(
       item.activity,
     );
+    // A pinned artifact has no expiry; `pinned` is required so clients never guess it.
+    expect(
+      ArtifactList.parse({ items: [{ ...item, pinned: true }], nextCursor: null }).items[0]?.pinned,
+    ).toBe(true);
+    const { pinned: _pinned, ...unknown } = item;
+    expect(ArtifactList.safeParse({ items: [unknown], nextCursor: null }).success).toBe(false);
     expect(
       ArtifactListItem.safeParse({
         ...item,

@@ -140,7 +140,8 @@ export const CommittedPublish = z.object({
   versionId: z.string(),
   versionNumber: z.number().int().min(1),
   url: z.url(),
-  expiresAt: z.iso.datetime(),
+  /** When it is archived unless renewed; null while it is pinned. */
+  expiresAt: z.iso.datetime().nullable(),
 });
 export type CommittedPublish = z.infer<typeof CommittedPublish>;
 
@@ -155,9 +156,12 @@ export const ArtifactSummary = z.object({
   url: z.url(),
   /** Where the artifact lives: the caller's personal space or a workspace. */
   owner: OwnerView,
+  /** When it is archived unless renewed; null while it is pinned or not active. */
   expiresAt: z.iso.datetime().nullable(),
   archivedAt: z.iso.datetime().nullable(),
   purgeAt: z.iso.datetime().nullable(),
+  /** Pinned: it stays active with no expiry until unpinned (a paid plan's `pin` feature). */
+  pinned: z.boolean(),
   /** Why an operator suspended it; present only while `state` is `suspended`. */
   suspension: SuspensionView.optional(),
   createdAt: z.iso.datetime(),
@@ -225,6 +229,7 @@ export const LifecycleResult = z.object({
   state: z.enum(["active", "archived", "deleted"]),
   expiresAt: z.iso.datetime().nullable(),
   purgeAt: z.iso.datetime().nullable(),
+  pinned: z.boolean(),
 });
 export type LifecycleResult = z.infer<typeof LifecycleResult>;
 
@@ -313,4 +318,5 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   sole_workspace_admin: 409,
   seats_exhausted: 409,
   email_suppressed: 403,
+  plan_required: 403,
 };

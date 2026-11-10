@@ -36,6 +36,8 @@ export default defineConfig(async () => {
             // fake in test/harness.ts, so no test reaches Cloudflare.
             TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
             TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
+            // Signs and checks comment notice unsubscribe links (test/comment-notices.test.ts).
+            UNSUBSCRIBE_SECRET: "test-only-unsubscribe-secret",
             TEST_MIGRATIONS: migrations,
             TEST_ACCESS_MIGRATIONS: accessMigrations,
           },

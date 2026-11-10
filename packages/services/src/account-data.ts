@@ -12,6 +12,7 @@ import {
   fail,
   ok,
   type Result,
+  shareLinkStatus,
   threadInScope,
 } from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
@@ -19,6 +20,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
+import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
@@ -75,6 +77,7 @@ export async function exportAccount(
   const artifactIds = artifacts.map((artifact) => artifact.id);
 
   const readers = new Map<string, string[]>();
+  const shareLinks = new Map<string, (typeof schema.shareLinks.$inferSelect)[]>();
   const versionsByArtifact = new Map<string, (typeof schema.versions.$inferSelect)[]>();
   const ownThreads: ThreadRow[] = [];
   for (const ids of chunks(artifactIds)) {
@@ -84,6 +87,13 @@ export async function exportAccount(
       .where(inArray(schema.artifactReaders.artifactId, ids))
       .orderBy(asc(schema.artifactReaders.email))) {
       readers.set(row.artifactId, [...(readers.get(row.artifactId) ?? []), row.email]);
+    }
+    for (const row of await db
+      .select()
+      .from(schema.shareLinks)
+      .where(inArray(schema.shareLinks.artifactId, ids))
+      .orderBy(asc(schema.shareLinks.createdAt), asc(schema.shareLinks.id))) {
+      shareLinks.set(row.artifactId, [...(shareLinks.get(row.artifactId) ?? []), row]);
     }
     for (const row of await db
       .select()
@@ -201,6 +211,7 @@ export async function exportAccount(
       })),
       settings: await loadSettings(db, input.userId),
       plan: planView(await ownerEntitlements(db, input.userId, input.now)),
+      commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
@@ -209,10 +220,19 @@ export async function exportAccount(
       state: artifact.state,
       accessMode: artifact.accessMode,
       readers: readers.get(artifact.id) ?? [],
+      // Never the token or its hash: only what the owner sees in the list.
+      shareLinks: (shareLinks.get(artifact.id) ?? []).map((link) => ({
+        label: link.label,
+        state: shareLinkStatus(link, input.now),
+        hasPassword: link.passwordHash !== null,
+        createdAt: iso(link.createdAt),
+        expiresAt: isoOrNull(link.expiresAt),
+      })),
       annotations: artifact.annotations,
       indexable: artifact.indexable,
       embeddable: artifact.embeddable,
       bar: artifact.bar,
+      pinned: artifact.pinned,
       suspension: artifact.suspensionReason ? { reason: artifact.suspensionReason } : null,
       createdAt: iso(artifact.createdAt),
       updatedAt: iso(artifact.updatedAt),
@@ -431,6 +451,10 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
       .set({ reporterEmail: null })
       .where(sql`lower(${schema.abuseReports.reporterEmail}) = ${email}`),
     db.delete(schema.deviceCodes).where(eq(schema.deviceCodes.userId, input.userId)),
+    // Comment notices pending for the account and its mutes: keyed by user with no foreign key.
+    db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, input.userId)),
+    db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, input.userId)),
+    closeJobs(db, "comment_notice", input.userId, sql`1`),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
@@ -527,7 +551,14 @@ export async function advanceAccountDeletion(
     .from(schema.accountDeletions)
     .where(eq(schema.accountDeletions.userId, userId));
   if (!deletion) return "absent";
-  await db.batch([...claimArtifacts(db, userId, now)]);
+  await db.batch([
+    ...claimArtifacts(db, userId, now),
+    // Links the account created on artifacts it did not own (a workspace's) keep no trace of it.
+    db
+      .update(schema.shareLinks)
+      .set({ createdBy: null })
+      .where(eq(schema.shareLinks.createdBy, userId)),
+  ]);
   const threads = await threadsToErase(db, userId, threadsPerAccount);
   for (const threadId of threads) {
     await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
@@ -560,6 +591,14 @@ export async function advanceAccountDeletion(
     db
       .delete(schema.annotationUsage)
       .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
+    // Once more as it finishes, which also covers a deletion a restore re-applied.
+    db
+      .delete(schema.commentNotices)
+      .where(and(eq(schema.commentNotices.recipientId, userId), nothingLeft)),
+    db
+      .delete(schema.commentNoticeMutes)
+      .where(and(eq(schema.commentNoticeMutes.userId, userId), nothingLeft)),
+    closeJobs(db, "comment_notice", userId, nothingLeft),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
     db

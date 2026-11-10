@@ -28,13 +28,16 @@ const TOOLS = [
   "get_version",
   "list_artifacts",
   "list_versions",
+  "pin_artifact",
   "publish_document",
   "renew_artifact",
   "restore_artifact",
   "rollback_artifact",
   "set_comment_visibility",
   "set_portifact_bar",
+  "unpin_artifact",
   ...["set_access", "add_reader", "remove_reader"],
+  ...["create_share_link", "list_share_links", "revoke_share_link"],
   ...["prepare_upload", "get_upload_status", "commit_upload", "read_artifact"],
   ...["list_workspaces", "transfer_artifact"],
   ...[
@@ -117,9 +120,33 @@ describe("the MCP endpoint", () => {
       "after the user asked for exactly that",
     );
     expect(byName.get("add_reader")?.inputSchema.required).toEqual(["artifactId", "emails"]);
-    for (const name of ["prepare_upload", "get_upload_status", "commit_upload"]) {
+    for (const name of ["create_share_link", "list_share_links", "revoke_share_link"]) {
+      expect(TOOL_SCOPES.get(name), name).toBe("artifacts:share");
+    }
+    expect(byName.get("create_share_link")?.description).toContain(
+      "only call it after the user asked for a share link",
+    );
+    expect(byName.get("create_share_link")?.inputSchema.required).toEqual(["artifactId", "label"]);
+    expect(byName.get("list_share_links")?.annotations?.readOnlyHint).toBe(true);
+    expect(byName.get("revoke_share_link")?.annotations?.destructiveHint).toBe(true);
+    expect(client.getInstructions()).toContain("creating a share link");
+    for (const name of [
+      "prepare_upload",
+      "get_upload_status",
+      "commit_upload",
+      "pin_artifact",
+      "unpin_artifact",
+    ]) {
       expect(TOOL_SCOPES.get(name), name).toBe("artifacts:write");
     }
+    for (const name of ["pin_artifact", "unpin_artifact"]) {
+      expect(byName.get(name)?.annotations, name).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+      });
+    }
+    expect(byName.get("pin_artifact")?.description).toContain("plan_required");
     expect(byName.get("prepare_upload")?.inputSchema.required).toEqual(
       expect.arrayContaining(["type", "name", "entrypoint", "files", "idempotencyKey"]),
     );

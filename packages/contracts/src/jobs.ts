@@ -10,6 +10,7 @@ export const OutboxTopic = z.enum([
   "abort_multipart",
   "erase_access_events",
   "expiry_notice",
+  "comment_notice",
   "workspace_deletion",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
@@ -60,9 +61,43 @@ export const ExpiryNoticePayload = z.strictObject({
 });
 export type ExpiryNoticePayload = z.infer<typeof ExpiryNoticePayload>;
 
-/** One purged or deleted artifact or account that a restored backup must not bring back. */
+/**
+ * Threads one comment notice covers at most: a safety cap on the payload (a queue message), not a
+ * plan limit. Activity past it stays pending and goes in the recipient's next notice.
+ */
+export const COMMENT_NOTICE_THREADS_MAX = 200;
+
+/**
+ * Payload of a `comment_notice` job (its subject is the recipient's user ID): the threads with new
+ * activity and what happened in each. IDs and counts only, never comment text or authors. The job
+ * counts only the threads the recipient may still see when it sends.
+ */
+export const CommentNoticePayload = z.strictObject({
+  /** Unique per scheduling; the scan's batch consumes the pending rows only for its own job. */
+  claim: z.string().min(1).max(100),
+  threads: z
+    .array(
+      z.strictObject({
+        artifactId: z.string().min(1).max(200),
+        threadId: z.string().min(1).max(200),
+        /** 1 when the thread is new. */
+        created: z.number().int().min(0).max(1),
+        replies: z.number().int().min(0).max(200),
+        /** 1 when the thread was resolved. */
+        resolved: z.number().int().min(0).max(1),
+      }),
+    )
+    .min(1)
+    .max(COMMENT_NOTICE_THREADS_MAX),
+});
+export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
+
+/**
+ * One purged or deleted artifact or account, or a revoked share link, that a restored backup must
+ * not bring back.
+ */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account", "workspace"]),
+  kind: z.enum(["artifact", "account", "share_link", "workspace"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

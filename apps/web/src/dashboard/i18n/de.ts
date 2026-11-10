@@ -80,6 +80,7 @@ export const de = {
   "list.refreshFailed.body":
     "Sie zeigt den zuletzt geladenen Stand. Portifact versucht es gleich noch einmal.",
   "list.never": "Nie",
+  "list.pinned": "Angeheftet",
   "list.column.access": "Zugriff",
   "list.captionFiltered": "Deine Artifacts, die zur Suche und zu den Filtern passen",
   "list.countFiltered":
@@ -177,6 +178,14 @@ export const de = {
     "Stell es wieder her, bevor es endgültig gelöscht wird, um es wieder online zu bringen.",
   "detail.noActions": "In diesem Status sind keine Aktionen verfügbar.",
   "detail.renew": "Um 30 Tage verlängern",
+  "detail.pin": "Anheften",
+  "detail.unpin": "Lösen",
+  "detail.pinned.body": "Angeheftet: Es bleibt ohne Ablaufdatum online, bis du es löst.",
+  "detail.pin.paid":
+    "Anheften hält ein Artifact ohne Ablaufdatum online. Es ist Teil des Plans {plan}.",
+  "detail.expiresNever": "Nie, es ist angeheftet",
+  "detail.pinnedDone": "Artifact angeheftet. Es bleibt ohne Ablaufdatum online.",
+  "detail.unpinnedDone": "Artifact gelöst. Es läuft jetzt am {date} ab.",
   "detail.archive": "Archivieren",
   "detail.restore": "Wiederherstellen",
   "detail.delete": "Löschen",
@@ -431,6 +440,16 @@ export const de = {
   "settings.notices.unchanged":
     "Nichts zu speichern: Deine E-Mail-Hinweise sind bereits so eingestellt.",
   "settings.notices.failed": "Deine E-Mail-Hinweise wurden nicht gespeichert",
+  "settings.notices.comments.label": "E-Mail bei neuen Kommentaren",
+  "settings.notices.comments.hint":
+    "Höchstens eine E-Mail alle 10 Minuten, mit der Zahl neuer Threads, Antworten und erledigter Threads je Artifact, nie mit dem, was geschrieben wurde. Nur für Artifacts, deren Eigentümer einen Plan mit Kommentarhinweisen hat.",
+  "commentNotices.label": "E-Mail bei neuen Kommentaren zu diesem Artifact",
+  "commentNotices.hint":
+    "Höchstens eine E-Mail alle 10 Minuten, nur mit Zahlen. Alle Kommentar-E-Mails schaltest du in deinen Einstellungen ab.",
+  "commentNotices.muted": "Kommentar-E-Mails für dieses Artifact abgeschaltet.",
+  "commentNotices.unmuted": "Kommentar-E-Mails für dieses Artifact eingeschaltet.",
+  "commentNotices.failed": "Deine Auswahl wurde nicht gespeichert",
+  "commentNotices.planRequired": "E-Mail-Hinweise zu neuen Kommentaren sind Teil des Plans {plan}.",
   "settings.danger.title": "Gefahrenbereich",
   "settings.danger.hint": "Diese Aktionen können nicht rückgängig gemacht werden.",
   "account.data.title": "Deine Daten",
@@ -640,6 +659,7 @@ export const de = {
   "publish.startOver": "Neu beginnen",
   "publish.done.title": "Version {number} veröffentlicht",
   "publish.done.body": "Es ist unter {url} online und läuft am {date} ab.",
+  "publish.done.pinned": "Es ist unter {url} online. Es ist angeheftet und läuft daher nicht ab.",
   "publish.done.open": "Seite des Artifacts öffnen",
   "publish.done.another": "Etwas anderes veröffentlichen",
   "publish.announce.done": "Version {number} von {name} veröffentlicht.",
@@ -1018,4 +1038,58 @@ export const de = {
   "error.reauthentication_required": "Melde dich erneut an, um das zu tun.",
   "error.human_verification_required":
     "Deine ersten Kommentare zu Artifacts anderer Personen brauchen eine kurze Prüfung, dass du ein Mensch bist. Schließ sie ab und sende dann erneut.",
+  "error.plan_required":
+    "Diese Funktion ist nicht im Plan des Eigentümers des Artifacts enthalten.",
+  "shareLinks.title": "Freigabelinks",
+  "shareLinks.description":
+    "Links, mit denen alle, die sie haben, dieses Artifact ohne Konto lesen können. Besucher lesen nur die aktuelle Version: Sie können nicht kommentieren und werden nie identifiziert.",
+  "shareLinks.loading": "Freigabelinks werden geladen",
+  "shareLinks.loadFailed": "Die Freigabelinks wurden nicht geladen",
+  "shareLinks.paidTitle": "Freigabelinks gehören zu einem kostenpflichtigen Tarif",
+  "shareLinks.paid":
+    "Dein Tarif enthält keine Freigabelinks. Personen hinzufügen und öffentlicher Zugriff funktionieren wie bisher.",
+  "shareLinks.paused":
+    "Dein Tarif enthält keine Freigabelinks mehr, daher öffnen sich diese Links nicht. Sie bleiben erhalten und funktionieren wieder, wenn der Tarif Freigabelinks enthält. Du kannst sie weiterhin widerrufen.",
+  "shareLinks.publicNote":
+    "Dieses Artifact ist öffentlich, also kann es schon jeder öffnen. Freigabelinks zählen, wenn du den Zugriff später einschränkst.",
+  "shareLinks.created.title": "Link „{label}“ erstellt",
+  "shareLinks.created.once":
+    "Kopiere ihn jetzt: Zu deiner Sicherheit wird er nur dieses eine Mal angezeigt. Alle mit diesem Link können das Artifact lesen.",
+  "shareLinks.created.label": "Freigabelink",
+  "shareLinks.created.copy": "Link kopieren",
+  "shareLinks.created.done": "Fertig",
+  "shareLinks.created.announce":
+    "Freigabelink erstellt. Kopiere ihn jetzt; er wird nur einmal angezeigt.",
+  "shareLinks.empty": "Noch keine Freigabelinks.",
+  "shareLinks.list": "Freigabelinks dieses Artifacts",
+  "shareLinks.expired": "Abgelaufen",
+  "shareLinks.noExpiry": "Ohne Ablauf",
+  "shareLinks.expires": "Läuft am {date} ab",
+  "shareLinks.withPassword": "Passwort",
+  "shareLinks.noPassword": "Ohne Passwort",
+  "shareLinks.neverUsed": "Noch nicht benutzt",
+  "shareLinks.lastUsed": "Zuletzt benutzt am {date}",
+  "shareLinks.revoke": "Widerrufen",
+  "shareLinks.revokeLabel": "Den Link {label} widerrufen",
+  "shareLinks.revoked": "Der Link {label} wurde widerrufen.",
+  "shareLinks.revokeFailed": "Der Link wurde nicht widerrufen",
+  "shareLinks.confirm.title": "„{label}“ widerrufen?",
+  "shareLinks.confirm.body":
+    "Alle mit diesem Link verlieren den Zugriff innerhalb einer Minute. Das lässt sich nicht rückgängig machen; ein neuer Link hat eine neue Adresse.",
+  "shareLinks.cancel": "Abbrechen",
+  "shareLinks.create": "Link erstellen",
+  "shareLinks.createFailed": "Der Link wurde nicht erstellt",
+  "shareLinks.full":
+    "Dieses Artifact hat {max} aktive Links, das Maximum. Widerrufe einen, um einen weiteren zu erstellen.",
+  "shareLinks.label.label": "Bezeichnung",
+  "shareLinks.label.hint": "Nur du siehst sie, zum Beispiel für wen der Link ist.",
+  "shareLinks.label.invalid": "Gib dem Link eine Bezeichnung mit 1 bis {max} Zeichen.",
+  "shareLinks.expiry.label": "Läuft ab nach",
+  "shareLinks.expiry.never": "Nie",
+  "shareLinks.expiry.days": "{count, plural, one {# Tag} other {# Tagen}}",
+  "shareLinks.password.label": "Passwort (optional)",
+  "shareLinks.password.hint":
+    "Mindestens {min} Zeichen. Besucher geben es ein, bevor sich das Artifact öffnet. Schick es getrennt vom Link.",
+  "shareLinks.password.short": "Verwende mindestens {min} Zeichen oder lass das Feld leer.",
+  "accessLog.shareLink": "Freigabelink: {label}",
 } satisfies Catalog;

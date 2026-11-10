@@ -2,6 +2,11 @@
 // HTML version and a plain-text alternative.
 export { BUDGET_COMMAND, type BudgetAlertInput, budgetAlertEmail } from "./budget-alert.ts";
 export {
+  type CommentNoticeArtifact,
+  type CommentNoticeInput,
+  commentNoticeEmail,
+} from "./comment-notice.ts";
+export {
   type ExpiryNoticeArtifact,
   type ExpiryNoticeInput,
   expiryNoticeEmail,

@@ -3,7 +3,7 @@
 // controlled time, and must give the same body, the same error and the same permission boundary.
 import { env } from "cloudflare:workers";
 import { PLANS } from "@portifact/contracts";
-import { regionsFromEnv } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -321,6 +321,78 @@ describe("API and MCP parity", () => {
       expect(fromTool(await b.tool(tool, args)), tool).toEqual(apiResult);
       expect(apiResult.ok, tool).toBe(true);
     }
+  });
+
+  it("pin and unpin give the same states, views and errors", async () => {
+    const b = await both("parity-pin@example.test");
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({
+        ownerId: await ownerId(b),
+        plan: "pro",
+        seats: 1,
+        grantedBy: "test",
+        updatedAt: NOW,
+      });
+    const publish = async (name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type: "text", name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const viaApi = await publish("api");
+    const viaMcp = await publish("mcp");
+    const post = (id: string, action: string) =>
+      b.apiCall(`/api/v1/artifacts/${id}/${action}`, { method: "POST" });
+
+    // Pin, pin again, renew a pinned one, then unpin twice: every answer is the same.
+    const steps: [string, string][] = [
+      ["pin_artifact", "pin"],
+      ["pin_artifact", "pin"],
+      ["renew_artifact", "renew"],
+      ["unpin_artifact", "unpin"],
+      ["unpin_artifact", "unpin"],
+    ];
+    let at = NOW;
+    for (const [tool, action] of steps) {
+      at += 60 * 1000;
+      vi.setSystemTime(at);
+      const apiResult = await fromApi(await post(viaApi, action));
+      expect(fromTool(await b.tool(tool, { artifactId: viaMcp })), tool).toEqual(apiResult);
+      expect(apiResult.ok, tool).toBe(true);
+    }
+
+    // Pinned, the views show it with no expiry, the same way.
+    await post(viaApi, "pin");
+    await b.tool("pin_artifact", { artifactId: viaMcp });
+    const viewed = await fromApi(await b.apiCall(`/api/v1/artifacts/${viaApi}`));
+    expect(viewed.body).toMatchObject({ pinned: true, expiresAt: null });
+    expect(fromTool(await b.tool("get_artifact", { artifactId: viaMcp })).body).toMatchObject({
+      pinned: true,
+      expiresAt: null,
+    });
+    const listed = fromTool(await b.tool("list_artifacts", {})).body as {
+      items: { id: string; pinned: boolean }[];
+    };
+    expect(listed.items.find((item) => item.id === viaMcp)?.pinned).toBe(true);
+
+    // Archiving unpins; pinning an archived one is refused the same way.
+    await post(viaApi, "archive");
+    await b.tool("archive_artifact", { artifactId: viaMcp });
+    expect(fromTool(await b.tool("pin_artifact", { artifactId: viaMcp }))).toEqual(
+      await fromApi(await post(viaApi, "pin")),
+    );
+    expect((await fromApi(await post(viaApi, "pin"))).body).toMatchObject({
+      error: { code: "artifact_archived" },
+    });
+    // A stranger gets the missing-artifact answer from both.
+    const stranger = await both("parity-pin-stranger@example.test");
+    expect(fromTool(await stranger.tool("unpin_artifact", { artifactId: viaMcp }))).toEqual(
+      await fromApi(
+        await stranger.apiCall(`/api/v1/artifacts/${viaApi}/unpin`, { method: "POST" }),
+      ),
+    );
   });
 
   it("the Portifact bar turns off and on with the same policy, errors and scope", async () => {

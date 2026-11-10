@@ -90,9 +90,17 @@ export const artifacts = sqliteTable(
     commentVisibility: text("comment_visibility", { enum: ["owner", "everyone"] })
       .notNull()
       .default("owner"),
+    /**
+     * Pinned (premium plan P2, feature `pin`): the artifact stays active with no `expires_at`
+     * until it is unpinned. Only an active or suspended artifact is pinned; archiving clears it.
+     * Kept last because `ALTER TABLE ADD COLUMN` appends it.
+     */
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
+    // The scan that unpins the artifacts of owners whose plan no longer includes `pin`.
+    index("artifacts_pinned_owner_idx").on(t.ownerId).where(sql`${t.pinned} = 1`),
     index("artifacts_state_expires_idx").on(t.state, t.expiresAt),
     index("artifacts_state_purge_idx").on(t.state, t.purgeAt),
     check("artifacts_id_format", sql`length(${t.id}) = 10`),
@@ -188,6 +196,92 @@ export const readSessions = sqliteTable(
     index("read_sessions_user_idx").on(t.userId),
     index("read_sessions_artifact_idx").on(t.artifactId),
     index("read_sessions_auth_session_idx").on(t.authSessionId),
+  ],
+);
+
+/**
+ * Share links (premium plan P4, decision 0008): a link that lets anyone who holds it read one
+ * artifact without an account. Only the SHA-256 of its token is stored; the password, when there
+ * is one, as a PBKDF2 hash with its salt and iteration count. Revoked links stay until the
+ * artifact is purged: their label names old access log entries, and `exportTombstones` exports
+ * their revocation so a restore cannot bring them back.
+ */
+export const shareLinks = sqliteTable(
+  "share_links",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull(),
+    expiresAt: timestamp("expires_at"),
+    passwordHash: text("password_hash"),
+    passwordSalt: text("password_salt"),
+    passwordIterations: integer("password_iterations"),
+    /**
+     * The user who created it; no foreign key (the table is regional). Account deletion clears it
+     * (`advanceAccountDeletion`), so a deleted account's ID does not stay on links of artifacts it
+     * did not own.
+     */
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    revokedAt: timestamp("revoked_at"),
+    /** Start of the UTC day the link was last opened. */
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (t) => [
+    uniqueIndex("share_links_token_idx").on(t.tokenHash),
+    index("share_links_artifact_idx").on(t.artifactId, t.createdAt),
+    check(
+      "share_links_password_complete",
+      sql`(${t.passwordHash} is null) = (${t.passwordSalt} is null) and (${t.passwordHash} is null) = (${t.passwordIterations} is null)`,
+    ),
+  ],
+);
+
+/**
+ * One-use codes that carry a share link's visitor from the app's entry page to the artifact
+ * origin's `/__portifact/link`. Only the SHA-256 of the code is stored.
+ */
+export const shareHandoffs = sqliteTable(
+  "share_handoffs",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => shareLinks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    sessionId: text("session_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("share_handoffs_expires_idx").on(t.expiresAt)],
+);
+
+/**
+ * Link sessions behind the `__Host-pf_link` cookie of one artifact origin. They end with the
+ * link (revocation or expiry), never with a Better Auth session, and name no one.
+ */
+export const shareSessions = sqliteTable(
+  "share_sessions",
+  {
+    id: text("id").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => shareLinks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("share_sessions_expires_idx").on(t.expiresAt),
+    index("share_sessions_link_idx").on(t.linkId),
   ],
 );
 
@@ -532,6 +626,7 @@ export const OUTBOX_TOPICS = [
   "abort_multipart",
   "erase_access_events",
   "expiry_notice",
+  "comment_notice",
   "workspace_deletion",
 ] as const;
 
@@ -607,7 +702,11 @@ export const lifecycleEvents = sqliteTable(
 export const tombstones = sqliteTable(
   "tombstones",
   {
-    kind: text("kind", { enum: ["artifact", "account", "workspace"] }).notNull(),
+    /**
+     * `share_link` marks a revoked share link (decision 0008), so a restore cannot revive it;
+     * `workspace` a deleted workspace.
+     */
+    kind: text("kind", { enum: ["artifact", "account", "share_link", "workspace"] }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
@@ -820,6 +919,60 @@ export const annotationEvents = sqliteTable(
 );
 
 /**
+ * Comment activity waiting for a notice (packages/services/src/comment-notices.ts): one row per
+ * recipient and thread, written in the batch of the comment, reply or resolution that caused it,
+ * and only when the artifact owner's plan includes comment notices. It holds counts and IDs,
+ * never text. The scheduled scan turns a recipient's rows into one `comment_notice` outbox job and
+ * deletes them in the same batch. Rows go with their thread and artifact by the foreign keys, and
+ * with the recipient's account in the deletion batches (`recipient_id` has no foreign key: users
+ * are global, comments regional).
+ */
+export const commentNotices = sqliteTable(
+  "comment_notices",
+  {
+    recipientId: text("recipient_id").notNull(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => annotationThreads.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** 1 when the thread itself is new. */
+    created: integer("created").notNull().default(0),
+    replies: integer("replies").notNull().default(0),
+    /** 1 when the thread was resolved. */
+    resolved: integer("resolved").notNull().default(0),
+    /** When the first activity of the row happened; the notice waits for it to settle. */
+    firstAt: timestamp("first_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.recipientId, t.threadId] }),
+    index("comment_notices_recipient_first_idx").on(t.recipientId, t.firstAt),
+    index("comment_notices_first_idx").on(t.firstAt),
+    check(
+      "comment_notices_counts",
+      sql`${t.created} in (0, 1) and ${t.resolved} in (0, 1) and ${t.replies} between 0 and 200`,
+    ),
+  ],
+);
+
+/** Artifacts whose comment notices a user turned off. Removed with the artifact, and with the account. */
+export const commentNoticeMutes = sqliteTable(
+  "comment_notice_mutes",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.userId] }),
+    index("comment_notice_mutes_user_idx").on(t.userId),
+  ],
+);
+
+/**
  * Annotation usage per artifact owner: live messages and logical bytes (message bodies plus
  * thread targets). Triggers in `0007_annotation_usage_triggers.sql` keep it exact on every
  * insert, update and delete, cascades included, and the CHECK constraints refuse a write past
@@ -975,6 +1128,13 @@ export const accountSettings = sqliteTable(
     defaultBar: integer("default_bar", { mode: "boolean" }).notNull().default(true),
     /** Email the owner before their artifacts expire; on unless they turn it off. */
     expiryNotices: integer("expiry_notices", { mode: "boolean" }).notNull().default(true),
+    /** Email digests of new comment activity (packages/domain/src/comment-notices.ts); on by default. */
+    commentNotices: integer("comment_notices", { mode: "boolean" }).notNull().default(true),
+    /**
+     * When `comment_notices` last changed. An unsubscribe link issued before it is refused, so an
+     * old link never turns the notices off again after the user turned them back on.
+     */
+    commentNoticesChangedAt: timestamp("comment_notices_changed_at"),
     // The account's language (a code of LOCALES in @portifact/contracts); null follows the
     // browser. No CHECK: adding a language must not need a migration, and reads drop codes
     // that are no longer listed.

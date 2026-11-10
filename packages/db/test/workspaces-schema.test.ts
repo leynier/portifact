@@ -157,7 +157,7 @@ describe("migration 0029: the triggers", () => {
         .from(schema.workspaceMembers)
         .where(eq(schema.workspaceMembers.workspaceId, id));
     expect(await members()).toEqual([{ userId: "u_stays" }]);
-    // A workspace is deleted with its deletion recorded first (0030 keeps the last admin
+    // A workspace is deleted with its deletion recorded first (the workspace_members_invitations migration keeps the last admin
     // otherwise; deleteWorkspace in packages/services does both in one batch).
     await db().insert(schema.workspaceDeletions).values({ workspaceId: id, requestedAt: NOW });
     await db().delete(schema.workspaces).where(eq(schema.workspaces.id, id));

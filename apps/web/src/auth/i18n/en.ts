@@ -84,6 +84,31 @@ export const en = {
     failed: "The report could not be sent. Try again or write to abuse@portifact.com.",
     sent: "Report sent.",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "Checking the link.",
+    opening: "Opening the artifact.",
+    passwordRequired: "Enter the password.",
+    refused: "The password is wrong, or the link expired or was revoked.",
+    humanCheckShown:
+      "Confirm below that you are human. The password is tried again when you finish.",
+    humanCheckUnavailable:
+      "The human check could not load. Allow challenges.cloudflare.com, or try again later.",
+    rateLimited: "Too many attempts. Wait a few minutes and try again.",
+    network: "Portifact could not be reached. Check your connection and try again.",
+    failed: "The link could not be opened. Try again.",
+  },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "This link is incomplete. Open the link from the email again, or turn comment notices off in your settings.",
+    invalid: "This link does not work any more. Turn comment notices off in your settings instead.",
+    rateLimited: "Too many tries from here. Try again in a few minutes.",
+    network: "Portifact could not be reached. Check your connection and try again.",
+    failed:
+      "Comment notices could not be turned off. Try again, or turn them off in your settings.",
+    done: "Comment notices turned off.",
+  },
 };
 
 /** The script messages of the auth pages; every catalog provides all of them. */

@@ -77,6 +77,27 @@ const messages = {
     failed: "无法发送举报。请重试，或发送邮件至 abuse@portifact.com。",
     sent: "举报已发送。",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "正在检查链接。",
+    opening: "正在打开 artifact。",
+    passwordRequired: "请输入密码。",
+    refused: "密码错误，或者链接已过期或已被撤销。",
+    humanCheckShown: "请在下方确认你是真人。完成后会再次尝试密码。",
+    humanCheckUnavailable: "无法加载真人验证。请允许 challenges.cloudflare.com，或稍后再试。",
+    rateLimited: "尝试次数过多。请等几分钟后再试。",
+    network: "无法连接 Portifact。请检查网络连接后再试。",
+    failed: "无法打开链接。请再试一次。",
+  },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing: "此链接不完整。请重新打开邮件中的链接，或在设置中关闭评论通知。",
+    invalid: "此链接已失效。请在设置中关闭评论通知。",
+    rateLimited: "此处尝试次数过多。请几分钟后再试。",
+    network: "无法连接到 Portifact。请检查网络连接后重试。",
+    failed: "无法关闭评论通知。请重试，或在设置中关闭。",
+    done: "评论通知已关闭。",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -184,5 +205,30 @@ export const zhCN: AuthCatalog = {
     "report.doneHeading": "谢谢，我们已收到你的举报",
     "report.doneBody":
       '我们会审核每一份举报。你也可以发送邮件至 <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>。',
+    // share.html
+    "share.title": "打开共享的 artifact",
+    "share.heading": "打开共享的 artifact",
+    "share.passwordIntro": "共享此 artifact 的人为它设置了密码保护。",
+    "share.passwordLabel": "密码",
+    "share.humanCheckHint": "多次输入错误密码后，请先确认你是真人，然后再试。",
+    "share.open": "打开",
+    "share.unavailableHeading": "此链接无法使用",
+    "share.unavailableBody":
+      "它可能已过期或已被撤销，或者它不是共享链接。请向共享它的人索取新链接。",
+    "share.incompleteHeading": "请重新打开链接",
+    "share.incompleteBody":
+      "此页面需要完整的共享链接，包括 # 后面的部分。为了你的安全，页面会从地址栏中移除这部分，所以重新加载后，请从你收到链接的地方再次打开它。",
+    "share.privacy":
+      "你无需账号即可阅读此 artifact。Portifact 不会记录你是谁；所有者只能看到链接被使用过。artifact 由其作者编写，而不是 Portifact：请不要在其中输入密码或个人数据。",
+    "share.report": "举报滥用",
+
+    // unsubscribe.html
+    "unsubscribe.title": "关闭 Portifact 评论通知",
+    "unsubscribe.heading": "关闭评论通知",
+    "unsubscribe.intro":
+      "你将不再收到有关 Portifact artifact 新评论的邮件。到期通知和登录邮件不受影响。",
+    "unsubscribe.confirm": "关闭评论通知",
+    "unsubscribe.doneHeading": "评论通知已关闭",
+    "unsubscribe.doneBody": '你可以随时在<a href="/settings">设置</a>中重新开启。',
   },
 };

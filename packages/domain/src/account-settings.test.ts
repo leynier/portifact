@@ -16,6 +16,7 @@ describe("BUILT_IN_SETTINGS", () => {
       defaultCommentVisibility: "owner",
       defaultBar: true,
       expiryNotices: true,
+      commentNotices: true,
       // No language chosen: pages and emails follow the browser.
       locale: null,
     });
@@ -32,6 +33,18 @@ describe("changeSettings", () => {
       ok: true,
       value: { ...BUILT_IN_SETTINGS, expiryNotices: false },
     });
+    expect(changeSettings(BUILT_IN_SETTINGS, { commentNotices: false }, fresh, NOW)).toEqual({
+      ok: true,
+      value: { ...BUILT_IN_SETTINGS, commentNotices: false },
+    });
+    expect(
+      changeSettings(
+        { ...BUILT_IN_SETTINGS, commentNotices: false },
+        { defaultBar: false },
+        fresh,
+        NOW,
+      ),
+    ).toMatchObject({ value: { commentNotices: false } });
     const off = { ...BUILT_IN_SETTINGS, expiryNotices: false };
     expect(changeSettings(off, { defaultBar: false }, fresh, NOW)).toMatchObject({
       value: { expiryNotices: false },
@@ -107,6 +120,7 @@ describe("newArtifactPolicy", () => {
           defaultCommentVisibility: "everyone",
           defaultBar: false,
           expiryNotices: false,
+          commentNotices: false,
           locale: "es",
         },
         fresh,
