@@ -3,10 +3,12 @@
 // records what disagrees without deleting anything. The tombstone markers are exported before a
 // D1 Time Travel restore and applied after it, so purged artifacts and deleted accounts that the
 // restored database still holds are deleted again instead of coming back (docs/operations.md).
+
 import type { TombstoneMarker } from "@portifact/contracts";
 import { type Db, type GlobalDb, type Region, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { purgeJobs } from "./outbox.ts";
+import { revokedShareLinks } from "./share-links.ts";
 
 const IN_CHUNK = 80;
 const OBJECT_PREFIX = "objects/";
@@ -215,6 +217,8 @@ export async function exportTombstones(db: Db): Promise<TombstoneMarker[]> {
     .where(eq(schema.artifacts.state, "purging"))) {
     add({ kind: "artifact", id: row.id, deletedAt: row.updatedAt });
   }
+  // A revocation is permanent too: a restore must not reopen a link (decision 0008).
+  for (const marker of await revokedShareLinks(db)) add(marker);
   return [...markers.values()].sort(
     (a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id),
   );
@@ -227,6 +231,8 @@ export interface ApplyTombstonesResult {
   artifacts: number;
   /** Accounts the restore brought back, deleted again. */
   accounts: number;
+  /** Share links the restore brought back unrevoked, revoked again. */
+  shareLinks: number;
 }
 
 /**
@@ -261,7 +267,8 @@ export async function applyTombstones(
   // An account with anything left of it and no deletion in progress.
   const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
 
-  const [, deletions, , artifacts] = await db.batch([
+  const l = schema.shareLinks;
+  const [, deletions, , artifacts, shareLinks] = await db.batch([
     db
       .insert(schema.outbox)
       .select(
@@ -284,6 +291,13 @@ export async function applyTombstones(
       .where(resurrectedArtifact)
       .returning({ id: a.id }),
     db
+      .update(l)
+      .set({ revokedAt: now })
+      .where(
+        sql`${l.revokedAt} is null and ${l.id} in (select ${t.id} from ${t} where ${t.kind} = 'share_link')`,
+      )
+      .returning({ id: l.id }),
+    db
       .update(schema.abuseReports)
       .set({ reporterEmail: null })
       .where(
@@ -295,7 +309,12 @@ export async function applyTombstones(
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
   ]);
-  return { inserted, artifacts: artifacts.length, accounts: deletions.length };
+  return {
+    inserted,
+    artifacts: artifacts.length,
+    accounts: deletions.length,
+    shareLinks: shareLinks.length,
+  };
 }
 
 /**

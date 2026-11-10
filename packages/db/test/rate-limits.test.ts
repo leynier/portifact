@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { hitRateLimit, pruneRateLimits } from "../src/index.ts";
+import { hitRateLimit, peekRateLimit, pruneRateLimits } from "../src/index.ts";
 
 const minute = 60_000;
 const start = Date.UTC(2026, 10, 8, 12);
@@ -50,5 +50,25 @@ describe("rate limit counters", () => {
     expect(await pruneRateLimits(env.DB, start + minute)).toBe(1);
     const rows = await env.DB.prepare("select key from rate_limits").all<{ key: string }>();
     expect(rows.results.map((row) => row.key)).toEqual(["new"]);
+  });
+
+  it("peeks at a count without counting, and reads an ended window as empty", async () => {
+    expect(await peekRateLimit(env.DB, "share:fail:a", minute, start)).toEqual({
+      count: 0,
+      resetAt: start + minute,
+    });
+    await hitRateLimit(env.DB, "share:fail:a", minute, start);
+    await hitRateLimit(env.DB, "share:fail:a", minute, start + 1);
+    expect(await peekRateLimit(env.DB, "share:fail:a", minute, start + 2)).toEqual({
+      count: 2,
+      resetAt: start + minute,
+    });
+    expect(await peekRateLimit(env.DB, "share:fail:a", minute, start + 3)).toMatchObject({
+      count: 2,
+    });
+    expect(await peekRateLimit(env.DB, "share:fail:a", minute, start + minute)).toEqual({
+      count: 0,
+      resetAt: start + 2 * minute,
+    });
   });
 });

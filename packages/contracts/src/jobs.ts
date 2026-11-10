@@ -59,9 +59,12 @@ export const ExpiryNoticePayload = z.strictObject({
 });
 export type ExpiryNoticePayload = z.infer<typeof ExpiryNoticePayload>;
 
-/** One purged or deleted artifact or account that a restored backup must not bring back. */
+/**
+ * One purged or deleted artifact or account, or a revoked share link, that a restored backup must
+ * not bring back.
+ */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account"]),
+  kind: z.enum(["artifact", "account", "share_link"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

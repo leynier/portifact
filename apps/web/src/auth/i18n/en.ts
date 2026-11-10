@@ -84,6 +84,20 @@ export const en = {
     failed: "The report could not be sent. Try again or write to abuse@portifact.com.",
     sent: "Report sent.",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "Checking the link.",
+    opening: "Opening the artifact.",
+    passwordRequired: "Enter the password.",
+    refused: "The password is wrong, or the link expired or was revoked.",
+    humanCheckShown:
+      "Confirm below that you are human. The password is tried again when you finish.",
+    humanCheckUnavailable:
+      "The human check could not load. Allow challenges.cloudflare.com, or try again later.",
+    rateLimited: "Too many attempts. Wait a few minutes and try again.",
+    network: "Portifact could not be reached. Check your connection and try again.",
+    failed: "The link could not be opened. Try again.",
+  },
 };
 
 /** The script messages of the auth pages; every catalog provides all of them. */

@@ -994,4 +994,56 @@ export const ja = {
   "error.human_verification_required":
     "ほかの人のartifactへの最初のコメントでは、人間であることの簡単な確認が必要です。確認を完了してから、もう一度投稿してください。",
   "error.plan_required": "この機能は、artifactの所有者のプランに含まれていません。",
+  "shareLinks.title": "共有リンク",
+  "shareLinks.description":
+    "持っている人なら誰でもアカウントなしでこの artifact を閲覧できるリンクです。訪問者は現在のバージョンを閲覧するだけで、コメントはできず、身元が特定されることもありません。",
+  "shareLinks.loading": "共有リンクを読み込んでいます",
+  "shareLinks.loadFailed": "共有リンクを読み込めませんでした",
+  "shareLinks.paidTitle": "共有リンクは有料プランの機能です",
+  "shareLinks.paid":
+    "ご利用のプランには共有リンクが含まれていません。ユーザーの追加と公開アクセスはこれまでどおり使えます。",
+  "shareLinks.paused":
+    "ご利用のプランに共有リンクが含まれなくなったため、これらのリンクは開けません。リンクは保持され、プランに共有リンクが含まれると再び使えます。取り消すことはできます。",
+  "shareLinks.publicNote":
+    "この artifact は公開されているため、すでに誰でも開けます。共有リンクは、後でアクセスを制限した場合に役立ちます。",
+  "shareLinks.created.title": "リンク「{label}」を作成しました",
+  "shareLinks.created.once":
+    "今すぐコピーしてください。安全のため、表示されるのはこの一度だけです。このリンクを持つ人は誰でも artifact を閲覧できます。",
+  "shareLinks.created.label": "共有リンク",
+  "shareLinks.created.copy": "リンクをコピー",
+  "shareLinks.created.done": "完了",
+  "shareLinks.created.announce":
+    "共有リンクを作成しました。今すぐコピーしてください。表示されるのは一度だけです。",
+  "shareLinks.empty": "共有リンクはまだありません。",
+  "shareLinks.list": "この artifact の共有リンク",
+  "shareLinks.expired": "期限切れ",
+  "shareLinks.noExpiry": "期限なし",
+  "shareLinks.expires": "有効期限 {date}",
+  "shareLinks.withPassword": "パスワードあり",
+  "shareLinks.noPassword": "パスワードなし",
+  "shareLinks.neverUsed": "未使用",
+  "shareLinks.lastUsed": "最終使用日 {date}",
+  "shareLinks.revoke": "取り消す",
+  "shareLinks.revokeLabel": "リンク {label} を取り消す",
+  "shareLinks.revoked": "リンク {label} を取り消しました。",
+  "shareLinks.revokeFailed": "リンクを取り消せませんでした",
+  "shareLinks.confirm.title": "「{label}」を取り消しますか？",
+  "shareLinks.confirm.body":
+    "このリンクを持つ人は 1 分以内にアクセスできなくなります。元に戻せません。新しいリンクは別のアドレスになります。",
+  "shareLinks.cancel": "キャンセル",
+  "shareLinks.create": "リンクを作成",
+  "shareLinks.createFailed": "リンクを作成できませんでした",
+  "shareLinks.full":
+    "この artifact の有効なリンクは上限の {max} 件に達しています。新しく作成するには 1 件取り消してください。",
+  "shareLinks.label.label": "ラベル",
+  "shareLinks.label.hint": "表示されるのはあなただけです。たとえばリンクの相手など。",
+  "shareLinks.label.invalid": "1 〜 {max} 文字のラベルを付けてください。",
+  "shareLinks.expiry.label": "有効期限",
+  "shareLinks.expiry.never": "なし",
+  "shareLinks.expiry.days": "{count, plural, one {# 日} other {# 日}}",
+  "shareLinks.password.label": "パスワード（任意）",
+  "shareLinks.password.hint":
+    "{min} 文字以上。artifact が開く前に訪問者が入力します。リンクとは別の方法で伝えてください。",
+  "shareLinks.password.short": "{min} 文字以上にするか、空のままにしてください。",
+  "accessLog.shareLink": "共有リンク: {label}",
 } satisfies Catalog;

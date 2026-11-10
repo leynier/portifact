@@ -5,8 +5,10 @@ import { regionsFromEnv, schema } from "@portifact/db";
 import {
   commitPublish,
   createAnnotationThread,
+  createShareLink,
   issueReviewHandoff,
   preparePublish,
+  revokeShareLink,
   updateAccess,
 } from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
@@ -85,6 +87,16 @@ interface AccessInput {
   artifactId: string;
   removeReaders?: string[];
   addReaders?: string[];
+}
+
+interface ShareLinkInput {
+  ownerId: string;
+  artifactId: string;
+  label?: string;
+  expiresAt?: number;
+  password?: string;
+  /** Revokes this link instead of creating one. */
+  revoke?: string;
 }
 
 interface ClockInput {
@@ -311,6 +323,35 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       now,
     });
     return Response.json(result, { status: result.ok ? 200 : 400 });
+  }
+
+  // The owner's share links, through the same services the API, MCP and dashboard call. The
+  // owner's plan must include them; tests grant it with a row in owner_plans.
+  if (path === "/share-link") {
+    const { ownerId, artifactId, label, expiresAt, password, revoke } = input as ShareLinkInput;
+    if (revoke) {
+      const result = await revokeShareLink(db, {
+        userId: ownerId,
+        artifactId,
+        linkId: revoke,
+        now,
+      });
+      return Response.json(result, { status: result.ok ? 200 : 400 });
+    }
+    const result = await createShareLink(db, {
+      userId: ownerId,
+      artifactId,
+      label: label ?? "E2E",
+      expiresAt: expiresAt ?? null,
+      password,
+      now,
+    });
+    if (!result.ok) return Response.json(result, { status: 400 });
+    return Response.json({
+      id: result.value.link.id,
+      url: `${env.APP_ORIGIN}/s#${result.value.token}`,
+      token: result.value.token,
+    });
   }
 
   if (path === "/clock") {

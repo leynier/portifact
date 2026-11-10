@@ -9,6 +9,7 @@
 // services the tests cover, and prints plain text without secrets.
 import {
   AbuseReason,
+  OpaqueToken,
   OwnerPlanExport,
   PLAN_NAMES,
   PlanName,
@@ -21,6 +22,7 @@ import {
   budgetCycle,
   emailHint,
   PROTECTION_STEPS,
+  shareLinkStatus,
 } from "@portifact/domain";
 import {
   accountSuspension,
@@ -32,6 +34,7 @@ import {
   exportTombstones,
   getBudgetState,
   getOwnerPlan,
+  hashSecret,
   liftEmailSuppression,
   listAbuseReports,
   listBudgetAlerts,
@@ -60,6 +63,7 @@ Commands:
   reports [--status open|actioned|dismissed|all] [--limit N]
   resolve-report <report-id> actioned|dismissed
   show-artifact <artifact-id>
+  find-share-link              (reads the reported link or token from standard input)
   suspend-artifact <artifact-id> --reason <reason> [--report <report-id>] [--note <text>]
   reinstate-artifact <artifact-id>
   suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
@@ -94,6 +98,14 @@ const noFiles: OperatorFiles = {
   read: async () => Promise.reject(new Error("No file access.")),
   write: async () => Promise.reject(new Error("No file access.")),
 };
+
+/** The token of a reported share link: the fragment of `…/s#<token>`, or the bare token. */
+export function shareLinkToken(text: string): string | null {
+  const trimmed = text.trim();
+  const candidate = trimmed.includes("#") ? trimmed.slice(trimmed.lastIndexOf("#") + 1) : trimmed;
+  const parsed = OpaqueToken.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
 
 /** Parses JSON lines against a schema; any bad line refuses the whole file. */
 function parseJsonLines<T>(
@@ -443,6 +455,28 @@ export async function runOperator(
         ].join("\n"),
       };
     }
+    case "find-share-link": {
+      // The token comes from standard input, never from the command line, so it stays out of
+      // the shell's history; only its hash is compared and nothing prints it.
+      const token = shareLinkToken(await files.read("/dev/stdin"));
+      if (!token)
+        return usage("find-share-link reads a share link or its token from standard input.");
+      const [link] = await db
+        .select()
+        .from(schema.shareLinks)
+        .where(eq(schema.shareLinks.tokenHash, await hashSecret(token)))
+        .limit(1);
+      if (!link) return { exitCode: 1, output: "No share link has this token." };
+      return {
+        exitCode: 0,
+        output: [
+          `artifact  ${link.artifactId}`,
+          `link      ${link.id}  ${shareLinkStatus(link, now)}`,
+          `created   ${new Date(link.createdAt).toISOString()} by ${link.createdBy}`,
+          "Suspending the artifact ends every link to it.",
+        ].join("\n"),
+      };
+    }
     case "suspend-artifact": {
       const [artifactId] = args;
       const reason = reasonOption();
@@ -548,7 +582,7 @@ export async function runOperator(
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {

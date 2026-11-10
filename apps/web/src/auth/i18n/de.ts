@@ -87,6 +87,20 @@ const messages = {
       "Die Meldung konnte nicht gesendet werden. Versuch es noch einmal oder schreib an abuse@portifact.com.",
     sent: "Meldung gesendet.",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "Der Link wird geprüft.",
+    opening: "Das Artifact wird geöffnet.",
+    passwordRequired: "Gib das Passwort ein.",
+    refused: "Das Passwort ist falsch, oder der Link ist abgelaufen oder wurde widerrufen.",
+    humanCheckShown:
+      "Bestätige unten, dass du ein Mensch bist. Das Passwort wird danach erneut geprüft.",
+    humanCheckUnavailable:
+      "Die Prüfung, ob du ein Mensch bist, konnte nicht geladen werden. Erlaube challenges.cloudflare.com oder versuche es später erneut.",
+    rateLimited: "Zu viele Versuche. Warte ein paar Minuten und versuche es erneut.",
+    network: "Portifact ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
+    failed: "Der Link konnte nicht geöffnet werden. Versuche es erneut.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -204,5 +218,23 @@ export const de: AuthCatalog = {
     "report.doneHeading": "Danke, wir haben deine Meldung erhalten",
     "report.doneBody":
       'Wir prüfen jede Meldung. Du kannst auch an <a href="mailto:abuse@portifact.com">abuse@portifact.com</a> schreiben.',
+    // share.html
+    "share.title": "Ein geteiltes Artifact öffnen",
+    "share.heading": "Ein geteiltes Artifact öffnen",
+    "share.passwordIntro":
+      "Die Person, die dieses Artifact geteilt hat, hat es mit einem Passwort geschützt.",
+    "share.passwordLabel": "Passwort",
+    "share.humanCheckHint":
+      "Nach mehreren falschen Passwörtern bestätige, dass du ein Mensch bist, um es erneut zu versuchen.",
+    "share.open": "Öffnen",
+    "share.unavailableHeading": "Dieser Link funktioniert nicht",
+    "share.unavailableBody":
+      "Er ist vielleicht abgelaufen oder wurde widerrufen, oder es ist kein Freigabelink. Bitte die Person, die ihn geteilt hat, um einen neuen Link.",
+    "share.incompleteHeading": "Öffne den Link erneut",
+    "share.incompleteBody":
+      "Diese Seite braucht den vollständigen Freigabelink, einschließlich des Teils nach #. Zu deiner Sicherheit entfernt sie diesen Teil aus der Adressleiste, also öffne den Link nach einem Neuladen erneut von dort, wo du ihn bekommen hast.",
+    "share.privacy":
+      "Du liest das Artifact ohne Konto. Portifact speichert nicht, wer du bist; der Eigentümer sieht nur, dass der Link benutzt wurde. Das Artifact stammt von seinem Autor, nicht von Portifact: Gib darin keine Passwörter oder persönlichen Daten ein.",
+    "share.report": "Missbrauch melden",
   },
 };

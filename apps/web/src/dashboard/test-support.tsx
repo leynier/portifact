@@ -27,6 +27,9 @@ import {
   PublishRequest,
   type ReviewStart,
   RollbackRequest,
+  type ShareLinkCreated,
+  type ShareLinkList,
+  type ShareLinkView,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
@@ -336,6 +339,10 @@ export interface FakeServer {
   usage: AccountUsageView;
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
+  /** Share links by artifact ID, newest first, as the API lists them. */
+  shareLinks: Record<string, ShareLinkView[]>;
+  /** Whether the owner's plan includes share links. */
+  shareLinksEnabled: boolean;
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -378,6 +385,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     },
     usage: usageView(),
     accessLogs: {},
+    shareLinks: {},
+    shareLinksEnabled: true,
     bodies: [],
     pageSize: 50,
     requests: [],
@@ -755,6 +764,44 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     }
     server.email = null;
     return Response.json({ deleted: true });
+  }
+  const shares = /^\/api\/v1\/artifacts\/([^/]+)\/share-links(?:\/([^/]+))?$/.exec(path);
+  if (shares) {
+    const artifact = server.artifacts.find((a) => a.id === shares[1]);
+    if (!artifact) return apiError("not_found", 404);
+    const links = server.shareLinks[artifact.id] ?? [];
+    if (method === "GET" && !shares[2]) {
+      return json({
+        artifactId: artifact.id,
+        enabled: server.shareLinksEnabled,
+        links,
+        activeLimit: 20,
+      } satisfies ShareLinkList);
+    }
+    if (method === "POST" && !shares[2]) {
+      if (!server.shareLinksEnabled) return apiError("plan_required", 403);
+      const body = server.bodies.at(-1) as { label: string; expiresAt?: string; password?: string };
+      const link: ShareLinkView = {
+        id: `sl_${String(links.length + 1).padStart(32, "0")}`,
+        label: body.label,
+        state: "active",
+        hasPassword: body.password !== undefined,
+        createdAt: "2026-11-10T12:00:00.000Z",
+        expiresAt: body.expiresAt ?? null,
+        lastUsedOn: null,
+      };
+      server.shareLinks[artifact.id] = [link, ...links];
+      return json(
+        { link, url: `https://app.portifact.com/s#${"T".repeat(43)}` } satisfies ShareLinkCreated,
+        201,
+      );
+    }
+    if (method === "DELETE" && shares[2]) {
+      const id = decodeURIComponent(shares[2]);
+      if (!links.some((link) => link.id === id)) return apiError("not_found", 404);
+      server.shareLinks[artifact.id] = links.filter((link) => link.id !== id);
+      return json({ id, revoked: true });
+    }
   }
   const log = /^\/api\/v1\/artifacts\/([^/]+)\/access-log$/.exec(path);
   if (log && method === "GET") {

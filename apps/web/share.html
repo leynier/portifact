@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="referrer" content="no-referrer" />
+    <title data-i18n="share.title">Open a shared artifact</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <script type="module" src="/src/pages/share.ts"></script>
+  </head>
+  <body class="min-h-screen bg-surface text-text antialiased">
+    <a
+      href="#main"
+      class="sr-only z-50 rounded-sm bg-surface-inverse px-3 py-2 text-text-inverse focus:not-sr-only focus:fixed focus:top-4 focus:left-4"
+      data-i18n="auth.skip"
+      >Skip to content</a
+    >
+    <div aria-hidden="true" class="pointer-events-none fixed inset-x-0 top-0 h-96 bg-dot-grid"></div>
+    <div class="relative flex min-h-screen flex-col">
+      <header class="mx-auto flex w-full max-w-md items-center px-4 pt-8 pb-6 sm:pt-12">
+        <a href="https://portifact.com/" class="no-underline" aria-label="Portifact home" data-i18n-aria-label="auth.home">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="../../assets/brand/wordmark-dark.svg" />
+            <img src="../../assets/brand/wordmark.svg" alt="portifact" width="148" height="40" class="h-8 w-auto" />
+          </picture>
+        </a>
+      </header>
+
+      <main id="main" tabindex="-1" class="mx-auto w-full max-w-md flex-1 px-4 pb-12 focus:outline-none">
+        <div class="rounded-lg border border-border bg-surface-raised p-6 shadow-float sm:p-8 motion-safe:animate-rise">
+          <h1 class="text-2xl font-semibold tracking-tight" data-i18n="share.heading">Open a shared artifact</h1>
+
+          <div id="error-summary" role="alert" tabindex="-1" class="mt-6 flex gap-3 rounded-md border-2 border-text bg-surface p-4 text-sm font-medium focus:outline-none" hidden><svg aria-hidden="true" viewBox="0 0 24 24" class="mt-0.5 size-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" x2="12" y1="8" y2="12" /><line x1="12" x2="12.01" y1="16" y2="16" /></svg><p data-message class="min-w-0 flex-1"></p></div>
+          <p id="status" role="status" aria-live="polite" class="mt-2 text-sm text-text-muted"></p>
+
+          <form id="password-form" class="mt-6 space-y-6" novalidate hidden>
+            <p class="text-sm text-text-muted" data-i18n="share.passwordIntro">The person who shared this artifact protected it with a password.</p>
+            <div>
+              <label for="password" class="block text-sm font-medium" data-i18n="share.passwordLabel">Password</label>
+              <input id="password" name="password" type="password" autocomplete="off" spellcheck="false" required maxlength="200" class="mt-2 h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-base aria-invalid:border-2 aria-invalid:border-text" />
+              <p id="password-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
+            </div>
+            <div id="human-check" hidden>
+              <p id="human-check-hint" class="text-sm text-text-muted" data-i18n="share.humanCheckHint">After several wrong passwords, confirm that you are human to try again.</p>
+              <div id="human-check-widget" class="mt-3"></div>
+            </div>
+            <button id="open" type="submit" class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="share.open">Open</button>
+          </form>
+
+          <section id="unavailable" class="mt-6" aria-labelledby="unavailable-heading" hidden>
+            <h2 id="unavailable-heading" tabindex="-1" class="text-lg font-semibold focus:outline-none" data-i18n="share.unavailableHeading">This link does not work</h2>
+            <p class="mt-2 text-sm text-text-muted" data-i18n="share.unavailableBody">It may have expired or been revoked, or it is not a share link. Ask the person who shared it for a new link.</p>
+          </section>
+
+          <section id="incomplete" class="mt-6" aria-labelledby="incomplete-heading" hidden>
+            <h2 id="incomplete-heading" tabindex="-1" class="text-lg font-semibold focus:outline-none" data-i18n="share.incompleteHeading">Open the link again</h2>
+            <p class="mt-2 text-sm text-text-muted" data-i18n="share.incompleteBody">This page needs the whole share link, including the part after #. For your safety it removes that part from the address bar, so after a reload, open the link again from where you got it.</p>
+          </section>
+
+          <p class="mt-6 text-xs text-text-muted" data-i18n="share.privacy">You read the artifact without an account. Portifact does not record who you are; the owner only sees that the link was used. The artifact is written by its author, not by Portifact: do not enter passwords or personal data in it.</p>
+        </div>
+      </main>
+
+      <footer class="mx-auto w-full max-w-md px-4 pb-8 text-sm">
+        <nav aria-label="Legal" data-i18n-aria-label="auth.legal">
+          <ul class="flex flex-wrap justify-center gap-x-5 gap-y-2">
+            <li><a href="https://portifact.com/" class="text-text-muted hover:text-text">portifact.com</a></li>
+            <li><a href="https://portifact.com/terms" class="text-text-muted hover:text-text" data-i18n="auth.terms">Terms</a></li>
+            <li><a href="https://portifact.com/privacy" class="text-text-muted hover:text-text" data-i18n="auth.privacy">Privacy</a></li>
+            <li><a href="/report" class="text-text-muted hover:text-text" data-i18n="share.report">Report abuse</a></li>
+          </ul>
+        </nav>
+        <div data-language-switcher class="mt-4 flex justify-center"></div>
+      </footer>
+    </div>
+  </body>
+</html>

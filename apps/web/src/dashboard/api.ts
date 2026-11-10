@@ -39,6 +39,9 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  ShareLinkCreated,
+  ShareLinkList,
+  ShareLinkRevoked,
   SignOutOthersResult,
   type UploadedPart,
   VersionDownload,
@@ -101,6 +104,14 @@ export interface DashboardApi {
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** The account's quotas, this month's traffic and what blocks it now. */
   usage(): Promise<AccountUsageView>;
+  /** The artifact's share links that are not revoked, never with their URL. */
+  listShareLinks(artifactId: string): Promise<ShareLinkList>;
+  /** Creates a share link; the answer holds its URL, the only time it is ever shown. */
+  createShareLink(
+    artifactId: string,
+    input: { label: string; expiresAt?: string; password?: string },
+  ): Promise<ShareLinkCreated>;
+  revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
@@ -325,6 +336,24 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     usage() {
       return call("/api/v1/usage", AccountUsageView);
+    },
+    listShareLinks(artifactId) {
+      return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links`, ShareLinkList);
+    },
+    createShareLink(artifactId, input) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links`,
+        ShareLinkCreated,
+        "POST",
+        input,
+      );
+    },
+    revokeShareLink(artifactId, linkId) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links/${encodeURIComponent(linkId)}`,
+        ShareLinkRevoked,
+        "DELETE",
+      );
     },
     accessLog(artifactId, cursor, limit) {
       const params = new URLSearchParams();

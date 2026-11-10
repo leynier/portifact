@@ -55,6 +55,16 @@ The Privacy Policy lists the two preference cookies (`__Secure-pf_theme`, `__Sec
 
 Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.
 
+## Pending changes for share links
+
+Share links (premium plan P4, [decision 0008](decisions/0008-share-links.md)) shipped without changing the legal pages or `TERMS_VERSION`, so the texts can change in one go with the other paid features. When they do, they must say:
+
+- **Terms.** An owner on a paid plan can create links that let anyone holding them read an artifact without an account; the owner is responsible for who gets a link and its password, revokes a link to stop it, and links stop while the plan does not include them. Visitors through a link accept the Acceptable Use Policy by using the artifact, like any anonymous visitor of a public artifact.
+- **Privacy.** For a link Portifact keeps its label, creation, optional expiry, a hash of the token and of the optional password, and the day it was last opened; visitors through a link are not identified: the owner's access log records only that the link was used in a 30-minute window (kept 30 days), and nothing about the visitor (no IP, no account). Opening a link with a password may load Cloudflare Turnstile after repeated wrong passwords, and the visitor's IP is used for rate limits in short-lived counters, as on the sign-in page.
+- **Acceptable Use.** Share links may not be used to distribute content the policy forbids, to get around a suspension, or to publish material openly while pretending it is private; a suspension ends every link to the artifact, and reports about a link are handled like reports about the artifact.
+
+These are material changes for the Privacy Policy (new data and a new processor use), so bump `TERMS_VERSION` then.
+
 ## Changing the texts
 
 1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.

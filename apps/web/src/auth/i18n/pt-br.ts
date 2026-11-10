@@ -84,6 +84,20 @@ const messages = {
       "Não foi possível enviar a denúncia. Tente de novo ou escreva para abuse@portifact.com.",
     sent: "Denúncia enviada.",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "Verificando o link.",
+    opening: "Abrindo o artifact.",
+    passwordRequired: "Digite a senha.",
+    refused: "A senha está errada, ou o link expirou ou foi revogado.",
+    humanCheckShown:
+      "Confirme abaixo que você é humano. A senha é testada de novo quando você terminar.",
+    humanCheckUnavailable:
+      "Não foi possível carregar a verificação humana. Permita challenges.cloudflare.com ou tente mais tarde.",
+    rateLimited: "Tentativas demais. Espere alguns minutos e tente de novo.",
+    network: "Não foi possível conectar ao Portifact. Verifique sua conexão e tente de novo.",
+    failed: "Não foi possível abrir o link. Tente de novo.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -199,5 +213,22 @@ export const ptBR: AuthCatalog = {
     "report.doneHeading": "Obrigado, recebemos sua denúncia",
     "report.doneBody":
       'Analisamos cada denúncia. Você também pode escrever para <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>.',
+    // share.html
+    "share.title": "Abrir um artifact compartilhado",
+    "share.heading": "Abrir um artifact compartilhado",
+    "share.passwordIntro": "Quem compartilhou este artifact o protegeu com uma senha.",
+    "share.passwordLabel": "Senha",
+    "share.humanCheckHint":
+      "Depois de várias senhas erradas, confirme que você é humano para tentar de novo.",
+    "share.open": "Abrir",
+    "share.unavailableHeading": "Este link não funciona",
+    "share.unavailableBody":
+      "Ele pode ter expirado ou sido revogado, ou não é um link de compartilhamento. Peça um link novo a quem compartilhou.",
+    "share.incompleteHeading": "Abra o link de novo",
+    "share.incompleteBody":
+      "Esta página precisa do link completo, incluindo a parte depois de #. Por segurança ela remove essa parte da barra de endereço, então depois de recarregar abra o link de novo de onde você o recebeu.",
+    "share.privacy":
+      "Você lê o artifact sem uma conta. O Portifact não registra quem você é; o dono só vê que o link foi usado. O artifact é escrito pelo autor, não pelo Portifact: não digite senhas nem dados pessoais nele.",
+    "share.report": "Denunciar abuso",
   },
 };

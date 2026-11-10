@@ -79,6 +79,33 @@ export function changeAccess(input: {
   return control("/access", input);
 }
 
+/** Gives an owner a plan, as the operator's grant writes the row. */
+export async function grantPlan(ownerId: string, plan: "free" | "pro"): Promise<void> {
+  await sql(
+    "insert into owner_plans (owner_id, plan, seats, granted_by, updated_at) values (?, ?, 1, 'e2e', ?) on conflict (owner_id) do update set plan = excluded.plan",
+    [ownerId, plan, Date.now()],
+  );
+}
+
+/** A share link of the artifact, created by its owner; the URL holds the token. */
+export function createShareLink(input: {
+  ownerId: string;
+  artifactId: string;
+  label?: string;
+  expiresAt?: number;
+  password?: string;
+}): Promise<{ id: string; url: string; token: string }> {
+  return control("/share-link", input);
+}
+
+export function revokeShareLink(input: {
+  ownerId: string;
+  artifactId: string;
+  linkId: string;
+}): Promise<{ ok: boolean }> {
+  return control("/share-link", { ...input, revoke: input.linkId });
+}
+
 /**
  * Runs the content Worker's clock `offsetMs` ahead of real time for one artifact (0 puts it
  * back), so a test can pass a delivery time window without waiting. Other artifacts keep real

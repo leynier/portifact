@@ -83,6 +83,19 @@ const messages = {
     failed: "Не удалось отправить жалобу. Попробуйте ещё раз или напишите на abuse@portifact.com.",
     sent: "Жалоба отправлена.",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "Проверяем ссылку.",
+    opening: "Открываем artifact.",
+    passwordRequired: "Введите пароль.",
+    refused: "Пароль неверный, или срок действия ссылки истёк, или она отозвана.",
+    humanCheckShown: "Подтвердите ниже, что вы человек. После этого пароль будет проверен снова.",
+    humanCheckUnavailable:
+      "Не удалось загрузить проверку на человека. Разрешите challenges.cloudflare.com или попробуйте позже.",
+    rateLimited: "Слишком много попыток. Подождите несколько минут и попробуйте снова.",
+    network: "Не удалось подключиться к Portifact. Проверьте соединение и попробуйте снова.",
+    failed: "Не удалось открыть ссылку. Попробуйте снова.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -200,5 +213,22 @@ export const ru: AuthCatalog = {
     "report.doneHeading": "Спасибо, мы получили вашу жалобу",
     "report.doneBody":
       'Мы рассматриваем каждую жалобу. Также можно написать на <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>.',
+    // share.html
+    "share.title": "Открыть общий artifact",
+    "share.heading": "Открыть общий artifact",
+    "share.passwordIntro": "Человек, поделившийся этим artifact, защитил его паролем.",
+    "share.passwordLabel": "Пароль",
+    "share.humanCheckHint":
+      "После нескольких неверных паролей подтвердите, что вы человек, чтобы попробовать снова.",
+    "share.open": "Открыть",
+    "share.unavailableHeading": "Эта ссылка не работает",
+    "share.unavailableBody":
+      "Возможно, срок её действия истёк или её отозвали, или это не ссылка для доступа. Попросите новую ссылку у того, кто ею поделился.",
+    "share.incompleteHeading": "Откройте ссылку снова",
+    "share.incompleteBody":
+      "Этой странице нужна полная ссылка, включая часть после #. Для вашей безопасности страница убирает эту часть из адресной строки, поэтому после перезагрузки откройте ссылку снова оттуда, где вы её получили.",
+    "share.privacy":
+      "Вы читаете artifact без учётной записи. Portifact не записывает, кто вы; владелец видит только, что ссылкой воспользовались. Artifact написан его автором, а не Portifact: не вводите в нём пароли и личные данные.",
+    "share.report": "Сообщить о нарушении",
   },
 };

@@ -72,6 +72,7 @@ describe("recording openings", () => {
         ownerId: owner.id,
         email: reader.email,
         openedAt: WINDOW + MINUTE,
+        linkId: null,
       },
       {
         artifactId,
@@ -80,6 +81,7 @@ describe("recording openings", () => {
         ownerId: owner.id,
         email: reader.email,
         openedAt: WINDOW + ACCESS_WINDOW_MS,
+        linkId: null,
       },
     ]);
   });
