@@ -609,7 +609,7 @@ export function VerdictPanel({ view }: { view: ApprovalReviewView }) {
         }
         onChange={(event) => setNote(event.currentTarget.value)}
       />
-      <div role="group" aria-label={t("approval.yours.title")} className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button
           size="sm"
           intent="primary"
