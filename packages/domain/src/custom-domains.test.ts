@@ -1,4 +1,4 @@
-import { CUSTOM_DOMAINS, PLANS } from "@portifact/contracts";
+import { AccessMode, CUSTOM_DOMAINS, PLANS } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   canonicalLocation,
@@ -445,5 +445,15 @@ describe("codes on a custom host without a click", () => {
     expect(customHostWithoutClick("public")).toBe(true);
     expect(customHostWithoutClick("restricted")).toBe(true);
     expect(customHostWithoutClick("authenticated")).toBe(false);
+  });
+
+  it("are kept from artifacts read by a whole workspace or a whole company's addresses", () => {
+    // People the owner did not list one by one, like `authenticated`: an allowlist, so a mode
+    // added later needs the click until someone decides it does not.
+    expect(customHostWithoutClick("workspace")).toBe(false);
+    expect(customHostWithoutClick("domain")).toBe(false);
+    for (const mode of AccessMode.options) {
+      expect(customHostWithoutClick(mode), mode).toBe(mode === "public" || mode === "restricted");
+    }
   });
 });

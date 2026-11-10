@@ -213,12 +213,22 @@ export function displayDomain(input: string, domain: string): string | null {
   return typed !== domain && normalizeEmailDomain(typed).ok ? typed : null;
 }
 
-/** The normalized domain of an email address, or null when it does not normalize. */
+const ASCII_DOMAIN = /^[A-Za-z0-9.-]+$/;
+
+/**
+ * The domain of an email address, for matching a workspace's verified domains, or null. Only a
+ * domain written in plain ASCII counts, compared without case: the host parser also folds other
+ * spellings (full-width letters, an ideographic full stop, a soft hyphen) onto the same name, but
+ * the mailbox was proven for the address as written, not for the name it folds to. An address at
+ * an internationalized domain therefore matches only in its ASCII (`xn--`) form.
+ */
 export function emailDomainOf(email: string): string | null {
   const at = email.lastIndexOf("@");
   if (at <= 0) return null;
-  const domain = normalizeEmailDomain(email.slice(at + 1));
-  return domain.ok ? domain.value : null;
+  const written = email.slice(at + 1);
+  if (!ASCII_DOMAIN.test(written)) return null;
+  const domain = normalizeEmailDomain(written);
+  return domain.ok && domain.value === written.toLowerCase() ? domain.value : null;
 }
 
 function isOrUnder(domain: string, parent: string): boolean {

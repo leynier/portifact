@@ -15,6 +15,7 @@ import { commitPublish, preparePublish } from "../src/publish.ts";
 import {
   checkReadAccess,
   issueReadHandoff,
+  readEntryConfirmation,
   redeemReadHandoff,
   refreshReadSession,
 } from "../src/read-access.ts";
@@ -468,6 +469,70 @@ describe("reading in the workspace modes", () => {
         now: NOW,
       }),
     ).toMatchObject({ ok: false, code: "not_found" });
+  });
+});
+
+describe("on a custom host", () => {
+  it("asks for the visitor's click before a code leaves the app, like an artifact every account reads", async () => {
+    for (const mode of ["workspace", "domain"] as const) {
+      const t = await team();
+      const artifactId = await publishIn(t.admin.id, t.id);
+      await verified(t);
+      value(await setMode(t, artifactId, mode));
+      // The workspace's admin controls this host's DNS and could receive a code there.
+      const hostname = `docs-${hex().slice(0, 8)}.example.net`;
+      await db().insert(schema.customDomains).values({
+        hostname,
+        ownerId: t.id,
+        artifactId,
+        region: "default",
+        state: "active",
+        token: "domain-token",
+        verifiedAt: NOW,
+        checkedAt: NOW,
+      });
+      await db()
+        .update(schema.artifacts)
+        .set({ customHost: hostname })
+        .where(eq(schema.artifacts.id, artifactId));
+      // A member in workspace mode, someone with an address at the company in domain mode.
+      const reader = mode === "workspace" ? t.member : t.colleague;
+      const input = (requestedHost: string | null, confirmed: boolean) => ({
+        customDomains: true,
+        confirmed,
+        artifactId,
+        userId: reader.id,
+        authSessionId: "",
+        state: "c".repeat(43),
+        now: NOW,
+        requestedHost,
+        contentDomain: "portifact.dev",
+      });
+      const authSessionId = await session(reader.id);
+      const entry = (host: string | null, confirmed: boolean) => ({
+        ...input(host, confirmed),
+        authSessionId,
+      });
+      expect(await readEntryConfirmation(db(), entry(hostname, false)), mode).toBe(hostname);
+      expect(await issueReadHandoff(db(), entry(hostname, false)), mode).toMatchObject({
+        ok: false,
+      });
+      expect(
+        await db().select().from(schema.readHandoffs).where(eq(schema.readHandoffs.host, hostname)),
+        mode,
+      ).toEqual([]);
+      expect(value(await issueReadHandoff(db(), entry(hostname, true))).host, mode).toBe(hostname);
+      // The viewer frames it on `.dev`, so its review codes never reach the custom host either.
+      const viewed = value(
+        await getViewerArtifact(db(), {
+          artifactId,
+          userId: reader.id,
+          now: NOW,
+          customDomains: true,
+        }),
+      );
+      expect(viewed.customHost, mode).toBeNull();
+    }
   });
 });
 

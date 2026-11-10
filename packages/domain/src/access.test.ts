@@ -133,6 +133,7 @@ describe("canRead in the workspace and domain modes (decision 0010)", () => {
     | "member"
     | "domain"
     | "unicodeDomain"
+    | "unicodeSpelling"
     | "unverified"
     | "subdomain"
     | "listed"
@@ -142,7 +143,10 @@ describe("canRead in the workspace and domain modes (decision 0010)", () => {
     editor: { userId: "u_editor", verifiedEmails: ["editor@elsewhere.example"] },
     member: { userId: "u_member", verifiedEmails: ["member@elsewhere.example"] },
     domain: { userId: "u_domain", verifiedEmails: ["dana@ACME.example"] },
-    unicodeDomain: { userId: "u_idn", verifiedEmails: ["ida@bücher.example"] },
+    // An address at an internationalized domain matches in its ASCII form only: the mailbox was
+    // proven for the address as written, and other spellings fold onto the same name.
+    unicodeDomain: { userId: "u_idn", verifiedEmails: ["ida@xn--bcher-kva.example"] },
+    unicodeSpelling: { userId: "u_spelled", verifiedEmails: ["ida@bücher.example"] },
     // The address is at the domain but not verified, so the session gives no verified email.
     unverified: { userId: "u_unverified", verifiedEmails: [] },
     subdomain: { userId: "u_sub", verifiedEmails: ["sam@eng.acme.example"] },
@@ -198,6 +202,7 @@ describe("canRead in the workspace and domain modes (decision 0010)", () => {
     "member",
     "domain",
     "unicodeDomain",
+    "unicodeSpelling",
     "unverified",
     "subdomain",
     "listed",
@@ -205,14 +210,14 @@ describe("canRead in the workspace and domain modes (decision 0010)", () => {
   ];
   // Expected answers, in the order of WHO.
   const table: [AccessPolicy["mode"], boolean, string][] = [
-    ["public", true, "read read read read read read read read read read"],
-    ["authenticated", true, "sign_in read read read read read read read read read"],
-    ["restricted", true, "sign_in read read no no no no no read no"],
-    ["workspace", true, "sign_in read read read no no no no no no"],
-    ["workspace", false, "sign_in read read read no no no no no no"],
-    ["domain", true, "sign_in read read read read read no no no no"],
+    ["public", true, "read read read read read read read read read read read"],
+    ["authenticated", true, "sign_in read read read read read read read read read read"],
+    ["restricted", true, "sign_in read read no no no no no no read no"],
+    ["workspace", true, "sign_in read read read no no no no no no no"],
+    ["workspace", false, "sign_in read read read no no no no no no no"],
+    ["domain", true, "sign_in read read read read read no no no no no"],
     // A lapsed plan falls back to members only, never wider.
-    ["domain", false, "sign_in read read read no no no no no no"],
+    ["domain", false, "sign_in read read read no no no no no no no"],
   ];
   for (const [mode, feature, expected] of table) {
     it(`${mode} with the feature ${feature ? "on" : "off"}`, () => {

@@ -113,7 +113,22 @@ describe("emailDomainOf", () => {
   it("takes the normalized text after the last @", () => {
     expect(emailDomainOf("Ana@ACME.example")).toBe("acme.example");
     expect(emailDomainOf('"a@b"@acme.example')).toBe("acme.example");
-    expect(emailDomainOf("ida@bücher.example")).toBe("xn--bcher-kva.example");
+    expect(emailDomainOf("ida@xn--bcher-kva.example")).toBe("xn--bcher-kva.example");
+  });
+
+  it("matches only a domain written in plain ASCII, so no other spelling maps onto it", () => {
+    // The host parser folds all of these to `acme.com`. A mailbox was proven for the address as
+    // written, not for the domain it folds to, so none of them counts as an address at acme.com.
+    for (const spelled of [
+      "a@\uFF41\uFF43\uFF4D\uFF45.com",
+      "a@acme\u3002com",
+      "a@ac\u00ADme.com",
+      "a@acme\u200B.com",
+      "a@ACME.\u217Dom",
+      "ida@b\u00FCcher.example",
+    ]) {
+      expect(emailDomainOf(spelled), spelled).toBeNull();
+    }
   });
 
   it("is null for addresses without a usable domain", () => {

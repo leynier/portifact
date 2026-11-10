@@ -130,8 +130,8 @@ export async function getViewerArtifact(
         input.now,
       ),
     ),
-    // The frame's host: never for an `authenticated` artifact, which the viewer frames on `.dev`
-    // because it opens with no click (`customHostWithoutClick`).
+    // The frame's host: never for an `authenticated`, `workspace` or `domain` artifact, which the
+    // viewer frames on `.dev` because it opens with no click (`customHostWithoutClick`).
     customHost: customHostWithoutClick(artifact.accessMode)
       ? await activeCustomHost(db, input.artifactId, input.customDomains)
       : null,

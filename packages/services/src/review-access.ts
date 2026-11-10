@@ -91,8 +91,8 @@ export async function issueReviewHandoff(
   if (!access.ok) return access;
   // The visitor may read the artifact, so the frame is its active custom host when it has one
   // (`viewerFrameOrigin`), from the tables and never from input; the code works only there. An
-  // `authenticated` artifact keeps the `.dev` frame: the viewer opens with no click of theirs
-  // (`customHostWithoutClick`).
+  // `authenticated`, `workspace` or `domain` artifact keeps the `.dev` frame: the viewer opens with
+  // no click of theirs (`customHostWithoutClick`).
   const host =
     (customHostWithoutClick(access.value.accessMode)
       ? await activeCustomHost(db, input.artifactId, input.customDomains)
