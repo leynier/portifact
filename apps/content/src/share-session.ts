@@ -110,11 +110,16 @@ export async function authorizeLink(
   if (!value) return null;
   const parsed = ShareClaims.safeParse(await unseal(secret, SHARE_PURPOSE, value));
   const claims = parsed.success ? parsed.data : null;
+  // Only the page that says the link ended clears the cookie. The open page's own requests (a
+  // favicon, a poll) usually find the ended session first; clearing there would leave the
+  // visitor's next page load without a cookie, and they would be sent to sign in instead of
+  // being told why. A dead cookie grants nothing meanwhile: every use is checked again.
+  const navigation = request.headers.get("Sec-Fetch-Mode") === "navigate";
   const ended: ReadDecision = {
     kind: "page",
-    status: request.headers.get("Sec-Fetch-Mode") === "navigate" ? 403 : 401,
+    status: navigation ? 403 : 401,
     page: "shareEnded",
-    setCookies: [clearCookie(SHARE_COOKIE)],
+    setCookies: navigation ? [clearCookie(SHARE_COOKIE)] : [],
   };
   if (!claims || claims.aid !== artifactId || claims.sexp <= now) return ended;
   if (!artifact || !hasFeature(entitlements(artifact.plan, now), "shareLinks")) return ended;
