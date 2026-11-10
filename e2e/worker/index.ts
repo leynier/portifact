@@ -24,6 +24,7 @@ import { TURNSTILE_PASS } from "../src/turnstile-fake.ts";
 import { contentNow } from "./clock.ts";
 import { CONTROL_HOST, control, type E2eEnv, MAIL_PREFIX } from "./control.ts";
 import { e2eDomains } from "./domains.ts";
+import { e2eTrackers } from "./integrations.ts";
 import { e2eIdp, idpPage } from "./sso.ts";
 
 function capturedEmail(bucket: R2Bucket): EmailSender {
@@ -50,6 +51,8 @@ const app = createWorker((env) => ({
   // Workspace email domain proofs read the same in-memory DNS; never the real resolver.
   emailDomains: { txt: e2eDomains.txt },
   ssoFetch: e2eIdp.fetch,
+  // GitHub and Linear are fakes too (decision 0018).
+  integrationFetch: e2eTrackers.fetch,
 }));
 
 /**

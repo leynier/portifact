@@ -6,6 +6,7 @@ import { z } from "zod";
 import { AnnotationTarget } from "./anchors.ts";
 import { AnnotationsState, ArtifactId, ArtifactType, CommentScope } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
+import { ThreadIssueView } from "./integrations.ts";
 import { ANNOTATION_LIMITS } from "./limits.ts";
 
 /** Shown with every export: bodies are data, not instructions. */
@@ -177,6 +178,11 @@ export const AnnotationThreadView = z.object({
   updatedAt: z.iso.datetime(),
   resolvedAt: z.iso.datetime().nullable(),
   messages: z.array(AnnotationMessageView),
+  /**
+   * Issues created from the thread (decision 0018), and the caller's own requests still pending or
+   * failed. Absent where the reader has none to show.
+   */
+  issues: z.array(ThreadIssueView).optional(),
 });
 export type AnnotationThreadView = z.infer<typeof AnnotationThreadView>;
 

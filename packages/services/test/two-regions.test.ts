@@ -11,14 +11,31 @@ import { recordOpenings } from "../src/access-log.ts";
 import { requestAccountDeletion } from "../src/account-data.ts";
 import { artifactHandles } from "../src/actors.ts";
 import { recordViews } from "../src/analytics.ts";
-import { createAnnotationThread, type HumanCheck } from "../src/annotations.ts";
-import { exportTombstones, rebuildArtifactDirectory, reconcileStorage } from "../src/backups.ts";
+import {
+  createAnnotationThread,
+  getAnnotationThread,
+  type HumanCheck,
+} from "../src/annotations.ts";
+import {
+  applyIntegrationTombstones,
+  exportTombstones,
+  rebuildArtifactDirectory,
+  reconcileStorage,
+} from "../src/backups.ts";
 import { measurePlatformUsage } from "../src/budget.ts";
+import { integrationKeys } from "../src/integration-keys.ts";
+import {
+  createIntegrationConnection,
+  listIntegrationChoices,
+  removeIntegrationConnection,
+} from "../src/integrations.ts";
 import { runMaintenance, runRegionalMaintenance } from "../src/maintenance.ts";
 import { relayOutbox, runJob } from "../src/outbox.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { issueReadHandoff, redeemReadHandoff, refreshReadSession } from "../src/read-access.ts";
 import { createShareLink, openShareLink } from "../src/share-links.ts";
+import { FakeIssueTrackers } from "../src/testing/fake-issue-trackers.ts";
+import { requestThreadIssue } from "../src/thread-issues.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { createWorkspace, deleteWorkspace } from "../src/workspaces.ts";
 import { DAY, NOW, session, sha256, user } from "./fixtures.ts";
@@ -324,6 +341,122 @@ describe("a workspace in the EU region", () => {
       .from(schema.tombstones)
       .where(eq(schema.tombstones.id, member.id));
     expect(tombstone).toMatchObject({ kind: "account" });
+  });
+
+  it("keeps issue connections and issue links in the EU database, tombstones in the global one", async () => {
+    const { ws, admin, member } = await euWorkspace();
+    const { artifactId, versionId } = await publishInEu(ws.id, admin.id);
+    await eu()
+      .db.update(schema.artifacts)
+      .set({ accessMode: "workspace", annotations: "open" })
+      .where(eq(schema.artifacts.id, artifactId));
+    const thread = await createAnnotationThread(eu().db, {
+      humanCheck: HUMAN,
+      userId: member.id,
+      artifactId,
+      versionId,
+      target: DOC,
+      body: "From the EU",
+      now: NOW,
+    });
+    if (!thread.ok) throw new Error(thread.message);
+    const fake = new FakeIssueTrackers().github("ghp_eu_token_with_enough_characters", "eu-bot", [
+      "acme/site",
+    ]);
+    const keys = await integrationKeys({ current: "test-only integrations key for the EU test" });
+    const actor = {
+      userId: admin.id,
+      ownerId: ws.id,
+      role: "admin" as const,
+      region: "eu" as const,
+    };
+    const connection = await createIntegrationConnection(eu().db, {
+      actor,
+      connection: {
+        service: "github",
+        label: "EU repo",
+        credential: "ghp_eu_token_with_enough_characters",
+        targets: ["acme/site"],
+      },
+      deps: { keys, service: { enabled: true }, fetch: fake.fetch },
+      now: NOW,
+    });
+    if (!connection.ok) throw new Error(connection.message);
+    const rows = (db: ReturnType<typeof eu>["db"]) =>
+      db
+        .select()
+        .from(schema.integrationConnections)
+        .where(eq(schema.integrationConnections.ownerId, ws.id));
+    expect(await rows(eu().db)).toHaveLength(1);
+    expect(await rows(home().db)).toHaveLength(0);
+    // The dialog says comment text leaves the EU for such an owner.
+    const choices = await listIntegrationChoices(eu().db, {
+      actor,
+      service: { enabled: true },
+      now: NOW,
+    });
+    expect(choices.ok && choices.value.euResidency).toBe(true);
+    const issue = await requestThreadIssue(eu().db, {
+      userId: admin.id,
+      artifactId,
+      threadId: thread.value.id,
+      request: {
+        connectionId: connection.value.id,
+        target: "acme/site",
+        title: "From the EU",
+        include: { link: true, artifactName: true, quote: false, message: true },
+      },
+      idempotencyKey: crypto.randomUUID(),
+      service: { enabled: true },
+      now: NOW,
+    });
+    if (!issue.ok) throw new Error(issue.message);
+    const sent: JobMessage[] = [];
+    const queue = {
+      sendBatch: async (messages: { body: JobMessage }[]) => {
+        sent.push(...messages.map((message) => message.body));
+      },
+    } as unknown as Queue<JobMessage>;
+    await relayOutbox(eu().db, queue, NOW + 1, 5, "eu");
+    const job = sent.find((message) => message.topic === "thread_issue");
+    expect(job?.region).toBe("eu");
+    if (!job) throw new Error("no issue job");
+    expect(
+      await runJob(eu().db, env.ARTIFACTS_EU, job, NOW + 2, {
+        issues: { keys, fetch: fake.fetch, appOrigin: "https://app.portifact.test", enabled: true },
+      }),
+    ).toBe("done");
+    expect(fake.issues.map((i) => i.body)).toEqual([expect.stringContaining("From the EU")]);
+    const view = await getAnnotationThread(eu().db, {
+      userId: member.id,
+      artifactId,
+      threadId: thread.value.id,
+      now: NOW + 3,
+    });
+    expect(view.ok && view.value.issues?.[0]).toMatchObject({ state: "created", key: "#1" });
+    const [snapshot] = await eu()
+      .db.select()
+      .from(schema.integrationConnections)
+      .where(eq(schema.integrationConnections.id, connection.value.id));
+    expect(
+      await removeIntegrationConnection(eu().db, {
+        actor,
+        connectionId: connection.value.id,
+        now: NOW + 4,
+      }),
+    ).toEqual({ ok: true, value: { connectionId: connection.value.id } });
+    const [tombstone] = await regions()
+      .global.select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, connection.value.id));
+    expect(tombstone).toMatchObject({ kind: "integration_connection" });
+    expect(await rows(eu().db)).toHaveLength(0);
+    // A restore of the EU database brings the row back; re-applying the tombstones, per region,
+    // deletes it again, with the strict guard on (the global tombstone is never joined in).
+    if (!snapshot) throw new Error("setup");
+    await eu().db.insert(schema.integrationConnections).values(snapshot);
+    expect(await applyIntegrationTombstones(regions())).toEqual({ integrations: 1 });
+    expect(await rows(eu().db)).toHaveLength(0);
   });
 
   it("deletes an EU workspace: global first, its artifacts purged from the EU database and bucket", async () => {

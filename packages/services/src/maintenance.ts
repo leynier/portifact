@@ -26,6 +26,7 @@ import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneDirectoryUsers } from "./scim.ts";
 import { pruneShareLinks } from "./share-links.ts";
+import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
 import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
@@ -575,6 +576,7 @@ export async function runRegionalMaintenance(db: RegionalDb, bucket: R2Bucket, n
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
     webhooks: await maintainWebhooks(db, now),
+    threadIssues: await requeueThreadIssues(db, now),
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     prunedAuditEvents: await pruneAuditEvents(db, db.global, now),
     approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
@@ -622,6 +624,8 @@ export async function runMaintenance(
     droppedSearchIndexes: (await dropLapsedSearchIndexes(db, now)).dropped,
     scheduledSearchIndexing: (await scheduleSearchIndexing(db, now)).scheduled,
     webhooks: await maintainWebhooks(db, now),
+    // Issues requested from threads whose job went missing get one again (decision 0018).
+    threadIssues: await requeueThreadIssues(db, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
     workspacePolicies: await enforceWorkspacePolicies(db, now),

@@ -82,6 +82,10 @@ export function auditActor(actor: AuditEventView["actor"]): string {
 const ROLE = { admin: "admin", editor: "editor", member: "member" } as const;
 
 /** What happened, in plain words. */
+/** The services of issue integrations, by name. */
+const SERVICE: Readonly<Record<string, string>> = { github: "GitHub", linear: "Linear" };
+const service = (value: unknown) => SERVICE[String(value)] ?? String(value);
+
 export function auditSummary(event: AuditEventView): string {
   const d = event.detail as Record<string, unknown>;
   const member = event.target.member ? auditActor(event.target.member) : "a member";
@@ -141,6 +145,31 @@ export function auditSummary(event: AuditEventView): string {
           : "Disabled a webhook";
     case "webhook.removed":
       return "Removed a webhook";
+    case "integration.connected":
+      return `Connected ${service(d.service)} with ${d.targets} ${d.targets === 1 ? "target" : "targets"}`;
+    case "integration.changed": {
+      const parts = [
+        d.label ? "its label" : null,
+        d.credential ? "its credential" : null,
+        d.targets !== undefined ? `its targets (now ${d.targets})` : null,
+      ].filter(Boolean);
+      return `Changed a connection: ${parts.join(", ")}`;
+    }
+    case "integration.removed":
+      return `Removed a ${service(d.service)} connection`;
+    case "integration.failing":
+      return d.reason === "key_unavailable"
+        ? `A ${service(d.service)} connection's credential can no longer be opened`
+        : `${service(d.service)} refused a connection's credential`;
+    case "issue.created": {
+      const sent = [
+        d.link ? "the link" : null,
+        d.artifactName ? "the name" : null,
+        d.quote ? "the quote" : null,
+        d.message ? "the first message" : null,
+      ].filter(Boolean);
+      return `Created a ${service(d.service)} issue in ${d.target} from a thread (sent: ${sent.length > 0 ? sent.join(", ") : "the title only"})`;
+    }
     case "brand.changed":
       return (d.fields as string[]).includes("logo")
         ? "Changed the brand's logo"

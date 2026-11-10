@@ -41,6 +41,8 @@ export function annotationScope(method: string, pathname: string): string | unde
   const rest = match[2] ?? "";
   if (method === "GET") return "annotations:read";
   if (rest === "mode" || /\/moderation$/.test(rest)) return "annotations:moderate";
+  // An issue from a thread (decision 0018) needs the moderation scope, like its route.
+  if (/^threads\/[^/]+\/issue$/.test(rest)) return "annotations:moderate";
   if (method === "DELETE" && rest.startsWith("threads/")) return "annotations:moderate";
   return "annotations:write";
 }
@@ -213,6 +215,34 @@ export function createFakeAnnotations(
       return error("invalid_input", "The body is not valid JSON.");
     }
     if (body !== undefined) state.bodies.push(body);
+
+    const issue = /^threads\/([^/]+)\/issue$/.exec(rest);
+    if (issue && method === "POST") {
+      if (!IdempotencyKey.safeParse(key).success) {
+        return error("invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
+      }
+      const thread = state.threads.get(issue[1] as string);
+      if (!thread || thread.artifactId !== artifact.id)
+        return error("not_found", "Thread not found.");
+      if (state.role !== "owner") {
+        return error("forbidden", "Only the artifact's admins and editors can create issues.");
+      }
+      const target = (body as { target?: string } | undefined)?.target ?? "";
+      return {
+        status: 202,
+        body: {
+          id: `ti_${"0".repeat(32)}`,
+          service: "github",
+          target,
+          state: "pending",
+          key: null,
+          url: null,
+          failure: null,
+          own: true,
+          createdAt: iso(),
+        },
+      };
+    }
 
     if (method === "PUT" && rest === "mode") {
       if (state.role !== "owner") return error("not_found", "Artifact not found.");

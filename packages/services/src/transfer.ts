@@ -274,6 +274,22 @@ export async function transferArtifact(
             sql`${schema.webhookEvents.artifactId} = ${artifact.id} and ${schema.webhookEvents.webhookId} in (select ${schema.webhooks.id} from ${schema.webhooks} where ${schema.webhooks.ownerId} = ${from})`,
           ),
         ),
+      // Issues still waiting to be created through the source's connections (decision 0018): the
+      // artifact is no longer that owner's, so they fail here instead of going out under it.
+      w
+        .update(schema.threadIssues)
+        .set({
+          state: "failed",
+          failure: "artifact_moved",
+          title: null,
+          startedAt: null,
+          completedAt: input.now,
+        })
+        .where(
+          guarded(
+            sql`${schema.threadIssues.artifactId} = ${artifact.id} and ${schema.threadIssues.state} = 'pending'`,
+          ),
+        ),
       // Groups name the source workspace's people: the artifact leaves them behind (decision
       // 0014), in the same batch, so no target member is ever matched against them.
       w

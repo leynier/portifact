@@ -43,6 +43,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   domains: { admin: true, editor: true, member: false },
   approvals: { admin: true, editor: true, member: false },
   search: { admin: true, editor: true, member: false },
+  issues: { admin: true, editor: true, member: false },
   members: { admin: true, editor: false, member: false },
   plan: { admin: true, editor: false, member: false },
   policies: { admin: true, editor: false, member: false },
@@ -53,6 +54,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   tokens: { admin: true, editor: false, member: false },
   sso: { admin: true, editor: false, member: false },
   scim: { admin: true, editor: false, member: false },
+  integrations: { admin: true, editor: false, member: false },
 };
 
 /** What a service token may do on top of its role (decision 0011): written out on purpose. */

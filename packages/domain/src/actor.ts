@@ -64,6 +64,8 @@ const EDITOR: readonly RoleAction[] = [
   "approvals",
   // Content search reads every artifact of the owner, so only roles that read them all (decision 0012).
   "search",
+  // Creating an issue from a thread sends comments out through a connection (decision 0018).
+  "issues",
 ];
 const ADMIN: readonly RoleAction[] = [
   ...EDITOR,
@@ -84,6 +86,8 @@ const ADMIN: readonly RoleAction[] = [
   "sso",
   // SCIM provisioning (decision 0017): a directory that adds and removes its people.
   "scim",
+  // Connections to GitHub or Linear hold a credential that acts outside Portifact (decision 0018).
+  "integrations",
 ];
 
 /**

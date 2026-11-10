@@ -2384,4 +2384,149 @@ export const fr = {
     "Votre annuaire ne gérera plus ce groupe : les administrateurs le modifient ici désormais. Son association de rôle est supprimée, et les personnes qu’il a faites éditeurs ou administrateurs gardent leur rôle. Si l’annuaire envoie plus tard un groupe du même nom, il est refusé.",
   "groups.stopSync.done": "{name} n’est plus synchronisé depuis votre annuaire.",
   "audit.kind.groupSyncStopped": "A arrêté de synchroniser le groupe {group} depuis l’annuaire",
+  "shell.integrationsLink": "Intégrations",
+  "integrations.title": "Intégrations",
+  "integrations.description":
+    "Transformez un fil de commentaires en ticket GitHub ou Linear. Une connexion agit avec un identifiant collé par un administrateur : les tickets apparaissent comme créés par ce compte.",
+  "integrations.adminOnly.title": "Seuls les administrateurs gèrent les intégrations",
+  "integrations.adminOnly.body":
+    "Demandez à un administrateur de {workspace} de connecter GitHub ou Linear.",
+  "integrations.planTitle": "Pas dans cette offre",
+  "integrations.planRequired":
+    "Les intégrations font partie de l'offre {plan}. Les connexions déjà faites sont conservées, mais aucun ticket ne peut être créé avec elles.",
+  "integrations.list.title": "Connexions",
+  "integrations.list.loading": "Chargement des connexions",
+  "integrations.list.error": "Impossible de charger les connexions.",
+  "integrations.empty.title": "Aucune connexion pour l'instant",
+  "integrations.empty.body":
+    "Connectez GitHub ou Linear pour que les administrateurs et les éditeurs créent des tickets depuis les fils de commentaires.",
+  "integrations.service.github": "GitHub",
+  "integrations.service.linear": "Linear",
+  "integrations.add.title": "Connecter un service",
+  "integrations.add.hint":
+    "L'identifiant est vérifié auprès du service, stocké chiffré et jamais réaffiché : Portifact n'en montre que les quatre derniers caractères.",
+  "integrations.add.service": "Service",
+  "integrations.add.label": "Libellé",
+  "integrations.add.labelHint": "Un nom que votre équipe reconnaît, comme Dépôt produit.",
+  "integrations.add.credential.github": "Jeton d'accès personnel à granularité fine",
+  "integrations.add.credential.linear": "Clé d'API Linear",
+  "integrations.add.targets.github": "Dépôts",
+  "integrations.add.targets.linear": "ID d'équipes",
+  "integrations.add.targetsHint.github": "Un propriétaire/dépôt par ligne, au plus {limit}.",
+  "integrations.add.targetsHint.linear":
+    "Un ID d'équipe par ligne, au plus {limit}. Linear l'affiche dans les réglages de l'équipe.",
+  "integrations.add.failed":
+    "Le service n'a pas accepté l'identifiant ou l'un des dépôts ou équipes. Vérifiez-les avec les étapes ci-dessus, puis réessayez.",
+  "integrations.add.submit": "Connecter",
+  "integrations.add.limit":
+    "Un espace peut avoir au plus {limit} connexions. Supprimez-en une pour en ajouter une autre.",
+  "integrations.howto.github.title": "Créer un jeton GitHub au moindre privilège",
+  "integrations.howto.github.1":
+    "Dans GitHub, ouvrez Settings, Developer settings, Personal access tokens, Fine-grained tokens, puis choisissez Generate new token.",
+  "integrations.howto.github.2":
+    "Choisissez comme propriétaire de la ressource le compte ou l'organisation qui possède les dépôts, et donnez-lui une date d'expiration.",
+  "integrations.howto.github.3":
+    "Sous Repository access, choisissez Only select repositories et sélectionnez les dépôts listés ici.",
+  "integrations.howto.github.4":
+    "Sous Repository permissions, réglez Issues sur Read and write. Laissez toutes les autres permissions sur No access ; Metadata reste en lecture seule.",
+  "integrations.howto.github.5":
+    "Générez le jeton et collez-le ici. Les tickets apparaissent comme créés par le compte du jeton.",
+  "integrations.howto.linear.title": "Créer une clé d'API Linear",
+  "integrations.howto.linear.1":
+    "Dans Linear, ouvrez Settings, puis Security and access, et créez une clé d'API personnelle.",
+  "integrations.howto.linear.2":
+    "Si Linear permet de limiter la clé, autorisez seulement la création de tickets, et seulement dans les équipes listées ici.",
+  "integrations.howto.linear.3":
+    "Collez la clé ici. Les tickets apparaissent comme créés par votre compte Linear.",
+  "integrations.connected": "{label} connecté.",
+  "integrations.identity": "Agit en tant que {identity}",
+  "integrations.credential": "Identifiant se terminant par {hint}",
+  "integrations.attention.credential_rejected":
+    "Le service a refusé cet identifiant. Collez-en un nouveau, puis testez-le.",
+  "integrations.attention.key_unavailable":
+    "L'identifiant enregistré ne peut plus être ouvert. Collez-le de nouveau.",
+  "integrations.state.ready": "Prête",
+  "integrations.state.attention": "À vérifier",
+  "integrations.test": "Tester",
+  "integrations.testLabel": "Tester {label}",
+  "integrations.testPassed":
+    "{label} fonctionne. Elle agit en tant que {identity} et chaque dépôt ou équipe est accessible.",
+  "integrations.problem.credential_rejected":
+    "Le service a refusé l'identifiant : il est faux, expiré ou révoqué.",
+  "integrations.problem.missing_permission":
+    "Le service a accepté l'identifiant, mais il ne peut pas lire son propre compte.",
+  "integrations.problem.target_unreachable":
+    "L'identifiant n'atteint pas {target}. Vérifiez son accès.",
+  "integrations.problem.issues_disabled": "Les tickets sont désactivés dans {target}.",
+  "integrations.problem.service_unavailable": "Le service n'a pas répondu. Réessayez plus tard.",
+  "integrations.problem.rate_limited":
+    "Le service limite les requêtes de cet identifiant. Réessayez plus tard.",
+  "integrations.edit": "Modifier",
+  "integrations.editLabel": "Modifier {label}",
+  "integrations.edit.title": "Modifier {label}",
+  "integrations.edit.credentialHint": "Laissez vide pour garder l'identifiant actuel.",
+  "integrations.edit.save": "Enregistrer",
+  "integrations.saved": "{label} enregistré.",
+  "integrations.remove": "Supprimer",
+  "integrations.removeLabel": "Supprimer {label}",
+  "integrations.confirm.title": "Supprimer {label} ?",
+  "integrations.confirm.body":
+    "Son identifiant est effacé de Portifact. Les tickets déjà créés gardent leurs liens ; ceux encore en cours de création échouent. Révoquez aussi le jeton ou la clé chez le service.",
+  "integrations.removed": "{label} supprimé.",
+  "integrations.actionFailed": "Cela n'a pas fonctionné",
+  "issues.create": "Créer un ticket",
+  "issues.dialog.title": "Créer un ticket depuis le fil {number}",
+  "issues.dialog.close": "Fermer",
+  "issues.dialog.connection": "Connexion",
+  "issues.dialog.target": "Dépôt ou équipe",
+  "issues.dialog.issueTitle": "Titre du ticket",
+  "issues.dialog.parts": "Ce qui est envoyé",
+  "issues.dialog.part.link": "Un lien vers ce fil",
+  "issues.dialog.part.artifactName": "Le nom de l'artifact",
+  "issues.dialog.part.quote": "Le texte cité",
+  "issues.dialog.part.quoteHint": "Une sélection dans l'artifact. Elle quitte Portifact.",
+  "issues.dialog.part.message": "Le premier message du fil",
+  "issues.dialog.part.messageHint":
+    "Les mots de quelqu'un. Ils quittent Portifact et restent dans le ticket même si le commentaire est supprimé ensuite.",
+  "issues.dialog.preview": "Exactement ce qui est envoyé",
+  "issues.dialog.previewHint":
+    "Le texte des commentaires part en texte brut : les mentions, liens et images qu'il contient ne font rien. Il est relu à la création du ticket, donc une modification ultérieure est ce qui part.",
+  "issues.dialog.never":
+    "Jamais envoyés : les adresses e-mail des lecteurs, le contenu de l'artifact, les autres messages du fil ou les notes de relecture.",
+  "issues.dialog.visible":
+    "Toute personne qui voit ce fil, y compris les lecteurs extérieurs à votre équipe, voit le lien du ticket créé et le nom de son dépôt ou de son équipe, même pour un dépôt privé.",
+  "issues.failure.target_removed":
+    "un administrateur a retiré ce dépôt ou cette équipe de la connexion.",
+  "issues.failure.artifact_moved": "l'artifact a été déplacé vers un autre espace.",
+  "issues.failure.requester_left": "vous ne pouvez plus créer de tickets pour cet espace.",
+  "issues.failure.thread_gone": "le fil a été supprimé.",
+  "issues.dialog.eu":
+    "Cet espace garde ses données dans l'UE. Ce que vous envoyez va chez {service}, hors de l'UE.",
+  "issues.dialog.submit": "Créer le ticket",
+  "issues.dialog.noConnections":
+    "Aucune connexion utilisable. Demandez à un administrateur de connecter GitHub ou Linear, ou de réparer une connexion à vérifier.",
+  "issues.requested": "Ticket demandé. Son lien apparaît sur le fil dans quelques minutes.",
+  "issues.list": "Tickets",
+  "issues.link": "Ticket {key} dans {target}",
+  "issues.pending": "Le ticket dans {target} est en cours de création",
+  "issues.failed": "Le ticket dans {target} n'a pas été créé : {reason}",
+  "issues.failure.credential_rejected": "l'identifiant de la connexion ne fonctionne plus.",
+  "issues.failure.target_unreachable": "l'identifiant ne peut pas y créer de tickets.",
+  "issues.failure.rejected": "le service l'a refusé.",
+  "issues.failure.connection_removed": "la connexion a été supprimée.",
+  "issues.failure.unavailable": "les intégrations ne sont pas disponibles.",
+  "issues.failure.plan_lapsed": "l'offre n'inclut plus les intégrations.",
+  "issues.failure.service_unavailable": "le service n'a pas répondu.",
+  "issues.failure.invalid_response":
+    "le service a répondu d'une façon que Portifact n'a pas pu utiliser.",
+  "audit.kind.integrationConnected":
+    "A connecté {service, select, github {GitHub} other {Linear}} avec {targets, plural, one {# dépôt ou équipe} other {# dépôts ou équipes}}",
+  "audit.kind.integrationChanged":
+    "{credential, select, true {A remplacé l'identifiant d'une connexion} other {A modifié le libellé ou les cibles d'une connexion}}",
+  "audit.kind.integrationRemoved":
+    "A supprimé une connexion {service, select, github {GitHub} other {Linear}}",
+  "audit.kind.integrationFailing":
+    "{reason, select, key_unavailable {L'identifiant d'une connexion ne peut plus être ouvert} other {{service, select, github {GitHub} other {Linear}} a refusé l'identifiant d'une connexion}}",
+  "audit.kind.issueCreated":
+    "A créé un ticket {service, select, github {GitHub} other {Linear}} dans {target} depuis un fil {message, select, true {avec son premier message} other {sans texte de commentaire}}",
 } satisfies Catalog;

@@ -146,6 +146,23 @@ const GATED: GatedCommand[] = [
     method: "PATCH",
     path: /^\/api\/v1\/artifacts\/[^/]+\/review\/request$/,
   },
+  // Creating an issue from a thread (decision 0018); connections are managed in the dashboard only.
+  {
+    feature: "integrations",
+    args: (id) => [
+      "issue",
+      id,
+      "t1",
+      "--connection",
+      `ic_${"a".repeat(32)}`,
+      "--target",
+      "acme/site",
+      "--title",
+      "Gate",
+    ],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/annotations\/threads\/[^/]+\/issue$/,
+  },
   // A service token of a workspace whose plan lost the feature (decision 0011) is refused on
   // every request; with PORTIFACT_TOKEN set it goes through the same error path
   // (service-tokens.test.ts).

@@ -217,6 +217,20 @@ export const AccountExport = z.object({
       }),
     ),
     /**
+     * The account's issue connections (decision 0018): the service, label, identity and targets,
+     * never the credential.
+     */
+    integrations: z.array(
+      z.object({
+        id: z.string(),
+        service: z.enum(["github", "linear"]),
+        label: z.string(),
+        identity: z.string(),
+        targets: z.array(z.string()),
+        createdAt: z.iso.datetime(),
+      }),
+    ),
+    /**
      * The brand of the account's space for the viewer's bar, kept whatever the plan, or null.
      * The logo's bytes are on the Branding page; the export lists what it is.
      */

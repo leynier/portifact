@@ -249,6 +249,21 @@ SCIM provisioning ships switched off ([decision 0017](decisions/0017-workspace-s
 10. **Group size and sync rate.** Push a group at 500 members and replace it, then push 50 groups. No request is refused for size, none takes more than a few seconds, and a full sync stays under the rate limits.
 11. **Role mapping.** Map a pushed group to editor and another to admin (the confirmation names the group and its size). Adding and removing people in the directory moves their roles at the next push. Removing the last admin's group in the directory is refused with the detail the directory then shows.
 
+### Integrations
+
+Issue integrations ship switched off ([decision 0018](decisions/0018-issue-integrations.md), "Switched off"). Set the secret `INTEGRATIONS_KEY` (at least 32 random characters) on `portifact-jobs` and `portifact-app` (`wrangler secret put INTEGRATIONS_KEY`; during a rotation the old value goes in `INTEGRATIONS_KEY_PREVIOUS` on the jobs Worker until `integrationKeysLeft` is 0, and is kept somewhere safe for 30 days for a restore). Before setting `INTEGRATIONS_ENABLED="true"` on `portifact-jobs` and then `portifact-app` (never in a `wrangler.jsonc`), run these checks on a staging deployment against the real services, with test repositories and a test Linear workspace you control, and record each result in decision 0018 with the date:
+
+1. **GitHub token.** A fine-grained token made with exactly the steps the Integrations page shows (one repository, Issues read and write, nothing else) connects, tests and creates an issue; the issue's body renders the comment text literally (a `@mention` notifies nobody, `#1` links nothing, an image does not load, HTML shows as text). A token without Issues write passes the check and the first issue fails with `target_unreachable` (403), shown to the person.
+2. **Revocation.** Revoke the token at GitHub: the next issue fails with `credential_rejected`, the connection shows "Needs attention", and the audit log has one `integration.failing`.
+3. **Linear key.** A personal API key connects with the team names Linear shows, creates an issue in the chosen team whose description renders the text literally, and a revoked key fails with `credential_rejected`. Record the GraphQL error shapes Linear returns for an unknown team and a revoked key, and adjust `graphqlError` if they differ.
+4. **Lost answers.** Make the first attempt's answer fail after GitHub created the issue (a staging-only network fault): the retry finds it by its reference and creates no second issue. The same on Linear.
+5. **Rate limits.** At GitHub's secondary rate limit (many issues in a minute) the answers are retried, not failed, and the requests settle.
+6. **Redirects and hosts.** Confirm GitHub and Linear answer the calls without redirects (a 3xx fails the attempt by design) and that nothing is sent to any other host (tail the Worker's subrequests).
+7. **EU.** For an EU workspace (when one exists), the dialog says the text leaves the EU, and the request is stored in the EU database.
+8. **No secrets in logs.** Tail both Workers during the flows: no token, key, title, body or issue URL appears.
+
+Then add `integrations` to `AVAILABLE_PLAN_FEATURES` in the same change that turns it on, and update the legal pages first ([legal.md](legal.md), "Pending changes to the legal texts").
+
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.

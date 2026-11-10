@@ -17,10 +17,12 @@ import {
 } from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
+import { issueDepsFromEnv } from "../../apps/jobs/src/integrations.ts";
 import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
 import { webhookDepsFromEnv } from "../../apps/jobs/src/webhooks.ts";
 import { setContentClockOffset } from "./clock.ts";
 import { e2eDomains } from "./domains.ts";
+import { e2eTrackers } from "./integrations.ts";
 import { setNextIdentity } from "./sso.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
@@ -464,6 +466,21 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       received.push(await (await env.ARTIFACTS.get(object.key))?.json());
     }
     return Response.json({ ran: results.length, received });
+  }
+
+  // The jobs Worker's issues from threads (decision 0018), run now with its real deps against the
+  // fake GitHub and Linear; answers what the fakes received.
+  if (path === "/issues") {
+    const issues = await issueDepsFromEnv(env, e2eTrackers.fetch);
+    const { results } = await env.DB.prepare(
+      "select id from outbox where topic = 'thread_issue' and available_at <= ?",
+    )
+      .bind(now)
+      .all<{ id: number }>();
+    for (const { id } of results) {
+      await runJob(db, env.ARTIFACTS, { id, topic: "thread_issue" }, now, { issues });
+    }
+    return Response.json({ ran: results.length, issues: e2eTrackers.issues });
   }
 
   // Single sign-on: who signs in at the fake identity provider next (decision 0016).

@@ -95,6 +95,9 @@ export const TABLE_HOMES = {
   webhooks: "regional",
   webhook_events: "regional",
   webhook_deliveries: "regional",
+  // Issue integrations (decision 0018): an owner's connections and the issues of its threads.
+  integration_connections: "regional",
+  thread_issues: "regional",
   owner_brands: "regional",
   search_artifacts: "regional",
   search_chunks: "regional",

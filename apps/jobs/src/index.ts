@@ -29,6 +29,7 @@ import {
   reconcileStorage,
   recordEmailEvent,
   relayOutbox,
+  rewrapIntegrationKeys,
   rewrapWebhookKeys,
   runJob,
   runMaintenance,
@@ -38,6 +39,7 @@ import {
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
+import { type IntegrationEnv, integrationKeysFromEnv, issueDepsFromEnv } from "./integrations.ts";
 import {
   commentNotifierFromEnv,
   directoryNotifierFromEnv,
@@ -48,7 +50,13 @@ import {
 } from "./notices.ts";
 import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
 
-export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, WebhookEnv {
+export interface Env
+  extends AnalyticsEnv,
+    NotifierEnv,
+    NoticeEnv,
+    DomainEnv,
+    WebhookEnv,
+    IntegrationEnv {
   DB: D1Database;
   /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
   ACCESS_DB: D1Database;
@@ -162,6 +170,15 @@ export async function runScheduled(
     db,
     await webhookKeys({ current: env.WEBHOOK_KEY, previous: env.WEBHOOK_KEY_PREVIOUS }),
   );
+  // Connection credentials sealed with `INTEGRATIONS_KEY_PREVIOUS` move to the current key, in
+  // every region (decision 0018).
+  const integrationKeys = await integrationKeysFromEnv(env);
+  const integrationKeyRotation = { rewrapped: 0, left: 0 };
+  for (const handles of regions.all()) {
+    const rotated = await rewrapIntegrationKeys(handles.db, integrationKeys);
+    integrationKeyRotation.rewrapped += rotated.rewrapped;
+    integrationKeyRotation.left += rotated.left;
+  }
   // Each bucket against its own database, findings in that region's table.
   const storage = await reconcileStorage(db, env.ARTIFACTS, now);
   for (const handles of regions.all()) {
@@ -198,6 +215,8 @@ export async function runScheduled(
     webhookKeysRewrapped: webhookKeyRotation.rewrapped,
     webhookKeysLeft: webhookKeyRotation.left,
     webhooksStopped,
+    integrationKeysRewrapped: integrationKeyRotation.rewrapped,
+    integrationKeysLeft: integrationKeyRotation.left,
     customDomains,
     emailDomains,
   };
@@ -277,6 +296,7 @@ export async function runQueue(
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
+  const issues = await issueDepsFromEnv(env, fetcher);
   const run = async (message: Message<unknown>) => {
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {
@@ -292,6 +312,7 @@ export async function runQueue(
         access: handles.accessDb ?? createAccessDb(env.ACCESS_DB),
         ...notifiers(handles.region),
         webhooks,
+        issues,
         domains,
         domainNotifier,
         directoryNotifier,
@@ -310,11 +331,13 @@ export async function runQueue(
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }
   };
-  // Webhook deliveries wait on receivers outside Portifact: they run concurrently with each
-  // other and alongside the rest of the batch, so a slow receiver never delays a purge, a
+  // Webhook deliveries and issues wait on services outside Portifact: they run concurrently with
+  // each other and alongside the rest of the batch, so a slow receiver never delays a purge, a
   // deletion or a notice in the same batch. The other jobs keep running one after another.
-  const isDelivery = (message: Message<unknown>) =>
-    JobMessage.safeParse(message.body).data?.topic === "webhook_delivery";
+  const isDelivery = (message: Message<unknown>) => {
+    const topic = JobMessage.safeParse(message.body).data?.topic;
+    return topic === "webhook_delivery" || topic === "thread_issue";
+  };
   const deliveries = Promise.all(batch.messages.filter(isDelivery).map(run));
   for (const message of batch.messages.filter((m) => !isDelivery(m))) await run(message);
   await deliveries;

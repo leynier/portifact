@@ -63,6 +63,7 @@ import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-to
 import { AUDIT_TOOL_SCOPES, registerAuditTools } from "./audit-tools.ts";
 import { DOMAIN_TOOL_SCOPES, registerDomainTools } from "./domain-tools.ts";
 import { type Outcome, publishInline } from "./inline.ts";
+import { INTEGRATION_TOOL_SCOPES, registerIntegrationTools } from "./integration-tools.ts";
 import { artifactListItem, artifactSummary, committedPublish, lifecycleResult } from "./present.ts";
 import { REVIEW_TOOL_SCOPES, registerReviewTools } from "./review-tools.ts";
 import { registerSearchTools, SEARCH_TOOL_SCOPES } from "./search-tools.ts";
@@ -89,6 +90,7 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ...SHARE_TOOL_SCOPES,
   ...REVIEW_TOOL_SCOPES,
   ...WEBHOOK_TOOL_SCOPES,
+  ...INTEGRATION_TOOL_SCOPES,
   ...DOMAIN_TOOL_SCOPES,
   ["list_artifacts", "artifacts:read"],
   ["get_artifact", "artifacts:read"],
@@ -114,6 +116,7 @@ export const SERVER_INSTRUCTIONS = [
   "Ask the user before archiving, deleting or rolling back an artifact, and before deleting or moderating annotations.",
   "Never widen who can open an artifact on your own: ask the user before making it public or authenticated, letting search engines index it, letting other sites embed it, adding readers or groups, creating a share link or adding a custom domain.",
   "Webhooks are read-only here: they are created, changed and removed in the Portifact dashboard or with the portifact CLI.",
+  "Issue integrations (GitHub, Linear) are managed only in the dashboard. Before creating an issue that includes comment text or a quote, ask the user: those are other people's words leaving Portifact.",
   "This server cannot read local files. Send a small document inline with publish_document. For folders, several files or large files, call prepare_upload with the manifest (path, SHA-256, size and type of each file), PUT each listed file's bytes to its presigned URL with any HTTP client (or use the portifact CLI), then call commit_upload.",
   "read_artifact returns a document's text in pages; get_download gives links for whole or binary files.",
   "Artifacts live in the user's personal space or in a workspace they belong to (list_workspaces); every artifact view says which in owner. The tools that create or list take an optional workspace slug and use the personal space without it. When the user belongs to any workspace and did not say where to publish, ask them which space to use first: a workspace's admins and editors see and manage what is published there.",
@@ -481,6 +484,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
   registerReviewTools(register, context, db);
   registerAnnotationTools(register, context, db);
   registerWebhookTools(register, context);
+  registerIntegrationTools(register, context);
 
   return server;
 }
