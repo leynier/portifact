@@ -133,6 +133,7 @@ describe("the space menu", () => {
           "Plan",
           "Branding",
           "Members",
+          "Groups",
           "Audit log",
           "Service tokens",
           "Settings",

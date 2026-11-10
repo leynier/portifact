@@ -1870,4 +1870,98 @@ export const ru = {
     "Запись TXT со значением этого домена пока не найдена. Изменения DNS могут появиться не сразу; попробуйте позже. Заявку старше 7 дней нужно добавить заново.",
   "transfer.confirm.accessReset":
     "Сейчас доступ к нему открыт для workspace или почтового домена, поэтому он станет ограниченным: читать его смогут только люди из списка читателей.",
+  "shell.groupsLink": "Группы",
+  "groups.title": "Группы",
+  "groups.description":
+    "Именованные наборы участников {workspace}. Добавьте группу к закрытому artifact, и её участники смогут открыть его, как читатели из списка.",
+  "groups.personal.title": "Группы принадлежат workspace",
+  "groups.personal.body":
+    "Переключитесь на workspace, которым вы управляете, чтобы настроить его группы.",
+  "groups.adminOnly.title": "Группами управляют только администраторы",
+  "groups.adminOnly.body":
+    "Редакторы выбирают группы в настройках доступа artifact. Попросите администратора этого workspace создать или изменить группу.",
+  "groups.planTitle": "Группы не входят в тариф этого workspace",
+  "groups.planRequired":
+    "Группы входят в тариф {plan}. Существующие группы можно переименовать, очистить и удалить, но они никому не дают доступ, пока тариф снова их не включит.",
+  "groups.list.title": "Группы",
+  "groups.loading": "Загрузка групп",
+  "groups.loadFailed": "Не удалось загрузить группы",
+  "groups.empty.title": "Групп пока нет",
+  "groups.empty.body":
+    "Создайте группу, добавьте в неё участников, затем добавьте её в настройках доступа закрытого artifact.",
+  "groups.create.title": "Создать группу",
+  "groups.create.hint":
+    "Администраторы и редакторы видят её название, когда выбирают, кто может открыть artifact.",
+  "groups.create.limit": "В workspace может быть не больше {limit} групп. Сначала удалите одну.",
+  "groups.create.name": "Название",
+  "groups.create.submit": "Создать группу",
+  "groups.nameError": "Используйте одну строку от 1 до {max} символов.",
+  "groups.actionFailed": "Группа не изменилась",
+  "groups.created": "Группа {name} создана.",
+  "groups.memberCount":
+    "{count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
+  "groups.showMembers": "Участники",
+  "groups.hideMembers": "Скрыть участников",
+  "groups.rename": "Переименовать",
+  "groups.renameLabel": "Переименовать {name}",
+  "groups.renameField": "Новое название для {name}",
+  "groups.save": "Сохранить название",
+  "groups.renamed": "Группа теперь называется {name}.",
+  "groups.delete": "Удалить",
+  "groups.deleteLabel": "Удалить {name}",
+  "groups.deleted": "Группа {name} удалена.",
+  "groups.confirm.title": "Удалить {name}?",
+  "groups.confirm.body":
+    "Её участники перестанут читать artifacts, в которые она добавлена, в течение минуты, если доступ им не даёт что-то другое. Это нельзя отменить.",
+  "groups.membersLoading": "Загрузка участников группы",
+  "groups.noMembers": "В этой группе пока никого нет.",
+  "groups.membersOf": "Участники {name}",
+  "groups.removeMember": "Убрать",
+  "groups.removeMemberLabel": "Убрать {name} из {group}",
+  "groups.memberRemoved": "{name} убран(а) из {group}.",
+  "groups.addMember": "Добавить участника в {name}",
+  "groups.chooseMember": "Выберите участника",
+  "groups.add": "Добавить",
+  "groups.memberAdded": "{name} добавлен(а) в {group}.",
+  "groupAccess.title": "Группы",
+  "groupAccess.hint":
+    "Участники этих групп workspace могут открыть его после входа, как читатели из списка.",
+  "groupAccess.onlyRestricted":
+    "Группы дают доступ своим участникам, только пока доступ закрытый; в других режимах они сохраняют лишь исключения для комментариев.",
+  "groupAccess.count": "{count} из {max} групп",
+  "groupAccess.planTitle": "Группы не входят в тариф этого workspace",
+  "groupAccess.planRequired":
+    "Добавление групп входит в тариф {plan}. Уже добавленные группы никому не дают доступ, пока тариф снова их не включит, и вы по-прежнему можете их убрать.",
+  "groupAccess.failed.title": "Группы не изменились",
+  "groupAccess.empty": "Группы не добавлены.",
+  "groupAccess.list": "Группы, которые могут открыть этот artifact",
+  "groupAccess.removeLabel": "Убрать группу {name}",
+  "groupAccess.removed": "Группа {name} убрана.",
+  "groupAccess.full": "В artifact можно добавить не больше {max} групп.",
+  "groupAccess.none":
+    "В этом workspace пока нет групп. Администраторы создают их на странице Группы.",
+  "groupAccess.added": "Группа {name} добавлена.",
+  "groupAccess.pick": "Добавить группу",
+  "groupAccess.choose": "Выберите группу",
+  "groupAccess.option":
+    "{name} ({count, plural, one {# участник} few {# участника} many {# участников} other {# участника}})",
+  "groupAccess.add": "Добавить группу",
+  "groupAccess.comments.label": "Комментарии, которые видит группа {name}",
+  "groupAccess.comments.changed": "Группа {name} теперь видит: {choice}.",
+  "groupAccess.comments.confirm.title": "Показать все комментарии группе {name}?",
+  "groupAccess.comments.confirm.body":
+    "Каждый участник {name} увидит все ветки комментариев этого artifact, включая те, что другие читатели начали раньше.",
+  "audit.group.groups": "Группы",
+  "audit.kind.groupCreated": "Создал(а) группу {group}",
+  "audit.kind.groupRenamed": "Переименовал(а) группу, теперь {group}",
+  "audit.kind.groupDeleted": "Удалил(а) группу {group}",
+  "audit.kind.groupMemberAdded": "Добавил(а) {member} в группу {group}",
+  "audit.kind.groupMemberRemoved": "Убрал(а) {member} из группы {group}",
+  "audit.target.groupGone": "удалённая группа",
+  "audit.access.groupsAdded":
+    "{count, plural, one {добавил(а) # группу} few {добавил(а) # группы} many {добавил(а) # групп} other {добавил(а) # группы}}",
+  "audit.access.groupsRemoved":
+    "{count, plural, one {убрал(а) # группу} few {убрал(а) # группы} many {убрал(а) # групп} other {убрал(а) # группы}}",
+  "audit.access.groupExceptions":
+    "{count, plural, one {изменил(а) видимость комментариев для # группы} few {изменил(а) видимость комментариев для # групп} many {изменил(а) видимость комментариев для # групп} other {изменил(а) видимость комментариев для # группы}}",
 } satisfies Catalog;

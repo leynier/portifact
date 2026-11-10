@@ -27,6 +27,7 @@ import {
   Settings,
   Upload,
   Users,
+  UsersRound,
   Webhook,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -146,6 +147,7 @@ const SPACE_PAGES = new Set([
   "/plan",
   "/branding",
   "/members",
+  "/groups",
   "/audit",
   "/service-tokens",
 ]);
@@ -159,7 +161,8 @@ function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
   const { space, workspaces } = state;
   const target = SPACE_PAGES.has(pathname) ? pathname : "/";
   const to = (slug: string | undefined) =>
-    (slug === undefined && (target === "/members" || target === "/service-tokens")
+    (slug === undefined &&
+    (target === "/members" || target === "/groups" || target === "/service-tokens")
       ? "/"
       : target) as "/";
   const personal = { name: t("space.personal"), detail: t("space.personalDetail") };
@@ -302,6 +305,13 @@ export function Shell() {
       icon: <Users className="size-4" />,
       render: (props) => <Link to="/members" {...props} />,
     },
+    space?.kind === "workspace" &&
+      allowed("members") && {
+        key: "groups",
+        label: t("shell.groupsLink"),
+        icon: <UsersRound className="size-4" />,
+        render: (props) => <Link to="/groups" {...props} />,
+      },
     allowed("audit") && {
       key: "audit",
       label: t("shell.auditLink"),

@@ -290,6 +290,7 @@ describe("dashboard API client", () => {
       readerCommentVisibility: [],
       policyGeneration: 3,
       audience: null,
+      groups: [],
     };
     const { api, calls } = client(() => Response.json(policy));
     expect(await api.getAccess("k7d2qm4xab")).toEqual(policy);

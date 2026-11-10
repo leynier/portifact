@@ -1891,4 +1891,97 @@ export const de = {
     "Der TXT-Eintrag mit dem Wert dieser Domain wurde noch nicht gefunden. DNS-Änderungen können eine Weile brauchen; versuchen Sie es später noch einmal. Eine Anfrage, die älter als 7 Tage ist, muss neu hinzugefügt werden.",
   "transfer.confirm.accessReset":
     "Es ist gerade mit seinem Workspace oder einer E-Mail-Domain geteilt und wird daher eingeschränkt: Nur die Personen auf seiner Leseliste können es weiter lesen.",
+  "shell.groupsLink": "Gruppen",
+  "groups.title": "Gruppen",
+  "groups.description":
+    "Benannte Gruppen von Mitgliedern von {workspace}. Fügen Sie eine Gruppe zu einem eingeschränkten Artifact hinzu, und ihre Mitglieder können es öffnen, wie Leser auf der Liste.",
+  "groups.personal.title": "Gruppen gehören zu einem Workspace",
+  "groups.personal.body":
+    "Wechseln Sie zu einem Workspace, den Sie verwalten, um seine Gruppen zu verwalten.",
+  "groups.adminOnly.title": "Nur Admins verwalten Gruppen",
+  "groups.adminOnly.body":
+    "Editoren wählen Gruppen in den Freigabe-Einstellungen eines Artifacts. Bitten Sie einen Admin dieses Workspaces, eine Gruppe anzulegen oder zu ändern.",
+  "groups.planTitle": "Gruppen sind nicht im Plan dieses Workspaces",
+  "groups.planRequired":
+    "Gruppen sind Teil des Plans {plan}. Bestehende Gruppen lassen sich umbenennen, leeren und löschen, gewähren aber niemandem Zugriff, bis der Plan sie wieder enthält.",
+  "groups.list.title": "Gruppen",
+  "groups.loading": "Gruppen werden geladen",
+  "groups.loadFailed": "Die Gruppen wurden nicht geladen",
+  "groups.empty.title": "Noch keine Gruppen",
+  "groups.empty.body":
+    "Legen Sie eine Gruppe an, fügen Sie Mitglieder hinzu und fügen Sie sie dann in den Freigabe-Einstellungen eines eingeschränkten Artifacts hinzu.",
+  "groups.create.title": "Gruppe anlegen",
+  "groups.create.hint":
+    "Admins und Editoren sehen ihren Namen, wenn sie wählen, wer ein Artifact öffnen darf.",
+  "groups.create.limit":
+    "Ein Workspace kann höchstens {limit} Gruppen haben. Löschen Sie zuerst eine.",
+  "groups.create.name": "Name",
+  "groups.create.submit": "Gruppe anlegen",
+  "groups.nameError": "Verwenden Sie eine Zeile mit 1 bis {max} Zeichen.",
+  "groups.actionFailed": "Die Gruppe wurde nicht geändert",
+  "groups.created": "Gruppe {name} angelegt.",
+  "groups.memberCount": "{count, plural, one {# Mitglied} other {# Mitglieder}}",
+  "groups.showMembers": "Mitglieder",
+  "groups.hideMembers": "Mitglieder ausblenden",
+  "groups.rename": "Umbenennen",
+  "groups.renameLabel": "{name} umbenennen",
+  "groups.renameField": "Neuer Name für {name}",
+  "groups.save": "Namen speichern",
+  "groups.renamed": "Die Gruppe heißt jetzt {name}.",
+  "groups.delete": "Löschen",
+  "groups.deleteLabel": "{name} löschen",
+  "groups.deleted": "Gruppe {name} gelöscht.",
+  "groups.confirm.title": "{name} löschen?",
+  "groups.confirm.body":
+    "Ihre Mitglieder können die Artifacts, die sie enthalten, innerhalb einer Minute nicht mehr lesen, sofern ihnen nichts anderes Zugriff gibt. Das lässt sich nicht rückgängig machen.",
+  "groups.membersLoading": "Mitglieder der Gruppe werden geladen",
+  "groups.noMembers": "Noch niemand ist in dieser Gruppe.",
+  "groups.membersOf": "Mitglieder von {name}",
+  "groups.removeMember": "Entfernen",
+  "groups.removeMemberLabel": "{name} aus {group} entfernen",
+  "groups.memberRemoved": "{name} wurde aus {group} entfernt.",
+  "groups.addMember": "Mitglied zu {name} hinzufügen",
+  "groups.chooseMember": "Mitglied wählen",
+  "groups.add": "Hinzufügen",
+  "groups.memberAdded": "{name} wurde zu {group} hinzugefügt.",
+  "groupAccess.title": "Gruppen",
+  "groupAccess.hint":
+    "Mitglieder dieser Gruppen des Workspaces können es nach der Anmeldung öffnen, wie Leser auf der Liste.",
+  "groupAccess.onlyRestricted":
+    "Gruppen geben ihren Mitgliedern nur Zugriff, solange der Zugriff eingeschränkt ist; in anderen Modi behalten sie nur ihre Kommentar-Ausnahmen.",
+  "groupAccess.count": "{count} von {max} Gruppen",
+  "groupAccess.planTitle": "Gruppen sind nicht im Plan dieses Workspaces",
+  "groupAccess.planRequired":
+    "Gruppen hinzuzufügen ist Teil des Plans {plan}. Bereits hinzugefügte Gruppen gewähren niemandem Zugriff, bis der Plan sie wieder enthält, und Sie können sie weiterhin entfernen.",
+  "groupAccess.failed.title": "Die Gruppen wurden nicht geändert",
+  "groupAccess.empty": "Keine Gruppen hinzugefügt.",
+  "groupAccess.list": "Gruppen, die dieses Artifact öffnen können",
+  "groupAccess.removeLabel": "Gruppe {name} entfernen",
+  "groupAccess.removed": "Gruppe {name} entfernt.",
+  "groupAccess.full": "Ein Artifact kann höchstens {max} Gruppen enthalten.",
+  "groupAccess.none":
+    "Dieser Workspace hat noch keine Gruppen. Seine Admins legen sie auf der Seite Gruppen an.",
+  "groupAccess.added": "Gruppe {name} hinzugefügt.",
+  "groupAccess.pick": "Gruppe hinzufügen",
+  "groupAccess.choose": "Gruppe wählen",
+  "groupAccess.option": "{name} ({count, plural, one {# Mitglied} other {# Mitglieder}})",
+  "groupAccess.add": "Gruppe hinzufügen",
+  "groupAccess.comments.label": "Kommentare, die die Gruppe {name} sieht",
+  "groupAccess.comments.changed": "Die Gruppe {name} sieht jetzt: {choice}.",
+  "groupAccess.comments.confirm.title": "{name} alle Kommentare zeigen?",
+  "groupAccess.comments.confirm.body":
+    "Jedes Mitglied von {name} sieht alle Kommentar-Threads dieses Artifacts, auch die, die andere Leser vorher begonnen haben.",
+  "audit.group.groups": "Gruppen",
+  "audit.kind.groupCreated": "Hat die Gruppe {group} angelegt",
+  "audit.kind.groupRenamed": "Hat eine Gruppe umbenannt, jetzt {group}",
+  "audit.kind.groupDeleted": "Hat die Gruppe {group} gelöscht",
+  "audit.kind.groupMemberAdded": "Hat {member} zur Gruppe {group} hinzugefügt",
+  "audit.kind.groupMemberRemoved": "Hat {member} aus der Gruppe {group} entfernt",
+  "audit.target.groupGone": "eine gelöschte Gruppe",
+  "audit.access.groupsAdded":
+    "{count, plural, one {# Gruppe hinzugefügt} other {# Gruppen hinzugefügt}}",
+  "audit.access.groupsRemoved":
+    "{count, plural, one {# Gruppe entfernt} other {# Gruppen entfernt}}",
+  "audit.access.groupExceptions":
+    "{count, plural, one {Kommentar-Sichtbarkeit von # Gruppe geändert} other {Kommentar-Sichtbarkeit von # Gruppen geändert}}",
 } satisfies Catalog;
