@@ -45,6 +45,8 @@ import {
   planRequiredMessage,
   type ReviewStart,
   RollbackRequest,
+  type ScimOverview,
+  type ScimTokenView,
   type SearchSnippet,
   ServiceTokenCreate,
   type ServiceTokenView,
@@ -371,6 +373,17 @@ export interface FakeWorkspace {
    * Off by default, as deployed: the routes answer `capacity_unavailable`.
    */
   sso: { enabled: boolean; available: boolean; provider: SsoProviderView | null };
+  /**
+   * SCIM (decision 0017): switched on for the deployment, in the plan, its tokens and settings.
+   * Off by default, as deployed: the routes answer `capacity_unavailable`.
+   */
+  scim: {
+    enabled: boolean;
+    available: boolean;
+    tokens: ScimTokenView[];
+    invitationEmails: boolean;
+    lastSyncAt: string | null;
+  };
   /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
   policyRevision: number;
   policiesAvailable: boolean;
@@ -430,6 +443,13 @@ export function workspace(
     domainsAvailable: true,
     groups: [],
     sso: { enabled: false, available: true, provider: null },
+    scim: {
+      enabled: false,
+      available: true,
+      tokens: [],
+      invitationEmails: false,
+      lastSyncAt: null,
+    },
     policyRevision: 0,
     policiesAvailable: true,
     policyImpact: NO_IMPACT,
@@ -1070,6 +1090,8 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
   if (domains) return domainRoute(server, method, domains, body);
   const sso = /^\/api\/v1\/workspaces\/([^/]+)\/sso(\/test)?$/.exec(path);
   if (sso) return ssoRoute(server, method, sso, body);
+  const scim = /^\/api\/v1\/workspaces\/([^/]+)\/scim(?:\/tokens(?:\/([^/]+))?)?$/.exec(path);
+  if (scim) return scimRoute(server, method, path, scim, body);
   if (!scoped) return undefined;
   const w = server.workspaces[decodeURIComponent(scoped[1] ?? "")];
   if (!w) return apiError("not_found", 404);
@@ -1117,6 +1139,7 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       invitedBy: "Ada",
       createdAt: NOW,
       expiresAt: "2026-11-15T12:00:00.000Z",
+      source: "admin",
     };
     w.invitations = [...replaced, invitation];
     return json(invitation, 201);
@@ -1151,6 +1174,58 @@ function ssoSettings(w: FakeWorkspace): SsoSettings {
     verifiedDomains: verified,
     redirectUriPattern: "https://app.portifact.com/api/auth/sso/callback/<id>",
   };
+}
+
+/** The Directory sync settings as the API answers them (decision 0017). */
+function scimOverview(w: FakeWorkspace): ScimOverview {
+  return {
+    baseUrl: "https://app.portifact.com/scim/v2",
+    available: w.scim.available,
+    tokens: w.scim.tokens,
+    limit: 2,
+    invitationEmails: w.scim.invitationEmails,
+    lastSyncAt: w.scim.lastSyncAt,
+    pending: w.invitations.filter((i) => i.source === "directory").length,
+  };
+}
+
+function scimRoute(
+  server: FakeServer,
+  method: string,
+  path: string,
+  match: RegExpExecArray,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (!w.scim.enabled) return apiError("capacity_unavailable", 503);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  if (path.endsWith("/scim")) {
+    if (method === "PATCH") w.scim.invitationEmails = body?.invitationEmails === true;
+    return json(scimOverview(w));
+  }
+  if (method === "POST") {
+    if (!w.scim.available) return apiError("plan_required", 403);
+    if (w.scim.tokens.length >= 2) return apiError("quota_exceeded", 409);
+    const token: ScimTokenView = {
+      id: `sc_${String(w.scim.tokens.length + 1).padStart(32, "0")}`,
+      label: String(body?.label ?? ""),
+      createdAt: NOW,
+      expiresAt: "2027-11-10T12:00:00.000Z",
+      lastUsedAt: null,
+      createdBy: { name: "Ada" },
+      expired: false,
+    };
+    w.scim.tokens = [...w.scim.tokens, token];
+    return json({ token, secret: `pfsc_${"A".repeat(43)}` }, 201);
+  }
+  if (method === "DELETE") {
+    const id = decodeURIComponent(match[2] ?? "");
+    if (!w.scim.tokens.some((token) => token.id === id)) return apiError("not_found", 404);
+    w.scim.tokens = w.scim.tokens.filter((token) => token.id !== id);
+    return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
 }
 
 function ssoRoute(

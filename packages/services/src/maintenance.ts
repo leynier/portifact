@@ -24,6 +24,7 @@ import { closeUploadSession } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
 import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
+import { pruneDirectoryUsers } from "./scim.ts";
 import { pruneShareLinks } from "./share-links.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
@@ -568,6 +569,9 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
     workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,
     expiredInvitations: await pruneExpiredInvitations(db.global, now),
+    // What a directory said about people who never got an account, once its pending row lapsed
+    // (decision 0017): one delete over the users with no account link.
+    directoryUsers: await pruneDirectoryUsers(db.global, now),
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
     prunedEmailCounters: await pruneEmailCounters(db, now),

@@ -93,6 +93,10 @@ export const AUDIT_GROUPS = {
     "sso.created",
     "sso.changed",
     "sso.removed",
+    "scim_token.created",
+    "scim_token.revoked",
+    "member.provisioned",
+    "scim.changed",
   ],
   policies: ["policy.changed", "policy.enforced"],
   groups: [
@@ -415,6 +419,10 @@ export function actorName(t: T, actor: AuditEventView["actor"]): string {
       return actor.label === null
         ? t("audit.actor.tokenGone")
         : t("audit.actor.token", { label: actor.label });
+    case "directory":
+      return actor.label === null
+        ? t("audit.actor.directoryGone")
+        : t("audit.actor.directory", { label: actor.label });
     case "operator":
       return t("audit.actor.operator");
     case "system":
@@ -431,6 +439,8 @@ function targetName(t: T, event: AuditEventView): string {
       return t("audit.target.invitation");
     case "service_token":
       return event.target.serviceToken ? actorName(t, event.target.serviceToken) : "";
+    case "scim_token":
+      return event.target.scimToken ? actorName(t, event.target.scimToken) : "";
     case "group":
       return groupName(t, event);
     case "brand":
@@ -438,6 +448,7 @@ function targetName(t: T, event: AuditEventView): string {
     case "email_domain":
     case "audit_log":
     case "policy":
+    case "scim":
       return t("audit.target.space");
     default:
       return "";
@@ -472,6 +483,7 @@ export function describeAuditEvent(
     "member.invitation_revoked": "audit.kind.invitationRevoked",
     "plan.removed": "audit.kind.planRemoved",
     "service_token.revoked": "audit.kind.tokenRevoked",
+    "scim_token.revoked": "audit.kind.scimTokenRevoked",
   };
   const message = simple[event.kind];
   if (message) return t(message);
@@ -531,7 +543,18 @@ export function describeAuditEvent(
     case "member.joined":
       return d.via === "sso"
         ? t("audit.kind.memberJoinedSso", { member, role: role(t, d.role) })
-        : t("audit.kind.memberJoined", { member, role: role(t, d.role) });
+        : d.via === "directory"
+          ? t("audit.kind.memberJoinedDirectory", { member, role: role(t, d.role) })
+          : t("audit.kind.memberJoined", { member, role: role(t, d.role) });
+    case "member.provisioned":
+      return t("audit.kind.memberProvisioned", {
+        domain: String(d.emailDomain),
+        role: role(t, d.role),
+      });
+    case "scim_token.created":
+      return t("audit.kind.scimTokenCreated", { days: Number(d.days) });
+    case "scim.changed":
+      return t(d.invitationEmails ? "audit.kind.scimEmailsOn" : "audit.kind.scimEmailsOff");
     case "sso.created":
       return t("audit.kind.ssoCreated", {
         host: String(d.issuerHost),

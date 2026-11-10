@@ -20,6 +20,7 @@ export const OutboxTopic = z.enum([
   "search_index",
   "review_notice",
   "workspace_policy",
+  "directory_notice",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -164,6 +165,10 @@ export const TombstoneMarker = z.strictObject({
     "workspace_group",
     "workspace_group_member",
     "workspace_sso",
+    "scim_token",
+    "scim_user",
+    "workspace_invitation",
+    "workspace_member",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),

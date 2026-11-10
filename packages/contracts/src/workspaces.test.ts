@@ -198,6 +198,7 @@ describe("workspace contracts", () => {
           invitedBy: null,
           createdAt: at,
           expiresAt: at,
+          source: "directory",
         },
       ],
       [

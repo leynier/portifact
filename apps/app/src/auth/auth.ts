@@ -1,11 +1,13 @@
 import { cimd } from "@better-auth/cimd";
 import { oauthDeviceAuthorization, oauthProvider } from "@better-auth/oauth-provider";
 import { OTP_LIMITS } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { createDb, regionsFromEnv, schema } from "@portifact/db";
+import { claimDirectoryMemberships } from "@portifact/services";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { emailOTP } from "better-auth/plugins";
 import type { Env } from "../env.ts";
+import { scimEnabled } from "../scim.ts";
 import {
   ALL_SCOPES,
   AUTH_BASE_PATH,
@@ -26,6 +28,18 @@ export const COOKIE_PREFIX = "__Host-pf";
 
 /** Error code when a provider account would be created with an unverified email. */
 export const EMAIL_NOT_VERIFIED = "email_not_verified";
+
+/**
+ * Claims the directory's pending memberships for an account at sign-in. A failure never stops
+ * the sign-in: the next one claims them.
+ */
+async function claimDirectory(env: Env, userId: string): Promise<void> {
+  try {
+    await claimDirectoryMemberships(regionsFromEnv(env).global, { userId, now: Date.now() });
+  } catch {
+    console.log(JSON.stringify({ event: "scim_claim_failed" }));
+  }
+}
 
 export function createAuth(env: Env, deps: AuthDeps) {
   const urls = authUrls(env.APP_ORIGIN);
@@ -133,6 +147,9 @@ export function createAuth(env: Env, deps: AuthDeps) {
           after: async (session, ctx) => {
             await terms.session.create.after(session, ctx);
             human.clear(ctx);
+            // A directory's pending membership becomes a membership at the person's first
+            // sign-in, now that the terms hook let the session through (decision 0017).
+            if (scimEnabled(env)) await claimDirectory(env, session.userId);
           },
         },
       },

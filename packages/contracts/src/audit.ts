@@ -16,6 +16,7 @@ import {
   ShareLinkPolicy,
   WORKSPACE_POLICIES,
 } from "./policies.ts";
+import { SCIM } from "./scim.ts";
 import { SERVICE_TOKENS, ServiceTokenScope } from "./service-tokens.ts";
 import { WebhookEventType, WebhookFormat } from "./webhooks.ts";
 import { OwnerView, WorkspaceRole } from "./workspaces.ts";
@@ -194,7 +195,7 @@ export const AUDIT_DETAILS = {
   /** `via` is how they joined: an invitation (absent on older events) or single sign-on. */
   "member.joined": z.strictObject({
     role: WorkspaceRole,
-    via: z.enum(["invitation", "sso"]).optional(),
+    via: z.enum(["invitation", "sso", "directory"]).optional(),
   }),
   "member.role_changed": z.strictObject({ from: WorkspaceRole, to: WorkspaceRole }),
   "member.removed": z.strictObject({ role: WorkspaceRole }),
@@ -236,6 +237,19 @@ export const AUDIT_DETAILS = {
     fields: z.array(z.enum(["clientId", "clientSecret", "domains"])).min(1),
   }),
   "sso.removed": empty,
+  /**
+   * SCIM provisioning (decision 0017). A directory's token, created or revoked: its expiry only,
+   * never its label or secret. A person the directory provisioned who has no membership yet
+   * (they become one when they sign in): the address's domain only, as invitations record.
+   * `scim.changed` names the settings that changed.
+   */
+  "scim_token.created": z.strictObject({ days: z.number().int().min(1).max(SCIM.maxDays) }),
+  "scim_token.revoked": empty,
+  "member.provisioned": z.strictObject({ role: WorkspaceRole, emailDomain: DnsName }),
+  "scim.changed": z.strictObject({
+    fields: z.array(z.enum(["invitationEmails"])).min(1),
+    invitationEmails: z.boolean().optional(),
+  }),
   "group.created": empty,
   "group.renamed": empty,
   "group.deleted": empty,
@@ -304,6 +318,8 @@ export const AUDIT_TARGET_TYPES = [
   "audit_log",
   "sso",
   "policy",
+  "scim_token",
+  "scim",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -349,6 +365,10 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "sso.created": "sso",
   "sso.changed": "sso",
   "sso.removed": "sso",
+  "scim_token.created": "scim_token",
+  "scim_token.revoked": "scim_token",
+  "member.provisioned": "invitation",
+  "scim.changed": "scim",
   "group.created": "group",
   "group.renamed": "group",
   "group.deleted": "group",
@@ -363,9 +383,11 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
  * Who acted. `user` events keep the account's opaque ID; readers show a current member by name
  * and anyone else as a removed member, never by email. `operator` is Portifact's operator tool
  * (plans), `system` a scheduled job, `token` a workspace's service token (decision 0011), kept
- * by its ID and shown by its current label, or as a revoked token once it is gone.
+ * by its ID and shown by its current label, or as a revoked token once it is gone. `directory` is
+ * a workspace's directory through its SCIM token (decision 0017), kept by the token's ID and shown
+ * by its label the same way.
  */
-export const AUDIT_ACTOR_TYPES = ["user", "operator", "system", "token"] as const;
+export const AUDIT_ACTOR_TYPES = ["user", "operator", "system", "token", "directory"] as const;
 export type AuditActorType = (typeof AUDIT_ACTOR_TYPES)[number];
 
 export const AuditActorView = z.discriminatedUnion("type", [
@@ -373,6 +395,8 @@ export const AuditActorView = z.discriminatedUnion("type", [
   z.object({ type: z.literal("removed_member"), id: z.string() }),
   /** `label` is null once the token is revoked or expired and removed. */
   z.object({ type: z.literal("service_token"), id: z.string(), label: z.string().nullable() }),
+  /** The directory through a SCIM token; `label` is null once the token is revoked. */
+  z.object({ type: z.literal("directory"), id: z.string(), label: z.string().nullable() }),
   z.object({ type: z.literal("operator") }),
   z.object({ type: z.literal("system") }),
 ]);
@@ -390,6 +414,8 @@ export const AuditEventView = z.object({
     member: AuditActorView.optional(),
     /** A service token target shown like an actor: its label while it exists. */
     serviceToken: AuditActorView.optional(),
+    /** A SCIM token target shown like an actor: its label while it exists. */
+    scimToken: AuditActorView.optional(),
   }),
   /** The artifact the event is about, with its current name; null name once it is gone. */
   artifact: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),

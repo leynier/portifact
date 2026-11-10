@@ -251,6 +251,14 @@ export interface ApplyTombstonesResult {
   /** Group memberships removed before the restore that it brought back. */
   groupMembers: number;
   ssoProviders: number;
+  /** SCIM tokens revoked before the restore, deleted again (decision 0017). */
+  scimTokens: number;
+  /** Directory users the directory deleted before the restore, deleted again. */
+  scimUsers: number;
+  /** Pending memberships a directory withdrew before the restore, withdrawn again. */
+  invitations: number;
+  /** Memberships a directory ended before the restore, ended again. */
+  members: number;
 }
 
 /**
@@ -314,6 +322,12 @@ export async function applyTombstones(
     ,
     ,
     ssoProviders,
+    ,
+    scimTokens,
+    scimUsers,
+    invitations,
+    ,
+    members,
   ] = await db.batch([
     db
       .insert(schema.outbox)
@@ -425,6 +439,41 @@ export async function applyTombstones(
       .returning({ id: schema.workspaceSso.id }),
     // Identities of providers that went above, removed or with a deleted workspace.
     deleteOrphanSsoIdentities(db),
+    // SCIM (decision 0017): a revoked directory token must never authenticate again, a deleted
+    // directory user stays deleted, and what a directory withdrew stays withdrawn: its pending
+    // memberships by row ID, and memberships it ended when they are older than the tombstone
+    // (a later membership of the same person survives).
+    db
+      .delete(schema.scimTokens)
+      .where(
+        sql`${schema.scimTokens.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_token')`,
+      )
+      .returning({ id: schema.scimTokens.id }),
+    db
+      .delete(schema.scimUsers)
+      .where(
+        sql`${schema.scimUsers.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_user')`,
+      )
+      .returning({ id: schema.scimUsers.id }),
+    db
+      .delete(schema.workspaceInvitations)
+      .where(
+        sql`${schema.workspaceInvitations.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_invitation')`,
+      )
+      .returning({ id: schema.workspaceInvitations.id }),
+    // The single sign-on block goes back with them, or the provider would let them in again.
+    db
+      .insert(schema.workspaceRemovals)
+      .select(
+        sql`select ${schema.workspaceMembers.workspaceId}, ${schema.workspaceMembers.userId}, ${t.deletedAt} from ${schema.workspaceMembers} inner join ${t} on ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} where ${schema.workspaceMembers.createdAt} <= ${t.deletedAt}`,
+      )
+      .onConflictDoNothing(),
+    db
+      .delete(schema.workspaceMembers)
+      .where(
+        sql`exists (select 1 from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} and ${schema.workspaceMembers.createdAt} <= ${t.deletedAt})`,
+      )
+      .returning({ userId: schema.workspaceMembers.userId }),
   ]);
   return {
     inserted,
@@ -438,6 +487,10 @@ export async function applyTombstones(
     groups: groups.length,
     groupMembers: groupMembers.length,
     ssoProviders: ssoProviders.length,
+    scimTokens: scimTokens.length,
+    scimUsers: scimUsers.length,
+    invitations: invitations.length,
+    members: members.length,
   };
 }
 

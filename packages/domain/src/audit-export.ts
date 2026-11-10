@@ -43,6 +43,7 @@ function actorCells(actor: AuditEventView["actor"]): [string, string, string] {
     case "removed_member":
       return [actor.type, actor.id, ""];
     case "service_token":
+    case "directory":
       return [actor.type, actor.id, actor.label ?? ""];
     case "operator":
     case "system":

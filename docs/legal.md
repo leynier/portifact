@@ -125,6 +125,13 @@ Changes that shipped and that the legal pages do not describe yet, to be written
 
   A retention longer than 90 days is new personal data kept for longer, so it is material for the Privacy Policy and goes in the Enterprise wave's single `TERMS_VERSION` bump; until then, a contract that sets a longer retention must say so itself.
 
+- SCIM provisioning (premium plan E2, [decision 0017](decisions/0017-workspace-scim.md)), switched off until the texts describe it. A workspace's directory becomes a source of personal data about people who may never have signed in. The texts must say:
+  - **Privacy.** For each person a workspace's directory provisions, Portifact keeps the email address, the directory's identifier for them (`externalId`), the names it sent and whether it marked them active, for the workspace only and echoed back only to its directory. For someone without an account, a pending membership holds the address too, until they sign in (they then become a member, under the terms they accept at sign-in) or for 90 days after the directory last wrote them; the maintenance run then deletes the pending membership and the directory's copy. The directory's deletion deletes it at once. Deleting the workspace deletes all of it; deleting a person's account keeps the directory's copy without the account link, as the workspace's own record of its directory. Invitation emails to provisioned people are sent only when the workspace's admins turned them on.
+  - **Terms.** A workspace's admins are responsible for what their directory sends and for having a basis to provision their people; a directory can add people to and remove them from the workspace and sign them out, never create a Portifact account or touch anything of a person's own.
+
+  - **Membership through a directory.** A person whose existing account the directory adds becomes a member without an accept step and is told by email (with how to leave; leaving holds against the directory's routine syncs). From then on the workspace's admins see what they see of any member: the account's display name and email address on the Members page, the role and since when, the person's group memberships, and the audit log's events about them (joined through the directory, removed, the role); plus, in the directory's own resource, the `externalId` and names the directory sent. A deprovisioning signs the person out of Portifact entirely (every session and the tokens bound to them), which the Terms must say.
+    This is new personal data about people without an account, so it is material for the Privacy Policy: bump `TERMS_VERSION` then.
+
 ## Changing the texts
 
 1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.

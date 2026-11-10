@@ -3,6 +3,7 @@
 import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { commentNoticeEmail } from "./comment-notice.ts";
+import { directoryNoticeEmail } from "./directory-notice.ts";
 import { domainNoticeEmail } from "./domain-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
 import { invitationEmail } from "./invitation.ts";
@@ -182,6 +183,23 @@ export function previews(): Preview[] {
         detachAt: CREATED_AT + 7 * 86_400_000,
         limit: 0,
         usageUrl: "https://app.portifact.com/usage",
+        locale,
+      }),
+    })),
+    {
+      name: "directory-notice",
+      email: directoryNoticeEmail({
+        workspaceName: "Analytical Engines",
+        workspaceUrl: "https://app.portifact.com/?workspace=engines",
+        membersUrl: "https://app.portifact.com/members?workspace=engines",
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `directory-notice-${locale.toLowerCase()}`,
+      email: directoryNoticeEmail({
+        workspaceName: "Analytical Engines",
+        workspaceUrl: "https://app.portifact.com/?workspace=engines",
+        membersUrl: "https://app.portifact.com/members?workspace=engines",
         locale,
       }),
     })),

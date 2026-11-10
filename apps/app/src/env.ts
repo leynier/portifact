@@ -59,6 +59,13 @@ export interface Env extends DomainEnv {
    */
   SSO_ENABLED?: string | undefined;
   /**
+   * Exactly `"true"` offers SCIM provisioning for workspaces (decision 0017, "Switched off"):
+   * unset in the deployed configuration until the checks in docs/releasing.md ("SCIM") pass.
+   * Without it every `/scim/v2` path answers 404, the settings routes `capacity_unavailable`
+   * and sign-ins claim no pending memberships.
+   */
+  SCIM_ENABLED?: string | undefined;
+  /**
    * Seals single sign-on client secrets (decision 0016), and `SSO_KEY_PREVIOUS` opens those
    * sealed before a rotation. Without it saving a provider answers 503 and sign-ins stop.
    */

@@ -5,6 +5,7 @@
 // truth, a job whose row is gone is already done, and a purge carries the lifecycle generation
 // it was claimed with, so it never acts on an artifact that changed since. The scheduled scans
 // stay as a safety net for anything the queue loses.
+
 import {
   DeleteObjectsPayload,
   EraseAccessEventsPayload,
@@ -19,6 +20,7 @@ import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
 import { runSearchIndex } from "./content-search.ts";
 import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
+import { type DirectoryNotifier, sendDirectoryNotice } from "./directory-notices.ts";
 import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
@@ -144,6 +146,8 @@ export interface JobDeps {
   domainNotifier?: DomainNotifier | undefined;
   /** Sends `review_notice` emails. */
   reviewNotifier?: ReviewNotifier | undefined;
+  /** Sends `directory_notice` emails (decision 0017). */
+  directoryNotifier?: DirectoryNotifier | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -169,7 +173,16 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  { access, notifier, commentNotifier, webhooks, domains, domainNotifier, reviewNotifier }: JobDeps,
+  {
+    access,
+    notifier,
+    commentNotifier,
+    webhooks,
+    domains,
+    domainNotifier,
+    reviewNotifier,
+    directoryNotifier,
+  }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -222,6 +235,9 @@ async function runRow(
     case "review_notice":
       if (!reviewNotifier) throw new Error("review_notice needs the review notifier");
       return runReviewNotice(db, row, now, reviewNotifier);
+    case "directory_notice":
+      if (!directoryNotifier) throw new Error("directory_notice needs the directory notifier");
+      return sendDirectoryNotice(db, row, now, directoryNotifier);
     case "workspace_policy":
       // Written in the global batch that saved the policy (one database with one region).
       return runWorkspacePolicyJob(db, row, now);

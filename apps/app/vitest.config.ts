@@ -56,6 +56,8 @@ export default defineConfig(async () => {
             // (decision 0016). Identity providers are fakes (FakeIdentityProvider).
             SSO_ENABLED: "true",
             SSO_KEY: "test-only single sign-on sealing key for the app suite",
+            // SCIM is offered in tests; the deployed configuration leaves it unset (decision 0017).
+            SCIM_ENABLED: "true",
             TEST_MIGRATIONS: migrations,
             TEST_ACCESS_MIGRATIONS: accessMigrations,
           },

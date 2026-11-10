@@ -2219,4 +2219,69 @@ export const ja = {
   "policies.default.domainLapsed":
     "確認済みのメールドメインがないため、ドメインが再確認されるまで新しいアーティファクトはワークスペースと共有で作成されます。",
   "audit.access.byPolicy": "ワークスペースのポリシーによる",
+  "audit.actor.directory": "{label}（ディレクトリ）",
+  "audit.actor.directoryGone": "ディレクトリ（取り消された SCIM トークン）",
+  "audit.kind.memberJoinedDirectory": "{member} がディレクトリ経由で {role} として参加しました",
+  "audit.kind.memberProvisioned":
+    "{domain} のユーザーを {role} としてプロビジョニングしました。サインイン時に参加します",
+  "audit.kind.scimTokenCreated":
+    "SCIM トークンを作成しました（{days, plural, one {# 日} other {# 日}}）",
+  "audit.kind.scimTokenRevoked": "SCIM トークンを取り消しました",
+  "audit.kind.scimEmailsOn": "プロビジョニングされたユーザーへの招待メールをオンにしました",
+  "audit.kind.scimEmailsOff": "プロビジョニングされたユーザーへの招待メールをオフにしました",
+  "pending.directory": "ディレクトリから",
+  "pending.directoryDetail":
+    "{role}、ディレクトリがプロビジョニング：初回サインイン時に参加し、{date} まで席を確保します",
+  "scim.title": "ディレクトリ同期（SCIM）",
+  "scim.description":
+    "ID プロバイダーがワークスペースのメンバーを追加・削除できるようにします。確認済みのメールドメインのアドレスをプロビジョニングし、Portifact アカウントのない人はそのアドレスで初めてサインインしたときに参加します。",
+  "scim.loadFailed": "ディレクトリ同期を読み込めませんでした",
+  "scim.baseUrl": "SCIM ベース URL",
+  "scim.baseUrlCopy": "URL をコピー",
+  "scim.baseUrlHint":
+    "ID プロバイダーに SCIM ベース URL またはテナント URL として貼り付け、下のトークンをベアラートークンとして設定してください。",
+  "scim.planTitle": "このプランでは利用できません",
+  "scim.plan":
+    "ディレクトリ同期には {plan} プランが必要です。それまではディレクトリからのリクエストは拒否されますが、トークンの取り消しはできます。",
+  "scim.rules":
+    "新しいユーザーはメンバーとして参加します。ディレクトリで無効にするとワークスペースから外れ、すべてのセッションからサインアウトされます。アカウントと個人スペースは本人のものとして残ります。ここで手動で削除した人は、次の同期で再追加されません。",
+  "scim.lastSync": "最終同期",
+  "scim.lastSyncNever": "ディレクトリからの接続はまだありません。",
+  "scim.pendingLabel": "サインイン待ち",
+  "scim.pending":
+    "{count, plural, =0 {なし} one {# 人（保留中の招待に表示）} other {# 人（保留中の招待に表示）}}",
+  "scim.tokens": "トークン",
+  "scim.tokensEmpty": "トークンはまだありません。",
+  "scim.tokenExpires": "{date} に期限切れ",
+  "scim.tokenExpired": "{date} に期限切れになりました",
+  "scim.tokenUsed": "最終使用 {date}",
+  "scim.tokenUnused": "未使用",
+  "scim.create": "SCIM トークンを作成",
+  "scim.label": "ラベル",
+  "scim.labelHint": "例：ID プロバイダーの名前。",
+  "scim.labelRequired": "80 文字以内のラベルを入力してください。",
+  "scim.expiry": "有効期間",
+  "scim.days": "{count, plural, one {# 日} other {# 日}}",
+  "scim.limit":
+    "1 つのワークスペースが持てる SCIM トークンは最大 {count} 個で、途切れずに入れ替えられます。新しく作成するには 1 つ取り消してください。",
+  "scim.secret.title": "今すぐトークンをコピーしてください",
+  "scim.secret.body":
+    "表示されるのは一度だけです。ID プロバイダーにベアラートークンとして貼り付けてください。",
+  "scim.secret.label": "SCIM トークン {label}",
+  "scim.secret.copy": "トークンをコピー",
+  "scim.secret.done": "保存しました",
+  "scim.revoke": "取り消す",
+  "scim.revokeNamed": "取り消す：{label}",
+  "scim.confirmRevoke.title": "{label} を取り消しますか？",
+  "scim.confirmRevoke.body":
+    "このトークンを使ったディレクトリの次のリクエストは拒否されます。プロビジョニングされたユーザーはそのままです。",
+  "scim.confirmRevoke.action": "トークンを取り消す",
+  "scim.revoked": "トークン {label} を取り消しました。",
+  "scim.created": "トークン {label} を作成しました。今すぐコピーしてください。",
+  "scim.emails":
+    "Portifact アカウントのないユーザーをディレクトリがプロビジョニングしたときに招待メールを送る",
+  "scim.emailsHint":
+    "既定ではオフです。新しいアプリについては通常 ID プロバイダー自身が通知します。いずれの場合も、そのアドレスで初めてサインインしたときに参加します。",
+  "scim.emailsSaved": "保存しました。",
+  "scim.actionFailed": "変更は保存されませんでした",
 } satisfies Catalog;
