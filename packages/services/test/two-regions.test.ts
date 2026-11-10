@@ -4,7 +4,7 @@
 // the test instead of working by accident.
 import { env } from "cloudflare:test";
 import { type AnnotationTarget, DEFAULT_POLICY, type JobMessage } from "@portifact/contracts";
-import { accessSchema, regionsFromEnv, schema } from "@portifact/db";
+import { accessSchema, aliasBinding, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { entitlements, personalActor } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -24,9 +24,15 @@ import {
   reconcileStorage,
 } from "../src/backups.ts";
 import { measurePlatformUsage } from "../src/budget.ts";
-import { runMaintenance, runRegionalMaintenance } from "../src/maintenance.ts";
+import { pruneVersions, runMaintenance, runRegionalMaintenance } from "../src/maintenance.ts";
 import { relayOutbox, runJob } from "../src/outbox.ts";
-import { getOwnerPlan, removeOwnerPlan, setOwnerPlan } from "../src/plans.ts";
+import {
+  alignPlanLimits,
+  getOwnerPlan,
+  HALF_APPLIED,
+  removeOwnerPlan,
+  setOwnerPlan,
+} from "../src/plans.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { issueReadHandoff, redeemReadHandoff, refreshReadSession } from "../src/read-access.ts";
 import type { ReviewNotifier } from "../src/review-notices.ts";
@@ -36,6 +42,7 @@ import { webhookKeys } from "../src/webhook-keys.ts";
 import { createWebhook, removeWebhook, sendTestEvent, type WebhookDeps } from "../src/webhooks.ts";
 import { createWorkspace, deleteWorkspace, resolveOwnerScope } from "../src/workspaces.ts";
 import { DAY, NOW, publishSite, session, sha256, user, value } from "./fixtures.ts";
+import { raceBeforeStatementIn } from "./race.ts";
 
 const regions = () => regionsFromEnv(env);
 const eu = () => regions().get("eu");
@@ -821,5 +828,208 @@ describe("an EU workspace's plan, scans and paid features", () => {
     expect(scope.region).toBe("eu");
     const theirs = value(await listArtifacts(eu().db, { actor: scope, limit: 50, now: NOW }));
     expect(theirs.items.map((item) => item.id)).toEqual([inEu.artifactId]);
+  });
+});
+
+/** An EU handle whose batches fail, as if the EU database were unreachable. */
+function unreachableEu() {
+  const failing = new Proxy(env.DB_EU, {
+    get(target, property) {
+      if (property === "batch") return async () => Promise.reject(new Error("EU unreachable"));
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return regionalDb(aliasBinding(failing, env.DB_EU), regions().global);
+}
+
+/** An EU workspace with one artifact and `count` versions, the first published at NOW. */
+async function euVersions(count: number, plan?: { validUntil: number | null } | null) {
+  const team = await euWorkspace();
+  if (plan === null) {
+    await regions()
+      .global.delete(schema.ownerPlans)
+      .where(eq(schema.ownerPlans.ownerId, team.ws.id));
+  } else if (plan) {
+    await regions()
+      .global.update(schema.ownerPlans)
+      .set({ validUntil: plan.validUntil })
+      .where(eq(schema.ownerPlans.ownerId, team.ws.id));
+  }
+  const first = await publishInEu(team.ws.id, team.admin.id);
+  let base = first.versionId;
+  for (let i = 1; i < count; i += 1) {
+    base = (await updateInEu(team.ws.id, team.admin.id, first.artifactId, base, NOW + i)).versionId;
+  }
+  const versions = async () =>
+    (
+      await eu()
+        .db.select({ id: schema.versions.id })
+        .from(schema.versions)
+        .where(eq(schema.versions.artifactId, first.artifactId))
+    ).length;
+  return { ...team, artifactId: first.artifactId, versions };
+}
+
+describe("EU scans and plan changes, second review", () => {
+  const LATER = NOW + 30 * DAY;
+
+  it("prunes an expired plan's owner as free, and never stalls the region on skipped versions", async () => {
+    // An expired plan keeps its row; alignment puts its columns back to free.
+    const expired = await euVersions(5, { validUntil: NOW - DAY });
+    const freeOwner = await euVersions(3, null);
+    // The reviewer's repro: two versions per run, three runs used to prune nothing.
+    for (let run = 0; run < 6; run += 1) {
+      await pruneVersions(eu().db, env.ARTIFACTS_EU, LATER, 2, "eu");
+    }
+    // Only the current version of each is left: the expired plan reads as free.
+    expect(await expired.versions()).toBe(1);
+    expect(await freeOwner.versions()).toBe(1);
+  });
+
+  it("keeps a paid owner's versions, and prunes them as free once its plan has expired", async () => {
+    const paid = await euVersions(3, { validUntil: NOW + 60 * DAY });
+    await pruneVersions(eu().db, env.ARTIFACTS_EU, LATER, 50, "eu");
+    expect(await paid.versions()).toBe(3);
+    await pruneVersions(eu().db, env.ARTIFACTS_EU, NOW + 70 * DAY, 50, "eu");
+    expect(await paid.versions()).toBe(1);
+  });
+
+  it("prunes an owner with an explicit free plan row once, by one branch", async () => {
+    const explicit = await euVersions(4);
+    await regions()
+      .global.update(schema.ownerPlans)
+      .set({ plan: "free", seats: 1 })
+      .where(eq(schema.ownerPlans.ownerId, explicit.ws.id));
+    // As many versions as the run takes: a version picked twice, or picked by the branch that
+    // then skips it, would leave some behind.
+    const result = await pruneVersions(eu().db, env.ARTIFACTS_EU, LATER, 3, "eu");
+    expect(result.processed).toBe(3);
+    expect(await explicit.versions()).toBe(1);
+  });
+
+  it("keeps a version when the plan changes between the choice and the delete", async () => {
+    // Chosen as free (expired plan); renewed after the choice (when the run saves its cursor),
+    // before the delete: the re-read keeps the version.
+    const renewed = await euVersions(3, { validUntil: NOW - DAY });
+    const raced = raceBeforeStatementIn(
+      env.DB_EU,
+      /^insert into "maintenance_cursors"/i,
+      async () => {
+        await regions()
+          .global.update(schema.ownerPlans)
+          .set({ validUntil: null })
+          .where(eq(schema.ownerPlans.ownerId, renewed.ws.id));
+      },
+    );
+    const result = await pruneVersions(raced, env.ARTIFACTS_EU, LATER, 1, "eu");
+    expect(result.processed).toBe(0);
+    expect(await renewed.versions()).toBe(3);
+    // Without the renewal the same choice is pruned as free.
+    const lapsed = await euVersions(3, { validUntil: NOW - DAY });
+    await regions()
+      .global.update(schema.ownerPlans)
+      .set({ validUntil: null })
+      .where(eq(schema.ownerPlans.ownerId, renewed.ws.id));
+    for (let run = 0; run < 4; run += 1) {
+      await pruneVersions(eu().db, env.ARTIFACTS_EU, LATER, 1, "eu");
+    }
+    expect(await lapsed.versions()).toBe(1);
+  });
+
+  it("refuses a plan grant left half applied, and its job or a second run completes it", async () => {
+    const { ws } = await euWorkspace();
+    const grant = {
+      ownerId: ws.id,
+      plan: "team" as const,
+      seats: 2,
+      validUntil: null,
+      overrides: null,
+      grantedBy: "test",
+      note: null,
+      now: NOW,
+    };
+    const half = await setOwnerPlan(unreachableEu(), grant);
+    expect(half).toMatchObject({ ok: false, message: HALF_APPLIED });
+    const [row] = await regions()
+      .global.select()
+      .from(schema.ownerPlans)
+      .where(eq(schema.ownerPlans.ownerId, ws.id));
+    expect(row?.plan).toBe("team");
+    expect(await euJobs("owner_retention", ws.id)).toEqual([]);
+    const [job] = await homeJobs("plan_region", ws.id);
+    expect(job).toBeDefined();
+    // The job does the regional half: the columns and the retention job.
+    expect(
+      await runJob(home().db, env.ARTIFACTS, { id: job?.id ?? 0, topic: "plan_region" }, NOW, {
+        regions: regions(),
+      }),
+    ).toBe("done");
+    const team = entitlements({ plan: "team", seats: 2, validUntil: null, overrides: null }, NOW);
+    expect((await usageIn(eu().db, ws.id))?.bytesLimit).toBe(team.limits.accountBytes);
+    expect(await euJobs("owner_retention", ws.id)).toHaveLength(1);
+
+    // A second failed removal, completed by running the same command again.
+    expect(await removeOwnerPlan(unreachableEu(), { ownerId: ws.id, now: NOW + 1 })).toMatchObject({
+      ok: false,
+      message: HALF_APPLIED,
+    });
+    expect(await homeJobs("plan_region", ws.id)).toHaveLength(1);
+    value(await removeOwnerPlan(eu().db, { ownerId: ws.id, now: NOW + 2 }));
+    expect(await homeJobs("plan_region", ws.id)).toEqual([]);
+    expect(await euJobs("owner_retention", ws.id)).toHaveLength(2);
+    expect((await usageIn(eu().db, ws.id))?.bytesLimit).toBe(
+      entitlements(null, NOW).limits.accountBytes,
+    );
+  });
+
+  it("writes no retention job when a removal removed nothing, in either layout", async () => {
+    const { ws } = await euWorkspace();
+    await regions().global.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, ws.id));
+    const removed = value(await removeOwnerPlan(eu().db, { ownerId: ws.id, now: NOW }));
+    expect(removed.removed).toBe(false);
+    expect(await euJobs("owner_retention", ws.id)).toEqual([]);
+    expect(await homeJobs("plan_region", ws.id)).toEqual([]);
+    const person = await user("Nobody");
+    value(await removeOwnerPlan(home().db, { ownerId: person.id, now: NOW }));
+    expect(await homeJobs("owner_retention", person.id)).toEqual([]);
+  });
+
+  it("aligns the EU owners a page at a time, resuming where the last run stopped", async () => {
+    const teams: Awaited<ReturnType<typeof euWorkspace>>[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const team = await euWorkspace();
+      await publishInEu(team.ws.id, team.admin.id);
+      await eu()
+        .db.update(schema.accountUsage)
+        .set({ activeLimit: 1 })
+        .where(eq(schema.accountUsage.ownerId, team.ws.id));
+      teams.push(team);
+    }
+    const caps = { pageSize: 2, maxPages: 1 };
+    const enterprise = entitlements(
+      { plan: "enterprise", seats: 5, validUntil: null, overrides: null },
+      NOW,
+    ).limits.activeArtifacts;
+    const aligned = async () => {
+      let count = 0;
+      for (const team of teams) {
+        if ((await usageIn(eu().db, team.ws.id))?.activeLimit === enterprise) count += 1;
+      }
+      return count;
+    };
+    // Each run reads one page of two owners, whatever the region holds, and the next run goes on.
+    const first = await alignPlanLimits(eu().db, NOW, 50, "eu", caps);
+    expect(first.processed).toBeLessThanOrEqual(2);
+    const owners = (
+      await regions()
+        .global.select({ id: schema.workspaces.id })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.region, "eu"))
+    ).length;
+    for (let run = 0; run < owners && (await aligned()) < 5; run += 1) {
+      await alignPlanLimits(eu().db, NOW, 50, "eu", caps);
+    }
+    expect(await aligned()).toBe(5);
   });
 });

@@ -25,6 +25,7 @@ import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
+import { applyOwnerPlanRegion } from "./plans.ts";
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
 import { runWorkspacePolicyJob } from "./workspace-policies.ts";
@@ -211,6 +212,8 @@ async function runRow(
       const { kind } = EraseAccessEventsPayload.parse(row.payload);
       return eraseAccessEvents(access, kind, row.subject ?? "");
     }
+    case "plan_region":
+      return applyOwnerPlanRegion(regions, row.subject ?? "", now);
     case "owner_retention":
       if (!access) throw new Error("owner_retention needs the access log database");
       return applyOwnerRetention(db, access, row.subject ?? "", now);

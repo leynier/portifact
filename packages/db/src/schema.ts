@@ -704,6 +704,7 @@ export const OUTBOX_TOPICS = [
   "review_notice",
   "workspace_policy",
   "directory_notice",
+  "plan_region",
 ] as const;
 
 /**

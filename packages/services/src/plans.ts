@@ -51,6 +51,13 @@ import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerRetentionJob } from "./analytics.ts";
 import { auditEvent } from "./audit.ts";
+import {
+  cursorFor,
+  cursorRead,
+  resumeAt,
+  type ScanCaps,
+  savedCursorSql,
+} from "./maintenance-cursors.ts";
 import { ownerOfRegion } from "./shapes.ts";
 import { retried } from "./workspaces.ts";
 
@@ -336,10 +343,10 @@ export async function setOwnerPlan(
   input: SetOwnerPlanInput,
 ): Promise<Result<OwnerPlanState>> {
   // `db` is the owner's region. With one database the row and the columns go in one batch, as
-  // they always did; with a separate regional database the global batch (the row and its audit
-  // event) goes first, then the columns and the retention job, retried. If every attempt fails
-  // the command fails and is run again; meanwhile `alignPlanLimits` in that region aligns the
-  // columns (decision 0005, "Two-region audit").
+  // they always did. With a separate regional database the global batch (the row, its audit
+  // event and a `plan_region` job that does the regional half) goes first, then the regional
+  // half inline, retried, which then withdraws the job; if every attempt fails the job finishes
+  // it and the command says the grant is half applied (decision 0005, "Second delivery").
   const both = bothSides(db);
   const w = both ?? db.global;
   const checked = checkGrant(input);
@@ -371,10 +378,11 @@ export async function setOwnerPlan(
       sql`${guard} and not ${same}`,
     ),
     // Retention follows the plan: the job moves the expiries of the owner's analytics and access
-    // log rows (`applyOwnerRetention`), on the same condition as the grant.
-    // The retention job runs where the owner's access log is: in the regional batch below when
-    // the region's database is separate.
-    ...(both ? [ownerRetentionJob(both, input.ownerId, guard, input.now)] : []),
+    // log rows (`applyOwnerRetention`), on the same condition as the grant. It runs where the
+    // owner's access log is, so with a separate regional database the regional half writes it.
+    both
+      ? ownerRetentionJob(both, input.ownerId, guard, input.now)
+      : planRegionJob(w, input.ownerId, guard, input.now),
     w
       .insert(p)
       .select(
@@ -397,17 +405,11 @@ export async function setOwnerPlan(
       ? limitStatements(both, input.ownerId, limitColumns(granted), guard, input.now, true)
       : []),
   ])) as unknown[][];
-  // The grant's result follows the audit event, and the retention job when it is in this batch.
-  const plan = results[both ? 2 : 1] ?? [];
+  const plan = results[2] ?? [];
   if (plan.length === 0) return fail("not_found", "Account or workspace not found.");
   if (!both) {
-    const columns = limitColumns(granted);
-    await retried(() =>
-      db.batch([
-        ...limitStatements(db, input.ownerId, columns, sql`1`, input.now, true),
-        ownerRetentionJob(db, input.ownerId, sql`1`, input.now),
-      ]),
-    );
+    const applied = await applyPendingPlanRegion(db, input.ownerId, input.now);
+    if (!applied) return fail("capacity_unavailable", HALF_APPLIED);
   }
   return ok(await getOwnerPlan(db, input.ownerId, input.now));
 }
@@ -438,7 +440,9 @@ export async function removeOwnerPlan(
       },
       hadPlan,
     ),
-    ...(both ? [ownerRetentionJob(both, input.ownerId, hadPlan, input.now)] : []),
+    both
+      ? ownerRetentionJob(both, input.ownerId, hadPlan, input.now)
+      : planRegionJob(w, input.ownerId, hadPlan, input.now),
     w
       .delete(schema.ownerPlans)
       .where(eq(schema.ownerPlans.ownerId, input.ownerId))
@@ -447,19 +451,101 @@ export async function removeOwnerPlan(
       ? limitStatements(both, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false)
       : []),
   ])) as unknown[][];
-  const deleted = removed[both ? 2 : 1] ?? [];
+  const deleted = removed[2] ?? [];
   if (!both) {
-    await retried(() =>
-      db.batch([
-        ...limitStatements(db, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false),
-        ownerRetentionJob(db, input.ownerId, sql`1`, input.now),
-      ]),
-    );
+    const applied = await applyPendingPlanRegion(db, input.ownerId, input.now);
+    if (!applied) return fail("capacity_unavailable", HALF_APPLIED);
   }
   return ok({
     removed: deleted.length === 1,
     state: await getOwnerPlan(db, input.ownerId, input.now),
   });
+}
+
+/** What the operator is told when the regional half of a grant or removal could not be written. */
+export const HALF_APPLIED =
+  "The plan change is half applied: the plan row is saved, but the limit columns and retention of the owner's region could not be written. Run the same command again to complete it; the jobs Worker also completes it from its outbox within minutes.";
+
+/**
+ * With a separate regional database: the job that does the regional half of a plan change (the
+ * limit columns and the `owner_retention` job), written in the global batch on the change's own
+ * condition, so the change is never left half applied (`applyOwnerPlanRegion`).
+ */
+function planRegionJob(global: Db, ownerId: string, condition: SQL, now: number) {
+  return global
+    .insert(schema.outbox)
+    .select(
+      sql`select null, 'plan_region', '{}', ${now}, null, 0, ${now}, ${ownerId}, null where ${condition}`,
+    );
+}
+
+/**
+ * The regional half of a plan change with a separate regional database, done inline: the owner's
+ * pending `plan_region` jobs (this change's and any a failed attempt left) are applied with the
+ * current plan, then withdrawn. Without one (a removal that removed nothing) only the columns are
+ * aligned. False when the region could not be written after its retries; the jobs stay.
+ */
+async function applyPendingPlanRegion(db: RegionalDb, ownerId: string, now: number) {
+  const o = schema.outbox;
+  const pending = await db.global
+    .select({ id: o.id })
+    .from(o)
+    .where(and(eq(o.topic, "plan_region"), eq(o.subject, ownerId)));
+  try {
+    await retried(() => planRegionBatch(db, db.global, ownerId, now, pending.length > 0));
+  } catch {
+    return false;
+  }
+  if (pending.length > 0) {
+    await db.global.delete(o).where(
+      inArray(
+        o.id,
+        pending.map((row) => row.id),
+      ),
+    );
+  }
+  return true;
+}
+
+/** The limit columns from the owner's current plan, and its retention job when asked. */
+async function planRegionBatch(
+  db: RegionalDb,
+  global: GlobalDb,
+  ownerId: string,
+  now: number,
+  retention: boolean,
+) {
+  const [plan] = await global
+    .select({
+      plan: schema.ownerPlans.plan,
+      seats: schema.ownerPlans.seats,
+      validUntil: schema.ownerPlans.validUntil,
+      overrides: schema.ownerPlans.overrides,
+    })
+    .from(schema.ownerPlans)
+    .where(eq(schema.ownerPlans.ownerId, ownerId));
+  const columns = limitColumns(entitlements(plan ?? null, now));
+  await db.batch([
+    ...limitStatements(db, ownerId, columns, sql`1`, now, plan !== undefined),
+    ...(retention ? [ownerRetentionJob(db, ownerId, sql`1`, now)] : []),
+  ]);
+}
+
+/**
+ * The `plan_region` job: the regional half of a plan change in the owner's region, from the
+ * owner's current plan, so running it again, late or after the inline half changes nothing.
+ */
+export async function applyOwnerPlanRegion(
+  regions: { global: GlobalDb; all(): readonly { db: RegionalDb; region: Region }[] },
+  ownerId: string,
+  now: number,
+): Promise<"done"> {
+  const region = await ownerRegion(regions.global, ownerId);
+  const handles = regions.all().find((h) => h.region === region);
+  // Thrown, not reported done: the row stays and the job runs again where the region is bound.
+  if (!handles) throw new Error(`plan_region needs region ${region}`);
+  await planRegionBatch(handles.db, regions.global, ownerId, now, true);
+  return "done";
 }
 
 /** The region an owner's data lives in: its workspace's, the default one for a personal space. */
@@ -475,6 +561,13 @@ export async function ownerRegion(global: GlobalDb, ownerId: string): Promise<Re
 
 /** Owners a scan reads per query. */
 const ALIGN_PAGE = 100;
+
+/**
+ * How much of the owners the alignment reads per run (decision 0005, "Second delivery"): at most
+ * `maxPages` pages, then it resumes from `maintenance_cursors` on the next run, wrapping around,
+ * so a run costs the same whatever the number of owners.
+ */
+export const ALIGN_CAPS: ScanCaps = { pageSize: ALIGN_PAGE, maxPages: 3 };
 
 export interface AlignResult {
   /** Owners whose columns this run changed. */
@@ -495,27 +588,53 @@ export async function alignPlanLimits(
   limit = 50,
   /** The region `db` is, for a separate regional database: which plan owners live there. */
   region: Region = DEFAULT_REGION,
+  caps: ScanCaps = ALIGN_CAPS,
 ): Promise<AlignResult> {
   const both = bothSides(db);
-  if (!both) return alignSeparateRegion(db, now, limit, region);
-  return alignOneDatabase(both, now, limit);
+  if (!both) return alignSeparateRegion(db, now, limit, region, caps);
+  return alignOneDatabase(both, now, limit, region, caps);
 }
 
 /**
  * With one database: the scan as it always was, except that the plans it pages are those of the
  * default region's owners, so a workspace in another region never gets usage rows here.
  */
-async function alignOneDatabase(db: Db, now: number, limit: number): Promise<AlignResult> {
+async function alignOneDatabase(
+  db: Db,
+  now: number,
+  limit: number,
+  region: Region,
+  caps: ScanCaps,
+): Promise<AlignResult> {
   const free = FREE_LIMIT_COLUMNS;
+  const name = `align_plan_limits:${region}`;
+  const pageOf = (after: SQL) =>
+    db
+      .select({ ownerId: sql<string>`"owner_id"` })
+      .from(
+        sql`(select "owner_id" from (select "owner_id" from "owner_plans" where ${ownerOfRegion(sql`"owner_id"`, DEFAULT_REGION)} union select "owner_id" from "account_usage" where "active_limit" <> ${free.activeLimit} or "bytes_limit" <> ${free.bytesLimit} union select "owner_id" from "annotation_usage" where "messages_limit" <> ${free.messagesLimit} or "bytes_limit" <> ${free.annotationBytesLimit}) where "owner_id" > ${after} order by "owner_id" limit ${caps.pageSize})`,
+      );
   let processed = 0;
-  let cursor = "";
-  while (processed < limit) {
-    const owners = (
-      await db.all<{ owner_id: string }>(
-        sql`select "owner_id" from (select "owner_id" from "owner_plans" where ${ownerOfRegion(sql`"owner_id"`, DEFAULT_REGION)} union select "owner_id" from "account_usage" where "active_limit" <> ${free.activeLimit} or "bytes_limit" <> ${free.bytesLimit} union select "owner_id" from "annotation_usage" where "messages_limit" <> ${free.messagesLimit} or "bytes_limit" <> ${free.annotationBytesLimit}) where "owner_id" > ${cursor} order by "owner_id" limit ${ALIGN_PAGE}`,
-      )
-    ).map((row) => row.owner_id);
-    if (owners.length === 0) break;
+  let cursor: string | null = null;
+  let started = "";
+  let resume: string | null = null;
+  let ended = false;
+  for (let pages = 0; processed < limit && pages < caps.maxPages; pages += 1) {
+    let owners: string[];
+    // The saved cursor rides the first page's call, so a pass that fits in one run costs what
+    // it always did.
+    if (cursor === null) {
+      const [saved, first] = await db.batch([cursorRead(db, name), pageOf(savedCursorSql(name))]);
+      started = saved[0]?.cursor ?? "";
+      resume = started;
+      owners = first.map((row) => row.ownerId);
+    } else {
+      owners = (await pageOf(sql`${cursor}`)).map((row) => row.ownerId);
+    }
+    if (owners.length === 0) {
+      ended = true;
+      break;
+    }
     cursor = owners.at(-1) as string;
     const plans = new Map(
       (
@@ -560,8 +679,11 @@ async function alignOneDatabase(db: Db, now: number, limit: number): Promise<Ali
           .where(inArray(schema.annotationUsage.ownerId, owners))
       ).map((row) => [row.ownerId, row]),
     );
+    let examined = 0;
     for (const ownerId of owners) {
       if (processed >= limit) break;
+      examined += 1;
+      resume = ownerId;
       const plan = plans.get(ownerId);
       const columns = limitColumns(entitlements(plan ?? null, now));
       if (inLine(columns, accounts.get(ownerId), annotations.get(ownerId), free)) continue;
@@ -573,8 +695,12 @@ async function alignOneDatabase(db: Db, now: number, limit: number): Promise<Ali
       await db.batch([account, annotation]);
       processed += 1;
     }
-    if (owners.length < ALIGN_PAGE) break;
+    if (owners.length < caps.pageSize && examined === owners.length) {
+      ended = true;
+      break;
+    }
   }
+  if (cursor !== null) await resumeAt(db, name, started, ended ? null : resume, now);
   return { processed };
 }
 
@@ -591,27 +717,35 @@ async function alignSeparateRegion(
   now: number,
   limit: number,
   region: Region,
+  caps: ScanCaps,
 ): Promise<AlignResult> {
   const free = FREE_LIMIT_COLUMNS;
   const p = schema.ownerPlans;
+  const name = `align_plan_limits:${region}`;
+  const started = await cursorFor(db, name);
   let processed = 0;
-  let cursor = "";
-  while (processed < limit) {
+  let cursor = started;
+  let resume = started;
+  let ended = false;
+  for (let pages = 0; processed < limit && pages < caps.maxPages; pages += 1) {
     const planned = (
       await db.global
         .select({ ownerId: p.ownerId })
         .from(p)
         .where(and(gt(p.ownerId, cursor), ownerOfRegion(p.ownerId, region)))
         .orderBy(asc(p.ownerId))
-        .limit(ALIGN_PAGE)
+        .limit(caps.pageSize)
     ).map((row) => row.ownerId);
     const offFree = (
       await db.all<{ owner_id: string }>(
-        sql`select "owner_id" from (select "owner_id" from "account_usage" where "active_limit" <> ${free.activeLimit} or "bytes_limit" <> ${free.bytesLimit} union select "owner_id" from "annotation_usage" where "messages_limit" <> ${free.messagesLimit} or "bytes_limit" <> ${free.annotationBytesLimit}) where "owner_id" > ${cursor} order by "owner_id" limit ${ALIGN_PAGE}`,
+        sql`select "owner_id" from (select "owner_id" from "account_usage" where "active_limit" <> ${free.activeLimit} or "bytes_limit" <> ${free.bytesLimit} union select "owner_id" from "annotation_usage" where "messages_limit" <> ${free.messagesLimit} or "bytes_limit" <> ${free.annotationBytesLimit}) where "owner_id" > ${cursor} order by "owner_id" limit ${caps.pageSize}`,
       )
     ).map((row) => row.owner_id);
-    const owners = [...new Set([...planned, ...offFree])].sort().slice(0, ALIGN_PAGE);
-    if (owners.length === 0) break;
+    const owners = [...new Set([...planned, ...offFree])].sort().slice(0, caps.pageSize);
+    if (owners.length === 0) {
+      ended = true;
+      break;
+    }
     cursor = owners.at(-1) as string;
     const plans = new Map(
       (
@@ -655,22 +789,34 @@ async function alignSeparateRegion(
           .where(inArray(schema.annotationUsage.ownerId, owners))
       ).map((row) => [row.ownerId, row]),
     );
+    let examined = 0;
     for (const ownerId of owners) {
       if (processed >= limit) break;
+      examined += 1;
+      resume = ownerId;
       const plan = plans.get(ownerId);
       const columns = limitColumns(entitlements(plan ?? null, now));
       if (inLine(columns, accounts.get(ownerId), annotations.get(ownerId), free)) continue;
       await db.batch(limitStatements(db, ownerId, columns, sql`1`, now, !!plan));
       processed += 1;
     }
-    if (planned.length < ALIGN_PAGE && offFree.length < ALIGN_PAGE && owners.length < ALIGN_PAGE) {
+    if (
+      planned.length < caps.pageSize &&
+      offFree.length < caps.pageSize &&
+      examined === owners.length
+    ) {
+      ended = true;
       break;
     }
   }
+  await resumeAt(db, name, started, ended ? null : resume, now);
   return { processed };
 }
 
 const PIN_PAGE = 100;
+
+/** How much of the pinned owners the unpin scan reads per run (decision 0005, "Second delivery"). */
+export const UNPIN_CAPS: ScanCaps = { pageSize: PIN_PAGE, maxPages: 3 };
 
 /**
  * Unpins the artifacts of owners whose plan no longer includes `pin` (expired, removed or
@@ -685,6 +831,8 @@ export async function unpinLapsedPlans(
   db: RegionalDb,
   now: number,
   limit = 50,
+  region: Region = DEFAULT_REGION,
+  caps: ScanCaps = UNPIN_CAPS,
 ): Promise<AlignResult> {
   // With one database the plans are read and the writes conditioned on them as they always were;
   // with a separate regional database the plans come from the global database, and a grant that
@@ -696,18 +844,35 @@ export async function unpinLapsedPlans(
   const a = schema.artifacts;
   const pinnedActive = sql`${a.pinned} = 1 and ${a.state} = 'active'`;
   const expiresAt = nextExpiry(new Date(now)).getTime();
+  // A page at a time from where the last run stopped, at most `caps.maxPages` pages; the saved
+  // cursor rides the first page's call (decision 0005, "Second delivery").
+  const name = `unpin_lapsed_plans:${region}`;
+  const pageOf = (after: SQL) =>
+    w
+      .selectDistinct({ ownerId: a.ownerId })
+      .from(a)
+      .where(and(pinnedActive, sql`${a.ownerId} > ${after}`))
+      .orderBy(asc(a.ownerId))
+      .limit(caps.pageSize);
   let processed = 0;
-  let cursor = "";
-  while (processed < limit) {
-    const owners = (
-      await w
-        .selectDistinct({ ownerId: a.ownerId })
-        .from(a)
-        .where(and(pinnedActive, gt(a.ownerId, cursor)))
-        .orderBy(asc(a.ownerId))
-        .limit(PIN_PAGE)
-    ).map((row) => row.ownerId);
-    if (owners.length === 0) break;
+  let cursor: string | null = null;
+  let started = "";
+  let resume: string | null = null;
+  let ended = false;
+  for (let pages = 0; processed < limit && pages < caps.maxPages; pages += 1) {
+    let owners: string[];
+    if (cursor === null) {
+      const [saved, first] = await w.batch([cursorRead(w, name), pageOf(savedCursorSql(name))]);
+      started = saved[0]?.cursor ?? "";
+      resume = started;
+      owners = first.map((row) => row.ownerId);
+    } else {
+      owners = (await pageOf(sql`${cursor}`)).map((row) => row.ownerId);
+    }
+    if (owners.length === 0) {
+      ended = true;
+      break;
+    }
     cursor = owners.at(-1) as string;
     const plans = new Map(
       (
@@ -724,10 +889,15 @@ export async function unpinLapsedPlans(
           .where(inArray(schema.ownerPlans.ownerId, owners))
       ).map((row) => [row.ownerId, row]),
     );
+    let examined = 0;
     for (const ownerId of owners) {
       if (processed >= limit) break;
+      examined += 1;
       const plan = plans.get(ownerId);
-      if (!pinsLapse(entitlements(plan ?? null, now))) continue;
+      if (!pinsLapse(entitlements(plan ?? null, now))) {
+        resume = ownerId;
+        continue;
+      }
       const unchanged = !both
         ? sql`1`
         : plan
@@ -752,10 +922,16 @@ export async function unpinLapsedPlans(
           .where(sql`${a.id} in (${targets})`)
           .returning({ id: a.id }),
       ]);
+      // An owner the limit cut short is read again next time.
+      if (unpinned.length < limit - processed) resume = ownerId;
       processed += unpinned.length;
     }
-    if (owners.length < PIN_PAGE) break;
+    if (owners.length < caps.pageSize && examined === owners.length) {
+      ended = true;
+      break;
+    }
   }
+  if (cursor !== null) await resumeAt(w, name, started, ended ? null : resume, now);
   return { processed };
 }
 

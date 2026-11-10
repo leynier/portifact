@@ -31,6 +31,7 @@ import {
   type RegionalDb,
   type Regions,
   regionsFromEnv,
+  sameDatabase,
   schema,
 } from "@portifact/db";
 import {
@@ -117,8 +118,8 @@ Commands:
   suspend-brand <owner> --reason <reason>
   reinstate-brand <owner>
   storage-report [--limit N]
-  export-tombstones --out <file> [--region <region>|all]
-  apply-tombstones [--file <file>] [--region <region>|all]
+  export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
+  apply-tombstones [--file <file>] [--region all|<region>]
   budget
   budget-alerts [--limit N]
   budget-override <level> --note <text> [--steps 1-${PROTECTION_STEPS.length}] [--hours N]
@@ -578,18 +579,24 @@ async function createWorkspaceCommand(
 
 const RESTORE_COMMANDS = new Set(["export-tombstones", "apply-tombstones"]);
 const RESTORE_REGION_USAGE =
-  "With more than one region, export-tombstones and apply-tombstones need --region <region> (the region whose database was restored) or --region all.";
+  "With more than one region, export-tombstones and apply-tombstones need --region all, or --region <region> for a region whose own database was restored alone (never the default region, whose database is the global one).";
 
 /**
  * The regions a restore command covers (decision 0005): the one `--region` names, or every region
  * with `--region all`. With one region the flag may be left out; with more it must be given, so
- * nobody re-applies tombstones to a region by accident. Null when it is missing.
+ * nobody re-applies tombstones to a region by accident. A region whose database is the global
+ * database (the default region's) can only be restored with everything that database holds:
+ * the global rows and the directory of every region, so it needs `--region all` when another
+ * region has its own database. A string is the refusal to print.
  */
-function restoreRegions(regions: Regions, option: string | undefined): Regions | null {
+function restoreRegions(regions: Regions, option: string | undefined): Regions | string {
   if (option === "all" || (option === undefined && regions.all().length === 1)) return regions;
-  if (option === undefined) return null;
+  if (option === undefined) return RESTORE_REGION_USAGE;
   // A named region was checked against the configuration before the command ran.
   const handles = regions.get(option as Parameters<Regions["get"]>[0]);
+  if (sameDatabase(handles.db) && regions.all().some((other) => !sameDatabase(other.db))) {
+    return `Region ${option}'s database is the global database: restoring it rewinds the global rows and the artifact directory of every region, so use --region all.`;
+  }
   return { global: regions.global, get: () => handles, all: () => [handles] };
 }
 
@@ -930,7 +937,7 @@ export async function runOperator(
       const out = options.get("out");
       if (!out) return usage("export-tombstones needs --out <file>.");
       const chosen = restoreRegions(regions, regionOption);
-      if (!chosen) return usage(RESTORE_REGION_USAGE);
+      if (typeof chosen === "string") return usage(chosen);
       const markers = await exportTombstones(chosen);
       await files.write(out, markers.map((marker) => `${JSON.stringify(marker)}\n`).join(""));
       return { exitCode: 0, output: `Wrote ${markers.length} tombstone marker(s) to ${out}.` };
@@ -950,7 +957,7 @@ export async function runOperator(
         markers = parsed.markers;
       }
       const chosen = restoreRegions(regions, regionOption);
-      if (!chosen) return usage(RESTORE_REGION_USAGE);
+      if (typeof chosen === "string") return usage(chosen);
       const result = await applyTombstones(chosen, markers, now);
       // A restore of the global database rewinds the artifact directory too (decision 0005).
       let directory = 0;

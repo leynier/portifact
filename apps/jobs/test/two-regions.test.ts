@@ -4,7 +4,7 @@
 // a workspace in a region this configuration binds.
 import { createMessageBatch, env } from "cloudflare:test";
 import type { JobMessage } from "@portifact/contracts";
-import { regionsFromEnv, schema } from "@portifact/db";
+import { aliasBinding, regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { runQueue, runRelay, runScheduled } from "../src/index.ts";
@@ -147,6 +147,19 @@ describe("the jobs Worker with an EU region", () => {
       (await run(["storage-report", "--region", "all"])).exitCode,
       "all is only for restores",
     ).toBe(2);
+    // The default region's database is the global one: restoring it is restoring everything.
+    for (const argv of [
+      ["apply-tombstones", "--file", "t.jsonl", "--region", "default"],
+      ["export-tombstones", "--out", "x.jsonl", "--region", "default"],
+    ]) {
+      const refused = await run(argv);
+      expect(refused.exitCode).toBe(2);
+      expect(refused.output).toContain("use --region all");
+    }
+    // With one region bound, no flag is needed.
+    const single = (argv: string[]) => runOperator(regionsFromEnv({ DB: env.DB }), argv, NOW, io);
+    expect((await single(["export-tombstones", "--out", "one.jsonl"])).exitCode).toBe(0);
+    expect((await single(["apply-tombstones"])).exitCode).toBe(0);
     const applied = await run(["apply-tombstones", "--file", "t.jsonl", "--region", "eu"]);
     expect(applied.exitCode).toBe(0);
     expect(applied.output).toContain("1 artifact(s) claimed for purging");
@@ -158,6 +171,43 @@ describe("the jobs Worker with an EU region", () => {
       0,
     );
     expect(files.get("x.jsonl")).toContain(id);
+  });
+});
+
+describe("plan changes for an EU workspace", () => {
+  it("exits non-zero when the EU half is not written, and the same command completes it", async () => {
+    const regions = regionsFromEnv(env);
+    const admin = `u_${crypto.randomUUID()}`;
+    await regions.global.insert(schema.users).values({
+      id: admin,
+      name: "Admin",
+      email: `${admin}@example.test`,
+      emailVerified: true,
+      createdAt: new Date(NOW),
+      updatedAt: new Date(NOW),
+    });
+    const slug = `eu-${crypto.randomUUID().slice(0, 8)}`;
+    const argv = ["workspace-create", slug, "--name", "EU", "--admin", admin, "--region", "eu"];
+    expect((await runOperator(regions, argv, NOW)).exitCode).toBe(0);
+    // The EU database refuses every batch, as if it were unreachable.
+    const failing = new Proxy(env.DB_EU, {
+      get(target, property) {
+        if (property === "batch") return async () => Promise.reject(new Error("EU unreachable"));
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const broken = regionsFromEnv({ ...env, DB_EU: aliasBinding(failing, env.DB_EU) });
+    const half = await runOperator(broken, ["set-plan", `workspace:${slug}`, "team"], NOW);
+    expect(half.exitCode).toBe(1);
+    expect(half.output).toContain("half applied");
+    const again = await runOperator(regions, ["set-plan", `workspace:${slug}`, "team"], NOW + 1);
+    expect(again.exitCode).toBe(0);
+    const pending = await regions.global
+      .select()
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "plan_region"));
+    expect(pending).toEqual([]);
   });
 });
 

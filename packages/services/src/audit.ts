@@ -30,6 +30,7 @@ import {
   isScimTokenId,
   isServiceTokenId,
   isWorkspaceId,
+  PLAN_NAMES,
 } from "@portifact/contracts";
 import {
   type Db,
@@ -720,6 +721,18 @@ export async function pruneAuditEvents(
   const p = schema.ownerPlans;
   const defaultDays = entitlements(null, now).limits.auditRetentionDays;
   const special = new Map<string, number>();
+  // Only rows that can keep events longer than the default are read: plans whose own value
+  // differs and rows with overrides (the operator's), so the read never grows with the number of
+  // owners (decision 0005, "Second delivery").
+  const differing = PLAN_NAMES.filter(
+    (plan) =>
+      entitlements({ plan, seats: 1, validUntil: null, overrides: null }, now).limits
+        .auditRetentionDays !== defaultDays,
+  );
+  const mayDiffer =
+    differing.length > 0
+      ? sql`(${p.overrides} is not null or ${p.plan} in ${jsonValues(differing)})`
+      : sql`${p.overrides} is not null`;
   let cursor = "";
   for (;;) {
     const plans = await global
@@ -731,7 +744,7 @@ export async function pruneAuditEvents(
         overrides: p.overrides,
       })
       .from(p)
-      .where(gt(p.ownerId, cursor))
+      .where(and(gt(p.ownerId, cursor), mayDiffer))
       .orderBy(asc(p.ownerId))
       .limit(PLAN_PAGE);
     for (const plan of plans) {

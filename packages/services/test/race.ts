@@ -79,3 +79,12 @@ function racedD1(
   });
   return proxied;
 }
+
+/** A handle over another region's database (`env.DB_EU`), running `before` like the above. */
+export function raceBeforeStatementIn(
+  binding: D1Database,
+  pattern: RegExp,
+  before: () => Promise<void>,
+): RegionalDb {
+  return regionalDb(aliasBinding(racedD1(before, binding, pattern), binding), globalDb(env.DB));
+}
