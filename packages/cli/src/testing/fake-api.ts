@@ -19,6 +19,7 @@ import {
   type ArtifactStatsView,
   type ArtifactSummary,
   type ArtifactType,
+  type AuditEventView,
   type CommentScope,
   type CommentVisibility,
   CustomDomainAdd,
@@ -153,6 +154,10 @@ export interface FakeApiState {
   artifacts: Map<string, FakeArtifact>;
   /** Access log entries by artifact, newest first, as GET /artifacts/:id/access-log pages them. */
   accessLogs: Map<string, AccessLogEntry[]>;
+  /** Audit events by space (`personal` or a slug), newest first, as GET /audit pages them. */
+  audit: Map<string, AuditEventView[]>;
+  /** The query strings GET /audit received, in order. */
+  auditQueries: string[];
   /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
   stats: Map<string, ArtifactStatsView>;
   /** Share links by artifact, newest first, without their tokens. */
@@ -231,6 +236,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   const state: FakeApiState = {
     artifacts: new Map(),
     accessLogs: new Map(),
+    audit: new Map(),
+    auditQueries: [],
     stats: new Map(),
     shareLinks: new Map(),
     shareTokens: [],
@@ -1447,6 +1454,27 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     const hooks = webhookRoute(method, path, raw);
     if (hooks) return hooks;
+    if (route === "GET /audit") {
+      state.auditQueries.push(url.search);
+      const space = url.searchParams.get("workspace") ?? "personal";
+      const all = state.audit.get(space);
+      if (!all) return error("not_found", "Workspace not found.");
+      const offset = Number(url.searchParams.get("cursor") ?? "0");
+      const size = Number(url.searchParams.get("limit") ?? "50");
+      const next = offset + size;
+      return {
+        status: 200,
+        body: {
+          owner:
+            space === "personal"
+              ? { kind: "personal" }
+              : { kind: "workspace", slug: space, name: space },
+          events: all.slice(offset, next),
+          nextCursor: next < all.length ? String(next) : null,
+          retentionDays: 90,
+        },
+      };
+    }
     const log = /^\/artifacts\/([^/]+)\/access-log$/.exec(path);
     if (log && method === "GET") return accessLog(decodeURIComponent(log[1] as string), url);
     if (route === "GET /domains") return domainList(url);

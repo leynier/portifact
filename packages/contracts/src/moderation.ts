@@ -1,7 +1,9 @@
 // Abuse reports, operator suspensions and the account's own export and deletion (plan sections
 // 5 and 13). Report text and the reporter's email are untrusted input from anyone on the web.
+
 import { z } from "zod";
 import { AccountSettings } from "./account.ts";
+import { AuditEventView } from "./audit.ts";
 import { Brand } from "./branding.ts";
 import { ArtifactId, Email } from "./core.ts";
 import { PlanView } from "./plans.ts";
@@ -218,6 +220,11 @@ export const AccountExport = z.object({
      * The logo's bytes are on the Branding page; the export lists what it is.
      */
     brand: Brand.nullable(),
+    /**
+     * The personal space's audit log (premium plan T10) still kept, newest first. A workspace's
+     * is for its admins on the Audit page, not in a member's export.
+     */
+    auditEvents: z.array(AuditEventView),
   }),
   artifacts: z.array(ExportArtifact),
   /** The workspaces the account is a member of, with its role; not their artifacts. */

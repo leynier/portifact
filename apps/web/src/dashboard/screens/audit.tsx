@@ -25,7 +25,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@portifact/ui";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { CircleAlert, Info, Lock, RefreshCw, ScrollText } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ApiFailure } from "../api.ts";
@@ -107,6 +107,8 @@ export function AuditScreen() {
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
+    // The previous filter's rows stay while the next load, so the controls never empty out.
+    placeholderData: keepPreviousData,
     ...refreshOptions,
   });
 

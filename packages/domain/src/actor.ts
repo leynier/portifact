@@ -40,6 +40,8 @@ const ADMIN: readonly RoleAction[] = [
   "webhooks",
   // The owner's brand on the viewer's bar (premium plan P9): what visitors see as the owner.
   "brand",
+  // The audit log (premium plan T10): what every member did.
+  "audit",
 ];
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {

@@ -30,6 +30,7 @@ describe("PLANS", () => {
       previousVersionRetentionDays: LIMITS.previousVersionRetentionDays,
       accessLogRetentionDays: ACCESS_LOG.retentionDays,
       customDomains: 0,
+      auditRetentionDays: 90,
     });
   });
 
