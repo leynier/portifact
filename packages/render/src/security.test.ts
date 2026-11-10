@@ -314,9 +314,11 @@ describe("hostile Markdown size and shape", () => {
     const source = fill(section, 5 * MB - section.length);
     const started = performance.now();
     const { blocks } = renderMarkdown(source);
-    expect(performance.now() - started).toBeLessThan(30_000);
+    // Linear rendering takes a second or two alone and has taken 32 on CI's shared runner; a
+    // quadratic regression takes minutes, so this budget still tells them apart.
+    expect(performance.now() - started).toBeLessThan(60_000);
     expect(blocks.length).toBeGreaterThan(100_000);
-  }, 60_000);
+  }, 90_000);
 
   it("rejects Markdown over the size limit before parsing", () => {
     expect(() => renderMarkdown("a".repeat(5 * MB + 1))).toThrow(/limited/);
