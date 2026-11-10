@@ -7,6 +7,7 @@ export * from "./annotations.ts";
 export * from "./branding.ts";
 export * from "./budget.ts";
 export * from "./comment-notices.ts";
+export * from "./custom-domains.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";

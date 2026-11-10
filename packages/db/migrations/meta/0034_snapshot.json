@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ead2eb07-ea70-44a1-913b-52b1629a5118",
+  "id": "84b2db8f-3807-4cc4-968b-ec977ef2dcf4",
   "prevId": "49e7c5e0-d02b-4010-bc3e-b1f3dcf2f799",
   "tables": {
     "abuse_reports": {
@@ -1042,6 +1042,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "custom_host": {
+          "name": "custom_host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1049,6 +1056,12 @@
           "name": "artifacts_owner_state_idx",
           "columns": ["owner_id", "state"],
           "isUnique": false
+        },
+        "artifacts_custom_host_idx": {
+          "name": "artifacts_custom_host_idx",
+          "columns": ["custom_host"],
+          "isUnique": true,
+          "where": "\"artifacts\".\"custom_host\" is not null"
         },
         "artifacts_pinned_owner_idx": {
           "name": "artifacts_pinned_owner_idx",
@@ -1300,6 +1313,211 @@
           "value": "\"comment_notices\".\"created\" in (0, 1) and \"comment_notices\".\"resolved\" in (0, 1) and \"comment_notices\".\"replies\" between 0 and 200"
         }
       }
+    },
+    "custom_domains": {
+      "name": "custom_domains",
+      "columns": {
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cf_hostname_id": {
+          "name": "cf_hostname_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "missed_checks": {
+          "name": "missed_checks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "problem": {
+          "name": "problem",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detach_reason": {
+          "name": "detach_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "custom_domains_owner_idx": {
+          "name": "custom_domains_owner_idx",
+          "columns": ["owner_id", "verified_at"],
+          "isUnique": false
+        },
+        "custom_domains_artifact_idx": {
+          "name": "custom_domains_artifact_idx",
+          "columns": ["artifact_id"],
+          "isUnique": false
+        },
+        "custom_domains_check_idx": {
+          "name": "custom_domains_check_idx",
+          "columns": ["state", "checked_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "custom_domains_state": {
+          "name": "custom_domains_state",
+          "value": "\"custom_domains\".\"state\" in ('provisioning', 'active', 'detaching')"
+        }
+      }
+    },
+    "domain_claims": {
+      "name": "domain_claims",
+      "columns": {
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "domain_claims_owner_idx": {
+          "name": "domain_claims_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false
+        },
+        "domain_claims_artifact_idx": {
+          "name": "domain_claims_artifact_idx",
+          "columns": ["artifact_id"],
+          "isUnique": false
+        },
+        "domain_claims_expires_idx": {
+          "name": "domain_claims_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "domain_claims_hostname_owner_id_pk": {
+          "columns": ["hostname", "owner_id"],
+          "name": "domain_claims_hostname_owner_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "email_counters": {
       "name": "email_counters",
@@ -1860,129 +2078,6 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
-    },
-    "owner_brands": {
-      "name": "owner_brands",
-      "columns": {
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "accent_color": {
-          "name": "accent_color",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "link": {
-          "name": "link",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "logo_sha256": {
-          "name": "logo_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "logo_type": {
-          "name": "logo_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "logo_width": {
-          "name": "logo_width",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "logo_height": {
-          "name": "logo_height",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "logo_bytes": {
-          "name": "logo_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "suspended_at": {
-          "name": "suspended_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "suspension_reason": {
-          "name": "suspension_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "owner_brands_accent": {
-          "name": "owner_brands_accent",
-          "value": "\"owner_brands\".\"accent_color\" is null or (length(\"owner_brands\".\"accent_color\") = 7 and \"owner_brands\".\"accent_color\" glob '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
-        },
-        "owner_brands_logo": {
-          "name": "owner_brands_logo",
-          "value": "(\"owner_brands\".\"logo_sha256\" is null and \"owner_brands\".\"logo_type\" is null and \"owner_brands\".\"logo_width\" is null and \"owner_brands\".\"logo_height\" is null and \"owner_brands\".\"logo_bytes\" is null) or (length(\"owner_brands\".\"logo_sha256\") = 64 and \"owner_brands\".\"logo_type\" in ('image/png', 'image/jpeg', 'image/webp') and \"owner_brands\".\"logo_width\" > 0 and \"owner_brands\".\"logo_height\" > 0 and \"owner_brands\".\"logo_bytes\" between 1 and 100000)"
-        },
-        "owner_brands_suspension": {
-          "name": "owner_brands_suspension",
-          "value": "(\"owner_brands\".\"suspended_at\" is null) = (\"owner_brands\".\"suspension_reason\" is null)"
-        }
-      }
     },
     "owner_plans": {
       "name": "owner_plans",

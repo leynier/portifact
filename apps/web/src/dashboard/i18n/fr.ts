@@ -1173,6 +1173,75 @@ export const fr = {
   "shareLinks.password.hint":
     "Au moins {min} caractères. Les visiteurs le saisissent avant que l'artifact s'ouvre. Envoyez-le séparément du lien.",
   "shareLinks.password.short": "Utilisez au moins {min} caractères, ou laissez vide.",
+  "domains.title": "Domaine personnalisé",
+  "domains.description":
+    "Servez cet artifact depuis un domaine à vous, comme docs.example.com. Son adresse Portifact continue de fonctionner.",
+  "domains.loading": "Chargement du domaine personnalisé",
+  "domains.loadFailed": "Le domaine personnalisé ne s'est pas chargé",
+  "domains.paidTitle": "Les domaines personnalisés font partie d'un forfait payant",
+  "domains.paid":
+    "Avec un forfait payant, vous pouvez servir cet artifact depuis votre propre domaine.",
+  "domains.unavailableTitle": "Les domaines personnalisés ne sont pas encore disponibles",
+  "domains.unavailable":
+    "Portifact ne sert pas encore de domaines personnalisés. Cette section s'ouvrira quand ce sera le cas.",
+  "domains.removingNote": "{hostname} est en cours de suppression.",
+  "domains.cardLabel": "Domaine personnalisé {hostname}",
+  "domains.state.pending": "En attente du DNS",
+  "domains.state.provisioning": "Configuration en cours",
+  "domains.state.active": "Actif",
+  "domains.state.removing": "Suppression",
+  "domains.next.pending":
+    "Créez les deux enregistrements ci-dessous chez votre fournisseur DNS, puis vérifiez à nouveau.",
+  "domains.next.provisioning":
+    "Votre domaine est vérifié. Le certificat prend en général quelques minutes ; vérifiez à nouveau sous peu.",
+  "domains.next.active":
+    "Votre artifact est servi sur ce domaine. Gardez l'enregistrement TXT : il est vérifié chaque jour.",
+  "domains.next.removing": "Le domaine est en cours de suppression.",
+  "domains.problem.txt_missing": "L'enregistrement TXT est introuvable",
+  "domains.problem.txt_missing.hint":
+    "Vérifiez que le nom et la valeur de l'enregistrement correspondent exactement. Les changements DNS peuvent mettre quelques minutes à apparaître.",
+  "domains.problem.certificate_pending": "Le certificat n'est pas encore prêt",
+  "domains.problem.certificate_pending.hint":
+    "Vérifiez que l'enregistrement CNAME pointe vers la valeur ci-dessous, puis vérifiez à nouveau dans quelques minutes.",
+  "domains.problem.cloudflare_unavailable": "Le service de certificats n'a pas répondu",
+  "domains.problem.cloudflare_unavailable.hint":
+    "Rien ne cloche de votre côté. Une nouvelle tentative a lieu sous peu.",
+  "domains.missedChecks":
+    "{count, plural, one {L'enregistrement TXT manquait lors de la dernière vérification quotidienne. Après 3 absences de suite, le domaine est retiré.} other {L'enregistrement TXT manquait lors des # dernières vérifications quotidiennes. Après 3 absences de suite, le domaine est retiré.}}",
+  "domains.records": "Enregistrements à créer",
+  "domains.records.type": "Enregistrement {type}",
+  "domains.records.txtHint":
+    "Prouve que vous contrôlez le domaine. Gardez-le une fois le domaine actif.",
+  "domains.records.cnameHint": "Fait pointer votre domaine vers Portifact.",
+  "domains.records.name": "Nom",
+  "domains.records.value": "Valeur",
+  "domains.records.copy": "Copier",
+  "domains.claimExpires":
+    "Ajoutez les enregistrements avant le {date}, ou ajoutez à nouveau le domaine.",
+  "domains.check": "Vérifier à nouveau",
+  "domains.checkFailed": "Le domaine n'a pas été vérifié",
+  "domains.remove": "Retirer le domaine",
+  "domains.removed": "{hostname} a été retiré.",
+  "domains.removeFailed": "Le domaine n'a pas été retiré",
+  "domains.confirm.title": "Retirer {hostname} ?",
+  "domains.confirm.body":
+    "L'artifact cesse immédiatement d'être servi sur ce domaine et garde son adresse Portifact. Ajouter à nouveau le domaine demandera une nouvelle vérification DNS.",
+  "domains.cancel": "Annuler",
+  "domains.bar.title":
+    "Les visites s'ouvrent dans la visionneuse tant que la barre Portifact est activée",
+  "domains.bar.body":
+    "Tant que la barre est activée, les personnes qui ouvrent votre domaine arrivent dans la visionneuse sur app.portifact.com. Désactivez la barre pour garder votre domaine dans la barre d'adresse.",
+  "domains.bar.turnOff": "Désactiver la barre",
+  "domains.bar.done": "La barre Portifact est désactivée.",
+  "domains.add": "Ajouter le domaine",
+  "domains.added": "{hostname} a été ajouté. Créez maintenant ses enregistrements DNS.",
+  "domains.addFailed": "Le domaine n'a pas été ajouté",
+  "domains.full":
+    "{count, plural, one {Votre forfait inclut # domaine personnalisé, déjà utilisé.} other {Votre forfait inclut # domaines personnalisés, tous utilisés.}}",
+  "domains.hostname.label": "Nom d'hôte",
+  "domains.hostname.hint":
+    "Un sous-domaine que vous contrôlez, comme docs.example.com. Les domaines racine et les jokers ne sont pas pris en charge.",
+  "domains.hostname.invalid": "Saisissez un nom d'hôte comme docs.example.com.",
   "accessLog.shareLink": "Lien de partage : {label}",
   "shell.brandingLink": "Marque",
   "branding.title": "Marque",

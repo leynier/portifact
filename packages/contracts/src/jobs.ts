@@ -12,6 +12,7 @@ export const OutboxTopic = z.enum([
   "expiry_notice",
   "comment_notice",
   "owner_retention",
+  "delete_custom_hostname",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 

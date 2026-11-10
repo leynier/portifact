@@ -1159,6 +1159,71 @@ export const ru = {
   "shareLinks.password.hint":
     "Не менее {min} символов. Посетители вводят его перед открытием artifact. Отправьте его отдельно от ссылки.",
   "shareLinks.password.short": "Используйте не менее {min} символов или оставьте поле пустым.",
+  "domains.title": "Свой домен",
+  "domains.description":
+    "Открывайте этот artifact по своему домену, например docs.example.com. Адрес на Portifact продолжит работать.",
+  "domains.loading": "Загрузка своего домена",
+  "domains.loadFailed": "Не удалось загрузить свой домен",
+  "domains.paidTitle": "Свои домены входят в платный тариф",
+  "domains.paid": "С платным тарифом этот artifact можно открывать по вашему собственному домену.",
+  "domains.unavailableTitle": "Свои домены пока недоступны",
+  "domains.unavailable":
+    "Portifact пока не обслуживает свои домены. Этот раздел откроется, когда они появятся.",
+  "domains.removingNote": "{hostname} удаляется.",
+  "domains.cardLabel": "Свой домен {hostname}",
+  "domains.state.pending": "Ожидание DNS",
+  "domains.state.provisioning": "Настройка",
+  "domains.state.active": "Активен",
+  "domains.state.removing": "Удаление",
+  "domains.next.pending":
+    "Создайте две записи ниже у своего DNS-провайдера, затем проверьте снова.",
+  "domains.next.provisioning":
+    "Домен подтверждён. Сертификат обычно выпускается за несколько минут; проверьте снова чуть позже.",
+  "domains.next.active":
+    "Artifact открывается по этому домену. Не удаляйте TXT-запись: её проверяют каждый день.",
+  "domains.next.removing": "Домен удаляется.",
+  "domains.problem.txt_missing": "TXT-запись не найдена",
+  "domains.problem.txt_missing.hint":
+    "Проверьте, что имя и значение записи совпадают точно. Изменения DNS могут появиться через несколько минут.",
+  "domains.problem.certificate_pending": "Сертификат ещё не готов",
+  "domains.problem.certificate_pending.hint":
+    "Проверьте, что CNAME-запись указывает на значение ниже, и проверьте снова через несколько минут.",
+  "domains.problem.cloudflare_unavailable": "Служба сертификатов не ответила",
+  "domains.problem.cloudflare_unavailable.hint":
+    "С вашей стороны всё в порядке. Скоро будет повторная попытка.",
+  "domains.missedChecks":
+    "{count, plural, one {TXT-запись отсутствовала при последней ежедневной проверке. После 3 пропусков подряд домен удаляется.} few {TXT-запись отсутствовала при последних # ежедневных проверках. После 3 пропусков подряд домен удаляется.} many {TXT-запись отсутствовала при последних # ежедневных проверках. После 3 пропусков подряд домен удаляется.} other {TXT-запись отсутствовала при последних # ежедневных проверках. После 3 пропусков подряд домен удаляется.}}",
+  "domains.records": "Записи, которые нужно создать",
+  "domains.records.type": "Запись {type}",
+  "domains.records.txtHint": "Подтверждает, что домен ваш. Не удаляйте её и после активации.",
+  "domains.records.cnameHint": "Направляет ваш домен на Portifact.",
+  "domains.records.name": "Имя",
+  "domains.records.value": "Значение",
+  "domains.records.copy": "Копировать",
+  "domains.claimExpires": "Добавьте записи до {date} или добавьте домен заново.",
+  "domains.check": "Проверить снова",
+  "domains.checkFailed": "Не удалось проверить домен",
+  "domains.remove": "Удалить домен",
+  "domains.removed": "{hostname} удалён.",
+  "domains.removeFailed": "Не удалось удалить домен",
+  "domains.confirm.title": "Удалить {hostname}?",
+  "domains.confirm.body":
+    "Artifact сразу перестанет открываться по этому домену и сохранит адрес на Portifact. Чтобы добавить домен снова, понадобится новая проверка DNS.",
+  "domains.cancel": "Отмена",
+  "domains.bar.title": "Пока панель Portifact включена, посещения открываются в просмотрщике",
+  "domains.bar.body":
+    "Пока панель включена, люди, открывшие ваш домен, попадают в просмотрщик на app.portifact.com. Выключите панель, чтобы в адресной строке оставался ваш домен.",
+  "domains.bar.turnOff": "Выключить панель",
+  "domains.bar.done": "Панель Portifact выключена.",
+  "domains.add": "Добавить домен",
+  "domains.added": "{hostname} добавлен. Теперь создайте его DNS-записи.",
+  "domains.addFailed": "Не удалось добавить домен",
+  "domains.full":
+    "{count, plural, one {Ваш тариф включает # свой домен, и он уже используется.} few {Ваш тариф включает # своих домена, и все используются.} many {Ваш тариф включает # своих доменов, и все используются.} other {Ваш тариф включает # своего домена, и все используются.}}",
+  "domains.hostname.label": "Имя хоста",
+  "domains.hostname.hint":
+    "Поддомен, которым вы управляете, например docs.example.com. Корневые домены и подстановочные знаки не поддерживаются.",
+  "domains.hostname.invalid": "Введите имя хоста, например docs.example.com.",
   "accessLog.shareLink": "Ссылка для доступа: {label}",
   "shell.brandingLink": "Бренд",
   "branding.title": "Бренд",
