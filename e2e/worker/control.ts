@@ -312,7 +312,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       authSessionId: sessionId,
       now,
       ...(kind ? { kind } : {}),
-      contentDomain: "portifact.dev",
+      contentDomain: env.CONTENT_DOMAIN,
     });
     if (!issued.ok) return Response.json(issued, { status: 400 });
     return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });
