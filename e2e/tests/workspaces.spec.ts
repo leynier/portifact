@@ -11,6 +11,7 @@ import {
   expect,
   lastEmail,
   publish,
+  routeStorage,
   signIn,
   sql,
   test,
@@ -34,8 +35,11 @@ async function axeInBothThemes(page: Page) {
 }
 
 async function choose(page: Page, combobox: string, option: string) {
-  await page.getByRole("combobox", { name: combobox }).click();
-  await page.getByRole("listbox", { name: combobox }).getByRole("option", { name: option }).click();
+  await page.getByRole("combobox", { name: combobox, exact: true }).click();
+  await page
+    .getByRole("listbox", { name: combobox, exact: true })
+    .getByRole("option", { name: option })
+    .click();
 }
 
 /** Invites `email` from the Members page and returns the link of the email it receives. */
@@ -68,6 +72,7 @@ test("an admin switches to a workspace from the space menu and publishes into it
   const admin = await createUser("Admin");
   const workspace = await createWorkspace({ slug: slug(), name: "Launch team", admin });
   await signIn(context, admin);
+  await routeStorage(page);
   await open(page, "/", "Artifacts");
 
   await page.getByRole("button", { name: /^Space Personal/ }).click();
@@ -93,7 +98,7 @@ test("an admin switches to a workspace from the space menu and publishes into it
     page.getByText("The admins and editors of Launch team.", { exact: false }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(page.getByText("Published version 1")).toBeVisible();
+  await expect(page.getByText("Published version 1", { exact: true })).toBeVisible();
   const [row] = await sql<{ owner_id: string }>(
     "SELECT owner_id FROM artifacts WHERE owner_id = ? LIMIT 1",
     [workspace.id],

@@ -193,6 +193,53 @@ export async function contentRequests(): Promise<ContentRequest[]> {
   return (await (await fetch(`${controlUrl()}/requests`)).json()) as ContentRequest[];
 }
 
+/**
+ * Lets the dashboard's presigned uploads from this page reach the stack: the browser sends them
+ * to the bucket's S3 endpoint (`<account>.r2.cloudflarestorage.com`), which the proxy does not
+ * map, so they are forwarded to the control host's storage stand-in (as `shots/cli.ts` does for
+ * the CLI), with the CORS answers the bucket's rule would give. Test-only, at the network edge.
+ */
+export async function routeStorage(page: Page): Promise<void> {
+  await page.route(/^https:\/\/[^/]+\.r2\.cloudflarestorage\.com\//, async (route) => {
+    const request = route.request();
+    const cors = {
+      "access-control-allow-origin": APP_ORIGIN,
+      "access-control-allow-methods": "GET, PUT",
+      "access-control-allow-headers": "*",
+      "access-control-expose-headers": "etag",
+    };
+    if (request.method() === "OPTIONS") {
+      await route.fulfill({ status: 204, headers: cors });
+      return;
+    }
+    const url = new URL(request.url());
+    const [, ...key] = url.pathname.split("/").slice(1).map(decodeURIComponent);
+    const query = new URLSearchParams({ key: key.join("/") });
+    for (const name of ["uploadId", "partNumber"]) {
+      const value = url.searchParams.get(name);
+      if (value !== null) query.set(name, value);
+    }
+    const body = request.postDataBuffer() ?? Buffer.alloc(0);
+    const headers = await request.allHeaders();
+    const response = await fetch(`${controlUrl()}/storage?${query}`, {
+      method: request.method(),
+      headers: {
+        "content-length": String(body.byteLength),
+        "x-amz-checksum-sha256": headers["x-amz-checksum-sha256"] ?? "",
+      },
+      body: new Uint8Array(body),
+    });
+    await route.fulfill({
+      status: response.status,
+      headers: {
+        ...cors,
+        ...(response.headers.get("etag") ? { etag: response.headers.get("etag") as string } : {}),
+      },
+      body: Buffer.from(await response.arrayBuffer()),
+    });
+  });
+}
+
 export async function signIn(context: BrowserContext, user: User): Promise<void> {
   await context.addCookies([
     {

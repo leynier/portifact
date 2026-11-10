@@ -139,14 +139,16 @@ function SignedOut() {
   return (
     <div className="min-h-screen bg-backdrop px-4 py-10 text-text">
       <div className="mx-auto flex max-w-xl flex-col gap-8">
-        <ThemedImage
-          src={wordmark}
-          darkSrc={wordmarkDark}
-          alt="Portifact"
-          width={148}
-          height={40}
-          className="h-8 w-auto self-start"
-        />
+        <header>
+          <ThemedImage
+            src={wordmark}
+            darkSrc={wordmarkDark}
+            alt="Portifact"
+            width={148}
+            height={40}
+            className="h-8 w-auto"
+          />
+        </header>
         <main
           id="main"
           tabIndex={-1}
@@ -166,16 +168,35 @@ function SignedOut() {
   );
 }
 
+/** What the link's token names, for the signed-in account. */
+function useLinkLookup(token: string | null) {
+  const { api } = useDashboard();
+  return useQuery({
+    queryKey: LINK_QUERY,
+    // A malformed token never leaves the page: it answers like a missing invitation.
+    queryFn: () =>
+      token ? api.lookupInvitation(token) : Promise.reject(new ApiFailure("not_found", 404)),
+    enabled: token !== null,
+    retry: (count, error) =>
+      !(error instanceof ApiFailure && error.code === "not_found") && count < 1,
+  });
+}
+
 export function InvitationScreen() {
   const t = useT();
   useDocumentTitle(t("invitations.title"));
   const [token] = useState(stashedInvitationToken);
+  const lookup = useLinkLookup(token);
+  // The link's own invitation is shown on its own; the list waits for it and holds the others.
+  const linkedId = lookup.data?.status === "invited" ? lookup.data.invitation.id : undefined;
   return (
     <>
       <PageHeader title={t("invitations.title")} description={t("invitations.description")} />
       <div className="flex flex-col gap-6">
-        {token !== null ? <LinkInvitation token={token} /> : null}
-        <IncomingList hasLink={token !== null} />
+        {token !== null ? <LinkInvitation token={token} lookup={lookup} /> : null}
+        {token === null || !lookup.isPending ? (
+          <IncomingList hasLink={token !== null} linkedId={linkedId} />
+        ) : null}
       </div>
     </>
   );
@@ -193,17 +214,14 @@ function useAnswered() {
   };
 }
 
-function LinkInvitation({ token }: { token: string }) {
+function LinkInvitation({
+  token,
+  lookup,
+}: {
+  token: string;
+  lookup: ReturnType<typeof useLinkLookup>;
+}) {
   const t = useT();
-  const { api } = useDashboard();
-  const lookup = useQuery({
-    queryKey: LINK_QUERY,
-    // A malformed token never leaves the page: it answers like a missing invitation.
-    queryFn: () =>
-      token === "" ? Promise.reject(new ApiFailure("not_found", 404)) : api.lookupInvitation(token),
-    retry: (count, error) =>
-      !(error instanceof ApiFailure && error.code === "not_found") && count < 1,
-  });
   const missing = lookup.error instanceof ApiFailure && lookup.error.code === "not_found";
   // A link that does not work is not kept: the next visit lists the account's invitations.
   useEffect(() => {
@@ -390,12 +408,9 @@ function InvitationCard({
   );
 }
 
-function IncomingList({ hasLink }: { hasLink: boolean }) {
+function IncomingList({ hasLink, linkedId }: { hasLink: boolean; linkedId: string | undefined }) {
   const t = useT();
   const incoming = useIncomingInvitations();
-  const linked = useQueryClient().getQueryData<{ status: string; invitation?: { id: string } }>(
-    LINK_QUERY,
-  );
   if (incoming.isPending) return <LoadingState label={t("invitations.loading")} />;
   if (incoming.isError) {
     return (
@@ -414,7 +429,7 @@ function IncomingList({ hasLink }: { hasLink: boolean }) {
     );
   }
   // The link's own invitation is shown above; the list holds the others.
-  const items = incoming.data.items.filter((item) => item.id !== linked?.invitation?.id);
+  const items = incoming.data.items.filter((item) => item.id !== linkedId);
   if (items.length === 0) {
     return hasLink ? null : (
       <EmptyState title={t("invitations.empty.title")} icon={<Inbox className="size-5" />}>
