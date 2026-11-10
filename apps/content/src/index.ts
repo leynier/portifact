@@ -43,7 +43,6 @@ import { documentPolicy } from "@portifact/render/policy";
 import {
   customDomainsServing,
   findBrandLogo,
-  personalHandles,
   recordOpenings,
   recordTraffic,
   recordViews,
@@ -299,7 +298,7 @@ async function route(
   if (id) {
     // The region that holds the artifact, from the global directory (decision 0005).
     // Cached per isolate: a warm request reads nothing here.
-    handles = await deliveryRegion(regions, id);
+    handles = await deliveryRegion(regions, id, now);
   } else {
     const host = classifyHost(url.hostname, env.CONTENT_DOMAIN);
     if (host.kind !== "custom" || !customDomainsOn(env)) return notFound();
@@ -998,11 +997,6 @@ function httpsUpgrade(url: URL): Response {
     status: 308,
     headers: { Location: target.toString(), "Cache-Control": "no-store" },
   });
-}
-
-/** The default region's handles: the only region until E5. */
-function _defaultRegion(env: Env): RegionHandles {
-  return personalHandles(regionsFromEnv(env));
 }
 
 /** The region's access log database; the content Worker is always bound to it. */

@@ -3,13 +3,14 @@
 // as reading the artifact; anonymous visitors see only public artifacts that are servable, so a
 // protected, unavailable or missing artifact gives the same answer until they sign in.
 import type { AccessMode, ViewerRole } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
   customHostWithoutClick,
   effectiveState,
   entitlements,
   fail,
+  type OwnerPlanRecord,
   ok,
   type Result,
 } from "@portifact/domain";
@@ -50,7 +51,17 @@ export async function getViewerArtifact(
     customDomains: boolean;
   },
 ): Promise<Result<ViewerArtifact>> {
-  const [artifact] = await db
+  // With one database the plan comes with the artifact, as it always did; otherwise it is read
+  // from the global database only for a branded owner (decision 0005).
+  const both = bothSides(db);
+  const p = schema.ownerPlans;
+  const planColumns = {
+    plan: p.plan,
+    seats: p.seats,
+    validUntil: p.validUntil,
+    overrides: p.overrides,
+  };
+  const base = (both ?? db)
     .select({
       ownerId: schema.artifacts.ownerId,
       name: schema.artifacts.name,
@@ -70,10 +81,13 @@ export async function getViewerArtifact(
       brandLogoWidth: schema.ownerBrands.logoWidth,
       brandLogoHeight: schema.ownerBrands.logoHeight,
       brandSuspendedAt: schema.ownerBrands.suspendedAt,
+      ...(both ? { joinedPlan: planColumns } : {}),
     })
     .from(schema.artifacts)
     .innerJoin(schema.versions, eq(schema.versions.id, schema.artifacts.currentVersionId))
     .leftJoin(schema.ownerBrands, eq(schema.ownerBrands.ownerId, schema.artifacts.ownerId))
+    .$dynamic();
+  const [artifact] = await (both ? base.leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId)) : base)
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   if (!artifact) return unavailable();
@@ -116,7 +130,11 @@ export async function getViewerArtifact(
             suspendedAt: artifact.brandSuspendedAt,
           },
       entitlements(
-        artifact.brandName === null ? null : await ownerPlanRecord(db.global, artifact.ownerId),
+        both
+          ? (("joinedPlan" in artifact ? artifact.joinedPlan : null) as OwnerPlanRecord | null)
+          : artifact.brandName === null
+            ? null
+            : await ownerPlanRecord(db.global, artifact.ownerId),
         input.now,
       ),
     ),

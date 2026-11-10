@@ -13,7 +13,7 @@ import {
   LIMITS,
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -144,14 +144,33 @@ async function loadManaged(
 ): Promise<
   Result<{ artifact: typeof schema.artifacts.$inferSelect; actor: Actor; plan: PlanRow }>
 > {
+  // The owner's plan comes with the artifact when the region's database is the global one, as
+  // it always did; otherwise in the membership's own batch (decision 0005). Either way the
+  // webhook event costs no read.
+  const both = bothSides(db);
+  if (both) {
+    const p = schema.ownerPlans;
+    const [row] = await both
+      .select({
+        artifact: schema.artifacts,
+        plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+      })
+      .from(schema.artifacts)
+      .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
+      .where(eq(schema.artifacts.id, artifactId))
+      .limit(1);
+    const artifact = row?.artifact;
+    if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
+    const actor = await authorizeOn(db, userId, artifact, "access", missing);
+    if (!actor.ok) return actor;
+    return ok({ artifact, actor: actor.value, plan: row.plan });
+  }
   const [artifact] = await db
     .select()
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  // The owner's plan is global (decision 0005): read in the membership's own batch, so the
-  // webhook event costs no read.
   const { actor, plan } = await actorAndPlanOn(db.global, userId, artifact);
   if (!actor) return missing();
   const authorized = authorize(actor, "access");

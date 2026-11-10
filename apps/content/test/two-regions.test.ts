@@ -4,7 +4,8 @@
 import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { describe, expect, it } from "vitest";
-import { deliveryCacheSizes } from "../src/directory.ts";
+import { resetProtectionCache } from "../src/budget.ts";
+import { deliveryCacheSizes, MISS_TTL_MS } from "../src/directory.ts";
 import { handle, isolateMeter, isolateOpenings } from "../src/index.ts";
 import type { TrafficCharge } from "../src/traffic.ts";
 
@@ -65,7 +66,7 @@ async function seedInEu() {
 }
 
 /** The environment with every statement each control database runs counted. */
-function counted() {
+function counted(base: typeof env = env) {
   const calls = { global: 0, eu: 0 };
   const count = (d1: D1Database, key: keyof typeof calls) =>
     new Proxy(d1, {
@@ -80,12 +81,15 @@ function counted() {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-  return { env: { ...env, DB: count(env.DB, "global"), DB_EU: count(env.DB_EU, "eu") }, calls };
+  const counted = { ...base, DB: count(base.DB, "global") } as typeof env;
+  if (base.DB_EU) counted.DB_EU = count(base.DB_EU, "eu");
+  return { env: counted, calls };
 }
 
 describe("an artifact in the EU region", () => {
   it("is served from the EU bucket, charged to the EU database, and warm costs one regional read", async () => {
     await seedInEu();
+    resetProtectionCache();
     const charges: { charge: TrafficCharge; region: string | undefined }[] = [];
     const get = (target: typeof env) =>
       handle(new Request(`https://${ID}.portifact.dev/index.html`), target, NOW, (charge, region) =>
@@ -98,7 +102,7 @@ describe("an artifact in the EU region", () => {
     // Cold: the directory, the plan and budget protection's state (cached a minute, as before)
     // from the global database; the artifact and its file from the EU one.
     expect(cold.calls).toEqual({ global: 3, eu: 2 });
-    expect(deliveryCacheSizes()).toEqual({ regions: 1, plans: 1 });
+    expect(deliveryCacheSizes()).toEqual({ regions: 1, misses: 0, plans: 1 });
     const warm = counted();
     expect((await get(warm.env)).status).toBe(200);
     // Warm: nothing global, the same two regional reads as a default-region artifact.
@@ -107,9 +111,10 @@ describe("an artifact in the EU region", () => {
     expect(charges[0]?.charge.ownerId).toBe(OWNER);
   });
 
-  it("answers an ID the directory does not know exactly as with one region, and caches no miss", async () => {
+  it("answers an ID the directory does not know exactly as with one region, and asks again only after a while", async () => {
     const request = () => new Request("https://zzzzzzzzzz.portifact.dev/");
-    const missing = await handle(request(), env, NOW);
+    const first = counted();
+    const missing = await handle(request(), first.env, NOW);
     const oneRegion = await handle(
       request(),
       { ...env, DB_EU: undefined } as unknown as typeof env,
@@ -117,7 +122,64 @@ describe("an artifact in the EU region", () => {
     );
     expect(missing.status).toBe(oneRegion.status);
     expect(await missing.text()).toBe(await oneRegion.text());
-    expect(deliveryCacheSizes().regions).toBe(0);
+    expect(deliveryCacheSizes()).toMatchObject({ regions: 0, misses: 1 });
+    // A miss is remembered briefly: the same random ID costs no directory read for a while.
+    const again = counted();
+    await handle(request(), again.env, NOW + 1_000);
+    const later = counted();
+    await handle(request(), later.env, NOW + MISS_TTL_MS + 1);
+    expect(again.calls.global).toBe(first.calls.global - 1);
+    expect(later.calls.global).toBe(first.calls.global);
+  });
+
+  it("with one region bound, costs exactly what it always did: the plan joined, nothing cached", async () => {
+    const id = "d3f2qm4xab";
+    const run = (sql: string, ...values: unknown[]) =>
+      env.DB.prepare(sql)
+        .bind(...values)
+        .run();
+    await env.ARTIFACTS.put(`objects/u_one/${HASH}`, BODY);
+    await run(
+      "insert or ignore into objects (owner_id, sha256, size, r2_key, state) values ('u_one', ?, ?, ?, 'verified')",
+      HASH,
+      BODY.length,
+      `objects/u_one/${HASH}`,
+    );
+    await run(
+      "insert or ignore into artifacts (id, owner_id, type, name, state, access_mode, current_version_id, expires_at) values (?, 'u_one', 'site', 'Plan', 'active', 'public', ?, ?)",
+      id,
+      `${id}-v1`,
+      NOW + 86_400_000,
+    );
+    await run(
+      "insert or ignore into versions (id, artifact_id, number, author_id, entrypoint, published_bytes) values (?, ?, 1, 'u_one', 'index.html', ?)",
+      `${id}-v1`,
+      id,
+      BODY.length,
+    );
+    await run(
+      "insert or ignore into version_files (version_id, kind, path, owner_id, sha256, size, content_type) values (?, 'published', 'index.html', 'u_one', ?, ?, 'text/html; charset=utf-8')",
+      `${id}-v1`,
+      HASH,
+      BODY.length,
+    );
+    const oneRegion = {
+      ...env,
+      DB_EU: undefined,
+      ACCESS_DB_EU: undefined,
+      ARTIFACTS_EU: undefined,
+    } as unknown as typeof env;
+    const get = (target: typeof env) =>
+      handle(new Request(`https://${id}.portifact.dev/index.html`), target, NOW);
+    resetProtectionCache();
+    const cold = counted(oneRegion);
+    expect((await get(cold.env)).status).toBe(200);
+    // The artifact with its plan and counter, its file, and budget protection's state.
+    expect(cold.calls).toEqual({ global: 3, eu: 0 });
+    const warm = counted(oneRegion);
+    expect((await get(warm.env)).status).toBe(200);
+    expect(warm.calls).toEqual({ global: 2, eu: 0 });
+    expect(deliveryCacheSizes()).toEqual({ regions: 0, misses: 0, plans: 0 });
   });
 
   it("writes the EU artifact's traffic to the EU database and its openings to the EU access log", async () => {

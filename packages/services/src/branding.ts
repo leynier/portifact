@@ -19,7 +19,7 @@ import {
   brandLogoKey,
   lowestPlanWith,
 } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -32,6 +32,7 @@ import {
   limitColumns,
   normalizeBrandLink,
   normalizeBrandName,
+  type OwnerPlanRecord,
   ok,
   type Result,
   requireFeature,
@@ -430,24 +431,42 @@ export async function findBrandLogo(
   if (!/^[0-9a-f]{64}$/.test(input.sha256)) return null;
   const a = schema.artifacts;
   const b = schema.ownerBrands;
-  const [row] = await db
+  const p = schema.ownerPlans;
+  // With one database the plan comes with the brand, as it always did; otherwise it is read from
+  // the global database, only for a logo that exists and may be shown (decision 0005).
+  const both = bothSides(db);
+  const base = (both ?? db)
     .select({
       ownerId: a.ownerId,
       state: a.state,
       expiresAt: a.expiresAt,
       logoType: b.logoType,
       suspendedAt: b.suspendedAt,
+      ...(both
+        ? {
+            joinedPlan: {
+              plan: p.plan,
+              seats: p.seats,
+              validUntil: p.validUntil,
+              overrides: p.overrides,
+            },
+          }
+        : {}),
     })
     .from(a)
     .innerJoin(b, eq(b.ownerId, a.ownerId))
+    .$dynamic();
+  const [row] = await (both ? base.leftJoin(p, eq(p.ownerId, a.ownerId)) : base)
     .where(and(eq(a.id, input.artifactId), eq(b.logoSha256, input.sha256)))
     .limit(1);
   if (!row?.logoType) return null;
   if (row.state !== "active" || (row.expiresAt !== null && row.expiresAt <= input.now)) {
     return null;
   }
-  // The plan is global (decision 0005): read only for a logo that exists and may be shown.
-  const owner = entitlements(await ownerPlanRecord(db.global, row.ownerId), input.now);
+  const plan = both
+    ? (("joinedPlan" in row ? row.joinedPlan : null) as OwnerPlanRecord | null)
+    : await ownerPlanRecord(db.global, row.ownerId);
+  const owner = entitlements(plan, input.now);
   if (!brandShown(row, owner)) return null;
   return { key: brandLogoKey(row.ownerId, input.sha256), type: row.logoType };
 }

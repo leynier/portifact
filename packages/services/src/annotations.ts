@@ -38,7 +38,7 @@ import {
   UNTRUSTED_ANNOTATIONS_NOTICE,
   utf8Length,
 } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   type AnnotationAction,
@@ -159,13 +159,48 @@ const changed = () =>
 
 // Loading and authorization
 
-async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | undefined> {
+/**
+ * The artifact with its owner's plan, and the caller's actor on the owner. Plans are global and
+ * artifacts regional (decision 0005). With one database the plan comes with the artifact, as it
+ * always did; with a separate global database it comes in the membership's own batch
+ * (`actorAndPlanOn`), so a workspace's paths gain no call, and only a personal space whose
+ * region is not the global database (no deployment has one) pays one read for it.
+ */
+async function loadWithPlan(db: RegionalDb, userId: string, artifactId: string) {
+  const both = bothSides(db);
+  if (both) {
+    const p = schema.ownerPlans;
+    const [row] = await both
+      .select({
+        artifact: schema.artifacts,
+        plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+      })
+      .from(schema.artifacts)
+      .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
+      .where(eq(schema.artifacts.id, artifactId))
+      .limit(1);
+    if (!row) return undefined;
+    const actor = isServiceTokenId(userId)
+      ? null
+      : await actorOn(db.global, userId, row.artifact.ownerId);
+    return { artifact: row.artifact, plan: row.plan, actor };
+  }
   const [artifact] = await db
     .select()
     .from(schema.artifacts)
-    .where(eq(schema.artifacts.id, input.artifactId))
+    .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
   if (!artifact) return undefined;
+  const { actor, plan } = isServiceTokenId(userId)
+    ? { actor: null, plan: await ownerPlanRecord(db.global, artifact.ownerId) }
+    : await actorAndPlanOn(db.global, userId, artifact.ownerId);
+  return { artifact, plan, actor };
+}
+
+async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | undefined> {
+  const loaded = await loadWithPlan(db, input.userId, input.artifactId);
+  if (!loaded) return undefined;
+  const { artifact, actor, plan } = loaded;
   const state = effectiveState(
     {
       state: artifact.state,
@@ -174,14 +209,6 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     },
     new Date(input.now),
   );
-  // The owner's plan and owner side are global (decision 0005): the plan comes in the
-  // membership's own batch and the owner side alongside it, so neither adds a round trip.
-  const [{ actor, plan }, side] = await Promise.all([
-    isServiceTokenId(input.userId)
-      ? ownerPlanRecord(db.global, artifact.ownerId).then((found) => ({ actor: null, plan: found }))
-      : actorAndPlanOn(db.global, input.userId, artifact.ownerId),
-    ownerSide(db.global, artifact.ownerId),
-  ]);
   const owner = entitlements(plan, input.now);
   const { role, verifiedEmail, exception, groups } = await roleOf(
     db,
@@ -205,7 +232,7 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     scope,
     groupIds: groups.map((group) => group.id),
     // A personal space needs no read.
-    ownerSide: side,
+    ownerSide: await ownerSide(db.global, artifact.ownerId),
     entitlements: owner,
   };
 }

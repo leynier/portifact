@@ -1,7 +1,10 @@
 // The owner's plan (premium plan section 3, F1 and F2): the services read the `owner_plans` row
 // and pass the effective limits to the domain rules, so every adapter gets the same limits.
-// Adapters never resolve a plan themselves. The content Worker reads the row with its artifact
-// lookup instead (`findDeliveryArtifact`), so delivery adds no read.
+// Adapters never resolve a plan themselves. Plans are global (decision 0005): when a region's
+// database is the global one, the write paths and the content Worker's delivery lookup join the
+// row into their artifact read (`bothSides`, `findDeliveryArtifact` with `withPlan`), so they add
+// no read; with a separate regional database it comes in a global batch the path already makes
+// (`ownerPlanQuery`, `actorAndPlanOn`), and delivery caches it per isolate for a minute.
 //
 // Plans are granted only by the operator tool (`setOwnerPlan`, `removeOwnerPlan`); no web route,
 // API endpoint, MCP tool or CLI command reaches them. A grant writes the row and the four limit

@@ -15,11 +15,13 @@ import {
   type WorkspaceRole,
 } from "@portifact/contracts";
 import {
+  bothSides,
   type Db,
   type GlobalDb,
   isRegion,
   type RegionalDb,
   type Regions,
+  sameDatabase,
   schema,
 } from "@portifact/db";
 import {
@@ -707,13 +709,14 @@ export function workspaceDeletionJob(db: Db, workspaceId: string, condition: SQL
 }
 
 /**
- * Deletes a workspace (operator only), the way an account is deleted, global first (decision
- * 0005): one global batch records the deletion with its job, removes the identities of its
- * single sign-on and deletes the workspace row, which removes its memberships and invitations
- * (no one can act on it after this); then one batch in the workspace's region claims every
- * artifact for purging (they stop being served at once) and stops its webhooks. The job finishes
- * it (`advanceWorkspaceDeletion`) and repeats the regional claim in every region, so a crash
- * between the two batches only delays the purge. A retry finds nothing left to change.
+ * Deletes a workspace (operator only), the way an account is deleted. With its region's database
+ * being the global one (one region, production today), one batch records the deletion with its
+ * job, claims every artifact for purging (they stop being served at once), stops its webhooks,
+ * removes the identities of its single sign-on and deletes the workspace row, which removes its
+ * memberships and invitations: as it always was. With a separate regional database (decision
+ * 0005) the global batch goes first (after it no one can act on the workspace), then the
+ * regional claim, retried inline; an error left after the attempts reaches the caller and the job
+ * finishes the claim in every region. A retry finds the row gone and claims again everywhere.
  */
 export async function deleteWorkspace(
   regions: Regions,
@@ -725,25 +728,29 @@ export async function deleteWorkspace(
     .from(w)
     .where(eq(w.id, input.workspaceId))
     .limit(1);
+  const home = row ? regions.get(regionOf(row)).db : undefined;
+  const both = home ? bothSides(home) : null;
+  const on = both ?? global;
   const exists = sql`exists (select 1 from ${w} where ${w.id} = ${input.workspaceId})`;
-  const results = (await global.batch([
-    workspaceDeletionJob(global, input.workspaceId, exists, input.now),
-    global
+  const results = (await on.batch([
+    workspaceDeletionJob(on, input.workspaceId, exists, input.now),
+    on
       .insert(schema.workspaceDeletions)
       .select(sql`select ${input.workspaceId}, ${input.now} where ${exists}`)
       .onConflictDoNothing(),
+    ...(both ? claimOwnerStatements(both, input.workspaceId, input.now) : []),
     // The identities linked through its single sign-on: no foreign key ties them to the provider,
     // which the workspace row takes with it below (decision 0016).
-    global
+    on
       .delete(schema.accounts)
       .where(
         sql`${schema.accounts.providerId} in (select 'sso:' || ${schema.workspaceSso.id} from ${schema.workspaceSso} where ${schema.workspaceSso.workspaceId} = ${input.workspaceId})`,
       ),
-    global.delete(w).where(eq(w.id, input.workspaceId)).returning({ id: w.id }),
+    on.delete(w).where(eq(w.id, input.workspaceId)).returning({ id: w.id }),
   ])) as unknown[];
   const deleted = (results.at(-1) as unknown[]).length === 1;
-  if (deleted && row) {
-    await claimOwnerInRegion(regions.get(regionOf(row)).db, input.workspaceId, input.now);
+  if (deleted) {
+    if (home && !both) await retried(() => claimOwnerInRegion(home, input.workspaceId, input.now));
     return ok({ deleted: true });
   }
   const [pending] = await global
@@ -751,7 +758,13 @@ export async function deleteWorkspace(
     .from(schema.workspaceDeletions)
     .where(eq(schema.workspaceDeletions.workspaceId, input.workspaceId))
     .limit(1);
-  return pending ? ok({ deleted: false }) : missingWorkspace();
+  if (!pending) return missingWorkspace();
+  // A retry after the global batch: the row and its region are gone, so every region is claimed
+  // again (idempotent; a region without the workspace's artifacts changes nothing).
+  for (const handles of regions.all()) {
+    await retried(() => claimOwnerInRegion(handles.db, input.workspaceId, input.now));
+  }
+  return ok({ deleted: false });
 }
 
 /**
@@ -759,11 +772,15 @@ export async function deleteWorkspace(
  * webhooks (no foreign key ties them to their owner; their pending events and delivery log
  * cascade from them). Idempotent.
  */
-async function claimOwnerInRegion(db: RegionalDb, ownerId: string, now: number): Promise<void> {
-  await db.batch([
+function claimOwnerStatements(db: Db, ownerId: string, now: number) {
+  return [
     ...claimArtifacts(db, ownerId, now),
     db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, ownerId)),
-  ]);
+  ] as const;
+}
+
+async function claimOwnerInRegion(db: RegionalDb, ownerId: string, now: number): Promise<void> {
+  await db.batch(claimOwnerStatements(db, ownerId, now));
 }
 
 /**
@@ -782,6 +799,70 @@ export function deleteOrphanSsoIdentities(db: Db) {
 export interface DeletionRegions {
   global: GlobalDb;
   all(): readonly { db: RegionalDb; bucket: R2Bucket | undefined; region: Region }[];
+}
+
+/**
+ * The region whose database is the global database (`sameDatabase`), if any: the default region
+ * in every deployment. A deletion keeps its statements for that region in the global batch, so
+ * with one database it is one batch, as it always was (decision 0005, "Two-region audit").
+ */
+export function sharedRegion(regions: DeletionRegions) {
+  return regions.all().find((handles) => sameDatabase(handles.db, regions.global));
+}
+
+/** The regions with a database of their own, where a deletion's half runs after the global one. */
+export function separateRegions(regions: DeletionRegions) {
+  return regions.all().filter((handles) => !sameDatabase(handles.db, regions.global));
+}
+
+/**
+ * Where a deletion's final batch runs and the condition that keeps it from finishing while the
+ * owner still has an artifact. The shared region's artifacts are checked by SQL inside that
+ * batch (one database: atomic, as it always was), so an artifact a request authorized just
+ * before inserts in the gap stops the batch, and the next run claims it. A separate region is
+ * counted again right before the batch; null when one still holds an artifact. What remains
+ * there is a window of one round trip between that count and the batch, which the directory
+ * claim closes for new artifacts (`claimArtifactId` refuses an owner being deleted).
+ */
+export async function finalDeletionStep(
+  regions: DeletionRegions,
+  ownerId: string,
+): Promise<{ on: Db; nothingLeft: SQL } | null> {
+  for (const { db } of separateRegions(regions)) {
+    const [count] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.ownerId, ownerId));
+    if (Number(count?.count ?? 0) > 0) return null;
+  }
+  const shared = sharedRegion(regions);
+  const both = shared ? bothSides(shared.db) : null;
+  if (!both) return { on: regions.global, nothingLeft: sql`1` };
+  return {
+    on: both,
+    nothingLeft: sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${ownerId})`,
+  };
+}
+
+/** Inline attempts of a deletion's regional half before the error reaches the caller. */
+export const REGIONAL_ATTEMPTS = 3;
+
+/**
+ * Runs a deletion's regional half, retried inline. The global batch already wrote the job, so
+ * an error that is left after the attempts reaches the caller (never swallowed) and the job or
+ * the scan finishes it: the window in which the owner's artifacts are still served is one
+ * request's attempts, or until the job runs (decision 0005, "Two-region audit").
+ */
+export async function retried<T>(run: () => Promise<T>, attempts = REGIONAL_ATTEMPTS): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await run();
+    } catch (error) {
+      last = error;
+    }
+  }
+  throw last;
 }
 
 /** One region and its bucket as every region, for a deployment with one region and for tests. */
@@ -889,21 +970,25 @@ export async function advanceWorkspaceDeletion(
     ]);
   }
 
-  // Every region was empty just above, and no one can create anything for the workspace (its
-  // row and memberships are gone), so the global batch ends the deletion.
+  // The final batch holds only while nothing is left (`finalDeletionStep`).
+  const step = await finalDeletionStep(regions, workspaceId);
+  if (!step) return "pending";
+  const { on, nothingLeft } = step;
   const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'workspace' and ${schema.tombstones.id} = ${workspaceId})`;
-  const results = (await global.batch([
-    global.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, workspaceId)),
+  const results = (await on.batch([
+    on
+      .delete(schema.ownerPlans)
+      .where(and(eq(schema.ownerPlans.ownerId, workspaceId), nothingLeft)),
     // Single sign-on identities a restore or a race left without their provider.
-    deleteOrphanSsoIdentities(global),
-    global
+    deleteOrphanSsoIdentities(on),
+    on
       .insert(schema.tombstones)
-      .values({ kind: "workspace", id: workspaceId, deletedAt: now })
+      .select(sql`select 'workspace', ${workspaceId}, ${now} where ${nothingLeft}`)
       .onConflictDoNothing(),
-    closeJobs(global, "workspace_deletion", workspaceId, tombstoned),
-    global
+    closeJobs(on, "workspace_deletion", workspaceId, and(nothingLeft, tombstoned) as SQL),
+    on
       .delete(schema.workspaceDeletions)
-      .where(and(eq(schema.workspaceDeletions.workspaceId, workspaceId), tombstoned))
+      .where(and(eq(schema.workspaceDeletions.workspaceId, workspaceId), nothingLeft, tombstoned))
       .returning({ id: schema.workspaceDeletions.workspaceId }),
   ])) as unknown[];
   return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";

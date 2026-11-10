@@ -6,7 +6,14 @@
 // deletions erase rows (and a purged artifact's view counters) through `erase_access_events`
 // outbox jobs, because no D1 batch spans both databases.
 import { ACCESS_LOG, type EraseAccessEventsPayload } from "@portifact/contracts";
-import { type AccessDb, accessSchema, type Db, type RegionalDb, schema } from "@portifact/db";
+import {
+  type AccessDb,
+  accessSchema,
+  bothSides,
+  type Db,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
 import {
   accessLogCutoff,
   accessWindow,
@@ -131,6 +138,9 @@ async function activeOwners(
   db: RegionalDb,
   ids: readonly string[],
 ): Promise<Map<string, ActiveOwner>> {
+  // One database: the plan comes with the artifacts in one read per chunk, as it always did.
+  const both = bothSides(db);
+  if (both) return joinedOwners(both, ids);
   const found: { id: string; ownerId: string }[] = [];
   for (let i = 0; i < ids.length; i += IN_CHUNK) {
     found.push(
@@ -166,6 +176,29 @@ async function activeOwners(
   const owners = new Map<string, ActiveOwner>();
   for (const row of found) {
     owners.set(row.id, { ownerId: row.ownerId, plan: plans.get(row.ownerId) ?? null });
+  }
+  return owners;
+}
+
+async function joinedOwners(both: Db, ids: readonly string[]): Promise<Map<string, ActiveOwner>> {
+  const owners = new Map<string, ActiveOwner>();
+  const p = schema.ownerPlans;
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const rows = await both
+      .select({
+        id: schema.artifacts.id,
+        ownerId: schema.artifacts.ownerId,
+        plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+      })
+      .from(schema.artifacts)
+      .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
+      .where(
+        and(
+          inArray(schema.artifacts.id, ids.slice(i, i + IN_CHUNK)),
+          eq(schema.artifacts.state, "active"),
+        ),
+      );
+    for (const row of rows) owners.set(row.id, { ownerId: row.ownerId, plan: row.plan });
   }
   return owners;
 }

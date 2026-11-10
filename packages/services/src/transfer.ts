@@ -10,7 +10,7 @@
 // rows while other artifacts reference them; rows nothing references any more are released after
 // the batch (`releaseOrphans`), and an R2 key is deleted only once no row of any owner has it.
 import { isWorkspaceId } from "@portifact/contracts";
-import { type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   authorize,
   checkPolicyTransfer,
@@ -220,47 +220,54 @@ export async function transferArtifact(
 
   // Every write holds only while the artifact is where and as the request read it; the move of
   // the artifact row itself runs last, so a concurrent change makes the whole batch a no-op.
-  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state} and ${a.customHost} is null${policyHolds ? sql` and ${policyHolds}` : sql``}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying'))`;
+  // With one database the domains are part of the condition, as they always were: a domain or
+  // claim that appears before the batch makes it a no-op. With a separate regional database the
+  // regional `custom_host` is (attaching sets it last), and a claim that lands between the global
+  // check and the move is released right after it (decision 0005, "Two-region audit").
+  const both = bothSides(db);
+  const w = both ?? db;
+  const noDomains = both ? sql` and not ${domains}` : sql``;
+  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state} and ${a.customHost} is null${policyHolds ? sql` and ${policyHolds}` : sql``}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying'))${noDomains}`;
   const guarded = (condition: SQL) => and(condition, unchanged) as SQL;
   let results: unknown[];
   try {
-    results = (await db.batch([
-      db
+    results = (await w.batch([
+      w
         .insert(schema.accountUsage)
         .select(
           sql`select ${to}, 0, 0, 0, 0, 0, ${monthStart(input.now)}, ${input.now}, ${owner.limits.activeArtifacts}, ${owner.limits.accountBytes} where ${unchanged}`,
         )
         .onConflictDoNothing(),
-      db
+      w
         .update(schema.accountUsage)
         .set({
           storedBytes: sql`${schema.accountUsage.storedBytes} + (select coalesce(sum(${o.size}), 0) from ${o} where ${missingInTarget} and ${o.state} = 'verified')`,
           updatedAt: input.now,
         })
         .where(guarded(eq(schema.accountUsage.ownerId, to))),
-      db
+      w
         .insert(o)
         // Columns in schema order: owner, sha256, size, r2 key, state, created at.
         .select(
           sql`select ${to}, ${o.sha256}, ${o.size}, ${o.r2Key}, ${o.state}, ${input.now} from ${o} where ${missingInTarget} and ${unchanged}`,
         )
         .onConflictDoNothing(),
-      db
+      w
         .update(vf)
         .set({ ownerId: to })
         .where(guarded(sql`${vf.versionId} in ${versionIds} and ${vf.ownerId} = ${from}`)),
-      db
+      w
         .update(schema.annotationThreads)
         .set({ ownerId: to })
         .where(guarded(eq(schema.annotationThreads.artifactId, artifact.id))),
-      db
+      w
         .update(schema.annotationMessages)
         .set({ ownerId: to })
         .where(guarded(eq(schema.annotationMessages.artifactId, artifact.id))),
       // Events still waiting for the source's webhooks: a delivery only builds events for
       // artifacts its webhook's owner still owns, so they would be dropped later and linger here.
       // Activity after the move goes to the target's webhooks, which key on the current owner.
-      db
+      w
         .delete(schema.webhookEvents)
         .where(
           guarded(
@@ -269,20 +276,20 @@ export async function transferArtifact(
         ),
       // Groups name the source workspace's people: the artifact leaves them behind (decision
       // 0014), in the same batch, so no target member is ever matched against them.
-      db
+      w
         .delete(schema.artifactGroups)
         .where(guarded(eq(schema.artifactGroups.artifactId, artifact.id))),
       // Reviewers were chosen under the old owner: the open approval review ends (decision 0013).
-      cancelApprovalReviewOnTransfer(db, {
+      cancelApprovalReviewOnTransfer(w, {
         artifactId: artifact.id,
         condition: unchanged,
         now: input.now,
       }),
       // The access history follows the artifact (the job re-owns its openings and views).
-      accessHistoryMoveJob(db, artifact.id, unchanged, input.now),
+      accessHistoryMoveJob(w, artifact.id, unchanged, input.now),
       // The move drops its search rows (a trigger); the target indexes it if its plan searches.
       ...(artifact.state === "active" && artifact.currentVersionId
-        ? searchIndexJob(db, {
+        ? searchIndexJob(w, {
             entitlements: owner,
             artifactId: artifact.id,
             versionId: artifact.currentVersionId,
@@ -290,18 +297,18 @@ export async function transferArtifact(
             now: input.now,
           })
         : []),
-      db.insert(schema.lifecycleEvents).select(
+      w.insert(schema.lifecycleEvents).select(
         // Columns in schema order: id, artifact, actor, channel, event, details, at.
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'transferred', ${JSON.stringify({ from, to })}, ${input.now} where ${unchanged}`,
       ),
       // One event for each side, on the same conditions.
       ...transferEvents(
-        db,
+        w,
         { artifactId: artifact.id, from, to, userId: input.userId, now: input.now },
         unchanged,
       ),
       // The triggers of the workspace_members_invitations migration move the active slot and the annotation usage with these updates.
-      db
+      w
         .update(a)
         // A move ends read, review and link sessions and refuses writes authorized on the old
         // owner: both generations move with it.
@@ -340,7 +347,7 @@ export async function transferArtifact(
   // A domain claim started between the global check and the move (domains are global, the move
   // regional, decision 0005) belongs to the source, which no longer owns the artifact: it is
   // released, so a moved artifact never keeps a name or a pending claim of its old owner.
-  if (moved && moved.ownerId === to) {
+  if (!both && moved && moved.ownerId === to) {
     const [late] = await db.global.all<{ found: number }>(sql`select ${domains} as found`);
     if (Number(late?.found ?? 0) === 1) {
       await releaseArtifactDomains(domainDbsOf(db), artifact.id, "removed", input.now);
@@ -351,7 +358,7 @@ export async function transferArtifact(
 
 /** The audit events of a move: out of the source and into the target, both on `condition`. */
 function transferEvents(
-  db: RegionalDb,
+  db: Db,
   input: { artifactId: string; from: string; to: string; userId: string; now: number },
   condition: SQL,
 ) {

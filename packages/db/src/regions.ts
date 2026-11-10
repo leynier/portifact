@@ -6,7 +6,7 @@
 import { drizzle } from "drizzle-orm/d1";
 import * as accessSchema from "./access-schema.ts";
 import type { AccessDb, Db } from "./index.ts";
-import { guardFor } from "./region-guard.ts";
+import { guardedAs, guardFor, underlyingBinding } from "./region-guard.ts";
 import * as schema from "./schema.ts";
 import { REGIONS } from "./schema.ts";
 
@@ -38,6 +38,36 @@ export function globalDb(d1: D1Database): GlobalDb {
 /** Wraps a binding as a region's database, attached to its deployment's global database. */
 export function regionalDb(d1: D1Database, global: GlobalDb): RegionalDb {
   return Object.assign(drizzle(d1, { schema }), { global }) as unknown as RegionalDb;
+}
+
+/**
+ * Whether a region's database is the global database: one D1 binding under both handles. True in
+ * every deployment with one region (production today) and for the default region, which lives in
+ * the control database; false for a region with its own database (the EU). The paths that span
+ * both sides decide with this, never by a region's name: one database keeps everything in one
+ * batch, as it always did, and only a separate database goes global first, then regional
+ * (decision 0005, "Two-region audit").
+ */
+export function sameDatabase(regional: RegionalDb, global: GlobalDb = regional.global): boolean {
+  return underlyingBinding(regional.$client) === underlyingBinding(global.$client);
+}
+
+const BOTH = new WeakMap<RegionalDb, Db>();
+
+/**
+ * One handle that reaches both sides, when `sameDatabase` holds; null otherwise. The paths that
+ * must stay atomic with one database (deletion, the joins of a plan on the write paths, a
+ * transfer's domain condition) build their statements and their batch on it; the region guard
+ * lets it name every table.
+ */
+export function bothSides(regional: RegionalDb): Db | null {
+  if (!sameDatabase(regional)) return null;
+  let handle = BOTH.get(regional);
+  if (!handle) {
+    handle = drizzle(guardedAs(regional.$client, "both"), { schema });
+    BOTH.set(regional, handle);
+  }
+  return handle;
 }
 
 /**

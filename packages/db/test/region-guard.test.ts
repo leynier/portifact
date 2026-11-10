@@ -2,23 +2,30 @@
 // the guard refuses the other side's tables and batches that span two handles, and the strict
 // mode lets through only test files and the listed known crossings.
 import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
 import { getTableConfig, type SQLiteTable } from "drizzle-orm/sqlite-core";
 import { describe, expect, it } from "vitest";
 import * as authSchema from "../src/auth-schema.ts";
 import {
+  aliasBinding,
+  bothSides,
   describeViolation,
   globalDb,
   guardD1,
+  guardedAs,
   guardFor,
   KNOWN_CROSS_DATABASE,
   misplacedTables,
   RegionGuardError,
   type RegionGuardViolation,
   regionalDb,
+  regionsFromEnv,
+  sameDatabase,
   schema,
   statementCaller,
   TABLE_HOMES,
   tablesIn,
+  underlyingBinding,
 } from "../src/index.ts";
 
 function tablesOf(module: Record<string, unknown>): string[] {
@@ -125,7 +132,12 @@ describe("the guard", () => {
       "    at async ownerEntitlements (/repo/packages/services/src/plans.ts:1:1)",
       "    at async it (/repo/packages/services/test/plans.test.ts:1:1)",
     ].join("\n");
-    expect(statementCaller(product)).toEqual({ name: "ownerEntitlements", test: false });
+    expect(statementCaller(product)).toEqual({
+      name: "ownerEntitlements",
+      file: "packages/services/src/plans.ts",
+      key: "packages/services/src/plans.ts#ownerEntitlements",
+      test: false,
+    });
     const test = [
       "Error",
       "    at Object.prepare (/repo/packages/db/src/region-guard.ts:1:1)",
@@ -157,21 +169,65 @@ describe("the guard", () => {
     await expect(
       regional("strict", "ownerEntitlements").select().from(schema.ownerPlans).limit(1),
     ).rejects.toThrow(RegionGuardError);
-    // A listed crossing passes until the change that fixes it removes it from the list.
+    // A listed crossing passes until the change that fixes it removes it from the list; the same
+    // name in another file does not.
     await regional("strict", "setOwnerPlan").select().from(schema.ownerPlans).limit(1);
+    const elsewhere = () =>
+      `Error\n    at async planRow (/repo/packages/services/src/workspaces.ts:1:1)`;
+    await expect(
+      regionalDb(guardFor("strict", elsewhere)(env.DB, "regional", "default"), globalDb(env.DB))
+        .select()
+        .from(schema.ownerPlans)
+        .limit(1),
+    ).rejects.toThrow(RegionGuardError);
     const store = globalThis as { __regionGuard?: Set<string> };
     delete store.__regionGuard;
     await regional("collect", "ownerEntitlements").select().from(schema.ownerPlans).limit(1);
     expect([...(store.__regionGuard ?? [])]).toEqual([
-      "ownerEntitlements | table regional/default owner_plans",
+      "packages/services/src/plans.ts#ownerEntitlements | table regional/default owner_plans",
     ]);
     delete store.__regionGuard;
   });
 
   it("lists every known crossing with what it still does wrong", () => {
     for (const [name, why] of Object.entries(KNOWN_CROSS_DATABASE)) {
-      expect(name).toMatch(/^[a-z][A-Za-z]+$/);
+      expect(name).toMatch(/^(packages|apps)\/[a-z-/]+\.ts#[a-z][A-Za-z]+$/);
       expect(why.length).toBeGreaterThan(10);
     }
+  });
+});
+
+describe("the two shapes", () => {
+  it("sees one database through guards and aliases, and two for separate bindings", () => {
+    const regions = regionsFromEnv({ ...env, REGION_GUARD: "strict" });
+    expect(sameDatabase(regions.get("default").db)).toBe(true);
+    expect(sameDatabase(regions.get("eu").db)).toBe(false);
+    const proxy = new Proxy(env.DB, {});
+    expect(underlyingBinding(proxy)).toBe(proxy);
+    expect(underlyingBinding(aliasBinding(proxy, env.DB))).toBe(env.DB);
+    expect(sameDatabase(regionalDb(proxy, globalDb(env.DB)))).toBe(true);
+    expect(sameDatabase(regionalDb(env.MIGRATION_DB, globalDb(env.DB)))).toBe(false);
+  });
+
+  it("gives one handle over both sides only with one database, which the guard lets name every table", async () => {
+    const regions = regionsFromEnv({ ...env, REGION_GUARD: "strict" });
+    expect(bothSides(regions.get("eu").db)).toBeNull();
+    const both = bothSides(regions.get("default").db);
+    if (!both) throw new Error("one database expected");
+    expect(bothSides(regions.get("default").db)).toBe(both);
+    // A join across the two sides, and a batch built on the handle itself, pass.
+    await both
+      .select({ id: schema.artifacts.id, plan: schema.ownerPlans.plan })
+      .from(schema.artifacts)
+      .leftJoin(schema.ownerPlans, eq(schema.ownerPlans.ownerId, schema.artifacts.ownerId))
+      .limit(1);
+    await both.batch([
+      both.select().from(schema.users).limit(1),
+      both.select().from(schema.artifacts).limit(1),
+    ]);
+    expect(misplacedTables("both", "select * from users join artifacts on 1")).toEqual([]);
+    // Without a guard the handle is a plain one over the same binding.
+    expect(bothSides(regionsFromEnv({ DB: env.DB }).get("default").db)).not.toBeNull();
+    expect(guardedAs(env.DB, "both")).toBe(env.DB);
   });
 });

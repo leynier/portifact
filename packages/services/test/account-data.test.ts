@@ -551,8 +551,19 @@ describe("finishing the deletion", () => {
       confirmEmail: owner.email,
       now: NOW,
     });
-    // A publish that was authorized before the deletion commits afterwards.
-    const late = await publishSite(owner.id, { "index.html": "<p>late</p>" }, NOW + 1);
+    // A publish that was authorized and claimed its ID before the deletion commits afterwards;
+    // a new one after the request is refused (`claimArtifactId`).
+    await expect(
+      publishSite(owner.id, { "index.html": "<p>refused</p>" }, NOW + 1),
+    ).rejects.toThrow("Not found.");
+    const late = { artifactId: "inflightaa" };
+    await db().insert(schema.artifacts).values({
+      id: late.artifactId,
+      ownerId: owner.id,
+      type: "site",
+      name: "Late",
+      state: "active",
+    });
     await finishDeletions(NOW + 2);
     expect(await artifactRow(late.artifactId)).toBeUndefined();
     expect(await tombstone("artifact", late.artifactId)).toBeDefined();

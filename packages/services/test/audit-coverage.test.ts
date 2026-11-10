@@ -180,6 +180,8 @@ reason("the account's own preferences and sign-ins, not an owner's shared state"
   "disconnectApp",
 ]);
 reason("the owner is erased with its events", [
+  "finalDeletionStep",
+  "retried",
   "advanceAccountDeletion",
   "processAccountDeletions",
   "deleteWorkspace",
@@ -212,6 +214,7 @@ reason("reads that find a custom host or the operator's block list", [
   "customHostHint",
 ]);
 reason("scheduled jobs and their consequences of changes already recorded", [
+  "releaseMovedArtifactDomains",
   "archiveExpired",
   "expireUploads",
   "pruneVersions",

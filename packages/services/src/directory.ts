@@ -11,22 +11,32 @@ import { sql } from "drizzle-orm";
 export const CLAIM_ATTEMPTS = 5;
 
 /**
- * Claims `id` for `region` unless it was ever handed out or has a tombstone. True when this
- * call won it: the primary key makes two concurrent claims of one ID resolve to one winner.
+ * Claims `id` for `region` unless it was ever handed out or has a tombstone, and, with `owner`,
+ * only while that owner has no deletion pending: an account or workspace being deleted gets no
+ * new artifact, even from a request authorized just before (decision 0005, "Two-region audit").
+ * True when this call won it: the primary key makes two concurrent claims of one ID resolve to
+ * one winner.
  */
 export async function claimArtifactId(
   global: GlobalDb,
   id: string,
   region: Region,
   now: number,
+  owner?: string,
 ): Promise<boolean> {
   const d = schema.artifactDirectory;
   const t = schema.tombstones;
+  const ad = schema.accountDeletions;
+  const wd = schema.workspaceDeletions;
+  const ownerLive =
+    owner === undefined
+      ? sql``
+      : sql` and not exists (select 1 from ${ad} where ${ad.userId} = ${owner}) and not exists (select 1 from ${wd} where ${wd.workspaceId} = ${owner})`;
   const claimed = await global
     .insert(d)
     // Columns in schema order: id, region, created at.
     .select(
-      sql`select ${id}, ${region}, ${now} where not exists (select 1 from ${t} where ${t.kind} = 'artifact' and ${t.id} = ${id})`,
+      sql`select ${id}, ${region}, ${now} where not exists (select 1 from ${t} where ${t.kind} = 'artifact' and ${t.id} = ${id})${ownerLive}`,
     )
     .onConflictDoNothing()
     .returning({ id: d.id });
@@ -42,10 +52,23 @@ export async function claimNewArtifactId(
   region: Region,
   now: number,
   draw: () => string = () => generateArtifactId(),
-): Promise<string | null> {
+  /** The new artifact's owner: no ID is claimed while its deletion is pending. */
+  owner?: string,
+): Promise<string | null | "owner_deleting"> {
   for (let attempt = 0; attempt < CLAIM_ATTEMPTS; attempt += 1) {
     const id = draw();
-    if (await claimArtifactId(global, id, region, now)) return id;
+    if (await claimArtifactId(global, id, region, now, owner)) return id;
+    // Only a refused claim asks why, so a publish that claims costs nothing more.
+    if (owner !== undefined && (await deletionPending(global, owner))) return "owner_deleting";
   }
   return null;
+}
+
+async function deletionPending(global: GlobalDb, owner: string): Promise<boolean> {
+  const ad = schema.accountDeletions;
+  const wd = schema.workspaceDeletions;
+  const [row] = await global.all<{ pending: number }>(
+    sql`select exists (select 1 from ${ad} where ${ad.userId} = ${owner}) or exists (select 1 from ${wd} where ${wd.workspaceId} = ${owner}) as pending`,
+  );
+  return Number(row?.pending ?? 0) === 1;
 }

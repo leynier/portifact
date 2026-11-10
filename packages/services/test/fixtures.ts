@@ -1,7 +1,7 @@
 // Accounts and artifacts published through the real publish flow, for the moderation and
 // account-data tests. Every helper uses a fresh user, so tests in a file do not share rows.
 import { env } from "cloudflare:test";
-import { regionsFromEnv, schema } from "@portifact/db";
+import { aliasBinding, regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 
@@ -108,20 +108,26 @@ export async function activeSlots(ownerId: string): Promise<number> {
  * request that writes globally first (account and workspace deletion, decision 0005).
  */
 export function racingGlobally(before: () => Promise<unknown>) {
-  const regions = regionsFromEnv(env);
-  const real = regions.global;
+  // On the binding, so the batch races whichever handle runs it: with one database a deletion's
+  // one batch runs on the handle that reaches both sides (`bothSides`).
   let raced = false;
-  const global = new Proxy(real, {
-    get(target, property, receiver) {
-      if (property !== "batch" || raced) return Reflect.get(target, property, receiver);
-      return async (statements: Parameters<typeof real.batch>[0]) => {
-        raced = true;
-        await before();
-        return target.batch(statements);
-      };
-    },
-  }) as typeof real;
-  return { global, all: () => regions.all() };
+  const binding = aliasBinding(
+    new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "batch" && !raced) {
+          return async (statements: D1PreparedStatement[]) => {
+            raced = true;
+            await before();
+            return target.batch(statements);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }),
+    env.DB,
+  );
+  return regionsFromEnv({ ...env, DB: binding });
 }
 
 export function racing(before: () => Promise<unknown>) {

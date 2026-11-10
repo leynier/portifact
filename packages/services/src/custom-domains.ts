@@ -27,6 +27,7 @@ import {
 import {
   type Db,
   type GlobalDb,
+  isRegion,
   type Region,
   type RegionalDb,
   type Regions,
@@ -1014,8 +1015,89 @@ export async function checkCustomDomains(
     }
   }
   result.detached += await enforceDomainLimits(dbs, now);
+  const moved = await releaseMovedArtifactDomains(dbs, now, batch);
+  result.prunedClaims += moved.claims;
+  result.detached += moved.detached;
   result.notices = await scheduleDomainNotices(dbs.global, now);
   return result;
+}
+
+/**
+ * Releases claims and domains whose artifact is no longer their owner's (it moved, or it is
+ * gone). With one database a transfer refuses an artifact with either in the same batch; with a
+ * separate regional database the move releases a claim that raced it right after, and this scan
+ * is what finishes that release if the transfer stopped in between (decision 0005,
+ * "Two-region audit"). Bounded: `limit` claims and `limit` domains a run, one regional read of
+ * their artifacts per region; releasing twice changes nothing.
+ */
+export async function releaseMovedArtifactDomains(
+  dbs: DomainDbs,
+  now: number,
+  limit = DOMAIN_CHECK_BATCH,
+): Promise<{ claims: number; detached: number }> {
+  const claims = await dbs.global
+    .select({
+      hostname: k.hostname,
+      ownerId: k.ownerId,
+      artifactId: k.artifactId,
+      region: k.region,
+    })
+    .from(k)
+    .orderBy(asc(k.expiresAt))
+    .limit(limit);
+  const domains = await dbs.global
+    .select({
+      hostname: c.hostname,
+      ownerId: c.ownerId,
+      artifactId: c.artifactId,
+      region: c.region,
+    })
+    .from(c)
+    .where(ne(c.state, "detaching"))
+    .orderBy(asc(c.checkedAt))
+    .limit(limit);
+  const owners = new Map<string, string>();
+  const byRegion = new Map<Region, Set<string>>();
+  for (const row of [...claims, ...domains]) {
+    if (!isRegion(row.region)) continue;
+    const set = byRegion.get(row.region) ?? new Set<string>();
+    set.add(row.artifactId);
+    byRegion.set(row.region, set);
+  }
+  // Only a region this Worker reads decides anything; a row in another region is left alone.
+  const read = new Set<string>();
+  for (const [region, ids] of byRegion) {
+    let regional: ReturnType<DomainDbs["regional"]>;
+    try {
+      regional = dbs.regional(region);
+    } catch {
+      continue;
+    }
+    for (const row of await regional
+      .select({ id: schema.artifacts.id, ownerId: schema.artifacts.ownerId })
+      .from(schema.artifacts)
+      .where(inArray(schema.artifacts.id, [...ids]))) {
+      owners.set(row.id, row.ownerId);
+    }
+    read.add(region);
+  }
+  const stray = (row: { artifactId: string; ownerId: string; region: string }) =>
+    read.has(row.region) && owners.get(row.artifactId) !== row.ownerId;
+  let released = 0;
+  for (const row of claims.filter(stray)) {
+    released += (
+      await dbs.global
+        .delete(k)
+        .where(and(eq(k.hostname, row.hostname), eq(k.ownerId, row.ownerId)))
+        .returning({ hostname: k.hostname })
+    ).length;
+  }
+  let detached = 0;
+  for (const row of domains.filter(stray)) {
+    const reason = owners.has(row.artifactId) ? "removed" : "artifact_unavailable";
+    if (await detachDomain(dbs, row.hostname, reason, now, { ownerId: row.ownerId })) detached += 1;
+  }
+  return { claims: released, detached };
 }
 
 /** The daily check of an active domain. True when it detached it. */

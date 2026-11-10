@@ -2,7 +2,7 @@
 // it (verify the uploaded bytes, then switch the current version atomically). Adapters (API,
 // MCP, CLI flows) call these; they never reimplement the rules.
 import { type ArtifactType, LIMITS, PublishKey } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -394,7 +394,15 @@ export async function preparePublish(
     : null;
   if (!artifactId) {
     // The ID is claimed in the global directory before the regional batch (decision 0005).
-    const claimed = await claimNewArtifactId(db.global, actor.region, input.now, drawArtifactId);
+    const claimed = await claimNewArtifactId(
+      db.global,
+      actor.region,
+      input.now,
+      drawArtifactId,
+      actor.ownerId,
+    );
+    // An owner being deleted answers like one that no longer exists.
+    if (claimed === "owner_deleting") return fail("not_found", "Not found.");
     if (!claimed) return fail("version_conflict", "Try again.");
     artifactId = claimed;
   }
@@ -732,25 +740,40 @@ export async function commitPublish(
     return fail("upload_incomplete", `Some files are missing or invalid: ${problems.join("; ")}.`);
   }
 
-  // The version, the artifact and the owner's plan (global, decision 0005) in parallel: one round
-  // trip, so the webhook events below cost no read.
-  const [[version], [artifact], plan] = await Promise.all([
-    db
-      .select({
-        number: schema.versions.number,
-        entrypoint: schema.versions.entrypoint,
-        publishedBytes: schema.versions.publishedBytes,
-      })
-      .from(schema.versions)
-      .where(eq(schema.versions.id, session.versionId))
-      .limit(1),
-    db
-      .select({ type: schema.artifacts.type, name: schema.artifacts.name })
-      .from(schema.artifacts)
-      .where(eq(schema.artifacts.id, session.artifactId))
-      .limit(1),
-    ownerPlanRecord(db.global, ownerId),
-  ]);
+  const [version] = await db
+    .select({
+      number: schema.versions.number,
+      entrypoint: schema.versions.entrypoint,
+      publishedBytes: schema.versions.publishedBytes,
+    })
+    .from(schema.versions)
+    .where(eq(schema.versions.id, session.versionId))
+    .limit(1);
+  // The owner's plan, so the webhook events below cost no read: with the artifact when the
+  // region's database is the global one, as it always did; otherwise read from the global
+  // database alongside the artifact (decision 0005), the same number of calls.
+  const both = bothSides(db);
+  const p = schema.ownerPlans;
+  const [[artifact], plan] = both
+    ? await both
+        .select({
+          type: schema.artifacts.type,
+          name: schema.artifacts.name,
+          plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+        })
+        .from(schema.artifacts)
+        .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
+        .where(eq(schema.artifacts.id, session.artifactId))
+        .limit(1)
+        .then((rows) => [rows, rows[0]?.plan ?? null] as const)
+    : await Promise.all([
+        db
+          .select({ type: schema.artifacts.type, name: schema.artifacts.name })
+          .from(schema.artifacts)
+          .where(eq(schema.artifacts.id, session.artifactId))
+          .limit(1),
+        ownerPlanRecord(db.global, ownerId),
+      ]);
   const owner = entitlements(plan, input.now);
   const sessionOpen = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.id} = ${session.id} and ${schema.uploadSessions.state} in ('uploading', 'ready'))`;
   let rendering: DocumentRendering | null = null;

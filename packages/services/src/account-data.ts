@@ -5,7 +5,7 @@
 // after it returns; the maintenance job then purges the artifacts, erases the account's
 // comments on other people's artifacts in small batches and leaves an `account` tombstone.
 import { type AccountExport, FRESH_SESSION_MS, isWorkspaceId } from "@portifact/contracts";
-import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
   commentScope,
@@ -36,7 +36,13 @@ import { ownerEntitlements, planView } from "./plans.ts";
 import { exportServiceTokens } from "./service-tokens.ts";
 import { exportWebhooks } from "./webhooks.ts";
 import { viewerGroupIds } from "./workspace-groups.ts";
-import type { DeletionRegions } from "./workspaces.ts";
+import {
+  type DeletionRegions,
+  finalDeletionStep,
+  retried,
+  separateRegions,
+  sharedRegion,
+} from "./workspaces.ts";
 
 const IN_CHUNK = 80;
 
@@ -465,25 +471,27 @@ export async function requestAccountDeletion(
   if (await soleAdminOf(global, input.userId)) return soleAdmin();
   const email = found.email.toLowerCase();
   const userExists = sql`exists (select 1 from ${schema.users} where ${schema.users.id} = ${input.userId})`;
+  // The region whose database is the global one (the default region, where a personal space's
+  // artifacts are) is deleted in the same batch as the account, so nothing is served after it
+  // returns, as it always was. A region with its own database follows, after the global batch
+  // (decision 0005): retried inline, and an error left after that reaches the caller; the job,
+  // already written in the global batch, finishes it.
+  const shared = sharedRegion(regions);
+  const both = shared ? bothSides(shared.db) : null;
   try {
-    await deletionBatch(global, input, email, userExists);
+    await deletionBatch(
+      both ?? global,
+      input,
+      email,
+      userExists,
+      both ? regionalDeletion(both, input.userId, input.now, true) : [],
+    );
   } catch (error) {
     if (causeIncludes(error, "sole_workspace_admin")) return soleAdmin();
     throw error;
   }
-  // Global first (decision 0005): the account is gone, so nothing can act as it any more. Then
-  // every region, each in its own batch; one that fails here is done by the deletion job.
-  for (const { db } of regions.all()) {
-    try {
-      await db.batch(regionalDeletion(db, input.userId, input.now, true));
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          event: "account_deletion_region_deferred",
-          error: error instanceof Error ? error.name : typeof error,
-        }),
-      );
-    }
+  for (const { db } of separateRegions(regions)) {
+    await retried(() => db.batch(regionalDeletion(db, input.userId, input.now, true)));
   }
   return ok({ deleted: true });
 }
@@ -519,7 +527,14 @@ export async function soleAdminOf(global: GlobalDb, userId: string): Promise<str
 }
 
 /** The global half of a deletion request: one batch, the point of no return (decision 0005). */
-async function deletionBatch(db: GlobalDb, input: DeletionRequest, email: string, userExists: SQL) {
+async function deletionBatch(
+  db: Db,
+  input: DeletionRequest,
+  email: string,
+  userExists: SQL,
+  /** The shared region's statements (`regionalDeletion`), in the same batch; none otherwise. */
+  regional: readonly BatchItem<"sqlite">[],
+) {
   await db.batch([
     // A concurrent request that already deleted the user writes no second job.
     accountDeletionJob(db, input.userId, userExists, input.now),
@@ -537,6 +552,7 @@ async function deletionBatch(db: GlobalDb, input: DeletionRequest, email: string
       .update(schema.serviceTokens)
       .set({ createdBy: null })
       .where(eq(schema.serviceTokens.createdBy, input.userId)),
+    ...regional,
     // Each workspace the account is in records that the member is gone, before the cascade.
     accountLeftEvents(db, input.userId, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents and workspace memberships.
@@ -551,7 +567,7 @@ async function deletionBatch(db: GlobalDb, input: DeletionRequest, email: string
  * region's access log. Idempotent, so the request and every run of the job repeat it.
  */
 function regionalDeletion(
-  db: RegionalDb,
+  db: Db,
   userId: string,
   now: number,
   /** The request writes the job that erases its openings; the job's runs leave it to the finish. */
@@ -747,25 +763,29 @@ export async function advanceAccountDeletion(
     ]);
   }
 
-  // Every region was empty just above, and nothing can act as the account any more (its user
-  // row is gone), so the global batch ends the deletion.
+  // The final batch holds only while nothing is left (`finalDeletionStep`): with one database
+  // the condition is SQL in the batch, as it always was, so an artifact that a request
+  // authorized just before inserts in between keeps the deletion pending for the next run.
+  const step = await finalDeletionStep(regions, userId);
+  if (!step) return "pending";
+  const { on, nothingLeft } = step;
   const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'account' and ${schema.tombstones.id} = ${userId})`;
-  const results = (await global.batch([
-    global
+  const results = (await on.batch([
+    on
       .update(schema.serviceTokens)
       .set({ createdBy: null })
       .where(eq(schema.serviceTokens.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
-    global.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, userId)),
-    global.delete(schema.operations).where(eq(schema.operations.actorId, userId)),
-    global
+    on.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
+    on.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
+    on
       .insert(schema.tombstones)
-      .values({ kind: "account", id: userId, deletedAt: now })
+      .select(sql`select 'account', ${userId}, ${now} where ${nothingLeft}`)
       .onConflictDoNothing(),
-    closeJobs(global, "account_deletion", userId, tombstoned),
-    global
+    closeJobs(on, "account_deletion", userId, and(nothingLeft, tombstoned) as SQL),
+    on
       .delete(schema.accountDeletions)
-      .where(and(eq(schema.accountDeletions.userId, userId), tombstoned))
+      .where(and(eq(schema.accountDeletions.userId, userId), nothingLeft, tombstoned))
       .returning({ userId: schema.accountDeletions.userId }),
   ])) as unknown[];
   return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
