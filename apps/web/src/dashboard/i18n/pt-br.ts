@@ -466,6 +466,15 @@ export const ptBR = {
   "usage.description":
     "Suas cotas e o que seus artifacts serviram neste mês. O tráfego é contado a cada poucos segundos, então pode ficar um pouco atrasado.",
   "usage.meterPercent": "{used} de {limit} ({percent})",
+  "usage.plan.section": "Plano",
+  "usage.plan.hint": "Seu plano define os limites desta página.",
+  "usage.plan.name": "Plano atual",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Assentos",
+  "usage.plan.until": "Válido até",
   "usage.traffic.section": "Tráfego deste mês",
   "usage.traffic.hint":
     "Contado para a sua conta inteira, somando todos os seus artifacts. Atingir qualquer um dos limites pausa todos os artifacts até a renovação.",

@@ -2,6 +2,7 @@
 // One user holds an API token and an MCP token; every operation runs through both, at the same
 // controlled time, and must give the same body, the same error and the same permission boundary.
 import { env } from "cloudflare:workers";
+import { PLANS } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
@@ -668,6 +669,40 @@ describe("API and MCP parity for usage and source origins", () => {
       // Rendered pages are written by the server and do not count as uploaded files.
       newFilesLast24h: { used: 2 },
     });
+  });
+
+  it("usage gives the same plan, limits and features, and only the caller's", async () => {
+    const b = await both("parity-plan@example.test");
+    const other = await both("parity-plan-other@example.test");
+    const free = fromTool(await b.tool("get_usage", {}));
+    expect(free).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(free.body).toMatchObject({
+      plan: { name: "free", validUntil: null, seats: 1, limits: PLANS.free.limits, features: [] },
+    });
+
+    await env.DB.prepare(
+      "insert into owner_plans (owner_id, plan, seats, valid_until, granted_by, updated_at) values (?, 'team', 2, ?, 'test', ?)",
+    )
+      .bind(await ownerId(b), Date.UTC(2027, 0, 1), NOW)
+      .run();
+    const team = fromTool(await b.tool("get_usage", {}));
+    expect(team).toEqual(await fromApi(await b.apiCall("/api/v1/usage")));
+    expect(team.body).toMatchObject({
+      plan: {
+        name: "team",
+        validUntil: "2027-01-01T00:00:00.000Z",
+        seats: 2,
+        limits: { accountBytes: 60_000_000_000, requestsPerMonth: 6_000_000 },
+        features: [...PLANS.team.features],
+      },
+      activeArtifacts: { limit: 2_000 },
+      storage: { limit: 60_000_000_000 },
+      trafficThisMonth: { requests: { limit: 6_000_000 }, bytes: { limit: 1_000_000_000_000 } },
+      versionLimits: { publishedBytes: 2_000_000_000 },
+    });
+    const theirs = fromTool(await other.tool("get_usage", {}));
+    expect(theirs).toEqual(await fromApi(await other.apiCall("/api/v1/usage")));
+    expect(theirs.body).toMatchObject({ plan: { name: "free" }, activeArtifacts: { limit: 50 } });
   });
 
   it("usage reports the same traffic and traffic block, and only the caller's", async () => {

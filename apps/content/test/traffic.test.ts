@@ -2,7 +2,7 @@
 // used this month's traffic gets 429 on all of them, other accounts are unaffected, and the
 // quota starts again with the next month.
 import { env } from "cloudflare:test";
-import { TRAFFIC_LIMITS } from "@portifact/contracts";
+import { PLANS, TRAFFIC_LIMITS } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { recordTraffic, type TrafficDelta } from "@portifact/services";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +19,14 @@ const HASH = "a".repeat(64);
 const db = () => createDb(env.DB);
 
 async function seed() {
-  for (const table of ["version_files", "versions", "objects", "artifacts", "traffic_counters"]) {
+  for (const table of [
+    "version_files",
+    "versions",
+    "objects",
+    "artifacts",
+    "traffic_counters",
+    "owner_plans",
+  ]) {
     await env.DB.exec(`DELETE FROM ${table}`);
   }
   for (const [id, ownerId] of [
@@ -118,6 +125,37 @@ describe("traffic quota", () => {
     const other = await get(THEIRS);
     expect(other.status).toBe(200);
     expect(await other.text()).toBe(BODY);
+  });
+
+  it("follows the owner's plan: Pro serves past free's quota until its own, and only for that owner", async () => {
+    await db().insert(schema.ownerPlans).values({
+      ownerId: "u_mine",
+      plan: "pro",
+      grantedBy: "test",
+      updatedAt: NOW,
+    });
+    await setTraffic("u_mine", TRAFFIC_LIMITS.requestsPerMonth, TRAFFIC_LIMITS.bytesPerMonth);
+    await setTraffic("u_theirs", TRAFFIC_LIMITS.requestsPerMonth, 0);
+    expect((await get(MINE)).status).toBe(200);
+    expect((await get(THEIRS)).status).toBe(429);
+    await env.DB.exec("DELETE FROM traffic_counters WHERE owner_id = 'u_mine'");
+    await setTraffic("u_mine", PLANS.pro.limits.requestsPerMonth, 0);
+    expect((await get(MINE)).status).toBe(429);
+    await env.DB.exec("DELETE FROM traffic_counters WHERE owner_id = 'u_mine'");
+    await setTraffic("u_mine", 0, PLANS.pro.limits.bytesPerMonth);
+    expect((await get(MINE)).status).toBe(429);
+  });
+
+  it("goes back to free's quota once the plan expires", async () => {
+    await db().insert(schema.ownerPlans).values({
+      ownerId: "u_mine",
+      plan: "pro",
+      validUntil: NOW,
+      grantedBy: "test",
+      updatedAt: NOW,
+    });
+    await setTraffic("u_mine", TRAFFIC_LIMITS.requestsPerMonth, 0);
+    expect((await get(MINE)).status).toBe(429);
   });
 
   it("answers 429 once the bytes are used up, whatever the request count", async () => {

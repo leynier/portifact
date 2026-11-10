@@ -50,6 +50,39 @@ const usagePage = async () => {
 };
 
 describe("account usage", () => {
+  it("shows the free plan without seats or an end", async () => {
+    renderDashboard("/usage", server);
+    const plan = await screen.findByRole("region", { name: "Plan" });
+    expect(within(plan).getByText("Your plan sets the limits on this page.")).toBeTruthy();
+    expect(within(plan).getByText("Current plan").nextElementSibling?.textContent).toBe("Free");
+    expect(within(plan).queryByText("Seats")).toBeNull();
+    expect(within(plan).queryByText("Valid until")).toBeNull();
+  });
+
+  it("shows a team plan's seats, its end and its higher limits", async () => {
+    const base = usageView();
+    server.usage = usageView({
+      plan: {
+        ...base.plan,
+        name: "team",
+        seats: 3,
+        validUntil: "2027-01-31T00:00:00.000Z",
+      },
+      activeArtifacts: { used: 60, limit: 2_000 },
+    });
+    const { container } = renderDashboard("/usage", server);
+    const plan = await screen.findByRole("region", { name: "Plan" });
+    expect(within(plan).getByText("Current plan").nextElementSibling?.textContent).toBe("Team");
+    expect(within(plan).getByText("Seats").nextElementSibling?.textContent).toBe("3");
+    expect(within(plan).getByText("Valid until").nextElementSibling?.textContent).toBe(
+      local("2027-01-31T00:00:00.000Z"),
+    );
+    await waitFor(() =>
+      expect(meters(screen.getByRole("main"))["Active artifacts"]).toBe("60 of 2,000 (3%)"),
+    );
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("is reachable from the navigation", async () => {
     const { router } = renderDashboard("/", server);
     const nav = await screen.findByRole("navigation", { name: "Main" });

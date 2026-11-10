@@ -455,6 +455,15 @@ export const en = {
   "usage.description":
     "Your quotas and what your artifacts served this month. Traffic is counted every few seconds, so it can lag slightly behind.",
   "usage.meterPercent": "{used} of {limit} ({percent})",
+  "usage.plan.section": "Plan",
+  "usage.plan.hint": "Your plan sets the limits on this page.",
+  "usage.plan.name": "Current plan",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Seats",
+  "usage.plan.until": "Valid until",
   "usage.traffic.section": "Traffic this month",
   "usage.traffic.hint":
     "Counted for your whole account, across all your artifacts. Reaching either limit pauses every artifact until the reset.",

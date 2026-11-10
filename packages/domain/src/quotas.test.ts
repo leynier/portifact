@@ -1,6 +1,15 @@
+import { PLANS } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { type AccountUsage, checkPublish, type PublishRequest } from "./quotas.ts";
+import {
+  type AccountUsage,
+  checkPublish as checkPublishWith,
+  type PublishRequest,
+} from "./quotas.ts";
+
+// An owner without a plan row is on free: these cases are the limits from before plans existed.
+const checkPublish = (usage: AccountUsage, request: PublishRequest) =>
+  checkPublishWith(usage, request, PLANS.free.limits);
 
 const empty: AccountUsage = {
   activeArtifacts: 0,

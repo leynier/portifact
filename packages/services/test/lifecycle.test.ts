@@ -18,6 +18,7 @@ import {
   runMaintenance,
   sweepOrphanObjects,
 } from "../src/index.ts";
+import { grantPlan } from "./fixtures.ts";
 
 const OWNER = "u_owner";
 const DAY = 86_400_000;
@@ -99,6 +100,7 @@ beforeEach(async () => {
     "artifacts",
     "upload_sessions",
     "account_usage",
+    "owner_plans",
     "usage_events",
     "lifecycle_events",
     "tombstones",
@@ -197,6 +199,25 @@ describe("owner lifecycle actions", () => {
     expect(await restoreArtifact(db(), input(a.artifactId, T0 + 2 * DAY))).toMatchObject({
       code: "quota_exceeded",
     });
+  });
+
+  it("restores with the active slots of the owner's plan, and an expired plan reads as free", async () => {
+    const a = await publish({ "index.html": "<h1>a</h1>" });
+    const b = await publish({ "index.html": "<h1>b</h1>" });
+    await archiveArtifact(db(), input(a.artifactId, T0 + DAY));
+    // Below the free CHECK, so only the plan's limit can refuse.
+    await grantPlan(OWNER, "pro", { overrides: { limits: { activeArtifacts: 1 } } });
+    expect(await restoreArtifact(db(), input(a.artifactId, T0 + 2 * DAY))).toEqual({
+      ok: false,
+      code: "quota_exceeded",
+      message: "You already have 1 active artifacts.",
+    });
+    await grantPlan(OWNER, "pro", {
+      validUntil: T0 + 2 * DAY,
+      overrides: { limits: { activeArtifacts: 1 } },
+    });
+    expect((await restoreArtifact(db(), input(a.artifactId, T0 + 2 * DAY))).ok).toBe(true);
+    expect(b.artifactId).not.toBe(a.artifactId);
   });
 
   it("refuses invalid transitions", async () => {

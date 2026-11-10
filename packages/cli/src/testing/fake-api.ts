@@ -24,6 +24,7 @@ import {
   type ErrorCode,
   IdempotencyKey,
   type ManifestFile,
+  PLANS,
   PublishRequest,
   RollbackRequest,
   type SourceOrigin,
@@ -221,6 +222,13 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     tooNewForPublic: false,
     urlTtlMs: 15 * 60 * 1000,
     usage: {
+      plan: {
+        name: "free",
+        validUntil: null,
+        seats: 1,
+        limits: { ...PLANS.free.limits },
+        features: [],
+      },
       activeArtifacts: { used: 0, limit: 50 },
       storage: { used: 0, reserved: 0, limit: 2_500_000_000 },
       publishesLast24h: { used: 0, limit: 100 },

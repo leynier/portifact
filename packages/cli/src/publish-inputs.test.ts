@@ -334,6 +334,24 @@ describe("portifact usage", () => {
     expect(result.stdout).toContain("Nothing blocks your account.");
   });
 
+  it("shows the plan, its seats, its end and its features", async () => {
+    h.signIn();
+    expect((await h.invoke("usage")).stdout).toMatch(/Plan\s+Free\n/);
+    expect((await h.invoke("usage")).stdout).toMatch(/Plan features\s+None\n/);
+    server.api.usage.plan = {
+      ...server.api.usage.plan,
+      name: "team",
+      seats: 3,
+      validUntil: "2027-01-31T00:00:00.000Z",
+      features: ["pin", "sso"],
+    };
+    const result = await h.invoke("usage");
+    expect(result.stdout).toMatch(/Plan\s+Team, 3 seats \(until 2027-01-31 00:00 UTC\)\n/);
+    expect(result.stdout).toMatch(/Plan features\s+pin, sso\n/);
+    server.api.usage.plan = { ...server.api.usage.plan, name: "pro", seats: 1, validUntil: null };
+    expect((await h.invoke("usage")).stdout).toMatch(/Plan\s+Pro\n/);
+  });
+
   it("lists what blocks the account and when it lifts, and prints JSON as the API sends it", async () => {
     h.signIn();
     server.api.usage.blocks = [

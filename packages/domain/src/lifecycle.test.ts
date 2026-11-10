@@ -1,3 +1,4 @@
+import { PLANS } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,6 +11,8 @@ import {
 } from "./lifecycle.ts";
 
 const at = (iso: string) => new Date(iso);
+
+const FREE = PLANS.free.limits;
 
 describe("expiry and purge dates", () => {
   it("expires 30 days after publishing", () => {
@@ -77,7 +80,7 @@ describe("restore", () => {
   };
 
   it("grants another 30 days within the archive period", () => {
-    const result = checkRestore(archived, at("2027-01-10T00:00:00Z"), 3);
+    const result = checkRestore(archived, at("2027-01-10T00:00:00Z"), 3, FREE);
     expect(result).toEqual({ ok: true, value: { expiresAt: at("2027-02-09T00:00:00Z") } });
   });
 
@@ -87,18 +90,18 @@ describe("restore", () => {
       expiresAt: at("2026-12-01T00:00:00Z"),
       archivedAt: null,
     };
-    expect(checkRestore(lapsed, at("2026-12-05T00:00:00Z"), 0).ok).toBe(true);
+    expect(checkRestore(lapsed, at("2026-12-05T00:00:00Z"), 0, FREE).ok).toBe(true);
   });
 
   it("refuses after the purge date", () => {
-    expect(checkRestore(archived, at("2027-06-01T00:00:00Z"), 0)).toMatchObject({
+    expect(checkRestore(archived, at("2027-06-01T00:00:00Z"), 0, FREE)).toMatchObject({
       ok: false,
       code: "not_found",
     });
   });
 
   it("refuses when all active slots are used", () => {
-    expect(checkRestore(archived, at("2027-01-10T00:00:00Z"), 50)).toMatchObject({
+    expect(checkRestore(archived, at("2027-01-10T00:00:00Z"), 50, FREE)).toMatchObject({
       ok: false,
       code: "quota_exceeded",
     });
@@ -110,12 +113,12 @@ describe("restore", () => {
       expiresAt: at("2027-12-01T00:00:00Z"),
       archivedAt: null,
     };
-    expect(checkRestore(live, at("2027-01-10T00:00:00Z"), 0)).toMatchObject({
+    expect(checkRestore(live, at("2027-01-10T00:00:00Z"), 0, FREE)).toMatchObject({
       ok: false,
       code: "invalid_input",
     });
-    expect(checkRestore({ ...archived, state: "purging" }, at("2027-01-10T00:00:00Z"), 0).ok).toBe(
-      false,
-    );
+    expect(
+      checkRestore({ ...archived, state: "purging" }, at("2027-01-10T00:00:00Z"), 0, FREE).ok,
+    ).toBe(false);
   });
 });

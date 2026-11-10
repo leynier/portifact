@@ -962,4 +962,35 @@ export const accountSettings = sqliteTable(
   ],
 );
 
+/** Plan names; their limits and features live in PLANS (@portifact/contracts). */
+export const OWNER_PLAN_NAMES = ["free", "pro", "team", "enterprise"] as const;
+
+/**
+ * The plan of one owner (premium plan section 3, F1). No row means `free`. `owner_id` has no
+ * foreign key because an owner will also be a workspace; account deletion removes the row
+ * (`advanceAccountDeletion`). `overrides` is JSON validated by `PlanOverrides` when it is read
+ * (`entitlements` in @portifact/domain ignores anything else). No payment columns: an operator,
+ * and later a billing webhook, writes this row.
+ */
+export const ownerPlans = sqliteTable(
+  "owner_plans",
+  {
+    ownerId: text("owner_id").primaryKey(),
+    plan: text("plan", { enum: OWNER_PLAN_NAMES }).notNull(),
+    seats: integer("seats").notNull().default(1),
+    /** When the plan ends and the owner reads as `free`; null when it does not end. */
+    validUntil: timestamp("valid_until"),
+    overrides: text("overrides", { mode: "json" }),
+    /** Who granted the plan (an operator or, later, the billing system). */
+    grantedBy: text("granted_by").notNull(),
+    note: text("note"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    check("owner_plans_plan", sql`${t.plan} in ('free', 'pro', 'team', 'enterprise')`),
+    check("owner_plans_seats", sql`${t.seats} >= 1`),
+  ],
+);
+
 export * from "./auth-schema.ts";

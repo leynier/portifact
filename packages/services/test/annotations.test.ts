@@ -20,6 +20,7 @@ import {
   setAnnotationMode,
   setAnnotationThreadState,
 } from "../src/annotations.ts";
+import { grantPlan } from "./fixtures.ts";
 
 const db = () => createDb(env.DB);
 const NOW = Date.UTC(2026, 10, 8, 12);
@@ -1265,6 +1266,26 @@ describe("limits", () => {
       code: "quota_exceeded",
       message: expect.stringContaining("1000 threads"),
     });
+  });
+
+  it("caps the owner's stored messages by the owner's plan, not the writer's", async () => {
+    const w = await world();
+    await started(w, w.reader, "First");
+    await started(w, w.reader, "Second", NOW + MINUTE);
+    // The writer's plan changes nothing; the artifact owner's plan sets the quota.
+    await grantPlan(w.reader, "pro", { overrides: { limits: { annotationMessages: 1 } } });
+    expect(code(await start(w, w.reader, "Third", NOW + 2 * MINUTE))).toBe("ok");
+    await grantPlan(w.owner, "pro", { overrides: { limits: { annotationMessages: 3 } } });
+    expect(await start(w, w.reader, "Fourth", NOW + 3 * MINUTE)).toEqual({
+      ok: false,
+      code: "quota_exceeded",
+      message: "The owner of this artifact has no room for more comments.",
+    });
+    await grantPlan(w.owner, "pro", {
+      validUntil: NOW + 3 * MINUTE,
+      overrides: { limits: { annotationMessages: 3 } },
+    });
+    expect(code(await start(w, w.reader, "Fourth", NOW + 3 * MINUTE))).toBe("ok");
   });
 
   it("caps the owner's stored messages and bytes, and edits that shrink still pass", async () => {

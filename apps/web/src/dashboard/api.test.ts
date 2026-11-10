@@ -1,4 +1,4 @@
-import { UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
+import { PLANS, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiFailure, dashboardApi, type FetchLike } from "./api.ts";
 import { artifact, DEFAULT_ACTIVITY } from "./test-support.tsx";
@@ -178,6 +178,13 @@ describe("dashboard API client", () => {
 
   it("reads the account's usage", async () => {
     const usage = {
+      plan: {
+        name: "pro",
+        validUntil: "2027-01-01T00:00:00.000Z",
+        seats: 1,
+        limits: PLANS.pro.limits,
+        features: [...PLANS.pro.features],
+      },
       activeArtifacts: { used: 1, limit: 50 },
       storage: { used: 10, limit: 2_500_000_000, reserved: 0 },
       publishesLast24h: { used: 1, limit: 100 },

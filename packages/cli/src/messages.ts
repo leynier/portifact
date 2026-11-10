@@ -126,6 +126,10 @@ export const messages = {
   usage: (lines: readonly [string, string][]) =>
     lines.map(([label, value]) => `${label.padEnd(30)} ${value}`).join("\n"),
   usageMeter: (used: string, limit: string) => `${used} of ${limit}`,
+  usagePlan: (name: string, seats: number, validUntil: string | null) =>
+    `${name.charAt(0).toUpperCase()}${name.slice(1)}${seats > 1 ? `, ${seats} seats` : ""}${validUntil === null ? "" : ` (until ${formatDate(validUntil)})`}`,
+  usageFeatures: (features: readonly string[]) =>
+    features.length === 0 ? "None" : features.join(", "),
   usageNoBlocks: "Nothing blocks your account.",
   usageBlocksHeader: "Blocked now:",
   usageBlock: (message: string, until: string | null) =>

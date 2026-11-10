@@ -1,4 +1,9 @@
-import { ANNOTATION_LIMITS, type AnnotationsState, type ArtifactState } from "@portifact/contracts";
+import {
+  ANNOTATION_LIMITS,
+  type AnnotationsState,
+  type ArtifactState,
+  PLANS,
+} from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   type AnnotationAction,
@@ -221,7 +226,7 @@ describe("annotation limits", () => {
   };
   const thread = { kind: "thread", addedBytes: 100 } as const;
   const code = (usage: Partial<AnnotationUsageSnapshot>, write: AnnotationWrite = thread) => {
-    const result = checkAnnotationWrite({ ...idle, ...usage }, write);
+    const result = checkAnnotationWrite({ ...idle, ...usage }, write, PLANS.free.limits);
     return result.ok ? "ok" : result.code;
   };
 
@@ -238,7 +243,11 @@ describe("annotation limits", () => {
 
   it("checks rate limits before quotas", () => {
     expect(
-      checkAnnotationWrite({ ...idle, authorWritesLastMinute: 5, ownerMessages: 5_000 }, thread),
+      checkAnnotationWrite(
+        { ...idle, authorWritesLastMinute: 5, ownerMessages: 5_000 },
+        thread,
+        PLANS.free.limits,
+      ),
     ).toMatchObject({ code: "rate_limited" });
   });
 

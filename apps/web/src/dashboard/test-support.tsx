@@ -22,6 +22,7 @@ import {
   type ErrorCode,
   LIMITS,
   type ManifestFile,
+  PLANS,
   type PreparedPublish,
   PublishRequest,
   type ReviewStart,
@@ -51,6 +52,13 @@ export const NOW = "2026-11-08T12:00:00.000Z";
 /** A usage body with nothing used and nothing blocking, as a new month starts. */
 export function usageView(overrides: Partial<AccountUsageView> = {}): AccountUsageView {
   return {
+    plan: {
+      name: "free",
+      validUntil: null,
+      seats: 1,
+      limits: { ...PLANS.free.limits },
+      features: [],
+    },
     activeArtifacts: { used: 2, limit: 50 },
     storage: { used: 1_500_000, reserved: 0, limit: 2_500_000_000 },
     publishesLast24h: { used: 3, limit: 100 },

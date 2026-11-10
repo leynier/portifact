@@ -1,6 +1,6 @@
 // Account usage: the counters and windows the publish admission reads, and the blocks they cause.
 import { env } from "cloudflare:test";
-import { LIMITS } from "@portifact/contracts";
+import { LIMITS, PLANS } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { beforeEach, describe, expect, it } from "vitest";
 import { commitPublish, preparePublish } from "../src/publish.ts";
@@ -88,6 +88,7 @@ describe("getAccountUsage", () => {
   it("reports an account that never published as empty, with the plan's limits", async () => {
     const usage = await getAccountUsage(db(), { ownerId: OWNER, now: NOW });
     expect(usage).toEqual({
+      plan: { plan: "free", seats: 1, validUntil: null, limits: PLANS.free.limits, features: [] },
       activeArtifacts: { used: 0, limit: 50 },
       storage: { used: 0, reserved: 0, limit: 2_500_000_000 },
       publishesLast24h: { used: 0, limit: 100 },

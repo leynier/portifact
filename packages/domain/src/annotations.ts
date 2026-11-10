@@ -7,6 +7,7 @@ import {
   type ArtifactState,
   type CommentScope,
   type CommentVisibility,
+  type PlanLimits,
 } from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
 
@@ -224,10 +225,17 @@ export interface AnnotationWrite {
   addedBytes: number;
 }
 
-/** Applies the rate limits first, then the stored-data quotas. */
+/** The per-owner annotation quota of the owner's plan. */
+export type AnnotationOwnerLimits = Pick<PlanLimits, "annotationMessages" | "annotationBytes">;
+
+/**
+ * Applies the rate limits first, then the stored-data quotas; `limits` are those of the
+ * artifact owner's plan.
+ */
 export function checkAnnotationWrite(
   usage: AnnotationUsageSnapshot,
   write: AnnotationWrite,
+  limits: AnnotationOwnerLimits,
 ): Result<true> {
   if (usage.authorWritesLastMinute >= ANNOTATION_LIMITS.writesPerMinute) {
     return fail(
@@ -258,8 +266,8 @@ export function checkAnnotationWrite(
   }
   const addedMessages = write.kind === "edit" ? 0 : 1;
   if (
-    usage.ownerMessages + addedMessages > ANNOTATION_LIMITS.messagesPerOwner ||
-    usage.ownerBytes + write.addedBytes > ANNOTATION_LIMITS.bytesPerOwner
+    usage.ownerMessages + addedMessages > limits.annotationMessages ||
+    usage.ownerBytes + write.addedBytes > limits.annotationBytes
   ) {
     return fail("quota_exceeded", "The owner of this artifact has no room for more comments.");
   }

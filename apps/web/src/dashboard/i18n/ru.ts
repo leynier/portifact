@@ -468,6 +468,15 @@ export const ru = {
   "usage.description":
     "Ваши квоты и то, что ваши artifacts отдали в этом месяце. Трафик считается раз в несколько секунд, поэтому может немного отставать.",
   "usage.meterPercent": "{used} из {limit} ({percent})",
+  "usage.plan.section": "Тариф",
+  "usage.plan.hint": "Ваш тариф задаёт лимиты на этой странице.",
+  "usage.plan.name": "Текущий тариф",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Места",
+  "usage.plan.until": "Действует до",
   "usage.traffic.section": "Трафик за месяц",
   "usage.traffic.hint":
     "Считается для всего аккаунта, по всем вашим artifacts. Достижение любого лимита приостанавливает все artifacts до сброса.",

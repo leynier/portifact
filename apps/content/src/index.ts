@@ -16,6 +16,7 @@ import {
 import {
   chargedBytes,
   effectiveState,
+  entitlements,
   isArtifactId,
   isLoggedOpening,
   normalizePath,
@@ -315,7 +316,8 @@ async function serve(
   reviewSession?: ReviewServe,
 ): Promise<Response> {
   const { request, cycle, now } = delivery;
-  if (trafficExhausted(artifact.traffic)) {
+  // The plan came with the artifact lookup, so the quota adds no read per request.
+  if (trafficExhausted(artifact.traffic, entitlements(artifact.plan, now).limits)) {
     return withCookies(trafficExceeded(cycle.resetsAt, now), setCookies);
   }
   // Then budget protection (plan section 12): a tight per-visitor limit, public traffic first.

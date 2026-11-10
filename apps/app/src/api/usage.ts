@@ -2,7 +2,7 @@
 // windows and block reasons. The MCP tool get_usage returns the same body through `usageView`.
 import { AccountUsageView } from "@portifact/contracts";
 import { createDb } from "@portifact/db";
-import { type AccountUsageReport, getAccountUsage } from "@portifact/services";
+import { type AccountUsageReport, getAccountUsage, planView } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
 import { type Guarded, iso } from "./http.ts";
@@ -10,6 +10,7 @@ import { type Guarded, iso } from "./http.ts";
 export function usageView(report: AccountUsageReport): AccountUsageView {
   return AccountUsageView.parse({
     ...report,
+    plan: planView(report.plan),
     newObjectsThisMonth: {
       ...report.newObjectsThisMonth,
       resetsAt: iso(report.newObjectsThisMonth.resetsAt),

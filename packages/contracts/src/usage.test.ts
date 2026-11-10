@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PLANS } from "./plans.ts";
 import { PublishRequest, SourceOrigin } from "./publishing.ts";
 import { AccountUsageView, GetUsageInput, UsageBlock } from "./usage.ts";
 import { VersionSummary } from "./versions.ts";
@@ -72,6 +73,13 @@ describe("source origin", () => {
 describe("usage", () => {
   const meter = { used: 1, limit: 50 };
   const view = {
+    plan: {
+      name: "free",
+      validUntil: null,
+      seats: 1,
+      limits: PLANS.free.limits,
+      features: [],
+    },
     activeArtifacts: meter,
     storage: { used: 10, limit: 2_500_000_000, reserved: 0 },
     publishesLast24h: meter,

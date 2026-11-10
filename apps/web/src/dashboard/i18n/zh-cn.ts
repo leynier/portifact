@@ -437,6 +437,15 @@ export const zhCN = {
   "usage.description":
     "你的配额以及你的 artifact 本月提供的流量。流量每隔几秒统计一次，因此可能略有延迟。",
   "usage.meterPercent": "{used} / {limit}（{percent}）",
+  "usage.plan.section": "套餐",
+  "usage.plan.hint": "你的套餐决定本页的各项上限。",
+  "usage.plan.name": "当前套餐",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "席位",
+  "usage.plan.until": "有效期至",
   "usage.traffic.section": "本月流量",
   "usage.traffic.hint":
     "按整个账号统计，涵盖你所有的 artifact。达到任一限制后，所有 artifact 都会暂停，直到重置。",

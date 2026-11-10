@@ -13,6 +13,7 @@ import { loadSettings } from "./account-settings.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
+import { ownerEntitlements, planView } from "./plans.ts";
 
 const IN_CHUNK = 80;
 
@@ -190,6 +191,7 @@ export async function exportAccount(
         connectedAt: method.createdAt.toISOString(),
       })),
       settings: await loadSettings(db, input.userId),
+      plan: planView(await ownerEntitlements(db, input.userId, input.now)),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
@@ -427,7 +429,7 @@ export async function processAccountDeletions(
  * Advances one pending account deletion. Each call claims artifacts that appeared after the
  * request (an upload already in flight), leaves the claimed ones to their purge jobs and
  * `purgeArchived`, erases a batch of the account's comments elsewhere, and finishes the account
- * once neither is left: its storage objects, counters (usage and traffic), idempotency records and upload sessions
+ * once neither is left: its storage objects, counters (usage and traffic), plan row, idempotency records and upload sessions
  * are deleted and an `account` tombstone replaces the deletion row. Every step is idempotent and
  * safe to run concurrently. Returns `absent` when no deletion is pending for the account.
  */
@@ -476,6 +478,8 @@ export async function advanceAccountDeletion(
     db
       .delete(schema.annotationUsage)
       .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
+    // No foreign key: an owner may later be a workspace, so the plan row goes here.
+    db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
     db
       .delete(schema.accountUsage)
       .where(

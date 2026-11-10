@@ -1,10 +1,11 @@
 // Account usage (plan section 6, "Uso"): the counters the publish admission reads, the events of
 // the 24-hour windows and the blocks the domain derives from them. Read-only; every query is
 // keyed by the account from the session or token.
-import { LIMITS, TRAFFIC_LIMITS } from "@portifact/contracts";
+import { LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import {
   type Block,
+  type Entitlements,
   nextMonthStart,
   protectionBlock,
   publicAccessFrom,
@@ -16,6 +17,7 @@ import {
 } from "@portifact/domain";
 import { and, asc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import { platformProtection } from "./budget.ts";
+import { ownerEntitlements } from "./plans.ts";
 import { getTraffic } from "./traffic.ts";
 
 export interface Meter {
@@ -24,6 +26,7 @@ export interface Meter {
 }
 
 export interface AccountUsageReport {
+  plan: Entitlements;
   activeArtifacts: Meter;
   storage: Meter & { reserved: number };
   publishesLast24h: Meter;
@@ -96,6 +99,8 @@ export async function getAccountUsage(
     );
   const events = await windowEvents(db, input.ownerId, input.now - USAGE_WINDOW_MS);
   const traffic = await getTraffic(db, input.ownerId, input.now);
+  const owner = await ownerEntitlements(db, input.ownerId, input.now);
+  const { limits } = owner;
   const capacity = protectionBlock((await platformProtection(db, input.now)).actions);
 
   // The monthly counter belongs to the month it was last written in, as preparePublish reads it.
@@ -118,11 +123,12 @@ export async function getAccountUsage(
   };
 
   return {
-    activeArtifacts: { used: snapshot.activeArtifacts, limit: LIMITS.activeArtifacts },
+    plan: owner,
+    activeArtifacts: { used: snapshot.activeArtifacts, limit: limits.activeArtifacts },
     storage: {
       used: snapshot.storedBytes,
       reserved: snapshot.reservedBytes,
-      limit: LIMITS.accountBytes,
+      limit: limits.accountBytes,
     },
     publishesLast24h: { used: windowTotal(events.publish), limit: LIMITS.publishesPer24h },
     newFilesLast24h: { used: windowTotal(events.new_files), limit: LIMITS.newFilesPer24h },
@@ -134,17 +140,17 @@ export async function getAccountUsage(
     },
     openUploads: { used: snapshot.openUploads, limit: LIMITS.concurrentUploads },
     trafficThisMonth: {
-      requests: { used: traffic.requests, limit: TRAFFIC_LIMITS.requestsPerMonth },
-      bytes: { used: traffic.bytes, limit: TRAFFIC_LIMITS.bytesPerMonth },
+      requests: { used: traffic.requests, limit: limits.requestsPerMonth },
+      bytes: { used: traffic.bytes, limit: limits.bytesPerMonth },
       resetsAt: trafficCycle(input.now).resetsAt,
     },
     versionLimits: {
-      publishedBytes: LIMITS.artifactBytes,
+      publishedBytes: limits.artifactBytes,
       files: LIMITS.filesPerVersion,
       documentBytes: LIMITS.documentBytes,
     },
     publicAccessFrom: publicAccessFrom(snapshot.accountCreatedAt),
     // The platform's budget protection comes first: it is why the dashboard shows its notice.
-    blocks: capacity ? [capacity, ...usageBlocks(snapshot)] : usageBlocks(snapshot),
+    blocks: capacity ? [capacity, ...usageBlocks(snapshot, limits)] : usageBlocks(snapshot, limits),
   };
 }
