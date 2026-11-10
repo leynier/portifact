@@ -21,8 +21,10 @@ describe("snippet cost", () => {
     const text = "word ".repeat(16 * 1024); // 80 KiB, one hit every five characters
     const single = await snippetMs([text]);
     const chunked = await snippetMs(text.match(/.{1,4000}/gs) ?? []);
-    expect(single).toBeGreaterThan(10 * chunked);
+    // Timings vary with the machine, so the margin is wide and the test gets a minute: a loaded CI
+    // runner took over five seconds for the single row.
+    expect(single).toBeGreaterThan(3 * chunked);
     // Measured on 2026-11-10: 1,259 ms for the single row, 92 ms for 21 rows of 4,000 characters
     // (20 snippets). 42 s for one 512 KiB row in the product's tests, 3 ms once chunked.
-  });
+  }, 60_000);
 });
