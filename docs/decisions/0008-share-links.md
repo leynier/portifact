@@ -58,7 +58,7 @@ The content Worker keeps its order: rate limit, resolve the artifact, state and 
 - uses the cookie only for `same-origin` requests and navigations, exactly like the read cookie, and only with exactly one value under the exact name;
 - refuses when the artifact is missing or not servable, or the owner's plan no longer includes `shareLinks` (the plan comes with the artifact lookup, so this adds no read);
 - trusts the claims for at most 60 seconds, then `refreshShareSession` rechecks the session row, the link (not revoked, not expired, same artifact) and renews them. Revocation, expiry, suspension, archiving and deletion therefore end the session within 60 seconds (state and plan at once);
-- on failure clears the cookie and answers a page that says the link expired or was revoked, with a link back to `/` that goes through sign-in.
+- on failure answers a page that says the link expired or was revoked, with a link back to `/` that goes through sign-in, and clears the cookie on that page only: a subresource that finds the session ended gets `401` and leaves the cookie, so the next page load still explains what happened.
 
 A link session is served the current version like a read session, charged to the owner's traffic like any request, with the protected headers (`Cross-Origin-Resource-Policy: same-origin`, `noindex`, `private`) plus `Referrer-Policy: no-referrer` and `frame-ancestors 'self'`: neither the app nor any other site frames a link visitor's page.
 

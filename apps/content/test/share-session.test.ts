@@ -312,6 +312,25 @@ describe("a share link's session", () => {
     expect(asset.status).toBe(401);
   });
 
+  it("keeps the cookie when a subresource finds the session ended, so the next page load says why", async () => {
+    const { code, linkId } = await link();
+    const cookie = await enter(code);
+    await revokeShareLink(db(), { userId: OWNER, artifactId: ID, linkId, now: NOW });
+    // The open page's own requests (a favicon, a poll) reach the ended session first.
+    const asset = await send("/favicon.ico", {
+      cookie,
+      headers: SAME_ORIGIN,
+      now: NOW + CLAIMS_MS,
+    });
+    expect(asset.status).toBe(401);
+    expect(setCookieFor(asset, SHARE_COOKIE)).toBeUndefined();
+    // The visitor's reload still carries the cookie: it gets the page, not the sign-in redirect.
+    const reload = await send("/", { cookie, now: NOW + CLAIMS_MS });
+    expect(reload.status).toBe(403);
+    expect(await reload.text()).toContain("This share link has expired or was revoked");
+    expect(setCookieFor(reload, SHARE_COOKIE)).toContain("Max-Age=0");
+  });
+
   it("renews its claims while the link lives", async () => {
     const { code } = await link();
     const cookie = await enter(code);
