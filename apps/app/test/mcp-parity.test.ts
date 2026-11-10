@@ -2925,7 +2925,7 @@ describe("API and MCP parity for approval reviews", () => {
     };
 
     const asked = await same(
-      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, json("POST", { reviewers })),
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, json("POST", { reviewers })),
       owner.tool("request_review", { artifactId: viaMcp, reviewers }),
       "request",
     );
@@ -2934,12 +2934,12 @@ describe("API and MCP parity for approval reviews", () => {
       review: { status: "pending", reviewers: 1 },
     });
     await same(
-      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, json("POST", { reviewers })),
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, json("POST", { reviewers })),
       owner.tool("request_review", { artifactId: viaMcp, reviewers }),
       "a second request",
     );
     await same(
-      reviewer.apiCall(`/api/v1/artifacts/${viaApi}/review`),
+      reviewer.apiCall(`/api/v1/artifacts/${viaApi}/review/status`),
       reviewer.tool("get_review_status", { artifactId: viaMcp }),
       "the reviewer's view",
     );
@@ -2970,22 +2970,25 @@ describe("API and MCP parity for approval reviews", () => {
       "a verdict by someone not listed",
     );
     await same(
-      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`),
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/status`),
       owner.tool("get_review_status", { artifactId: viaMcp }),
       "the owner's view",
     );
     await same(
-      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, json("PATCH", { showStatus: true })),
+      owner.apiCall(
+        `/api/v1/artifacts/${viaApi}/review/request`,
+        json("PATCH", { showStatus: true }),
+      ),
       owner.tool("request_review", { artifactId: viaMcp, action: "change", showStatus: true }),
       "change",
     );
     await same(
-      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, { method: "DELETE" }),
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, { method: "DELETE" }),
       owner.tool("request_review", { artifactId: viaMcp, action: "cancel" }),
       "cancel",
     );
     await same(
-      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, { method: "DELETE" }),
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, { method: "DELETE" }),
       owner.tool("request_review", { artifactId: viaMcp, action: "cancel" }),
       "cancel again",
     );
@@ -3004,7 +3007,7 @@ describe("API and MCP parity for approval reviews", () => {
     const stranger = await both("parity-review-stranger@example.test", EVERY);
     for (const id of [viaMcp, "abcdefghij"]) {
       const apiAnswer = await fromApi(
-        await stranger.apiCall(`/api/v1/artifacts/${id === viaMcp ? viaApi : id}/review`),
+        await stranger.apiCall(`/api/v1/artifacts/${id === viaMcp ? viaApi : id}/review/status`),
       );
       expect(apiAnswer.body).toMatchObject({ error: { code: "not_found" } });
       expect(fromTool(await stranger.tool("get_review_status", { artifactId: id }))).toEqual(
@@ -3028,7 +3031,7 @@ describe("API and MCP parity for approval reviews", () => {
     const apiDenied = await api(
       owner.h,
       await apiToken(owner.h, "parity-review-owner@example.test", "artifacts:read"),
-      `/api/v1/artifacts/${viaApi}/review`,
+      `/api/v1/artifacts/${viaApi}/review/request`,
       json("POST", { reviewers: ["x@example.test"] }),
     );
     expect(apiDenied.status).toBe(403);

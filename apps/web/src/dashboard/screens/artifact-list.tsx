@@ -50,6 +50,7 @@ import { AccessBadge, PinnedBadge, StateBadge, TypeIcon } from "../presentation.
 import { refreshOptions } from "../refresh.ts";
 import { spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
+import { ApprovalStatusBadge } from "./approval-review.tsx";
 import { RoleNotice, SpaceBadge } from "./space-parts.tsx";
 import { TrafficNotice, trafficBlock, useUsage } from "./usage.tsx";
 
@@ -262,7 +263,12 @@ export function ArtifactListScreen() {
                     </span>
                   </TableCell>
                   <TableCell stack="inline">
-                    <StateBadge state={artifact.state} />
+                    <span className="flex flex-wrap gap-1">
+                      <StateBadge state={artifact.state} />
+                      {artifact.review && artifact.review.status !== "none" ? (
+                        <ApprovalStatusBadge review={artifact.review} />
+                      ) : null}
+                    </span>
                   </TableCell>
                   <TableCell stack="inline">
                     <AccessBadge mode={artifact.accessMode} />

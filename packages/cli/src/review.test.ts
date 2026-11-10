@@ -111,9 +111,7 @@ describe("portifact review", () => {
     expect(approved.stdout).toContain(`You approved the current version of ${artifact.id}.`);
     const changes = await h.invoke("review", "request-changes", artifact.id);
     expect(changes.stdout).toContain("You asked for changes");
-    const verdicts = server.api.approvalCalls.filter((call) =>
-      call.path.endsWith("/verdict"),
-    );
+    const verdicts = server.api.approvalCalls.filter((call) => call.path.endsWith("/verdict"));
     expect(verdicts.map((call) => call.body)).toEqual([
       { verdict: "approve", note: "Good" },
       { verdict: "changes" },

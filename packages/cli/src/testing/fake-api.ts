@@ -1630,8 +1630,18 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const named = /^\/domains\/([^/]+)(\/verify)?$/.exec(path);
     if (named)
       return domain(method, decodeURIComponent(named[1] as string), named[2] !== undefined);
-    const reviewed = /^\/artifacts\/([^/]+)\/review(\/verdict)?$/.exec(path);
-    if (reviewed) return approvalReview(method, reviewed[1] as string, reviewed[2], key, raw);
+    const reviewed = /^\/artifacts\/([^/]+)\/review\/(request|status|verdict)$/.exec(path);
+    if (reviewed) {
+      const part = reviewed[2] as string;
+      if ((part === "status") !== (method === "GET")) return error("not_found", "Not found.");
+      return approvalReview(
+        method,
+        reviewed[1] as string,
+        part === "verdict" ? "/verdict" : undefined,
+        key,
+        raw,
+      );
+    }
     const shares = /^\/artifacts\/([^/]+)\/share-links(?:\/([^/]+))?$/.exec(path);
     if (shares) return shareLinks(method, shares[1] as string, shares[2], raw);
     const versions = versionRoute(method, path, url, key, raw);
@@ -1665,7 +1675,8 @@ export function scopeFor(method: string, path: string): string {
   if (/\/access$/.test(path)) return method === "PATCH" ? "artifacts:share" : "artifacts:read";
   if (/\/share-links(\/|$)/.test(path)) return "artifacts:share";
   if (/\/review\/verdict$/.test(path)) return "annotations:write";
-  if (/\/review$/.test(path)) return method === "GET" ? "artifacts:read" : "artifacts:write";
+  if (/\/review\/status$/.test(path)) return "artifacts:read";
+  if (/\/review\/request$/.test(path)) return "artifacts:write";
   if (/\/domain$|^\/api\/v1\/domains\//.test(path) && method !== "GET") return "artifacts:share";
   if (method === "DELETE") return "artifacts:delete";
   if (method === "POST") return "artifacts:write";

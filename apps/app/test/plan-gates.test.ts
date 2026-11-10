@@ -253,7 +253,7 @@ const GATED: GatedOperation[] = [
     "reviews",
     "request an approval review",
     (id) => [
-      `/api/v1/artifacts/${id}/review`,
+      `/api/v1/artifacts/${id}/review/request`,
       {
         method: "POST",
         headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
@@ -267,7 +267,7 @@ const GATED: GatedOperation[] = [
     "reviews",
     "change an approval review",
     (id) => [
-      `/api/v1/artifacts/${id}/review`,
+      `/api/v1/artifacts/${id}/review/request`,
       {
         method: "PATCH",
         headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },

@@ -12,6 +12,7 @@ import {
   type AnnotationRole,
   type AnnotationsState,
   type AnnotationThreadView,
+  type ApprovalReviewView,
   type ArtifactActivity,
   ArtifactListQuery,
   type ArtifactStatsView,
@@ -34,6 +35,7 @@ import {
   type InvitationView,
   LIMITS,
   type ManifestFile,
+  NO_APPROVAL_REVIEW,
   type OwnerView,
   PLANS,
   type PreparedPublish,
@@ -458,6 +460,12 @@ export interface FakeServer {
   stats: Record<string, ArtifactStatsView>;
   /** Share links by artifact ID, newest first, as the API lists them. */
   shareLinks: Record<string, ShareLinkView[]>;
+  /**
+   * Approval reviews by artifact (decision 0012), as GET .../review/status answers them; missing
+   * ones have no request. Writes answer `approvalReply` when it is set.
+   */
+  approvals: Record<string, ApprovalReviewView>;
+  approvalReply: ApprovalReviewView | { error: ErrorCode; status: number } | null;
   /** Whether the owner's plan includes share links. */
   shareLinksEnabled: boolean;
   /** Custom domains and pending claims, oldest first. */
@@ -521,6 +529,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     audit: {},
     stats: {},
     shareLinks: {},
+    approvals: {},
+    approvalReply: null,
     shareLinksEnabled: true,
     domains: [],
     domainsEnabled: true,
@@ -1115,6 +1125,23 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   const path = url.pathname;
   const viewed = /^\/api\/v1\/artifacts\/([^/]+)\/viewer$/.exec(path);
   if (viewed && method === "GET") return viewerRoute(server, viewed[1] ?? "");
+  const approval = /^\/api\/v1\/artifacts\/([^/]+)\/review\/(request|status|verdict)$/.exec(path);
+  if (approval) {
+    const artifactId = approval[1] as string;
+    const none: ApprovalReviewView = {
+      artifactId,
+      role: "owner",
+      available: true,
+      review: NO_APPROVAL_REVIEW,
+      request: null,
+    };
+    if (method === "GET") return json(server.approvals[artifactId] ?? none);
+    const reply = server.approvalReply;
+    if (reply && "error" in reply) return apiError(reply.error, reply.status);
+    const next = reply ?? (method === "DELETE" ? none : (server.approvals[artifactId] ?? none));
+    server.approvals[artifactId] = next;
+    return json(next, method === "POST" && approval[2] === "request" ? 201 : 200);
+  }
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
@@ -1505,9 +1532,11 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
         (filters.annotations === undefined || a.annotations === filters.annotations),
     );
     const start = Number(cursor ?? 0);
-    const items = matching
-      .slice(start, start + server.pageSize)
-      .map((a) => ({ ...a, activity: server.activity[a.id] ?? DEFAULT_ACTIVITY }));
+    const items = matching.slice(start, start + server.pageSize).map((a) => ({
+      ...a,
+      activity: server.activity[a.id] ?? DEFAULT_ACTIVITY,
+      review: server.approvals[a.id]?.review ?? NO_APPROVAL_REVIEW,
+    }));
     const next = start + server.pageSize;
     return Response.json({
       items,

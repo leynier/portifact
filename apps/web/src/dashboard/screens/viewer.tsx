@@ -90,6 +90,7 @@ import { TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
 import { applyThread, type ThreadsState, threadsQuery, useThreads } from "../review/use-threads.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
+import { ApprovalStatusBadge, useApprovalReview, VerdictPanel } from "./approval-review.tsx";
 import { errorMessage } from "./artifact-list.tsx";
 import { CommentNoticeToggle } from "./comment-notices.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
@@ -313,6 +314,8 @@ function ViewerLayout({
   const t = useT();
   const announce = useAnnounce();
   const { api } = useDashboard();
+  // The approval review's status (decision 0012), as the API lets this visitor see it.
+  const approval = useApprovalReview(info.artifactId, account.kind === "signed-in");
   const signedIn = useQuery({
     queryKey: ACCOUNT_QUERY,
     queryFn: () => api.account(),
@@ -451,7 +454,12 @@ function ViewerLayout({
         // The publisher's name for it, as plain text: never styled as a Portifact heading.
         title: info.name,
         details: (
-          <Badge emphasis="quiet">{t("viewer.version", { number: info.versionNumber })}</Badge>
+          <>
+            <Badge emphasis="quiet">{t("viewer.version", { number: info.versionNumber })}</Badge>
+            {approval.data && approval.data.review.status !== "none" ? (
+              <ApprovalStatusBadge review={approval.data.review} />
+            ) : null}
+          </>
         ),
       }}
       actions={
@@ -784,6 +792,7 @@ function ReviewSession({
 }) {
   const t = useT();
   const announce = useAnnounce();
+  const approval = useApprovalReview(info.artifactId, true);
   const frame = useRef<HTMLIFrameElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(startsOpen);
   const [offer, setOfferState] = useState<Offer | null>(null);
@@ -1045,73 +1054,86 @@ function ReviewSession({
     </>
   );
 
-  const sidebar = !comments ? null : (
-    <>
-      <h2 className="text-lg font-semibold">{t("review.comments.heading")}</h2>
-      <p className="text-sm text-text-muted">{t("review.comments.untrusted")}</p>
-      {data ? <ModeNotice artifactId={start.artifactId} state={data} /> : null}
-      {canComment ? (
-        <div role="toolbar" aria-label={t("review.toolbar.label")} className="flex flex-wrap gap-2">
-          <Button size="sm" icon={<MessageSquarePlus className="size-4" />} onClick={startGeneral}>
-            {t("review.general")}
-          </Button>
-          {start.type === "site" && state === "connected" ? (
+  const reviewer = approval.data?.role === "reviewer" ? approval.data : null;
+  const sidebar =
+    !comments && !reviewer ? null : !comments && reviewer ? (
+      <VerdictPanel key={reviewer.request?.versionId} view={reviewer} />
+    ) : (
+      <>
+        {reviewer ? <VerdictPanel key={reviewer.request?.versionId} view={reviewer} /> : null}
+        <h2 className="text-lg font-semibold">{t("review.comments.heading")}</h2>
+        <p className="text-sm text-text-muted">{t("review.comments.untrusted")}</p>
+        {data ? <ModeNotice artifactId={start.artifactId} state={data} /> : null}
+        {canComment ? (
+          <div
+            role="toolbar"
+            aria-label={t("review.toolbar.label")}
+            className="flex flex-wrap gap-2"
+          >
             <Button
               size="sm"
-              icon={<Crosshair className="size-4" />}
-              aria-pressed={picking}
-              onClick={togglePick}
+              icon={<MessageSquarePlus className="size-4" />}
+              onClick={startGeneral}
             >
-              {t("review.pick")}
+              {t("review.general")}
             </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {canComment && draft && !draft.inline ? (
-        <Composer
-          key={draft.id}
+            {start.type === "site" && state === "connected" ? (
+              <Button
+                size="sm"
+                icon={<Crosshair className="size-4" />}
+                aria-pressed={picking}
+                onClick={togglePick}
+              >
+                {t("review.pick")}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {canComment && draft && !draft.inline ? (
+          <Composer
+            key={draft.id}
+            start={start}
+            owner={data?.role === "owner"}
+            target={draft.target}
+            humanNeeded={humanNeeded}
+            onDone={(thread) => {
+              closeDraft();
+              if (thread) setSelection({ ids: [thread.id], fromFrame: false });
+            }}
+          />
+        ) : null}
+        <ThreadList
           start={start}
-          owner={data?.role === "owner"}
-          target={draft.target}
-          humanNeeded={humanNeeded}
-          onDone={(thread) => {
-            closeDraft();
-            if (thread) setSelection({ ids: [thread.id], fromFrame: false });
+          threads={threads}
+          shown={shown}
+          filtered={filter.status !== "all" || filter.author !== "all"}
+          numbers={numbers}
+          selection={selection}
+          resolutions={bridge.resolutions}
+          path={path}
+          located={state === "connected"}
+          onSelect={select}
+          onHover={hover}
+          onClearSelection={() => setSelection(NO_SELECTION)}
+          register={(id, element) => {
+            if (element) items.current.set(id, element);
+            else items.current.delete(id);
           }}
         />
-      ) : null}
-      <ThreadList
-        start={start}
-        threads={threads}
-        shown={shown}
-        filtered={filter.status !== "all" || filter.author !== "all"}
-        numbers={numbers}
-        selection={selection}
-        resolutions={bridge.resolutions}
-        path={path}
-        located={state === "connected"}
-        onSelect={select}
-        onHover={hover}
-        onClearSelection={() => setSelection(NO_SELECTION)}
-        register={(id, element) => {
-          if (element) items.current.set(id, element);
-          else items.current.delete(id);
-        }}
-      />
-      {data ? (
-        <CommentTools
-          start={start}
-          role={data.role}
-          version={version}
-          onVersion={onVersion}
-          filter={filter}
-          onFilter={setFilter}
-          authors={authors}
-        />
-      ) : null}
-      {data ? <CommentNoticeToggle artifactId={start.artifactId} explainPlan={false} /> : null}
-    </>
-  );
+        {data ? (
+          <CommentTools
+            start={start}
+            role={data.role}
+            version={version}
+            onVersion={onVersion}
+            filter={filter}
+            onFilter={setFilter}
+            authors={authors}
+          />
+        ) : null}
+        {data ? <CommentNoticeToggle artifactId={start.artifactId} explainPlan={false} /> : null}
+      </>
+    );
 
   return (
     <ViewerLayout

@@ -24,7 +24,10 @@ import type { Env } from "../env.ts";
 import { artifactDb } from "../regions.ts";
 import { error, failure, type Guarded, idempotent, readJson } from "./http.ts";
 
-export const REVIEW_PATH = "/api/v1/artifacts/:artifactId/review";
+// Under `/review`, beside review mode's `POST /review` and `/review/tab`, never on them.
+export const REVIEW_PATH = "/api/v1/artifacts/:artifactId/review/request";
+export const REVIEW_STATUS_PATH = "/api/v1/artifacts/:artifactId/review/status";
+export const REVIEW_VERDICT_PATH = "/api/v1/artifacts/:artifactId/review/verdict";
 
 type Outcome =
   | { ok: true; value: unknown }
@@ -42,7 +45,7 @@ export function approvalReviewRoutes(
   now: () => number,
 ) {
   api.get(
-    REVIEW_PATH,
+    REVIEW_STATUS_PATH,
     guarded("artifacts:read", async (c, userId) => {
       const artifactId = c.req.param("artifactId") as string;
       const result = await getApprovalReview(await artifactDb(c.env, artifactId), {
@@ -120,7 +123,7 @@ export function approvalReviewRoutes(
   );
 
   api.post(
-    `${REVIEW_PATH}/verdict`,
+    REVIEW_VERDICT_PATH,
     guarded("annotations:write", async (c, userId) => {
       const body = await readJson(c, ApprovalVerdictInput, APPROVALS.bodyMaxBytes);
       if (!body.ok) return body.response;

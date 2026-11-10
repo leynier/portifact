@@ -1,6 +1,6 @@
 // portifact review request | change | status | approve | request-changes | cancel: approval
 // reviews of an artifact's current version (premium plan T6, decision 0012; not review mode,
-// the commenting session), through /api/v1/artifacts/:id/review. Every write sends an
+// the commenting session), through /api/v1/artifacts/:id/review/request, /status and /verdict. Every write sends an
 // Idempotency-Key, so a retried call is applied once. Reviewers' names and notes are untrusted
 // and printed through `plain`.
 import { randomUUID } from "node:crypto";
@@ -92,7 +92,7 @@ export async function requestReview(
   const required = parseRequired(options.required);
   const { artifactId, view } = await write(io, runtime, id, {
     method: "POST",
-    path: "/review",
+    path: "/review/request",
     body: {
       reviewers: options.reviewers,
       ...(required !== undefined ? { requiredApprovals: required } : {}),
@@ -123,7 +123,7 @@ export async function changeReview(
   const required = parseRequired(options.required);
   const { artifactId, view } = await write(io, runtime, id, {
     method: "PATCH",
-    path: "/review",
+    path: "/review/request",
     body: {
       ...(options.add.length > 0 ? { add: options.add } : {}),
       ...(options.remove.length > 0 ? { remove: options.remove } : {}),
@@ -149,7 +149,7 @@ export async function reviewStatus(
   const session = await openSession(io, runtime);
   const view = await callApi(session, {
     method: "GET",
-    path: `/artifacts/${artifactId}/review`,
+    path: `/artifacts/${artifactId}/review/status`,
     schema: ApprovalReviewView,
   });
   if (options.json) {
@@ -209,7 +209,7 @@ export async function cancelReview(
   }
   const view = await callApi(session, {
     method: "DELETE",
-    path: `/artifacts/${artifactId}/review`,
+    path: `/artifacts/${artifactId}/review/request`,
     schema: ApprovalReviewView,
   });
   if (options.json) {

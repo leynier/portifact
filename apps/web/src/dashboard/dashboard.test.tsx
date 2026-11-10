@@ -514,7 +514,7 @@ describe("artifact detail", () => {
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Overview", "Sharing", "Comments", "Activity", "Space", "Danger zone"]);
+    ).toEqual(["Overview", "Sharing", "Comments", "Reviews", "Activity", "Space", "Danger zone"]);
     expect(
       screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
     ).toEqual(["Overview", "Sharing", "Comments", "Activity", "Space", "Danger zone"]);
