@@ -32,9 +32,14 @@ const VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
  * The defaults for new artifacts: every setting but the email notices and the language, which
  * have their own controls on this page.
  */
-type Defaults = Omit<AccountSettings, "expiryNotices" | "locale">;
+type Defaults = Omit<AccountSettings, "expiryNotices" | "commentNotices" | "locale">;
 
-function defaultsOf({ expiryNotices: _, locale: __, ...defaults }: AccountSettings): Defaults {
+function defaultsOf({
+  expiryNotices: _,
+  commentNotices: ___,
+  locale: __,
+  ...defaults
+}: AccountSettings): Defaults {
   return defaults;
 }
 
@@ -255,20 +260,30 @@ function EmailNotices() {
         loading={t("settings.defaults.loading")}
         error={t("settings.defaults.error")}
       >
-        {(saved) => <NoticesForm key={String(saved.expiryNotices)} saved={saved.expiryNotices} />}
+        {(saved) => (
+          <NoticesForm
+            key={`${saved.expiryNotices}:${saved.commentNotices}`}
+            saved={{ expiryNotices: saved.expiryNotices, commentNotices: saved.commentNotices }}
+          />
+        )}
       </Loaded>
     </Section>
   );
 }
 
-function NoticesForm({ saved }: { saved: boolean }) {
+interface Notices {
+  expiryNotices: boolean;
+  commentNotices: boolean;
+}
+
+function NoticesForm({ saved }: { saved: Notices }) {
   const t = useT();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
 
   const save = useMutation({
-    mutationFn: (expiryNotices: boolean) => api.updateAccountSettings({ expiryNotices }),
+    mutationFn: (update: Partial<Notices>) => api.updateAccountSettings(update),
     onSuccess: (next) => {
       queryClient.setQueryData(SETTINGS_QUERY, next);
       announce(t("settings.notices.saved"));
@@ -276,14 +291,22 @@ function NoticesForm({ saved }: { saved: boolean }) {
   });
 
   const form = useAppForm({
-    defaultValues: { expiryNotices: saved },
+    defaultValues: saved,
     validationLogic: revalidateLogic(),
     onSubmit: async ({ value }) => {
-      if (value.expiryNotices === saved) {
+      const update: Partial<Notices> = {
+        ...(value.expiryNotices === saved.expiryNotices
+          ? {}
+          : { expiryNotices: value.expiryNotices }),
+        ...(value.commentNotices === saved.commentNotices
+          ? {}
+          : { commentNotices: value.commentNotices }),
+      };
+      if (Object.keys(update).length === 0) {
         announce(t("settings.notices.unchanged"));
         return;
       }
-      await save.mutateAsync(value.expiryNotices).catch(() => undefined);
+      await save.mutateAsync(update).catch(() => undefined);
     },
   });
 
@@ -305,6 +328,14 @@ function NoticesForm({ saved }: { saved: boolean }) {
               <field.CheckboxField
                 label={t("settings.notices.expiry.label")}
                 description={t("settings.notices.expiry.hint")}
+              />
+            )}
+          </form.AppField>
+          <form.AppField name="commentNotices">
+            {(field) => (
+              <field.CheckboxField
+                label={t("settings.notices.comments.label")}
+                description={t("settings.notices.comments.hint")}
               />
             )}
           </form.AppField>

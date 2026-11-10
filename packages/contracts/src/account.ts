@@ -101,6 +101,11 @@ export const AccountSettings = z.object({
   /** Email the owner before their artifacts expire (one email per account, grouped). */
   expiryNotices: z.boolean(),
   /**
+   * Email digests of new comments, replies and resolutions on artifacts whose owner's plan
+   * includes comment notices; on unless the user turns them off.
+   */
+  commentNotices: z.boolean(),
+  /**
    * The language the account chose for the dashboard and the emails; null follows each
    * browser's languages.
    */
@@ -116,6 +121,7 @@ export const AccountSettingsUpdate = z
     defaultCommentVisibility: CommentVisibility.optional(),
     defaultBar: z.boolean().optional(),
     expiryNotices: z.boolean().optional(),
+    commentNotices: z.boolean().optional(),
     /** A language of the locale list, or null to follow the browser again. */
     locale: Locale.nullable().optional(),
   })
@@ -123,3 +129,36 @@ export const AccountSettingsUpdate = z
     message: "Send at least one change.",
   });
 export type AccountSettingsUpdate = z.infer<typeof AccountSettingsUpdate>;
+
+/**
+ * The caller's comment notices for one artifact (`GET /api/v1/account/comment-notices/:id`):
+ * whether the owner's plan includes them and whether the caller muted the artifact.
+ */
+export const CommentNoticeMute = z.strictObject({
+  /** The artifact owner's plan includes comment notices. */
+  available: z.boolean(),
+  muted: z.boolean(),
+});
+export type CommentNoticeMute = z.infer<typeof CommentNoticeMute>;
+
+/** Mutes or unmutes one artifact's comment notices for the caller. */
+export const CommentNoticeMuteUpdate = z.strictObject({ muted: z.boolean() });
+export type CommentNoticeMuteUpdate = z.infer<typeof CommentNoticeMuteUpdate>;
+
+/** The signed link token of an unsubscribe link: base64url parts joined by dots. */
+export const UnsubscribeToken = z
+  .string()
+  .min(10)
+  .max(400)
+  .regex(/^[A-Za-z0-9_.-]+$/);
+
+/** What the unsubscribe page posts (`POST /api/v1/notices/unsubscribe`). */
+export const UnsubscribeInput = z.strictObject({ token: UnsubscribeToken });
+export type UnsubscribeInput = z.infer<typeof UnsubscribeInput>;
+
+/**
+ * The answer to an unsubscribe: the same whether or not the account still exists, so a link
+ * tells nothing about it.
+ */
+export const UnsubscribeResult = z.strictObject({ unsubscribed: z.literal(true) });
+export type UnsubscribeResult = z.infer<typeof UnsubscribeResult>;

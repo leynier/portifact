@@ -9,7 +9,10 @@ import {
   AccountSettings,
   AccountSettingsUpdate,
   type AppResource,
+  ArtifactId,
   BrowserSessionList,
+  CommentNoticeMute,
+  CommentNoticeMuteUpdate,
   type ConnectedApp,
   ConnectedAppList,
   DisconnectResult,
@@ -22,16 +25,18 @@ import {
   disconnectApp,
   exportAccount,
   getAccountSettings,
+  getCommentNoticeMute,
   listBrowserSessions,
   listConnectedApps,
   requestAccountDeletion,
+  setCommentNoticeMute,
   updateAccountSettings,
 } from "@portifact/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import type { Env } from "../env.ts";
-import { defaultDb, regionsOf } from "../regions.ts";
+import { artifactDb, defaultDb, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
 
@@ -167,6 +172,42 @@ export function accountRoutes(deps: AccountDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(AccountSettings.parse(result.value));
+    }),
+  );
+
+  // The caller's comment notices for one artifact: whether the owner's plan has them and the
+  // caller's mute. A personal preference, like the settings, so it has no MCP tool or CLI command.
+  const muteRoute = "/api/v1/account/comment-notices/:artifactId";
+  routes.get(
+    muteRoute,
+    sessionOnly(async (c, session) => {
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const result = await getCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
+        userId: session.userId,
+        artifactId: artifactId.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(CommentNoticeMute.parse(result.value));
+    }),
+  );
+
+  routes.put(
+    muteRoute,
+    sessionOnly(async (c, session) => {
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const body = await readJson(c, CommentNoticeMuteUpdate, 256);
+      if (!body.ok) return body.response;
+      const result = await setCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
+        userId: session.userId,
+        artifactId: artifactId.data,
+        muted: body.value.muted,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(CommentNoticeMute.parse(result.value));
     }),
   );
 

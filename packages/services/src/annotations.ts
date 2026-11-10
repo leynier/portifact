@@ -55,7 +55,9 @@ import {
   checkResolve,
   checkThreadWritable,
   commentScope,
+  type Entitlements,
   effectiveState,
+  entitlements,
   fail,
   type HumanVerdict,
   type ModerationAction,
@@ -71,7 +73,7 @@ import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorOn, ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
-import { ownerEntitlements } from "./plans.ts";
+import { markCommentActivity } from "./comment-activity.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -99,6 +101,11 @@ interface Loaded {
    * editors. Their threads are "the owner's" in the `own` scope.
    */
   ownerSide: readonly string[];
+  /**
+   * What the owner's plan grants, read with the artifact: the annotation quota and whether a
+   * write marks comment notice activity, with no read of its own.
+   */
+  entitlements: Entitlements;
 }
 
 interface Authorized extends Loaded {
@@ -138,12 +145,18 @@ const changed = () =>
 // Loading and authorization
 
 async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | undefined> {
-  const [artifact] = await db
-    .select()
+  const p = schema.ownerPlans;
+  const [row] = await db
+    .select({
+      artifact: schema.artifacts,
+      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+    })
     .from(schema.artifacts)
+    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (!artifact) return undefined;
+  if (!row) return undefined;
+  const { artifact } = row;
   const state = effectiveState(
     {
       state: artifact.state,
@@ -163,6 +176,7 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     scope,
     // A personal space needs no read.
     ownerSide: await ownerSide(db.global, artifact.ownerId),
+    entitlements: entitlements(row.plan, input.now),
   };
 }
 
@@ -432,6 +446,28 @@ function touchThread(db: RegionalDb, threadId: string, writeId: string, now: num
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 
+/** The comment notice mark of a claimed write, when the owner's plan has comment notices. */
+function noticeMark(
+  db: RegionalDb,
+  loaded: Loaded,
+  writeId: string,
+  mark: {
+    threadId: string;
+    actorId: string;
+    activity: "thread" | "reply" | "resolved";
+    now: number;
+  },
+): BatchItem<"sqlite">[] {
+  const statement = markCommentActivity(db, {
+    ...mark,
+    entitlements: loaded.entitlements,
+    artifactId: loaded.artifact.id,
+    ownerSide: loaded.ownerSide,
+    claimed: claimed(writeId),
+  });
+  return statement ? [statement] : [];
+}
+
 /**
  * Runs a claimed batch. Returns whether the claim happened; a CHECK constraint failure (the
  * owner's quota or a full thread, after a race) becomes `quota_exceeded`.
@@ -553,11 +589,10 @@ async function checkLimits(
   const capacity = checkAnnotationCapacity((await platformProtection(db, now)).actions);
   if (!capacity.ok) return capacity;
   // The quota is the artifact owner's, so it follows the owner's plan, whoever writes.
-  const owner = await ownerEntitlements(db, loaded.artifact.ownerId, now);
   return checkAnnotationWrite(
     await usage(db, loaded, actorId, now, threadMessages),
     write,
-    owner.limits,
+    loaded.entitlements.limits,
   );
 }
 
@@ -678,6 +713,12 @@ export async function createAnnotationThread(
           now: input.now,
           writeId,
         }),
+        ...noticeMark(db, loaded, writeId, {
+          threadId,
+          actorId: input.userId,
+          activity: "thread",
+          now: input.now,
+        }),
       ]);
     },
     (loaded) => threadResult(db, loaded, input.userId, threadId),
@@ -767,6 +808,12 @@ export async function replyToAnnotationThread(
         }),
         touchThread(db, input.threadId, writeId, input.now, {
           messageCount: sql`${schema.annotationThreads.messageCount} + 1`,
+        }),
+        ...noticeMark(db, loaded, writeId, {
+          threadId: input.threadId,
+          actorId: input.userId,
+          activity: "reply",
+          now: input.now,
         }),
       ]);
     },
@@ -1030,6 +1077,15 @@ export async function setAnnotationThreadState(
           resolvedAt: resolved ? input.now : null,
           resolvedBy: resolved ? input.userId : null,
         }),
+        // Reopening a thread is not news for anyone.
+        ...(resolved
+          ? noticeMark(db, loaded, writeId, {
+              threadId: thread.id,
+              actorId: input.userId,
+              activity: "resolved",
+              now: input.now,
+            })
+          : []),
       ]);
     },
     ({ loaded, thread }) => threadResult(db, loaded, input.userId, thread.id),
@@ -1418,4 +1474,62 @@ export async function eraseAuthorFromThread(
       ];
   const [first] = (await db.batch(statements)) as [{ id: number }[]];
   return first.length === 1;
+}
+
+// Comment notices
+
+/** What a recipient may see of one artifact's threads when their comment notice is sent. */
+export interface NoticeView {
+  name: string;
+  entitlements: Entitlements;
+  /** The threads among those asked about that the recipient may read now. */
+  threadIds: Set<string>;
+}
+
+/**
+ * The threads among `threadIds` that `userId` may read now, by the same rules as every read
+ * path (the role on the artifact, its state and comment mode, the comment scope and the version
+ * a visitor sees), or null when they may read none of the artifact's comments any more.
+ */
+export async function noticeView(
+  db: RegionalDb,
+  input: AnnotationActor & { threadIds: readonly string[] },
+): Promise<NoticeView | null> {
+  const authorized = await authorize(db, input, "read");
+  if (!authorized.ok) return null;
+  const loaded = authorized.value;
+  const th = schema.annotationThreads;
+  const visible = new Set<string>();
+  for (let i = 0; i < input.threadIds.length; i += IN_CHUNK) {
+    const rows = await db
+      .select({ id: th.id, versionId: th.versionId, authorId: th.authorId })
+      .from(th)
+      .where(
+        and(
+          eq(th.artifactId, loaded.artifact.id),
+          inArray(th.id, input.threadIds.slice(i, i + IN_CHUNK)),
+        ),
+      );
+    for (const thread of rows) {
+      if (
+        threadVisible(loaded.role, thread.versionId, loaded.artifact.currentVersionId) &&
+        inScope(loaded, thread.authorId)
+      ) {
+        visible.add(thread.id);
+      }
+    }
+  }
+  return { name: loaded.artifact.name, entitlements: loaded.entitlements, threadIds: visible };
+}
+
+/**
+ * Whether `userId` may read the artifact's comments: the same authorization as listing them.
+ * Gives the owner's entitlements, for the comment notice preference of the artifact.
+ */
+export async function annotationReader(
+  db: RegionalDb,
+  input: AnnotationActor,
+): Promise<Result<{ entitlements: Entitlements }>> {
+  const authorized = await authorize(db, input, "read");
+  return authorized.ok ? ok({ entitlements: authorized.value.entitlements }) : authorized;
 }

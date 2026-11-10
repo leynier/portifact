@@ -87,6 +87,16 @@ const messages = {
       "報告を送信できませんでした。もう一度お試しいただくか、abuse@portifact.comまでご連絡ください。",
     sent: "報告を送信しました。",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "このリンクは不完全です。メールのリンクを開き直すか、設定でコメント通知をオフにしてください。",
+    invalid: "このリンクはもう使えません。設定でコメント通知をオフにしてください。",
+    rateLimited: "ここからの試行が多すぎます。数分後にもう一度お試しください。",
+    network: "Portifactに接続できませんでした。接続を確認して、もう一度お試しください。",
+    failed: "コメント通知をオフにできませんでした。もう一度試すか、設定でオフにしてください。",
+    done: "コメント通知をオフにしました。",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -201,5 +211,14 @@ export const ja: AuthCatalog = {
     "report.doneHeading": "ご報告ありがとうございます。受け付けました",
     "report.doneBody":
       'すべての報告を確認しています。<a href="mailto:abuse@portifact.com">abuse@portifact.com</a>までご連絡いただくこともできます。',
+
+    // unsubscribe.html
+    "unsubscribe.title": "Portifactのコメント通知をオフにする",
+    "unsubscribe.heading": "コメント通知をオフにする",
+    "unsubscribe.intro":
+      "Portifactのartifactへの新しいコメントについてのメールが届かなくなります。有効期限の通知とログイン用のメールは変わりません。",
+    "unsubscribe.confirm": "コメント通知をオフにする",
+    "unsubscribe.doneHeading": "コメント通知はオフです",
+    "unsubscribe.doneBody": '<a href="/settings">設定</a>でいつでもオンに戻せます。',
   },
 };

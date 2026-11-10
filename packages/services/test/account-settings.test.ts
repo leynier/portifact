@@ -13,6 +13,7 @@ const OPEN_DEFAULTS = {
   defaultCommentVisibility: "everyone",
   defaultBar: false,
   expiryNotices: false,
+  commentNotices: false,
   locale: null,
 } as const;
 

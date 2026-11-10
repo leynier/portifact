@@ -6,6 +6,7 @@ import { axeViolations } from "@portifact/ui/testing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HumanCheckCallbacks, HumanCheckWidget } from "../human-check/turnstile.ts";
 import { setupReport } from "../report/report.ts";
+import { setupUnsubscribe } from "../unsubscribe/unsubscribe.ts";
 import { setupConsent } from "./consent.ts";
 import { setupDevice } from "./device.ts";
 import { en } from "./i18n/en.ts";
@@ -32,7 +33,7 @@ async function expectAccessible() {
   expect(await axeViolations(document.body)).toEqual([]);
 }
 
-function open(name: "login" | "device" | "consent" | "report") {
+function open(name: "login" | "device" | "consent" | "report" | "unsubscribe") {
   document.documentElement.lang = "en";
   document.title = "Portifact";
   loadPage(name);
@@ -228,6 +229,29 @@ describe("report page accessibility", () => {
     submit(element<HTMLFormElement>("report-form"));
     await settle();
     expect(element("done").hidden).toBe(false);
+    await expectAccessible();
+  });
+});
+
+describe("unsubscribe page accessibility", () => {
+  it("has no violations before, after and without a link", async () => {
+    open("unsubscribe");
+    setupUnsubscribe(document, {
+      send: async () => ({ status: 200, body: { unsubscribed: true } }),
+      location: fakeLocation("?token=cn1.dXNlcg.1.c2lnbmF0dXJl"),
+    });
+    await expectAccessible();
+    submit(element<HTMLFormElement>("unsubscribe-form"));
+    await settle();
+    expect(element("done").hidden).toBe(false);
+    await expectAccessible();
+
+    open("unsubscribe");
+    setupUnsubscribe(document, {
+      send: async () => ({ status: 200, body: null }),
+      location: fakeLocation(""),
+    });
+    expect(element("error-summary").hidden).toBe(false);
     await expectAccessible();
   });
 });

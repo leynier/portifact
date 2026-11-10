@@ -16,6 +16,7 @@ import {
   ArtifactListQuery,
   type ArtifactSummary,
   type BrowserSession,
+  type CommentNoticeMute,
   type CommentScope,
   type ConnectedApp,
   DocumentPreviewRequest,
@@ -332,6 +333,8 @@ export interface FakeServer {
   apps: ConnectedApp[];
   /** The account's defaults for new artifacts. */
   settings: AccountSettings;
+  /** Comment notices by artifact: whether the owner's plan has them and the caller's mute. */
+  commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
@@ -374,10 +377,12 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       defaultCommentVisibility: "owner",
       defaultBar: true,
       expiryNotices: true,
+      commentNotices: true,
       locale: null,
     },
     usage: usageView(),
     accessLogs: {},
+    commentNotices: {},
     bodies: [],
     pageSize: 50,
     requests: [],
@@ -733,6 +738,16 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const before = server.sessions.length;
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
+  }
+  const mute = /^\/api\/v1\/account\/comment-notices\/([^/]+)$/.exec(path);
+  if (mute) {
+    const id = decodeURIComponent(mute[1] as string);
+    const current = server.commentNotices[id] ?? { available: false, muted: false };
+    if (method === "PUT") {
+      const { muted } = server.bodies.at(-1) as { muted: boolean };
+      server.commentNotices[id] = { ...current, muted };
+    }
+    return Response.json(server.commentNotices[id] ?? current);
   }
   if (path === "/api/v1/account/settings" && method === "GET") {
     return Response.json(server.settings);

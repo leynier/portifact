@@ -420,6 +420,17 @@ export const ptBR = {
   "settings.notices.saved": "Avisos por e-mail salvos.",
   "settings.notices.unchanged": "Nada para salvar: seus avisos por e-mail já estão assim.",
   "settings.notices.failed": "Seus avisos por e-mail não foram salvos",
+  "settings.notices.comments.label": "Enviar um e-mail quando houver novos comentários",
+  "settings.notices.comments.hint":
+    "No máximo um e-mail a cada 10 minutos, com quantas conversas, respostas e resoluções são novas em cada artifact, nunca o que foi escrito. Só em artifacts cujo proprietário tem um plano com avisos de comentários.",
+  "commentNotices.label": "Enviar um e-mail quando houver novos comentários neste artifact",
+  "commentNotices.hint":
+    "No máximo um e-mail a cada 10 minutos, só com contagens. Desative todos os e-mails de comentários nas suas configurações.",
+  "commentNotices.muted": "E-mails de comentários desativados para este artifact.",
+  "commentNotices.unmuted": "E-mails de comentários ativados para este artifact.",
+  "commentNotices.failed": "Sua escolha não foi salva",
+  "commentNotices.planRequired":
+    "Avisos por e-mail de novos comentários fazem parte do plano {plan}.",
   "settings.danger.title": "Zona de perigo",
   "settings.danger.hint": "Estas ações não podem ser desfeitas.",
   "account.data.title": "Seus dados",

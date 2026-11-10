@@ -431,6 +431,16 @@ export const de = {
   "settings.notices.unchanged":
     "Nichts zu speichern: Deine E-Mail-Hinweise sind bereits so eingestellt.",
   "settings.notices.failed": "Deine E-Mail-Hinweise wurden nicht gespeichert",
+  "settings.notices.comments.label": "E-Mail bei neuen Kommentaren",
+  "settings.notices.comments.hint":
+    "Höchstens eine E-Mail alle 10 Minuten, mit der Zahl neuer Threads, Antworten und erledigter Threads je Artifact, nie mit dem, was geschrieben wurde. Nur für Artifacts, deren Eigentümer einen Plan mit Kommentarhinweisen hat.",
+  "commentNotices.label": "E-Mail bei neuen Kommentaren zu diesem Artifact",
+  "commentNotices.hint":
+    "Höchstens eine E-Mail alle 10 Minuten, nur mit Zahlen. Alle Kommentar-E-Mails schaltest du in deinen Einstellungen ab.",
+  "commentNotices.muted": "Kommentar-E-Mails für dieses Artifact abgeschaltet.",
+  "commentNotices.unmuted": "Kommentar-E-Mails für dieses Artifact eingeschaltet.",
+  "commentNotices.failed": "Deine Auswahl wurde nicht gespeichert",
+  "commentNotices.planRequired": "E-Mail-Hinweise zu neuen Kommentaren sind Teil des Plans {plan}.",
   "settings.danger.title": "Gefahrenbereich",
   "settings.danger.hint": "Diese Aktionen können nicht rückgängig gemacht werden.",
   "account.data.title": "Deine Daten",

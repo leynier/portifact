@@ -410,6 +410,16 @@ export const en = {
   "settings.notices.saved": "Email notices saved.",
   "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
   "settings.notices.failed": "Your email notices were not saved",
+  "settings.notices.comments.label": "Email me about new comments",
+  "settings.notices.comments.hint":
+    "At most one email every 10 minutes, with how many threads, replies and resolutions are new on each artifact, never what was written. Only for artifacts whose owner's plan includes comment notices.",
+  "commentNotices.label": "Email me about new comments on this artifact",
+  "commentNotices.hint":
+    "At most one email every 10 minutes, with counts only. Turn every comment email off in your settings.",
+  "commentNotices.muted": "Comment emails for this artifact turned off.",
+  "commentNotices.unmuted": "Comment emails for this artifact turned on.",
+  "commentNotices.failed": "Your choice was not saved",
+  "commentNotices.planRequired": "Email notices of new comments are part of the {plan} plan.",
   "settings.danger.title": "Danger zone",
   "settings.danger.hint": "These actions cannot be undone.",
   "account.data.title": "Your data",

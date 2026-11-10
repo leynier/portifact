@@ -530,6 +530,7 @@ export const OUTBOX_TOPICS = [
   "abort_multipart",
   "erase_access_events",
   "expiry_notice",
+  "comment_notice",
 ] as const;
 
 /**
@@ -814,6 +815,60 @@ export const annotationEvents = sqliteTable(
 );
 
 /**
+ * Comment activity waiting for a notice (packages/services/src/comment-notices.ts): one row per
+ * recipient and thread, written in the batch of the comment, reply or resolution that caused it,
+ * and only when the artifact owner's plan includes comment notices. It holds counts and IDs,
+ * never text. The scheduled scan turns a recipient's rows into one `comment_notice` outbox job and
+ * deletes them in the same batch. Rows go with their thread and artifact by the foreign keys, and
+ * with the recipient's account in the deletion batches (`recipient_id` has no foreign key: users
+ * are global, comments regional).
+ */
+export const commentNotices = sqliteTable(
+  "comment_notices",
+  {
+    recipientId: text("recipient_id").notNull(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => annotationThreads.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** 1 when the thread itself is new. */
+    created: integer("created").notNull().default(0),
+    replies: integer("replies").notNull().default(0),
+    /** 1 when the thread was resolved. */
+    resolved: integer("resolved").notNull().default(0),
+    /** When the first activity of the row happened; the notice waits for it to settle. */
+    firstAt: timestamp("first_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.recipientId, t.threadId] }),
+    index("comment_notices_recipient_first_idx").on(t.recipientId, t.firstAt),
+    index("comment_notices_first_idx").on(t.firstAt),
+    check(
+      "comment_notices_counts",
+      sql`${t.created} in (0, 1) and ${t.resolved} in (0, 1) and ${t.replies} between 0 and 200`,
+    ),
+  ],
+);
+
+/** Artifacts whose comment notices a user turned off. Removed with the artifact, and with the account. */
+export const commentNoticeMutes = sqliteTable(
+  "comment_notice_mutes",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.userId] }),
+    index("comment_notice_mutes_user_idx").on(t.userId),
+  ],
+);
+
+/**
  * Annotation usage per artifact owner: live messages and logical bytes (message bodies plus
  * thread targets). Triggers in `0007_annotation_usage_triggers.sql` keep it exact on every
  * insert, update and delete, cascades included, and the CHECK constraints refuse a write past
@@ -969,6 +1024,13 @@ export const accountSettings = sqliteTable(
     defaultBar: integer("default_bar", { mode: "boolean" }).notNull().default(true),
     /** Email the owner before their artifacts expire; on unless they turn it off. */
     expiryNotices: integer("expiry_notices", { mode: "boolean" }).notNull().default(true),
+    /** Email digests of new comment activity (packages/domain/src/comment-notices.ts); on by default. */
+    commentNotices: integer("comment_notices", { mode: "boolean" }).notNull().default(true),
+    /**
+     * When `comment_notices` last changed. An unsubscribe link issued before it is refused, so an
+     * old link never turns the notices off again after the user turned them back on.
+     */
+    commentNoticesChangedAt: timestamp("comment_notices_changed_at"),
     // The account's language (a code of LOCALES in @portifact/contracts); null follows the
     // browser. No CHECK: adding a language must not need a migration, and reads drop codes
     // that are no longer listed.
