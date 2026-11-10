@@ -974,6 +974,7 @@ export const en = {
   "error.reauthentication_required": "Sign in again to do that.",
   "error.human_verification_required":
     "Your first comments on other people's artifacts need a quick check that you are human. Complete it, then post again.",
+  "error.plan_required": "This feature is not part of the plan of the artifact's owner.",
 } as const;
 
 export type MessageId = keyof typeof en;

@@ -140,5 +140,6 @@ describe("exitCodeFor", () => {
     expect(exitCodeFor("traffic_exceeded")).toBe(7);
     expect(exitCodeFor("account_too_new_for_public")).toBe(7);
     expect(exitCodeFor("human_verification_required")).toBe(7);
+    expect(exitCodeFor("plan_required")).toBe(7);
   });
 });

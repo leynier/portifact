@@ -918,4 +918,5 @@ export const zhCN = {
   "error.reauthentication_required": "请重新登录后再执行此操作。",
   "error.human_verification_required":
     "你在他人 artifact 上的前几条评论需要快速验证你是真人。请完成验证，然后再次发表。",
+  "error.plan_required": "此功能不包含在该 artifact 所有者的套餐中。",
 } satisfies Catalog;

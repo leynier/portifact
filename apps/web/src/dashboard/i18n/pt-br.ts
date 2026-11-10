@@ -1001,4 +1001,5 @@ export const ptBR = {
   "error.reauthentication_required": "Entre de novo para fazer isso.",
   "error.human_verification_required":
     "Seus primeiros comentários em artifacts de outras pessoas precisam de uma verificação rápida de que você é humano. Conclua-a e depois publique de novo.",
+  "error.plan_required": "Este recurso não faz parte do plano do dono do artifact.",
 } satisfies Catalog;

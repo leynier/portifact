@@ -135,6 +135,51 @@ export const PLANS: Readonly<Record<PlanName, PlanDefinition>> = {
   enterprise: { limits: TEAM_LIMITS, perSeat: TEAM_PER_SEAT, features: PLAN_FEATURES },
 };
 
+/** Plan names as messages and pages show them. */
+export const PLAN_LABELS: Readonly<Record<PlanName, string>> = {
+  free: "Free",
+  pro: "Pro",
+  team: "Team",
+  enterprise: "Enterprise",
+};
+
+/**
+ * Each paid feature in plain words, as the subject of a sentence ("Pinning artifacts is part of
+ * the Pro plan."). The one table every surface builds `plan_required` messages from.
+ */
+export const PLAN_FEATURE_LABELS: Readonly<Record<PlanFeature, string>> = {
+  pin: "Pinning artifacts",
+  versionDiff: "Comparing versions",
+  shareLinks: "Sharing with links",
+  commentNotices: "Getting comment notices by email",
+  webhooks: "Sending webhooks",
+  customDomains: "Using a custom domain",
+  analytics: "Seeing artifact analytics",
+  branding: "Branding the Portifact bar",
+  workspaces: "Using workspaces",
+  serviceTokens: "Using service tokens",
+  reviews: "Requesting reviews",
+  integrations: "Connecting integrations",
+  contentSearch: "Searching artifact contents",
+  audit: "Reading the audit log",
+  sso: "Signing in with SSO",
+  scim: "Provisioning members with SCIM",
+  auditExport: "Exporting the audit log",
+  policies: "Setting workspace policies",
+  euResidency: "Keeping data in the EU",
+};
+
+/** The cheapest plan that includes a feature, from `PLANS` in the order of `PLAN_NAMES`. */
+export function lowestPlanWith(feature: PlanFeature): PlanName {
+  // Enterprise grants every feature (a test holds it to that), so the search always finds one.
+  return PLAN_NAMES.find((name) => PLANS[name].features.includes(feature)) as PlanName;
+}
+
+/** The `plan_required` message for a feature: what it is and the plan that includes it. */
+export function planRequiredMessage(feature: PlanFeature): string {
+  return `${PLAN_FEATURE_LABELS[feature]} is part of the ${PLAN_LABELS[lowestPlanWith(feature)]} plan.`;
+}
+
 /**
  * Changes to one owner's plan (`owner_plans.overrides`), applied after seats: a limit here is the
  * owner's total, not a per-seat value, and a feature set to true or false is added or removed.

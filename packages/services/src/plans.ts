@@ -11,6 +11,7 @@
 // columns back in line when a plan expires or usage falls; a column never drops below usage.
 import {
   OwnerPlanExport,
+  type PlanFeature,
   type PlanName,
   PlanName as PlanNameSchema,
   PlanOverrides,
@@ -28,6 +29,7 @@ import {
   type OwnerPlanRecord,
   ok,
   type Result,
+  requireFeature,
 } from "@portifact/domain";
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -49,6 +51,23 @@ export async function ownerEntitlements(
     .where(eq(schema.ownerPlans.ownerId, ownerId))
     .limit(1);
   return entitlements(row ?? null, now);
+}
+
+/**
+ * Refuses a paid feature the owner's plan does not include with `plan_required`, or gives back
+ * the owner's entitlements so the caller needs no second read. `owner` is the artifact's owner
+ * (or the actor from `authorizeOn`/`resolveActor`, whose `ownerId` is that owner): a feature
+ * belongs to the owner's plan, a workspace's for a workspace, never to the acting user's. Call it
+ * after authorization, so a user with no role still gets what a missing artifact gives. A caller
+ * that already holds the owner's entitlements calls `requireFeature` instead.
+ */
+export async function requireOwnerFeature(
+  db: Db,
+  owner: { ownerId: string },
+  feature: PlanFeature,
+  now: number,
+): Promise<Result<Entitlements>> {
+  return requireFeature(await ownerEntitlements(db, owner.ownerId, now), feature);
 }
 
 /** The plan as the usage endpoint, the CLI, MCP and the account export show it. */

@@ -1,4 +1,11 @@
-import { PLAN_FEATURES, PLANS, type PlanLimits } from "@portifact/contracts";
+import {
+  PLAN_FEATURES,
+  PLAN_NAMES,
+  PLANS,
+  type PlanFeature,
+  type PlanLimits,
+  type PlanName,
+} from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { checkAnnotationWrite } from "./annotations.ts";
 import { checkRestore } from "./lifecycle.ts";
@@ -13,6 +20,7 @@ import {
   limitColumns,
   type OwnerPlanRecord,
   planActive,
+  requireFeature,
 } from "./plans.ts";
 import { checkPublish } from "./quotas.ts";
 import { trafficExhausted } from "./traffic.ts";
@@ -400,5 +408,98 @@ describe("limit columns", () => {
     expect(alignedLimit(50, 10)).toBe(50);
     expect(alignedLimit(50, 50)).toBe(50);
     expect(alignedLimit(50, 70)).toBe(70);
+  });
+});
+
+describe("requireFeature", () => {
+  // Written out rather than read from PLANS, so moving a feature between plans is a visible change.
+  const PRO: PlanFeature[] = [
+    "pin",
+    "versionDiff",
+    "shareLinks",
+    "commentNotices",
+    "webhooks",
+    "customDomains",
+    "analytics",
+    "branding",
+  ];
+  const TEAM: PlanFeature[] = [
+    ...PRO,
+    "workspaces",
+    "serviceTokens",
+    "reviews",
+    "integrations",
+    "contentSearch",
+    "audit",
+  ];
+  const INCLUDED: Record<PlanName, readonly PlanFeature[]> = {
+    free: [],
+    pro: PRO,
+    team: TEAM,
+    enterprise: PLAN_FEATURES,
+  };
+  const LOWEST: Record<PlanFeature, string> = {
+    pin: "Pinning artifacts is part of the Pro plan.",
+    versionDiff: "Comparing versions is part of the Pro plan.",
+    shareLinks: "Sharing with links is part of the Pro plan.",
+    commentNotices: "Getting comment notices by email is part of the Pro plan.",
+    webhooks: "Sending webhooks is part of the Pro plan.",
+    customDomains: "Using a custom domain is part of the Pro plan.",
+    analytics: "Seeing artifact analytics is part of the Pro plan.",
+    branding: "Branding the Portifact bar is part of the Pro plan.",
+    workspaces: "Using workspaces is part of the Team plan.",
+    serviceTokens: "Using service tokens is part of the Team plan.",
+    reviews: "Requesting reviews is part of the Team plan.",
+    integrations: "Connecting integrations is part of the Team plan.",
+    contentSearch: "Searching artifact contents is part of the Team plan.",
+    audit: "Reading the audit log is part of the Team plan.",
+    sso: "Signing in with SSO is part of the Enterprise plan.",
+    scim: "Provisioning members with SCIM is part of the Enterprise plan.",
+    auditExport: "Exporting the audit log is part of the Enterprise plan.",
+    policies: "Setting workspace policies is part of the Enterprise plan.",
+    euResidency: "Keeping data in the EU is part of the Enterprise plan.",
+  };
+
+  for (const plan of PLAN_NAMES) {
+    for (const feature of PLAN_FEATURES) {
+      const included = INCLUDED[plan].includes(feature);
+      it(`${included ? "allows" : "refuses"} ${feature} on ${plan}`, () => {
+        const owner = plan === "free" ? entitlements(null, NOW) : entitlements(row({ plan }), NOW);
+        expect(requireFeature(owner, feature)).toEqual(
+          included
+            ? { ok: true, value: owner }
+            : { ok: false, code: "plan_required", message: LOWEST[feature] },
+        );
+      });
+    }
+  }
+
+  it("refuses every feature once the plan expired", () => {
+    const expired = entitlements(row({ plan: "enterprise", validUntil: NOW }), NOW);
+    for (const feature of PLAN_FEATURES) {
+      expect(requireFeature(expired, feature)).toEqual({
+        ok: false,
+        code: "plan_required",
+        message: LOWEST[feature],
+      });
+    }
+    const current = entitlements(row({ plan: "enterprise", validUntil: NOW + 1 }), NOW);
+    expect(requireFeature(current, "sso").ok).toBe(true);
+  });
+
+  it("follows overrides that turn a feature on or off", () => {
+    const on = entitlements(row({ plan: "pro", overrides: { features: { sso: true } } }), NOW);
+    expect(requireFeature(on, "sso")).toEqual({ ok: true, value: on });
+    const off = entitlements(row({ plan: "pro", overrides: { features: { pin: false } } }), NOW);
+    expect(requireFeature(off, "pin")).toEqual({
+      ok: false,
+      code: "plan_required",
+      message: "Pinning artifacts is part of the Pro plan.",
+    });
+    expect(requireFeature(off, "versionDiff").ok).toBe(true);
+  });
+
+  it("matches PLANS, so the written table above stays in line with the configuration", () => {
+    for (const plan of PLAN_NAMES) expect([...PLANS[plan].features]).toEqual([...INCLUDED[plan]]);
   });
 });

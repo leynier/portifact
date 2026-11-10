@@ -1003,4 +1003,5 @@ export const ru = {
   "error.reauthentication_required": "Для этого войдите снова.",
   "error.human_verification_required":
     "Первым комментариям к чужим artifacts нужна короткая проверка, что вы человек. Пройдите её и отправьте снова.",
+  "error.plan_required": "Эта функция не входит в план владельца artifact.",
 } satisfies Catalog;

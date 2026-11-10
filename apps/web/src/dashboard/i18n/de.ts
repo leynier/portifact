@@ -1014,4 +1014,6 @@ export const de = {
   "error.reauthentication_required": "Melde dich erneut an, um das zu tun.",
   "error.human_verification_required":
     "Deine ersten Kommentare zu Artifacts anderer Personen brauchen eine kurze Prüfung, dass du ein Mensch bist. Schließ sie ab und sende dann erneut.",
+  "error.plan_required":
+    "Diese Funktion ist nicht im Plan des Eigentümers des Artifacts enthalten.",
 } satisfies Catalog;
