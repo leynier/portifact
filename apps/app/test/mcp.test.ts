@@ -36,6 +36,7 @@ const TOOLS = [
   "set_portifact_bar",
   ...["set_access", "add_reader", "remove_reader"],
   ...["prepare_upload", "get_upload_status", "commit_upload", "read_artifact"],
+  ...["list_workspaces", "transfer_artifact"],
   ...[
     "create_annotation",
     "delete_annotation",

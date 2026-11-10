@@ -442,6 +442,8 @@ describe("purging archives", () => {
       reviewSessions: 0,
       rerendered: 0,
       accountDeletions: 0,
+      workspaceDeletions: 0,
+      expiredInvitations: 0,
       prunedTrafficCounters: 0,
       prunedEmailCounters: 0,
       prunedEmailSuppressions: 0,

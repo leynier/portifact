@@ -1010,7 +1010,11 @@ export const fr = {
   "error.capacity_unavailable":
     "Portifact a atteint sa capacité pour le moment. Réessayez plus tard.",
   "error.sole_workspace_admin":
-    "Vous êtes la seule personne à administrer un workspace. Nommez un autre membre administrateur ou supprimez le workspace avant de supprimer votre compte.",
+    "Un workspace doit garder une personne qui l’administre, et vous êtes la seule. Nommez d’abord un autre membre administrateur, ou demandez à Portifact à hello@portifact.com de supprimer le workspace.",
+  "error.seats_exhausted":
+    "Le workspace utilise toutes ses places. Retirez un membre ou révoquez une invitation, ou demandez plus de places.",
+  "error.email_suppressed":
+    "Portifact ne peut pas envoyer d’e-mail à cette adresse, car des messages précédents ont été rejetés ou signalés comme spam.",
   "error.rate_limited": "Trop de requêtes. Patientez un instant et réessayez.",
   "error.reauthentication_required": "Reconnectez-vous pour faire cela.",
   "error.human_verification_required":

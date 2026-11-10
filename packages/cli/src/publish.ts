@@ -24,6 +24,7 @@ import type { Session } from "./session.ts";
 import { buildSourceManifest, type SourceManifest } from "./sources.ts";
 import { starSuggestion } from "./star.ts";
 import { uploadAll } from "./upload.ts";
+import { chosenWorkspace, workspaceQuery } from "./workspaces.ts";
 
 export interface PublishOptions extends OutputOptions {
   type?: ArtifactType | undefined;
@@ -36,6 +37,8 @@ export interface PublishOptions extends OutputOptions {
   ref?: string | undefined;
   /** Folder of assets of a Markdown document. */
   assets?: string | undefined;
+  /** The space a new artifact goes to: a workspace slug or `personal` (default: the device's). */
+  workspace?: string | undefined;
   dryRun: boolean;
 }
 
@@ -68,22 +71,29 @@ export async function publish(
   let session: Session | undefined;
   let base: ArtifactSummary | undefined;
   let limits: ClientLimits = DRY_RUN_LIMITS;
+  // A new artifact goes to the space the flag or the device's default names; an update stays
+  // where the artifact is.
+  let workspace: string | undefined;
   if (!options.dryRun) {
     session = await openSession(io, runtime);
-    // The plan's sizes, checked before hashing or uploading; the API checks them again.
-    const { plan } = await callApi(session, {
-      method: "GET",
-      path: "/usage",
-      schema: AccountUsageView,
-    });
-    limits = { artifactBytes: plan.limits.artifactBytes, accountBytes: plan.limits.accountBytes };
     if (artifactId) {
       base = await callApi(session, {
         method: "GET",
         path: `/artifacts/${artifactId}`,
         schema: ArtifactSummary,
       });
+      workspace = base.owner.kind === "workspace" ? base.owner.slug : undefined;
+    } else {
+      workspace = await chosenWorkspace(runtime, options.workspace);
     }
+    // The plan's sizes of that space, checked before hashing or uploading; the API checks them
+    // again.
+    const { plan } = await callApi(session, {
+      method: "GET",
+      path: `/usage${workspaceQuery(workspace)}`,
+      schema: AccountUsageView,
+    });
+    limits = { artifactBytes: plan.limits.artifactBytes, accountBytes: plan.limits.accountBytes };
   }
   if (base && options.type && options.type !== base.type) {
     throw new CliError("invalid_input", messages.errors.typeMismatch(base.type, options.type));
@@ -112,6 +122,7 @@ export async function publish(
       session,
       base,
       artifactId,
+      workspace,
     });
   } finally {
     await discardManifest(manifest);
@@ -130,9 +141,11 @@ async function publishBuilt(
     session: Session | undefined;
     base: ArtifactSummary | undefined;
     artifactId: string | undefined;
+    /** The space a new artifact goes to; undefined for the personal space. */
+    workspace: string | undefined;
   },
 ): Promise<void> {
-  const { manifest, sources, path, options, session, base, artifactId } = built;
+  const { manifest, sources, path, options, session, base, artifactId, workspace } = built;
   const fileCount = manifest.files.length + (sources?.files.length ?? 0);
   if (fileCount > LIMITS.filesPerVersion) {
     throw new CliError(
@@ -183,7 +196,7 @@ async function publishBuilt(
   const prepared = await withRetries(active, () =>
     callApi(active, {
       method: "POST",
-      path: "/publishes",
+      path: `/publishes${artifactId ? "" : workspaceQuery(workspace)}`,
       headers: { "idempotency-key": idempotencyKey },
       body: request,
       schema: PreparedPublish,
@@ -251,6 +264,7 @@ async function publishBuilt(
       sourceOrigin: sources?.origin ?? null,
       uploadedFiles: prepared.uploads.length,
       uploadedBytes: uploadBytes,
+      workspace: workspace ?? null,
       ...(pending ? { suggestion: pending.suggestion } : {}),
     });
     await pending?.markShown();
@@ -258,6 +272,7 @@ async function publishBuilt(
     io.stdout(
       `${messages.published(committed.url, committed.artifactId, committed.versionNumber, committed.expiresAt)}\n`,
     );
+    if (workspace !== undefined) io.stdout(`Workspace: ${workspace}\n`);
     const pending = await starSuggestion(runtime);
     if (pending) {
       io.stderr(`\n${pending.suggestion.message}\n`);

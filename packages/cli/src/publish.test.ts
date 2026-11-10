@@ -204,6 +204,7 @@ describe("portifact publish", () => {
       "sourceOrigin",
       "uploadedFiles",
       "uploadedBytes",
+      "workspace",
     ]);
     expect(output).toMatchObject({
       versionNumber: 1,
@@ -213,6 +214,7 @@ describe("portifact publish", () => {
       totalBytes: 9,
       uploadedFiles: 1,
       uploadedBytes: 9,
+      workspace: null,
     });
     expect(result.stdout.split("\n")).toHaveLength(2);
     expect(result.stderr).toContain("Uploaded 1 of 1");

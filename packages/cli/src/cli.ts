@@ -15,6 +15,7 @@ import {
   type LifecycleAction,
   lifecycle,
   list,
+  parseArtifactId,
   showAccess,
 } from "./artifacts.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
@@ -29,6 +30,7 @@ import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
 import { listTokens, revokeToken } from "./tokens.ts";
 import { usage } from "./usage.ts";
 import { rollback, versions } from "./versions.ts";
+import { transfer, useWorkspace, workspaces } from "./workspaces.ts";
 
 export type { Io } from "./runtime.ts";
 
@@ -101,6 +103,15 @@ approval, like Disconnect in the dashboard; the app has to ask again to reconnec
 portifact-cli signs this device out too. Revoking asks you to type "revoke"; without a terminal
 pass --yes. These commands need a login made with this version or later: if they answer that
 the session does not allow it, run \`portifact login\` again.
+`;
+
+const WORKSPACES_HELP = `
+Artifacts live in your personal space or in a workspace you belong to. Workspaces are created by
+Portifact's operator; their admins invite members from the dashboard. publish, list and usage act
+on your personal space unless --workspace names a workspace (or personal) or \`portifact
+workspaces use <slug>\` made one this device's default. Updating an artifact with --artifact
+always keeps it where it is. Admins and editors of a workspace see and manage everything published
+there; members only read and comment on what is shared with them.
 `;
 
 const LIST_MAX = 100;
@@ -196,6 +207,10 @@ export async function run(
     .option("--source <path>", "attach private sources: a folder, file or ZIP file (owner only)")
     .option("--ref <commit>", "with --source in a git repository: attach exactly this commit")
     .option("--assets <dir>", "folder of assets a Markdown document links to")
+    .option(
+      "--workspace <slug>",
+      "publish a new artifact to this workspace, or personal (default: `portifact workspaces use`)",
+    )
     .option("--dry-run", "print the manifest without uploading or signing in")
     .option("--json", "Print the result as JSON")
     .addHelpText("after", PUBLISH_HELP)
@@ -212,6 +227,7 @@ export async function run(
             source?: string;
             ref?: string;
             assets?: string;
+            workspace?: string;
             dryRun?: boolean;
             json?: boolean;
           },
@@ -225,6 +241,7 @@ export async function run(
             source: options.source,
             ref: options.ref,
             assets: options.assets,
+            workspace: options.workspace,
             dryRun: options.dryRun === true,
             json: options.json === true,
           }),
@@ -234,6 +251,7 @@ export async function run(
   program
     .command("list")
     .description("List your artifacts, most recently updated first")
+    .option("--workspace <slug>", "list this workspace's artifacts, or personal")
     .option("--limit <n>", `artifacts per page, 1 to ${LIST_MAX} (default: 50)`, parseLimit)
     .option("--cursor <cursor>", "continue from where the previous page ended")
     .option("--search <text>", "only artifacts whose name or ID contains this text", parseSearch)
@@ -262,9 +280,15 @@ export async function run(
         (
           io,
           runtime,
-          options: ArtifactListFilters & { limit?: number; cursor?: string; json?: boolean },
+          options: ArtifactListFilters & {
+            workspace?: string;
+            limit?: number;
+            cursor?: string;
+            json?: boolean;
+          },
         ) =>
           list(io, runtime, {
+            workspace: options.workspace,
             limit: options.limit,
             cursor: options.cursor,
             filters: {
@@ -510,10 +534,45 @@ export async function run(
   program
     .command("usage")
     .description("Show your account's quotas, current usage and anything blocking it")
+    .option("--workspace <slug>", "show this workspace's usage, or personal")
     .option("--json", "Print the result as JSON")
     .action(
+      execute((io, runtime, options: { workspace?: string; json?: boolean }) =>
+        usage(io, runtime, { workspace: options.workspace, json: options.json === true }),
+      ),
+    );
+
+  const workspaceCommand = program
+    .command("workspaces")
+    .description("List your workspaces, or choose where publish, list and usage go")
+    .enablePositionalOptions()
+    .option("--json", "Print the result as JSON")
+    .addHelpText("after", WORKSPACES_HELP)
+    .action(
       execute((io, runtime, options: { json?: boolean }) =>
-        usage(io, runtime, { json: options.json === true }),
+        workspaces(io, runtime, { json: options.json === true }),
+      ),
+    );
+  workspaceCommand
+    .command("use")
+    .description("Remember a workspace, or personal, as this device's default space")
+    .argument("<slug>", "a workspace slug from `portifact workspaces`, or personal")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, slug: string) =>
+        useWorkspace(io, runtime, { json: options.json === true }, slug),
+      ),
+    );
+
+  program
+    .command("transfer")
+    .description("Move an artifact to a workspace or to your personal space")
+    .argument("<id>", "artifact ID")
+    .requiredOption("--to <slug>", "a workspace slug, or personal")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { to: string; json?: boolean }, id: string) =>
+        transfer(io, runtime, { to: options.to, json: options.json === true }, parseArtifactId(id)),
       ),
     );
 

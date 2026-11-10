@@ -996,7 +996,11 @@ export const ptBR = {
   "error.capacity_unavailable":
     "O Portifact está no limite da capacidade agora. Tente de novo mais tarde.",
   "error.sole_workspace_admin":
-    "Você é a única pessoa administradora de um workspace. Torne outro membro administrador ou exclua o workspace antes de excluir sua conta.",
+    "Um workspace precisa ter uma pessoa administradora e você é a única. Torne antes outro membro administrador ou peça ao Portifact em hello@portifact.com para excluir o workspace.",
+  "error.seats_exhausted":
+    "O workspace usa todas as suas vagas. Remova um membro ou revogue um convite, ou peça mais vagas.",
+  "error.email_suppressed":
+    "O Portifact não pode enviar e-mails para este endereço porque mensagens anteriores voltaram ou foram marcadas como spam.",
   "error.rate_limited": "Solicitações demais. Aguarde um momento e tente de novo.",
   "error.reauthentication_required": "Entre de novo para fazer isso.",
   "error.human_verification_required":

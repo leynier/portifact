@@ -91,6 +91,7 @@ describe("account shapes", () => {
       annotations: "off",
       currentVersionId: null,
       url: "https://k7d2qm4xab.portifact.dev/",
+      owner: { kind: "personal" },
       expiresAt: null,
       archivedAt: null,
       purgeAt: null,

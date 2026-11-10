@@ -5,6 +5,7 @@ import {
   ExpiryNoticePayload,
   JobMessage,
   LIMITS,
+  OutboxTopic,
   TombstoneMarker,
 } from "./index.ts";
 
@@ -55,6 +56,22 @@ describe("job contracts", () => {
     const marker = { kind: "artifact", id: "k7d2qm4xab", deletedAt: 1 };
     expect(TombstoneMarker.parse(marker)).toEqual(marker);
     expect(TombstoneMarker.safeParse({ ...marker, kind: "version" }).success).toBe(false);
+    expect(TombstoneMarker.parse({ ...marker, kind: "workspace" }).kind).toBe("workspace");
+    expect(OutboxTopic.options).toEqual([
+      "purge_artifact",
+      "account_deletion",
+      "delete_objects",
+      "abort_multipart",
+      "erase_access_events",
+      "expiry_notice",
+      "workspace_deletion",
+    ]);
+    for (const kind of ["artifact", "account", "workspace"]) {
+      expect(TombstoneMarker.parse({ ...marker, kind }).kind).toBe(kind);
+    }
+    expect(JobMessage.parse({ id: 1, topic: "workspace_deletion" }).topic).toBe(
+      "workspace_deletion",
+    );
     expect(TombstoneMarker.safeParse({ ...marker, deletedAt: -1 }).success).toBe(false);
     expect(TombstoneMarker.safeParse({ ...marker, extra: true }).success).toBe(false);
   });

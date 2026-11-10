@@ -10,6 +10,7 @@ export const OutboxTopic = z.enum([
   "abort_multipart",
   "erase_access_events",
   "expiry_notice",
+  "workspace_deletion",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -61,7 +62,7 @@ export type ExpiryNoticePayload = z.infer<typeof ExpiryNoticePayload>;
 
 /** One purged or deleted artifact or account that a restored backup must not bring back. */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account"]),
+  kind: z.enum(["artifact", "account", "workspace"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

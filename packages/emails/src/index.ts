@@ -7,6 +7,11 @@ export {
   expiryNoticeEmail,
   formatExpiry,
 } from "./expiry-notice.ts";
+export {
+  INVITATION_TEXT,
+  type InvitationInput,
+  invitationEmail,
+} from "./invitation.ts";
 export { type Block, type EmailLayout, escapeHtml, type Inline, renderEmail } from "./layout.ts";
 export type { EmailContent } from "./message.ts";
 export { SIGN_IN_SUBJECT, type SignInCodeInput, signInCodeEmail } from "./sign-in-code.ts";

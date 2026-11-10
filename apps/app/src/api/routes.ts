@@ -6,18 +6,17 @@ import {
   AccessUpdate,
   ArtifactList,
   ArtifactListQuery,
-  ArtifactSummary,
   CommittedPublish,
   type ErrorCode,
   LifecycleResult,
   type OAuthScope,
   PublishRequest,
+  TransferRequest,
   UploadedPart,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
 import type { MultipartConfig } from "@portifact/domain";
 import {
-  type ArtifactRow,
   abortPublish,
   archiveArtifact,
   commitPublish,
@@ -29,6 +28,7 @@ import {
   renewArtifact,
   reportUploadedPart,
   restoreArtifact,
+  transferArtifact,
   updateAccess,
   uploadProgress,
 } from "@portifact/services";
@@ -36,17 +36,26 @@ import { Hono } from "hono";
 import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
-import { artifactListItem } from "../mcp/present.ts";
-import { artifactDb, defaultDb, personalScope } from "../regions.ts";
+import { artifactListItem, artifactSummary } from "../mcp/present.ts";
+import { artifactDb, defaultDb, ownerOf, ownerScope } from "../regions.ts";
 import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
-import { type ApiContext, error, type Guarded, idempotent, iso, readJson } from "./http.ts";
+import {
+  type ApiContext,
+  error,
+  type Guarded,
+  idempotent,
+  iso,
+  readJson,
+  workspaceParam,
+} from "./http.ts";
 import type { Presigner } from "./presign.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
+import { workspaceReadRoutes } from "./workspaces.ts";
 
 export interface ApiDeps {
   introspect(env: Env): Introspect;
@@ -92,11 +101,22 @@ export function apiRoutes(deps: ApiDeps) {
     guarded("artifacts:write", async (c, userId) => {
       const body = await readJson(c, PublishRequest);
       if (!body.ok) return body.response;
-      const db = body.value.artifactId
-        ? await artifactDb(c.env, body.value.artifactId)
-        : (await personalScope(c.env, userId)).db;
+      const workspace = workspaceParam(c);
+      if (!workspace.ok) return error(c, "not_found", "Workspace not found.");
+      // An update goes to the artifact's own owner; a new artifact to the space the request names.
+      let db: RegionalDb;
+      let targetOwnerId: string | undefined;
+      if (body.value.artifactId) {
+        db = await artifactDb(c.env, body.value.artifactId);
+      } else {
+        const scope = await ownerScope(c.env, userId, workspace.slug);
+        if (!scope.ok) return error(c, scope.code, scope.message);
+        db = scope.value.db;
+        targetOwnerId = scope.value.actor.ownerId;
+      }
       const now = deps.now();
-      return idempotent(c, { userId, operation: "publish.prepare", request: body.value, now }, () =>
+      const request = workspace.slug ? { ...body.value, workspace: workspace.slug } : body.value;
+      return idempotent(c, { userId, operation: "publish.prepare", request, now }, () =>
         prepareUpload(
           db,
           {
@@ -107,6 +127,7 @@ export function apiRoutes(deps: ApiDeps) {
           userId,
           body.value,
           now,
+          targetOwnerId,
         ),
       );
     }),
@@ -200,12 +221,16 @@ export function apiRoutes(deps: ApiDeps) {
         );
       }
       const { cursor, limit, ...filters } = query.data;
-      const { actor, db } = await personalScope(c.env, userId);
+      const workspace = workspaceParam(c);
+      if (!workspace.ok) return error(c, "not_found", "Workspace not found.");
+      const scope = await ownerScope(c.env, userId, workspace.slug);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db, owner } = scope.value;
       const page = await listArtifacts(db, { actor, cursor, limit, filters, now: deps.now() });
       if (!page.ok) return error(c, page.code, page.message);
       return c.json(
         ArtifactList.parse({
-          items: page.value.items.map((row) => artifactListItem(c.env, row)),
+          items: page.value.items.map((row) => artifactListItem(c.env, row, owner)),
           nextCursor: page.value.nextCursor,
         }),
       );
@@ -218,7 +243,29 @@ export function apiRoutes(deps: ApiDeps) {
       const artifactId = c.req.param("artifactId") as string;
       const row = await getArtifact(await artifactDb(c.env, artifactId), { userId, artifactId });
       if (!row.ok) return error(c, row.code, row.message);
-      return c.json(summary(c.env, row.value));
+      return c.json(artifactSummary(c.env, row.value, await ownerOf(c.env, row.value.ownerId)));
+    }),
+  );
+
+  // Moves an artifact to the caller's personal space (`workspace: null`) or a workspace; the
+  // caller must be an admin or editor on both sides. Repeating a move that happened changes
+  // nothing and answers the artifact where it is.
+  api.post(
+    "/api/v1/artifacts/:artifactId/transfer",
+    guarded("artifacts:write", async (c, userId) => {
+      const body = await readJson(c, TransferRequest);
+      if (!body.ok) return body.response;
+      const artifactId = c.req.param("artifactId") as string;
+      const result = await transferArtifact(await artifactDb(c.env, artifactId), c.env.ARTIFACTS, {
+        userId,
+        artifactId,
+        workspace: body.value.workspace,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(
+        artifactSummary(c.env, result.value, await ownerOf(c.env, result.value.ownerId)),
+      );
     }),
   );
 
@@ -296,29 +343,9 @@ export function apiRoutes(deps: ApiDeps) {
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);
   accessLogRoutes(api, guarded, deps.now);
+  workspaceReadRoutes(api, guarded, deps.now);
 
   return api;
-}
-
-function summary(env: Env, row: ArtifactRow) {
-  return ArtifactSummary.parse({
-    id: row.id,
-    name: row.name,
-    type: row.type,
-    state: row.state,
-    accessMode: row.accessMode,
-    annotations: row.annotations,
-    currentVersionId: row.currentVersionId,
-    url: contentUrl(env, row.id),
-    expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
-    archivedAt: row.archivedAt === null ? null : iso(row.archivedAt),
-    purgeAt: row.purgeAt === null ? null : iso(row.purgeAt),
-    ...(row.state === "suspended" && row.suspensionReason
-      ? { suspension: { reason: row.suspensionReason } }
-      : {}),
-    createdAt: iso(row.createdAt),
-    updatedAt: iso(row.updatedAt),
-  });
 }
 
 export function contentUrl(env: Env, artifactId: string): string {

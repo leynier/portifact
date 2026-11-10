@@ -211,6 +211,13 @@
       "when": 1794282306022,
       "tag": "0029_workspaces",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1794287816493,
+      "tag": "0030_workspace_members_invitations",
+      "breakpoints": true
     }
   ]
 }

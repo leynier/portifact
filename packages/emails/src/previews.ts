@@ -3,6 +3,7 @@
 import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
+import { invitationEmail } from "./invitation.ts";
 import type { EmailContent } from "./message.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 
@@ -28,6 +29,15 @@ const notice = {
 
 /** Every language besides English, each previewed in every user-facing email. */
 const TRANSLATED = LOCALE_CODES.filter((locale) => locale !== DEFAULT_LOCALE);
+
+const invitation = {
+  email: "grace@example.com",
+  inviterName: "Ada Lovelace",
+  workspaceName: "Analytical Engines",
+  role: "editor" as const,
+  acceptUrl: "https://app.portifact.com/invitations?token=sample",
+  expiresAt: CREATED_AT + 7 * 24 * HOUR,
+};
 
 export function previews(): Preview[] {
   return [
@@ -93,6 +103,11 @@ export function previews(): Preview[] {
           noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
         ],
       }),
+    })),
+    { name: "invitation", email: invitationEmail(invitation) },
+    ...TRANSLATED.map((locale) => ({
+      name: `invitation-${locale.toLowerCase()}`,
+      email: invitationEmail({ ...invitation, locale }),
     })),
   ];
 }

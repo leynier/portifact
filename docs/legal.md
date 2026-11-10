@@ -55,6 +55,15 @@ The Privacy Policy lists the two preference cookies (`__Secure-pf_theme`, `__Sec
 
 Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.
 
+## Pending changes for workspaces
+
+Workspaces (premium plan T1) shipped without changing the pages or `TERMS_VERSION`, so the texts can be updated in one reviewed change before workspaces are offered to anyone. Until then the operator creates workspaces only for customers who agreed to these terms separately. What the pages must then describe:
+
+- **New personal data.** Memberships (which account belongs to which workspace, with which role and since when), pending invitations (the invited email address, the role, who invited and when it expires; only a hash of the link's token) and a `transferred` event on an artifact (who moved it and between which spaces). Members of a workspace see each other's name and email; invitations list the invited addresses to the workspace's admins.
+- **Emails.** Invitation emails go to addresses that may have no account, in the inviting admin's language; they count in the month's email budget and are refused for suppressed addresses. The address is kept only while the invitation is pending (7 days, or until it is accepted, declined or revoked); expired ones are pruned.
+- **Retention and deletion.** A membership goes with the account or the workspace. A deleted workspace's artifacts, objects, counters and plan are purged like a deleted account's, and its ID is kept as a tombstone. An account that is a workspace's only admin cannot be deleted until another member is made admin or the workspace is deleted. The account export includes the account's memberships and the pending invitations addressed to it, never other people's addresses.
+- **Control and content.** A workspace's admins and editors manage every artifact in it and see every comment; content moved into a workspace stays there when the member who published it leaves or deletes their account. Who may create workspaces (the operator, until billing), seats, and that a lower or expired plan removes nobody but refuses new members.
+
 ## Changing the texts
 
 1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.

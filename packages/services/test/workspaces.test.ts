@@ -961,7 +961,7 @@ describe("account deletion with memberships", () => {
       ok: false,
       code: "sole_workspace_admin",
       message:
-        "You are the only admin of a workspace. Make another member an admin or delete the workspace before deleting your account.",
+        "You are the only admin of a workspace. Make another member its admin first, or ask Portifact at hello@portifact.com to delete the workspace, then delete your account.",
     });
     const [account] = await db().select().from(schema.users).where(eq(schema.users.id, t.admin.id));
     expect(account).toBeDefined();

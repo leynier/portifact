@@ -293,7 +293,7 @@ describe("operator backup commands", () => {
       // Other tests in this file write artifacts without directory rows, so the count varies.
       output: expect.stringMatching(
         new RegExp(
-          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) deleted again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
+          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
         ),
       ),
     });
@@ -304,7 +304,7 @@ describe("operator backup commands", () => {
     expect(
       (await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files)).output,
     ).toBe(
-      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) deleted again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
+      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
     );
     expect((await run("apply-tombstones")).exitCode).toBe(0);
   });

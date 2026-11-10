@@ -338,7 +338,9 @@ export const objects = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.ownerId, t.sha256] }),
-    uniqueIndex("objects_r2_key_idx").on(t.r2Key),
+    // Not unique: a transferred artifact's objects get rows for the new owner that point at the
+    // same R2 key (packages/services/src/transfer.ts). A key is deleted only once no row has it.
+    index("objects_r2_key_idx").on(t.r2Key),
     check("objects_sha256_format", sql`length(${t.sha256}) = 64`),
   ],
 );
@@ -530,6 +532,7 @@ export const OUTBOX_TOPICS = [
   "abort_multipart",
   "erase_access_events",
   "expiry_notice",
+  "workspace_deletion",
 ] as const;
 
 /**
@@ -597,11 +600,14 @@ export const lifecycleEvents = sqliteTable(
   (t) => [index("lifecycle_events_artifact_at_idx").on(t.artifactId, t.at)],
 );
 
-/** Purged artifact IDs and deleted accounts: never reused, never restored from backups. */
+/**
+ * Purged artifact IDs, deleted accounts and deleted workspaces: never reused, never restored from
+ * backups.
+ */
 export const tombstones = sqliteTable(
   "tombstones",
   {
-    kind: text("kind", { enum: ["artifact", "account"] }).notNull(),
+    kind: text("kind", { enum: ["artifact", "account", "workspace"] }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
@@ -1063,6 +1069,46 @@ export const workspaceMembers = sqliteTable(
     check("workspace_members_role", sql`${t.role} in ('admin', 'editor', 'member')`),
   ],
 );
+
+/**
+ * Pending invitations to a workspace (premium plan T1). Only a SHA-256 of the token is stored;
+ * the token itself is only in the email. The address is lowercase and the invitation is accepted
+ * only by a signed-in account whose verified email is that address. Accepting, declining or
+ * revoking deletes the row; one pending invitation per workspace and address, which a new
+ * invitation replaces. A pending invitation holds a seat until it expires.
+ */
+export const workspaceInvitations = sqliteTable(
+  "workspace_invitations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role", { enum: WORKSPACE_ROLES }).notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** The admin who sent it; null once their account is deleted. */
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("workspace_invitations_token_idx").on(t.tokenHash),
+    uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email),
+    index("workspace_invitations_email_idx").on(t.email),
+    check("workspace_invitations_role", sql`${t.role} in ('admin', 'editor', 'member')`),
+  ],
+);
+
+/**
+ * Workspaces the operator deleted whose artifacts and data are still being purged
+ * (`advanceWorkspaceDeletion`). The `workspaces` row is already gone; this row goes once nothing
+ * is left and a `workspace` tombstone replaces it.
+ */
+export const workspaceDeletions = sqliteTable("workspace_deletions", {
+  workspaceId: text("workspace_id").primaryKey(),
+  requestedAt: timestamp("requested_at").notNull(),
+});
 
 /**
  * The global artifact directory (decision 0005, section 2): which region holds each artifact ID

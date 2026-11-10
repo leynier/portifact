@@ -22,3 +22,4 @@ export * from "./text-read.ts";
 export * from "./traffic.ts";
 export * from "./usage.ts";
 export * from "./viewer.ts";
+export * from "./workspaces.ts";

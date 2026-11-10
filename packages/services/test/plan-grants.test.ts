@@ -190,7 +190,7 @@ describe("granting a plan", () => {
     expect(await grant("u_missing")).toEqual({
       ok: false,
       code: "not_found",
-      message: "Account not found.",
+      message: "Account or workspace not found.",
     });
     const leaving = await user();
     await db().insert(schema.accountDeletions).values({ userId: leaving.id, requestedAt: NOW });

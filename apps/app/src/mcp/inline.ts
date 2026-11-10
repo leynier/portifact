@@ -22,6 +22,8 @@ export const INLINE_FILES: Record<ArtifactType, { path: string; contentType: str
 export interface InlinePublish {
   /** The signed-in user; the services resolve their role on the owner. */
   userId: string;
+  /** The owner a new artifact is created for; the user's personal space when absent. */
+  targetOwnerId?: string | undefined;
   type: ArtifactType;
   name: string;
   content: string;
@@ -51,6 +53,7 @@ export async function publishInline(
   const sha256 = await sha256Hex(bytes);
   const prepared = await preparePublish(db, {
     userId: input.userId,
+    targetOwnerId: input.targetOwnerId,
     ...(input.artifactId ? { artifactId: input.artifactId } : {}),
     type: input.type,
     name: input.name,

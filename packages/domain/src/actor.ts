@@ -17,6 +17,7 @@ const MEMBER: readonly RoleAction[] = ["read", "comment"];
 const EDITOR: readonly RoleAction[] = [
   ...MEMBER,
   "manage",
+  "transfer",
   "list",
   "publish",
   "update",

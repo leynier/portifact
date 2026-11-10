@@ -17,6 +17,7 @@ import { advanceAccountDeletion } from "./account-data.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
+import { advanceWorkspaceDeletion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
 export const OUTBOX_REDELIVER_MS = 60 * 60_000;
@@ -170,6 +171,10 @@ async function runRow(
     case "expiry_notice":
       if (!notifier) throw new Error("expiry_notice needs the notifier");
       return sendExpiryNotice(db, row, now, notifier);
+    case "workspace_deletion": {
+      const state = await advanceWorkspaceDeletion(db, bucket, row.subject ?? "", now);
+      return state === "absent" ? "stale" : state === "finished" ? "done" : "pending";
+    }
   }
 }
 
