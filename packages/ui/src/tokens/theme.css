@@ -26,6 +26,12 @@
   --color-terminal-text: var(--pf-color-terminal-text);
   --color-terminal-muted: var(--pf-color-terminal-muted);
   --color-terminal-border: var(--pf-color-terminal-border);
+  /*
+   * The owner's accent on a branded viewer bar, set at runtime on the brand chip only
+   * (`BrandMark`, tokens/brand.ts); without one the chip is a neutral surface.
+   */
+  --color-brand: var(--pf-brand-accent, var(--pf-color-surface));
+  --color-brand-ink: var(--pf-brand-ink, var(--pf-color-text));
 
   --font-sans: var(--pf-font-sans);
   --font-mono: var(--pf-font-mono);

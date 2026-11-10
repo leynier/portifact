@@ -12,6 +12,10 @@
 // feature is not refused; and the plan that counts is the artifact owner's, never the caller's
 // (a workspace on a plan with the feature, acted on by an editor whose own space is free, is not
 // refused; a free workspace acted on by an editor with a paid plan is).
+//
+// Owner-level gates served only to the dashboard session, with no MCP tool or CLI command, are
+// not lines here: the brand (`branding`) is gated and tested in branding.test.ts with the same
+// body, and its owner-plan and role rules in packages/services/test/branding.test.ts.
 import { env } from "cloudflare:workers";
 import {
   lowestPlanWith,

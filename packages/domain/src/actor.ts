@@ -36,6 +36,8 @@ const ADMIN: readonly RoleAction[] = [
   "plan",
   "policies",
   "delete_workspace",
+  // The owner's brand on the viewer's bar (premium plan P9): what visitors see as the owner.
+  "brand",
 ];
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {

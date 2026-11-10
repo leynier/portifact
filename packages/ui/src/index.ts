@@ -3,6 +3,7 @@
 export { Avatar, type AvatarProps, initialOf, initials } from "./components/avatar.tsx";
 export { Badge, type BadgeProps } from "./components/badge.tsx";
 export { BarChart, type BarChartDatum, type BarChartProps } from "./components/bar-chart.tsx";
+export { BrandMark, type BrandMarkProps } from "./components/brand-mark.tsx";
 export { Button, type ButtonProps, buttonClasses } from "./components/button.tsx";
 export { Callout, type CalloutProps } from "./components/callout.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog.tsx";
@@ -28,6 +29,8 @@ export { EmptyState, type EmptyStateProps } from "./components/empty-state.tsx";
 export {
   Checkbox,
   type CheckboxProps,
+  ColorField,
+  type ColorFieldProps,
   RadioGroup,
   type RadioGroupProps,
   type RadioOption,
@@ -126,7 +129,14 @@ export {
   SectionedPage,
   type SectionedPageProps,
 } from "./patterns/section-nav.tsx";
-export { ViewerShell, type ViewerShellProps } from "./patterns/viewer-shell.tsx";
+export {
+  HostingNotice,
+  type HostingNoticeProps,
+  ViewerBarPreview,
+  type ViewerBarPreviewProps,
+  ViewerShell,
+  type ViewerShellProps,
+} from "./patterns/viewer-shell.tsx";
 export {
   applyTheme,
   darkSourceMedia,
@@ -135,3 +145,4 @@ export {
   THEME_PREFERENCES,
   type ThemePreference,
 } from "./theme/theme.ts";
+export { type BrandPalette, brandPalette } from "./tokens/brand.ts";

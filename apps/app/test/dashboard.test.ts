@@ -134,6 +134,16 @@ describe("viewer page", () => {
       );
       expect(policy).not.toContain("*.portifact.dev");
       expect(policy).toContain("frame-ancestors 'none'");
+      // The owner's logo comes from that same artifact origin and from nowhere else.
+      expect(policy).toContain("img-src 'self' https://k7d2qm4xab.portifact.dev;");
+      expect(policy).toBe(
+        (await dashboardCsp(env))
+          .replace("img-src 'self'", "img-src 'self' https://k7d2qm4xab.portifact.dev")
+          .replace(
+            "frame-src https://*.portifact.dev",
+            "frame-src https://k7d2qm4xab.portifact.dev",
+          ),
+      );
       expect(response.headers.get("cache-control")).toBe("no-store");
       expect(response.headers.get("referrer-policy")).toBe("no-referrer");
       expect(response.headers.get("x-frame-options")).toBe("DENY");

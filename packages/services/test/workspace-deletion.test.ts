@@ -292,4 +292,17 @@ describe("deleting a workspace", () => {
       await db().select().from(schema.domainClaims).where(eq(schema.domainClaims.ownerId, ws.id)),
     ).toEqual([]);
   });
+  it("erases the workspace's brand with it", async () => {
+    const { ws } = await newWorkspace();
+    // No foreign key ties a brand to its owner (an owner may be a workspace), so nothing cascades.
+    await db().insert(schema.ownerBrands).values({ ownerId: ws.id, name: "Acme", updatedAt: NOW });
+    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    for (let i = 0; i < 5; i += 1) {
+      if ((await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1)) !== "pending")
+        break;
+    }
+    expect(
+      await db().select().from(schema.ownerBrands).where(eq(schema.ownerBrands.ownerId, ws.id)),
+    ).toEqual([]);
+  });
 });

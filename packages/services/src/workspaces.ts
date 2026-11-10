@@ -25,6 +25,7 @@ import {
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import { claimArtifacts } from "./account-data.ts";
 import { actorOn } from "./actors.ts";
+import { eraseOwnerBrand } from "./branding.ts";
 import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { closeJobs } from "./outbox.ts";
@@ -593,6 +594,8 @@ export async function advanceWorkspaceDeletion(
     .from(schema.objects)
     .where(eq(schema.objects.ownerId, workspaceId));
   await releaseOrphans(db, bucket, objects, now);
+  // Its brand and logo, as an account's: no foreign key ties a brand to its owner.
+  await eraseOwnerBrand(db, bucket, workspaceId);
 
   const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${workspaceId})`;
   const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'workspace' and ${schema.tombstones.id} = ${workspaceId})`;

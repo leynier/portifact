@@ -57,12 +57,15 @@ import {
   reconcileCustomDomains,
   reinstateAccount,
   reinstateArtifact,
+  reinstateBrand,
   removeOwnerPlan,
   resolveAbuseReport,
   setBudgetOverride,
   setOwnerPlan,
+  showBrand,
   suspendAccount,
   suspendArtifact,
+  suspendBrand,
   type WorkspaceDetail,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
@@ -82,6 +85,9 @@ Commands:
   reinstate-artifact <artifact-id>
   suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
   reinstate-account <user-id|email>
+  brand <owner: user-id|email|workspace-id>
+  suspend-brand <owner> --reason <reason>
+  reinstate-brand <owner>
   storage-report [--limit N]
   export-tombstones --out <file>
   apply-tombstones [--file <file>]
@@ -679,6 +685,59 @@ export async function runOperator(
         output: result.value.changed
           ? `Reinstated account ${userId} and ${result.value.artifacts} artifact(s).`
           : `Account ${userId} was not suspended.`,
+      };
+    }
+    case "brand": {
+      const [who] = args;
+      if (!who) return usage("brand needs a user ID, email or workspace ID.");
+      const ownerId = await userIdFor(db, who);
+      if (!ownerId) return { exitCode: 1, output: "Account not found." };
+      const state = await showBrand(db, ownerId, now);
+      if (!state.brand) return { exitCode: 0, output: `${ownerId} has no brand.` };
+      // The name and link are the owner's text: one plain line each, never interpreted.
+      const b = state.brand;
+      return {
+        exitCode: 0,
+        output: [
+          `owner       ${ownerId}`,
+          `name        ${JSON.stringify(oneLine(b.name))}`,
+          `link        ${b.link === null ? "none" : JSON.stringify(oneLine(b.link))}`,
+          `accent      ${b.accentColor ?? "none"}`,
+          `logo        ${b.logo ? `${b.logo.type} ${b.logo.width}x${b.logo.height} ${b.logo.bytes} bytes ${b.logo.sha256}` : "none"}`,
+          `suspended   ${state.suspendedAt === null ? "no" : `${iso(state.suspendedAt)} (${state.suspensionReason})`}`,
+          `shown       ${state.shown ? "yes" : "no (default bar)"}`,
+        ].join("\n"),
+      };
+    }
+    case "suspend-brand": {
+      const [who] = args;
+      const reason = reasonOption();
+      if (!who || !reason.success) {
+        return usage("suspend-brand needs an owner and a valid --reason.");
+      }
+      const ownerId = await userIdFor(db, who);
+      if (!ownerId) return { exitCode: 1, output: "Account not found." };
+      const result = await suspendBrand(db, { ownerId, reason: reason.data, now });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      return {
+        exitCode: 0,
+        output: result.value.suspended
+          ? `Suspended the brand of ${ownerId}; its viewer shows the default bar.`
+          : `The brand of ${ownerId} was already suspended.`,
+      };
+    }
+    case "reinstate-brand": {
+      const [who] = args;
+      if (!who) return usage("reinstate-brand needs an owner.");
+      const ownerId = await userIdFor(db, who);
+      if (!ownerId) return { exitCode: 1, output: "Account not found." };
+      const result = await reinstateBrand(db, { ownerId, now });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      return {
+        exitCode: 0,
+        output: result.value.reinstated
+          ? `Reinstated the brand of ${ownerId}.`
+          : `The brand of ${ownerId} was not suspended.`,
       };
     }
     case "storage-report": {

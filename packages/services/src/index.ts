@@ -9,6 +9,7 @@ export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";
 export * from "./backups.ts";
+export * from "./branding.ts";
 export * from "./budget.ts";
 export * from "./cloudflare-hostnames.ts";
 export * from "./comment-notices.ts";

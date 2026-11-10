@@ -36,6 +36,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   plan: { admin: true, editor: false, member: false },
   policies: { admin: true, editor: false, member: false },
   delete_workspace: { admin: true, editor: false, member: false },
+  brand: { admin: true, editor: false, member: false },
 };
 
 describe("role by action", () => {

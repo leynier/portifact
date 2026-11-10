@@ -10,6 +10,9 @@ import {
   AccountSettingsUpdate,
   type AppResource,
   ArtifactId,
+  BRAND_LIMITS,
+  BrandSettings,
+  BrandUpdate,
   BrowserSessionList,
   CommentNoticeMute,
   CommentNoticeMuteUpdate,
@@ -22,21 +25,27 @@ import {
 } from "@portifact/contracts";
 import {
   type ConnectedAppRow,
+  deleteBrand,
   disconnectApp,
   exportAccount,
   getAccountSettings,
+  getBrandSettings,
   getCommentNoticeMute,
   listBrowserSessions,
   listConnectedApps,
+  readBrandLogo,
+  removeBrandLogo,
   requestAccountDeletion,
+  setBrandLogo,
   setCommentNoticeMute,
   updateAccountSettings,
+  updateBrand,
 } from "@portifact/services";
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import type { Env } from "../env.ts";
-import { artifactDb, defaultDb, regionsOf } from "../regions.ts";
+import { artifactDb, defaultDb, personalScope, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
 
@@ -211,6 +220,98 @@ export function accountRoutes(deps: AccountDeps) {
     }),
   );
 
+  // The brand of the account's space on the viewer's bar (premium plan P9). Session only, like
+  // the other account settings: a leaked token must never be able to dress the bar as someone
+  // else, and agents have no use for it (decision 0003 keeps credentials-like powers narrow).
+  // Every space is the personal one until a workspace can be chosen; the services decide the
+  // role (`brand`, admins only) and the plan (the owner's).
+  const brandRoute = "/api/v1/account/branding";
+  const brandAnswer = (c: AccountContext, result: Awaited<ReturnType<typeof getBrandSettings>>) =>
+    result.ok ? c.json(BrandSettings.parse(result.value)) : error(c, result.code, result.message);
+
+  routes.get(
+    brandRoute,
+    sessionOnly(async (c, session) => {
+      const { actor, db } = await personalScope(c.env, session.userId);
+      return brandAnswer(c, await getBrandSettings(db, { actor, now: deps.now() }));
+    }),
+  );
+
+  routes.put(
+    brandRoute,
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, BrandUpdate, 4096);
+      if (!body.ok) return body.response;
+      const { actor, db } = await personalScope(c.env, session.userId);
+      return brandAnswer(
+        c,
+        await updateBrand(db, {
+          actor,
+          update: body.value,
+          blockedHosts: [new URL(c.env.APP_ORIGIN).hostname, c.env.CONTENT_DOMAIN],
+          now: deps.now(),
+        }),
+      );
+    }),
+  );
+
+  routes.delete(
+    brandRoute,
+    sessionOnly(async (c, session) => {
+      const { actor, db } = await personalScope(c.env, session.userId);
+      return brandAnswer(c, await deleteBrand(db, { actor, now: deps.now() }));
+    }),
+  );
+
+  // The logo is sent as the raw bytes of the file; its declared type and name are ignored, and
+  // the services judge it by its bytes.
+  routes.put(
+    `${brandRoute}/logo`,
+    sessionOnly(async (c, session) => {
+      const bytes = await readBounded(c.req.raw, BRAND_LIMITS.logoMaxBytes);
+      if (bytes === null) {
+        return error(
+          c,
+          "invalid_input",
+          `logo: Use an image of at most ${BRAND_LIMITS.logoMaxBytes / 1000} KB.`,
+        );
+      }
+      const { actor, db } = await personalScope(c.env, session.userId);
+      return brandAnswer(
+        c,
+        await setBrandLogo(db, c.env.ARTIFACTS, { actor, bytes, now: deps.now() }),
+      );
+    }),
+  );
+
+  routes.delete(
+    `${brandRoute}/logo`,
+    sessionOnly(async (c, session) => {
+      const { actor, db } = await personalScope(c.env, session.userId);
+      return brandAnswer(c, await removeBrandLogo(db, { actor, now: deps.now() }));
+    }),
+  );
+
+  // The stored logo for the Branding page's own preview: same-origin and session only, so it is
+  // never an address another site can show; served as an image that can never run.
+  routes.get(
+    `${brandRoute}/logo`,
+    sessionOnly(async (c, session) => {
+      const { actor, db } = await personalScope(c.env, session.userId);
+      const logo = await readBrandLogo(db, c.env.ARTIFACTS, { actor });
+      if (!logo.ok) return error(c, logo.code, logo.message);
+      return new Response(logo.value.body, {
+        headers: {
+          "Content-Type": logo.value.type,
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'; sandbox",
+          "Cross-Origin-Resource-Policy": "same-origin",
+          "Content-Disposition": "inline",
+        },
+      });
+    }),
+  );
+
   // The account's data as a JSON download, offered before deletion (plan section 5).
   routes.get(
     "/api/v1/account/export",
@@ -273,6 +374,33 @@ export function connectedAppView(appOrigin: string): (row: ConnectedAppRow) => C
 
 function iso(ms: number): string {
   return new Date(ms).toISOString();
+}
+
+/** The request body, or null when it is longer than `max` bytes; never reads past it. */
+async function readBounded(request: Request, max: number): Promise<Uint8Array | null> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > max) return null;
+  if (!request.body) return new Uint8Array();
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    length += value.byteLength;
+    if (length > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(length);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return bytes;
 }
 
 function error(c: AccountContext, code: ErrorCode, message: string): Response {

@@ -218,7 +218,8 @@ async function purgeClaimed(
 
 /**
  * Deletes R2 objects whose rows a committed batch already deleted. Keys are content addressed,
- * so a key that has a row again (the same bytes uploaded since) is kept.
+ * so a key that has a row again (the same bytes uploaded since, or a brand's logo named again)
+ * is kept.
  */
 async function deleteUnreferencedKeys(db: Db, bucket: R2Bucket, keys: string[]) {
   for (let i = 0; i < keys.length; i += IN_CHUNK) {
@@ -231,6 +232,15 @@ async function deleteUnreferencedKeys(db: Db, bucket: R2Bucket, keys: string[]) 
           .where(inArray(schema.objects.r2Key, chunk))
       ).map((row) => row.key),
     );
+    // A logo key is kept while a brand names it again (the same logo uploaded since).
+    const logos = chunk.filter((key) => key.startsWith("brands/"));
+    if (logos.length > 0) {
+      const b = schema.ownerBrands;
+      const named = sql<string>`'brands/' || ${b.ownerId} || '/' || ${b.logoSha256}`;
+      for (const row of await db.select({ key: named }).from(b).where(inArray(named, logos))) {
+        kept.add(row.key);
+      }
+    }
     const gone = chunk.filter((key) => !kept.has(key));
     if (gone.length > 0) await bucket.delete(gone);
   }

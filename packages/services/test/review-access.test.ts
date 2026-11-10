@@ -314,6 +314,7 @@ describe("viewer artifact", () => {
         accessMode: "restricted",
         annotations: "off",
         role: "owner",
+        brand: null,
       },
     });
     const reader = await view(READER);

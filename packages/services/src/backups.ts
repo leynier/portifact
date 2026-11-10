@@ -275,7 +275,7 @@ export async function applyTombstones(
   // A workspace with anything left of it and no deletion in progress.
   const resurrectedWorkspace = sql`${t.kind} = 'workspace' and not exists (select 1 from ${wd} where ${wd.workspaceId} = ${t.id}) and (exists (select 1 from ${ws} where ${ws.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
   // An account with anything left of it and no deletion in progress.
-  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
+  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}) or exists (select 1 from ${schema.ownerBrands} where ${schema.ownerBrands.ownerId} = ${t.id}))`;
 
   const l = schema.shareLinks;
   const [, deletions, , workspaces, , artifacts, shareLinks] = await db.batch([

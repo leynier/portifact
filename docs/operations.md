@@ -157,6 +157,16 @@ On artifacts whose owner's plan includes `commentNotices` (Pro and above, from `
 
 To stop these emails in an emergency (a bug that sends too many, a complaint wave), with the deploy credentials: delete the pending work, `wrangler d1 execute portifact-control --remote --command "delete from comment_notices; delete from outbox where topic = 'comment_notice'"`, and repeat it after each scheduled run until a fix is deployed; or deploy the jobs Worker without `UNSUBSCRIBE_SECRET` (`wrangler secret delete UNSUBSCRIBE_SECRET --name portifact-jobs`), which keeps every job failing before it sends. Budget protection that pauses annotation writes also stops new activity, since nothing is marked without a write. Nobody's comments or preferences change either way.
 
+## Brands
+
+Owners whose plan includes `branding` show a name, logo, color and link on the viewer's bar ("Owner branding" in [security.md](security.md)). A brand that impersonates someone, imitates Portifact or links to phishing is handled like an abusive artifact, but its suspension is separate:
+
+- `brand <owner>` (user ID, email or workspace ID) prints the brand with its text on one quoted line each, the logo's type, size and hash, whether it is suspended and whether the viewer shows it.
+- `suspend-brand <owner> --reason <reason>` sets `owner_brands.suspended_at`: the viewer shows the default bar on every artifact of the owner at once and the logo stops being served; the brand is kept, the owner sees "Your brand is suspended" on the Branding page and cannot delete it. Suspend the artifacts too when they are abusive themselves. `reinstate-brand <owner>` lifts it. Both are idempotent; there is no web route for either.
+- When the owner's plan stops including `branding`, the default bar shows and the brand is kept; nothing needs doing. A logo counts in the owner's storage and is released when it is replaced, removed or the brand is deleted, through a `delete_objects` job.
+- Logos are stored at `brands/<owner>/<sha256>` in R2, which the storage reconciliation does not scan (it lists `objects/`). Deleting an account deletes its brand and logo when the deletion finishes.
+- A D1 Time Travel restore rewinds `owner_brands`: brands changed since come back as they were (a logo deleted since then is missing and the viewer shows the brand without it), and so do suspensions, like artifact suspensions. Before restoring, note the suspended brands (`npx wrangler d1 execute portifact-control --remote --command "select owner_id, suspension_reason from owner_brands where suspended_at is not null"`) and suspend them again after `apply-tombstones`. `apply-tombstones` deletes the brand of a deleted account the restore brought back.
+
 ## Account deletions
 
 Deletions need no operator action: the request removes the user at once and the scheduled jobs finish the rest (see "Account deletion" in [security.md](security.md)). `select * from account_deletions` lists the ones still in progress.

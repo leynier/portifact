@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bf6e199e-89e5-4a93-b9fa-37cc8b510b5a",
+  "id": "7d13cf6f-fea1-45a2-b926-79de671b9a49",
   "prevId": "84b2db8f-3807-4cc4-968b-ec977ef2dcf4",
   "tables": {
     "abuse_reports": {
@@ -1910,7 +1910,7 @@
         "objects_r2_key_idx": {
           "name": "objects_r2_key_idx",
           "columns": ["r2_key"],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -2078,6 +2078,129 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "owner_brands": {
+      "name": "owner_brands",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accent_color": {
+          "name": "accent_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "link": {
+          "name": "link",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_sha256": {
+          "name": "logo_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_type": {
+          "name": "logo_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_width": {
+          "name": "logo_width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_height": {
+          "name": "logo_height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_bytes": {
+          "name": "logo_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "suspended_at": {
+          "name": "suspended_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "suspension_reason": {
+          "name": "suspension_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "owner_brands_accent": {
+          "name": "owner_brands_accent",
+          "value": "\"owner_brands\".\"accent_color\" is null or (length(\"owner_brands\".\"accent_color\") = 7 and \"owner_brands\".\"accent_color\" glob '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "owner_brands_logo": {
+          "name": "owner_brands_logo",
+          "value": "(\"owner_brands\".\"logo_sha256\" is null and \"owner_brands\".\"logo_type\" is null and \"owner_brands\".\"logo_width\" is null and \"owner_brands\".\"logo_height\" is null and \"owner_brands\".\"logo_bytes\" is null) or (length(\"owner_brands\".\"logo_sha256\") = 64 and \"owner_brands\".\"logo_type\" in ('image/png', 'image/jpeg', 'image/webp') and \"owner_brands\".\"logo_width\" > 0 and \"owner_brands\".\"logo_height\" > 0 and \"owner_brands\".\"logo_bytes\" between 1 and 100000)"
+        },
+        "owner_brands_suspension": {
+          "name": "owner_brands_suspension",
+          "value": "(\"owner_brands\".\"suspended_at\" is null) = (\"owner_brands\".\"suspension_reason\" is null)"
+        }
+      }
     },
     "owner_plans": {
       "name": "owner_plans",
@@ -3714,136 +3837,6 @@
         "versions_bytes_nonnegative": {
           "name": "versions_bytes_nonnegative",
           "value": "\"versions\".\"published_bytes\" >= 0 and \"versions\".\"source_bytes\" >= 0"
-        }
-      }
-    },
-    "workspace_deletions": {
-      "name": "workspace_deletions",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "requested_at": {
-          "name": "requested_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "workspace_invitations": {
-      "name": "workspace_invitations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "invited_by": {
-          "name": "invited_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "workspace_invitations_token_idx": {
-          "name": "workspace_invitations_token_idx",
-          "columns": ["token_hash"],
-          "isUnique": true
-        },
-        "workspace_invitations_workspace_email_idx": {
-          "name": "workspace_invitations_workspace_email_idx",
-          "columns": ["workspace_id", "email"],
-          "isUnique": true
-        },
-        "workspace_invitations_email_idx": {
-          "name": "workspace_invitations_email_idx",
-          "columns": ["email"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "workspace_invitations_workspace_id_workspaces_id_fk": {
-          "name": "workspace_invitations_workspace_id_workspaces_id_fk",
-          "tableFrom": "workspace_invitations",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "workspace_invitations_invited_by_users_id_fk": {
-          "name": "workspace_invitations_invited_by_users_id_fk",
-          "tableFrom": "workspace_invitations",
-          "tableTo": "users",
-          "columnsFrom": ["invited_by"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "workspace_invitations_role": {
-          "name": "workspace_invitations_role",
-          "value": "\"workspace_invitations\".\"role\" in ('admin', 'editor', 'member')"
         }
       }
     },

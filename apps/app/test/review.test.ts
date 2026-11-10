@@ -252,6 +252,7 @@ describe("viewer info", () => {
       accessMode: "restricted",
       annotations: "off",
       role: "owner",
+      brand: null,
     });
     await env.DB.prepare("UPDATE artifacts SET access_mode = 'authenticated' WHERE id = ?")
       .bind(artifactId)
