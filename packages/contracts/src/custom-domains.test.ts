@@ -95,3 +95,63 @@ describe("custom domain inputs", () => {
     ).toBe(false);
   });
 });
+
+describe("custom domain shapes, exactly", () => {
+  it("lists the states, record types and problems", async () => {
+    const { CustomDomainState, DnsRecord, CustomDomainProblem } = await import("./custom-domains.ts");
+    expect(CustomDomainState.options).toEqual(["pending", "provisioning", "active", "removing"]);
+    expect(DnsRecord.shape.type.options).toEqual(["TXT", "CNAME"]);
+    expect(CustomDomainProblem.options).toEqual([
+      "txt_missing",
+      "certificate_pending",
+      "cloudflare_unavailable",
+    ]);
+  });
+
+  it("explains a refused hostname", () => {
+    expect(HostnameInput.safeParse("").error?.issues[0]?.message).toBe(
+      "Type a hostname, for example docs.example.com.",
+    );
+    expect(HostnameInput.safeParse("a".repeat(301)).error?.issues[0]?.message).toBe(
+      "A hostname has at most 253 characters.",
+    );
+  });
+
+  it("requires every field of the list, the add body, the removal and the query", async () => {
+    const { CustomDomainList, CustomDomainRemoved } = await import("./custom-domains.ts");
+    const list = {
+      available: true,
+      enabled: true,
+      limit: 5,
+      used: 2,
+      cnameTarget: "domains.portifact.dev",
+      domains: [],
+    };
+    expect(CustomDomainList.parse(list)).toEqual(list);
+    for (const key of Object.keys(list)) {
+      const { [key]: _dropped, ...rest } = list as Record<string, unknown>;
+      expect(CustomDomainList.safeParse(rest).success, key).toBe(false);
+    }
+    expect(CustomDomainList.safeParse({ ...list, limit: -1 }).success).toBe(false);
+    expect(CustomDomainList.safeParse({ ...list, used: -1 }).success).toBe(false);
+    expect(CustomDomainAdd.safeParse({}).success).toBe(false);
+    expect(CustomDomainAdd.parse({ hostname: " a.example.com " })).toEqual({
+      hostname: "a.example.com",
+    });
+    expect(CustomDomainRemoved.safeParse({ hostname: "a.example.com", removed: false }).success).toBe(
+      false,
+    );
+    expect(CustomDomainRemoved.safeParse({ removed: true }).success).toBe(false);
+    expect(CustomDomainListQuery.parse({ artifactId: "abcdefghij" })).toEqual({
+      artifactId: "abcdefghij",
+    });
+  });
+
+  it("describes the MCP inputs for agents", () => {
+    const describe = (schema: { description?: string | undefined }) => schema.description ?? "";
+    expect(describe(AddCustomDomainInput.shape.artifactId)).toContain("list_artifacts");
+    expect(describe(AddCustomDomainInput.shape.hostname)).toContain("never an apex domain");
+    expect(describe(AddCustomDomainInput.shape.idempotencyKey)).toContain("Idempotency-Key");
+    expect(describe(RemoveCustomDomainInput.shape.confirm)).toContain("after the user confirmed");
+  });
+});
