@@ -16,7 +16,7 @@ A `restricted` artifact lists the people who may read it by email address. A tea
 - Comment visibility: a group carries the same exception a reader row does (`null`, `all`, `own`). The reader row's exception wins; otherwise the widest scope among the listed groups the person is in, each group giving its exception or, without one, the artifact's setting; otherwise the setting.
 - Revocation follows decision 0010: leaving a group, the group being deleted or the person leaving the workspace stops reading at the next 60-second claim renewal and refuses new sessions at once; removing a group from an artifact moves the generation and ends sessions on the next request.
 - Plan: creating groups, adding members and adding a group to an artifact need `workspaces`; renaming, removing members, deleting groups, removing a group from an artifact and listing never do. With the feature gone, groups grant nothing (and carry no exceptions) until it returns: never wider.
-- Restores: deleting a group writes a `workspace_group` tombstone, removing a membership (one by one, or every membership of someone leaving or removed from the workspace) writes a `workspace_group_member` tombstone per row; `applyTombstones` deletes the rows they name.
+- Restores: deleting a group writes a `workspace_group` tombstone, removing a membership (one by one, or every membership of someone leaving or removed from the workspace) writes a `workspace_group_member` tombstone per row; `applyTombstones` deletes the rows they name. Those two kinds of tombstone are pruned after the 30-day D1 Time Travel window (`pruneGroupTombstones`), since no restore can reach further back.
 
 ## Design
 
@@ -27,7 +27,8 @@ A `restricted` artifact lists the people who may read it by email address. A tea
 `artifact_groups` (artifact, group, comment exception, created, `checked_at`) lives with the artifact in its region and cascades from it. It cannot reference the global group. Consequences, which [decision 0005](0005-regions.md) requires anyway (no batch spans two databases):
 
 - Adding a group checks, after authorization, that the group exists in the artifact owner's workspace (one global read), then writes the regional row in the access update's batch, on the generation and owner it read. A group deleted between the check and the write leaves a row that grants nothing.
-- Deleting a group cannot delete the regional rows in its batch. Those rows grant nothing, because reading asks the global database which listed groups the viewer belongs to and a deleted group has no members. A bounded maintenance scan (`pruneArtifactGroups`, every 15 minutes) takes up to 500 rows least recently checked, asks the global database which of their groups still exist in the artifact owner's workspace, deletes the others and marks the rest checked, so every row is reached in turn. The access view leaves a deleted group out at once.
+- A row whose group is gone counts toward no cap and is not shown; the next change to the artifact's groups deletes it in its own batch.
+- Deleting a group cannot delete the regional rows in its batch. Those rows grant nothing, because reading asks the global database which listed groups the viewer belongs to and a deleted group has no members. A bounded maintenance scan (`pruneArtifactGroups`, every 15 minutes, before the approval re-check that runs last) takes up to 500 rows least recently checked, asks the global database which of their groups still exist in the artifact owner's workspace, deletes the others and marks the rest checked, so every row is reached in turn. The access view leaves a deleted group out at once.
 
 ### Who reads
 
@@ -75,6 +76,12 @@ Management stays session-only like members and invitations ([decision 0003](0003
 ### Audit log
 
 Global events, through `auditEvent` in each change's own batch on its own condition: `group.created`, `group.renamed`, `group.deleted` (target: the group) and `group.member_added`, `group.member_removed` (target: the member, detail `{ group: <ID> }`). The group's name is owner-chosen text: events store only its ID, and readers show the current name at display time (`group` in `AuditEventView`, null once deleted), like a service token's label. Changes to an artifact's groups are part of its `access.changed` event as counts (`groupsAdded`, `groupsRemoved`, `groupExceptions`), like readers: one access change is one event, in the regional batch that makes it. Memberships that go by cascade when someone leaves the workspace record nothing beyond `member.left` or `member.removed`.
+
+### Approval reviews and content search
+
+Approval reviews ([decision 0013](0013-approval-reviews.md)) ask the same access rules who may review: `participation` also admits a member of the owning workspace who is in a group the `restricted` artifact lists, with one regional read of the listed groups and one batched global read of the memberships of the workspace's members among the addresses (an address outside the workspace never changes the reads or the answer). Removing a group from the artifact drops the reviewers it admitted in the access change's own batch (`approvalAccessStatements`), like removing a reader. Removing someone from a group, or deleting the group, is a global change, so `recheckApprovalReviewers` drops them on its next pass, like losing workspace membership; its per-request budget counts the two group reads (10 calls a request). Who sees other reviewers' entries follows `commentScope`, so a group's comment exception applies there too.
+
+Content search is owner-side only, so groups do not apply to it.
 
 ### Webhooks
 

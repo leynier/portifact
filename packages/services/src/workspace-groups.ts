@@ -513,6 +513,32 @@ export async function viewerGroupIds(
   return new Set(rows.map((row) => row.groupId));
 }
 
+/**
+ * Which of `groupIds` each of `userIds` belongs to in the workspace, in one batched global read
+ * (approval reviews' `participation`, decision 0014). Reads nothing when either list is empty.
+ */
+export async function groupMembershipsOf(
+  global: GlobalDb,
+  workspaceId: string,
+  userIds: readonly string[],
+  groupIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const found = new Map<string, string[]>();
+  if (userIds.length === 0 || groupIds.length === 0) return found;
+  const rows = await global
+    .select({ userId: gm.userId, groupId: gm.groupId })
+    .from(gm)
+    .where(
+      and(
+        eq(gm.workspaceId, workspaceId),
+        inArray(gm.userId, [...userIds]),
+        inArray(gm.groupId, [...groupIds]),
+      ),
+    );
+  for (const row of rows) found.set(row.userId, [...(found.get(row.userId) ?? []), row.groupId]);
+  return found;
+}
+
 /** Names and member counts of the owner's groups among `groupIds`, for the access view. */
 export async function groupSummaries(
   global: GlobalDb,

@@ -252,12 +252,14 @@ async function checkGroupChange(
   artifact: { id: string; ownerId: string },
   change: AccessChange,
   owner: ReturnType<typeof entitlements>,
-): Promise<Result<{ add: string[]; remove: string[]; stale: string[] }>> {
+): Promise<
+  Result<{ add: string[]; remove: string[]; stale: string[]; after: string[] | undefined }>
+> {
   const add = [...new Set(change.addGroups ?? [])];
   const remove = [...new Set(change.removeGroups ?? [])].filter((id) => !add.includes(id));
   const exceptions = change.groupCommentVisibility ?? [];
   if (add.length === 0 && remove.length === 0 && exceptions.length === 0) {
-    return ok({ add, remove, stale: [] });
+    return ok({ add, remove, stale: [], after: undefined });
   }
   // Rows whose group was deleted grant nothing and are not shown: they do not count toward the
   // cap, and this change removes them (decision 0014, "Data and regions").
@@ -290,7 +292,7 @@ async function checkGroupChange(
       `${unlisted.group} is not on the artifact. Add the group before choosing what it sees.`,
     );
   }
-  return ok({ add, remove, stale });
+  return ok({ add, remove, stale, after: [...after] });
 }
 
 /**
@@ -356,7 +358,12 @@ export async function updateAccess(
 
   const groupChange = await checkGroupChange(db, artifact, change, owner);
   if (!groupChange.ok) return groupChange;
-  const { add: addGroups, remove: removeGroups, stale: staleGroups } = groupChange.value;
+  const {
+    add: addGroups,
+    remove: removeGroups,
+    stale: staleGroups,
+    after: groupsAfter,
+  } = groupChange.value;
   const groupExceptions = change.groupCommentVisibility ?? [];
 
   const unchangedPolicy = sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifact.id} and ${schema.artifacts.ownerId} = ${artifact.ownerId} and ${schema.artifacts.policyGeneration} = ${artifact.policyGeneration})`;
@@ -364,7 +371,7 @@ export async function updateAccess(
   // batch and on its condition (decision 0013).
   const modeChanges = change.mode !== undefined && change.mode !== artifact.accessMode;
   const reviewDrops =
-    remove.length > 0 || modeChanges
+    remove.length > 0 || modeChanges || removeGroups.length > 0
       ? await approvalAccessStatements(db, {
           artifact,
           policy: {
@@ -373,6 +380,9 @@ export async function updateAccess(
               ...(await readers(db, artifact.id)).filter((email) => !remove.includes(email)),
               ...add,
             ],
+            // A group removed with this change stops admitting its members as reviewers in the
+            // same batch, like a removed reader (decision 0014).
+            ...(groupsAfter === undefined ? {} : { groups: groupsAfter }),
           },
           owner,
           condition: unchangedPolicy,

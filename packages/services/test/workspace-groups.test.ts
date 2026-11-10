@@ -17,6 +17,12 @@ import {
   replyToAnnotationThread,
   setAnnotationMode,
 } from "../src/annotations.ts";
+import {
+  getApprovalReview,
+  recheckApprovalReviewers,
+  requestApprovalReview,
+  submitApprovalVerdict,
+} from "../src/approval-reviews.ts";
 import { getAuditLog } from "../src/audit.ts";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
 import { listOpenFeedback } from "../src/feedback.ts";
@@ -1126,5 +1132,78 @@ describe("pruning group tombstones", () => {
     expect(left.has(`wgm_new_${tag}`)).toBe(true);
     expect(left.has(`wd_old_${tag}`)).toBe(true);
     expect(left.has(`u_old_${tag}`)).toBe(true);
+  });
+});
+
+describe("approval reviews and groups", () => {
+  const ask = (t: Team, artifactId: string, emails: string[]) =>
+    requestApprovalReview(db(), {
+      userId: t.admin.id,
+      artifactId,
+      reviewers: emails,
+      requiredApprovals: null,
+      showStatus: false,
+      now: NOW,
+    });
+  const status = (userId: string, artifactId: string, now = NOW + 2) =>
+    getApprovalReview(db(), { userId, artifactId, now });
+  const active = async (t: Team, artifactId: string, email: string) =>
+    value(await status(t.admin.id, artifactId)).request?.reviewers.find((r) => r.email === email)
+      ?.active;
+
+  it("asks a member who reads through a group, and drops them when the group leaves the artifact", async () => {
+    const { t, group, artifactId } = await listed();
+    value(await ask(t, artifactId, [t.member.email]));
+    expect(await active(t, artifactId, t.member.email)).toBe(true);
+    // Someone the group does not reach still cannot be asked.
+    expect(await ask(t, artifactId, [t.other.email])).toMatchObject({ ok: false });
+    value(await change(t.admin.id, artifactId, { removeGroups: [group.id] }));
+    expect(await active(t, artifactId, t.member.email)).toBe(false);
+  });
+
+  it("drops a reviewer removed from the group at the re-check, like a member who left", async () => {
+    const { t, group, artifactId } = await listed();
+    value(await ask(t, artifactId, [t.member.email]));
+    value(
+      await removeGroupMember(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        groupId: group.id,
+        memberId: t.member.id,
+        now: NOW,
+      }),
+    );
+    // The membership is global: the artifact's batch cannot see it; the re-check does.
+    expect(await active(t, artifactId, t.member.email)).toBe(true);
+    await db().delete(schema.maintenanceCursors);
+    for (let run = 0; run < 20; run++) {
+      await recheckApprovalReviewers(db(), NOW + DAY);
+      if ((await active(t, artifactId, t.member.email)) === false) break;
+    }
+    expect(await active(t, artifactId, t.member.email)).toBe(false);
+  });
+
+  it("shows other reviewers' entries by the group's comment exception", async () => {
+    const { t, group, artifactId } = await listed();
+    value(await join(t, group.id, t.other.id));
+    value(await ask(t, artifactId, [t.member.email, t.other.email]));
+    value(
+      await submitApprovalVerdict(db(), {
+        userId: t.other.id,
+        artifactId,
+        verdict: "approve",
+        now: NOW + 1,
+      }),
+    );
+    const seen = async () =>
+      value(await status(t.member.id, artifactId)).request?.reviewers.map((r) => r.you);
+    // The setting is `owner`: the member sees only their own entry.
+    expect(await seen()).toEqual([true]);
+    value(
+      await change(t.admin.id, artifactId, {
+        groupCommentVisibility: [{ group: group.id, commentVisibility: "all" }],
+      }),
+    );
+    expect((await seen())?.sort()).toEqual([false, true]);
   });
 });

@@ -68,6 +68,7 @@ import {
   needsHumanCheck,
   ok,
   type Result,
+  requireFeature,
   threadInScope,
   threadVisible,
 } from "@portifact/domain";
@@ -79,7 +80,12 @@ import { markCommentActivity } from "./comment-activity.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
-import { artifactGroupRows, groupScopeSql, viewerGroups } from "./workspace-groups.ts";
+import {
+  artifactGroupRows,
+  groupMembershipsOf,
+  groupScopeSql,
+  viewerGroups,
+} from "./workspace-groups.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -1594,7 +1600,12 @@ export async function participation(
   artifact: Pick<ArtifactRow, "id" | "ownerId" | "accessMode">,
   emails: readonly string[],
   owner: Entitlements,
-  policy?: { mode: ArtifactRow["accessMode"]; readers: readonly string[] },
+  policy?: {
+    mode: ArtifactRow["accessMode"];
+    readers: readonly string[];
+    /** The groups the artifact lists after the change; read from the artifact when absent. */
+    groups?: readonly string[] | undefined;
+  },
 ): Promise<Map<string, Participant>> {
   const result = new Map<string, Participant>();
   const addresses = [...new Set(emails)];
@@ -1647,6 +1658,18 @@ export async function participation(
     verifiedEmails: addresses,
     entitlements: owner,
   });
+  // Groups (decision 0014) admit only members of the owning workspace, so only the members found
+  // above are asked about: one regional read of the listed groups and one batched global read of
+  // their memberships. An address outside the workspace never changes the reads.
+  const groupsAvailable = requireFeature(owner, "workspaces").ok;
+  const members = [...known.values()]
+    .filter((person) => person.role === "member")
+    .map((person) => person.userId);
+  const listedGroups =
+    mode === "restricted" && groupsAvailable && members.length > 0
+      ? (policy?.groups ?? (await artifactGroupRows(db, artifact.id)).map((row) => row.groupId))
+      : [];
+  const inGroups = await groupMembershipsOf(db.global, artifact.ownerId, members, listedGroups);
   for (const email of addresses) {
     const person = known.get(email);
     const actor: Actor | null = person
@@ -1663,6 +1686,13 @@ export async function participation(
         ownerId: artifact.ownerId,
         readers: readers.has(email) ? [email] : [],
         domains,
+        groups: {
+          featureAvailable: groupsAvailable,
+          matched: (person ? (inGroups.get(person.userId) ?? []) : []).map((id) => ({
+            id,
+            commentVisibility: null,
+          })),
+        },
       },
       // Nobody outside the owner's people is told apart from an address with no account.
       { userId: person?.userId ?? "", verifiedEmails: [email] },

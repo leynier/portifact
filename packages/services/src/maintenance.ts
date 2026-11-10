@@ -557,7 +557,9 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
-    // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014).
+    // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014):
+    // one read of at most 500 rows, at most 6 global reads of 90 group IDs and at most 14 writes
+    // of 40 rows.
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     // At most four statements of 500 rows (decision 0014, "Restores").
     groupTombstones: (await pruneGroupTombstones(db.global, now)).deleted,
