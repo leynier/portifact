@@ -449,9 +449,9 @@ export const ru = {
   "settings.notices.saved": "Уведомления по почте сохранены.",
   "settings.notices.unchanged": "Нечего сохранять: уведомления уже настроены так.",
   "settings.notices.failed": "Уведомления по почте не сохранены",
-  "settings.notices.comments.label": "Сообщать по почте о новых комментариях",
+  "settings.notices.comments.label": "Сообщать по почте о новых комментариях и ревью",
   "settings.notices.comments.hint":
-    "Не чаще одного письма в 10 минут: сколько новых веток, ответов и закрытых веток в каждом artifact, без текста комментариев. Только для artifacts, у владельца которых тариф с уведомлениями о комментариях.",
+    "Не чаще одного письма в 10 минут: сколько новых веток, ответов и закрытых веток в каждом artifact, без текста комментариев. Только для artifacts, у владельца которых тариф с уведомлениями о комментариях. Та же настройка управляет письмами о ревью: когда вас просят провести ревью и когда версию, которой вы управляете, одобряют или запрашивают изменения.",
   "commentNotices.label": "Сообщать по почте о новых комментариях к этому artifact",
   "commentNotices.hint":
     "Не чаще одного письма в 10 минут, только числа. Все письма о комментариях отключаются в настройках.",
@@ -1273,6 +1273,8 @@ export const ru = {
   "webhooks.event.artifact.published": "Новые версии",
   "webhooks.event.artifact.expiring": "Artifacts, срок которых скоро истекает",
   "webhooks.event.artifact.access_changed": "Изменения доступа",
+  "webhooks.event.review.requested": "Запросы на ревью",
+  "webhooks.event.review.completed": "Ревью одобрено или запрошены изменения",
   "webhooks.add.submit": "Добавить вебхук",
   "webhooks.add.noEvents": "Выберите хотя бы одно событие.",
   "webhooks.add.limit":
@@ -1617,9 +1619,9 @@ export const ru = {
   "account.delete.soleAdmin.body":
     "У workspace должен остаться администратор. Назначьте администратором другого участника в каждом из этих workspaces или попросите Portifact по адресу hello@portifact.com удалить их, а затем удалите аккаунт.",
   "account.delete.soleAdmin.members": "Участники {workspace}",
-  "webhooks.personalOnly.title": "Webhooks настраиваются в личном пространстве",
-  "webhooks.personalOnly.body":
-    "Пока webhooks отправляют события только об artifacts вашего личного пространства. Перейдите в него, чтобы управлять ими.",
+  "webhooks.adminOnly.title": "Webhooks управляют только администраторы",
+  "webhooks.adminOnly.body":
+    "Webhooks отправляют события artifacts этого рабочего пространства в другие системы, поэтому видеть их и управлять ими могут только администраторы {workspace}. Обратитесь к одному из них, если вам нужен webhook.",
   "shell.planLink": "Тариф",
   "plan.title": "Тариф",
   "plan.description":

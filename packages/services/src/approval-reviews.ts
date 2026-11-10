@@ -19,6 +19,10 @@
 // the same condition. Publish and rollback move the open request to the new version in the batch
 // of their switch (`moveApprovalReview`), so verdicts stay with the version they were given on.
 //
+// A new request, added reviewers and a final status also add their webhook event and email job
+// to the same batch on the same condition (./review-activity.ts), from the entitlements the
+// write already loaded: no extra read or round trip.
+//
 // Notes are untrusted plain text: never logged, never in the audit log, webhooks or emails.
 import {
   APPROVALS,
@@ -60,6 +64,7 @@ import { authorizeOn } from "./actors.ts";
 import { commentStanding, participation } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
+import { reviewCompletedStatements, reviewRequestedStatements } from "./review-activity.ts";
 
 const rq = schema.reviewRequests;
 const rr = schema.reviewReviewers;
@@ -312,6 +317,18 @@ export async function requestApprovalReview(
       },
       created,
     ),
+    ...reviewRequestedStatements(
+      db,
+      { entitlements: owner, artifact },
+      {
+        requestId: id,
+        addedAt: input.now,
+        actorId: input.userId,
+        webhook: true,
+        condition: created,
+        now: input.now,
+      },
+    ),
   ]);
   if ((results[0] as unknown[]).length === 0) {
     if (await openRequest(db, artifact.id)) {
@@ -422,6 +439,8 @@ export async function changeApprovalReview(
     );
   }
   const updated = sql`exists (select 1 from ${rq} where ${rq.id} = ${request.id} and ${rq.revision} = ${request.revision + 1})`;
+  const updateAt = statements.length;
+  const context = { entitlements: owner, artifact };
   statements.push(
     db
       .update(rq)
@@ -435,10 +454,28 @@ export async function changeApprovalReview(
       })
       .where(and(eq(rq.id, request.id), unchanged))
       .returning({ id: rq.id }),
+    // Only the reviewers this change added are asked by email; the request's webhook event was
+    // sent when it was made.
+    ...(added.length > 0
+      ? reviewRequestedStatements(db, context, {
+          requestId: request.id,
+          addedAt: input.now,
+          actorId: input.userId,
+          webhook: false,
+          condition: updated,
+          now: input.now,
+        })
+      : []),
+    ...reviewCompletedStatements(db, context, {
+      requestId: request.id,
+      actorId: null,
+      condition: updated,
+      now: input.now,
+    }),
     announce(db, request.id, updated),
   );
   const results = await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
-  if ((results.at(-2) as unknown[]).length === 0) return changed();
+  if ((results[updateAt] as unknown[]).length === 0) return changed();
   return getApprovalReview(db, { userId: input.userId, artifactId: artifact.id, now: input.now });
 }
 
@@ -722,6 +759,11 @@ export async function submitApprovalVerdict(
       .update(rq)
       .set({ revision: sql`${rq.revision} + 1`, updatedAt: input.now })
       .where(and(eq(rq.id, request.id), guard)),
+    ...reviewCompletedStatements(
+      db,
+      { entitlements: standing.entitlements, artifact },
+      { requestId: request.id, actorId: input.userId, condition: guard, now: input.now },
+    ),
     announce(db, request.id, guard),
   ]);
   const inserted = results[2 + stale.length] as unknown[];
@@ -997,6 +1039,16 @@ export async function approvalAccessStatements(
       .update(rq)
       .set({ revision: sql`${rq.revision} + 1`, updatedAt: input.now })
       .where(and(eq(rq.id, request.id), input.condition)),
+    ...reviewCompletedStatements(
+      db,
+      { entitlements: input.owner, artifact: input.artifact },
+      {
+        requestId: request.id,
+        actorId: null,
+        condition: sql`${open} and ${input.condition}`,
+        now: input.now,
+      },
+    ),
     announce(db, request.id, sql`${open} and ${input.condition}`),
   ];
 }
@@ -1085,6 +1137,11 @@ export async function recheckApprovalReviewers(
     }
     statements.push(
       db.update(rq).set({ checkedAt: now }).where(eq(rq.id, request.id)),
+      ...reviewCompletedStatements(
+        db,
+        { entitlements: owner, artifact },
+        { requestId: request.id, actorId: null, condition: open, now },
+      ),
       announce(db, request.id, open),
     );
     await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);

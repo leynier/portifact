@@ -461,9 +461,10 @@ export const fr = {
   "settings.notices.unchanged":
     "Rien à enregistrer : vos avis par e-mail sont déjà configurés ainsi.",
   "settings.notices.failed": "Vos avis par e-mail n’ont pas été enregistrés",
-  "settings.notices.comments.label": "M’envoyer un e-mail en cas de nouveaux commentaires",
+  "settings.notices.comments.label":
+    "M’envoyer un e-mail en cas de nouveaux commentaires ou relectures",
   "settings.notices.comments.hint":
-    "Au plus un e-mail toutes les 10 minutes, avec le nombre de nouveaux fils, réponses et résolutions sur chaque artifact, jamais ce qui a été écrit. Seulement pour les artifacts dont le propriétaire a un plan avec les avis de commentaires.",
+    "Au plus un e-mail toutes les 10 minutes, avec le nombre de nouveaux fils, réponses et résolutions sur chaque artifact, jamais ce qui a été écrit. Seulement pour les artifacts dont le propriétaire a un plan avec les avis de commentaires. Le même réglage couvre les e-mails de relecture : quand quelqu’un demande votre relecture, et quand une version que vous gérez est approuvée ou fait l’objet de demandes de modifications.",
   "commentNotices.label": "M’envoyer un e-mail en cas de nouveaux commentaires sur cet artifact",
   "commentNotices.hint":
     "Au plus un e-mail toutes les 10 minutes, avec des nombres seulement. Désactivez tous les e-mails de commentaires dans vos paramètres.",
@@ -1293,6 +1294,8 @@ export const fr = {
   "webhooks.event.artifact.published": "Nouvelles versions",
   "webhooks.event.artifact.expiring": "Artifacts sur le point d'expirer",
   "webhooks.event.artifact.access_changed": "Changements d'accès",
+  "webhooks.event.review.requested": "Demandes de relecture",
+  "webhooks.event.review.completed": "Relectures approuvées ou avec modifications demandées",
   "webhooks.add.submit": "Ajouter le webhook",
   "webhooks.add.noEvents": "Choisissez au moins un événement.",
   "webhooks.add.limit":
@@ -1637,9 +1640,9 @@ export const fr = {
   "account.delete.soleAdmin.body":
     "Un workspace doit garder un admin. Nommez un autre membre admin dans chacun de ces workspaces, ou demandez à Portifact à hello@portifact.com de les supprimer, puis supprimez votre compte.",
   "account.delete.soleAdmin.members": "Membres de {workspace}",
-  "webhooks.personalOnly.title": "Les webhooks se règlent dans votre espace personnel",
-  "webhooks.personalOnly.body":
-    "Pour l’instant, les webhooks n’envoient que les événements des artifacts de votre espace personnel. Passez-y pour les gérer.",
+  "webhooks.adminOnly.title": "Seuls les administrateurs gèrent les webhooks",
+  "webhooks.adminOnly.body":
+    "Les webhooks envoient les événements des artifacts de ce workspace vers d’autres systèmes : seuls les administrateurs de {workspace} peuvent les voir et les gérer. Demandez à l’un d’eux si vous avez besoin d’un webhook.",
   "shell.planLink": "Offre",
   "plan.title": "Offre",
   "plan.description":

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b190eefc-f2f9-4a35-9460-a4109b2342c4",
-  "prevId": "ca060a6f-e4b8-4808-8429-d5ce4218a7d8",
+  "id": "3a299f4f-3ff4-4e3b-a327-db9b9636d4ce",
+  "prevId": "7c6e8119-830c-4c54-abc6-388884e6b14b",
   "tables": {
     "abuse_reports": {
       "name": "abuse_reports",
@@ -3008,6 +3008,86 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "review_notices": {
+      "name": "review_notices",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version_id": {
+          "name": "version_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "recipient_id": {
+          "name": "recipient_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "review_notices_recipient_idx": {
+          "name": "review_notices_recipient_idx",
+          "columns": ["recipient_id"],
+          "isUnique": false
+        },
+        "review_notices_version_idx": {
+          "name": "review_notices_version_idx",
+          "columns": ["version_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "review_notices_artifact_id_artifacts_id_fk": {
+          "name": "review_notices_artifact_id_artifacts_id_fk",
+          "tableFrom": "review_notices",
+          "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "review_notices_version_id_versions_id_fk": {
+          "name": "review_notices_version_id_versions_id_fk",
+          "tableFrom": "review_notices",
+          "tableTo": "versions",
+          "columnsFrom": ["version_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "review_notices_artifact_id_version_id_recipient_id_kind_pk": {
+          "columns": ["artifact_id", "version_id", "recipient_id", "kind"],
+          "name": "review_notices_artifact_id_version_id_recipient_id_kind_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "review_requests": {
       "name": "review_requests",
       "columns": {
@@ -4819,6 +4899,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "review": {
+          "name": "review",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -4988,7 +5075,7 @@
       "checkConstraints": {
         "webhooks_events": {
           "name": "webhooks_events",
-          "value": "\"webhooks\".\"events\" between 1 and 31"
+          "value": "\"webhooks\".\"events\" between 1 and 127"
         },
         "webhooks_failures": {
           "name": "webhooks_failures",
@@ -5479,158 +5566,6 @@
           "value": "\"workspace_members\".\"role\" in ('admin', 'editor', 'member')"
         }
       }
-    },
-    "workspace_removals": {
-      "name": "workspace_removals",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "removed_at": {
-          "name": "removed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "workspace_removals_workspace_id_workspaces_id_fk": {
-          "name": "workspace_removals_workspace_id_workspaces_id_fk",
-          "tableFrom": "workspace_removals",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "workspace_removals_user_id_users_id_fk": {
-          "name": "workspace_removals_user_id_users_id_fk",
-          "tableFrom": "workspace_removals",
-          "tableTo": "users",
-          "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "workspace_removals_workspace_id_user_id_pk": {
-          "columns": ["workspace_id", "user_id"],
-          "name": "workspace_removals_workspace_id_user_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "workspace_sso": {
-      "name": "workspace_sso",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "issuer": {
-          "name": "issuer",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "client_id": {
-          "name": "client_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "client_secret_sealed": {
-          "name": "client_secret_sealed",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "secret_key_id": {
-          "name": "secret_key_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "domains": {
-          "name": "domains",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "workspace_sso_workspace_idx": {
-          "name": "workspace_sso_workspace_idx",
-          "columns": ["workspace_id"],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "workspace_sso_workspace_id_workspaces_id_fk": {
-          "name": "workspace_sso_workspace_id_workspaces_id_fk",
-          "tableFrom": "workspace_sso",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
     },
     "workspaces": {
       "name": "workspaces",

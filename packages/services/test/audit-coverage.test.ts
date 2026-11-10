@@ -195,6 +195,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "scheduleCommentNotices",
   "sendExpiryNotice",
   "sendCommentNotice",
+  // Review emails (decision 0013): sending a notice changes nothing an owner has.
+  "runReviewNotice",
   "scheduleDomainNotices",
   "sendDomainNotice",
   "alignPlanLimits",

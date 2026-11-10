@@ -134,7 +134,7 @@ const messages = {
     rateLimited: "ここからの試行が多すぎます。数分後にもう一度お試しください。",
     network: "Portifactに接続できませんでした。接続を確認して、もう一度お試しください。",
     failed: "コメント通知をオフにできませんでした。もう一度試すか、設定でオフにしてください。",
-    done: "コメント通知をオフにしました。",
+    done: "コメントとレビューの通知をオフにしました。",
   },
 } satisfies AuthMessages;
 
@@ -279,7 +279,7 @@ export const ja: AuthCatalog = {
     "unsubscribe.title": "Portifactのコメント通知をオフにする",
     "unsubscribe.heading": "コメント通知をオフにする",
     "unsubscribe.intro":
-      "Portifactのartifactへの新しいコメントについてのメールが届かなくなります。有効期限の通知とログイン用のメールは変わりません。",
+      "Portifactのartifactへの新しいコメントとレビューについてのメールが届かなくなります。有効期限の通知とログイン用のメールは変わりません。",
     "unsubscribe.confirm": "コメント通知をオフにする",
     "unsubscribe.doneHeading": "コメント通知はオフです",
     "unsubscribe.doneBody": '<a href="/settings">設定</a>でいつでもオンに戻せます。',

@@ -133,7 +133,7 @@ const messages = {
     network: "No se pudo conectar con Portifact. Revisa tu conexión e inténtalo de nuevo.",
     failed:
       "No se pudieron desactivar los avisos de comentarios. Inténtalo de nuevo o desactívalos en tu configuración.",
-    done: "Avisos de comentarios desactivados.",
+    done: "Avisos de comentarios y revisiones desactivados.",
   },
 } satisfies AuthMessages;
 
@@ -279,7 +279,7 @@ export const es: AuthCatalog = {
     "unsubscribe.title": "Desactivar los avisos de comentarios de Portifact",
     "unsubscribe.heading": "Desactivar los avisos de comentarios",
     "unsubscribe.intro":
-      "Dejarás de recibir correos sobre comentarios nuevos en artifacts de Portifact. Los avisos de vencimiento y los correos para iniciar sesión no cambian.",
+      "Dejarás de recibir correos sobre comentarios nuevos y revisiones en artifacts de Portifact. Los avisos de vencimiento y los correos para iniciar sesión no cambian.",
     "unsubscribe.confirm": "Desactivar los avisos de comentarios",
     "unsubscribe.doneHeading": "Los avisos de comentarios están desactivados",
     "unsubscribe.doneBody":

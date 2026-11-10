@@ -26,14 +26,28 @@ import {
 
 describe("event bits", () => {
   it("gives each event its own bit in the order of WEBHOOK_EVENTS", () => {
-    expect(WEBHOOK_EVENTS.map(eventBit)).toEqual([1, 2, 4, 8, 16]);
+    expect(WEBHOOK_EVENTS.map(eventBit)).toEqual([1, 2, 4, 8, 16, 32, 64]);
+  });
+
+  it("keeps the meaning of subscriptions stored before the review events", () => {
+    // Every value the column held before (1 to 31) decodes to the same five types as then.
+    expect(bitsToEvents(31)).toEqual([
+      "comment.created",
+      "thread.resolved",
+      "artifact.published",
+      "artifact.expiring",
+      "artifact.access_changed",
+    ]);
+    expect(bitsToEvents(16)).toEqual(["artifact.access_changed"]);
+    expect(eventsToBits(["review.requested", "review.completed"])).toBe(96);
+    expect(eventsToBits([...WEBHOOK_EVENTS])).toBe(127);
   });
 
   it("round-trips any subset", () => {
     expect(eventsToBits([])).toBe(0);
     expect(eventsToBits(["artifact.published", "comment.created"])).toBe(5);
     expect(bitsToEvents(5)).toEqual(["comment.created", "artifact.published"]);
-    expect(bitsToEvents(31)).toEqual([...WEBHOOK_EVENTS]);
+    expect(bitsToEvents(127)).toEqual([...WEBHOOK_EVENTS]);
     expect(bitsToEvents(0)).toEqual([]);
   });
 });
@@ -464,6 +478,74 @@ describe("renderDelivery", () => {
       "New version of <https://app.portifact.com/view/abcdefghij|a b c>",
       "New version of <https://app.portifact.com/view/abcdefghij|Untitled>",
     ]);
+  });
+});
+
+describe("review events", () => {
+  const counts = { reviewers: 3, required: 2, approvals: 2, changesRequested: 0 };
+  const reviews = delivery([
+    {
+      type: "review.requested",
+      artifact,
+      count: 1,
+      firstAt: at,
+      lastAt: at,
+      actor: { name: "Ada" },
+      version: 3,
+      review: { ...counts, status: "pending", approvals: 0 },
+    },
+    {
+      type: "review.completed",
+      artifact,
+      count: 1,
+      firstAt: at,
+      lastAt: at,
+      actor: null,
+      version: 3,
+      review: { ...counts, status: "approved" },
+    },
+    {
+      type: "review.completed",
+      artifact,
+      count: 2,
+      firstAt: at,
+      lastAt: at,
+      actor: null,
+      version: 4,
+      review: { ...counts, status: "changes_requested", approvals: 1, changesRequested: 1 },
+    },
+    {
+      type: "review.completed",
+      artifact,
+      count: 1,
+      firstAt: at,
+      lastAt: at,
+      actor: null,
+      review: { ...counts, status: "changes_requested", approvals: 0, changesRequested: 2 },
+    },
+    { type: "review.requested", artifact, count: 1, firstAt: at, lastAt: at, actor: null },
+  ]);
+
+  it("sends the status and counts in the generic body", () => {
+    expect(JSON.parse(renderDelivery("generic", reviews))).toEqual(reviews);
+  });
+
+  it("writes Slack and Discord lines with the version and counts, never a name", () => {
+    const slack = JSON.parse(renderDelivery("slack", reviews)) as { text: string };
+    const link = "<https://app.portifact.com/view/abcdefghij|Q3 &lt;plan&gt; &amp; @everyone>";
+    expect(slack.text.split("\n")).toEqual([
+      `Review requested on ${link} (version 3, 0 of 2 approvals)`,
+      `Approved: ${link} (version 3, 2 of 2 approvals)`,
+      `Changes requested on ${link} (version 4, 1 of 2 approvals, 1 asked for changes)`,
+      `Changes requested on ${link} (0 of 2 approvals, 2 asked for changes)`,
+      `Review requested on ${link}`,
+    ]);
+    expect(slack.text).not.toContain("Ada");
+    const discord = JSON.parse(renderDelivery("discord", reviews)) as { content: string };
+    expect(discord.content.split("\n")[1]).toBe(
+      "Approved: Q3 \\<plan\\> & \\@everyone (<https://app.portifact.com/view/abcdefghij>) (version 3, 2 of 2 approvals)",
+    );
+    expect(discord.content).not.toContain("Ada");
   });
 });
 

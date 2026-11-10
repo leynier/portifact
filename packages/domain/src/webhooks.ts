@@ -240,6 +240,24 @@ export function signedContent(id: string, timestampSeconds: number, body: string
   return `${id}.${timestampSeconds}.${body}`;
 }
 
+/** A review's version and counts for a chat line: never names, addresses or notes. */
+function reviewCounts(event: WebhookEventBody): string {
+  const parts: string[] = [];
+  if (event.version !== undefined) parts.push(`version ${event.version}`);
+  const review = event.review;
+  if (review) {
+    parts.push(`${review.approvals} of ${review.required} approvals`);
+    if (review.changesRequested > 0) {
+      parts.push(
+        review.changesRequested === 1
+          ? "1 asked for changes"
+          : `${review.changesRequested} asked for changes`,
+      );
+    }
+  }
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+}
+
 /** One line per event for the chat formats, in English (decision 0009). */
 function eventLine(event: WebhookEventBody, link: (name: string, url: string) => string): string {
   const on = event.artifact ? ` ${link(event.artifact.name, event.artifact.viewUrl)}` : "";
@@ -255,6 +273,10 @@ function eventLine(event: WebhookEventBody, link: (name: string, url: string) =>
       return `${on.trim()} expires ${event.expiresAt?.slice(0, 10) ?? "soon"}`;
     case "artifact.access_changed":
       return `Access to${on} changed${event.access ? ` (now ${event.access})` : ""}`;
+    case "review.requested":
+      return `Review requested on${on}${reviewCounts(event)}`;
+    case "review.completed":
+      return `${event.review?.status === "changes_requested" ? "Changes requested on" : "Approved:"}${on}${reviewCounts(event)}`;
     case WEBHOOK_TEST_EVENT:
       return "Test event from Portifact: this webhook works.";
   }

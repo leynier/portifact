@@ -446,9 +446,9 @@ export const ptBR = {
   "settings.notices.saved": "Avisos por e-mail salvos.",
   "settings.notices.unchanged": "Nada para salvar: seus avisos por e-mail já estão assim.",
   "settings.notices.failed": "Seus avisos por e-mail não foram salvos",
-  "settings.notices.comments.label": "Enviar um e-mail quando houver novos comentários",
+  "settings.notices.comments.label": "Enviar um e-mail quando houver novos comentários ou revisões",
   "settings.notices.comments.hint":
-    "No máximo um e-mail a cada 10 minutos, com quantas conversas, respostas e resoluções são novas em cada artifact, nunca o que foi escrito. Só em artifacts cujo proprietário tem um plano com avisos de comentários.",
+    "No máximo um e-mail a cada 10 minutos, com quantas conversas, respostas e resoluções são novas em cada artifact, nunca o que foi escrito. Só em artifacts cujo proprietário tem um plano com avisos de comentários. A mesma opção cobre os e-mails de revisão: quando alguém pede sua revisão e quando uma versão que você gerencia é aprovada ou recebe pedidos de mudança.",
   "commentNotices.label": "Enviar um e-mail quando houver novos comentários neste artifact",
   "commentNotices.hint":
     "No máximo um e-mail a cada 10 minutos, só com contagens. Desative todos os e-mails de comentários nas suas configurações.",
@@ -1274,6 +1274,8 @@ export const ptBR = {
   "webhooks.event.artifact.published": "Novas versões",
   "webhooks.event.artifact.expiring": "Artifacts prestes a expirar",
   "webhooks.event.artifact.access_changed": "Mudanças de acesso",
+  "webhooks.event.review.requested": "Pedidos de revisão",
+  "webhooks.event.review.completed": "Revisões aprovadas ou com mudanças pedidas",
   "webhooks.add.submit": "Adicionar webhook",
   "webhooks.add.noEvents": "Escolha pelo menos um evento.",
   "webhooks.add.limit": "Você pode ter no máximo {limit} webhooks. Remova um para adicionar outro.",
@@ -1608,9 +1610,9 @@ export const ptBR = {
   "account.delete.soleAdmin.body":
     "Um workspace precisa manter um admin. Torne outro membro admin em cada um destes workspaces, ou peça ao Portifact em hello@portifact.com para excluí-los, e depois exclua a sua conta.",
   "account.delete.soleAdmin.members": "Membros de {workspace}",
-  "webhooks.personalOnly.title": "Os webhooks ficam no seu espaço pessoal",
-  "webhooks.personalOnly.body":
-    "Por enquanto, os webhooks só enviam eventos dos artifacts do seu espaço pessoal. Mude para ele para gerenciá-los.",
+  "webhooks.adminOnly.title": "Só administradores gerenciam webhooks",
+  "webhooks.adminOnly.body":
+    "Os webhooks enviam os eventos dos artifacts deste workspace para outros sistemas, por isso só os administradores de {workspace} podem vê-los e gerenciá-los. Peça a um deles se precisar de um webhook.",
   "shell.planLink": "Plano",
   "plan.title": "Plano",
   "plan.description": "O plano do seu espaço pessoal, seus limites e recursos, e os outros planos.",

@@ -137,7 +137,7 @@ const messages = {
     network: "Portifact ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
     failed:
       "Die Kommentarhinweise konnten nicht abgeschaltet werden. Versuche es erneut oder schalte sie in deinen Einstellungen ab.",
-    done: "Kommentarhinweise abgeschaltet.",
+    done: "Kommentar- und Review-Hinweise abgeschaltet.",
   },
 } satisfies AuthMessages;
 
@@ -286,7 +286,7 @@ export const de: AuthCatalog = {
     "unsubscribe.title": "Portifact-Kommentarhinweise abschalten",
     "unsubscribe.heading": "Kommentarhinweise abschalten",
     "unsubscribe.intro":
-      "Du bekommst keine E-Mails mehr über neue Kommentare zu Portifact-Artifacts. Ablaufhinweise und Anmelde-E-Mails ändern sich nicht.",
+      "Du bekommst keine E-Mails mehr über neue Kommentare und Reviews zu Portifact-Artifacts. Ablaufhinweise und Anmelde-E-Mails ändern sich nicht.",
     "unsubscribe.confirm": "Kommentarhinweise abschalten",
     "unsubscribe.doneHeading": "Kommentarhinweise sind abgeschaltet",
     "unsubscribe.doneBody":

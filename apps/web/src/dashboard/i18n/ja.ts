@@ -441,9 +441,9 @@ export const ja = {
   "settings.notices.saved": "メール通知を保存しました。",
   "settings.notices.unchanged": "保存する変更はありません。メール通知はすでにこの設定です。",
   "settings.notices.failed": "メール通知を保存できませんでした",
-  "settings.notices.comments.label": "新しいコメントをメールで通知",
+  "settings.notices.comments.label": "新しいコメントとレビューをメールで通知",
   "settings.notices.comments.hint":
-    "メールは最大10分に1通で、artifactごとの新しいスレッド、返信、解決の件数だけを伝え、書かれた内容は含みません。所有者のプランにコメント通知が含まれるartifactのみが対象です。",
+    "メールは最大10分に1通で、artifactごとの新しいスレッド、返信、解決の件数だけを伝え、書かれた内容は含みません。所有者のプランにコメント通知が含まれるartifactのみが対象です。同じ設定でレビューのメールも管理します。レビューを依頼されたときと、管理しているバージョンが承認されたか変更を求められたときに届きます。",
   "commentNotices.label": "このartifactの新しいコメントをメールで通知",
   "commentNotices.hint":
     "メールは最大10分に1通で、件数のみです。すべてのコメントメールは設定でオフにできます。",
@@ -1261,6 +1261,8 @@ export const ja = {
   "webhooks.event.artifact.published": "新しいバージョン",
   "webhooks.event.artifact.expiring": "まもなく期限切れになるartifact",
   "webhooks.event.artifact.access_changed": "アクセスの変更",
+  "webhooks.event.review.requested": "レビューの依頼",
+  "webhooks.event.review.completed": "承認された、または変更が求められたレビュー",
   "webhooks.add.submit": "Webhookを追加",
   "webhooks.add.noEvents": "イベントを1つ以上選んでください。",
   "webhooks.add.limit": "Webhookは最大{limit}件までです。追加するには1件削除してください。",
@@ -1595,9 +1597,9 @@ export const ja = {
   "account.delete.soleAdmin.body":
     "workspaceには管理者が必要です。これらのworkspaceでそれぞれ別のメンバーを管理者にするか、hello@portifact.comでPortifactに削除を依頼してから、アカウントを削除してください。",
   "account.delete.soleAdmin.members": "{workspace}のメンバー",
-  "webhooks.personalOnly.title": "webhookは個人スペースで設定します",
-  "webhooks.personalOnly.body":
-    "現在、webhookは個人スペースのartifactのイベントだけを送信します。管理するには個人スペースに切り替えてください。",
+  "webhooks.adminOnly.title": "webhookを管理できるのは管理者だけです",
+  "webhooks.adminOnly.body":
+    "webhookはこのワークスペースのartifactのイベントを外部のシステムに送信するため、{workspace} の管理者だけが表示・管理できます。webhookが必要な場合は管理者に依頼してください。",
   "shell.planLink": "プラン",
   "plan.title": "プラン",
   "plan.description": "個人スペースのプラン、その上限と機能、そのほかのプランです。",

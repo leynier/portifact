@@ -175,6 +175,70 @@ describe("portifact webhooks", () => {
     });
   });
 
+  it("acts on a workspace with --workspace on every command, and on the personal space without it", async () => {
+    h.signIn();
+    const id = await add("--workspace", "acme");
+    for (const args of [
+      ["list"],
+      ["disable", id],
+      ["enable", id],
+      ["events", id, "review.requested,review.completed"],
+      ["test", id],
+      ["deliveries", id],
+      ["remove", id, "--yes"],
+    ]) {
+      const result = await h.invoke("webhooks", ...args, "--workspace", "acme");
+      expect(result.code, args.join(" ")).toBe(0);
+    }
+    expect(webhookRequests().map((r) => r.query)).toEqual(
+      webhookRequests().map(() => "workspace=acme"),
+    );
+    // `personal`, or no flag, names the personal space: no query at all. The device's default
+    // workspace never applies to webhooks.
+    await h.invoke("webhooks", "list", "--workspace", "personal");
+    await h.invoke("webhooks", "list");
+    expect(
+      webhookRequests()
+        .slice(-2)
+        .map((r) => r.query),
+    ).toEqual(["", ""]);
+  });
+
+  it("names the space a removal acts on, in the prompt and in the --yes hint", async () => {
+    h.signIn();
+    const inWorkspace = await add("--workspace", "acme");
+    const noTerminal = await h.invoke("webhooks", "remove", inWorkspace, "--workspace", "acme");
+    expect(noTerminal.stderr).toContain(
+      `portifact webhooks remove ${inWorkspace} --workspace acme --yes`,
+    );
+    const team = await createHarness({ server, answers: ["remove"] });
+    team.signIn();
+    expect((await team.invoke("webhooks", "remove", inWorkspace, "--workspace", "acme")).code).toBe(
+      0,
+    );
+    expect(team.prompts[0]).toContain(
+      `removes webhook ${inWorkspace} for hooks.example.com from the workspace acme`,
+    );
+    await team.cleanup();
+
+    const mine = await add();
+    const personal = await createHarness({ server, answers: ["remove"] });
+    personal.signIn();
+    expect((await personal.invoke("webhooks", "remove", mine)).code).toBe(0);
+    expect(personal.prompts[0]).toContain(
+      `removes webhook ${mine} for hooks.example.com from your personal space`,
+    );
+    await personal.cleanup();
+  });
+
+  it("refuses a malformed workspace slug before calling the server", async () => {
+    h.signIn();
+    const result = await h.invoke("webhooks", "list", "--workspace", "Not a slug!");
+    expect(result.code).toBe(EXIT.usage);
+    expect(result.stderr).toContain("is not a workspace slug");
+    expect(webhookRequests()).toEqual([]);
+  });
+
   it("refuses a malformed webhook ID before calling the server", async () => {
     h.signIn();
     const result = await h.invoke("webhooks", "deliveries", "../me");
@@ -184,8 +248,15 @@ describe("portifact webhooks", () => {
 });
 
 describe("parsing", () => {
+  it("knows the review events", () => {
+    expect(parseEvents("review.requested, review.completed")).toEqual([
+      "review.requested",
+      "review.completed",
+    ]);
+  });
+
   it("reads events as a comma-separated list or all", () => {
-    expect(parseEvents("all")).toHaveLength(5);
+    expect(parseEvents("all")).toHaveLength(7);
     expect(parseEvents("comment.created,comment.created")).toEqual(["comment.created"]);
     expect(() => parseEvents("")).toThrow();
     expect(() => parseEvents("webhook.test")).toThrow();

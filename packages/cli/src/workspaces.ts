@@ -98,6 +98,14 @@ export async function chosenWorkspace(
   return defaultWorkspace(session);
 }
 
+/**
+ * The space a command acts on from its flag alone (`personal` or none for the personal space),
+ * for commands the device's default does not cover, such as `webhooks`.
+ */
+export function flaggedWorkspace(flag: string | undefined): string | undefined {
+  return flag === undefined || flag.trim() === PERSONAL ? undefined : parseSlug(flag);
+}
+
 /** `?workspace=<slug>` for the API, or an empty string for the personal space. */
 export function workspaceQuery(slug: string | undefined, extra?: URLSearchParams): string {
   const query = new URLSearchParams(extra);

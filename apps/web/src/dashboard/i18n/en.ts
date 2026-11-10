@@ -438,9 +438,9 @@ export const en = {
   "settings.notices.saved": "Email notices saved.",
   "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
   "settings.notices.failed": "Your email notices were not saved",
-  "settings.notices.comments.label": "Email me about new comments",
+  "settings.notices.comments.label": "Email me about new comments and reviews",
   "settings.notices.comments.hint":
-    "At most one email every 10 minutes, with how many threads, replies and resolutions are new on each artifact, never what was written. Only for artifacts whose owner's plan includes comment notices.",
+    "At most one email every 10 minutes, with how many threads, replies and resolutions are new on each artifact, never what was written. Only for artifacts whose owner's plan includes comment notices. The same setting covers review emails: when someone asks for your review, and when a version you manage is approved or changes are requested.",
   "commentNotices.label": "Email me about new comments on this artifact",
   "commentNotices.hint":
     "At most one email every 10 minutes, with counts only. Turn every comment email off in your settings.",
@@ -1242,6 +1242,8 @@ export const en = {
   "webhooks.event.artifact.published": "New versions",
   "webhooks.event.artifact.expiring": "Artifacts about to expire",
   "webhooks.event.artifact.access_changed": "Access changes",
+  "webhooks.event.review.requested": "Review requests",
+  "webhooks.event.review.completed": "Reviews approved or with changes requested",
   "webhooks.add.submit": "Add webhook",
   "webhooks.add.noEvents": "Choose at least one event.",
   "webhooks.add.limit": "You can have at most {limit} webhooks. Remove one to add another.",
@@ -1575,9 +1577,9 @@ export const en = {
   "account.delete.soleAdmin.body":
     "A workspace must keep an admin. Make another member an admin of each of these workspaces, or ask Portifact at hello@portifact.com to delete them, then delete your account.",
   "account.delete.soleAdmin.members": "Members of {workspace}",
-  "webhooks.personalOnly.title": "Webhooks are set in your personal space",
-  "webhooks.personalOnly.body":
-    "For now, webhooks send events about the artifacts of your personal space only. Switch to it to manage them.",
+  "webhooks.adminOnly.title": "Only admins manage webhooks",
+  "webhooks.adminOnly.body":
+    "Webhooks send the events of this workspace's artifacts to other systems, so only the admins of {workspace} can see and manage them. Ask one of them if you need a webhook.",
   "shell.planLink": "Plan",
   "plan.title": "Plan",
   "plan.description":

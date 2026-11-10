@@ -234,14 +234,18 @@ export interface DashboardApi {
   ): Promise<WorkspaceView | null>;
   /** Moves an artifact to a workspace, or to the personal space with `null`. */
   transferArtifact(artifactId: string, workspace: string | null): Promise<ArtifactSummary>;
-  /** The account's webhooks (decision 0009). */
-  webhooks(): Promise<WebhookList>;
+  /** A space's webhooks (decision 0009): the personal space, or a workspace by slug. */
+  webhooks(workspace: string | undefined): Promise<WebhookList>;
   /** Adds a webhook; the answer holds its signing secret once. */
-  createWebhook(webhook: WebhookCreate): Promise<WebhookCreated>;
-  updateWebhook(webhookId: string, update: WebhookUpdate): Promise<WebhookView>;
-  removeWebhook(webhookId: string): Promise<WebhookRemoved>;
-  testWebhook(webhookId: string): Promise<WebhookTestQueued>;
-  webhookDeliveries(webhookId: string): Promise<WebhookDeliveries>;
+  createWebhook(webhook: WebhookCreate, workspace: string | undefined): Promise<WebhookCreated>;
+  updateWebhook(
+    webhookId: string,
+    update: WebhookUpdate,
+    workspace: string | undefined,
+  ): Promise<WebhookView>;
+  removeWebhook(webhookId: string, workspace: string | undefined): Promise<WebhookRemoved>;
+  testWebhook(webhookId: string, workspace: string | undefined): Promise<WebhookTestQueued>;
+  webhookDeliveries(webhookId: string, workspace: string | undefined): Promise<WebhookDeliveries>;
   /** The artifact's share links that are not revoked, never with their URL. */
   listShareLinks(artifactId: string): Promise<ShareLinkList>;
   /** Creates a share link; the answer holds its URL, the only time it is ever shown. */
@@ -577,33 +581,37 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     removeBrandLogo(workspace) {
       return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "DELETE");
     },
-    webhooks() {
-      return call("/api/v1/webhooks", WebhookList);
+    webhooks(workspace) {
+      return call(inSpace("/api/v1/webhooks", workspace), WebhookList);
     },
-    createWebhook(webhook) {
-      return call("/api/v1/webhooks", WebhookCreated, "POST", webhook);
+    createWebhook(webhook, workspace) {
+      return call(inSpace("/api/v1/webhooks", workspace), WebhookCreated, "POST", webhook);
     },
-    updateWebhook(webhookId, update) {
+    updateWebhook(webhookId, update, workspace) {
       return call(
-        `/api/v1/webhooks/${encodeURIComponent(webhookId)}`,
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, workspace),
         WebhookView,
         "PATCH",
         update,
       );
     },
-    removeWebhook(webhookId) {
-      return call(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, WebhookRemoved, "DELETE");
-    },
-    testWebhook(webhookId) {
+    removeWebhook(webhookId, workspace) {
       return call(
-        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, workspace),
+        WebhookRemoved,
+        "DELETE",
+      );
+    },
+    testWebhook(webhookId, workspace) {
+      return call(
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`, workspace),
         WebhookTestQueued,
         "POST",
       );
     },
-    webhookDeliveries(webhookId) {
+    webhookDeliveries(webhookId, workspace) {
       return call(
-        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`,
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`, workspace),
         WebhookDeliveries,
       );
     },
