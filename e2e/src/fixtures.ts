@@ -198,6 +198,9 @@ export async function contentRequests(): Promise<ContentRequest[]> {
  * to the bucket's S3 endpoint (`<account>.r2.cloudflarestorage.com`), which the proxy does not
  * map, so they are forwarded to the control host's storage stand-in (as `shots/cli.ts` does for
  * the CLI), with the CORS answers the bucket's rule would give. Test-only, at the network edge.
+ * Playwright's WebKit does not hand the body of a `File` or `Blob` upload to request
+ * interception (`postDataBuffer()` is null there), so the stand-in would get an empty body and
+ * refuse it: tests that upload from the browser stop before the upload in WebKit.
  */
 export async function routeStorage(page: Page): Promise<void> {
   await page.route(/^https:\/\/[^/]+\.r2\.cloudflarestorage\.com\//, async (route) => {
