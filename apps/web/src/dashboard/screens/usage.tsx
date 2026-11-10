@@ -121,6 +121,11 @@ function PlanSection({ plan }: { plan: PlanView }) {
   return (
     <Section id="plan" title={t("usage.plan.section")} hint={t("usage.plan.hint")}>
       <DetailList framed={false} items={items} />
+      <p className="mt-4">
+        <Link to="/plan" className="font-semibold">
+          {t("usage.plan.compare")}
+        </Link>
+      </p>
     </Section>
   );
 }

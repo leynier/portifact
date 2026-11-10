@@ -20,6 +20,7 @@ import { HistoryScreen } from "./screens/history.tsx";
 import { InvitationFrame, InvitationScreen } from "./screens/invitations.tsx";
 import { MembersScreen } from "./screens/members.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
+import { PlanScreen } from "./screens/plan.tsx";
 import { ProfileScreen } from "./screens/profile.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
 import { SettingsScreen } from "./screens/settings.tsx";
@@ -115,6 +116,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/usage",
     component: UsageScreen,
   });
+  const plan = createRoute({
+    getParentRoute: () => root,
+    path: "/plan",
+    component: PlanScreen,
+  });
   const webhooks = createRoute({
     getParentRoute: () => root,
     path: "/webhooks",
@@ -165,6 +171,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       profile,
       apps,
       usage,
+      plan,
       webhooks,
       branding,
       settings,

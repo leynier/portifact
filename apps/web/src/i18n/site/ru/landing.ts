@@ -329,4 +329,10 @@ export const landing: PageMessages = {
   "landing.footer.privacy": "Политика конфиденциальности",
   "landing.footer.acceptableUse": "Правила допустимого использования",
   "landing.footer.report": "Пожаловаться на artifact",
+  "landing.nav.plans": "Тарифы",
+  "landing.plans.eyebrow": "Тарифы",
+  "landing.plans.title": "Начните бесплатно и растите, когда понадобится",
+  "landing.plans.lead":
+    "Во всех тарифах публикация, доступ и проверка работают одинаково. Платные тарифы повышают лимиты и добавляют функции, отмеченные как включённые; функции с пометкой «Скоро» пока недоступны.",
+  "landing.plans.compare": "Сравните лимиты",
 };

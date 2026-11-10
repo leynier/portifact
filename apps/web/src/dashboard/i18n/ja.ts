@@ -1,8 +1,10 @@
 // Japanese messages of the dashboard (polite です・ます), with the same keys as en.ts.
 // Titles and buttons have no trailing period or 。; no em dashes.
+import { planTextJa } from "../../plans/i18n/ja.ts";
 import type { Catalog } from "./en.ts";
 
 export const ja = {
+  ...planTextJa,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "コンテンツへスキップ",
@@ -1581,4 +1583,17 @@ export const ja = {
   "webhooks.personalOnly.title": "webhookは個人スペースで設定します",
   "webhooks.personalOnly.body":
     "現在、webhookは個人スペースのartifactのイベントだけを送信します。管理するには個人スペースに切り替えてください。",
+  "shell.planLink": "プラン",
+  "plan.title": "プラン",
+  "plan.description": "個人スペースのプラン、その上限と機能、そのほかのプランです。",
+  "plan.descriptionWorkspace": "{workspace}のプラン、その上限と機能、そのほかのプランです。",
+  "plan.current.hint": "このスペースの現在の内容です。使用量は使用状況ページで確認できます。",
+  "plan.current.limits": "現在のプランの上限",
+  "plan.current.usageLink": "使用状況を見る",
+  "plan.loading": "プランを読み込み中",
+  "plan.error": "プランを読み込めませんでした。",
+  "plan.compare.section": "すべてのプラン",
+  "plan.requestNote": "別のプランをリクエストできるのは{workspace}の管理者だけです。",
+  "plan.hidden": "{workspace}のプランは編集者と管理者に表示されます。",
+  "usage.plan.compare": "プランを比較",
 } satisfies Catalog;

@@ -44,6 +44,7 @@
             <li><a href="#review" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.review">Review</a></li>
             <li><a href="#access" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.access">Access</a></li>
             <li><a href="#security" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.security">Security</a></li>
+            <li><a href="#plans" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.plans">Plans</a></li>
             <li><a href="#faq" class="text-text-muted no-underline hover:text-text" data-i18n="landing.nav.faq">FAQ</a></li>
           </ul>
         </nav>
@@ -823,15 +824,15 @@ Good call. I asked the agent to change it.
           <dl class="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
               <dt class="text-sm text-text-muted" data-i18n="landing.free.activeArtifacts">active artifacts</dt>
-              <dd class="text-3xl font-semibold tracking-tight sm:text-4xl">50</dd>
+              <dd class="text-3xl font-semibold tracking-tight sm:text-4xl" data-plan-limit="activeArtifacts">50</dd>
             </div>
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
               <dt class="text-sm text-text-muted" data-i18n="landing.free.perArtifact">per artifact</dt>
-              <dd class="text-3xl font-semibold tracking-tight sm:text-4xl">250 MB</dd>
+              <dd class="text-3xl font-semibold tracking-tight sm:text-4xl" data-plan-limit="artifactBytes">250 MB</dd>
             </div>
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
               <dt class="text-sm text-text-muted" data-i18n="landing.free.perAccount">per account</dt>
-              <dd class="text-3xl font-semibold tracking-tight sm:text-4xl">2.5 GB</dd>
+              <dd class="text-3xl font-semibold tracking-tight sm:text-4xl" data-plan-limit="accountBytes">2.5 GB</dd>
             </div>
             <div class="flex flex-col-reverse gap-1 bg-canvas p-4 sm:p-5">
               <dt class="text-sm text-text-muted" data-i18n="landing.free.publishesPerDay">publishes per day</dt>
@@ -856,6 +857,21 @@ Good call. I asked the agent to change it.
           </div>
         </section>
       </div>
+
+      <!-- Plans: the cards, the table and the note are drawn by the build from PLANS (src/i18n/site.ts), so they always match what the product enforces. -->
+      <section id="plans" class="border-t border-border bg-backdrop" aria-labelledby="plans-title">
+        <div class="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
+          <div class="max-w-3xl">
+            <p class="font-mono text-xs tracking-widest text-text-muted uppercase" data-i18n="landing.plans.eyebrow">Plans</p>
+            <h2 id="plans-title" class="mt-3 text-3xl font-semibold tracking-tight text-balance sm:text-4xl" data-i18n="landing.plans.title">Start free, grow when you need to</h2>
+            <p class="mt-4 text-text-muted text-pretty" data-i18n="landing.plans.lead">Every plan publishes, shares and reviews the same way. Paid plans raise the limits and add the features marked as included; features marked as coming soon are not available yet.</p>
+          </div>
+          <div class="mt-12" data-plans-cards></div>
+          <h3 class="mt-16 text-xl font-semibold tracking-tight" data-i18n="landing.plans.compare">Compare the limits</h3>
+          <div class="mt-6" data-plans-table></div>
+          <p class="mt-6 max-w-3xl text-sm text-text-muted" data-plans-note></p>
+        </div>
+      </section>
 
       <!-- FAQ -->
       <section id="faq" class="border-t border-border" aria-labelledby="faq-title">
@@ -936,6 +952,7 @@ Good call. I asked the agent to change it.
             <li><a href="#interfaces" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.interfaces">Three ways in</a></li>
             <li><a href="#review" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.nav.review">Review</a></li>
             <li><a href="#install" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.install">Install</a></li>
+            <li><a href="#plans" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.nav.plans">Plans</a></li>
             <li><a href="#faq" class="text-text-muted no-underline hover:text-text hover:underline" data-i18n="landing.footer.faq">FAQ</a></li>
           </ul>
         </nav>

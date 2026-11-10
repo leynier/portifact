@@ -16,6 +16,7 @@ import {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
+  BadgeCheck,
   Cable,
   Gauge,
   Layers,
@@ -136,7 +137,7 @@ function MissingSpace() {
 }
 
 /** Pages that show one space: switching keeps the page, everything else goes to the list. */
-const SPACE_PAGES = new Set(["/", "/publish", "/usage", "/branding", "/members"]);
+const SPACE_PAGES = new Set(["/", "/publish", "/usage", "/plan", "/branding", "/members"]);
 
 /** The space menu above the navigation: Personal and each workspace, with the role there. */
 function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
@@ -192,7 +193,7 @@ function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
 /**
  * Frame of every dashboard screen/**
  * Frame of every dashboard screen: the space menu, the navigation (Artifacts, Publish, Apps,
- * Usage, Branding, Members in a workspace, Settings, each only where the role in the space allows
+ * Usage, Plan, Branding, Members in a workspace, Settings, each only where the role in the space allows
  * it), the signed-in account with its link to the profile and sign out, and announcements.
  */
 export function Shell() {
@@ -262,6 +263,12 @@ export function Shell() {
       label: t("shell.usageLink"),
       icon: <Gauge className="size-4" />,
       render: (props) => <Link to="/usage" {...props} />,
+    },
+    {
+      key: "plan",
+      label: t("shell.planLink"),
+      icon: <BadgeCheck className="size-4" />,
+      render: (props) => <Link to="/plan" {...props} />,
     },
     space?.kind === "personal" && {
       key: "webhooks",

@@ -169,6 +169,63 @@ export const PLAN_FEATURE_LABELS: Readonly<Record<PlanFeature, string>> = {
   euResidency: "Keeping data in the EU",
 };
 
+/**
+ * The paid features that work in the product today, in the order of PLAN_FEATURES. The pricing
+ * section and the dashboard's Plan page show only these as included and every other feature of
+ * a plan as coming soon, so neither promises what the product does not do yet. Webhooks and
+ * custom domains are built but switched off in production, so they are not here. Add a feature
+ * in the same change that turns it on.
+ */
+export const AVAILABLE_PLAN_FEATURES = [
+  "pin",
+  "versionDiff",
+  "shareLinks",
+  "commentNotices",
+  "analytics",
+  "branding",
+  "workspaces",
+] as const satisfies readonly PlanFeature[];
+
+/** Whether a paid feature works in the product today (`AVAILABLE_PLAN_FEATURES`). */
+export function planFeatureAvailable(feature: PlanFeature): boolean {
+  return (AVAILABLE_PLAN_FEATURES as readonly PlanFeature[]).includes(feature);
+}
+
+/** A plan's features split into those that work today and those still on the way. */
+export function planFeatureStatus(plan: PlanName): {
+  available: PlanFeature[];
+  comingSoon: PlanFeature[];
+} {
+  const features = PLANS[plan].features;
+  return {
+    available: features.filter(planFeatureAvailable),
+    comingSoon: features.filter((feature) => !planFeatureAvailable(feature)),
+  };
+}
+
+/**
+ * The listed price of each plan in US dollars a month, or null when it is agreed per contract.
+ * `perSeat` prices are per seat. There is no checkout: paid plans are granted by the operator
+ * after a request by email (`planRequestHref`).
+ */
+export const PLAN_PRICES: Readonly<
+  Record<PlanName, { usdPerMonth: number | null; perSeat: boolean }>
+> = {
+  free: { usdPerMonth: 0, perSeat: false },
+  pro: { usdPerMonth: 2, perSeat: false },
+  team: { usdPerMonth: 5, perSeat: true },
+  enterprise: { usdPerMonth: null, perSeat: false },
+};
+
+/** Where requests for a paid plan go. */
+export const PLAN_REQUEST_EMAIL = "hello@portifact.com";
+
+/** The `mailto:` link that requests a plan, with a subject naming it. */
+export function planRequestHref(plan: PlanName): string {
+  const subject = encodeURIComponent(`Portifact ${PLAN_LABELS[plan]} plan request`);
+  return `mailto:${PLAN_REQUEST_EMAIL}?subject=${subject}`;
+}
+
 /** The cheapest plan that includes a feature, from `PLANS` in the order of `PLAN_NAMES`. */
 export function lowestPlanWith(feature: PlanFeature): PlanName {
   // Enterprise grants every feature (a test holds it to that), so the search always finds one.

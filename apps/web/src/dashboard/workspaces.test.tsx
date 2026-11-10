@@ -109,13 +109,14 @@ describe("the space menu", () => {
     server.workspaces.e = workspace("e", "editor");
     server.workspaces.m = workspace("m", "member");
     const cases: [string, string[]][] = [
-      ["/", ["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Branding", "Settings"]],
+      ["/", ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Webhooks", "Branding", "Settings"]],
       [
         "/?workspace=a",
-        ["Artifacts", "Publish", "Apps", "Usage", "Branding", "Members", "Settings"],
+        ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Branding", "Members", "Settings"],
       ],
-      ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Members", "Settings"]],
-      ["/?workspace=m", ["Artifacts", "Apps", "Members", "Settings"]],
+      ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Members", "Settings"]],
+      // Every role compares the plans; the page decides what it shows and offers.
+      ["/?workspace=m", ["Artifacts", "Apps", "Plan", "Members", "Settings"]],
     ];
     for (const [path, expected] of cases) {
       renderDashboard(path, server);
