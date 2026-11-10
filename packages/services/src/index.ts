@@ -14,6 +14,7 @@ export * from "./branding.ts";
 export * from "./budget.ts";
 export * from "./cloudflare-hostnames.ts";
 export * from "./comment-notices.ts";
+export * from "./content-search.ts";
 export * from "./custom-domains.ts";
 export * from "./directory.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";

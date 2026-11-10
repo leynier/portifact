@@ -24,6 +24,7 @@ import { actorOn, authorizeOn } from "./actors.ts";
 import { accessHistoryMoveJob } from "./analytics.ts";
 import type { ArtifactRow } from "./artifacts.ts";
 import { auditEvent } from "./audit.ts";
+import { searchIndexJob } from "./content-search.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
@@ -222,6 +223,16 @@ export async function transferArtifact(
         ),
       // The access history follows the artifact (the job re-owns its openings and views).
       accessHistoryMoveJob(db, artifact.id, unchanged, input.now),
+      // The move drops its search rows (a trigger); the target indexes it if its plan searches.
+      ...(artifact.state === "active" && artifact.currentVersionId
+        ? searchIndexJob(db, {
+            entitlements: owner,
+            artifactId: artifact.id,
+            versionId: artifact.currentVersionId,
+            condition: unchanged,
+            now: input.now,
+          })
+        : []),
       db.insert(schema.lifecycleEvents).select(
         // Columns in schema order: id, artifact, actor, channel, event, details, at.
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'transferred', ${JSON.stringify({ from, to })}, ${input.now} where ${unchanged}`,

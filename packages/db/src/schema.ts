@@ -685,6 +685,7 @@ export const OUTBOX_TOPICS = [
   "workspace_deletion",
   "access_history_move",
   "domain_notice",
+  "search_index",
 ] as const;
 
 /**
@@ -1698,4 +1699,51 @@ export const auditEvents = sqliteTable(
     index("audit_events_owner_at_idx").on(t.ownerId, t.at, t.id),
     index("audit_events_at_idx").on(t.at),
   ],
+);
+
+/**
+ * Content search (premium plan T8, decision 0012): which version of an artifact the index holds.
+ * One row per indexed artifact, written only by the `search_index` job in one batch with its
+ * files, while that version is current and the artifact active. It goes with the artifact (the
+ * foreign key), and triggers of the `content_search` migration delete it when the artifact stops
+ * being active or changes owner. Deleting it deletes its `search_chunks`, whose trigger deletes
+ * their rows of the `search_text` FTS5 table (raw SQL in that migration; Drizzle never sees it).
+ */
+export const searchArtifacts = sqliteTable(
+  "search_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .primaryKey()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    versionId: text("version_id").notNull(),
+    /** UTF-8 bytes of the text indexed for this artifact, counted against the owner's cap. */
+    textBytes: integer("text_bytes").notNull(),
+    /** Some text was over a cap and is not searchable. */
+    partial: integer("partial", { mode: "boolean" }).notNull(),
+    indexedAt: timestamp("indexed_at").notNull(),
+    /**
+     * The index of the next file a continuation job reads, while one job's read budget did not
+     * cover the version; null once every file was read (`SEARCH_LIMITS.jobReadBytes`).
+     */
+    nextFile: integer("next_file"),
+  },
+  (t) => [index("search_artifacts_owner_idx").on(t.ownerId)],
+);
+
+/**
+ * One chunk of an indexed file's text (about 4,000 characters, `chunkText` in packages/domain), so
+ * a snippet is always built from a small row; its `id` is the rowid of its `search_text` row.
+ */
+export const searchChunks = sqliteTable(
+  "search_chunks",
+  {
+    id: integer("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => searchArtifacts.artifactId, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    seq: integer("seq").notNull(),
+  },
+  (t) => [uniqueIndex("search_chunks_artifact_path_seq_idx").on(t.artifactId, t.path, t.seq)],
 );

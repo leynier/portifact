@@ -24,6 +24,7 @@ import {
 import { and, asc, desc, eq, exists, inArray, lt, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
+import { searchIndexJob } from "./content-search.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
@@ -649,6 +650,14 @@ export async function rollbackArtifact(
       version: sql`(select ${v.number} from ${v} where ${v.id} = ${versionId})`,
       now: input.now,
       condition: switched,
+    }),
+    // The restored text becomes the searchable one (decision 0012).
+    ...searchIndexJob(db, {
+      entitlements: owner,
+      artifactId: artifact.id,
+      versionId,
+      condition: switched,
+      now: input.now,
     }),
   ]);
 

@@ -16,6 +16,7 @@ import {
   type AccountUsageView,
   ARTIFACT_ID_ALPHABET,
   ArtifactListFilters,
+  type ArtifactListItem,
   type ArtifactStatsView,
   type ArtifactSummary,
   type ArtifactType,
@@ -34,6 +35,7 @@ import {
   PublishRequest,
   planRequiredMessage,
   RollbackRequest,
+  type SearchResults,
   ShareLinkCreate,
   type ShareLinkView,
   type SourceOrigin,
@@ -169,6 +171,10 @@ export interface FakeApiState {
   auditQueries: string[];
   /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
   stats: Map<string, ArtifactStatsView>;
+  /** Search pages by space (`personal` or a slug), as GET /search returns them for any query. */
+  search: Map<string, SearchResults>;
+  /** The query strings GET /search received, in order. */
+  searchQueries: string[];
   /**
    * Open feedback by space (`personal` or a workspace slug), newest first, as GET /feedback pages
    * it; a workspace's needs `workspaces` in `usage.plan.features`.
@@ -253,6 +259,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     audit: new Map(),
     auditQueries: [],
     stats: new Map(),
+    search: new Map(),
+    searchQueries: [],
     feedback: new Map(),
     shareLinks: new Map(),
     shareTokens: [],
@@ -1493,6 +1501,11 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     const hooks = webhookRoute(method, path, raw);
     if (hooks) return hooks;
+    if (route === "GET /search") {
+      state.searchQueries.push(url.search);
+      const body = state.search.get(url.searchParams.get("workspace") ?? "personal");
+      return body ? { status: 200, body } : error("not_found", "Workspace not found.");
+    }
     if (route === "GET /audit") {
       state.auditQueries.push(url.search);
       const space = url.searchParams.get("workspace") ?? "personal";
@@ -1584,6 +1597,14 @@ export function scopeFor(method: string, path: string): string {
   if (method === "DELETE") return "artifacts:delete";
   if (method === "POST") return "artifacts:write";
   return "artifacts:read";
+}
+
+/** An artifact as the list (and the search results) show it, in the personal space. */
+export function listItemOf(artifact: FakeArtifact): ArtifactListItem {
+  return {
+    ...summary(artifact),
+    activity: { versions: 1, currentBytes: null, openThreads: 0, lastAnnotationAt: null },
+  };
 }
 
 function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): ArtifactSummary {

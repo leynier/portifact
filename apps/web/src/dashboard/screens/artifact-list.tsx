@@ -6,13 +6,17 @@ import {
   ArtifactType,
   LIST_SEARCH_MAX,
   ListedArtifactState,
+  SEARCH_LIMITS,
+  type SearchResult,
 } from "@portifact/contracts";
 import {
   Button,
   buttonClasses,
   Callout,
+  Checkbox,
   CopyField,
   EmptyState,
+  HighlightedText,
   LoadingState,
   PageHeader,
   rowControlClasses,
@@ -54,20 +58,25 @@ import { RoleNotice, SpaceBadge } from "./space-parts.tsx";
 import { TrafficNotice, trafficBlock, useUsage } from "./usage.tsx";
 
 export const ARTIFACTS_QUERY = ["artifacts"] as const;
+export const CONTENT_SEARCH_QUERY = ["content-search"] as const;
 
 type T = ReturnType<typeof useT>;
+
+/** The list's search and filters, and `in: "content"` to search inside the artifacts' text. */
+export type ListSearch = ArtifactListFilters & { in?: "content" };
 
 /**
  * The list's search and filters from the URL, so they survive going to an artifact and back
  * and can be shared. A value the API would refuse is dropped, one field at a time.
  */
-export function parseListSearch(search: Record<string, unknown>): ArtifactListFilters {
+export function parseListSearch(search: Record<string, unknown>): ListSearch {
   const filters: Record<string, unknown> = {};
   for (const [name, schema] of Object.entries(ArtifactListFilters.shape)) {
     const parsed = schema.safeParse(search[name]);
     if (parsed.success && parsed.data !== undefined) filters[name] = parsed.data;
   }
-  return filters as ArtifactListFilters;
+  if (search.in === "content") filters.in = "content";
+  return filters as ListSearch;
 }
 
 const ANY = "any";
@@ -107,15 +116,28 @@ export function ArtifactListScreen() {
   const formatDate = useFormatDate();
   const { api } = useDashboard();
   // The router keeps search keys a route does not validate, so parse again what it hands over.
-  const filters = parseListSearch(useSearch({ from: "/" }));
+  const { in: mode, ...filters } = parseListSearch(useSearch({ from: "/" }));
   const navigate = useNavigate();
   const filtered = Object.keys(filters).length > 0;
   useDocumentTitle(t("list.title"));
   const space = useReadySpace();
   // A workspace's members do not list its artifacts: they read what is shared with them.
   const listing = spaceCan(space, "list");
-  // Only to explain a traffic block; the list works the same if usage cannot be loaded.
-  const traffic = trafficBlock(useUsage(space.slug, spaceCan(space, "usage")).data);
+  // Only to explain a traffic block and offer content search; the list works without it.
+  const usage = useUsage(space.slug, spaceCan(space, "usage")).data;
+  const traffic = trafficBlock(usage);
+  // Searching inside content reads every artifact: admins and editors, on a plan with it.
+  const contentSearch =
+    spaceCan(space, "search") && (usage?.plan.features.includes("contentSearch") ?? false);
+  const contentQuery = contentSearch && mode === "content" ? filters.search : undefined;
+  const content = useInfiniteQuery({
+    queryKey: [...CONTENT_SEARCH_QUERY, space.slug ?? null, contentQuery ?? ""],
+    queryFn: ({ pageParam }) => api.searchContent(contentQuery ?? "", pageParam, space.slug),
+    enabled: contentQuery !== undefined,
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (page) => page.nextCursor ?? undefined,
+    placeholderData: keepPreviousData,
+  });
 
   const list = useInfiniteQuery({
     queryKey: [...ARTIFACTS_QUERY, space.slug ?? null, filters],
@@ -127,7 +149,7 @@ export function ArtifactListScreen() {
     placeholderData: keepPreviousData,
     ...refreshOptions,
   });
-  const apply = (next: ArtifactListFilters) => {
+  const apply = (next: ListSearch) => {
     void navigate({ to: "/", search: next });
   };
 
@@ -213,10 +235,17 @@ export function ArtifactListScreen() {
       ) : null}
       {searchable ? (
         <div className="mb-6">
-          <FilterForm filters={filters} filtered={filtered} onApply={apply} />
+          <FilterForm
+            filters={filters}
+            filtered={filtered}
+            content={contentSearch ? mode === "content" : undefined}
+            onApply={apply}
+          />
         </div>
       ) : null}
-      {artifacts.length === 0 && !searching ? (
+      {contentQuery !== undefined ? (
+        <ContentResults query={content} />
+      ) : artifacts.length === 0 && !searching ? (
         filtered ? (
           <EmptyState title={t("list.noMatch.title")} icon={<SearchX className="size-8" />}>
             <p role="status">{t("list.noMatch.body")}</p>
@@ -483,6 +512,133 @@ function Way({
   );
 }
 
+/** What a search inside the artifacts' text found: each artifact, the file and a snippet. */
+function ContentResults({
+  query,
+}: {
+  query: {
+    data?: { pages: { items: SearchResult[] }[] } | undefined;
+    isPending: boolean;
+    isError: boolean;
+    error: unknown;
+    isPlaceholderData: boolean;
+    isFetchingNextPage: boolean;
+    hasNextPage: boolean;
+    fetchNextPage(): unknown;
+    refetch(): unknown;
+  };
+}) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  if (query.isPending) return <LoadingState label={t("list.content.searching")} skeleton={3} />;
+  if (query.isError && !query.data) {
+    return (
+      <Callout
+        tone="error"
+        title={t("list.content.error")}
+        icon={<CircleAlert className="size-5" />}
+        action={
+          <Button icon={<RefreshCw className="size-4" />} onClick={() => query.refetch()}>
+            {t("action.retry")}
+          </Button>
+        }
+      >
+        {errorMessage(t, query.error)}
+      </Callout>
+    );
+  }
+  const results = query.data?.pages.flatMap((page) => page.items) ?? [];
+  const searching = query.isPlaceholderData;
+  if (results.length === 0 && !searching) {
+    return (
+      <EmptyState title={t("list.content.noMatch.title")} icon={<SearchX className="size-8" />}>
+        <p role="status">{t("list.content.noMatch.body")}</p>
+      </EmptyState>
+    );
+  }
+  return (
+    <>
+      <Table caption={t("list.content.caption")} stacked>
+        <TableHead>
+          <TableRow>
+            <TableHeaderCell>{t("list.column.name")}</TableHeaderCell>
+            <TableHeaderCell>{t("list.content.column.match")}</TableHeaderCell>
+            <TableHeaderCell>{t("list.column.access")}</TableHeaderCell>
+            <TableHeaderCell>{t("list.column.activity")}</TableHeaderCell>
+            <TableHeaderCell>
+              <span className="sr-only">{t("list.column.actions")}</span>
+            </TableHeaderCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {results.map(({ artifact, path, snippet, partial }) => (
+            <TableRow key={artifact.id} linked>
+              <TableCell>
+                <span className="flex min-w-40 items-center gap-3">
+                  <TypeIcon type={artifact.type} />
+                  <span className="flex min-w-0 flex-col">
+                    <Link
+                      to="/artifacts/$artifactId"
+                      params={{ artifactId: artifact.id }}
+                      className={`font-semibold ${rowLinkClasses}`}
+                    >
+                      {artifact.name}
+                    </Link>
+                    <span className="flex flex-wrap gap-x-2 text-xs text-text-muted">
+                      <span>{t(`type.${artifact.type}`)}</span>
+                      <span className="font-mono">{artifact.id}</span>
+                    </span>
+                  </span>
+                </span>
+              </TableCell>
+              <TableCell>
+                <span className="block min-w-48 max-w-prose">
+                  <span className="block text-xs text-text-muted">
+                    {t("list.content.file", { path })}
+                  </span>
+                  <span className="block text-sm [overflow-wrap:anywhere]">
+                    <HighlightedText text={snippet.text} ranges={snippet.highlights} />
+                  </span>
+                  {partial ? (
+                    <span className="block text-xs text-text-muted">
+                      {t("list.content.partial")}
+                    </span>
+                  ) : null}
+                </span>
+              </TableCell>
+              <TableCell stack="inline">
+                <AccessBadge mode={artifact.accessMode} />
+              </TableCell>
+              <TableCell>
+                <span className="block min-w-28">
+                  {t("list.updated", { date: formatDate(artifact.updatedAt) })}
+                </span>
+              </TableCell>
+              <TableCell stack="end">
+                <RowActions artifact={artifact} />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
+        <p role="status" className="text-sm text-text-muted">
+          {searching
+            ? t("list.content.searching")
+            : query.isFetchingNextPage
+              ? t("list.loadingMore")
+              : t("list.content.count", { count: results.length })}
+        </p>
+        {query.hasNextPage && !searching ? (
+          <Button busy={query.isFetchingNextPage} onClick={() => query.fetchNextPage()}>
+            {t("list.loadMore")}
+          </Button>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
 function countMessage(
   t: T,
   state: { searching: boolean; loadingMore: boolean; filtered: boolean; count: number },
@@ -500,23 +656,29 @@ function countMessage(
 function FilterForm({
   filters,
   filtered,
+  content,
   onApply,
 }: {
   filters: ArtifactListFilters;
   filtered: boolean;
-  onApply(filters: ArtifactListFilters): void;
+  /** Whether the search looks inside content; undefined when the space cannot. */
+  content: boolean | undefined;
+  onApply(filters: ListSearch): void;
 }) {
   const t = useT();
+  const max = content ? SEARCH_LIMITS.queryChars : LIST_SEARCH_MAX;
+  const withMode = (next: ArtifactListFilters): ListSearch =>
+    content ? { ...next, in: "content" } : next;
   const form = useAppForm({
     defaultValues: formValues(filters),
     validationLogic: revalidateLogic(),
     validators: {
       onDynamic: ({ value }) =>
-        value.search.trim().length > LIST_SEARCH_MAX
-          ? { fields: { search: t("list.filter.searchTooLong", { max: LIST_SEARCH_MAX }) } }
+        value.search.trim().length > max
+          ? { fields: { search: t("list.filter.searchTooLong", { max }) } }
           : undefined,
     },
-    onSubmit: ({ value }) => onApply(filtersOf(value)),
+    onSubmit: ({ value }) => onApply(withMode(filtersOf(value))),
   });
   // Back and forward change the URL: the form follows it.
   const current = JSON.stringify(filters);
@@ -577,11 +739,29 @@ function FilterForm({
   );
   const clear = filtered ? (
     <span className="inline-flex h-8 items-center px-1">
-      <Button intent="link" size="inline" onClick={() => onApply({})}>
+      <Button intent="link" size="inline" onClick={() => onApply(withMode({}))}>
         {t("list.filter.clear")}
       </Button>
     </span>
   ) : null;
+  // Inside content, the search alone applies: the filters describe names and settings.
+  const contentToggle =
+    content === undefined ? null : (
+      <div className="w-full">
+        <Checkbox
+          label={t("list.content.toggle")}
+          description={t("list.content.toggleHint")}
+          checked={content}
+          onChange={(event) => {
+            const search = form.state.values.search.trim();
+            onApply({
+              ...(search ? { search } : {}),
+              ...(event.currentTarget.checked ? { in: "content" as const } : {}),
+            });
+          }}
+        />
+      </div>
+    );
   return (
     <form.AppForm>
       <form.Form label={t("list.filter.label")}>
@@ -590,8 +770,10 @@ function FilterForm({
             <form.AppField name="search">
               {(field) => (
                 <field.SearchField
-                  label={t("list.filter.search")}
-                  placeholder={t("list.filter.searchPlaceholder")}
+                  label={t(content ? "list.content.search" : "list.filter.search")}
+                  placeholder={t(
+                    content ? "list.content.placeholder" : "list.filter.searchPlaceholder",
+                  )}
                   clearLabel={t("list.filter.clearSearch")}
                   autoComplete="off"
                   enterKeyHint="search"
@@ -599,7 +781,7 @@ function FilterForm({
               )}
             </form.AppField>
           </div>
-          {wide ? (
+          {content ? null : wide ? (
             <>
               {selects}
               {clear}
@@ -644,6 +826,7 @@ function FilterForm({
               </Sheet>
             </>
           )}
+          {contentToggle}
         </div>
       </form.Form>
     </form.AppForm>

@@ -37,6 +37,7 @@ const TOOLS = [
   "renew_artifact",
   "restore_artifact",
   "rollback_artifact",
+  "search_content",
   "set_comment_visibility",
   "set_portifact_bar",
   "unpin_artifact",
@@ -114,6 +115,7 @@ describe("the MCP endpoint", () => {
       "get_access_logs",
       "get_artifact_stats",
       "get_audit_log",
+      "search_content",
     ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
     }

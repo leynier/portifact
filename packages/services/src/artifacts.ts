@@ -105,7 +105,7 @@ function filterConditions(filters: ArtifactListFilters = {}) {
 }
 
 /** The artifacts a service token's restriction reaches (decision 0011); nothing for people. */
-function reachConditions(actor: Actor): SQL | undefined {
+export function reachConditions(actor: Actor): SQL | undefined {
   const t = schema.artifacts;
   const restriction = actor.token?.restriction;
   if (!restriction || restriction.kind === "none") return undefined;
@@ -120,7 +120,7 @@ function reachConditions(actor: Actor): SQL | undefined {
  * for open threads and `annotation_threads_artifact_change_idx` for the last change (the thread
  * changed last has the highest `change_seq`). They run only for the rows of the page.
  */
-function activityColumns(retention: VersionRetention, now: number) {
+export function activityColumns(retention: VersionRetention, now: number) {
   // Drizzle leaves columns unqualified in select fields, where they would bind to the
   // subquery's own table, so every column here names its table.
   const col = (column: Column) =>
@@ -139,6 +139,32 @@ function activityColumns(retention: VersionRetention, now: number) {
     activityLastAnnotationAt: sql<
       number | null
     >`(select ${col(th.updatedAt)} from ${th} where ${col(th.artifactId)} = ${id} order by ${col(th.changeSeq)} desc limit 1)`,
+  };
+}
+
+/** A row selected with `activityColumns`, as a listed artifact. */
+export function withActivity<
+  T extends {
+    activityVersions: number;
+    activityCurrentBytes: number | null;
+    activityOpenThreads: number;
+    activityLastAnnotationAt: number | null;
+  },
+>({
+  activityVersions,
+  activityCurrentBytes,
+  activityOpenThreads,
+  activityLastAnnotationAt,
+  ...row
+}: T): Omit<T, keyof ReturnType<typeof activityColumns>> & { activity: ArtifactActivity } {
+  return {
+    ...row,
+    activity: {
+      versions: Number(activityVersions),
+      currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
+      openThreads: Number(activityOpenThreads),
+      lastAnnotationAt: activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
+    },
   };
 }
 
@@ -176,26 +202,7 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
     )
     .orderBy(desc(t.updatedAt), desc(t.id))
     .limit(input.limit + 1);
-  const items = rows
-    .slice(0, input.limit)
-    .map(
-      ({
-        activityVersions,
-        activityCurrentBytes,
-        activityOpenThreads,
-        activityLastAnnotationAt,
-        ...row
-      }) => ({
-        ...row,
-        activity: {
-          versions: Number(activityVersions),
-          currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
-          openThreads: Number(activityOpenThreads),
-          lastAnnotationAt:
-            activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
-        },
-      }),
-    );
+  const items = rows.slice(0, input.limit).map(withActivity);
   const last = items.at(-1);
   return ok({ items, nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null });
 }

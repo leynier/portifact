@@ -17,6 +17,7 @@ import {
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
+import { searchIndexJob } from "./content-search.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -218,8 +219,18 @@ export async function restoreArtifact(
   // An active artifact past its expiry still holds its slot (maintenance has not archived it),
   // so it only gets new dates; an archived one goes back to active and the trigger retakes the slot.
   try {
-    const [, updated] = await db.batch([
+    const results = await db.batch([
       lifecycleEvent(db, artifact, input, "artifact.restored"),
+      // Archiving dropped its text from the search index (decision 0012): index it again.
+      ...(artifact.currentVersionId
+        ? searchIndexJob(db, {
+            entitlements: owner,
+            artifactId: artifact.id,
+            versionId: artifact.currentVersionId,
+            condition: stillAsRead(artifact),
+            now: input.now,
+          })
+        : []),
       db
         .update(schema.artifacts)
         .set({
@@ -234,6 +245,7 @@ export async function restoreArtifact(
         .where(guard(artifact))
         .returning({ id: schema.artifacts.id }),
     ]);
+    const updated = results.at(-1) as { id: string }[];
     if (updated.length === 0) return conflict();
   } catch (error) {
     if (String((error as Error)?.cause ?? error).includes("CHECK constraint failed")) {
