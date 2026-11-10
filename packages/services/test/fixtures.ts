@@ -131,18 +131,9 @@ export function racingGlobally(before: () => Promise<unknown>) {
 }
 
 export function racing(before: () => Promise<unknown>) {
-  const real = db();
-  let raced = false;
-  return new Proxy(real, {
-    get(target, property, receiver) {
-      if (property !== "batch" || raced) return Reflect.get(target, property, receiver);
-      return async (statements: Parameters<typeof real.batch>[0]) => {
-        raced = true;
-        await before();
-        return target.batch(statements);
-      };
-    },
-  }) as ReturnType<typeof db>;
+  // On the binding, so the first batch races whichever handle runs it: with one database a
+  // path that spans both sides batches on the handle `bothSides` gives.
+  return racingGlobally(before).get("default").db;
 }
 
 /**

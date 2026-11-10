@@ -889,7 +889,7 @@ describe("restores and pruning", () => {
       .insert(schema.workspaceMembers)
       .values({ workspaceId: t.id, userId: ada, role: "member", createdAt: NOW, updatedAt: NOW });
     if (invitation) await global().insert(schema.workspaceInvitations).values(invitation);
-    const result = await applyTombstones(global(), markers, NOW + 2);
+    const result = await applyTombstones(db(), markers, NOW + 2);
     expect(result).toMatchObject({ members: 1, invitations: 1 });
     expect(await role(t, ada)).toBeNull();
     expect(await pending(t, `p@${t.domain}`)).toBeNull();
@@ -911,7 +911,7 @@ describe("restores and pruning", () => {
         createdAt: NOW + 5,
         updatedAt: NOW + 5,
       });
-    expect((await applyTombstones(global(), markers, NOW + 6)).members).toBe(0);
+    expect((await applyTombstones(db(), markers, NOW + 6)).members).toBe(0);
     expect(await role(t, ada)).toBe("member");
   });
 
@@ -934,7 +934,7 @@ describe("restores and pruning", () => {
     const markers = await exportTombstones(regionsFromEnv(env));
     if (tokenRow) await global().insert(schema.scimTokens).values(tokenRow);
     if (userRow) await global().insert(schema.scimUsers).values(userRow);
-    expect(await applyTombstones(global(), markers, NOW + 1)).toMatchObject({
+    expect(await applyTombstones(db(), markers, NOW + 1)).toMatchObject({
       scimTokens: 1,
       scimUsers: 1,
     });

@@ -31,7 +31,14 @@ import {
   isServiceTokenId,
   isWorkspaceId,
 } from "@portifact/contracts";
-import { type Db, type GlobalDb, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
+import {
+  type Db,
+  type GlobalDb,
+  hitRateLimit,
+  type RegionalDb,
+  schema,
+  sharedHandle,
+} from "@portifact/db";
 import {
   type Actor,
   type AuditPosition,
@@ -60,6 +67,7 @@ import {
 import { and, asc, desc, eq, gt, gte, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerEntitlements } from "./plans.ts";
+import { jsonValues } from "./shapes.ts";
 import { ownerView } from "./workspaces.ts";
 
 const ae = schema.auditEvents;
@@ -734,12 +742,20 @@ export async function pruneAuditEvents(
     cursor = (plans.at(-1) as (typeof plans)[number]).ownerId;
   }
   const keptByPlan = [...special.keys()];
-  // A grant written after the plans were read decides next time.
-  const unchangedPlan = sql`not exists (select 1 from ${p} where ${p.ownerId} = ${ae.ownerId} and ${p.updatedAt} > ${now})`;
+  // With one database a grant written after the plans were read decides next time, as it always
+  // did; a separate regional database cannot see the global row in its delete, so there such a
+  // grant decides from the next run (decision 0005, "Two-region audit"), and the kept owners go
+  // as one list parameter, whatever their number.
+  const both = sharedHandle(db, global);
+  const w = both ?? db;
+  const unchangedPlan = both
+    ? sql`not exists (select 1 from ${p} where ${p.ownerId} = ${ae.ownerId} and ${p.updatedAt} > ${now})`
+    : sql`1`;
+  const kept = both ? ids(keptByPlan) : jsonValues(keptByPlan);
   let pruned = 0;
   const sweep = async (where: SQL) => {
     for (let round = 0; round < rounds; round += 1) {
-      const deleted = await db
+      const deleted = await w
         .delete(ae)
         .where(
           sql`${ae.id} in (select ${ae.id} from ${ae} where ${where} limit ${AUDIT_LIMITS.pruneBatch})`,
@@ -750,7 +766,7 @@ export async function pruneAuditEvents(
     }
   };
   await sweep(
-    sql`${ae.at} < ${auditCutoff(defaultDays, now)} and ${ae.ownerId} not in ${ids(keptByPlan)} and ${unchangedPlan}`,
+    sql`${ae.at} < ${auditCutoff(defaultDays, now)} and ${ae.ownerId} not in ${kept} and ${unchangedPlan}`,
   );
   for (const [ownerId, days] of special) {
     await sweep(

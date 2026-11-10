@@ -132,7 +132,12 @@ export async function runScheduled(
   const otherRegions: Record<string, Awaited<ReturnType<typeof runRegionalMaintenance>>> = {};
   for (const handles of regions.all()) {
     if (handles.region === DEFAULT_REGION) continue;
-    otherRegions[handles.region] = await runRegionalMaintenance(handles.db, bucketOf(handles), now);
+    otherRegions[handles.region] = await runRegionalMaintenance(
+      handles.db,
+      bucketOf(handles),
+      now,
+      handles.region,
+    );
   }
   // Custom domains call Cloudflare and DNS: a failure must not hide the rest of the run.
   let customDomains: Awaited<ReturnType<typeof checkCustomDomains>> | "failed";

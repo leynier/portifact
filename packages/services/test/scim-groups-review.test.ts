@@ -415,7 +415,7 @@ describe("finding 7: a restore does not bring back a role the directory took awa
       .set({ mappedRole: "admin" })
       .where(eq(schema.scimUsers.id, ada));
     if (row) await global().insert(schema.workspaceGroupMembers).values(row);
-    const result = await applyTombstones(global(), markers, NOW + 2);
+    const result = await applyTombstones(db(), markers, NOW + 2);
     expect(result.directoryRoles).toBeGreaterThanOrEqual(1);
     expect(await role(t, adaAccount)).toBe("member");
   });

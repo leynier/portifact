@@ -3,25 +3,39 @@
 // the region guard is strict (REGION_GUARD), so a statement that reaches the wrong database fails
 // the test instead of working by accident.
 import { env } from "cloudflare:test";
-import type { AnnotationTarget, JobMessage } from "@portifact/contracts";
+import { type AnnotationTarget, DEFAULT_POLICY, type JobMessage } from "@portifact/contracts";
 import { accessSchema, regionsFromEnv, schema } from "@portifact/db";
+import { entitlements, personalActor } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { updateAccess } from "../src/access.ts";
 import { recordOpenings } from "../src/access-log.ts";
 import { requestAccountDeletion } from "../src/account-data.ts";
-import { artifactHandles } from "../src/actors.ts";
+import { actorOn, artifactHandles } from "../src/actors.ts";
 import { recordViews } from "../src/analytics.ts";
 import { createAnnotationThread, type HumanCheck } from "../src/annotations.ts";
-import { exportTombstones, rebuildArtifactDirectory, reconcileStorage } from "../src/backups.ts";
+import { requestApprovalReview, submitApprovalVerdict } from "../src/approval-reviews.ts";
+import { listArtifacts } from "../src/artifacts.ts";
+import { exportAuditLog, getAuditLog } from "../src/audit.ts";
+import {
+  applyTombstones,
+  exportTombstones,
+  rebuildArtifactDirectory,
+  reconcileStorage,
+} from "../src/backups.ts";
 import { measurePlatformUsage } from "../src/budget.ts";
 import { runMaintenance, runRegionalMaintenance } from "../src/maintenance.ts";
 import { relayOutbox, runJob } from "../src/outbox.ts";
+import { getOwnerPlan, removeOwnerPlan, setOwnerPlan } from "../src/plans.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { issueReadHandoff, redeemReadHandoff, refreshReadSession } from "../src/read-access.ts";
+import type { ReviewNotifier } from "../src/review-notices.ts";
 import { createShareLink, openShareLink } from "../src/share-links.ts";
 import { transferArtifact } from "../src/transfer.ts";
-import { createWorkspace, deleteWorkspace } from "../src/workspaces.ts";
-import { DAY, NOW, session, sha256, user } from "./fixtures.ts";
+import { webhookKeys } from "../src/webhook-keys.ts";
+import { createWebhook, removeWebhook, sendTestEvent, type WebhookDeps } from "../src/webhooks.ts";
+import { createWorkspace, deleteWorkspace, resolveOwnerScope } from "../src/workspaces.ts";
+import { DAY, NOW, publishSite, session, sha256, user, value } from "./fixtures.ts";
 
 const regions = () => regionsFromEnv(env);
 const eu = () => regions().get("eu");
@@ -368,7 +382,7 @@ describe("a workspace in the EU region", () => {
   it("runs every regional scan and the reconciliation on the EU database and bucket", async () => {
     const { ws, admin } = await euWorkspace();
     await publishInEu(ws.id, admin.id);
-    const scans = await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, NOW + DAY);
+    const scans = await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, NOW + DAY, "eu");
     expect(scans).toHaveProperty("archived");
     const storage = await reconcileStorage(eu().db, env.ARTIFACTS_EU, NOW + DAY);
     expect(storage).toBeDefined();
@@ -396,5 +410,416 @@ describe("a workspace in the EU region", () => {
     // none and never moves one to another region (rows are never updated or deleted).
     expect(await rebuildArtifactDirectory(regions().global, eu().db, "eu")).toBe(0);
     expect((await artifactHandles(regions(), artifactId))?.region).toBe("eu");
+  });
+});
+
+/** A version of `artifactId` published into the EU region at `now`, replacing `base`. */
+async function updateInEu(
+  ownerId: string,
+  adminId: string,
+  artifactId: string,
+  base: string,
+  now: number,
+) {
+  const body = `<p>${crypto.randomUUID()}</p>`;
+  const digest = await sha256(body);
+  const prepared = await preparePublish(eu().db, {
+    userId: adminId,
+    targetOwnerId: ownerId,
+    artifactId,
+    type: "site",
+    name: "EU plan",
+    entrypoint: "index.html",
+    baseVersionId: base,
+    files: [
+      {
+        path: "index.html",
+        kind: "published",
+        sha256: digest,
+        size: body.length,
+        contentType: "text/html",
+      },
+    ],
+    now,
+  });
+  if (!prepared.ok) throw new Error(prepared.message);
+  await env.ARTIFACTS_EU.put(`objects/${ownerId}/${digest}`, body);
+  return value(
+    await commitPublish(eu().db, env.ARTIFACTS_EU, {
+      userId: adminId,
+      sessionId: prepared.value.sessionId,
+      now,
+    }),
+  );
+}
+
+async function euActor(userId: string, ownerId: string) {
+  const actor = await actorOn(regions().global, userId, ownerId);
+  if (!actor) throw new Error("no role");
+  return actor;
+}
+
+async function euJobs(topic: string, subject?: string) {
+  const rows = await eu()
+    .db.select()
+    .from(schema.outbox)
+    .where(eq(schema.outbox.topic, topic as typeof schema.outbox.$inferSelect.topic));
+  return subject === undefined ? rows : rows.filter((row) => row.subject === subject);
+}
+
+async function homeJobs(topic: string, subject: string) {
+  return (
+    await home()
+      .db.select()
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, topic as typeof schema.outbox.$inferSelect.topic))
+  ).filter((row) => row.subject === subject);
+}
+
+async function usageIn(db: ReturnType<typeof eu>["db"], ownerId: string) {
+  const [row] = await db
+    .select()
+    .from(schema.accountUsage)
+    .where(eq(schema.accountUsage.ownerId, ownerId));
+  return row;
+}
+
+describe("an EU workspace's plan, scans and paid features", () => {
+  it("grants and removes its plan in the EU region: the limit columns and the retention job", async () => {
+    const { ws, admin } = await euWorkspace();
+    await publishInEu(ws.id, admin.id);
+    const grant = {
+      ownerId: ws.id,
+      plan: "team" as const,
+      seats: 3,
+      validUntil: null,
+      overrides: null,
+      grantedBy: "test",
+      note: null,
+      now: NOW + 1,
+    };
+    value(await setOwnerPlan(eu().db, grant));
+    const team = entitlements({ ...grant, overrides: null }, NOW + 1);
+    expect((await usageIn(eu().db, ws.id))?.activeLimit).toBe(team.limits.activeArtifacts);
+    expect(await usageIn(home().db, ws.id)).toBeUndefined();
+    // The retention job is where the owner's access log is: the EU outbox, never the default.
+    const [job] = await euJobs("owner_retention", ws.id);
+    expect(job).toBeDefined();
+    expect(await homeJobs("owner_retention", ws.id)).toEqual([]);
+    expect(
+      await runJob(eu().db, env.ARTIFACTS_EU, { id: job?.id ?? 0, topic: "owner_retention" }, NOW, {
+        access: eu().accessDb,
+      }),
+    ).toBe("done");
+    expect((await getOwnerPlan(eu().db, ws.id, NOW + 1)).row?.plan).toBe("team");
+
+    value(await removeOwnerPlan(eu().db, { ownerId: ws.id, now: NOW + 2 }));
+    expect((await usageIn(eu().db, ws.id))?.activeLimit).toBe(
+      entitlements(null, NOW).limits.activeArtifacts,
+    );
+    // The first job ran and is gone; the removal wrote the next one, in the EU again.
+    expect(await euJobs("owner_retention", ws.id)).toHaveLength(1);
+  });
+
+  it("runs the plan, expiry, search, group and policy scans for EU owners only in the EU", async () => {
+    const { ws, admin, slug } = await euWorkspace();
+    const { artifactId } = await publishInEu(ws.id, admin.id);
+    await eu()
+      .db.update(schema.artifacts)
+      .set({ expiresAt: NOW + 2 * DAY })
+      .where(eq(schema.artifacts.id, artifactId));
+    // Limit columns out of line, a group that is gone, and a public artifact a policy forbids.
+    await eu()
+      .db.update(schema.accountUsage)
+      .set({ activeLimit: 1 })
+      .where(eq(schema.accountUsage.ownerId, ws.id));
+    await eu()
+      .db.insert(schema.artifactGroups)
+      .values({ artifactId, groupId: "wg_gone", createdAt: NOW });
+    value(
+      await updateAccess(eu().db, {
+        userId: admin.id,
+        artifactId,
+        change: { mode: "public" },
+        now: NOW,
+      }),
+    );
+    await regions()
+      .global.update(schema.workspaces)
+      .set({ policy: { ...DEFAULT_POLICY, publicAccess: "forbidden" }, policyRevision: 1 })
+      .where(eq(schema.workspaces.id, ws.id));
+    await eu().db.delete(schema.outbox).where(eq(schema.outbox.topic, "search_index"));
+
+    // The default region's scans never touch an EU owner, nor give it rows there.
+    await runMaintenance(home().db, env.ARTIFACTS, NOW, regions());
+    expect(await usageIn(home().db, ws.id)).toBeUndefined();
+    expect(await homeJobs("expiry_notice", ws.id)).toEqual([]);
+
+    const scans = await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, NOW, "eu");
+    expect(scans.expiryNotices).toBe(1);
+    expect(await euJobs("expiry_notice", ws.id)).toHaveLength(1);
+    expect(scans.alignedPlanLimits).toBeGreaterThanOrEqual(1);
+    const enterprise = entitlements(
+      { plan: "enterprise", seats: 5, validUntil: null, overrides: null },
+      NOW,
+    );
+    expect((await usageIn(eu().db, ws.id))?.activeLimit).toBe(enterprise.limits.activeArtifacts);
+    expect(scans.scheduledSearchIndexing).toBeGreaterThanOrEqual(1);
+    const [index] = await euJobs("search_index", artifactId);
+    expect(
+      await runJob(eu().db, env.ARTIFACTS_EU, { id: index?.id ?? 0, topic: "search_index" }, NOW),
+    ).toBe("done");
+    expect(scans.artifactGroups).toBeGreaterThanOrEqual(1);
+    const [policed] = await eu()
+      .db.select({ mode: schema.artifacts.accessMode })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, artifactId));
+    expect(policed?.mode).not.toBe("public");
+    expect(slug).toBeTruthy();
+
+    // A lapsed plan unpins, and drops the content index, in the EU.
+    await eu()
+      .db.update(schema.artifacts)
+      .set({ pinned: true, expiresAt: null })
+      .where(eq(schema.artifacts.id, artifactId));
+    await regions().global.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, ws.id));
+    const lapsed = await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, NOW + 1, "eu");
+    expect(lapsed.unpinned).toBeGreaterThanOrEqual(1);
+    expect(lapsed.droppedSearchIndexes).toBeGreaterThanOrEqual(1);
+    const [unpinned] = await eu()
+      .db.select({ pinned: schema.artifacts.pinned })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, artifactId));
+    expect(unpinned?.pinned).toBe(false);
+  });
+
+  it("prunes EU workspaces' old versions in the EU, each with its own plan's retention", async () => {
+    const free = await euWorkspace();
+    await regions()
+      .global.delete(schema.ownerPlans)
+      .where(eq(schema.ownerPlans.ownerId, free.ws.id));
+    const paid = await euWorkspace();
+    const versions = async (team: Awaited<ReturnType<typeof euWorkspace>>) => {
+      const first = await publishInEu(team.ws.id, team.admin.id);
+      const second = await updateInEu(
+        team.ws.id,
+        team.admin.id,
+        first.artifactId,
+        first.versionId,
+        NOW + 1,
+      );
+      await updateInEu(team.ws.id, team.admin.id, first.artifactId, second.versionId, NOW + 2);
+      return first;
+    };
+    const freeFirst = await versions(free);
+    const paidFirst = await versions(paid);
+    const left = async (artifactId: string) =>
+      (
+        await eu()
+          .db.select({ id: schema.versions.id })
+          .from(schema.versions)
+          .where(eq(schema.versions.artifactId, artifactId))
+      ).map((row) => row.id);
+    // A month on, the free retention (7 days) has passed and the enterprise one has not.
+    const month = await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, NOW + 30 * DAY, "eu");
+    expect(month.prunedVersions).toBeGreaterThanOrEqual(1);
+    expect(await left(freeFirst.artifactId)).not.toContain(freeFirst.versionId);
+    expect(await left(paidFirst.artifactId)).toContain(paidFirst.versionId);
+    // After a year and more, the enterprise retention has passed too.
+    await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, NOW + 400 * DAY, "eu");
+    expect(await left(paidFirst.artifactId)).not.toContain(paidFirst.versionId);
+  });
+
+  it("delivers, removes and keeps removed an EU workspace's webhook", async () => {
+    const { ws, admin } = await euWorkspace();
+    const actor = await euActor(admin.id, ws.id);
+    const keys = await webhookKeys({
+      current: "test-only webhook sealing key, long enough to use",
+    });
+    const { webhook: hook } = value(
+      await createWebhook(eu().db, {
+        service: { enabled: true },
+        via: "dashboard",
+        actor,
+        webhook: {
+          url: "https://hooks.example.com/in?token=abc",
+          format: "generic",
+          events: ["artifact.published"],
+        },
+        keys,
+        now: NOW,
+      }),
+    );
+    value(
+      await sendTestEvent(eu().db, {
+        actor,
+        webhookId: hook.id,
+        service: { enabled: true },
+        now: NOW,
+      }),
+    );
+    const sent: string[] = [];
+    const deps: WebhookDeps = {
+      keys,
+      fetch: async (url: string) => {
+        sent.push(url);
+        return new Response("ok");
+      },
+      appOrigin: "https://app.portifact.test",
+      contentDomain: "portifact.test",
+      enabled: true,
+    };
+    for (const job of await euJobs("webhook_delivery", hook.id)) {
+      await runJob(
+        eu().db,
+        env.ARTIFACTS_EU,
+        { id: job.id, topic: "webhook_delivery" },
+        NOW + 60_000,
+        {
+          webhooks: deps,
+        },
+      );
+    }
+    // The plan was read from the global database: the enterprise plan delivers.
+    expect(sent).toHaveLength(1);
+
+    const [row] = await eu()
+      .db.select()
+      .from(schema.webhooks)
+      .where(eq(schema.webhooks.id, hook.id));
+    value(await removeWebhook(eu().db, { actor, webhookId: hook.id, now: NOW + 2 }));
+    const [tombstone] = await regions()
+      .global.select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, hook.id));
+    expect(tombstone).toMatchObject({ kind: "webhook" });
+    // A restore of the EU database brings it back; the tombstones remove it again.
+    if (row) await eu().db.insert(schema.webhooks).values(row);
+    const applied = await applyTombstones(regions(), [], NOW + 3);
+    expect(applied.webhooks).toBe(1);
+    expect(
+      await eu().db.select().from(schema.webhooks).where(eq(schema.webhooks.id, hook.id)),
+    ).toEqual([]);
+  });
+
+  it("re-applies tombstones to the EU: purges a resurrected artifact and deletes its owner again", async () => {
+    const { ws, admin } = await euWorkspace();
+    const { artifactId } = await publishInEu(ws.id, admin.id);
+    const ghost = await user("Ghost");
+    // An account deleted before the restore whose only rows left are in the EU.
+    await eu()
+      .db.insert(schema.artifacts)
+      .values({ id: "ghostghost", ownerId: ghost.id, type: "site", name: "Gone", state: "active" });
+    await regions().global.delete(schema.users).where(eq(schema.users.id, ghost.id));
+    const applied = await applyTombstones(
+      regions(),
+      [
+        { kind: "artifact", id: artifactId, deletedAt: NOW },
+        { kind: "account", id: ghost.id, deletedAt: NOW },
+      ],
+      NOW + 1,
+    );
+    expect(applied.artifacts).toBe(2);
+    expect(applied.accounts).toBe(1);
+    expect((await artifactIn(eu().db, artifactId))?.state).toBe("purging");
+    expect(await euJobs("purge_artifact", artifactId)).toHaveLength(1);
+    // The account's deletion is a global job; running it all again changes nothing.
+    expect(await homeJobs("account_deletion", ghost.id)).toHaveLength(1);
+    const again = await applyTombstones(regions(), [], NOW + 2);
+    expect(again).toMatchObject({ artifacts: 0, accounts: 0 });
+  });
+
+  it("keeps the EU workspace's audit log in the EU, reads and exports it", async () => {
+    const { ws, admin } = await euWorkspace();
+    const { artifactId } = await publishInEu(ws.id, admin.id);
+    value(
+      await updateAccess(eu().db, {
+        userId: admin.id,
+        artifactId,
+        change: { mode: "authenticated" },
+        now: NOW + 1,
+      }),
+    );
+    const actor = await euActor(admin.id, ws.id);
+    const log = value(
+      await getAuditLog(eu().db, { actor, filters: {}, limit: 50, now: NOW + DAY }),
+    );
+    expect(log.events.map((event) => event.kind)).toContain("access.changed");
+    const homeEvents = await home()
+      .db.select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.ownerId, ws.id));
+    expect(homeEvents.filter((event) => event.kind === "access.changed")).toEqual([]);
+    const exported = value(
+      await exportAuditLog(eu().db, { actor, format: "jsonl", filters: {}, now: NOW + DAY }),
+    );
+    let text = "";
+    for await (const chunk of exported.lines()) text += chunk;
+    expect(text).toContain("access.changed");
+  });
+
+  it("requests an approval review of an EU artifact, notifies the reviewer and records the verdict", async () => {
+    const { ws, admin, member } = await euWorkspace();
+    const { artifactId } = await publishInEu(ws.id, admin.id);
+    // Every member of the workspace may read it, so the member may review it.
+    value(
+      await updateAccess(eu().db, {
+        userId: admin.id,
+        artifactId,
+        change: { mode: "workspace" },
+        now: NOW,
+      }),
+    );
+    value(
+      await requestApprovalReview(eu().db, {
+        userId: admin.id,
+        artifactId,
+        reviewers: [member.email],
+        now: NOW + 1,
+      }),
+    );
+    const sent: { to: string; name: string }[] = [];
+    const reviewNotifier: ReviewNotifier = {
+      async send(notice) {
+        sent.push({ to: notice.to, name: notice.name });
+      },
+    };
+    for (let round = 0; round < 3; round += 1) {
+      for (const job of await euJobs("review_notice")) {
+        await runJob(eu().db, env.ARTIFACTS_EU, { id: job.id, topic: "review_notice" }, NOW + 2, {
+          reviewNotifier,
+        });
+      }
+    }
+    expect(sent.map((notice) => notice.to)).toEqual([member.email]);
+    const reviewed = value(
+      await submitApprovalVerdict(eu().db, {
+        userId: member.id,
+        artifactId,
+        verdict: "approve",
+        now: NOW + 3,
+      }),
+    );
+    expect(reviewed).toBeDefined();
+  });
+
+  it("lists a default-region person's own space at home and their EU workspace in the EU", async () => {
+    const { ws, member } = await euWorkspace();
+    // The member's personal space is in the default region; as a member of the EU workspace
+    // (made an editor here) they publish there too.
+    await regions()
+      .global.update(schema.workspaceMembers)
+      .set({ role: "editor" })
+      .where(eq(schema.workspaceMembers.userId, member.id));
+    const personal = await publishSite(member.id);
+    const inEu = await publishInEu(ws.id, member.id);
+    const own = value(
+      await listArtifacts(home().db, { actor: personalActor(member.id), limit: 50, now: NOW }),
+    );
+    expect(own.items.map((item) => item.id)).toEqual([personal.artifactId]);
+    const scope = value(await resolveOwnerScope(regions().global, member.id, ws.slug));
+    expect(scope.region).toBe("eu");
+    const theirs = value(await listArtifacts(eu().db, { actor: scope, limit: 50, now: NOW }));
+    expect(theirs.items.map((item) => item.id)).toEqual([inEu.artifactId]);
   });
 });

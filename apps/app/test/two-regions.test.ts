@@ -107,5 +107,13 @@ describe("publishing to an EU workspace through the API", () => {
       .from(schema.artifacts)
       .where(eq(schema.artifacts.id, upload.artifactId));
     expect(inDefault).toEqual([]);
+    // The workspace's usage and audit log come from the EU database, its plan from the global one.
+    const usage = await admin.call(`/api/v1/usage?workspace=${slug}`);
+    expect(usage.status).toBe(200);
+    expect(await usage.json()).toMatchObject({ plan: { name: "enterprise" } });
+    const audit = await admin.call(`/api/v1/audit?workspace=${slug}`);
+    expect(audit.status).toBe(200);
+    const events = (await audit.json<{ events: { kind: string }[] }>()).events;
+    expect(events.map((event) => event.kind)).toContain("artifact.published");
   });
 });

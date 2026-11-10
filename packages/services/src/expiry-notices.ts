@@ -9,7 +9,7 @@
 // notice, which is safer than a second copy and costs nothing but the reminder.
 import { ExpiryNoticePayload } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   checkNoticeCapacity,
   EXPIRY_NOTICE,
@@ -95,18 +95,53 @@ export interface ScheduleResult {
  * Each owner's job and marks go in one batch, and both are conditioned on the artifacts still
  * being due, so overlapping runs schedule each expiry once.
  */
-export async function scheduleExpiryNotices(db: Db, now: number): Promise<ScheduleResult> {
+export async function scheduleExpiryNotices(db: RegionalDb, now: number): Promise<ScheduleResult> {
+  // With one database the opt-out and the plans are read in the scan's own statements, as they
+  // always were. With a separate regional database (decision 0005) the opt-out is a global row
+  // read for the personal spaces among the due owners (a workspace has no settings row, so its
+  // admins' opt-outs are checked at send time as always), and the plans come from the global
+  // database.
+  const both = bothSides(db);
+  const w = both ?? db;
   const due = dueCondition(now);
-  const owners = (
-    await db
-      .selectDistinct({ ownerId: a.ownerId })
+  let owners: string[];
+  if (both) {
+    owners = (
+      await w
+        .selectDistinct({ ownerId: a.ownerId })
+        .from(a)
+        .where(and(due, or(optedIn, expiryWebhook), notCooling(now)))
+        .limit(EXPIRY_NOTICE.ownersPerRun)
+    ).map((row) => row.ownerId);
+  } else {
+    const rows = await db
+      .selectDistinct({ ownerId: a.ownerId, webhook: sql<number>`${expiryWebhook}` })
       .from(a)
-      .where(and(due, or(optedIn, expiryWebhook), notCooling(now)))
-      .limit(EXPIRY_NOTICE.ownersPerRun)
-  ).map((row) => row.ownerId);
+      .where(and(due, notCooling(now)))
+      .limit(EXPIRY_NOTICE.ownersPerRun);
+    const personal = rows.filter((row) => !row.ownerId.startsWith("ws_")).map((row) => row.ownerId);
+    const optedOut = new Set(
+      personal.length === 0
+        ? []
+        : (
+            await db.global
+              .select({ userId: schema.accountSettings.userId })
+              .from(schema.accountSettings)
+              .where(
+                and(
+                  inArray(schema.accountSettings.userId, personal),
+                  eq(schema.accountSettings.expiryNotices, false),
+                ),
+              )
+          ).map((row) => row.userId),
+    );
+    owners = rows
+      .filter((row) => !optedOut.has(row.ownerId) || Number(row.webhook) === 1)
+      .map((row) => row.ownerId);
+  }
   if (owners.length === 0) return { owners: 0, artifacts: 0 };
 
-  const candidates = await db
+  const candidates = await w
     .select({ ownerId: a.ownerId, id: a.id, expiresAt: sql<number>`${a.expiresAt}` })
     .from(a)
     .where(and(due, inArray(a.ownerId, owners)));
@@ -115,7 +150,7 @@ export async function scheduleExpiryNotices(db: Db, now: number): Promise<Schedu
   const p = schema.ownerPlans;
   const plans = new Map(
     (
-      await db
+      await (both ?? db.global)
         .select()
         .from(p)
         .where(inArray(p.ownerId, [...groups.keys()]))
@@ -133,22 +168,22 @@ export async function scheduleExpiryNotices(db: Db, now: number): Promise<Schedu
     );
     return [
       // Before the marks and on the same old state: the job exists exactly when they happen.
-      db
+      w
         .insert(schema.outbox)
         .select(
           sql`select null, 'expiry_notice', json_object('artifacts', json("list")), ${now}, null, 0, ${now}, ${ownerId}, null from (select json_group_array(json_object('id', "id", 'expiresAt', "expires_at")) as "list", count(*) as "n" from ${a} where ${where}) where "n" > 0`,
         ),
       ...(hasFeature(entitlements(plans.get(ownerId) ?? null, now), WEBHOOK_FEATURE)
-        ? markWebhookExpiring(db, { ownerId, artifacts: where as SQL, now })
+        ? markWebhookExpiring(w, { ownerId, artifacts: where as SQL, now })
         : []),
-      db
+      w
         .update(a)
         .set({ expiryNoticeFor: sql`${a.expiresAt}`, expiryNoticeAt: now })
         .where(where),
     ];
   });
   const [first, ...rest] = statements;
-  if (first) await db.batch([first, ...rest]);
+  if (first) await w.batch([first, ...rest]);
   return {
     owners: groups.size,
     artifacts: [...groups.values()].reduce((total, entries) => total + entries.length, 0),

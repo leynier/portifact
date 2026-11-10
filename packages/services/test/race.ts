@@ -23,7 +23,20 @@ export function raceGlobalBeforeFirstWrite(before: () => Promise<void>): GlobalD
   return globalDb(aliasBinding(racedD1(before), env.DB));
 }
 
-function racedD1(before: () => Promise<void>, d1: D1Database = env.DB): D1Database {
+/**
+ * The default region's handle over `env.DB`, running `before` right before the first statement
+ * whose SQL matches `pattern`, whichever handle prepared it (one database: a path may run on the
+ * handle `bothSides` gives).
+ */
+export function raceBeforeStatement(pattern: RegExp, before: () => Promise<void>): RegionalDb {
+  return regionalDb(aliasBinding(racedD1(before, env.DB, pattern), env.DB), globalDb(env.DB));
+}
+
+function racedD1(
+  before: () => Promise<void>,
+  d1: D1Database = env.DB,
+  pattern: RegExp = WRITE,
+): D1Database {
   let fired = false;
   const fire = async () => {
     if (fired) return;
@@ -39,7 +52,7 @@ function racedD1(before: () => Promise<void>, d1: D1Database = env.DB): D1Databa
         }
         if (prop === "run" || prop === "all" || prop === "raw" || prop === "first") {
           return async (...args: unknown[]) => {
-            if (WRITE.test(query)) await fire();
+            if (pattern.test(query)) await fire();
             // biome-ignore lint/suspicious/noExplicitAny: forwarding the D1 call as is
             return (target as any)[prop](...args);
           };
@@ -56,7 +69,7 @@ function racedD1(before: () => Promise<void>, d1: D1Database = env.DB): D1Databa
       if (prop === "prepare") return (query: string) => wrap(target.prepare(query), query);
       if (prop === "batch") {
         return async (statements: D1PreparedStatement[]) => {
-          await fire();
+          if (pattern === WRITE) await fire();
           return target.batch(statements.map((s) => real.get(s) ?? s));
         };
       }

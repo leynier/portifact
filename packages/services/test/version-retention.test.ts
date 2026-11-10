@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { pruneVersions } from "../src/maintenance.ts";
 import { getVersionManifest, listVersions, rollbackArtifact } from "../src/versions.ts";
 import { DAY, db, grantPlan, NOW, user, value } from "./fixtures.ts";
+import { raceBeforeStatement } from "./race.ts";
 import { storedBytes, versionRows, versions, workspace } from "./version-support.ts";
 
 const HOUR = 3_600_000;
@@ -191,31 +192,13 @@ describe("plan changes", () => {
     await grantPlan(owner.id, "pro", { overrides: { limits: { retainedPreviousVersions: 1 } } });
     const v = await versions(owner.id, 3);
     const artifactId = (v[0] as { artifactId: string }).artifactId;
-    const real = db();
-    let changed = false;
     // The plan grows between the scan's read of the row and its delete.
-    const raced = new Proxy(real, {
-      get(target, property, receiver) {
-        if (property !== "delete" || changed) return Reflect.get(target, property, receiver);
-        return (table: unknown) => {
-          changed = true;
-          return {
-            where: (condition: unknown) => ({
-              returning: async () => {
-                await target
-                  .update(schema.ownerPlans)
-                  .set({ overrides: null, updatedAt: NOW + 5 })
-                  .where(eq(schema.ownerPlans.ownerId, owner.id));
-                return target
-                  .delete(table as typeof schema.versions)
-                  .where(condition as never)
-                  .returning({ id: schema.versions.id });
-              },
-            }),
-          };
-        };
-      },
-    }) as typeof real;
+    const raced = raceBeforeStatement(/^delete from "versions"/i, async () => {
+      await db()
+        .global.update(schema.ownerPlans)
+        .set({ overrides: null, updatedAt: NOW + 5 })
+        .where(eq(schema.ownerPlans.ownerId, owner.id));
+    });
     expect(await pruneVersions(raced, env.ARTIFACTS, NOW + 2 * HOUR)).toEqual({ processed: 0 });
     expect(await versionRows(artifactId)).toEqual([1, 2, 3]);
   });

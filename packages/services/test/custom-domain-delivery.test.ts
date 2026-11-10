@@ -436,8 +436,8 @@ describe("the downgrade notice", () => {
 
   it("is scheduled once per detach time, during the grace, for the domains at risk", async () => {
     const { owner, names } = await lapsed();
-    expect(await scheduleDomainNotices(db(), NOW)).toBe(1);
-    expect(await scheduleDomainNotices(db(), NOW)).toBe(0);
+    expect(await scheduleDomainNotices(db().global, NOW)).toBe(1);
+    expect(await scheduleDomainNotices(db().global, NOW)).toBe(0);
     const [job] = await jobs();
     expect(job?.subject).toBe(owner.id);
     // The Team plan ended, so the free plan allows none: all three stop after the grace.
@@ -447,7 +447,7 @@ describe("the downgrade notice", () => {
 
   it("emails the owner, counts it and skips once the plan is renewed", async () => {
     const { owner, names } = await lapsed();
-    await scheduleDomainNotices(db(), NOW);
+    await scheduleDomainNotices(db().global, NOW);
     const [job] = await jobs();
     if (!job) throw new Error("no job");
     const { sent, send } = notifier();
@@ -467,7 +467,7 @@ describe("the downgrade notice", () => {
     // Renewed before the job ran: nothing is sent.
     const second = await lapsed();
     await db().delete(schema.customDomains).where(eq(schema.customDomains.ownerId, owner.id));
-    await scheduleDomainNotices(db(), NOW);
+    await scheduleDomainNotices(db().global, NOW);
     const [next] = await jobs();
     if (!next) throw new Error("no job");
     await grantPlan(second.owner.id, "team");
@@ -477,7 +477,7 @@ describe("the downgrade notice", () => {
 
   it("skips suppressed addresses, stops at the email capacity and puts a failed send back", async () => {
     const { owner } = await lapsed();
-    await scheduleDomainNotices(db(), NOW);
+    await scheduleDomainNotices(db().global, NOW);
     const [job] = await jobs();
     if (!job) throw new Error("no job");
     const failing: DomainNotifier = {
@@ -499,7 +499,7 @@ describe("the downgrade notice", () => {
 
   it("stops before the cycle's emails run out", async () => {
     await lapsed();
-    await scheduleDomainNotices(db(), NOW);
+    await scheduleDomainNotices(db().global, NOW);
     const [job] = await jobs();
     if (!job) throw new Error("no job");
     // The whole cycle's sign-in emails are spent: notices stop first.
@@ -517,7 +517,7 @@ describe("the downgrade notice", () => {
       .update(schema.customDomains)
       .set({ state: "detaching" })
       .where(eq(schema.customDomains.hostname, names[2] as string));
-    await scheduleDomainNotices(db(), NOW);
+    await scheduleDomainNotices(db().global, NOW);
     const [job] = await jobs();
     if (!job) throw new Error("no job");
     expect(job.payload).toMatchObject({ hostnames: names.slice(0, 2) });
@@ -532,13 +532,13 @@ describe("the downgrade notice", () => {
   it("schedules nothing for an owner whose domains are all detaching", async () => {
     await lapsed();
     await db().update(schema.customDomains).set({ state: "detaching" });
-    expect(await scheduleDomainNotices(db(), NOW)).toBe(0);
+    expect(await scheduleDomainNotices(db().global, NOW)).toBe(0);
     expect(await jobs()).toEqual([]);
   });
 
   it("logs only the reason it skips: a bad payload, an owner with nothing at risk, a provider suppression", async () => {
     const { owner } = await lapsed();
-    await scheduleDomainNotices(db(), NOW);
+    await scheduleDomainNotices(db().global, NOW);
     const [job] = await jobs();
     if (!job) throw new Error("no job");
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -587,7 +587,7 @@ describe("the downgrade notice", () => {
 
   it("logs the capacity as the reason when the cycle's emails run out", async () => {
     await lapsed();
-    await scheduleDomainNotices(db(), NOW);
+    await scheduleDomainNotices(db().global, NOW);
     const [job] = await jobs();
     if (!job) throw new Error("no job");
     await db()

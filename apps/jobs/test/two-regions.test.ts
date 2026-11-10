@@ -8,7 +8,14 @@ import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { runQueue, runRelay, runScheduled } from "../src/index.ts";
-import { commentEmail, emailNames, noticeEmail, reviewEmail } from "../src/notices.ts";
+import {
+  commentEmail,
+  directoryNotifierFromEnv,
+  domainNotifierFromEnv,
+  emailNames,
+  noticeEmail,
+  reviewEmail,
+} from "../src/notices.ts";
 import { runOperator } from "../src/operator.ts";
 
 const NOW = Date.UTC(2026, 10, 10, 12);
@@ -119,6 +126,39 @@ describe("the jobs Worker with an EU region", () => {
     );
     expect(elsewhere.exitCode).toBe(2);
   });
+
+  it("re-applies tombstones to the region a restore names, or to every region, never by default", async () => {
+    const { id } = await claimedInEu();
+    await eu().update(schema.artifacts).set({ state: "active" }).where(eq(schema.artifacts.id, id));
+    const files = new Map<string, string>([
+      ["t.jsonl", `${JSON.stringify({ kind: "artifact", id, deletedAt: NOW })}\n`],
+    ]);
+    const io = {
+      read: async (path: string) => files.get(path) ?? "",
+      write: async (path: string, text: string) => {
+        files.set(path, text);
+      },
+    };
+    const run = (argv: string[]) => runOperator(regionsFromEnv(env), argv, NOW, io);
+    // With two regions the operator must say which database was restored.
+    expect((await run(["apply-tombstones", "--file", "t.jsonl"])).exitCode).toBe(2);
+    expect((await run(["export-tombstones", "--out", "x.jsonl"])).exitCode).toBe(2);
+    expect(
+      (await run(["storage-report", "--region", "all"])).exitCode,
+      "all is only for restores",
+    ).toBe(2);
+    const applied = await run(["apply-tombstones", "--file", "t.jsonl", "--region", "eu"]);
+    expect(applied.exitCode).toBe(0);
+    expect(applied.output).toContain("1 artifact(s) claimed for purging");
+    const [row] = await eu().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
+    expect(row?.state).toBe("purging");
+    const everywhere = await run(["apply-tombstones", "--region", "all"]);
+    expect(everywhere.output).toContain("0 artifact(s) claimed for purging");
+    expect((await run(["export-tombstones", "--out", "x.jsonl", "--region", "all"])).exitCode).toBe(
+      0,
+    );
+    expect(files.get("x.jsonl")).toContain(id);
+  });
 });
 
 describe("notices about an EU workspace's artifacts", () => {
@@ -161,5 +201,35 @@ describe("notices about an EU workspace's artifacts", () => {
     }
     expect(emailNames("eu")).toBe(false);
     expect(emailNames("default")).toBe(true);
+  });
+
+  it("are the only kinds that could name one: directory and domain notices never take a name", async () => {
+    const sent: { subject: string; text: string; html: string }[] = [];
+    const EMAIL = {
+      async send(message: { subject: string; text: string; html: string }) {
+        sent.push(message);
+        return { messageId: "m" };
+      },
+    } as unknown as SendEmail;
+    await directoryNotifierFromEnv({ ...env, EMAIL }).send({
+      to: "ada@example.com",
+      workspaceName: "EU team",
+      workspaceSlug: "eu-team",
+      locale: null,
+    });
+    await domainNotifierFromEnv({ ...env, EMAIL }).send({
+      to: "ada@example.com",
+      hostnames: ["docs.example.com"],
+      detachAt: NOW + 86_400_000,
+      limit: 0,
+      locale: null,
+    });
+    expect(sent).toHaveLength(2);
+    for (const message of sent) {
+      for (const part of [message.subject, message.text, message.html]) {
+        expect(part).not.toContain(NAME);
+        expect(part).not.toContain(env.CONTENT_DOMAIN);
+      }
+    }
   });
 });

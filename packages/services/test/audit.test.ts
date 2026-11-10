@@ -787,11 +787,11 @@ describe("plan events", () => {
       note: "Pilot for ana@corp.example",
       now: NOW,
     };
-    value(await setOwnerPlan(global(), grant));
-    value(await setOwnerPlan(global(), { ...grant, now: NOW + 1 }));
-    value(await setOwnerPlan(global(), { ...grant, seats: 4, now: NOW + 2 }));
-    value(await removeOwnerPlan(global(), { ownerId: owner.id, now: NOW + 3 }));
-    value(await removeOwnerPlan(global(), { ownerId: owner.id, now: NOW + 4 }));
+    value(await setOwnerPlan(db(), grant));
+    value(await setOwnerPlan(db(), { ...grant, now: NOW + 1 }));
+    value(await setOwnerPlan(db(), { ...grant, seats: 4, now: NOW + 2 }));
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW + 3 }));
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW + 4 }));
     const rows = await events(owner.id);
     expect(rows.map((row) => [row.kind, row.actorType, row.actorId, row.detail])).toEqual([
       [
@@ -810,7 +810,7 @@ describe("plan events", () => {
     ]);
     expect(JSON.stringify(rows)).not.toContain("@");
     // An owner that does not exist gets no plan and no event.
-    expect((await setOwnerPlan(global(), { ...grant, ownerId: "u_missing" })).ok).toBe(false);
+    expect((await setOwnerPlan(db(), { ...grant, ownerId: "u_missing" })).ok).toBe(false);
     expect(await events("u_missing")).toEqual([]);
   });
 });
@@ -1056,7 +1056,7 @@ describe("events go with their owner", () => {
     const owner = await user();
     await publishSite(owner.id);
     value(
-      await setOwnerPlan(global(), {
+      await setOwnerPlan(db(), {
         ownerId: owner.id,
         plan: "team",
         seats: 1,

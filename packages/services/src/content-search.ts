@@ -4,8 +4,20 @@
 // outbox job writes it, for the version a commit, rollback, restore or transfer made current; the
 // scheduled scans index what a job missed and drop what a plan no longer covers. Triggers drop an
 // artifact's rows when it stops being active or changes owner, and the foreign keys when it goes.
-import { SEARCH_LIMITS, SearchIndexPayload, type SearchSnippet } from "@portifact/contracts";
-import { type Db, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
+import {
+  DEFAULT_REGION,
+  SEARCH_LIMITS,
+  SearchIndexPayload,
+  type SearchSnippet,
+} from "@portifact/contracts";
+import {
+  bothSides,
+  type Db,
+  hitRateLimit,
+  type Region,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -19,6 +31,7 @@ import {
   indexText,
   MARK_CLOSE,
   MARK_OPEN,
+  type OwnerPlanRecord,
   ok,
   ownerMatch,
   ownerToken,
@@ -41,7 +54,8 @@ import {
 } from "./artifacts.ts";
 import { cursorFor, saveCursor } from "./maintenance-cursors.ts";
 import type { JobOutcome } from "./outbox.ts";
-import { ownerEntitlements } from "./plans.ts";
+import { ownerEntitlements, ownerPlanRecord } from "./plans.ts";
+import { ownerOfRegion } from "./shapes.ts";
 
 const a = schema.artifacts;
 const sa = schema.searchArtifacts;
@@ -240,7 +254,7 @@ function batches(files: ChunkRow[]): string[] {
  * plan lost the feature does nothing.
  */
 export async function runSearchIndex(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   row: { subject: string | null; payload: unknown },
   now: number,
@@ -248,22 +262,39 @@ export async function runSearchIndex(
   const artifactId = row.subject ?? "";
   const { versionId, from = 0 } = SearchIndexPayload.parse(row.payload);
   const p = schema.ownerPlans;
-  const [artifact] = await db
+  // With one database the plan comes with the artifact, as it always did; with a separate
+  // regional database it is one read of the global database (decision 0005).
+  const both = bothSides(db);
+  const base = (both ?? db)
     .select({
       ownerId: a.ownerId,
       type: a.type,
       state: a.state,
       currentVersionId: a.currentVersionId,
       entrypoint: schema.versions.entrypoint,
-      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+      ...(both
+        ? {
+            plan: {
+              plan: p.plan,
+              seats: p.seats,
+              validUntil: p.validUntil,
+              overrides: p.overrides,
+            },
+          }
+        : {}),
     })
     .from(a)
     .innerJoin(schema.versions, eq(schema.versions.id, versionId))
-    .leftJoin(p, eq(p.ownerId, a.ownerId))
+    .$dynamic();
+  const [artifact] = await (both ? base.leftJoin(p, eq(p.ownerId, a.ownerId)) : base)
     .where(eq(a.id, artifactId))
     .limit(1);
   if (artifact?.state !== "active" || artifact.currentVersionId !== versionId) return "stale";
-  if (!hasFeature(entitlements(artifact.plan, now), CONTENT_SEARCH_FEATURE)) return "stale";
+  const plan =
+    "plan" in artifact
+      ? (artifact.plan as OwnerPlanRecord | null)
+      : await ownerPlanRecord(db.global, artifact.ownerId);
+  if (!hasFeature(entitlements(plan, now), CONTENT_SEARCH_FEATURE)) return "stale";
   const [indexed] = await db
     .select({ versionId: sa.versionId, nextFile: sa.nextFile, textBytes: sa.textBytes })
     .from(sa)
@@ -389,13 +420,18 @@ const DROP_CURSOR = "search_index_drop";
  * next run.
  */
 export async function scheduleSearchIndexing(
-  db: Db,
+  db: RegionalDb,
   now: number,
   limit: number = SEARCH_LIMITS.scanJobs,
+  /** The region `db` is, for a separate regional database: which plan owners live there. */
+  region: Region = DEFAULT_REGION,
 ): Promise<{ scheduled: number }> {
   const p = schema.ownerPlans;
+  // The page of plans: with one database the same query as always; with a separate regional
+  // database from the global database, only the region's owners (decision 0005).
+  const both = bothSides(db);
   const after = await cursorFor(db, SCHEDULE_CURSOR);
-  const page = await db
+  const page = await (both ?? db.global)
     .select({
       ownerId: p.ownerId,
       plan: p.plan,
@@ -404,7 +440,11 @@ export async function scheduleSearchIndexing(
       overrides: p.overrides,
     })
     .from(p)
-    .where(sql`${p.ownerId} > ${after}`)
+    .where(
+      both
+        ? sql`${p.ownerId} > ${after}`
+        : and(sql`${p.ownerId} > ${after}`, ownerOfRegion(p.ownerId, region)),
+    )
     .orderBy(asc(p.ownerId))
     .limit(OWNER_PAGE);
   const owners = page
@@ -435,11 +475,16 @@ export async function scheduleSearchIndexing(
  * them). Four queries a run; a page with more to drop is read again next run.
  */
 export async function dropLapsedSearchIndexes(
-  db: Db,
+  db: RegionalDb,
   now: number,
   limit: number = SEARCH_LIMITS.dropArtifacts,
 ): Promise<{ dropped: number }> {
   const p = schema.ownerPlans;
+  // With one database the delete is conditioned on the plan row read, as it always was; with a
+  // separate regional database the plans come from the global database and a grant that lands
+  // between that read and the delete is not seen: the index is built again by
+  // `scheduleSearchIndexing` (decision 0005).
+  const both = bothSides(db);
   const after = await cursorFor(db, DROP_CURSOR);
   const owners = (
     await db
@@ -453,7 +498,7 @@ export async function dropLapsedSearchIndexes(
     owners.length === 0
       ? []
       : (
-          await db
+          await (both ?? db.global)
             .select({
               ownerId: p.ownerId,
               plan: p.plan,
@@ -474,9 +519,11 @@ export async function dropLapsedSearchIndexes(
     .map((owner) => [owner, plans.get(owner)?.updatedAt ?? null]);
   let dropped = 0;
   if (lapsed.length > 0) {
-    const unchanged = sql`exists (select 1 from json_each(${JSON.stringify(lapsed)}) as lapsed where json_extract(lapsed.value, '$[0]') = ${sa.ownerId} and (case when json_extract(lapsed.value, '$[1]') is null then not exists (select 1 from ${p} where ${p.ownerId} = ${sa.ownerId}) else exists (select 1 from ${p} where ${p.ownerId} = ${sa.ownerId} and ${p.updatedAt} = json_extract(lapsed.value, '$[1]')) end))`;
+    const unchanged = both
+      ? sql`exists (select 1 from json_each(${JSON.stringify(lapsed)}) as lapsed where json_extract(lapsed.value, '$[0]') = ${sa.ownerId} and (case when json_extract(lapsed.value, '$[1]') is null then not exists (select 1 from ${p} where ${p.ownerId} = ${sa.ownerId}) else exists (select 1 from ${p} where ${p.ownerId} = ${sa.ownerId} and ${p.updatedAt} = json_extract(lapsed.value, '$[1]')) end))`
+      : sql`exists (select 1 from json_each(${JSON.stringify(lapsed)}) as lapsed where json_extract(lapsed.value, '$[0]') = ${sa.ownerId})`;
     dropped = (
-      await db
+      await (both ?? db)
         .delete(sa)
         .where(
           sql`${sa.artifactId} in (select ${sa.artifactId} from ${sa} where ${unchanged} order by ${sa.artifactId} limit ${limit})`,

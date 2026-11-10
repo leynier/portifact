@@ -1,6 +1,6 @@
-// The known crossings of the region guard only shrink (decision 0005, "Two-region audit"): each
-// entry of `KNOWN_CROSS_DATABASE` names a file and a function that exist, so an entry left behind
-// by the change that fixed it, or one that never matched anything, fails here.
+// The region guard knows no crossing (decision 0005, "Two-region audit"): `KNOWN_CROSS_DATABASE`
+// is empty, and any entry would have to name a file and a function that exist, so an entry that
+// never matched anything fails here too.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,6 +26,11 @@ const fromDisk = (file: string) => {
 describe("the region guard's known crossings", () => {
   it("each name a function that exists in the file it names", () => {
     expect(staleEntries(Object.keys(KNOWN_CROSS_DATABASE), fromDisk)).toEqual([]);
+  });
+
+  it("are none", () => {
+    // The list is empty (decision 0005): a future crossing must be fixed, not listed.
+    expect(Object.keys(KNOWN_CROSS_DATABASE)).toEqual([]);
   });
 
   it("fails for an entry that matches nothing", () => {

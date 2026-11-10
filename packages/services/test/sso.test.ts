@@ -468,7 +468,7 @@ describe("removing the provider", () => {
         updatedAt: new Date(NOW),
       });
     expect(restored?.id).toBe(provider.id);
-    const applied = await applyTombstones(global(), markers, NOW);
+    const applied = await applyTombstones(db(), markers, NOW);
     expect(applied.ssoProviders).toBeGreaterThanOrEqual(1);
     expect(
       await global()
@@ -982,7 +982,7 @@ describe("a deleted workspace's identities (review finding 5)", () => {
     const t = await team();
     const provider = await setUp(t);
     await addAccount(t.editor, ssoAccountProvider(provider.id), "sub-e");
-    await applyTombstones(global(), [{ kind: "workspace", id: t.id, deletedAt: NOW }], NOW);
+    await applyTombstones(db(), [{ kind: "workspace", id: t.id, deletedAt: NOW }], NOW);
     expect(await ssoAccounts(provider.id)).toEqual([]);
   });
 });
