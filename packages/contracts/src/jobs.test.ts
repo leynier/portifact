@@ -66,9 +66,10 @@ describe("job contracts", () => {
       "abort_multipart",
       "erase_access_events",
       "expiry_notice",
+      "comment_notice",
       "workspace_deletion",
     ]);
-    for (const kind of ["artifact", "account", "workspace"]) {
+    for (const kind of ["artifact", "account", "share_link", "workspace"]) {
       expect(TombstoneMarker.parse({ ...marker, kind }).kind).toBe(kind);
     }
     expect(JobMessage.parse({ id: 1, topic: "workspace_deletion" }).topic).toBe(

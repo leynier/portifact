@@ -254,6 +254,65 @@ describe("transferring an artifact", () => {
     expect((await usage(alice.id)).active).toBe(1);
   });
 
+  it("holds the target to its plan even when its limit columns are still higher", async () => {
+    const alice = await user();
+    const ws = await workspace(alice);
+    // A lowered plan: free allows 50 active artifacts and 2.5 GB, the columns still allow more.
+    await db()
+      .update(schema.ownerPlans)
+      .set({ plan: "free", seats: 1 })
+      .where(eq(schema.ownerPlans.ownerId, ws.id));
+    const setUsage = (active: number, stored: number) =>
+      db()
+        .insert(schema.accountUsage)
+        .values({
+          ownerId: ws.id,
+          monthStartedAt: NOW,
+          activeArtifacts: active,
+          storedBytes: stored,
+          activeLimit: 1_000,
+          bytesLimit: 100_000_000_000,
+        })
+        .onConflictDoUpdate({
+          target: schema.accountUsage.ownerId,
+          set: { activeArtifacts: active, storedBytes: stored },
+        });
+    const body = "<p>plan</p>";
+    const id = await publish(alice.id, alice.id, { "index.html": body });
+    await setUsage(50, 0);
+    expect(await move(alice.id, id, ws.slug)).toMatchObject({ ok: false, code: "quota_exceeded" });
+    await setUsage(0, 2_500_000_000 - body.length + 1);
+    expect(await move(alice.id, id, ws.slug)).toMatchObject({ ok: false, code: "quota_exceeded" });
+    // Exactly at the limits it fits.
+    await setUsage(49, 2_500_000_000 - body.length);
+    expect(value(await move(alice.id, id, ws.slug)).ownerId).toBe(ws.id);
+    expect(await usage(ws.id)).toEqual({ active: 50, stored: 2_500_000_000 });
+  });
+
+  it("moves an archived artifact into a target whose slots are full", async () => {
+    const alice = await user();
+    const ws = await workspace(alice);
+    await db()
+      .update(schema.ownerPlans)
+      .set({ plan: "free", seats: 1 })
+      .where(eq(schema.ownerPlans.ownerId, ws.id));
+    await db()
+      .insert(schema.accountUsage)
+      .values({ ownerId: ws.id, monthStartedAt: NOW, activeArtifacts: 50 })
+      .onConflictDoUpdate({ target: schema.accountUsage.ownerId, set: { activeArtifacts: 50 } });
+    const id = await publish(alice.id, alice.id, { "index.html": "<p>old</p>" });
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "archived" })
+      .where(eq(schema.artifacts.id, id));
+    await db()
+      .update(schema.accountUsage)
+      .set({ activeArtifacts: 0 })
+      .where(eq(schema.accountUsage.ownerId, alice.id));
+    expect(value(await move(alice.id, id, ws.slug)).state).toBe("archived");
+    expect((await usage(ws.id)).active).toBe(50);
+  });
+
   it("is refused by the database when a race filled the target past the check", async () => {
     const alice = await user();
     const ws = await workspace(alice);

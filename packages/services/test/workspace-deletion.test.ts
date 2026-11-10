@@ -144,6 +144,7 @@ describe("deleting a workspace", () => {
   it("claims its artifacts, ends memberships and invitations at once, and the jobs finish it", async () => {
     const { ws, admin } = await newWorkspace();
     const { artifactId, key } = await publishInto(admin.id, ws.id);
+    expect((await getWorkspaceDetail(db().global, db(), ws.id, NOW))?.artifacts).toBe(1);
     await db()
       .insert(schema.workspaceInvitations)
       .values({
@@ -209,8 +210,9 @@ describe("deleting a workspace", () => {
   it("is advanced by the scheduled scan too", async () => {
     const { ws } = await newWorkspace();
     value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    const pending = await db().select().from(schema.workspaceDeletions);
     const result = await processWorkspaceDeletions(db(), env.ARTIFACTS, NOW + 1, 50);
-    expect(result.processed).toBeGreaterThanOrEqual(1);
+    expect(result).toEqual({ processed: pending.length, finished: pending.length });
     expect(await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1)).toBe("absent");
   });
 

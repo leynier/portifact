@@ -28,8 +28,11 @@ import {
   leaveWorkspace,
   listMembers,
   listUserWorkspaces,
+  ownerView,
+  ownerViews,
   removeMember,
   resolveOwnerScope,
+  workspaceSeats,
 } from "../src/workspaces.ts";
 import { DAY, db, grantPlan, NOW, user, value } from "./fixtures.ts";
 
@@ -607,6 +610,89 @@ describe("invitations", () => {
       },
     ]);
     expect(JSON.stringify(exported)).not.toContain(invitee.email);
+  });
+});
+
+describe("edges", () => {
+  it("shows where owners live: personal spaces, workspaces, and nothing for an unknown one", async () => {
+    const [a, b] = [await team(), await team()];
+    const views = await ownerViews(global(), [a.admin.id, a.id, b.id, "ws_unknown"]);
+    expect(Object.fromEntries(views)).toEqual({
+      [a.admin.id]: { kind: "personal" },
+      [a.id]: { kind: "workspace", slug: a.slug, name: "Team" },
+      [b.id]: { kind: "workspace", slug: b.slug, name: "Team" },
+    });
+    expect(await ownerView(global(), a.id)).toEqual({
+      kind: "workspace",
+      slug: a.slug,
+      name: "Team",
+    });
+    expect(await ownerView(global(), "ws_unknown")).toEqual({ kind: "personal" });
+    const many = await ownerViews(
+      global(),
+      Array.from({ length: 85 }, (_, i) => `ws_${String(i).padStart(32, "0")}`).concat([b.id]),
+    );
+    expect(many.get(b.id)).toMatchObject({ slug: b.slug });
+  });
+
+  it("limits invitations per workspace a day, and per admin over the whole hour", async () => {
+    const t = await team(200);
+    const start = Date.UTC(2026, 10, 20, 0);
+    let sent = 0;
+    for (let hour = 0; sent < 50; hour += 1) {
+      for (let i = 0; i < 20 && sent < 50; i += 1) {
+        value(
+          (await invite(t, `day${sent}@example.test`, "member", { now: start + hour * 3_600_000 }))
+            .result,
+        );
+        sent += 1;
+      }
+    }
+    expect(
+      (await invite(t, "day50@example.test", "member", { now: start + 5 * 3_600_000 })).result,
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+
+    const u = await team(200);
+    const hour = Date.UTC(2026, 10, 21, 9);
+    for (let i = 0; i < 20; i += 1) {
+      value((await invite(u, `h${i}@example.test`, "member", { now: hour })).result);
+    }
+    expect(
+      (await invite(u, "h20@example.test", "member", { now: hour + 30 * 60_000 })).result,
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+    value((await invite(u, "h21@example.test", "member", { now: hour + 3_600_000 })).result);
+  });
+
+  it("removing oneself as the only admin answers like leaving", async () => {
+    const t = await team();
+    expect(
+      await removeMember(global(), { userId: t.admin.id, slug: t.slug, memberId: t.admin.id }),
+    ).toEqual({
+      ok: false,
+      code: "sole_workspace_admin",
+      message:
+        "You are the workspace's only admin. Make another member an admin before you leave, or ask Portifact at hello@portifact.com to delete the workspace.",
+    });
+  });
+
+  it("accepts an invitation for someone already a member without changing their role", async () => {
+    const t = await team();
+    const { invitee, token } = await invited(t, "editor");
+    await db()
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: t.id, userId: invitee.id, role: "member", updatedAt: NOW });
+    expect(
+      value(await acceptInvitation(global(), { userId: invitee.id, key: { token }, now: NOW }))
+        .role,
+    ).toBe("member");
+    expect(await listIncomingInvitations(global(), { userId: invitee.id, now: NOW })).toEqual([]);
+  });
+
+  it("counts seats as members plus invitations that have not expired", async () => {
+    const t = await team(10);
+    await invited(t);
+    expect(await workspaceSeats(global(), t.id, NOW)).toEqual({ used: 4, limit: 10 });
+    expect(await workspaceSeats(global(), t.id, NOW + 7 * DAY)).toEqual({ used: 3, limit: 10 });
   });
 });
 
