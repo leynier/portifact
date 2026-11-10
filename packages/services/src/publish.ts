@@ -368,7 +368,7 @@ export async function preparePublish(
 
   const multipartRows = multipart
     ? await openMultipartUploads(multipart.bucket, {
-        ownerId: ownerId,
+        ownerId,
         sessionId,
         objects: uploads,
         config: multipart.config ?? DEFAULT_MULTIPART,
@@ -398,7 +398,7 @@ export async function preparePublish(
         ? [
             db.insert(schema.artifacts).values({
               id: artifactId,
-              ownerId: ownerId,
+              ownerId,
               type: input.type,
               name,
               ...policy,
@@ -424,7 +424,7 @@ export async function preparePublish(
           versionId,
           kind: file.kind,
           path: file.path,
-          ownerId: ownerId,
+          ownerId,
           sha256: file.sha256,
           size: file.size,
           contentType: file.contentType,
@@ -447,7 +447,7 @@ export async function preparePublish(
               .insert(schema.objects)
               .values(
                 uploads.map((upload) => ({
-                  ownerId: ownerId,
+                  ownerId,
                   sha256: upload.sha256,
                   size: upload.size,
                   r2Key: upload.r2Key,
@@ -459,7 +459,7 @@ export async function preparePublish(
         : []),
       db.insert(schema.uploadSessions).values({
         id: sessionId,
-        ownerId: ownerId,
+        ownerId,
         artifactId,
         versionId,
         baseVersionId: input.baseVersionId,
@@ -682,13 +682,13 @@ export async function commitPublish(
   let rendering: DocumentRendering | null = null;
   if (version && artifact && isDocumentType(artifact.type)) {
     const rendered = await renderVersion(db, bucket, {
-      ownerId: ownerId,
+      ownerId,
       versionId: session.versionId,
       type: artifact.type,
       name: artifact.name,
       entrypoint: version.entrypoint,
       publishedBytes: version.publishedBytes,
-      artifactBytes: (await ownerEntitlements(db, input.ownerId, input.now)).limits.artifactBytes,
+      artifactBytes: (await ownerEntitlements(db, ownerId, input.now)).limits.artifactBytes,
       guard: sessionOpen,
       now: input.now,
     });
