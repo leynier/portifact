@@ -102,17 +102,24 @@ export function threadVisible(
 /**
  * Which threads a caller sees (plan section 8, decision of 2026-11-08 on visibility). The owner
  * sees all. A reader follows their exception on the reader list when they have one (matched by
- * verified address), and otherwise the artifact's setting: `everyone` shows all threads and
- * `owner` only their own and the owner's.
+ * verified address): the most specific choice the owner made for that person. Otherwise, when
+ * they belong to groups the artifact lists (`groupExceptions`, one entry per group, null when the
+ * group follows the setting), the widest scope among those groups; otherwise the artifact's
+ * setting: `everyone` shows all threads and `owner` only their own and the owner's.
  */
 export function commentScope(
   role: AnnotationRole,
   visibility: CommentVisibility,
   readerException: CommentScope | null,
+  groupExceptions: readonly (CommentScope | null)[] = [],
 ): CommentScope {
   if (role === "owner") return "all";
   if (readerException !== null) return readerException;
-  return visibility === "everyone" ? "all" : "own";
+  const setting: CommentScope = visibility === "everyone" ? "all" : "own";
+  if (groupExceptions.length === 0) return setting;
+  // Each listed group the person is in gives a scope (its exception, else the setting); the widest
+  // wins (decision 0014, "Comment visibility").
+  return groupExceptions.some((exception) => (exception ?? setting) === "all") ? "all" : "own";
 }
 
 /**

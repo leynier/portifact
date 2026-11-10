@@ -70,6 +70,12 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   // A workspace's email domains are global rows too (decision 0010).
   "email_domain.verified",
   "email_domain.removed",
+  // Groups and their members are global rows, next to the members (decision 0014).
+  "group.created",
+  "group.renamed",
+  "group.deleted",
+  "group.member_added",
+  "group.member_removed",
 ];
 const REGIONAL_AUDIT_KINDS = AUDIT_KINDS.filter((kind) => !GLOBAL_AUDIT_KINDS.includes(kind));
 
@@ -236,6 +242,30 @@ async function tokenLabels(global: GlobalDb, ownerId: string, tokenIds: readonly
   return labels;
 }
 
+/** Current names of the workspace's groups that events name; a deleted one has none. */
+async function groupNames(global: GlobalDb, ownerId: string, groupIds: readonly string[]) {
+  const names = new Map<string, string>();
+  if (groupIds.length === 0) return names;
+  const g = schema.workspaceGroups;
+  const rows = await global
+    .select({ id: g.id, name: g.name })
+    .from(g)
+    .where(and(eq(g.workspaceId, ownerId), sql`${g.id} in ${ids(groupIds)}`));
+  for (const row of rows) names.set(row.id, row.name);
+  return names;
+}
+
+/** The group a group event is about: its target, or the group its detail names. */
+function eventGroupId(row: AuditRow): string | null {
+  const kind = row.kind as AuditKind;
+  if (AUDIT_TARGETS[kind] === "group") return row.targetId;
+  if (kind === "group.member_added" || kind === "group.member_removed") {
+    const group = (row.detail as { group?: unknown } | null)?.group;
+    return typeof group === "string" ? group : null;
+  }
+  return null;
+}
+
 /**
  * Current names of the owner's artifacts that events name. One that is gone (purged or deleted)
  * or that moved to another owner has none: what its new owner calls it is not this owner's to see.
@@ -278,6 +308,11 @@ async function present(db: RegionalDb, ownerId: string, rows: readonly AuditRow[
   const tokens = await tokenLabels(db.global, ownerId, tokenIds);
   const artifactIds = rows.flatMap((row) => (row.artifactId ? [row.artifactId] : []));
   const artifacts = await artifactNames(db, ownerId, artifactIds);
+  const groups = await groupNames(
+    db.global,
+    ownerId,
+    rows.flatMap((row) => eventGroupId(row) ?? []),
+  );
   return rows.map((row): AuditEventView => {
     const kind = row.kind as AuditKind;
     const targetType = AUDIT_TARGETS[kind];
@@ -299,9 +334,14 @@ async function present(db: RegionalDb, ownerId: string, rows: readonly AuditRow[
       artifact: row.artifactId
         ? { id: row.artifactId, name: artifacts.get(row.artifactId) ?? null }
         : null,
+      ...groupView(eventGroupId(row), groups),
       detail: (row.detail ?? {}) as Record<string, unknown>,
     };
   });
+}
+
+function groupView(groupId: string | null, names: ReadonlyMap<string, string>) {
+  return groupId === null ? {} : { group: { id: groupId, name: names.get(groupId) ?? null } };
 }
 
 export interface AuditLogInput {

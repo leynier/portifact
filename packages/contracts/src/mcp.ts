@@ -20,6 +20,7 @@ import {
   UploadedPart,
 } from "./publishing.ts";
 import { PublishKey } from "./service-tokens.ts";
+import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { WorkspaceSlug } from "./workspaces.ts";
 
 const keyArg = PublishKey.optional().describe(
@@ -152,6 +153,20 @@ export const SetCommentVisibilityInput = z.object({
     .describe(
       "Exceptions for readers on the list. They apply to whoever signs in with that verified address, in any access mode.",
     ),
+  groupCommentVisibility: z
+    .array(
+      z.object({
+        group: WorkspaceGroupId.describe("A group already on the artifact (its ID, wg_...)."),
+        commentVisibility: ReaderCommentVisibility.describe(
+          "all: every thread. own: only their threads and the owner's. inherit: follow commentVisibility again.",
+        ),
+      }),
+    )
+    .max(WORKSPACE_GROUPS.perArtifact)
+    .optional()
+    .describe(
+      "Exceptions for groups on the artifact. A reader's own exception wins; a person in several groups gets the widest of their scopes.",
+    ),
 });
 export type SetCommentVisibilityInput = z.infer<typeof SetCommentVisibilityInput>;
 
@@ -272,6 +287,24 @@ export const CommitUploadInput = z.object({
     ),
 });
 export type CommitUploadInput = z.infer<typeof CommitUploadInput>;
+
+/** Groups to list on or remove from an artifact; validated as an `AccessUpdate`. */
+export const GroupChangeInput = z.object({
+  artifactId,
+  groups: z
+    .array(WorkspaceGroupId)
+    .min(1)
+    .max(WORKSPACE_GROUPS.perArtifact)
+    .describe(
+      `Group IDs (wg_...) from list_groups for the artifact's own workspace, at most ${WORKSPACE_GROUPS.perArtifact} per call.`,
+    ),
+});
+export type GroupChangeInput = z.infer<typeof GroupChangeInput>;
+
+export const ListGroupsInput = z.object({
+  workspace: WorkspaceSlug.describe("The workspace slug, as list_workspaces returns it."),
+});
+export type ListGroupsInput = z.infer<typeof ListGroupsInput>;
 
 export const ListWorkspacesInput = z.object({});
 export type ListWorkspacesInput = z.infer<typeof ListWorkspacesInput>;

@@ -48,6 +48,11 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   operatorRevokeServiceToken: ["service_token.revoked"],
   // The workspaces the account was in each record that the member is gone.
   requestAccountDeletion: ["member.left"],
+  createWorkspaceGroup: ["group.created"],
+  renameWorkspaceGroup: ["group.renamed"],
+  deleteWorkspaceGroup: ["group.deleted"],
+  addGroupMember: ["group.member_added"],
+  removeGroupMember: ["group.member_removed"],
 };
 
 /** Changes that record no event, and why. */
@@ -148,6 +153,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sweepOrphanObjects",
   "rerenderDocuments",
   "runMaintenance",
+  "pruneArtifactGroups",
   "relayOutbox",
   "runJob",
   "maintainWebhooks",
@@ -205,6 +211,9 @@ const READ_NAMES = new Set([
   "accessAudience",
   "authorizeUploadOn",
   "policyDomains",
+  "viewerGroups",
+  "viewerGroupIds",
+  "groupSummaries",
   "scoped",
   "checkReadAccess",
   "checkSignInEmail",

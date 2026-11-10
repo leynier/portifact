@@ -37,6 +37,7 @@ import { ownerEntitlements } from "./plans.ts";
 const w = schema.workspaces;
 const m = schema.workspaceMembers;
 const inv = schema.workspaceInvitations;
+const gm = schema.workspaceGroupMembers;
 
 export const missingWorkspace = () => fail<never>("not_found", "Workspace not found.");
 
@@ -438,14 +439,41 @@ async function dropMember(
             { role: current.role },
             sql`exists (select 1 from ${m} where ${where})`,
           ),
+          // Their groups go with the membership by cascade; a restore must not bring them back.
+          groupMembershipTombstones(
+            global,
+            workspaceId,
+            memberId,
+            sql`exists (select 1 from ${m} where ${where})`,
+            by.now,
+          ),
           global.delete(m).where(where).returning({ userId: m.userId }),
         ])
-      )[1],
+      )[2],
     () => checkRemoval("admin", 1, leaving) as Result<never>,
   );
   if (!removed.ok) return removed;
   if (removed.value.length === 0) return missingMember();
   return ok({ removed: true });
+}
+
+/**
+ * Tombstones of every group membership `memberId` has in the workspace, for the batch that removes
+ * them from the workspace (the cascade deletes the rows): a restore must not put them back.
+ */
+export function groupMembershipTombstones(
+  global: GlobalDb,
+  workspaceId: string,
+  memberId: string,
+  condition: SQL,
+  now: number,
+) {
+  return global
+    .insert(schema.tombstones)
+    .select(
+      sql`select 'workspace_group_member', ${gm.id}, ${now} from ${gm} where ${gm.workspaceId} = ${workspaceId} and ${gm.userId} = ${memberId} and ${condition}`,
+    )
+    .onConflictDoNothing();
 }
 
 /** The audit event of a membership change, in the global batch of that change. */

@@ -7,9 +7,11 @@ import { join } from "node:path";
 import {
   ArtifactSummary,
   type OwnerView,
+  WorkspaceGroupList,
   WorkspaceList,
   WorkspaceSlug,
 } from "@portifact/contracts";
+import { plain } from "./annotations.ts";
 import { z } from "zod";
 import { callApi } from "./api.ts";
 import { table } from "./artifacts.ts";
@@ -129,6 +131,40 @@ export async function workspaces(io: Io, runtime: Runtime, options: OutputOption
     ]),
   );
   io.stderr("* is where publish, list and usage go without --workspace.\n");
+}
+
+/**
+ * A workspace's groups, for its admins and editors (a service token needs `artifacts:share`):
+ * the IDs `portifact access group add` takes, their names and member counts, never members.
+ */
+export async function workspaceGroups(
+  io: Io,
+  runtime: Runtime,
+  options: OutputOptions,
+  value: string,
+): Promise<void> {
+  const slug = parseSlug(value);
+  const session = await openSession(io, runtime);
+  const list = await callApi(session, {
+    method: "GET",
+    path: `/workspaces/${encodeURIComponent(slug)}/groups`,
+    schema: WorkspaceGroupList,
+  });
+  if (options.json) {
+    writeJson(io, list);
+    return;
+  }
+  if (list.items.length === 0) {
+    io.stdout(`${messages.groupsNone(slug)}\n`);
+  } else {
+    io.stdout(
+      table([
+        ["ID", "MEMBERS", "NAME"],
+        ...list.items.map((item) => [item.id, String(item.members), plain(item.name)]),
+      ]),
+    );
+  }
+  if (!list.available) io.stderr(`${messages.groupsLapsed}\n`);
 }
 
 export async function useWorkspace(

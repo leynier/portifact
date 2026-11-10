@@ -121,10 +121,18 @@ export function seesReaders(reach: TokenReach | undefined): boolean {
  */
 export function checkCommentVisibilityChange(
   reach: TokenReach | undefined,
-  change: { commentVisibility?: unknown; readerCommentVisibility?: unknown },
+  change: {
+    commentVisibility?: unknown;
+    readerCommentVisibility?: unknown;
+    groupCommentVisibility?: unknown;
+  },
 ): Result<void> {
   if (!reach) return ok(undefined);
-  if (change.commentVisibility === undefined && change.readerCommentVisibility === undefined) {
+  if (
+    change.commentVisibility === undefined &&
+    change.readerCommentVisibility === undefined &&
+    change.groupCommentVisibility === undefined
+  ) {
     return ok(undefined);
   }
   return fail("forbidden", "A service token cannot change who sees comments.");

@@ -1272,6 +1272,11 @@ describe("edges of reading and pruning", () => {
       [
         "email_domain.verified",
         "email_domain.removed",
+        "group.created",
+        "group.renamed",
+        "group.deleted",
+        "group.member_added",
+        "group.member_removed",
         "service_token.created",
         "service_token.revoked",
         "domain.attached",

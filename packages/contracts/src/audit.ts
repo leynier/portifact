@@ -5,6 +5,7 @@
 // never free text, comment text, artifact content, tokens, secrets, URLs or full addresses.
 import { z } from "zod";
 import { AccessMode, CommentVisibility } from "./core.ts";
+import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { LIMITS } from "./limits.ts";
 import { PlanName } from "./plans.ts";
 import { SERVICE_TOKENS, ServiceTokenScope } from "./service-tokens.ts";
@@ -40,6 +41,7 @@ const DnsName = z
   .max(253)
   .regex(/^[a-z0-9.-]+$/, "Invalid domain");
 const empty = z.strictObject({});
+const groupCount = z.number().int().min(0).max(WORKSPACE_GROUPS.perArtifact);
 
 /** Why a custom domain stopped serving (every path that detaches one names its reason). */
 export const DOMAIN_DETACH_REASONS = [
@@ -85,6 +87,10 @@ export const AUDIT_DETAILS = {
     /** The distinct domains of those addresses, sorted, at most `AUDIT_LIMITS.readerDomains`. */
     readerDomains: z.array(DnsName).max(AUDIT_LIMITS.readerDomains).optional(),
     readerExceptions: count.optional(),
+    /** Groups listed and unlisted, and group exceptions set (decision 0014): counts only. */
+    groupsAdded: groupCount.optional(),
+    groupsRemoved: groupCount.optional(),
+    groupExceptions: groupCount.optional(),
     bar: z.boolean().optional(),
     commentVisibility: CommentVisibility.optional(),
     indexable: z.boolean().optional(),
@@ -137,6 +143,16 @@ export const AUDIT_DETAILS = {
     domain: DnsName,
     reason: z.enum(EMAIL_DOMAIN_REMOVAL_REASONS),
   }),
+  /**
+   * A workspace's groups (decision 0014). The group is named by its ID only and shown by its
+   * current name, never stored: a name is owner-chosen text. A member added to or removed from a
+   * group is the target, and the detail names the group.
+   */
+  "group.created": empty,
+  "group.renamed": empty,
+  "group.deleted": empty,
+  "group.member_added": z.strictObject({ group: WorkspaceGroupId }),
+  "group.member_removed": z.strictObject({ group: WorkspaceGroupId }),
 } as const;
 
 export type AuditKind = keyof typeof AUDIT_DETAILS;
@@ -154,6 +170,7 @@ export const AUDIT_TARGET_TYPES = [
   "plan",
   "service_token",
   "email_domain",
+  "group",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -192,6 +209,11 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "service_token.revoked": "service_token",
   "email_domain.verified": "email_domain",
   "email_domain.removed": "email_domain",
+  "group.created": "group",
+  "group.renamed": "group",
+  "group.deleted": "group",
+  "group.member_added": "member",
+  "group.member_removed": "member",
 };
 
 /**
@@ -228,6 +250,11 @@ export const AuditEventView = z.object({
   }),
   /** The artifact the event is about, with its current name; null name once it is gone. */
   artifact: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  /**
+   * The group a group event is about, with its current name; null name once it is deleted.
+   * Absent for other kinds.
+   */
+  group: z.object({ id: z.string(), name: z.string().nullable() }).optional(),
   /** The kind's detail, as `AUDIT_DETAILS` defines it. */
   detail: z.record(z.string(), z.unknown()),
 });

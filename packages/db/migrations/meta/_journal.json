@@ -309,6 +309,13 @@
       "when": 1794321590227,
       "tag": "0043_open_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1794325183509,
+      "tag": "0044_workspace_groups",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { alignPlanLimits, ownerEntitlements, unpinLapsedPlans } from "./plans.ts";
 import { closeUploadSession } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
+import { pruneArtifactGroups } from "./workspace-groups.ts";
 import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneShareLinks } from "./share-links.ts";
@@ -554,6 +555,8 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014).
+    artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
     workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,

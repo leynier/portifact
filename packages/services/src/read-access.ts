@@ -20,6 +20,7 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
 import { activeCustomHost } from "./custom-domains.ts";
 import { policyDomains } from "./workspace-domains.ts";
+import { artifactGroupRows, viewerGroups } from "./workspace-groups.ts";
 
 const SECOND_MS = 1000;
 /** Rows each prune deletes per run, like the other maintenance jobs. */
@@ -82,8 +83,9 @@ export function randomToken(): string {
  * current version) and the access policy must admit the account, its verified email or its role
  * on the owner (an admin or editor of a workspace reads every artifact of it; any member reads a
  * `workspace` or `domain` one, and a verified address at a verified domain a `domain` one while
- * the owner's plan includes `workspaces`, decision 0010). Read sessions renew through this every
- * 60 seconds, so a removed member or domain stops reading within that time.
+ * the owner's plan includes `workspaces`, decision 0010; a member in a group a `restricted` one
+ * lists, while the plan includes it, decision 0014). Read sessions renew through this every 60
+ * seconds, so a removed member, domain or group membership stops reading within that time.
  */
 export async function checkReadAccess(
   db: RegionalDb,
@@ -142,11 +144,21 @@ export async function checkReadAccess(
     verifiedEmails,
     entitlements: entitlements(artifact.plan, input.now),
   });
-  const decision = canRead(
-    { mode: artifact.accessMode, ownerId: artifact.ownerId, readers, domains },
-    { userId: input.userId, verifiedEmails },
-    actor,
-  );
+  const viewer = { userId: input.userId, verifiedEmails };
+  const policy = { mode: artifact.accessMode, ownerId: artifact.ownerId, readers, domains };
+  let decision = canRead(policy, viewer, actor);
+  // Groups are asked only when nothing else admitted a member of a `restricted` artifact's
+  // workspace: one regional read of the listed groups and, when there are any, one global read
+  // of the viewer's memberships among them (decision 0014).
+  if (!decision.ok && artifact.accessMode === "restricted" && actor?.ownerId === artifact.ownerId) {
+    const groups = await viewerGroups(db.global, {
+      ownerId: artifact.ownerId,
+      actor,
+      listed: await artifactGroupRows(db, input.artifactId),
+      entitlements: entitlements(artifact.plan, input.now),
+    });
+    decision = canRead({ ...policy, groups }, viewer, actor);
+  }
   if (!decision.ok) return unavailable();
   return ok({
     userId: input.userId,

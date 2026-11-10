@@ -441,6 +441,7 @@ describe("purging archives", () => {
       prunedAuditEvents: 0,
       prunedOperations: 0,
       readSessions: 0,
+      artifactGroups: 0,
       shareLinks: 0,
       reviewSessions: 0,
       rerendered: 0,

@@ -245,6 +245,10 @@ export interface ApplyTombstonesResult {
   serviceTokens: number;
   /** Workspace email domains removed or lapsed before the restore that it brought back. */
   domains: number;
+  /** Workspace groups deleted before the restore that it brought back (decision 0014). */
+  groups: number;
+  /** Group memberships removed before the restore that it brought back. */
+  groupMembers: number;
 }
 
 /**
@@ -303,6 +307,8 @@ export async function applyTombstones(
     ,
     webhooks,
     domains,
+    groups,
+    groupMembers,
   ] = await db.batch([
     db
       .insert(schema.outbox)
@@ -382,6 +388,21 @@ export async function applyTombstones(
         sql`${schema.workspaceDomains.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_domain')`,
       )
       .returning({ id: schema.workspaceDomains.id }),
+    // A deleted group, or a removed group membership, must not grant again (decision 0014). By
+    // row ID, so a later group or membership survives. Groups of deleted workspaces went with the
+    // workspace, memberships of deleted accounts with the account.
+    db
+      .delete(schema.workspaceGroups)
+      .where(
+        sql`${schema.workspaceGroups.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_group')`,
+      )
+      .returning({ id: schema.workspaceGroups.id }),
+    db
+      .delete(schema.workspaceGroupMembers)
+      .where(
+        sql`${schema.workspaceGroupMembers.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_group_member')`,
+      )
+      .returning({ id: schema.workspaceGroupMembers.id }),
     // The audit log of deleted accounts and workspaces (the restore brought it back).
     eraseAuditEventsOf(db, tombstonedOwners),
   ]);
@@ -394,6 +415,8 @@ export async function applyTombstones(
     webhooks: webhooks.length,
     serviceTokens: serviceTokens.length,
     domains: domains.length,
+    groups: groups.length,
+    groupMembers: groupMembers.length,
   };
 }
 

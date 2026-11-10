@@ -30,6 +30,13 @@ export interface FeedbackReach {
   /** Whether a `restricted` artifact admits the caller when their verified address is listed. */
   readerList: boolean;
   /**
+   * Whether a `restricted` artifact admits the caller when it lists one of `groups` (decision
+   * 0014): a member of the owning workspace while its plan includes `workspaces`.
+   */
+  groupList: boolean;
+  /** The caller's groups in the owning workspace that grant, by ID; empty when none can. */
+  groups: readonly string[];
+  /**
    * The scope that follows from an artifact's comment visibility when the caller has no
    * exception on its reader list.
    */
@@ -38,12 +45,17 @@ export interface FeedbackReach {
 
 /**
  * The reach of `viewer` acting as `actor` on its owner. `domains` is what `policyDomains` gives
- * for the owner and the viewer in the `domain` mode.
+ * for the owner and the viewer in the `domain` mode; `groups` the viewer's groups in the owning
+ * workspace (`viewerGroupIds`).
  */
 export function feedbackReach(
   actor: Actor,
   viewer: Viewer,
   domains: AccessPolicy["domains"],
+  groups: { featureAvailable: boolean; ids: readonly string[] } = {
+    featureAvailable: false,
+    ids: [],
+  },
 ): FeedbackReach {
   const role: AnnotationRole = actsForOwner(actor, actor.ownerId) ? "owner" : "participant";
   const admits = (mode: AccessMode, readers: readonly string[]) =>
@@ -58,6 +70,7 @@ export function feedbackReach(
     ),
     openModes: openModes.length === AccessMode.options.length ? null : openModes,
     readerList: viewer.verifiedEmails.length > 0 && admits("restricted", viewer.verifiedEmails),
+    ...groupReach(actor, viewer, groups),
     scopeOf: Object.fromEntries(
       CommentVisibility.options.map((visibility) => [
         visibility,
@@ -65,6 +78,32 @@ export function feedbackReach(
       ]),
     ) as Record<CommentVisibility, CommentScope>,
   };
+}
+
+/** Whether a listed group admits the caller on a `restricted` artifact, decided by `canRead`. */
+function groupReach(
+  actor: Actor,
+  viewer: Viewer,
+  groups: { featureAvailable: boolean; ids: readonly string[] },
+): Pick<FeedbackReach, "groupList" | "groups"> {
+  // The owner side reads every artifact already; groups add nothing for it.
+  if (groups.ids.length === 0 || actsForOwner(actor, actor.ownerId)) {
+    return { groupList: false, groups: [] };
+  }
+  const admitted = canRead(
+    {
+      mode: "restricted",
+      ownerId: actor.ownerId,
+      readers: [],
+      groups: {
+        featureAvailable: groups.featureAvailable,
+        matched: groups.ids.map((id) => ({ id, commentVisibility: null })),
+      },
+    },
+    viewer,
+    actor,
+  ).ok;
+  return admitted ? { groupList: true, groups: [...groups.ids] } : { groupList: false, groups: [] };
 }
 
 /** The sort key of a listed thread: its last activity, then its ID. */

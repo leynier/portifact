@@ -5,6 +5,7 @@
 import {
   AccessPolicyView,
   AccessUpdate,
+  GroupChangeInput,
   type OAuthScope,
   ReaderChangeInput,
   SetAccessInput,
@@ -18,6 +19,8 @@ export const ACCESS_TOOL_SCOPES: [string, OAuthScope][] = [
   ["set_access", "artifacts:share"],
   ["add_reader", "artifacts:share"],
   ["remove_reader", "artifacts:share"],
+  ["add_group", "artifacts:share"],
+  ["remove_group", "artifacts:share"],
 ];
 
 const CHANGE = {
@@ -71,7 +74,7 @@ export function registerAccessTools(
               ? lapsed
                 ? `the ${members} member(s) of its workspace only, because the workspace's plan does not include workspace sharing now`
                 : `the ${members} member(s) of its workspace and anyone signed in with a verified address at ${domains.length > 0 ? domains.join(", ") : "no verified domain yet"}`
-              : `the owner and ${body.readers.length} reader(s) on the list, after signing in`;
+              : `the owner, ${body.readers.length} reader(s) on the list${body.groups.length > 0 ? ` and the members of ${body.groups.length} group(s) (${body.groups.map((group) => `${group.name}: ${group.members}`).join(", ")})` : ""}, after signing in`;
     return `${artifactId} can now be opened by ${who}; ${body.indexable ? "indexable" : "noindex"}, ${body.embeddable ? "embeddable" : "not embeddable"}.`;
   };
 
@@ -103,6 +106,38 @@ export function registerAccessTools(
     },
     async (args: ReaderChangeInput) =>
       apply(args.artifactId, { addReaders: args.emails }, (body) =>
+        describe(args.artifactId, body),
+      ),
+  );
+
+  register(
+    "add_group",
+    {
+      title: "Add workspace groups",
+      description:
+        "List groups of the artifact's own workspace on the artifact (IDs from list_groups). In restricted mode the members of these groups can open it, after signing in, like readers on the list; in other modes groups only carry comment exceptions. Needs a plan with workspace sharing (plan_required) and refuses a personal artifact (invalid_input). Adding a group shows the artifact to every one of its members: ask the user first and only add the groups they named for this artifact. Returns the access policy.",
+      inputSchema: GroupChangeInput,
+      outputSchema: AccessPolicyView,
+      annotations: CHANGE,
+    },
+    async (args: GroupChangeInput) =>
+      apply(args.artifactId, { addGroups: args.groups }, (body) =>
+        describe(args.artifactId, body),
+      ),
+  );
+
+  register(
+    "remove_group",
+    {
+      title: "Remove workspace groups",
+      description:
+        "Remove groups from the artifact. Their members' open read sessions stop working at once, unless a reader entry or their role still lets them read. Removing a group that is not on the artifact changes nothing. Returns the access policy.",
+      inputSchema: GroupChangeInput,
+      outputSchema: AccessPolicyView,
+      annotations: CHANGE,
+    },
+    async (args: GroupChangeInput) =>
+      apply(args.artifactId, { removeGroups: args.groups }, (body) =>
         describe(args.artifactId, body),
       ),
   );
