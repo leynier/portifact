@@ -52,6 +52,17 @@ export function defaultDb(env: RegionEnv): RegionalDb {
   return personalHandles(regionsFromEnv(env)).db;
 }
 
+/** The user's actor on their personal space, with its region's database. */
+export async function personalScope(
+  env: RegionEnv,
+  userId: string,
+): Promise<{ actor: Actor; db: RegionalDb }> {
+  const scope = await ownerScope(env, userId, undefined);
+  // A user always has a role on their own personal space.
+  if (!scope.ok) throw new Error("A user has no personal space");
+  return { actor: scope.value.actor, db: scope.value.db };
+}
+
 /**
  * The actor on the space a request names (`?workspace=<slug>` on the API, the `workspace`
  * argument of MCP tools): the personal space without a slug. The role comes from the services; a

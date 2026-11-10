@@ -2,6 +2,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env } from "cloudflare:workers";
 import { TERMS_VERSION } from "@portifact/contracts";
 import type { MultipartConfig } from "@portifact/domain";
+import type { FakeDomains } from "@portifact/services/testing";
 import { type Auth, createAuth } from "../src/auth/auth.ts";
 import { type AuthDeps, createClientMetadataFetch } from "../src/auth/deps.ts";
 import type { EmailMessage } from "../src/auth/email.ts";
@@ -56,6 +57,8 @@ export function createHarness(
     multipart?: MultipartConfig;
     /** Replaces the fake sender, for example to fail the way Email Service does. */
     email?: AuthDeps["email"];
+    /** Cloudflare and DNS for custom domains; omitted, the feature is switched off. */
+    domains?: FakeDomains;
   } = {},
 ): Harness {
   const outbox: EmailMessage[] = [];
@@ -65,6 +68,7 @@ export function createHarness(
   const workerEnv = { ...env, ...options.env } as Cloudflare.Env;
   const deps: AuthDeps = {
     ...(options.multipart ? { multipart: options.multipart } : {}),
+    domains: options.domains ?? null,
     email: options.email ?? {
       send: async (message) => {
         outbox.push(message);

@@ -17,6 +17,7 @@ import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
 import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
 import { setContentClockOffset } from "./clock.ts";
+import { e2eDomains } from "./domains.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
 /** Where the e2e Worker keeps the last email sent to each address, in the local bucket. */
@@ -398,6 +399,17 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       await runJob(db, env.ARTIFACTS, { id, topic: "comment_notice" }, now, { commentNotifier });
     }
     return Response.json({ scheduled: scheduled.recipients, ran: results.length });
+  }
+
+  // Custom domains: what DNS holds and what Cloudflare reports, as a customer and Cloudflare would.
+  if (path === "/domains") {
+    const { txt, activate } = input as {
+      txt?: { name: string; value: string };
+      activate?: string;
+    };
+    if (txt) e2eDomains.publishTxt(txt.name, txt.value);
+    if (activate) e2eDomains.activate(activate);
+    return Response.json({ ok: true });
   }
 
   if (path === "/sql") {

@@ -1170,5 +1170,72 @@ export const es = {
   "shareLinks.password.hint":
     "Al menos {min} caracteres. Los visitantes la escriben antes de que se abra el artifact. Envíala por separado del enlace.",
   "shareLinks.password.short": "Usa al menos {min} caracteres o déjala vacía.",
+  "domains.title": "Dominio propio",
+  "domains.description":
+    "Sirve este artifact desde un dominio tuyo, como docs.example.com. Su dirección de Portifact sigue funcionando.",
+  "domains.loading": "Cargando el dominio propio",
+  "domains.loadFailed": "No se pudo cargar el dominio propio",
+  "domains.paidTitle": "Los dominios propios son parte de un plan de pago",
+  "domains.paid": "Con un plan de pago puedes servir este artifact desde tu propio dominio.",
+  "domains.unavailableTitle": "Los dominios propios aún no están disponibles",
+  "domains.unavailable":
+    "Portifact todavía no sirve dominios propios. Esta sección se abrirá cuando lo haga.",
+  "domains.removingNote": "Se está quitando {hostname}.",
+  "domains.cardLabel": "Dominio propio {hostname}",
+  "domains.state.pending": "Esperando el DNS",
+  "domains.state.provisioning": "Configurando",
+  "domains.state.active": "Activo",
+  "domains.state.removing": "Quitando",
+  "domains.next.pending":
+    "Crea los dos registros de abajo en tu proveedor de DNS y vuelve a comprobar.",
+  "domains.next.provisioning":
+    "Tu dominio está verificado. El certificado suele tardar unos minutos; vuelve a comprobar en breve.",
+  "domains.next.active":
+    "Tu artifact se sirve en este dominio. Conserva el registro TXT: se comprueba cada día.",
+  "domains.next.removing": "Se está quitando el dominio.",
+  "domains.problem.txt_missing": "No se encontró el registro TXT",
+  "domains.problem.txt_missing.hint":
+    "Comprueba que el nombre y el valor del registro coinciden exactamente. Los cambios de DNS pueden tardar unos minutos en verse.",
+  "domains.problem.certificate_pending": "El certificado aún no está listo",
+  "domains.problem.certificate_pending.hint":
+    "Comprueba que el registro CNAME apunta al valor de abajo y vuelve a comprobar en unos minutos.",
+  "domains.problem.cloudflare_unavailable": "El servicio de certificados no respondió",
+  "domains.problem.cloudflare_unavailable.hint":
+    "No hay nada mal de tu lado. Se vuelve a intentar en breve.",
+  "domains.missedChecks":
+    "{count, plural, one {Faltó el registro TXT en la última comprobación diaria. Tras 3 fallos seguidos se quita el dominio.} other {Faltó el registro TXT en las últimas # comprobaciones diarias. Tras 3 fallos seguidos se quita el dominio.}}",
+  "domains.records": "Registros que debes crear",
+  "domains.records.type": "Registro {type}",
+  "domains.records.txtHint":
+    "Demuestra que controlas el dominio. Consérvalo cuando el dominio esté activo.",
+  "domains.records.cnameHint": "Hace que tu dominio apunte a Portifact.",
+  "domains.records.name": "Nombre",
+  "domains.records.value": "Valor",
+  "domains.records.copy": "Copiar",
+  "domains.claimExpires": "Agrega los registros antes del {date}, o vuelve a agregar el dominio.",
+  "domains.check": "Comprobar de nuevo",
+  "domains.checkFailed": "No se pudo comprobar el dominio",
+  "domains.remove": "Quitar dominio",
+  "domains.removed": "Se quitó {hostname}.",
+  "domains.removeFailed": "No se pudo quitar el dominio",
+  "domains.confirm.title": "¿Quitar {hostname}?",
+  "domains.confirm.body":
+    "El artifact deja de servirse en este dominio de inmediato y conserva su dirección de Portifact. Volver a agregar el dominio requiere una nueva comprobación de DNS.",
+  "domains.cancel": "Cancelar",
+  "domains.bar.title":
+    "Las visitas se abren en el visor mientras la barra de Portifact está activada",
+  "domains.bar.body":
+    "Mientras la barra está activada, quien abra tu dominio termina en el visor de app.portifact.com. Desactiva la barra para que tu dominio se quede en la barra de direcciones.",
+  "domains.bar.turnOff": "Desactivar la barra",
+  "domains.bar.done": "La barra de Portifact está desactivada.",
+  "domains.add": "Agregar dominio",
+  "domains.added": "Se agregó {hostname}. Ahora crea sus registros DNS.",
+  "domains.addFailed": "No se pudo agregar el dominio",
+  "domains.full":
+    "{count, plural, one {Tu plan incluye # dominio propio y ya está en uso.} other {Tu plan incluye # dominios propios y todos están en uso.}}",
+  "domains.hostname.label": "Nombre de host",
+  "domains.hostname.hint":
+    "Un subdominio que controlas, como docs.example.com. No se admiten dominios raíz ni comodines.",
+  "domains.hostname.invalid": "Escribe un nombre de host como docs.example.com.",
   "accessLog.shareLink": "Enlace para compartir: {label}",
 } satisfies Catalog;

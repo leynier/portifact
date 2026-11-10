@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d140c5c2-64f5-4563-a870-1f692e47b62d",
+  "id": "84b2db8f-3807-4cc4-968b-ec977ef2dcf4",
   "prevId": "49e7c5e0-d02b-4010-bc3e-b1f3dcf2f799",
   "tables": {
     "abuse_reports": {
@@ -1042,6 +1042,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "custom_host": {
+          "name": "custom_host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1049,6 +1056,12 @@
           "name": "artifacts_owner_state_idx",
           "columns": ["owner_id", "state"],
           "isUnique": false
+        },
+        "artifacts_custom_host_idx": {
+          "name": "artifacts_custom_host_idx",
+          "columns": ["custom_host"],
+          "isUnique": true,
+          "where": "\"artifacts\".\"custom_host\" is not null"
         },
         "artifacts_pinned_owner_idx": {
           "name": "artifacts_pinned_owner_idx",
@@ -1300,6 +1313,211 @@
           "value": "\"comment_notices\".\"created\" in (0, 1) and \"comment_notices\".\"resolved\" in (0, 1) and \"comment_notices\".\"replies\" between 0 and 200"
         }
       }
+    },
+    "custom_domains": {
+      "name": "custom_domains",
+      "columns": {
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cf_hostname_id": {
+          "name": "cf_hostname_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "missed_checks": {
+          "name": "missed_checks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "problem": {
+          "name": "problem",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "detach_reason": {
+          "name": "detach_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "custom_domains_owner_idx": {
+          "name": "custom_domains_owner_idx",
+          "columns": ["owner_id", "verified_at"],
+          "isUnique": false
+        },
+        "custom_domains_artifact_idx": {
+          "name": "custom_domains_artifact_idx",
+          "columns": ["artifact_id"],
+          "isUnique": false
+        },
+        "custom_domains_check_idx": {
+          "name": "custom_domains_check_idx",
+          "columns": ["state", "checked_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "custom_domains_state": {
+          "name": "custom_domains_state",
+          "value": "\"custom_domains\".\"state\" in ('provisioning', 'active', 'detaching')"
+        }
+      }
+    },
+    "domain_claims": {
+      "name": "domain_claims",
+      "columns": {
+        "hostname": {
+          "name": "hostname",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "region": {
+          "name": "region",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "domain_claims_owner_idx": {
+          "name": "domain_claims_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false
+        },
+        "domain_claims_artifact_idx": {
+          "name": "domain_claims_artifact_idx",
+          "columns": ["artifact_id"],
+          "isUnique": false
+        },
+        "domain_claims_expires_idx": {
+          "name": "domain_claims_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "domain_claims_hostname_owner_id_pk": {
+          "columns": ["hostname", "owner_id"],
+          "name": "domain_claims_hostname_owner_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "email_counters": {
       "name": "email_counters",
@@ -1692,7 +1910,7 @@
         "objects_r2_key_idx": {
           "name": "objects_r2_key_idx",
           "columns": ["r2_key"],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -3496,136 +3714,6 @@
         "versions_bytes_nonnegative": {
           "name": "versions_bytes_nonnegative",
           "value": "\"versions\".\"published_bytes\" >= 0 and \"versions\".\"source_bytes\" >= 0"
-        }
-      }
-    },
-    "workspace_deletions": {
-      "name": "workspace_deletions",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "requested_at": {
-          "name": "requested_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "workspace_invitations": {
-      "name": "workspace_invitations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "invited_by": {
-          "name": "invited_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "workspace_invitations_token_idx": {
-          "name": "workspace_invitations_token_idx",
-          "columns": ["token_hash"],
-          "isUnique": true
-        },
-        "workspace_invitations_workspace_email_idx": {
-          "name": "workspace_invitations_workspace_email_idx",
-          "columns": ["workspace_id", "email"],
-          "isUnique": true
-        },
-        "workspace_invitations_email_idx": {
-          "name": "workspace_invitations_email_idx",
-          "columns": ["email"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "workspace_invitations_workspace_id_workspaces_id_fk": {
-          "name": "workspace_invitations_workspace_id_workspaces_id_fk",
-          "tableFrom": "workspace_invitations",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "workspace_invitations_invited_by_users_id_fk": {
-          "name": "workspace_invitations_invited_by_users_id_fk",
-          "tableFrom": "workspace_invitations",
-          "tableTo": "users",
-          "columnsFrom": ["invited_by"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "workspace_invitations_role": {
-          "name": "workspace_invitations_role",
-          "value": "\"workspace_invitations\".\"role\" in ('admin', 'editor', 'member')"
         }
       }
     },

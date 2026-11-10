@@ -281,6 +281,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       presigner: presignerFor,
       siteverify: (env) => depsFor(env).siteverify,
       multipart: (env) => depsFor(env).multipart,
+      domains: (env) => depsFor(env).domains,
       now: () => Date.now(),
     }),
   );
@@ -347,6 +348,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       presigner: presignerFor,
       siteverify: (env) => depsFor(env).siteverify,
       multipart: (env) => depsFor(env).multipart,
+      domains: (env) => depsFor(env).domains,
       now: () => Date.now(),
     }),
   );

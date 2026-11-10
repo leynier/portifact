@@ -2,8 +2,6 @@ import { fileURLToPath } from "node:url";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-const APP_SOURCES = fileURLToPath(new URL("./src/", import.meta.url).href);
-
 export default defineConfig(async () => {
   // The same migrations production applies, so the tests run against the real schema.
   const migrations = await readD1Migrations(
@@ -14,15 +12,15 @@ export default defineConfig(async () => {
   );
   return {
     plugins: [
+      // The pool sends every module a test file's graph already transformed in one WebSocket
+      // message, which workerd caps at 32 MiB, and inline source maps were most of each
+      // dependency's code. Dependencies keep no map here; this package's code keeps its own,
+      // so coverage and stack traces into src are unchanged.
       {
-        // Only this app's own sources keep their source maps (coverage maps through them). The
-        // pool sends every module of a test file to workerd in one WebSocket message, capped at
-        // 32 MiB, and the inline maps of the other packages and of dependencies are most of it.
-        name: "portifact:source-maps-only-for-coverage",
-        enforce: "post" as const,
+        name: "portifact:no-dependency-sourcemaps",
+        enforce: "post",
         transform(code: string, id: string) {
-          if (id.startsWith(APP_SOURCES)) return null;
-          return { code, map: { mappings: "" } };
+          return id.includes("/node_modules/") ? { code, map: { mappings: "" } } : undefined;
         },
       },
       cloudflareTest({

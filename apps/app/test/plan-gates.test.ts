@@ -169,6 +169,20 @@ const GATED: GatedOperation[] = [
     "diff_version_file",
     (id) => ({ artifactId: id, fromVersionId: "current", path: "index.md" }),
   ),
+  route(
+    "customDomains",
+    "add a custom domain",
+    (id) => [
+      `/api/v1/artifacts/${id}/domain`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ hostname: `gate-${id}.example.com` }),
+      },
+    ],
+    "add_custom_domain",
+    (id) => ({ artifactId: id, hostname: `gate-${id}.example.com` }),
+  ),
   probe("workspaces"),
   probe("sso"),
 ];

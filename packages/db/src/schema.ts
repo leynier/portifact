@@ -96,9 +96,20 @@ export const artifacts = sqliteTable(
      * Kept last because `ALTER TABLE ADD COLUMN` appends it.
      */
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    /**
+     * The artifact's active custom hostname (premium plan P7, decision 0006), or null. The
+     * authority for serving on a custom host: the content Worker serves a custom host only when
+     * this column holds it, attaching sets it last and detaching clears it first. On the artifact,
+     * not on a version, so a rollback keeps it. Kept last because `ALTER TABLE ADD COLUMN`
+     * appends it.
+     */
+    customHost: text("custom_host"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
+    uniqueIndex("artifacts_custom_host_idx")
+      .on(t.customHost)
+      .where(sql`${t.customHost} is not null`),
     // The scan that unpins the artifacts of owners whose plan no longer includes `pin`.
     index("artifacts_pinned_owner_idx").on(t.ownerId).where(sql`${t.pinned} = 1`),
     index("artifacts_state_expires_idx").on(t.state, t.expiresAt),
@@ -634,6 +645,7 @@ export const OUTBOX_TOPICS = [
   "expiry_notice",
   "comment_notice",
   "owner_retention",
+  "delete_custom_hostname",
   "workspace_deletion",
   "access_history_move",
 ] as const;
@@ -1289,5 +1301,74 @@ export const artifactDirectory = sqliteTable("artifact_directory", {
   region: text("region", { enum: REGIONS }).notNull(),
   createdAt: timestamp("created_at").notNull(),
 });
+
+/** States of a proven custom domain (decision 0006, "States and transitions"). */
+export const CUSTOM_DOMAIN_STATES = ["provisioning", "active", "detaching"] as const;
+
+/**
+ * Pending claims of custom hostnames (premium plan P7, decision 0006). Global: a hostname is
+ * unique across regions. A claim proves nothing: several owners may hold one for the same name,
+ * each with its own token, so a squatter's claim blocks nobody. The token is the value the owner
+ * publishes in the public TXT record `_portifact.<hostname>`; it proves control of DNS only by
+ * being found there, so it is no secret and is kept to show the record again. No foreign keys:
+ * the owner may be a workspace and the artifact lives in its region. Claims never reach
+ * Cloudflare; they last a week.
+ */
+export const domainClaims = sqliteTable(
+  "domain_claims",
+  {
+    hostname: text("hostname").notNull(),
+    ownerId: text("owner_id").notNull(),
+    artifactId: text("artifact_id").notNull(),
+    region: text("region", { enum: REGIONS }).notNull(),
+    token: text("token").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.hostname, t.ownerId] }),
+    index("domain_claims_owner_idx").on(t.ownerId),
+    index("domain_claims_artifact_idx").on(t.artifactId),
+    index("domain_claims_expires_idx").on(t.expiresAt),
+  ],
+);
+
+/**
+ * Custom hostnames that passed the TXT proof (decision 0006). Global, next to the artifact
+ * directory: the content Worker caches `hostname -> artifact, region` from active rows as a hint
+ * and checks it against `artifacts.custom_host` on every request. `cf_hostname_id` is
+ * Cloudflare's custom hostname, Portifact's resource, kept when the name changes hands. A row is
+ * deleted only by the `delete_custom_hostname` job after Cloudflare's delete, so a name is free
+ * again only then. No foreign keys, like `domain_claims`.
+ */
+export const customDomains = sqliteTable(
+  "custom_domains",
+  {
+    hostname: text("hostname").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    artifactId: text("artifact_id").notNull(),
+    region: text("region", { enum: REGIONS }).notNull(),
+    state: text("state", { enum: CUSTOM_DOMAIN_STATES }).notNull(),
+    /** The token of the claim that proved it, which the TXT record must keep holding. */
+    token: text("token").notNull(),
+    cfHostnameId: text("cf_hostname_id"),
+    verifiedAt: timestamp("verified_at").notNull(),
+    checkedAt: timestamp("checked_at").notNull(),
+    missedChecks: integer("missed_checks").notNull().default(0),
+    /** What the last check found wrong (contracts: CustomDomainProblem), or null. */
+    problem: text("problem", {
+      enum: ["txt_missing", "certificate_pending", "cloudflare_unavailable"],
+    }),
+    /** Why it was detached (domain: DetachReason); null unless `detaching`. */
+    detachReason: text("detach_reason"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("custom_domains_owner_idx").on(t.ownerId, t.verifiedAt),
+    index("custom_domains_artifact_idx").on(t.artifactId),
+    index("custom_domains_check_idx").on(t.state, t.checkedAt),
+    check("custom_domains_state", sql`${t.state} in ('provisioning', 'active', 'detaching')`),
+  ],
+);
 
 export * from "./auth-schema.ts";

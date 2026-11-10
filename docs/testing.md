@@ -73,6 +73,8 @@ The bridge's unit tests (`packages/bridge`) run in happy-dom with a stand-in par
 
 Every Vitest config sets `testTimeout: 30_000`. CI runs every package's tests at once on one runner, so heavy property and size tests can take several times longer than locally; a test that cares about speed asserts its own time budget, and the timeout only catches hangs. For the same reason `apps/web/src/test-setup.ts` raises Testing Library's `asyncUtilTimeout` from one second to ten: a file's first render under that load has taken almost two, which made `findBy` queries of correct tests fail now and then.
 
+The Workers test pool (`@cloudflare/vitest-pool-workers`) sends every module of a test file's graph, already transformed, in one WebSocket message, and workerd refuses a message over 32 MiB: the files of the suite then crash with "Message is too large" before any test runs. `apps/app` imports the most code and reached the limit as features were added (33.5 MB measured, three quarters of it the inline source maps of dependencies). Its `vitest.config.ts` has a small plugin that drops the source maps of modules under `node_modules`, which more than halves the message; this package's own code keeps its maps, so coverage and stack traces into `src` are unchanged. If another Workers suite fails that way, give it the same plugin.
+
 ## Required cases
 
 Every feature covers:
@@ -161,6 +163,7 @@ Deterministic races in Vitest complement this run: the `racing` helper (see Laye
 - `fixtures/artifacts/` holds sample sites, Markdown and TXT, including maximum-size and edge cases.
 - `fixtures/hostile/` holds malicious inputs: ZIP path traversal, symlinks, zip bombs, HTML that tries cookie tossing, forged `postMessage`, CSRF forms, service worker registration, script-injecting Markdown and oversized selectors.
 - Fixtures are small and deterministic. Large fixtures are generated in the test, not committed.
+- Outside services are fakes behind the same interfaces production injects: Cloudflare custom hostnames and DNS over HTTPS are `FakeDomains` (`@portifact/services/testing`), used by the services, app, jobs and e2e tests; the real clients are tested only against a fake `fetch`, and no test calls a real Cloudflare endpoint.
 
 ## CI gates
 

@@ -1149,5 +1149,71 @@ export const ja = {
   "shareLinks.password.hint":
     "{min} 文字以上。artifact が開く前に訪問者が入力します。リンクとは別の方法で伝えてください。",
   "shareLinks.password.short": "{min} 文字以上にするか、空のままにしてください。",
+  "domains.title": "カスタムドメイン",
+  "domains.description":
+    "この artifact を docs.example.com のような自分のドメインで公開します。Portifact のアドレスも引き続き使えます。",
+  "domains.loading": "カスタムドメインを読み込んでいます",
+  "domains.loadFailed": "カスタムドメインを読み込めませんでした",
+  "domains.paidTitle": "カスタムドメインは有料プランの機能です",
+  "domains.paid": "有料プランでは、この artifact を自分のドメインで公開できます。",
+  "domains.unavailableTitle": "カスタムドメインはまだ利用できません",
+  "domains.unavailable":
+    "Portifact はまだカスタムドメインに対応していません。対応したらこのセクションが使えるようになります。",
+  "domains.removingNote": "{hostname} を削除しています。",
+  "domains.cardLabel": "カスタムドメイン {hostname}",
+  "domains.state.pending": "DNS を待っています",
+  "domains.state.provisioning": "設定中",
+  "domains.state.active": "有効",
+  "domains.state.removing": "削除中",
+  "domains.next.pending":
+    "DNS プロバイダーで下の 2 つのレコードを作成してから、もう一度確認してください。",
+  "domains.next.provisioning":
+    "ドメインを確認しました。証明書の発行には通常数分かかります。少ししてからもう一度確認してください。",
+  "domains.next.active":
+    "artifact はこのドメインで公開されています。TXT レコードは毎日確認されるので残しておいてください。",
+  "domains.next.removing": "ドメインを削除しています。",
+  "domains.problem.txt_missing": "TXT レコードが見つかりません",
+  "domains.problem.txt_missing.hint":
+    "レコードの名前と値が完全に一致しているか確認してください。DNS の変更が反映されるまで数分かかることがあります。",
+  "domains.problem.certificate_pending": "証明書はまだ準備できていません",
+  "domains.problem.certificate_pending.hint":
+    "CNAME レコードが下の値を指しているか確認し、数分後にもう一度確認してください。",
+  "domains.problem.cloudflare_unavailable": "証明書サービスが応答しませんでした",
+  "domains.problem.cloudflare_unavailable.hint":
+    "お客様側の問題ではありません。まもなく再試行します。",
+  "domains.missedChecks":
+    "{count, plural, one {直近 # 回の毎日の確認で TXT レコードが見つかりませんでした。3 回続けて見つからないとドメインは削除されます。} other {直近 # 回の毎日の確認で TXT レコードが見つかりませんでした。3 回続けて見つからないとドメインは削除されます。}}",
+  "domains.records": "作成するレコード",
+  "domains.records.type": "{type} レコード",
+  "domains.records.txtHint":
+    "ドメインを管理していることを証明します。ドメインが有効になった後も残しておいてください。",
+  "domains.records.cnameHint": "ドメインを Portifact に向けます。",
+  "domains.records.name": "名前",
+  "domains.records.value": "値",
+  "domains.records.copy": "コピー",
+  "domains.claimExpires": "{date} までにレコードを追加するか、ドメインをもう一度追加してください。",
+  "domains.check": "もう一度確認",
+  "domains.checkFailed": "ドメインを確認できませんでした",
+  "domains.remove": "ドメインを削除",
+  "domains.removed": "{hostname} を削除しました。",
+  "domains.removeFailed": "ドメインを削除できませんでした",
+  "domains.confirm.title": "{hostname} を削除しますか?",
+  "domains.confirm.body":
+    "artifact はすぐにこのドメインで公開されなくなり、Portifact のアドレスは残ります。ドメインをもう一度追加するには新しい DNS 確認が必要です。",
+  "domains.cancel": "キャンセル",
+  "domains.bar.title": "Portifact バーがオンの間、訪問はビューアーで開きます",
+  "domains.bar.body":
+    "バーがオンの間、ドメインを開いた人は app.portifact.com のビューアーに移動します。アドレスバーに自分のドメインを表示し続けるにはバーをオフにしてください。",
+  "domains.bar.turnOff": "バーをオフにする",
+  "domains.bar.done": "Portifact バーをオフにしました。",
+  "domains.add": "ドメインを追加",
+  "domains.added": "{hostname} を追加しました。次に DNS レコードを作成してください。",
+  "domains.addFailed": "ドメインを追加できませんでした",
+  "domains.full":
+    "{count, plural, one {お使いのプランのカスタムドメインは # 件までで、すべて使用中です。} other {お使いのプランのカスタムドメインは # 件までで、すべて使用中です。}}",
+  "domains.hostname.label": "ホスト名",
+  "domains.hostname.hint":
+    "docs.example.com のような、自分で管理するサブドメイン。ルートドメインとワイルドカードは使えません。",
+  "domains.hostname.invalid": "docs.example.com のようなホスト名を入力してください。",
   "accessLog.shareLink": "共有リンク: {label}",
 } satisfies Catalog;

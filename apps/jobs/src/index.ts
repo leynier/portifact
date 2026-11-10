@@ -10,6 +10,11 @@
 import { EmailSendingEvent, JobMessage } from "@portifact/contracts";
 import { createAccessDb, type Db, regionsFromEnv } from "@portifact/db";
 import {
+  checkCustomDomains,
+  type DomainDeps,
+  type DomainEnv,
+  domainDbs,
+  domainDepsFromEnv,
   personalHandles,
   pruneAccessEvents,
   reconcileStorage,
@@ -22,7 +27,7 @@ import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.t
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
 
-export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv {
+export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv {
   DB: D1Database;
   /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
   ACCESS_DB: D1Database;
@@ -40,10 +45,24 @@ export const EMAIL_EVENTS_QUEUE = "portifact-email-events";
 
 const errorName = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export async function runScheduled(env: Env, now: number) {
+/** Cloudflare's custom hostnames and DNS, or null while custom domains are switched off. */
+export function domainsFromEnv(env: Env, fetcher: typeof fetch = fetch): DomainDeps | null {
+  return domainDepsFromEnv(env, (input, init) => fetcher(input, init));
+}
+
+export async function runScheduled(env: Env, now: number, domains = domainsFromEnv(env)) {
   // One region for now; with a second (E5) the scans run once per region (decision 0005).
-  const db = personalHandles(regionsFromEnv(env)).db;
+  const regions = regionsFromEnv(env);
+  const db = personalHandles(regions).db;
   const maintenance = await runMaintenance(db, env.ARTIFACTS, now);
+  // Custom domains call Cloudflare and DNS: a failure must not hide the rest of the run.
+  let customDomains: Awaited<ReturnType<typeof checkCustomDomains>> | "failed";
+  try {
+    customDomains = await checkCustomDomains(domainDbs(regions), domains, now);
+  } catch (error) {
+    customDomains = "failed";
+    console.error(JSON.stringify({ event: "custom_domains_failed", error: errorName(error) }));
+  }
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
   let relayed: number | "failed";
   try {
@@ -61,7 +80,7 @@ export async function runScheduled(env: Env, now: number) {
     prunedAccessEvents = "failed";
     console.error(JSON.stringify({ event: "access_log_prune_failed", error: errorName(error) }));
   }
-  const result = { ...maintenance, relayed, storage, prunedAccessEvents };
+  const result = { ...maintenance, relayed, storage, prunedAccessEvents, customDomains };
   console.log(JSON.stringify({ event: "maintenance", ...result }));
   return result;
 }
@@ -119,7 +138,12 @@ function safeJson(text: string): unknown {
   }
 }
 
-export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: number) {
+export async function runQueue(
+  batch: MessageBatch<unknown>,
+  env: Env,
+  now: number,
+  domains = domainsFromEnv(env),
+) {
   const db = personalHandles(regionsFromEnv(env)).db;
   const access = createAccessDb(env.ACCESS_DB);
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
@@ -138,6 +162,7 @@ export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: numb
         access,
         notifier,
         commentNotifier,
+        domains,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

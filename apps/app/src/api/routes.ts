@@ -20,6 +20,7 @@ import {
   abortPublish,
   archiveArtifact,
   commitPublish,
+  type DomainDeps,
   deleteArtifact,
   getAccess,
   getArtifact,
@@ -44,6 +45,7 @@ import { authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
+import { domainRoutes } from "./domains.ts";
 import {
   type ApiContext,
   error,
@@ -72,6 +74,8 @@ export interface ApiDeps {
   now(): number;
   /** Threshold and part size of multipart uploads; undefined for the defaults. */
   multipart?(env: Env): MultipartConfig | undefined;
+  /** Cloudflare's custom hostnames and DNS; null while custom domains are switched off. */
+  domains(env: Env): DomainDeps | null;
 }
 
 export function apiRoutes(deps: ApiDeps) {
@@ -360,6 +364,7 @@ export function apiRoutes(deps: ApiDeps) {
   workspaceReadRoutes(api, guarded);
   shareLinkRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  domainRoutes(api, guarded, deps.domains, deps.now);
 
   return api;
 }

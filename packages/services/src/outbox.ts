@@ -15,7 +15,9 @@ import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-o
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
 import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
+import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
+import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
@@ -127,6 +129,8 @@ export interface JobDeps {
   notifier?: ExpiryNotifier | undefined;
   /** Sends `comment_notice` emails. */
   commentNotifier?: CommentNotifier | undefined;
+  /** Cloudflare's custom hostnames, for `delete_custom_hostname` jobs; null while switched off. */
+  domains?: DomainDeps | null | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -152,7 +156,7 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  { access, notifier, commentNotifier }: JobDeps,
+  { access, notifier, commentNotifier, domains }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -188,6 +192,9 @@ async function runRow(
     case "comment_notice":
       if (!commentNotifier) throw new Error("comment_notice needs the comment notifier");
       return sendCommentNotice(db, row, now, commentNotifier);
+    case "delete_custom_hostname":
+      // Written in the global batch that detached the domain (one database with one region).
+      return runDeleteHostname(domainDbsOf(db), domains ?? null, row.subject ?? "");
   }
 }
 
