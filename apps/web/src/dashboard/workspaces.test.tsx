@@ -135,14 +135,19 @@ describe("the space menu", () => {
           "Branding",
           "Members",
           "Groups",
+          "Policies",
           "Audit log",
           "Service tokens",
           "Settings",
         ],
       ],
-      ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Members", "Settings"]],
-      // Every role compares the plans; the page decides what it shows and offers.
-      ["/?workspace=m", ["Artifacts", "Apps", "Plan", "Members", "Settings"]],
+      [
+        "/?workspace=e",
+        ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Members", "Policies", "Settings"],
+      ],
+      // Every role compares the plans and reads the policies that bind it; the page decides
+      // what it shows and offers.
+      ["/?workspace=m", ["Artifacts", "Apps", "Plan", "Members", "Policies", "Settings"]],
     ];
     for (const [path, expected] of cases) {
       renderDashboard(path, server);

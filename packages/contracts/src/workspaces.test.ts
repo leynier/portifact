@@ -24,6 +24,7 @@ import {
   WorkspaceName,
   WorkspaceParam,
 } from "./index.ts";
+import { DEFAULT_POLICY } from "./policies.ts";
 import { ERROR_STATUS } from "./publishing.ts";
 import {
   DEFAULT_REGION,
@@ -154,6 +155,7 @@ describe("workspace contracts", () => {
       role: "admin",
       region: "default",
       createdAt: "2026-11-10T12:00:00.000Z",
+      policy: DEFAULT_POLICY,
     };
     expect(WorkspaceList.parse({ items: [view] })).toEqual({ items: [view] });
     expect(

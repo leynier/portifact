@@ -189,6 +189,10 @@ export function auditSummary(event: AuditEventView): string {
       return "Removed single sign-on";
     case "audit.exported":
       return `Exported the audit log as ${String(d.format).toUpperCase()}${d.from || d.to ? ` (${d.from ?? "start"} to ${d.to ?? "now"})` : ""}`;
+    case "policy.changed":
+      return `Changed the workspace's policies: ${policyParts(d).join(", ")}${d.confirmed ? " (existing artifacts changed)" : ""}`;
+    case "policy.enforced":
+      return `Applied the workspace's policies: ${enforcedParts(d).join(", ")}`;
   }
 }
 
@@ -197,6 +201,45 @@ const SSO_FIELD = {
   clientSecret: "client secret",
   domains: "domains",
 } as const;
+
+/** The fields of a policy change, in words. */
+function policyParts(d: Record<string, unknown>): string[] {
+  const parts: string[] = [];
+  if (d.publicAccess !== undefined) parts.push(`public access ${d.publicAccess}`);
+  if (d.defaultAccess !== undefined) parts.push(`new artifacts ${d.defaultAccess}`);
+  if (d.readerDomains !== undefined) {
+    parts.push(
+      d.readerDomains === null
+        ? "readers at any domain"
+        : `readers only at ${(d.readerDomains as string[]).join(", ")}`,
+    );
+  }
+  if (d.shareLinks !== undefined) {
+    parts.push(`share links ${String(d.shareLinks).replaceAll("_", " ")}`);
+  }
+  if (d.shareLinkMaxDays !== undefined) {
+    parts.push(
+      d.shareLinkMaxDays === null
+        ? "no share link lifetime limit"
+        : `share links at most ${d.shareLinkMaxDays} days`,
+    );
+  }
+  return parts;
+}
+
+/** What one enforcement step changed, as counts. */
+function enforcedParts(d: Record<string, unknown>): string[] {
+  const parts = [
+    [d.artifactsNarrowed, "artifact(s) made workspace-only"],
+    [d.readersRemoved, "reader(s) removed"],
+    [d.linksRevoked, "share link(s) revoked"],
+    [d.sessionsEnded, "link session(s) ended"],
+  ] as const;
+  const listed = parts
+    .filter(([count]) => Number(count) > 0)
+    .map(([count, what]) => `${count} ${what}`);
+  return listed.length > 0 ? listed : ["nothing to change"];
+}
 
 /** A group by its current name, or as deleted: the event never stores the name. */
 function groupName(event: AuditEventView): string {
@@ -220,6 +263,7 @@ function accessParts(d: Record<string, unknown>): string[] {
   if (d.commentVisibility) parts.push(`comments visible to ${d.commentVisibility}`);
   if (d.indexable !== undefined) parts.push(`indexing ${d.indexable ? "on" : "off"}`);
   if (d.embeddable !== undefined) parts.push(`embedding ${d.embeddable ? "on" : "off"}`);
+  if (d.policy) parts.push("by the workspace's policy");
   return parts;
 }
 

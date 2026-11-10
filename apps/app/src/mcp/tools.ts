@@ -232,7 +232,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
     {
       title: "Publish a document",
       description:
-        "Publish a small document sent inline: Markdown, plain text or one self-contained HTML page, up to 256 KiB. Without artifactId it creates a new artifact with the user's defaults for new artifacts (private to the user unless they changed them in the dashboard's settings). With artifactId and baseVersionId (the currentVersionId from get_artifact) it publishes a new version of that artifact; its access settings do not change. Publishing restarts the 30 days before the artifact is archived; a pinned artifact stays pinned, with no expiry. Returns the URL, version and expiry. For folders, several files or larger content, use prepare_upload and commit_upload, or the portifact CLI.",
+        "Publish a small document sent inline: Markdown, plain text or one self-contained HTML page, up to 256 KiB. Without artifactId it creates a new artifact with the user's defaults for new artifacts (private to the user unless they changed them in the dashboard's settings; in a workspace, the access its defaultAccess policy names). With artifactId and baseVersionId (the currentVersionId from get_artifact) it publishes a new version of that artifact; its access settings do not change. Publishing restarts the 30 days before the artifact is archived; a pinned artifact stays pinned, with no expiry. Returns the URL, version and expiry. For folders, several files or larger content, use prepare_upload and commit_upload, or the portifact CLI.",
       inputSchema: PublishDocumentInput,
       outputSchema: CommittedPublish,
       annotations: {

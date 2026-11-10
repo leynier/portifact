@@ -4,6 +4,7 @@
 // membership; adapters never decide one.
 import { z } from "zod";
 import { Email } from "./core.ts";
+import { WorkspacePolicy } from "./policies.ts";
 
 /**
  * Where an owner's data is stored (decision 0005). Only the default region exists for now; the
@@ -118,6 +119,11 @@ export const WorkspaceView = z.object({
   role: WorkspaceRole,
   region: Region,
   createdAt: z.iso.datetime(),
+  /**
+   * The workspace's policies in effect (decision 0015), so clients that publish or change access
+   * can explain a refusal before trying.
+   */
+  policy: WorkspacePolicy,
 });
 export type WorkspaceView = z.infer<typeof WorkspaceView>;
 

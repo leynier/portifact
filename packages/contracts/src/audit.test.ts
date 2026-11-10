@@ -150,6 +150,8 @@ describe("the catalog's exact shapes", () => {
       "group.member_added": "member",
       "group.member_removed": "member",
       "audit.exported": "audit_log",
+      "policy.changed": "policy",
+      "policy.enforced": "policy",
     });
   });
 

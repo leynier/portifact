@@ -2,6 +2,7 @@
 // routes and tools, the caller's workspaces, transfers, and the member and invitation routes that
 // only the dashboard's session reaches. The same actor gets the same answer from the API and MCP.
 import { env } from "cloudflare:workers";
+import { DEFAULT_POLICY } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { createWorkspace } from "@portifact/services";
 import { eq } from "drizzle-orm";
@@ -140,6 +141,7 @@ describe("naming a workspace in the API and MCP", () => {
               role: who,
               region: "default",
               createdAt: new Date(NOW).toISOString(),
+              policy: DEFAULT_POLICY,
             },
           ],
         },

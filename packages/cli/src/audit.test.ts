@@ -354,6 +354,20 @@ describe("plain words for every kind", () => {
     "sso.changed": { fields: ["clientSecret", "domains"] },
     "sso.removed": {},
     "audit.exported": { format: "csv", kinds: 0, from: "2026-01-01" },
+    "policy.changed": {
+      fields: ["publicAccess", "readerDomains", "shareLinks", "shareLinkMaxDays"],
+      publicAccess: "forbidden",
+      readerDomains: ["corp.example"],
+      shareLinks: "password_required",
+      shareLinkMaxDays: 30,
+      confirmed: true,
+    },
+    "policy.enforced": {
+      artifactsNarrowed: 2,
+      readersRemoved: 0,
+      linksRevoked: 1,
+      sessionsEnded: 3,
+    },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -402,6 +416,10 @@ describe("plain words for every kind", () => {
     "sso.changed": "Changed single sign-on (client secret, domains)",
     "sso.removed": "Removed single sign-on",
     "audit.exported": "Exported the audit log as CSV (2026-01-01 to now)",
+    "policy.changed":
+      "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days (existing artifacts changed)",
+    "policy.enforced":
+      "Applied the workspace's policies: 2 artifact(s) made workspace-only, 1 share link(s) revoked, 3 link session(s) ended",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {
@@ -416,6 +434,17 @@ describe("plain words for every kind", () => {
         }),
       ),
     ).toBe(expected[kind]);
+  });
+
+  it("says when the workspace's policy changed access", () => {
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "access.changed",
+          detail: { mode: "workspace", policy: "publicAccess" },
+        }),
+      ),
+    ).toBe("Changed access: mode workspace, by the workspace's policy");
   });
 
   it("names a group by its current name, or as deleted, never from the event", () => {

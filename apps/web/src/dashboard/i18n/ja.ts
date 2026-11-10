@@ -2111,4 +2111,112 @@ export const ja = {
     "{host} で {count, plural, one {# 件のドメイン} other {# 件のドメイン}} のシングルサインオンを設定しました",
   "audit.kind.ssoChanged": "シングルサインオンを変更しました",
   "audit.kind.ssoRemoved": "シングルサインオンを削除しました",
+  "shell.policiesLink": "ポリシー",
+  "policies.title": "ポリシー",
+  "policies.description":
+    "{workspace} のすべてのアーティファクトに適用されるルールです。管理者やサービストークンを含め、アーティファクトを操作するすべての人に適用されます。",
+  "policies.personal.title": "ポリシーはワークスペース用です",
+  "policies.personal.body":
+    "個人スペースにはポリシーがありません。ワークスペースに切り替えるとそのポリシーを確認できます。",
+  "policies.loading": "ポリシーを読み込んでいます",
+  "policies.loadFailed": "ポリシーを読み込めませんでした",
+  "policies.planTitle": "ポリシーの設定は {plan} プランに含まれます",
+  "policies.planRequired":
+    "このワークスペースのプランにはポリシーが含まれていません。設定済みのポリシーは引き続き適用され、管理者は緩めたり解除したりできます。",
+  "policies.readOnly.title": "管理者が設定します",
+  "policies.readOnly.body": "ポリシーを変更できるのは管理者だけです。あなたにも適用されます。",
+  "policies.adminsToo": "これらのポリシーは管理者にも適用されます。",
+  "policies.public.legend": "公開アクセス",
+  "policies.public.allowed": "許可",
+  "policies.public.allowedHint":
+    "管理者と編集者はアーティファクトを公開でき、リンクを知っている人なら誰でも開けます。",
+  "policies.public.forbidden": "禁止",
+  "policies.public.forbiddenHint":
+    "ワークスペースのアーティファクトは公開できません。公開中のアーティファクトはワークスペースと共有に変わります。",
+  "policies.default.legend": "新しいアーティファクトのアクセス",
+  "policies.default.hint":
+    "ワークスペースの新しいアーティファクトの初期アクセスです。既存のアーティファクトは変わりません。",
+  "policies.default.restricted": "オーナー側と追加した閲覧者だけが開けます。",
+  "policies.default.workspace": "ワークスペースのメンバー全員が開けます。",
+  "policies.default.domain":
+    "メンバーと、ワークスペースのメールドメインの確認済みアドレスでサインインした人が開けます。",
+  "policies.default.domainNone": "先にメンバーページでメールドメインを確認してください。",
+  "policies.readers.legend": "閲覧者のドメイン",
+  "policies.readers.any": "すべてのアドレス",
+  "policies.readers.anyHint": "どのメールアドレスでも閲覧者として追加できます。",
+  "policies.readers.only": "これらのドメインのみ",
+  "policies.readers.onlyHint":
+    "これらのメールドメインのアドレスだけを閲覧者として追加できます。メンバーとグループには影響しません。",
+  "policies.readers.domains": "許可するドメイン",
+  "policies.readers.domainsHint": "1 行に 1 つ、example.com のように、最大 {max} 個。",
+  "policies.readers.domainsError":
+    "example.com のような単純なドメインを 1 から {max} 個入力してください。",
+  "policies.links.legend": "共有リンク",
+  "policies.links.allowed": "許可",
+  "policies.links.allowedHint":
+    "管理者と編集者はパスワードの有無にかかわらず共有リンクを作成できます。",
+  "policies.links.password_required": "パスワード必須",
+  "policies.links.password_requiredHint":
+    "すべての共有リンクにパスワードが必要です。パスワードのないリンクは開けなくなります。",
+  "policies.links.disabled": "無効",
+  "policies.links.disabledHint": "共有リンクは使えません。既存のリンクは取り消されます。",
+  "policies.lifetime.label": "共有リンクの最長有効期間 (日)",
+  "policies.lifetime.hint": "空欄にすると制限なしです。これより古いリンクは開けなくなります。",
+  "policies.lifetime.error": "1 から {max} までの整数の日数を入力するか、空欄にしてください。",
+  "policies.save": "ポリシーを保存",
+  "policies.saved": "ポリシーを保存しました。",
+  "policies.saveFailed": "ポリシーを保存できませんでした",
+  "policies.conflict":
+    "その間に誰かがポリシーを変更しました。再読み込みしたので、確認して保存してください。",
+  "policies.impact.title": "既存のアーティファクトにこのポリシーを適用しますか?",
+  "policies.impact.body": "保存すると {workspace} の既存の内容が変わります:",
+  "policies.impact.public":
+    "{count, plural, one {公開アーティファクト # 件がワークスペースと共有に変わります} other {公開アーティファクト # 件がワークスペースと共有に変わります}}",
+  "policies.impact.readers":
+    "{count, plural, one {許可ドメイン外の閲覧者 # 人が削除されます} other {許可ドメイン外の閲覧者 # 人が削除されます}}",
+  "policies.impact.revoked":
+    "{count, plural, one {共有リンク # 件が取り消されます} other {共有リンク # 件が取り消されます}}",
+  "policies.impact.password":
+    "{count, plural, one {パスワードのない共有リンク # 件が開けなくなります} other {パスワードのない共有リンク # 件が開けなくなります}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {有効期間を過ぎた共有リンク # 件が開けなくなります} other {有効期間を過ぎた共有リンク # 件が開けなくなります}}",
+  "policies.impact.note": "これはバックグラウンドで少しずつ行われ、監査ログに記録されます。",
+  "policies.impact.confirm": "適用して保存",
+  "policies.impact.cancel": "編集を続ける",
+  "policies.note.publicForbidden": "ワークスペースのポリシーにより公開アクセスは禁止されています。",
+  "policies.note.readerDomains":
+    "ワークスペースのポリシーにより閲覧者は {domains} のみ許可されています。",
+  "policies.note.linksDisabled": "ワークスペースのポリシーにより共有リンクは使えません。",
+  "policies.note.linksPassword":
+    "ワークスペースのポリシーによりすべての共有リンクにパスワードが必要です。",
+  "policies.note.linksLifetime":
+    "ワークスペースのポリシーにより共有リンクは {days, plural, one {# 日} other {# 日}} までです。",
+  "error.policy_refused": "ワークスペースのポリシーで許可されていません。",
+  "audit.group.policies": "ポリシー",
+  "audit.kind.policyChanged": "ワークスペースのポリシーを変更しました: {changes}",
+  "audit.kind.policyEnforced": "ワークスペースのポリシーを適用しました: {changes}",
+  "audit.policy.public": "{value, select, forbidden {公開アクセス禁止} other {公開アクセス許可}}",
+  "audit.policy.default":
+    "{mode, select, workspace {新しいアーティファクトはワークスペースと共有} domain {新しいアーティファクトはメールドメインと共有} other {新しいアーティファクトは制限付き}}",
+  "audit.policy.readers": "閲覧者は {domains} のみ",
+  "audit.policy.readersAny": "閲覧者のドメイン制限なし",
+  "audit.policy.links":
+    "{value, select, disabled {共有リンク無効} password_required {共有リンクはパスワード必須} other {共有リンク許可}}",
+  "audit.policy.lifetime": "共有リンクは最長 {days, plural, one {# 日} other {# 日}}",
+  "audit.policy.lifetimeNone": "共有リンクの有効期間制限なし",
+  "audit.policy.narrowed":
+    "{count, plural, one {# 件のアーティファクトをワークスペース限定に変更} other {# 件のアーティファクトをワークスペース限定に変更}}",
+  "audit.policy.readersRemoved":
+    "{count, plural, one {閲覧者 # 人を削除} other {閲覧者 # 人を削除}}",
+  "audit.policy.linksRevoked":
+    "{count, plural, one {共有リンク # 件を取り消し} other {共有リンク # 件を取り消し}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {リンクのセッション # 件を終了} other {リンクのセッション # 件を終了}}",
+  "policies.impact.stale":
+    "このポリシーによる既存アーティファクトへの変更が、確認後に増えました。もう一度保存して新しい件数を確認してください。",
+  "policies.savedWithChanges":
+    "既存のアーティファクトをポリシーに合わせています。変更内容は各アーティファクトのページと監査ログで確認できます。",
+  "policies.default.domainLapsed":
+    "確認済みのメールドメインがないため、ドメインが再確認されるまで新しいアーティファクトはワークスペースと共有で作成されます。",
+  "audit.access.byPolicy": "ワークスペースのポリシーによる",
 } satisfies Catalog;

@@ -43,6 +43,9 @@ import {
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
+  WorkspacePolicyPreviewInput,
+  WorkspacePolicyUpdate,
+  WorkspacePolicyView,
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
@@ -63,6 +66,7 @@ import {
   type GroupRow,
   getSsoSettings,
   getWorkspaceGroup,
+  getWorkspacePolicy,
   type InvitationKey,
   type InvitationRow,
   type InvitationSender,
@@ -77,6 +81,8 @@ import {
   listWorkspaceGroups,
   lookupInvitation,
   type MemberRow,
+  type PolicyState,
+  previewWorkspacePolicy,
   removeGroupMember,
   removeMember,
   removeSsoProvider,
@@ -88,6 +94,7 @@ import {
   type SsoProviderRow,
   type SsoSettingsResult,
   saveSsoProvider,
+  setWorkspacePolicy,
   ssoKeys,
   testSsoIssuer,
   type UserWorkspace,
@@ -116,7 +123,12 @@ export function workspaceView(row: UserWorkspace): WorkspaceView {
     role: row.role,
     region: row.region,
     createdAt: iso(row.createdAt),
+    policy: row.policy,
   });
+}
+
+function policyView(state: PolicyState): WorkspacePolicyView {
+  return WorkspacePolicyView.parse(state);
 }
 
 export function workspaceListView(rows: UserWorkspace[]): WorkspaceList {
@@ -791,6 +803,56 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         now: deps.now(),
       });
       return reply(c, result, () => c.body(null, 204));
+    }),
+  );
+
+  // Policies (decision 0015): every member reads them; only admins preview and change them, and
+  // only from the dashboard's session, so no token (a service token included) can lift one.
+  const policyRoute = (
+    handler: (c: WorkspaceContext, ids: { userId: string; slug: string }) => Promise<Response>,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      return handler(c, { userId, slug });
+    }, "Workspace policies are managed from the dashboard.");
+
+  routes.get(
+    "/api/v1/workspaces/:slug/policies",
+    policyRoute(async (c, ids) =>
+      reply(c, await getWorkspacePolicy(global(c), { ...ids, now: deps.now() }), (state) =>
+        c.json(policyView(state)),
+      ),
+    ),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/policies/preview",
+    policyRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspacePolicyPreviewInput);
+      if (!body.ok) return body.response;
+      const result = await previewWorkspacePolicy(regionsOf(c.env), {
+        ...ids,
+        policy: body.value.policy,
+        now: deps.now(),
+      });
+      return reply(c, result, (impact) => c.json(impact));
+    }),
+  );
+
+  routes.put(
+    "/api/v1/workspaces/:slug/policies",
+    policyRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspacePolicyUpdate);
+      if (!body.ok) return body.response;
+      const result = await setWorkspacePolicy(regionsOf(c.env), {
+        ...ids,
+        policy: body.value.policy,
+        revision: body.value.revision,
+        confirmed: body.value.confirmed,
+        now: deps.now(),
+      });
+      return reply(c, result, (state) => c.json(policyView(state)));
     }),
   );
 

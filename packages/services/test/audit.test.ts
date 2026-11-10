@@ -1280,6 +1280,7 @@ describe("edges of reading and pruning", () => {
         "sso.created",
         "sso.changed",
         "sso.removed",
+        "policy.changed",
         "service_token.created",
         "service_token.revoked",
         "domain.attached",

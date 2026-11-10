@@ -60,6 +60,15 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   saveSsoProvider: ["sso.created", "sso.changed"],
   removeSsoProvider: ["sso.removed"],
   joinWorkspaceThroughSso: ["member.joined"],
+  // Workspace policies (decision 0015): a change records which fields and values, and each step
+  // that applies one to existing artifacts records its counts and each changed artifact's own
+  // access change, as the system.
+  setWorkspacePolicy: ["policy.changed"],
+  // After a restore, with the operator as actor.
+  applyWorkspacePolicies: ["policy.changed"],
+  enforceWorkspacePolicy: ["policy.enforced", "access.changed"],
+  runWorkspacePolicyJob: ["policy.enforced", "access.changed"],
+  enforceWorkspacePolicies: ["policy.enforced", "access.changed"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
 };
@@ -255,6 +264,8 @@ const READ_NAMES = new Set([
   "viewerGroupIds",
   "groupMembershipsOf",
   "groupSummaries",
+  // What saving a policy would change (decision 0015): counts only.
+  "policyImpact",
   "scoped",
   "checkReadAccess",
   "checkSignInEmail",

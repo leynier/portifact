@@ -419,6 +419,10 @@ const GATED: GatedOperation[] = [
       return { api: { status: response.status, body: await response.json<unknown>() } };
     },
   },
+  // Setting or tightening workspace policies (decision 0015) is session-only, with no bearer
+  // route, MCP tool or CLI command: the gate is `requireFeature` on the workspace's plan, and its
+  // body is checked through the session in workspace-policies.test.ts.
+  probe("policies"),
 ];
 
 /**

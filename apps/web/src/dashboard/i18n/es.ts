@@ -2153,4 +2153,115 @@ export const es = {
     "Configuró el inicio de sesión único con {host} para {count, plural, one {# dominio} other {# dominios}}",
   "audit.kind.ssoChanged": "Cambió el inicio de sesión único",
   "audit.kind.ssoRemoved": "Quitó el inicio de sesión único",
+  "shell.policiesLink": "Políticas",
+  "policies.title": "Políticas",
+  "policies.description":
+    "Reglas para todos los artefactos de {workspace}. Obligan a todos los que actúan sobre sus artefactos, incluidos los administradores y los tokens de servicio.",
+  "policies.personal.title": "Las políticas son de los espacios de trabajo",
+  "policies.personal.body":
+    "Un espacio personal no tiene políticas. Cambia a un espacio de trabajo para ver las suyas.",
+  "policies.loading": "Cargando las políticas",
+  "policies.loadFailed": "No se pudieron cargar las políticas",
+  "policies.planTitle": "Definir políticas forma parte del plan {plan}",
+  "policies.planRequired":
+    "El plan del espacio de trabajo no incluye políticas. Las que ya están definidas siguen aplicándose, y los administradores aún pueden relajarlas o quitarlas.",
+  "policies.readOnly.title": "Las definen los administradores",
+  "policies.readOnly.body":
+    "Solo los administradores cambian las políticas. También se aplican a ti.",
+  "policies.adminsToo": "Estas políticas también se aplican a los administradores.",
+  "policies.public.legend": "Acceso público",
+  "policies.public.allowed": "Permitido",
+  "policies.public.allowedHint":
+    "Administradores y editores pueden hacer público un artefacto, así cualquiera con el enlace puede abrirlo.",
+  "policies.public.forbidden": "Prohibido",
+  "policies.public.forbiddenHint":
+    "Ningún artefacto del espacio de trabajo puede ser público. Los artefactos públicos pasan a compartirse con el espacio de trabajo.",
+  "policies.default.legend": "Acceso de los artefactos nuevos",
+  "policies.default.hint":
+    "Con qué empieza un artefacto nuevo del espacio de trabajo. Los existentes conservan el suyo.",
+  "policies.default.restricted":
+    "Solo su parte propietaria y los lectores añadidos pueden abrirlo.",
+  "policies.default.workspace": "Cualquier miembro del espacio de trabajo puede abrirlo.",
+  "policies.default.domain":
+    "Los miembros y cualquiera que inicie sesión con una dirección verificada de los dominios de correo del espacio de trabajo pueden abrirlo.",
+  "policies.default.domainNone": "Primero verifica un dominio de correo en la página Miembros.",
+  "policies.readers.legend": "Dominios de lectores",
+  "policies.readers.any": "Cualquier dirección",
+  "policies.readers.anyHint": "Se pueden añadir lectores con cualquier dirección de correo.",
+  "policies.readers.only": "Solo estos dominios",
+  "policies.readers.onlyHint":
+    "Solo se pueden añadir lectores de estos dominios de correo. No afecta a miembros ni grupos.",
+  "policies.readers.domains": "Dominios permitidos",
+  "policies.readers.domainsHint": "Uno por línea, como example.com, como máximo {max}.",
+  "policies.readers.domainsError": "Escribe entre 1 y {max} dominios simples, como example.com.",
+  "policies.links.legend": "Enlaces para compartir",
+  "policies.links.allowed": "Permitidos",
+  "policies.links.allowedHint":
+    "Administradores y editores pueden crear enlaces para compartir, con o sin contraseña.",
+  "policies.links.password_required": "Contraseña obligatoria",
+  "policies.links.password_requiredHint":
+    "Todo enlace necesita una contraseña. Los que no la tienen dejan de abrirse.",
+  "policies.links.disabled": "Desactivados",
+  "policies.links.disabledHint": "Sin enlaces para compartir. Los existentes se revocan.",
+  "policies.lifetime.label": "Vida máxima de un enlace, en días",
+  "policies.lifetime.hint":
+    "Déjalo vacío para no poner límite. Los enlaces más antiguos dejan de abrirse.",
+  "policies.lifetime.error": "Escribe un número entero de días entre 1 y {max}, o déjalo vacío.",
+  "policies.save": "Guardar políticas",
+  "policies.saved": "Se guardaron las políticas.",
+  "policies.saveFailed": "No se guardaron las políticas",
+  "policies.conflict":
+    "Alguien cambió las políticas mientras tanto. Se cargaron de nuevo: revísalas y guarda.",
+  "policies.impact.title": "¿Aplicar estas políticas a los artefactos existentes?",
+  "policies.impact.body": "Guardar cambia lo que ya existe en {workspace}:",
+  "policies.impact.public":
+    "{count, plural, one {# artefacto público pasa a compartirse con el espacio de trabajo} other {# artefactos públicos pasan a compartirse con el espacio de trabajo}}",
+  "policies.impact.readers":
+    "{count, plural, one {Se quita # lector fuera de los dominios permitidos} other {Se quitan # lectores fuera de los dominios permitidos}}",
+  "policies.impact.revoked":
+    "{count, plural, one {Se revoca # enlace para compartir} other {Se revocan # enlaces para compartir}}",
+  "policies.impact.password":
+    "{count, plural, one {# enlace sin contraseña deja de abrirse} other {# enlaces sin contraseña dejan de abrirse}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# enlace que supera la vida máxima deja de abrirse} other {# enlaces que superan la vida máxima dejan de abrirse}}",
+  "policies.impact.note":
+    "Esto ocurre en segundo plano, en lotes pequeños, y queda en el registro de auditoría.",
+  "policies.impact.confirm": "Aplicar y guardar",
+  "policies.impact.cancel": "Seguir editando",
+  "policies.note.publicForbidden": "La política del espacio de trabajo prohíbe el acceso público.",
+  "policies.note.readerDomains":
+    "La política del espacio de trabajo solo permite lectores de {domains}.",
+  "policies.note.linksDisabled":
+    "La política del espacio de trabajo no permite enlaces para compartir.",
+  "policies.note.linksPassword":
+    "La política del espacio de trabajo exige contraseña en todo enlace para compartir.",
+  "policies.note.linksLifetime":
+    "La política del espacio de trabajo limita los enlaces a {days, plural, one {# día} other {# días}}.",
+  "error.policy_refused": "Una política del espacio de trabajo no lo permite.",
+  "audit.group.policies": "Políticas",
+  "audit.kind.policyChanged": "Cambió las políticas del espacio de trabajo: {changes}",
+  "audit.kind.policyEnforced": "Aplicó las políticas del espacio de trabajo: {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {acceso público prohibido} other {acceso público permitido}}",
+  "audit.policy.default":
+    "{mode, select, workspace {artefactos nuevos compartidos con el espacio de trabajo} domain {artefactos nuevos compartidos con los dominios de correo} other {artefactos nuevos restringidos}}",
+  "audit.policy.readers": "lectores solo de {domains}",
+  "audit.policy.readersAny": "lectores de cualquier dominio",
+  "audit.policy.links":
+    "{value, select, disabled {enlaces desactivados} password_required {enlaces con contraseña obligatoria} other {enlaces permitidos}}",
+  "audit.policy.lifetime": "enlaces de como máximo {days, plural, one {# día} other {# días}}",
+  "audit.policy.lifetimeNone": "sin límite de vida para los enlaces",
+  "audit.policy.narrowed":
+    "{count, plural, one {limitó # artefacto al espacio de trabajo} other {limitó # artefactos al espacio de trabajo}}",
+  "audit.policy.readersRemoved": "{count, plural, one {quitó # lector} other {quitó # lectores}}",
+  "audit.policy.linksRevoked": "{count, plural, one {revocó # enlace} other {revocó # enlaces}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {cerró # sesión de enlace} other {cerró # sesiones de enlace}}",
+  "policies.impact.stale":
+    "Lo que esta política cambia en los artefactos existentes creció desde que lo revisaste. Guarda de nuevo para revisar las cifras nuevas.",
+  "policies.savedWithChanges":
+    "Los artefactos existentes se están ajustando a las políticas. Sus páginas y el registro de auditoría muestran qué cambió.",
+  "policies.default.domainLapsed":
+    "No hay ningún dominio de correo verificado, así que los artefactos nuevos empiezan compartidos con el espacio de trabajo hasta que se verifique uno.",
+  "audit.access.byPolicy": "por la política del espacio de trabajo",
 } satisfies Catalog;

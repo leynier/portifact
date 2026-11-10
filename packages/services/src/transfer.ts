@@ -13,13 +13,14 @@ import { isWorkspaceId } from "@portifact/contracts";
 import { type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   authorize,
+  checkPolicyTransfer,
   checkTransfer,
   checkTransferSize,
   fail,
   ok,
   type Result,
 } from "@portifact/domain";
-import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { accessHistoryMoveJob } from "./analytics.ts";
 import { cancelApprovalReviewOnTransfer } from "./approval-reviews.ts";
@@ -29,6 +30,7 @@ import { searchIndexJob } from "./content-search.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
+import { readerDomainSql } from "./workspace-policies.ts";
 import { missingWorkspace, workspaceBySlug } from "./workspaces.ts";
 
 const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
@@ -104,6 +106,46 @@ export async function transferArtifact(
 
   const from = artifact.ownerId;
   const to = target.value.ownerId;
+  // The target workspace's policies (decision 0015), read with its actor: an artifact that breaks
+  // them is refused, never narrowed by the move. Readers and links are read only when a policy
+  // restricts them, and the batch below holds only while none appeared meanwhile.
+  const policy = target.value.policy;
+  const policyReaders = policy?.readerDomains
+    ? (
+        await db
+          .select({ email: schema.artifactReaders.email })
+          .from(schema.artifactReaders)
+          .where(eq(schema.artifactReaders.artifactId, artifact.id))
+      ).map((row) => row.email)
+    : [];
+  const l = schema.shareLinks;
+  const liveLinks = and(
+    eq(l.artifactId, artifact.id),
+    isNull(l.revokedAt),
+    or(isNull(l.expiresAt), gt(l.expiresAt, input.now)),
+  );
+  const activeLinks =
+    policy?.shareLinks === "disabled"
+      ? (await db.select({ id: l.id }).from(l).where(liveLinks).limit(1)).length
+      : 0;
+  const allowedByPolicy = checkPolicyTransfer(policy, {
+    accessMode: artifact.accessMode,
+    readers: policyReaders,
+    activeLinks,
+  });
+  if (!allowedByPolicy.ok) return allowedByPolicy;
+  const policyHolds = and(
+    ...(policy?.publicAccess === "forbidden" ? [sql`${a.accessMode} <> 'public'`] : []),
+    // The domain rule itself, in SQL: at most 20 domains bound, however many readers it lists.
+    ...(policy?.readerDomains
+      ? [
+          sql`not exists (select 1 from ${schema.artifactReaders} where ${schema.artifactReaders.artifactId} = ${artifact.id} and ${readerDomainSql} not in ${policy.readerDomains})`,
+        ]
+      : []),
+    ...(policy?.shareLinks === "disabled"
+      ? [sql`not exists (select 1 from ${l} where ${liveLinks})`]
+      : []),
+  );
   const open = await db
     .select({ id: schema.uploadSessions.id })
     .from(schema.uploadSessions)
@@ -175,7 +217,7 @@ export async function transferArtifact(
 
   // Every write holds only while the artifact is where and as the request read it; the move of
   // the artifact row itself runs last, so a concurrent change makes the whole batch a no-op.
-  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying')) and not ${domains}`;
+  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state}${policyHolds ? sql` and ${policyHolds}` : sql``}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying')) and not ${domains}`;
   const guarded = (condition: SQL) => and(condition, unchanged) as SQL;
   let results: unknown[];
   try {

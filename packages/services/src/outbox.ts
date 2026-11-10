@@ -25,6 +25,7 @@ import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
+import { runWorkspacePolicyJob } from "./workspace-policies.ts";
 import { advanceWorkspaceDeletion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
@@ -221,6 +222,9 @@ async function runRow(
     case "review_notice":
       if (!reviewNotifier) throw new Error("review_notice needs the review notifier");
       return runReviewNotice(db, row, now, reviewNotifier);
+    case "workspace_policy":
+      // Written in the global batch that saved the policy (one database with one region).
+      return runWorkspacePolicyJob(db, row, now);
   }
 }
 

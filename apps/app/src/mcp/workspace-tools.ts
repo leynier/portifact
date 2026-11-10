@@ -10,6 +10,7 @@ import {
   WorkspaceGroupList,
   WorkspaceList,
 } from "@portifact/contracts";
+import { describePolicy } from "@portifact/domain";
 import { listUserWorkspaces, listWorkspaceGroups, transferArtifact } from "@portifact/services";
 import { groupListView, workspaceListView } from "../api/workspaces.ts";
 import { artifactDb, ownerOf, regionsOf } from "../regions.ts";
@@ -28,7 +29,7 @@ export function registerWorkspaceTools(register: RegisterTool, context: ToolCont
     {
       title: "List workspaces",
       description:
-        "List the workspaces the user belongs to, with their slug, name and the user's role (admin, editor or member). Admins and editors publish and manage a workspace's artifacts; members only read and comment on what is shared with them. Pass a slug as workspace to list_artifacts, get_usage, publish_document or prepare_upload to act in that workspace. When the user has any workspace and did not say where to publish, ask them which space to use first.",
+        "List the workspaces the user belongs to, with their slug, name and the user's role (admin, editor or member). Admins and editors publish and manage a workspace's artifacts; members only read and comment on what is shared with them. Pass a slug as workspace to list_artifacts, get_usage, publish_document or prepare_upload to act in that workspace. policy is the workspace's policies, set by its admins in the dashboard and binding everyone, admins included: publicAccess forbidden refuses making an artifact public, defaultAccess is the access a new artifact starts with, readerDomains (when set) are the only email domains readers may have, shareLinks allowed, password_required or disabled and shareLinkMaxDays limit share links. Explain them to the user before trying something they refuse (policy_refused). When the user has any workspace and did not say where to publish, ask them which space to use first.",
       inputSchema: ListWorkspacesInput,
       outputSchema: WorkspaceList,
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -37,7 +38,10 @@ export function registerWorkspaceTools(register: RegisterTool, context: ToolCont
       const body = workspaceListView(
         await listUserWorkspaces(regionsOf(context.env).global, context.userId),
       );
-      const lines = body.items.map((item) => `- ${item.slug} "${item.name}": ${item.role}`);
+      const lines = body.items.map((item) => {
+        const policy = describePolicy(item.policy);
+        return `- ${item.slug} "${item.name}": ${item.role}${policy.length > 0 ? `; policies: ${policy.join("; ")}` : ""}`;
+      });
       return success(
         [
           body.items.length === 0
@@ -93,7 +97,7 @@ export function registerWorkspaceTools(register: RegisterTool, context: ToolCont
     {
       title: "Move an artifact to another space",
       description:
-        "Move an artifact between the user's personal space and a workspace, or between two workspaces (workspace: a slug from list_workspaces, or null for the personal space). Moving it into a space takes an admin or editor there; moving it out of a workspace takes an admin of that workspace. The artifact keeps its ID, URL, versions, readers and comments; its active slot, storage and comment usage move to the target, whose plan must have room for it (including the per-artifact size). Its access history moves too: the people who manage the target will see who opened it before the move. Open read, review and share link sessions end, an artifact shared with its workspace or an email domain (access workspace or domain) becomes restricted, and the groups of the old workspace it listed are dropped. It changes who can manage the artifact, so ask the user before moving it and tell them all of this.",
+        "Move an artifact between the user's personal space and a workspace, or between two workspaces (workspace: a slug from list_workspaces, or null for the personal space). Moving it into a space takes an admin or editor there; moving it out of a workspace takes an admin of that workspace. The artifact keeps its ID, URL, versions, readers and comments; its active slot, storage and comment usage move to the target, whose plan must have room for it (including the per-artifact size). Its access history moves too: the people who manage the target will see who opened it before the move. Open read, review and share link sessions end, an artifact shared with its workspace or an email domain (access workspace or domain) becomes restricted, and the groups of the old workspace it listed are dropped. A target workspace's policy refuses an artifact that breaks it (public where public access is forbidden, readers outside its reader domains, active share links where links are disabled; policy_refused): narrow it first. It changes who can manage the artifact, so ask the user before moving it and tell them all of this.",
       inputSchema: TransferArtifactInput,
       outputSchema: ArtifactSummary,
       annotations: {

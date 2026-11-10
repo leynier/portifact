@@ -41,4 +41,5 @@ export * from "./usage.ts";
 export * from "./versions.ts";
 export * from "./viewer.ts";
 export * from "./webhooks.ts";
+export * from "./workspace-policies.ts";
 export * from "./workspaces.ts";

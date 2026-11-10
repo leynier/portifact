@@ -25,6 +25,7 @@ export * from "./locales.ts";
 export * from "./mcp.ts";
 export * from "./moderation.ts";
 export * from "./plans.ts";
+export * from "./policies.ts";
 export * from "./publishing.ts";
 export * from "./read.ts";
 export * from "./review.ts";

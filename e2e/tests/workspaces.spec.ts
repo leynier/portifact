@@ -214,7 +214,7 @@ test("an admin changes a role and removes a member, and a member sees the worksp
     await open(member.page, `/?workspace=${workspace.slug}`, "Artifacts");
     await expect(
       member.page.getByRole("navigation", { name: "Main" }).getByRole("link"),
-    ).toHaveText(["Artifacts", "Apps", "Plan", "Members", "Settings"]);
+    ).toHaveText(["Artifacts", "Apps", "Plan", "Members", "Policies", "Settings"]);
     await expect(member.page.getByText(/As a member of Ops, you read and comment/)).toBeVisible();
     await member.page
       .getByRole("navigation", { name: "Main" })
