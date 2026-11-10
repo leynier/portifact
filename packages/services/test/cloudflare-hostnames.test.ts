@@ -408,6 +408,28 @@ describe("where a name points", () => {
     expect(await dohPointing(other.fetcher, TARGET)("docs.example.com")).toBe(false);
   });
 
+  it("reads a chain through another name by the addresses at its end, asking for JSON", async () => {
+    const { sent, fetcher } = dns({
+      "domains.portifact.dev A": [
+        { type: 5, data: "edge.portifact.dev." },
+        { type: 1, data: "198.51.100.1" },
+      ],
+      "docs.example.com A": [
+        { type: 5, data: "proxy.example.net." },
+        { type: 1, data: "198.51.100.1" },
+      ],
+    });
+    expect(await dohPointing(fetcher, TARGET)("docs.example.com")).toBe(true);
+    expect(
+      sent.every(
+        (call) => new Headers(call.init?.headers).get("accept") === "application/dns-json",
+      ),
+    ).toBe(true);
+    // An address record whose data looks like the target is not a CNAME to it.
+    const odd = dns({ "docs.example.com A": [{ type: 1, data: "domains.portifact.dev." }] });
+    expect(await dohPointing(odd.fetcher, TARGET)("docs.example.com")).toBe(false);
+  });
+
   it("says elsewhere for a name that does not resolve, and throws when DNS fails", async () => {
     const gone = dns({ "docs.example.com A": 3, "docs.example.com AAAA": 3 });
     expect(await dohPointing(gone.fetcher, TARGET)("docs.example.com")).toBe(false);
