@@ -114,8 +114,10 @@ Opening an artifact's link shows it in Portifact's viewer, with a Portifact bar 
 - [Operations](docs/operations.md): how abuse reports and suspensions are handled.
 - [Terms of Service](https://portifact.com/terms), [Privacy Policy](https://portifact.com/privacy) and [Acceptable Use Policy](https://portifact.com/acceptable-use): drafts pending legal review. Portifact is for people 18 or older; report abuse with the [report form](https://app.portifact.com/report) or to abuse@portifact.com. How the pages and the sign-up acceptance work is in [docs/legal.md](docs/legal.md).
 - [Testing](docs/testing.md), [Design system](docs/design.md) and [Accessibility](docs/accessibility.md): how the project is built.
+- [Contributing](contributing.md): how to contribute and sign the contributor license agreement.
+- [Licensing](docs/licensing.md): the AGPL, what it asks of people who host Portifact, and the commercial license.
 - [Agent guidelines](AGENTS.md): for AI coding agents contributing to this repository.
 
 ## License
 
-Portifact is open source under the [GNU Affero General Public License v3.0](license).
+Portifact is open source under the [GNU Affero General Public License v3.0](license), and self-hosted copies have every feature. A commercial license for hosting it without the AGPL's obligations is available on request at hello@portifact.com; see [docs/licensing.md](docs/licensing.md). Contributions need the [contributor license agreement](cla.md), as [contributing.md](contributing.md) explains.

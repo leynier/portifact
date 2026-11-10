@@ -446,14 +446,25 @@ export const accountUsage = sqliteTable(
     newObjectsThisMonth: integer("new_objects_this_month").notNull().default(0),
     monthStartedAt: timestamp("month_started_at").notNull(),
     updatedAt: timestamp("updated_at").notNull().default(sql`(unixepoch() * 1000)`),
+    /**
+     * The account's limits, compared by the CHECK constraints below. The defaults are the free
+     * plan (LIMITS.activeArtifacts and LIMITS.accountBytes in contracts; a test fails if they
+     * drift). SQLite cannot alter a CHECK, so a plan changes these columns instead.
+     */
+    activeLimit: integer("active_limit").notNull().default(50),
+    bytesLimit: integer("bytes_limit").notNull().default(2_500_000_000),
   },
   (t) => [
     check(
       "account_usage_nonnegative",
       sql`${t.activeArtifacts} >= 0 and ${t.storedBytes} >= 0 and ${t.reservedBytes} >= 0 and ${t.openUploads} >= 0`,
     ),
-    check("account_usage_active_limit", sql`${t.activeArtifacts} <= 50`),
-    check("account_usage_bytes_limit", sql`${t.storedBytes} + ${t.reservedBytes} <= 2500000000`),
+    check("account_usage_limits_nonnegative", sql`${t.activeLimit} >= 0 and ${t.bytesLimit} >= 0`),
+    check("account_usage_active_limit", sql`${t.activeArtifacts} <= ${t.activeLimit}`),
+    check(
+      "account_usage_bytes_limit",
+      sql`${t.storedBytes} + ${t.reservedBytes} <= ${t.bytesLimit}`,
+    ),
   ],
 );
 
@@ -810,11 +821,22 @@ export const annotationUsage = sqliteTable(
     ownerId: text("owner_id").primaryKey(),
     messages: integer("messages").notNull().default(0),
     bytes: integer("bytes").notNull().default(0),
+    /**
+     * The owner's limits, compared by the CHECK constraints below. The defaults are the free plan
+     * (ANNOTATION_LIMITS.messagesPerOwner and bytesPerOwner in contracts; a test fails if they
+     * drift).
+     */
+    messagesLimit: integer("messages_limit").notNull().default(5000),
+    bytesLimit: integer("bytes_limit").notNull().default(50_000_000),
   },
   (t) => [
     check("annotation_usage_nonnegative", sql`${t.messages} >= 0 and ${t.bytes} >= 0`),
-    check("annotation_usage_messages_limit", sql`${t.messages} <= 5000`),
-    check("annotation_usage_bytes_limit", sql`${t.bytes} <= 50000000`),
+    check(
+      "annotation_usage_limits_nonnegative",
+      sql`${t.messagesLimit} >= 0 and ${t.bytesLimit} >= 0`,
+    ),
+    check("annotation_usage_messages_limit", sql`${t.messages} <= ${t.messagesLimit}`),
+    check("annotation_usage_bytes_limit", sql`${t.bytes} <= ${t.bytesLimit}`),
   ],
 );
 

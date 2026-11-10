@@ -436,6 +436,18 @@ describe("security re-render", () => {
     expect((await usage())?.storedBytes).toBe(LIMITS.accountBytes - oldSize);
   });
 
+  it("counts a fix up to the account's own storage limit, not the free plan's", async () => {
+    const result = await publish("markdown", "plan.md", MARKDOWN);
+    const { oldSize } = await makeOutdated(result.versionId, "0");
+    const raised = LIMITS.accountBytes * 2;
+    await env.DB.prepare("UPDATE account_usage SET stored_bytes = ?, bytes_limit = ?")
+      .bind(raised, raised)
+      .run();
+
+    expect(await rerenderDocuments(db(), env.ARTIFACTS, NOW)).toEqual({ processed: 1 });
+    expect((await usage())?.storedBytes).toBe(raised - oldSize);
+  });
+
   it("re-renders archived documents but not sites, deleted artifacts or lost sources", async () => {
     const archived = await publish("text", "a.txt", "archived");
     await makeOutdated(archived.versionId, "0");

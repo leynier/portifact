@@ -4,9 +4,12 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   agplCompatible,
+  COMMERCIAL_COMPATIBLE,
+  COMMERCIAL_EXCEPTIONS,
   type CollectedPackage,
   type Component,
   collectPackages,
+  commercialCompatible,
   declaredLicense,
   licenseProblems,
   type PackageFs,
@@ -144,6 +147,25 @@ describe("collectPackages", () => {
     expect(right).toMatchObject({ license: "Apache-2.0", author: "Right Author", texts: [] });
   });
 
+  it("records every installed version of a package, sorted and once", () => {
+    const twoVersions = {
+      ...files,
+      "/repo/apps/cli/package.json": pkg("@p/cli", { dependencies: { left: "^2.0.0" } }),
+      "/repo/node_modules/.bun/left@2/node_modules/left/package.json": JSON.stringify({
+        name: "left",
+        version: "0.9.0",
+        license: "MIT",
+      }),
+    };
+    const twoLinks = {
+      ...links,
+      "/repo/apps/cli/node_modules/left": "/repo/node_modules/.bun/left@2/node_modules/left",
+    };
+    const all = collectPackages(fakeFs(twoVersions, twoLinks), "/repo", COMPONENTS);
+    expect(all.find((p) => p.name === "left")?.versions).toEqual(["0.9.0", "1.0.0"]);
+    expect(collected.find((p) => p.name === "deep")?.versions).toEqual(["1.0.0"]);
+  });
+
   it("fails when a dependency is not installed", () => {
     const broken = {
       ...files,
@@ -225,13 +247,93 @@ describe("AGPL-3.0 compatibility", () => {
   });
 
   it("names every package the check must refuse", () => {
-    const base = { repository: null, author: null, texts: [], components: ["cli"] };
+    const base = {
+      repository: null,
+      author: null,
+      versions: ["1.0.0"],
+      texts: [],
+      components: ["cli"],
+    };
     expect(
       licenseProblems([
         { ...base, name: "ok", license: "MIT" },
         { ...base, name: "bad", license: "GPL-2.0-only" },
       ]),
     ).toEqual(['bad: license "GPL-2.0-only" is not known to be compatible with AGPL-3.0']);
+  });
+});
+
+describe("commercial license compatibility", () => {
+  const base = { repository: null, author: null, texts: [], components: ["workers"] };
+
+  it("accepts permissive licenses", () => {
+    for (const id of ["MIT", "Apache-2.0", "BSD-2-Clause", "ISC", "PSF-2.0", "Unlicense", "0BSD"]) {
+      expect(commercialCompatible(id), id).toBe(true);
+    }
+  });
+
+  it("refuses strong and weak copyleft and unknown licenses", () => {
+    for (const id of [
+      "GPL-3.0-only",
+      "GPL-3.0-or-later",
+      "AGPL-3.0-only",
+      "AGPL-3.0-or-later",
+      "LGPL-2.1-only",
+      "LGPL-3.0-or-later",
+      "MPL-2.0",
+      "EPL-2.0",
+      "UNKNOWN",
+      "",
+    ]) {
+      expect(commercialCompatible(id), id).toBe(false);
+    }
+  });
+
+  it("is a strict subset of the AGPL-compatible licenses with no copyleft in it", () => {
+    for (const id of COMMERCIAL_COMPATIBLE) {
+      expect(agplCompatible(id), id).toBe(true);
+      expect(id, id).not.toMatch(/GPL|MPL|EPL|CDDL|EUPL|OSL|SSPL/);
+    }
+  });
+
+  it("takes the permissive side of a dual license", () => {
+    expect(commercialCompatible("(MPL-2.0 OR Apache-2.0)")).toBe(true);
+    expect(commercialCompatible("MIT AND LGPL-3.0-only")).toBe(false);
+    expect(commercialCompatible("EPL-2.0 OR GPL-3.0-or-later")).toBe(false);
+  });
+
+  it("refuses an AGPL-compatible copyleft package without a reviewed exception", () => {
+    expect(
+      licenseProblems([{ ...base, name: "gpl", versions: ["2.0.0"], license: "GPL-3.0-only" }], {}),
+    ).toEqual([
+      'gpl@2.0.0: license "GPL-3.0-only" is not permissive, so Portifact could not be shipped under a commercial license with it (see docs/licensing.md)',
+    ]);
+  });
+
+  it("accepts an exception only when it names every installed version", () => {
+    const weak = { ...base, name: "weak", license: "MPL-2.0" };
+    const exceptions = { "weak@1.0.0": "reviewed" };
+    expect(licenseProblems([{ ...weak, versions: ["1.0.0"] }], exceptions)).toEqual([]);
+    expect(licenseProblems([{ ...weak, versions: ["1.0.0", "1.1.0"] }], exceptions)).toHaveLength(
+      1,
+    );
+    expect(licenseProblems([{ ...weak, versions: ["1.1.0"] }], exceptions)).toHaveLength(1);
+    expect(licenseProblems([{ ...weak, versions: [] }], exceptions)).toHaveLength(1);
+  });
+
+  it("never lets an exception accept a license that is not AGPL compatible", () => {
+    expect(
+      licenseProblems([{ ...base, name: "sspl", versions: ["1.0.0"], license: "SSPL-1.0" }], {
+        "sspl@1.0.0": "no",
+      }),
+    ).toEqual(['sspl: license "SSPL-1.0" is not known to be compatible with AGPL-3.0']);
+  });
+
+  it("keeps a reason for every exception, each for an exact version", () => {
+    for (const [key, reason] of Object.entries(COMMERCIAL_EXCEPTIONS)) {
+      expect(key).toMatch(/^(@[^@/]+\/)?[^@]+@\d+\.\d+\.\d+/);
+      expect(reason.length, key).toBeGreaterThan(20);
+    }
   });
 });
 
