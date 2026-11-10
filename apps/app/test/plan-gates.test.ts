@@ -134,6 +134,13 @@ const GATED: GatedOperation[] = [
     "pin_artifact",
     (id) => ({ artifactId: id }),
   ),
+  route(
+    "analytics",
+    "read an artifact's analytics",
+    (id) => [`/api/v1/artifacts/${id}/stats`],
+    "get_artifact_stats",
+    (id) => ({ artifactId: id }),
+  ),
   probe("workspaces"),
   probe("sso"),
 ];

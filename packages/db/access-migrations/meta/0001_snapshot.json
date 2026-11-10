@@ -1,0 +1,171 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "f9d7a2f5-a4ff-48a0-a43c-fc6f2f18966a",
+  "prevId": "c99a389d-6089-4cd3-a5e3-cb17b685671f",
+  "tables": {
+    "access_events": {
+      "name": "access_events",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "window_start": {
+          "name": "window_start",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "opened_at": {
+          "name": "opened_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "access_events_user_idx": {
+          "name": "access_events_user_idx",
+          "columns": ["user_id"],
+          "isUnique": false
+        },
+        "access_events_expires_idx": {
+          "name": "access_events_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        },
+        "access_events_owner_idx": {
+          "name": "access_events_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "access_events_artifact_id_window_start_user_id_pk": {
+          "columns": ["artifact_id", "window_start", "user_id"],
+          "name": "access_events_artifact_id_window_start_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "artifact_views": {
+      "name": "artifact_views",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "views": {
+          "name": "views",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "signed_in_views": {
+          "name": "signed_in_views",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "artifact_views_expires_idx": {
+          "name": "artifact_views_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        },
+        "artifact_views_owner_idx": {
+          "name": "artifact_views_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "artifact_views_artifact_id_day_pk": {
+          "columns": ["artifact_id", "day"],
+          "name": "artifact_views_artifact_id_day_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "artifact_views_counts": {
+          "name": "artifact_views_counts",
+          "value": "\"artifact_views\".\"views\" >= 0 and \"artifact_views\".\"signed_in_views\" >= 0 and \"artifact_views\".\"signed_in_views\" <= \"artifact_views\".\"views\""
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

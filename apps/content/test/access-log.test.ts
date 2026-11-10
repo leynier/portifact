@@ -136,6 +136,8 @@ describe("the isolate's log", () => {
         owner_id: "al_owner",
         email: "al_reader@example.com",
         opened_at: NOW,
+        // The owner is on free: kept 30 days.
+        expires_at: NOW + 30 * 86_400_000,
       },
     ]);
     // The same writer the isolate uses, called again for the same window, adds no row.

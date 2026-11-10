@@ -2,7 +2,7 @@
 // (plan section 12). It is active when CF_ANALYTICS_TOKEN and CF_ACCOUNT_ID are configured (they
 // are in production); the token needs only "Account Analytics: Read" (docs/operations.md). The
 // account also hosts other projects, so every dataset is filtered to Portifact's bucket, Workers
-// and database. Without the settings the budget uses what D1 already knows. `fetch` is injected
+// and databases. Without the settings the budget uses what D1 already knows. `fetch` is injected
 // so tests never reach the network.
 import type { PlatformMetrics } from "@portifact/domain";
 
@@ -26,7 +26,11 @@ export type Fetcher = (input: string, init: RequestInit) => Promise<Response>;
 export const PORTIFACT_RESOURCES = {
   bucket: "portifact-artifacts",
   scripts: ["portifact-app", "portifact-content", "portifact-jobs"],
-  databaseId: "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
+  /**
+   * The control database and the access database (`portifact-access`, the access log and the
+   * analytics view counters, decision 0007): rows read and written in both are billed together.
+   */
+  databaseIds: ["6cf93803-aa3c-4859-9f58-e36e2fd784e3", "b5285aa9-aa8d-4c2c-9828-22e31c1aec9e"],
 } as const;
 
 /**
@@ -53,7 +57,7 @@ const R2_CLASS_A = new Set([
 ]);
 const R2_FREE = new Set(["DeleteObject", "DeleteBucket", "AbortMultipartUpload"]);
 
-export const BUDGET_QUERY = `query PortifactBudget($accountTag: string!, $start: Time!, $end: Time!, $startDate: Date!, $endDate: Date!, $bucket: string!, $scripts: [string!]!, $databaseId: string!) {
+export const BUDGET_QUERY = `query PortifactBudget($accountTag: string!, $start: Time!, $end: Time!, $startDate: Date!, $endDate: Date!, $bucket: string!, $scripts: [string!]!, $databaseIds: [string!]!) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
       r2OperationsAdaptiveGroups(limit: 1000, filter: { datetime_geq: $start, datetime_lt: $end, bucketName: $bucket }) {
@@ -67,7 +71,7 @@ export const BUDGET_QUERY = `query PortifactBudget($accountTag: string!, $start:
       workersInvocationsAdaptive(limit: 10000, filter: { datetime_geq: $start, datetime_lt: $end, scriptName_in: $scripts }) {
         sum { requests }
       }
-      d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $startDate, date_leq: $endDate, databaseId: $databaseId }) {
+      d1AnalyticsAdaptiveGroups(limit: 10000, filter: { date_geq: $startDate, date_leq: $endDate, databaseId_in: $databaseIds }) {
         sum { rowsRead rowsWritten }
       }
     }
@@ -143,7 +147,7 @@ export function cloudflareAnalytics(
             endDate: isoDate(end - 1),
             bucket: PORTIFACT_RESOURCES.bucket,
             scripts: PORTIFACT_RESOURCES.scripts,
-            databaseId: PORTIFACT_RESOURCES.databaseId,
+            databaseIds: PORTIFACT_RESOURCES.databaseIds,
           },
         }),
       });

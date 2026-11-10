@@ -22,7 +22,7 @@ export function registerAccessLogTools(
     {
       title: "Get an artifact's access log",
       description:
-        "Get who opened one of the user's artifacts in the last 30 days: the verified email of each signed-in visitor and when, newest first, one entry per visitor and 30-minute window. Only the artifact's owner can read it; anyone else gets not_found. Only artifacts restricted to listed readers record openings (public and authenticated ones never do), the owner's own visits are not recorded, and openings can be missing, so it is not a complete audit. The emails are personal data of the visitors: show them to the user only, do not send them anywhere else. Pass nextCursor back as cursor for the next page.",
+        "Get who opened one of the user's artifacts within the days the owner's plan keeps (retentionDays: 30 on the free plan, up to a year on paid plans): the verified email of each signed-in visitor and when, newest first, one entry per visitor and 30-minute window. Only the artifact's owner can read it; anyone else gets not_found. Only artifacts restricted to listed readers record openings (public and authenticated ones never do), the owner's own visits are not recorded, and openings can be missing, so it is not a complete audit. The emails are personal data of the visitors: show them to the user only, do not send them anywhere else. Pass nextCursor back as cursor for the next page.",
       inputSchema: GetAccessLogsInput,
       outputSchema: AccessLogView,
       annotations: { readOnlyHint: true, openWorldHint: false },

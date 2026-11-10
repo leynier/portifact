@@ -1,6 +1,7 @@
 // Shapes of the owner's access log (`GET /api/v1/artifacts/:id/access-log`, the MCP tool
 // get_access_logs and `portifact logs`, plan sections 6, 11 and 13): the signed-in visitors who
-// opened an artifact, one entry per visitor and 30-minute window, kept 30 days.
+// opened an artifact, one entry per visitor and 30-minute window, kept for the owner plan's
+// `accessLogRetentionDays` (30 days on free).
 import { z } from "zod";
 import { ArtifactId } from "./core.ts";
 import { ACCESS_LOG } from "./limits.ts";
@@ -40,7 +41,7 @@ export const GetAccessLogsInput = z.object({
   since: z.iso
     .datetime()
     .optional()
-    .describe("Only openings at or after this ISO 8601 date and time. Omit it for all 30 days."),
+    .describe("Only openings at or after this ISO 8601 date and time. Omit it for all kept days."),
   cursor: cursor
     .optional()
     .describe("The nextCursor of the previous page. Omit it for the first page."),

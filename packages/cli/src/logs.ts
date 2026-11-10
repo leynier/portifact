@@ -1,6 +1,7 @@
 // portifact logs: the signed-in visitors who opened one of your artifacts, as
-// GET /api/v1/artifacts/:id/access-log reports them (plan section 6). The server keeps 30 days
-// and records one entry per visitor every 30 minutes; this follows the cursor to the last page.
+// GET /api/v1/artifacts/:id/access-log reports them (plan section 6). The server keeps them for
+// the owner plan's retention (30 days on free) and records one entry per visitor every 30
+// minutes; this follows the cursor to the last page.
 import { type AccessLogEntry, AccessLogView } from "@portifact/contracts";
 import { callApi } from "./api.ts";
 import { parseArtifactId, table } from "./artifacts.ts";

@@ -111,6 +111,12 @@ const OPERATIONS: Operation[] = [
     args: (id) => ({ artifactId: id }),
   },
   {
+    name: "read the analytics",
+    api: (id) => [`/api/v1/artifacts/${id}/stats`],
+    tool: "get_artifact_stats",
+    args: (id) => ({ artifactId: id }),
+  },
+  {
     name: "change access",
     api: (id) => [`/api/v1/artifacts/${id}/access`, json("PATCH", { mode: "restricted" })],
     tool: "set_access",
@@ -174,6 +180,10 @@ describe("workspace roles through the API and MCP", () => {
         { workspaceId, userId: member.userId, role: "member", updatedAt: NOW },
       ]);
     const { artifactId } = await publishIn(workspaceId, editor.userId);
+    // Analytics is a paid feature of the workspace's plan.
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: workspaceId, plan: "team", seats: 1, grantedBy: "test", updatedAt: NOW });
 
     for (const op of OPERATIONS) {
       for (const [who, c] of [

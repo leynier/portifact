@@ -458,22 +458,54 @@ export const ja = {
   "account.actionFailed.title": "操作が完了しませんでした",
   "accessLog.title": "開いたユーザー",
   "accessLog.hint":
-    "過去30日間にこのartifactを開いたサインイン済みの訪問者です。新しい順に、訪問者ごとに30分につき1件記録されます。この一覧はあなたにしか表示されません。記録されるのは、指定したユーザーに制限されたartifactの閲覧だけです。あなた自身の訪問は記録されず、一部の閲覧が記録されない場合もあります。",
+    "過去{days, plural, one {#日間} other {#日間}}にこのartifactを開いたサインイン済みの訪問者です。新しい順に、訪問者ごとに30分につき1件記録されます。この一覧はあなたにしか表示されません。記録されるのは、指定したユーザーに制限されたartifactの閲覧だけです。あなた自身の訪問は記録されず、一部の閲覧が記録されない場合もあります。",
   "accessLog.loading": "artifactを開いたユーザーを読み込んでいます",
   "accessLog.error.title": "アクセスログを読み込めませんでした",
   "accessLog.empty.title": "まだ訪問者はいません",
-  "accessLog.empty.body": "過去30日間に、サインインした人がこのartifactを開いた記録はありません。",
+  "accessLog.empty.body":
+    "過去{days, plural, one {#日間} other {#日間}}に、サインインした人がこのartifactを開いた記録はありません。",
   "accessLog.caption": "サインイン済みの訪問者によるこのartifactの閲覧",
   "accessLog.column.opened": "日時",
   "accessLog.column.visitor": "訪問者",
   "accessLog.loadMore": "さらに表示",
   "accessLog.export.hint":
-    "エクスポートには、表示中のものだけでなく過去30日間のすべての記録が含まれます。",
+    "エクスポートには、表示中のものだけでなく過去{days, plural, one {#日間} other {#日間}}のすべての記録が含まれます。",
   "accessLog.export.csv": "CSVでエクスポート",
   "accessLog.export.json": "JSONでエクスポート",
   "accessLog.export.doneCsv": "アクセスログをCSVでエクスポートしました。",
   "accessLog.export.doneJson": "アクセスログをJSONでエクスポートしました。",
   "accessLog.export.failed": "アクセスログをエクスポートできませんでした",
+
+  "analytics.title": "アナリティクス",
+  "analytics.hint":
+    "1日ごと（UTC）のページビューと、指定したユーザーに制限されたartifactでは、そのうち何人が開いたかを表示します。数だけを表示し、ここで個人が特定されることはありません。",
+  "analytics.loading": "artifactのアナリティクスを読み込んでいます",
+  "analytics.error.title": "アナリティクスを読み込めませんでした",
+  "analytics.planRequired":
+    "artifactごとのアナリティクスと1年間のアクセスログは{plan}プランに含まれます。",
+  "analytics.range.label": "期間",
+  "analytics.range.days": "過去{count, plural, one {#日間} other {#日間}}",
+  "analytics.total.views": "ビュー",
+  "analytics.total.signedIn": "サインイン済みの訪問者のビュー",
+  "analytics.total.visitors": "サインイン済みの訪問者（重複なし）",
+  "analytics.visitors.notKept": "指定したユーザーに制限されたartifactでのみ数えます",
+  "analytics.chart.label": "1日ごとのビュー",
+  "analytics.chart.summary":
+    "{days, plural, one {#日間} other {#日間}}のビュー: {views}。最も多かった日: {busiest}（{most}）。",
+  "analytics.chart.summaryEmpty":
+    "過去{days, plural, one {#日間} other {#日間}}のビューはありません。",
+  "analytics.chart.day": "{day}。ビュー: {views}。サインイン済み: {signedIn}。",
+  "analytics.chart.dayWithVisitors":
+    "{day}。ビュー: {views}。サインイン済み: {signedIn}。訪問者（重複なし）: {visitors}。",
+  "analytics.chart.keyboard": "グラフにフォーカスし、矢印キーで各日を読み上げます。",
+  "analytics.table.show": "数値を表で表示",
+  "analytics.table.caption": "このartifactの1日ごとのビュー",
+  "analytics.column.day": "日付",
+  "analytics.column.views": "ビュー",
+  "analytics.column.signedIn": "サインイン済み",
+  "analytics.column.visitors": "訪問者（重複なし）",
+  "analytics.note":
+    "保存期間: {days, plural, one {#日間} other {#日間}}。あなた自身の訪問とリンクのプレビューは数えませんが、自動化されたブラウザは数えられることがあります。この数値は目安であり、監査記録ではありません。",
 
   "usage.title": "使用状況",
   "usage.description":

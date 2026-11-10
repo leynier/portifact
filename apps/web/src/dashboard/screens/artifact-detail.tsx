@@ -40,6 +40,7 @@ import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { AccessLog } from "./access-log.tsx";
 import { CommentSettings, SharingSettings } from "./access-settings.tsx";
+import { Analytics } from "./analytics.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
 import { useUsage } from "./usage.tsx";
@@ -391,7 +392,10 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
         </PageSection>
 
         <PageSection id="activity" title={t("detail.section.activity")}>
-          <AccessLog artifact={artifact} />
+          <div className="flex flex-col gap-6">
+            <Analytics artifactId={artifact.id} />
+            <AccessLog artifact={artifact} />
+          </div>
         </PageSection>
 
         <PageSection

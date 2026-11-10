@@ -16,6 +16,7 @@ import {
   type AccountUsageView,
   ARTIFACT_ID_ALPHABET,
   ArtifactListFilters,
+  type ArtifactStatsView,
   type ArtifactSummary,
   type ArtifactType,
   type CommentScope,
@@ -132,6 +133,8 @@ export interface FakeApiState {
   artifacts: Map<string, FakeArtifact>;
   /** Access log entries by artifact, newest first, as GET /artifacts/:id/access-log pages them. */
   accessLogs: Map<string, AccessLogEntry[]>;
+  /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
+  stats: Map<string, ArtifactStatsView>;
   /** Objects the account already stores, by SHA-256. */
   stored: Map<string, Buffer>;
   /** Objects uploaded and not committed yet. */
@@ -186,6 +189,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   const state: FakeApiState = {
     artifacts: new Map(),
     accessLogs: new Map(),
+    stats: new Map(),
     stored: new Map(),
     uploaded: new Map(),
     sessions: new Map(),
@@ -998,6 +1002,19 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     if (route === "GET /artifacts") return listArtifacts(url);
     if (route === "GET /usage") return { status: 200, body: state.usage };
+    const statsPath = /^\/artifacts\/([^/]+)\/stats$/.exec(path);
+    if (statsPath && method === "GET") {
+      const id = decodeURIComponent(statsPath[1] as string);
+      const artifact = state.artifacts.get(id);
+      const body = state.stats.get(id);
+      if (!artifact || artifact.state === "deleted" || !body) {
+        return error("not_found", "Artifact not found.");
+      }
+      // The range asked for comes back as the range answered, so tests see what was sent.
+      const from = url.searchParams.get("from") ?? body.from;
+      const to = url.searchParams.get("to") ?? body.to;
+      return { status: 200, body: { ...body, from, to } };
+    }
     const log = /^\/artifacts\/([^/]+)\/access-log$/.exec(path);
     if (log && method === "GET") return accessLog(decodeURIComponent(log[1] as string), url);
     const versions = versionRoute(method, path, url, key, raw);

@@ -14,6 +14,7 @@ import {
   type AnnotationThreadView,
   type ArtifactActivity,
   ArtifactListQuery,
+  type ArtifactStatsView,
   type ArtifactSummary,
   type BrowserSession,
   type CommentNoticeMute,
@@ -341,6 +342,11 @@ export interface FakeServer {
   usage: AccountUsageView;
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
+  /**
+   * Analytics by artifact ID. An artifact without an entry answers `plan_required`, like an
+   * owner on the free plan; the range asked for comes back as `from`.
+   */
+  stats: Record<string, ArtifactStatsView>;
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -384,6 +390,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     },
     usage: usageView(),
     accessLogs: {},
+    stats: {},
     commentNotices: {},
     bodies: [],
     pageSize: 50,
@@ -773,6 +780,19 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     }
     server.email = null;
     return Response.json({ deleted: true });
+  }
+  const stats = /^\/api\/v1\/artifacts\/([^/]+)\/stats$/.exec(path);
+  if (stats && method === "GET") {
+    const artifact = server.artifacts.find((a) => a.id === stats[1]);
+    if (!artifact) return apiError("not_found", 404);
+    const body = server.stats[artifact.id];
+    if (!body) {
+      return Response.json(
+        { error: { code: "plan_required", message: planRequiredMessage("analytics") } },
+        { status: 403 },
+      );
+    }
+    return json({ ...body, from: url.searchParams.get("from") ?? body.from });
   }
   const log = /^\/api\/v1\/artifacts\/([^/]+)\/access-log$/.exec(path);
   if (log && method === "GET") {

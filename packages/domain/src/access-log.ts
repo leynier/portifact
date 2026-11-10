@@ -1,5 +1,6 @@
 // Access log rules (plan sections 2, 11 and 13): which openings are recorded, the 30-minute
-// window that deduplicates them and the 30 days they are kept. Only signed-in visitors are ever
+// window that deduplicates them and how long they are kept (30 days on free, the owner's
+// `accessLogRetentionDays` otherwise). Only signed-in visitors are ever
 // identified, and only on `restricted` artifacts; public and `authenticated` ones are never recorded.
 import { ACCESS_LOG } from "@portifact/contracts";
 
@@ -14,9 +15,12 @@ export function accessWindow(at: number): number {
   return Math.floor(at / ACCESS_WINDOW_MS) * ACCESS_WINDOW_MS;
 }
 
-/** Openings before this instant are past retention and are deleted. */
-export function accessLogCutoff(now: number): number {
-  return now - ACCESS_RETENTION_MS;
+/**
+ * Openings before this instant are past retention: the free 30 days, or the owner's
+ * `accessLogRetentionDays` when given.
+ */
+export function accessLogCutoff(now: number, retentionDays?: number): number {
+  return retentionDays === undefined ? now - ACCESS_RETENTION_MS : now - retentionDays * DAY_MS;
 }
 
 /** What delivery knows about a request it is about to serve. */

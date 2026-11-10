@@ -52,6 +52,7 @@ import { ACCESS_TOOL_SCOPES, registerAccessTools } from "./access-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
 import { type Outcome, publishInline } from "./inline.ts";
 import { artifactListItem, artifactSummary, committedPublish, lifecycleResult } from "./present.ts";
+import { registerStatsTools, STATS_TOOL_SCOPES } from "./stats-tools.ts";
 import { registerUploadTools, UPLOAD_TOOL_SCOPES } from "./upload-tools.ts";
 import { registerUsageTools, USAGE_TOOL_SCOPES } from "./usage-tools.ts";
 import { registerVersionTools, VERSION_TOOL_SCOPES } from "./version-tools.ts";
@@ -61,6 +62,7 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ...VERSION_TOOL_SCOPES,
   ...USAGE_TOOL_SCOPES,
   ...ACCESS_LOG_TOOL_SCOPES,
+  ...STATS_TOOL_SCOPES,
   ...ANNOTATION_TOOL_SCOPES,
   ...UPLOAD_TOOL_SCOPES,
   ...ACCESS_TOOL_SCOPES,
@@ -424,6 +426,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
   registerVersionTools(register, context, db);
   registerUsageTools(register, context, db);
   registerAccessLogTools(register, context, db);
+  registerStatsTools(register, context);
   registerAnnotationTools(register, context, db);
 
   return server;

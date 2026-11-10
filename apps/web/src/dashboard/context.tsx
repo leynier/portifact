@@ -61,6 +61,21 @@ export function useFormatDate(): (iso: string, withTime?: boolean) => string {
   );
 }
 
+/** A UTC day (`YYYY-MM-DD`) as a short date in the dashboard's language, such as "8 Nov". */
+export function useFormatDay(): (date: string, long?: boolean) => string {
+  const { i18n } = useLingui();
+  return useCallback(
+    (date: string, long = false) =>
+      i18n.date(
+        new Date(`${date}T00:00:00Z`),
+        long
+          ? { dateStyle: "medium", timeZone: "UTC" }
+          : { day: "numeric", month: "short", timeZone: "UTC" },
+      ),
+    [i18n],
+  );
+}
+
 const RELATIVE_STEPS = [
   { unit: "minute", seconds: 60, below: 3600 },
   { unit: "hour", seconds: 3600, below: 86_400 },

@@ -46,6 +46,7 @@ import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
 import { type ApiContext, error, type Guarded, idempotent, iso, readJson } from "./http.ts";
 import type { Presigner } from "./presign.ts";
+import { statsRoutes } from "./stats.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
@@ -308,6 +309,7 @@ export function apiRoutes(deps: ApiDeps) {
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);
   accessLogRoutes(api, guarded, deps.now);
+  statsRoutes(api, guarded, deps.now);
 
   return api;
 }

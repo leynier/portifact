@@ -2,6 +2,7 @@
 // `@portifact/ui/theme.css`.
 export { Avatar, type AvatarProps, initialOf, initials } from "./components/avatar.tsx";
 export { Badge, type BadgeProps } from "./components/badge.tsx";
+export { BarChart, type BarChartDatum, type BarChartProps } from "./components/bar-chart.tsx";
 export { Button, type ButtonProps, buttonClasses } from "./components/button.tsx";
 export { Callout, type CalloutProps } from "./components/callout.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog.tsx";

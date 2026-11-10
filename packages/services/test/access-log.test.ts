@@ -72,6 +72,8 @@ describe("recording openings", () => {
         ownerId: owner.id,
         email: reader.email,
         openedAt: WINDOW + MINUTE,
+        // Free plan: kept 30 days from the opening.
+        expiresAt: WINDOW + MINUTE + ACCESS_RETENTION_MS,
       },
       {
         artifactId,
@@ -80,6 +82,7 @@ describe("recording openings", () => {
         ownerId: owner.id,
         email: reader.email,
         openedAt: WINDOW + ACCESS_WINDOW_MS,
+        expiresAt: WINDOW + ACCESS_WINDOW_MS + ACCESS_RETENTION_MS,
       },
     ]);
   });
