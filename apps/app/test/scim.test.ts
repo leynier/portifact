@@ -300,20 +300,24 @@ describe("the protocol", () => {
     expect(config).toMatchObject({ patch: { supported: true }, bulk: { supported: false } });
     const types = await (await t.h.request(`${SCIM}/ResourceTypes`, scim(t.secret))).json();
     expect(types).toMatchObject({
-      totalResults: 1,
-      Resources: [{ id: "User", endpoint: "/Users" }],
+      totalResults: 2,
+      Resources: [
+        { id: "Group", endpoint: "/Groups" },
+        { id: "User", endpoint: "/Users" },
+      ],
     });
     expect((await t.h.request(`${SCIM}/ResourceTypes/User`, scim(t.secret))).status).toBe(200);
-    expect((await t.h.request(`${SCIM}/ResourceTypes/Group`, scim(t.secret))).status).toBe(404);
+    expect((await t.h.request(`${SCIM}/ResourceTypes/Group`, scim(t.secret))).status).toBe(200);
+    expect((await t.h.request(`${SCIM}/ResourceTypes/Bulk`, scim(t.secret))).status).toBe(404);
     const schemas = await (await t.h.request(`${SCIM}/Schemas`, scim(t.secret))).json();
-    expect(schemas).toMatchObject({ totalResults: 1 });
+    expect(schemas).toMatchObject({ totalResults: 2 });
     const userSchema = encodeURIComponent("urn:ietf:params:scim:schemas:core:2.0:User");
     expect((await t.h.request(`${SCIM}/Schemas/${userSchema}`, scim(t.secret))).status).toBe(200);
     expect((await t.h.request(`${SCIM}/Schemas/other`, scim(t.secret))).status).toBe(404);
-    // Groups are not served in this delivery.
-    const groups = await t.h.request(`${SCIM}/Groups`, scim(t.secret));
-    expect(groups.status).toBe(404);
-    expect(await groups.json()).toMatchObject({ status: "404" });
+    // Bulk and Me are not served.
+    const bulk = await t.h.request(`${SCIM}/Bulk`, scim(t.secret, "POST", {}));
+    expect(bulk.status).toBe(404);
+    expect(await bulk.json()).toMatchObject({ status: "404" });
   });
 
   it("runs Okta's sequence: look up, create, read, deactivate", async () => {
@@ -596,6 +600,174 @@ describe("people", () => {
   });
 });
 
+describe("groups", () => {
+  it("runs Okta's group push and Entra's member patches, and maps a group to a role", async () => {
+    const t = await team();
+    const email = `editor@${t.domain}`;
+    await t.h.signIn(email);
+    const person = await created(t, { userName: email });
+    const pending = await created(t, { userName: `later@${t.domain}` });
+    // Okta looks the group up, creates it empty, then pushes its members.
+    const lookup = await t.h.request(
+      `${SCIM}/Groups?filter=${encodeURIComponent('displayName eq "Test SCIMv2"')}&startIndex=1&count=100`,
+      scim(t.secret),
+    );
+    expect(await lookup.json()).toMatchObject({ totalResults: 0, Resources: [] });
+    const group = await t.h.request(
+      `${SCIM}/Groups`,
+      scim(t.secret, "POST", {
+        schemas: ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+        displayName: "Test SCIMv2",
+        members: [],
+      }),
+    );
+    expect(group.status).toBe(201);
+    const body = await group.json<{ id: string; meta: { location: string } }>();
+    expect(group.headers.get("location")).toBe(body.meta.location);
+    const patch = (Operations: unknown[]) =>
+      t.h.request(
+        `${SCIM}/Groups/${body.id}`,
+        scim(t.secret, "PATCH", {
+          schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+          Operations,
+        }),
+      );
+    const added = await patch([
+      {
+        op: "add",
+        path: "members",
+        value: [{ value: person.body.id }, { value: pending.body.id }],
+      },
+    ]);
+    const values = (await added.json<{ members: { value: string }[] }>()).members.map(
+      (m) => m.value,
+    );
+    expect(values.sort()).toEqual([String(person.body.id), String(pending.body.id)].sort());
+    // The admin maps it to editor in the dashboard.
+    const mapped = await t.h.request(
+      `/api/v1/workspaces/${t.slug}/scim`,
+      dashboard(t.adminCookie, "PATCH", { editorGroup: body.id }),
+    );
+    expect(await mapped.json()).toMatchObject({
+      roleMapping: { editor: { id: body.id, name: "Test SCIMv2", members: 1 }, admin: null },
+      groups: [{ id: body.id }],
+    });
+    const roleOf = async () => {
+      const [row] = await global()
+        .select({ role: schema.workspaceMembers.role })
+        .from(schema.workspaceMembers)
+        .innerJoin(schema.users, eq(schema.users.id, schema.workspaceMembers.userId))
+        .where(and(eq(schema.workspaceMembers.workspaceId, t.id), eq(schema.users.email, email)));
+      return row?.role;
+    };
+    expect(await roleOf()).toBe("editor");
+    // Entra removes with a value list; Okta with a filtered path.
+    const removed = await patch([
+      { op: "Remove", path: "members", value: [{ value: person.body.id }] },
+    ]);
+    expect(removed.status).toBe(200);
+    expect(await roleOf()).toBe("member");
+    expect(
+      (await patch([{ op: "remove", path: `members[value eq "${pending.body.id}"]` }])).status,
+    ).toBe(200);
+    // Reads, with and without members, then a rename by PUT and the delete.
+    const read = await t.h.request(
+      `${SCIM}/Groups/${body.id}?excludedAttributes=members`,
+      scim(t.secret),
+    );
+    expect(await read.json()).not.toHaveProperty("members");
+    const listed = await t.h.request(`${SCIM}/Groups?excludedAttributes=members`, scim(t.secret));
+    expect(await listed.json()).toMatchObject({ totalResults: 1 });
+    const put = await t.h.request(
+      `${SCIM}/Groups/${body.id}`,
+      scim(t.secret, "PUT", { displayName: "Renamed", members: [] }),
+    );
+    expect(await put.json()).toMatchObject({ displayName: "Renamed", members: [] });
+    expect((await t.h.request(`${SCIM}/Groups/${body.id}`, scim(t.secret, "DELETE"))).status).toBe(
+      204,
+    );
+    expect((await t.h.request(`${SCIM}/Groups/${body.id}`, scim(t.secret))).status).toBe(404);
+  });
+
+  it("refuses what the RFC says to refuse, and other workspaces' groups", async () => {
+    const t = await team();
+    const other = await team();
+    const theirs = await other.h.request(
+      `${SCIM}/Groups`,
+      scim(other.secret, "POST", { displayName: "Theirs" }),
+    );
+    const theirId = (await theirs.json<{ id: string }>()).id;
+    const cases: [string, RequestInit, number, string | undefined][] = [
+      [
+        `${SCIM}/Groups?filter=${encodeURIComponent('members eq "x"')}`,
+        scim(t.secret),
+        400,
+        "invalidFilter",
+      ],
+      [`${SCIM}/Groups?count=x`, scim(t.secret), 400, "invalidValue"],
+      [`${SCIM}/Groups`, scim(t.secret, "POST", { members: [] }), 400, "invalidValue"],
+      [`${SCIM}/Groups`, scim(t.secret, "POST", "{bad"), 400, "invalidSyntax"],
+      [`${SCIM}/Groups/not-an-id`, scim(t.secret), 404, undefined],
+      [`${SCIM}/Groups/not-an-id`, scim(t.secret, "PUT", { displayName: "x" }), 404, undefined],
+      [`${SCIM}/Groups/not-an-id`, scim(t.secret, "PATCH", { Operations: [] }), 404, undefined],
+      [`${SCIM}/Groups/not-an-id`, scim(t.secret, "DELETE"), 404, undefined],
+      [`${SCIM}/Groups/${theirId}`, scim(t.secret), 404, undefined],
+      [`${SCIM}/Groups/${theirId}`, scim(t.secret, "DELETE"), 404, undefined],
+    ];
+    for (const [path, init, status, scimType] of cases) {
+      const response = await t.h.request(path, init);
+      expect(response.status, path).toBe(status);
+      if (scimType) expect((await response.json<{ scimType?: string }>()).scimType).toBe(scimType);
+    }
+    const id = (
+      await (
+        await t.h.request(`${SCIM}/Groups`, scim(t.secret, "POST", { displayName: "Mine" }))
+      ).json<{ id: string }>()
+    ).id;
+    for (const [method, body] of [
+      ["PUT", "{bad"],
+      ["PATCH", "{bad"],
+      ["PUT", { members: [] }],
+    ] as const) {
+      expect((await t.h.request(`${SCIM}/Groups/${id}`, scim(t.secret, method, body))).status).toBe(
+        400,
+      );
+    }
+    const dup = await t.h.request(
+      `${SCIM}/Groups`,
+      scim(t.secret, "POST", { displayName: "mine" }),
+    );
+    expect(dup.status).toBe(409);
+  });
+
+  it("asks for the admin mapping's confirmation in the settings route", async () => {
+    const t = await team();
+    const created2 = await t.h.request(
+      `${SCIM}/Groups`,
+      scim(t.secret, "POST", { displayName: "Admins" }),
+    );
+    const id = (await created2.json<{ id: string }>()).id;
+    const refused = await t.h.request(
+      `/api/v1/workspaces/${t.slug}/scim`,
+      dashboard(t.adminCookie, "PATCH", { adminGroup: id }),
+    );
+    expect(refused.status).toBe(400);
+    const accepted = await t.h.request(
+      `/api/v1/workspaces/${t.slug}/scim`,
+      dashboard(t.adminCookie, "PATCH", { adminGroup: id, confirmAdminGroup: id }),
+    );
+    expect(await accepted.json()).toMatchObject({ roleMapping: { admin: { id } } });
+    expect(
+      (
+        await t.h.request(
+          `/api/v1/workspaces/${t.slug}/scim`,
+          dashboard(t.adminCookie, "PATCH", {}),
+        )
+      ).status,
+    ).toBe(400);
+  });
+});
+
 describe("route inventory", () => {
   it("classifies every SCIM route: bearer-only protocol endpoints behind the switch and the token", () => {
     const routes = scimRoutes({
@@ -619,7 +791,13 @@ describe("route inventory", () => {
         `PUT ${SCIM}/Users/:id`,
         `PATCH ${SCIM}/Users/:id`,
         `DELETE ${SCIM}/Users/:id`,
-        // Groups, Bulk, Me and the rest: 404 in this delivery.
+        `GET ${SCIM}/Groups`,
+        `GET ${SCIM}/Groups/:id`,
+        `POST ${SCIM}/Groups`,
+        `PUT ${SCIM}/Groups/:id`,
+        `PATCH ${SCIM}/Groups/:id`,
+        `DELETE ${SCIM}/Groups/:id`,
+        // Bulk, Me and the rest: 404.
         `ALL ${SCIM}/*`,
       ].sort(),
     );

@@ -169,6 +169,7 @@ describe("workspace contracts", () => {
             role: "admin",
             joinedAt: "2026-11-10T12:00:00.000Z",
             you: true,
+            directoryRole: false,
           },
         ],
         seats: { used: 2, limit: 5 },
@@ -187,7 +188,15 @@ describe("workspace contracts", () => {
       [SeatsView, { used: 1, limit: 2 }],
       [
         WorkspaceMemberView,
-        { userId: "u_1", name: "Ada", email: "a@b.io", role: "editor", joinedAt: at, you: false },
+        {
+          userId: "u_1",
+          name: "Ada",
+          email: "a@b.io",
+          role: "editor",
+          joinedAt: at,
+          you: false,
+          directoryRole: false,
+        },
       ],
       [
         InvitationView,

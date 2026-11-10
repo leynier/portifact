@@ -3,6 +3,7 @@
 // `/scim/v2` on the app host. The protocol's own shapes (RFC 7643 and 7644) are parsed by hand in
 // packages/domain (scim.ts), because directories send dialects a strict schema would refuse.
 import { z } from "zod";
+import { WorkspaceGroupId } from "./groups.ts";
 
 /** SCIM token IDs: `sc_` and 32 hex characters, a prefix no user, token or workspace ID has. */
 export const SCIM_TOKEN_ID_PREFIX = "sc_";
@@ -99,11 +100,36 @@ export const ScimTokenCreated = z.object({
 export type ScimTokenCreated = z.infer<typeof ScimTokenCreated>;
 
 /** `PATCH /api/v1/workspaces/:slug/scim`: what admins may change. */
-export const ScimSettingsUpdate = z.strictObject({
-  /** Whether a person the directory provisions without an account gets the invitation email. */
-  invitationEmails: z.boolean(),
-});
+export const ScimSettingsUpdate = z
+  .strictObject({
+    /** Whether a person the directory provisions without an account gets the invitation email. */
+    invitationEmails: z.boolean().optional(),
+    /** The directory-managed group whose members are editors; null clears it. */
+    editorGroup: WorkspaceGroupId.nullable().optional(),
+    /** The directory-managed group whose members are admins; null clears it. */
+    adminGroup: WorkspaceGroupId.nullable().optional(),
+    /**
+     * Mapping a group to `admin` hands workspace administration to whoever controls the
+     * directory: it needs this confirmation, naming the same group.
+     */
+    confirmAdminGroup: WorkspaceGroupId.optional(),
+  })
+  .refine(
+    (value) =>
+      value.invitationEmails !== undefined ||
+      value.editorGroup !== undefined ||
+      value.adminGroup !== undefined,
+    "Nothing to change",
+  );
 export type ScimSettingsUpdate = z.infer<typeof ScimSettingsUpdate>;
+
+/** A directory-managed group as the role mapping offers it. */
+export const ScimGroupChoice = z.object({
+  id: WorkspaceGroupId,
+  name: z.string(),
+  members: z.int().min(0),
+});
+export type ScimGroupChoice = z.infer<typeof ScimGroupChoice>;
 
 /** The Directory sync section of the Members page. */
 export const ScimOverview = z.object({
@@ -118,5 +144,9 @@ export const ScimOverview = z.object({
   lastSyncAt: z.iso.datetime().nullable(),
   /** People the directory provisioned who have not signed in yet. */
   pending: z.int().min(0),
+  /** The groups the directory manages, which a role can be mapped to. */
+  groups: z.array(ScimGroupChoice),
+  /** The directory-managed groups whose members get `editor` and `admin`; null when unmapped. */
+  roleMapping: z.object({ editor: ScimGroupChoice.nullable(), admin: ScimGroupChoice.nullable() }),
 });
 export type ScimOverview = z.infer<typeof ScimOverview>;

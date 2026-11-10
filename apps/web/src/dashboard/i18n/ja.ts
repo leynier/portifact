@@ -2284,4 +2284,26 @@ export const ja = {
     "既定ではオフです。新しいアプリについては通常 ID プロバイダー自身が通知します。いずれの場合も、そのアドレスで初めてサインインしたときに参加します。",
   "scim.emailsSaved": "保存しました。",
   "scim.actionFailed": "変更は保存されませんでした",
+  "audit.kind.scimRoleOn": "ディレクトリグループのメンバーに {role} を付与しました",
+  "audit.kind.scimRoleOff": "ディレクトリグループによる {role} の付与をやめました",
+  "groups.directory": "ディレクトリが管理",
+  "groups.directoryNote":
+    "組織のディレクトリが SCIM でこのグループを管理しています。名前とメンバーはディレクトリで変更してください。",
+  "members.directoryRole": "ディレクトリのグループで設定",
+  "scim.roles.title": "ディレクトリグループからのロール",
+  "scim.roles.description":
+    "選んだグループのメンバーにそのロールが付与され、ディレクトリが追加するそれ以外の人はメンバーになります。割り当てられたグループにいる人のロールを手動で変えても、その人のグループが次に変わったときにディレクトリが設定し直します。",
+  "scim.roles.access":
+    "artifact に登録されたグループのメンバーはその artifact を閲覧できるため、今後はディレクトリがそれらの artifact を閲覧できる人を決めます。",
+  "scim.roles.editor": "メンバーを編集者にするグループ",
+  "scim.roles.admin": "メンバーを管理者にするグループ",
+  "scim.roles.none": "グループなし",
+  "scim.roles.option": "{name}（{count, plural, one {# 人} other {# 人}}）",
+  "scim.roles.noGroups": "ディレクトリからまだグループが送られていません。",
+  "scim.roles.save": "ロールを保存",
+  "scim.roles.saved": "ロールを保存しました。",
+  "scim.roles.confirm.title": "{name} のメンバーを管理者にしますか？",
+  "scim.roles.confirm.body":
+    "現在 {name} には {count, plural, one {# 人} other {# 人}} います。ディレクトリを管理する人が、このワークスペースのメンバー、ポリシー、トークン、設定を管理する人を決めることになります。",
+  "scim.roles.confirm.action": "管理者にする",
 } satisfies Catalog;

@@ -492,9 +492,18 @@ export function scimServiceProviderConfig(baseUrl: string) {
   };
 }
 
-/** The resource types served (RFC 7643, section 6): only `User` in this delivery. */
+/** The resource types served (RFC 7643, section 6): `User` and `Group`. */
 export function scimResourceTypes(baseUrl: string) {
   return [
+    {
+      schemas: [SCIM_RESOURCE_TYPE_SCHEMA],
+      id: "Group",
+      name: "Group",
+      endpoint: "/Groups",
+      description: "A workspace group the directory manages",
+      schema: SCIM_GROUP_SCHEMA_URN,
+      meta: { resourceType: "ResourceType", location: `${baseUrl}/ResourceTypes/Group` },
+    },
     {
       schemas: [SCIM_RESOURCE_TYPE_SCHEMA],
       id: "User",
@@ -559,5 +568,28 @@ export function scimSchemas(baseUrl: string) {
       ],
       meta: { resourceType: "Schema", location: `${baseUrl}/Schemas/${SCIM_USER_SCHEMA}` },
     },
+    {
+      schemas: [SCIM_SCHEMA_SCHEMA],
+      id: SCIM_GROUP_SCHEMA_URN,
+      name: "Group",
+      description: "A workspace group the directory manages",
+      attributes: [
+        attribute("displayName", { required: true, uniqueness: "server" }),
+        attribute("externalId", { caseExact: true }),
+        attribute("members", {
+          type: "complex",
+          multiValued: true,
+          subAttributes: [
+            attribute("value", { mutability: "immutable" }),
+            attribute("$ref", { type: "reference", mutability: "immutable" }),
+            attribute("display", { mutability: "readOnly" }),
+          ],
+        }),
+      ],
+      meta: { resourceType: "Schema", location: `${baseUrl}/Schemas/${SCIM_GROUP_SCHEMA_URN}` },
+    },
   ];
 }
+
+/** The core `Group` schema's URN (RFC 7643, section 4.2). */
+export const SCIM_GROUP_SCHEMA_URN = "urn:ietf:params:scim:schemas:core:2.0:Group";

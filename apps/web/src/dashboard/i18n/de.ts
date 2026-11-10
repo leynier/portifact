@@ -2342,4 +2342,26 @@ export const de = {
     "Standardmäßig aus: Identitätsanbieter informieren meist selbst über neue Apps. So oder so tritt die Person bei der ersten Anmeldung mit dieser Adresse bei.",
   "scim.emailsSaved": "Gespeichert.",
   "scim.actionFailed": "Die Änderung wurde nicht gespeichert",
+  "audit.kind.scimRoleOn": "Hat den Mitgliedern einer Verzeichnisgruppe die Rolle {role} gegeben",
+  "audit.kind.scimRoleOff": "Gibt die Rolle {role} nicht mehr über eine Verzeichnisgruppe",
+  "groups.directory": "Von Ihrem Verzeichnis verwaltet",
+  "groups.directoryNote":
+    "Das Verzeichnis Ihrer Organisation verwaltet diese Gruppe über SCIM: Ändern Sie Namen und Mitglieder dort.",
+  "members.directoryRole": "Von den Gruppen Ihres Verzeichnisses festgelegt",
+  "scim.roles.title": "Rollen aus Verzeichnisgruppen",
+  "scim.roles.description":
+    "Mitglieder der gewählten Gruppe erhalten diese Rolle; alle anderen, die das Verzeichnis hinzufügt, sind Mitglieder. Eine Rolle, die Sie für jemanden in einer zugeordneten Gruppe von Hand ändern, setzt das Verzeichnis bei der nächsten Änderung seiner Gruppen neu.",
+  "scim.roles.access":
+    "Eine Gruppe, die bei einem Artifact eingetragen ist, lässt ihre Mitglieder es lesen: Ihr Verzeichnis entscheidet jetzt, wer diese Artifacts liest.",
+  "scim.roles.editor": "Gruppe, deren Mitglieder Editoren sind",
+  "scim.roles.admin": "Gruppe, deren Mitglieder Admins sind",
+  "scim.roles.none": "Keine Gruppe",
+  "scim.roles.option": "{name} ({count, plural, one {# Mitglied} other {# Mitglieder}})",
+  "scim.roles.noGroups": "Ihr Verzeichnis hat noch keine Gruppe übertragen.",
+  "scim.roles.save": "Rollen speichern",
+  "scim.roles.saved": "Rollen gespeichert.",
+  "scim.roles.confirm.title": "Die Mitglieder von {name} zu Admins machen?",
+  "scim.roles.confirm.body":
+    "In {name} {count, plural, one {ist jetzt # Person} other {sind jetzt # Personen}}. Wer Ihr Verzeichnis kontrolliert, entscheidet, wer diesen Workspace verwaltet: seine Mitglieder, Richtlinien, Tokens und Einstellungen.",
+  "scim.roles.confirm.action": "Zu Admins machen",
 } satisfies Catalog;

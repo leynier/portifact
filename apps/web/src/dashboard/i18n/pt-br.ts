@@ -2307,4 +2307,26 @@ export const ptBR = {
     "Desativado por padrão: os provedores de identidade costumam avisar sobre apps novos. De qualquer forma, a pessoa entra no primeiro login com esse endereço.",
   "scim.emailsSaved": "Salvo.",
   "scim.actionFailed": "A alteração não foi salva",
+  "audit.kind.scimRoleOn": "Deu o papel {role} aos membros de um grupo do diretório",
+  "audit.kind.scimRoleOff": "Deixou de dar o papel {role} por um grupo do diretório",
+  "groups.directory": "Gerenciado pelo seu diretório",
+  "groups.directoryNote":
+    "O diretório da sua organização gerencia este grupo por SCIM: mude o nome e os membros lá.",
+  "members.directoryRole": "Definido pelos grupos do seu diretório",
+  "scim.roles.title": "Papéis a partir de grupos do diretório",
+  "scim.roles.description":
+    "Os membros do grupo que você escolher recebem esse papel; todos os outros que o diretório adiciona são membros. Se você mudar à mão o papel de alguém em um grupo mapeado, o diretório o define de novo na próxima vez que os grupos da pessoa mudarem.",
+  "scim.roles.access":
+    "Um grupo listado em um artifact permite que seus membros o leiam, então agora seu diretório decide quem lê esses artifacts.",
+  "scim.roles.editor": "Grupo cujos membros são editores",
+  "scim.roles.admin": "Grupo cujos membros são administradores",
+  "scim.roles.none": "Nenhum grupo",
+  "scim.roles.option": "{name} ({count, plural, one {# membro} other {# membros}})",
+  "scim.roles.noGroups": "Seu diretório ainda não enviou nenhum grupo.",
+  "scim.roles.save": "Salvar papéis",
+  "scim.roles.saved": "Papéis salvos.",
+  "scim.roles.confirm.title": "Tornar administradores os membros de {name}?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {Há # pessoa} other {Há # pessoas}} em {name} agora. Quem controla seu diretório vai decidir quem administra este espaço de trabalho: seus membros, políticas, tokens e configurações.",
+  "scim.roles.confirm.action": "Torná-los administradores",
 } satisfies Catalog;

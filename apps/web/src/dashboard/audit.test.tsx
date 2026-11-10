@@ -202,6 +202,13 @@ describe("audit log page", () => {
         }),
       ),
       event({
+        at: at(6.5),
+        kind: "scim.changed",
+        target: { type: "scim", id: "ws_1" },
+        artifact: null,
+        detail: { fields: ["editorGroup", "adminGroup"], editorGroup: "wg_1", adminGroup: null },
+      }),
+      event({
         at: at(7),
         kind: "member.removed",
         actor: gone,
@@ -223,7 +230,9 @@ describe("audit log page", () => {
     expect(text(5)).toContain("Turned on invitation emails for provisioned people");
     expect(text(5)).toContain("This space");
     expect(text(6)).toContain("Turned off invitation emails for provisioned people");
-    expect(text(7)).toContain("Directory (revoked SCIM token)");
+    expect(text(7)).toContain("Gave Editor to the members of a directory group");
+    expect(text(7)).toContain("Stopped giving Admin through a directory group");
+    expect(text(8)).toContain("Directory (revoked SCIM token)");
   });
 
   it("filters by kind of change, person and period from keyboard reachable controls", async () => {

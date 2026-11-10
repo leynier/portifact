@@ -50,6 +50,7 @@ function withDesign(role: "admin" | "editor" = "admin", available = true) {
         name: "Design",
         members: 1,
         createdAt: "2026-11-01T12:00:00.000Z",
+        directory: false,
         memberIds: ["u_ada"],
       },
     ],
@@ -77,6 +78,30 @@ describe("the Groups page", () => {
     renderDashboard("/groups", server);
     expect(await screen.findByText("Groups belong to a workspace")).toBeTruthy();
     expect(requested()).toEqual([]);
+  });
+
+  it("shows a directory group as the directory's, without the controls that change it", async () => {
+    withDesign("admin");
+    const acme = server.workspaces.acme;
+    if (!acme) throw new Error("no workspace");
+    acme.groups = acme.groups.map((group) => ({ ...group, directory: true }));
+    acme.members = acme.members.map((member) => ({ ...member, directoryRole: true }));
+    const { container } = renderDashboard("/groups?workspace=acme", server);
+    const card = (await screen.findByRole("heading", { name: /Design/ })).closest(
+      "li",
+    ) as HTMLElement;
+    expect(within(card).getByText("Managed by your directory")).toBeTruthy();
+    expect(card.textContent).toContain("change its name and members there");
+    expect(within(card).queryByRole("button", { name: "Rename Design" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Delete Design" })).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "Members" }));
+    await within(card).findByText("Ada");
+    expect(within(card).queryByRole("button", { name: /^Remove/ })).toBeNull();
+    expect(within(card).queryByRole("combobox")).toBeNull();
+    await themes(container);
+    cleanup();
+    renderDashboard("/members?workspace=acme", server);
+    expect(await screen.findByText("Set by your directory's groups")).toBeTruthy();
   });
 
   it("creates a group, adds and removes a member, renames and deletes it", async () => {

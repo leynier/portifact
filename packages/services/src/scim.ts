@@ -63,6 +63,12 @@ import {
 } from "./invitations.ts";
 import { hex } from "./objects.ts";
 import { hashSecret } from "./read-access.ts";
+import {
+  directoryGroupChoices,
+  joinGroupStatements,
+  lastAdminRefusal,
+  roleMappingStatements,
+} from "./scim-groups.ts";
 import { memberEvent, scoped, seatsUsedSql, stillAdmin } from "./workspaces.ts";
 
 const st = schema.scimTokens;
@@ -172,6 +178,12 @@ export async function getScimOverview(
         gt(inv.expiresAt, input.now),
       ),
     );
+  const groups = await directoryGroupChoices(global, workspaceId);
+  const [mapping] = await global
+    .select({ editor: ws.editorGroupId, admin: ws.adminGroupId })
+    .from(ws)
+    .where(eq(ws.workspaceId, workspaceId))
+    .limit(1);
   const lastSync = tokens
     .map((token) => token.lastUsedAt)
     .filter((at): at is string => at !== null)
@@ -185,6 +197,11 @@ export async function getScimOverview(
     invitationEmails: await invitationEmailsOn(global, workspaceId),
     lastSyncAt: lastSync ?? null,
     pending: Number(pending?.count ?? 0),
+    groups,
+    roleMapping: {
+      editor: groups.find((group) => group.id === mapping?.editor) ?? null,
+      admin: groups.find((group) => group.id === mapping?.admin) ?? null,
+    },
   });
 }
 
@@ -308,19 +325,39 @@ export async function revokeScimToken(
   return again.ok ? fail("not_found", "SCIM token not found.") : again;
 }
 
-/** Changes the workspace's SCIM settings, for an admin. Not gated: it only narrows emails. */
+/**
+ * Changes the workspace's SCIM settings, for an admin: whether provisioned people get the
+ * invitation email (never gated: it only narrows emails) and the role mapping (decision 0017,
+ * "Groups and roles"; mapping a group to admin needs the confirmation that names it). One batch,
+ * conditioned on the caller still being an admin; the roles the mapping moves change in it, and
+ * the last-admin trigger refuses the whole batch if one would leave no admin.
+ */
 export async function updateScimSettings(
   global: GlobalDb,
   input: { userId: string; slug: string; body: ScimSettingsUpdate; now: number },
-): Promise<Result<{ invitationEmails: boolean }>> {
+): Promise<Result<true>> {
   const scope = await scoped(global, input.userId, input.slug, "scim");
   if (!scope.ok) return scope;
   const workspaceId = scope.value.workspace.id;
-  const current = await invitationEmailsOn(global, workspaceId);
-  const next = input.body.invitationEmails;
-  if (current === next) return ok({ invitationEmails: next });
   const admin = stillAdmin(workspaceId, input.userId);
-  const [, written] = await global.batch([
+  const emails = input.body.invitationEmails;
+  const emailsChange =
+    emails !== undefined && emails !== (await invitationEmailsOn(global, workspaceId));
+  const mapping = await roleMappingStatements(global, {
+    workspaceId,
+    userId: input.userId,
+    body: input.body,
+    now: input.now,
+    condition: admin,
+  });
+  if (!mapping.ok) return mapping;
+  const { changed } = mapping.value;
+  const fields: ("invitationEmails" | "editorGroup" | "adminGroup")[] = [];
+  if (emailsChange) fields.push("invitationEmails");
+  if (changed.editorGroup !== undefined) fields.push("editorGroup");
+  if (changed.adminGroup !== undefined) fields.push("adminGroup");
+  if (fields.length === 0) return ok(true);
+  const statements: BatchItem<"sqlite">[] = [
     auditEvent(
       global,
       {
@@ -328,25 +365,42 @@ export async function updateScimSettings(
         kind: "scim.changed",
         actor: { type: "user", id: input.userId },
         targetId: workspaceId,
-        detail: { fields: ["invitationEmails"], invitationEmails: next },
+        detail: {
+          fields,
+          ...(emailsChange ? { invitationEmails: emails } : {}),
+          ...(changed.editorGroup === undefined ? {} : { editorGroup: changed.editorGroup }),
+          ...(changed.adminGroup === undefined ? {} : { adminGroup: changed.adminGroup }),
+        },
         now: input.now,
       },
       admin,
     ),
-    global
-      .insert(ws)
-      .select(sql`select ${workspaceId}, ${next ? 1 : 0}, ${input.now} where ${admin}`)
-      .onConflictDoUpdate({
-        target: ws.workspaceId,
-        set: { invitationEmails: next, updatedAt: input.now },
-      })
-      .returning({ on: ws.invitationEmails }),
-  ]);
-  if (written.length === 0) {
-    const again = await scoped(global, input.userId, input.slug, "scim");
-    return again.ok ? fail("version_conflict", "The workspace changed meanwhile.") : again;
+    ...mapping.value.statements,
+  ];
+  if (emailsChange) {
+    statements.push(
+      global
+        .insert(ws)
+        // Columns in schema order: workspace, invitation emails, editor group, admin group,
+        // updated.
+        .select(
+          sql`select ${workspaceId}, ${emails ? 1 : 0}, null, null, ${input.now} where ${admin}`,
+        )
+        .onConflictDoUpdate({
+          target: ws.workspaceId,
+          set: { invitationEmails: emails, updatedAt: input.now },
+        }),
+    );
   }
-  return ok({ invitationEmails: next });
+  try {
+    await global.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  } catch (error) {
+    const refused = lastAdminRefusal(error);
+    if (refused) return refused;
+    throw error;
+  }
+  const again = await scoped(global, input.userId, input.slug, "scim");
+  return again.ok ? ok(true) : again;
 }
 
 // Authentication ----------------------------------------------------------------------------
@@ -845,9 +899,9 @@ async function writeUser(
       global
         .insert(su)
         // Columns in schema order: id, workspace, email, external ID, names, active, user,
-        // removed at, removal, sessions pending, created, updated, write ID.
+        // removed at, removal, sessions pending, mapped role, created, updated, write ID.
         .select(
-          sql`select ${id}, ${W}, ${next.userName}, ${next.externalId}, ${JSON.stringify(next.names)}, ${next.active ? 1 : 0}, ${account}, null, null, 0, ${now}, ${now}, ${writeId} where ${base} and ${room}`,
+          sql`select ${id}, ${W}, ${next.userName}, ${next.externalId}, ${JSON.stringify(next.names)}, ${next.active ? 1 : 0}, ${account}, null, null, 0, null, ${now}, ${now}, ${writeId} where ${base} and ${room}`,
         )
         .onConflictDoNothing(),
     );
@@ -921,6 +975,20 @@ async function writeUser(
         .where(
           sql`${inv.workspaceId} = ${W} and ${inv.email} = ${next.userName} and ${inv.source} = 'directory' and exists (select 1 from ${m} where ${m.workspaceId} = ${W} and ${m.userId} = ${account}) and ${mine}`,
         ),
+    );
+  }
+  if (provision && account !== null) {
+    // The groups the directory listed them in, and the role those map to (decision 0017,
+    // "Groups and roles"), in the batch of the join or of the write that links them. Idempotent:
+    // only missing rows, and only for a workspace member.
+    statements.push(
+      ...joinGroupStatements(global, {
+        workspaceId: W,
+        userId: account,
+        actor,
+        now,
+        condition: mine,
+      }),
     );
   }
   let invitation: { token: string; expiresAt: number } | null = null;
@@ -1284,7 +1352,15 @@ export async function claimDirectoryMemberships(
           and(eq(su.workspaceId, W), eq(su.email, email), member, domainHolds(W, email)) as SQL,
         ),
       global.delete(inv).where(and(eq(inv.id, row.id), member) as SQL),
-    ])) as [unknown, unknown[], unknown, unknown];
+      // Their directory groups and the role they map to, in the batch of the join.
+      ...joinGroupStatements(global, {
+        workspaceId: W,
+        userId: input.userId,
+        actor: { type: "user", id: input.userId },
+        now: input.now,
+        condition: sql`1`,
+      }),
+    ])) as unknown as [unknown, unknown[]];
     if (inserted.length > 0) joined += 1;
   }
   return joined;

@@ -198,9 +198,7 @@ export function auditSummary(event: AuditEventView): string {
     case "member.provisioned":
       return `Provisioned someone at ${d.emailDomain} as ${ROLE[d.role as keyof typeof ROLE]}; they join when they sign in`;
     case "scim.changed":
-      return d.invitationEmails
-        ? "Turned on invitation emails for provisioned people"
-        : "Turned off invitation emails for provisioned people";
+      return scimChanges(d).join("; ");
     case "audit.exported":
       return `Exported the audit log as ${String(d.format).toUpperCase()}${d.from || d.to ? ` (${d.from ?? "start"} to ${d.to ?? "now"})` : ""}`;
     case "policy.changed":
@@ -208,6 +206,29 @@ export function auditSummary(event: AuditEventView): string {
     case "policy.enforced":
       return `Applied the workspace's policies: ${enforcedParts(d).join(", ")}`;
   }
+}
+
+/** What a directory settings change did, one phrase per field. */
+function scimChanges(d: Record<string, unknown>): string[] {
+  const fields = (d.fields as string[] | undefined) ?? [];
+  const parts: string[] = [];
+  if (fields.includes("invitationEmails")) {
+    parts.push(
+      d.invitationEmails
+        ? "Turned on invitation emails for provisioned people"
+        : "Turned off invitation emails for provisioned people",
+    );
+  }
+  for (const role of ["editor", "admin"] as const) {
+    const value = d[`${role}Group`];
+    if (!fields.includes(`${role}Group`)) continue;
+    parts.push(
+      value === null
+        ? `Stopped giving ${role} through a directory group`
+        : `Gave ${role} to the members of a directory group`,
+    );
+  }
+  return parts;
 }
 
 const JOINED_VIA = {

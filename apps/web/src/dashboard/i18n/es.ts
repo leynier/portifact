@@ -2329,4 +2329,26 @@ export const es = {
     "Desactivado por defecto: los proveedores de identidad suelen avisar ellos mismos de las apps nuevas. En cualquier caso, se unen al iniciar sesión por primera vez con esa dirección.",
   "scim.emailsSaved": "Guardado.",
   "scim.actionFailed": "No se guardó el cambio",
+  "audit.kind.scimRoleOn": "Dio el rol {role} a los miembros de un grupo del directorio",
+  "audit.kind.scimRoleOff": "Dejó de dar el rol {role} mediante un grupo del directorio",
+  "groups.directory": "Lo administra tu directorio",
+  "groups.directoryNote":
+    "El directorio de tu organización administra este grupo mediante SCIM: cambia su nombre y sus miembros allí.",
+  "members.directoryRole": "Lo define el grupo de tu directorio",
+  "scim.roles.title": "Roles desde grupos del directorio",
+  "scim.roles.description":
+    "Los miembros del grupo que elijas reciben ese rol; todos los demás que agrega el directorio son miembros. Si cambias a mano el rol de alguien en un grupo asignado, el directorio lo vuelve a definir la próxima vez que cambien sus grupos.",
+  "scim.roles.access":
+    "Un grupo que figura en un artifact permite que sus miembros lo lean, así que ahora tu directorio decide quién lee esos artifacts.",
+  "scim.roles.editor": "Grupo cuyos miembros son editores",
+  "scim.roles.admin": "Grupo cuyos miembros son administradores",
+  "scim.roles.none": "Ningún grupo",
+  "scim.roles.option": "{name} ({count, plural, one {# miembro} other {# miembros}})",
+  "scim.roles.noGroups": "Tu directorio todavía no envió ningún grupo.",
+  "scim.roles.save": "Guardar roles",
+  "scim.roles.saved": "Roles guardados.",
+  "scim.roles.confirm.title": "¿Hacer administradores a los miembros de {name}?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {Hay # persona} other {Hay # personas}} en {name} ahora. Quien controle tu directorio decidirá quién administra este espacio de trabajo: sus miembros, políticas, tokens y ajustes.",
+  "scim.roles.confirm.action": "Hacerlos administradores",
 } satisfies Catalog;

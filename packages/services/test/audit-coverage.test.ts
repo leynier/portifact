@@ -66,21 +66,45 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   revokeScimToken: ["scim_token.revoked"],
   operatorRevokeScimToken: ["scim_token.revoked"],
   updateScimSettings: ["scim.changed"],
-  createScimUser: ["member.provisioned", "member.joined"],
+  createScimUser: [
+    "member.provisioned",
+    "member.joined",
+    "group.member_added",
+    "member.role_changed",
+  ],
   replaceScimUser: [
     "member.provisioned",
     "member.joined",
+    "group.member_added",
+    "member.role_changed",
     "member.removed",
     "member.invitation_revoked",
   ],
   patchScimUser: [
     "member.provisioned",
     "member.joined",
+    "group.member_added",
+    "member.role_changed",
     "member.removed",
     "member.invitation_revoked",
   ],
   deleteScimUser: ["member.removed", "member.invitation_revoked"],
-  claimDirectoryMemberships: ["member.joined"],
+  claimDirectoryMemberships: ["member.joined", "group.member_added", "member.role_changed"],
+  // SCIM groups (decision 0017, "Groups and roles"), with the directory as the actor.
+  createScimGroup: ["group.created", "group.member_added", "member.role_changed"],
+  replaceScimGroup: [
+    "group.renamed",
+    "group.member_added",
+    "group.member_removed",
+    "member.role_changed",
+  ],
+  patchScimGroup: [
+    "group.renamed",
+    "group.member_added",
+    "group.member_removed",
+    "member.role_changed",
+  ],
+  deleteScimGroup: ["group.deleted", "member.role_changed"],
   // Workspace policies (decision 0015): a change records which fields and values, and each step
   // that applies one to existing artifacts records its counts and each changed artifact's own
   // access change, as the system.
@@ -138,6 +162,9 @@ reason("a token's use: what it changes is recorded as its own events, last use i
   "authenticateScimToken",
   "hitScimRateLimit",
   "hitScimAuthFailure",
+]);
+reason("statements for a settings change's own batch, which records scim.changed (decision 0017)", [
+  "roleMappingStatements",
 ]);
 reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
@@ -283,6 +310,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  "directoryGroupChoices",
+  "directoryRoleHolders",
   "seatLimit",
   "accessAudience",
   "approvalSummaries",

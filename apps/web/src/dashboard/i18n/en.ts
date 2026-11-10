@@ -2268,6 +2268,28 @@ export const en = {
     "Off by default: identity providers usually tell people about new apps themselves. Either way, they join when they first sign in with that address.",
   "scim.emailsSaved": "Saved.",
   "scim.actionFailed": "The change was not saved",
+  "audit.kind.scimRoleOn": "Gave {role} to the members of a directory group",
+  "audit.kind.scimRoleOff": "Stopped giving {role} through a directory group",
+  "groups.directory": "Managed by your directory",
+  "groups.directoryNote":
+    "Your organization's directory manages this group through SCIM: change its name and members there.",
+  "members.directoryRole": "Set by your directory's groups",
+  "scim.roles.title": "Roles from directory groups",
+  "scim.roles.description":
+    "Members of the group you choose get that role; everyone else the directory adds is a member. A role you change by hand for someone in a mapped group is set again by the directory the next time their groups change.",
+  "scim.roles.access":
+    "A group listed on an artifact lets its members read it, so your directory now decides who reads those artifacts.",
+  "scim.roles.editor": "Group whose members are editors",
+  "scim.roles.admin": "Group whose members are admins",
+  "scim.roles.none": "No group",
+  "scim.roles.option": "{name} ({count, plural, one {# member} other {# members}})",
+  "scim.roles.noGroups": "Your directory has not pushed a group yet.",
+  "scim.roles.save": "Save roles",
+  "scim.roles.saved": "Roles saved.",
+  "scim.roles.confirm.title": "Make the members of {name} admins?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {# person is} other {# people are}} in {name} now. Whoever controls your directory will decide who administers this workspace: its members, policies, tokens and settings.",
+  "scim.roles.confirm.action": "Make them admins",
 } as const;
 
 export type MessageId = keyof typeof en;

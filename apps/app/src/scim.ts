@@ -4,13 +4,18 @@
 // authenticates here: cookies are never read, and a service token or an OAuth token is refused
 // like an unknown one. The token names the workspace, so one base URL serves every workspace and
 // a resource ID of another workspace answers 404.
-import { SCIM, SCIM_BASE_PATH, ScimUserId } from "@portifact/contracts";
+import { SCIM, SCIM_BASE_PATH, ScimUserId, WorkspaceGroupId } from "@portifact/contracts";
 import {
+  excludesMembers,
   parseScimFilter,
+  parseScimGroup,
+  parseScimGroupFilter,
   parseScimUser,
   type ScimError,
+  type ScimGroupRecord,
   type ScimResult,
   scimErrorBody,
+  scimGroupResource,
   scimListResponse,
   scimPage,
   scimResourceTypes,
@@ -20,14 +25,20 @@ import {
 } from "@portifact/domain";
 import {
   authenticateScimToken,
+  createScimGroup,
   createScimUser,
+  deleteScimGroup,
   deleteScimUser,
+  getScimGroup,
   getScimUser,
   hitScimAuthFailure,
   hitScimRateLimit,
   type InvitationSender,
+  listScimGroups,
   listScimUsers,
+  patchScimGroup,
   patchScimUser,
+  replaceScimGroup,
   replaceScimUser,
   type ScimCaller,
   type ScimWrite,
@@ -289,7 +300,97 @@ export function scimRoutes(deps: ScimRouteDeps) {
     return c.body(null, 204, { "Cache-Control": "no-store" });
   });
 
-  // Groups, Bulk, Me and anything else: not served in this delivery (decision 0017).
+  // Groups (decision 0017, "Groups and roles"): this workspace's directory-managed groups only.
+  const groupId = (c: ScimContext) => {
+    const id = WorkspaceGroupId.safeParse(c.req.param("id"));
+    return id.success ? id.data : null;
+  };
+  const groupReply = (c: ScimContext, result: ScimResult<ScimGroupRecord>, status = 200) => {
+    if (!result.ok) return refuse(c, result.error);
+    const resource = scimGroupResource(result.value, base(c));
+    return reply(c, resource, status, status === 201 ? { Location: resource.meta.location } : {});
+  };
+
+  routes.get(`${SCIM_BASE_PATH}/Groups`, async (c) => {
+    const page = scimPage(c.req.query("startIndex"), c.req.query("count"));
+    if (!page.ok) return refuse(c, page.error);
+    const rawFilter = c.req.query("filter");
+    let filter = null;
+    if (rawFilter !== undefined && rawFilter.trim() !== "") {
+      const parsed = parseScimGroupFilter(rawFilter);
+      if (!parsed.ok) return refuse(c, parsed.error);
+      filter = parsed.value;
+    }
+    const members = !excludesMembers(c.req.query("excludedAttributes"));
+    const listed = await listScimGroups(global(c), c.get("caller"), {
+      filter,
+      ...page.value,
+      members,
+    });
+    return reply(
+      c,
+      scimListResponse(
+        listed.groups.map((group) => scimGroupResource(group, base(c), members)),
+        listed.total,
+        page.value.startIndex,
+      ),
+    );
+  });
+
+  routes.get(`${SCIM_BASE_PATH}/Groups/:id`, async (c) => {
+    const id = groupId(c);
+    if (!id) return notFound(c);
+    const found = await getScimGroup(global(c), c.get("caller"), id);
+    if (!found.ok) return refuse(c, found.error);
+    const members = !excludesMembers(c.req.query("excludedAttributes"));
+    return reply(c, scimGroupResource(found.value, base(c), members));
+  });
+
+  routes.post(`${SCIM_BASE_PATH}/Groups`, async (c) => {
+    const body = await readBody(c);
+    if (!body.ok) return refuse(c, body.error);
+    const input = parseScimGroup(body.value);
+    if (!input.ok) return refuse(c, input.error);
+    return groupReply(
+      c,
+      await createScimGroup(global(c), c.get("caller"), input.value, deps.now()),
+      201,
+    );
+  });
+
+  routes.put(`${SCIM_BASE_PATH}/Groups/:id`, async (c) => {
+    const id = groupId(c);
+    if (!id) return notFound(c);
+    const body = await readBody(c);
+    if (!body.ok) return refuse(c, body.error);
+    const input = parseScimGroup(body.value);
+    if (!input.ok) return refuse(c, input.error);
+    return groupReply(
+      c,
+      await replaceScimGroup(global(c), c.get("caller"), id, input.value, deps.now()),
+    );
+  });
+
+  routes.patch(`${SCIM_BASE_PATH}/Groups/:id`, async (c) => {
+    const id = groupId(c);
+    if (!id) return notFound(c);
+    const body = await readBody(c);
+    if (!body.ok) return refuse(c, body.error);
+    return groupReply(
+      c,
+      await patchScimGroup(global(c), c.get("caller"), id, body.value, deps.now()),
+    );
+  });
+
+  routes.delete(`${SCIM_BASE_PATH}/Groups/:id`, async (c) => {
+    const id = groupId(c);
+    if (!id) return notFound(c);
+    const result = await deleteScimGroup(global(c), c.get("caller"), id, deps.now());
+    if (!result.ok) return refuse(c, result.error);
+    return c.body(null, 204, { "Cache-Control": "no-store" });
+  });
+
+  // Bulk, Me and anything else: not served (decision 0017).
   routes.all(`${SCIM_BASE_PATH}/*`, (c) => notFound(c));
 
   return routes;

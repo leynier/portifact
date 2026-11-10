@@ -58,6 +58,13 @@ describe("SCIM tokens", () => {
     );
     expect(ScimSettingsUpdate.safeParse({ invitationEmails: true }).success).toBe(true);
     expect(ScimSettingsUpdate.safeParse({ invitationEmails: true, roles: {} }).success).toBe(false);
+    expect(ScimSettingsUpdate.safeParse({}).success).toBe(false);
+    const group = `wg_${"a".repeat(32)}`;
+    expect(
+      ScimSettingsUpdate.safeParse({ adminGroup: group, confirmAdminGroup: group }).success,
+    ).toBe(true);
+    expect(ScimSettingsUpdate.safeParse({ editorGroup: null }).success).toBe(true);
+    expect(ScimSettingsUpdate.safeParse({ editorGroup: "Engineering" }).success).toBe(false);
   });
 
   it("shows the secret only in the create answer, and the base path to paste", () => {
@@ -72,6 +79,8 @@ describe("SCIM tokens", () => {
         invitationEmails: false,
         lastSyncAt: null,
         pending: 0,
+        groups: [],
+        roleMapping: { editor: null, admin: null },
       }).success,
     ).toBe(true);
     expect(SCIM_BASE_PATH).toBe("/scim/v2");

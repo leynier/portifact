@@ -312,9 +312,15 @@ describe("the directory's tokens", () => {
         body: { invitationEmails: on },
         now: NOW,
       });
-    expect(value(await set(true))).toEqual({ invitationEmails: true });
-    expect(value(await set(true))).toEqual({ invitationEmails: true });
-    expect(value(await set(false))).toEqual({ invitationEmails: false });
+    const stored = async () =>
+      value(
+        await getScimOverview(global(), { userId: t.admin, slug: t.slug, now: NOW, baseUrl: BASE }),
+      ).invitationEmails;
+    expect(value(await set(true))).toBe(true);
+    expect(await stored()).toBe(true);
+    expect(value(await set(true))).toBe(true);
+    expect(value(await set(false))).toBe(true);
+    expect(await stored()).toBe(false);
     expect(await set(true, t.editor)).toMatchObject({ ok: false, code: "forbidden" });
     expect((await events(t)).filter(([kind]) => kind === "scim.changed")).toHaveLength(2);
   });

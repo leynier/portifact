@@ -12,6 +12,7 @@ import {
   type WorkspaceGroupView,
 } from "@portifact/contracts";
 import {
+  Badge,
   Button,
   Callout,
   ConfirmDialog,
@@ -223,10 +224,16 @@ function GroupCard({
     <li className="flex min-w-0 flex-col gap-3 rounded-md border border-border bg-surface p-4">
       <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1 basis-48">
-          <h3 className="text-base font-semibold break-words">{group.name}</h3>
+          <h3 className="flex flex-wrap items-center gap-2 text-base font-semibold break-words">
+            {group.name}
+            {group.directory ? <Badge emphasis="subtle">{t("groups.directory")}</Badge> : null}
+          </h3>
           <p className="mt-1 text-sm text-text-muted">
             {t("groups.memberCount", { count: group.members })}
           </p>
+          {group.directory ? (
+            <p className="mt-1 text-sm text-text-muted">{t("groups.directoryNote")}</p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button
@@ -238,24 +245,28 @@ function GroupCard({
           >
             {t(open ? "groups.hideMembers" : "groups.showMembers")}
           </Button>
-          <Button
-            size="sm"
-            icon={<Pencil className="size-4" />}
-            aria-label={t("groups.renameLabel", { name: group.name })}
-            onClick={() => setRenaming((value) => !value)}
-          >
-            {t("groups.rename")}
-          </Button>
-          <Button
-            size="sm"
-            intent="danger"
-            icon={<Trash2 className="size-4" />}
-            aria-label={t("groups.deleteLabel", { name: group.name })}
-            disabled={remove.isPending}
-            onClick={() => setConfirming(true)}
-          >
-            {t("groups.delete")}
-          </Button>
+          {group.directory ? null : (
+            <>
+              <Button
+                size="sm"
+                icon={<Pencil className="size-4" />}
+                aria-label={t("groups.renameLabel", { name: group.name })}
+                onClick={() => setRenaming((value) => !value)}
+              >
+                {t("groups.rename")}
+              </Button>
+              <Button
+                size="sm"
+                intent="danger"
+                icon={<Trash2 className="size-4" />}
+                aria-label={t("groups.deleteLabel", { name: group.name })}
+                disabled={remove.isPending}
+                onClick={() => setConfirming(true)}
+              >
+                {t("groups.delete")}
+              </Button>
+            </>
+          )}
         </div>
       </div>
       {renaming ? (
@@ -427,17 +438,22 @@ function GroupMembers({
                 <span className="font-medium break-words">{member.name}</span>{" "}
                 <span className="text-text-muted break-all">{member.email}</span>
               </span>
-              <Button
-                intent="ghost"
-                size="sm"
-                icon={<UserMinus className="size-4" />}
-                aria-label={t("groups.removeMemberLabel", { name: member.name, group: group.name })}
-                busy={remove.isPending && remove.variables === member.userId}
-                disabled={remove.isPending}
-                onClick={() => remove.mutate(member.userId)}
-              >
-                {t("groups.removeMember")}
-              </Button>
+              {group.directory ? null : (
+                <Button
+                  intent="ghost"
+                  size="sm"
+                  icon={<UserMinus className="size-4" />}
+                  aria-label={t("groups.removeMemberLabel", {
+                    name: member.name,
+                    group: group.name,
+                  })}
+                  busy={remove.isPending && remove.variables === member.userId}
+                  disabled={remove.isPending}
+                  onClick={() => remove.mutate(member.userId)}
+                >
+                  {t("groups.removeMember")}
+                </Button>
+              )}
             </li>
           ))}
         </ul>
@@ -451,7 +467,7 @@ function GroupMembers({
           {errorMessage(t, failure)}
         </Callout>
       ) : null}
-      {available && candidates.length > 0 ? (
+      {available && !group.directory && candidates.length > 0 ? (
         <form
           className="flex flex-col gap-2 sm:flex-row sm:items-end"
           onSubmit={(event) => {

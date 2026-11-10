@@ -2105,4 +2105,25 @@ export const zhCN = {
     "默认关闭：身份提供商通常会自己通知新应用。无论如何，对方在首次用该地址登录时加入。",
   "scim.emailsSaved": "已保存。",
   "scim.actionFailed": "更改未保存",
+  "audit.kind.scimRoleOn": "已将 {role} 角色授予某个目录组的成员",
+  "audit.kind.scimRoleOff": "已停止通过目录组授予 {role} 角色",
+  "groups.directory": "由你的目录管理",
+  "groups.directoryNote": "你所在组织的目录通过 SCIM 管理此组:请在目录中更改其名称和成员。",
+  "members.directoryRole": "由你的目录组设定",
+  "scim.roles.title": "来自目录组的角色",
+  "scim.roles.description":
+    "你选择的组的成员获得该角色;目录添加的其他人都是成员。如果你手动更改了已映射组中某人的角色,目录会在其所属组下次变化时重新设定。",
+  "scim.roles.access":
+    "在 artifact 上列出的组,其成员可以阅读该 artifact,因此现在由你的目录决定谁能阅读这些 artifact。",
+  "scim.roles.editor": "成员为编辑者的组",
+  "scim.roles.admin": "成员为管理员的组",
+  "scim.roles.none": "不选择组",
+  "scim.roles.option": "{name}({count, plural, one {# 位成员} other {# 位成员}})",
+  "scim.roles.noGroups": "你的目录还没有推送任何组。",
+  "scim.roles.save": "保存角色",
+  "scim.roles.saved": "角色已保存。",
+  "scim.roles.confirm.title": "将 {name} 的成员设为管理员?",
+  "scim.roles.confirm.body":
+    "{name} 现在有 {count, plural, one {# 人} other {# 人}}。控制你目录的人将决定谁管理此工作区:其成员、策略、令牌和设置。",
+  "scim.roles.confirm.action": "设为管理员",
 } satisfies Catalog;

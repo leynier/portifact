@@ -552,6 +552,16 @@ describe("plain words for every kind", () => {
         }),
       ),
     ).toBe("Turned off invitation emails for provisioned people");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "scim.changed",
+          detail: { fields: ["editorGroup", "adminGroup"], editorGroup: "wg_1", adminGroup: null },
+        }),
+      ),
+    ).toBe(
+      "Gave editor to the members of a directory group; Stopped giving admin through a directory group",
+    );
     expect(auditActor({ type: "operator" })).toBe("Portifact operator");
     expect(auditActor({ type: "system" })).toBe("Portifact");
   });

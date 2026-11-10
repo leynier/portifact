@@ -440,6 +440,7 @@ describe("the Members page", () => {
           role: "admin",
           joinedAt: JOINED,
           you: true,
+          directoryRole: false,
         },
         {
           userId: "u_ed",
@@ -448,6 +449,7 @@ describe("the Members page", () => {
           role: "editor",
           joinedAt: JOINED,
           you: false,
+          directoryRole: false,
         },
       ],
       seats: 5,

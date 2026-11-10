@@ -153,6 +153,7 @@ function memberView(row: MemberRow, userId: string): WorkspaceMemberView {
     role: row.role,
     joinedAt: iso(row.joinedAt),
     you: row.userId === userId,
+    directoryRole: row.directoryRole === true,
   });
 }
 
@@ -228,6 +229,7 @@ export function groupView(row: GroupRow): WorkspaceGroupView {
     name: row.name,
     members: row.members,
     createdAt: iso(row.createdAt),
+    directory: row.directory,
   });
 }
 

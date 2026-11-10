@@ -36,6 +36,7 @@ import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { closeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { directoryRoleHolders } from "./scim-groups.ts";
 
 const w = schema.workspaces;
 const m = schema.workspaceMembers;
@@ -195,6 +196,8 @@ export interface MemberRow {
   email: string;
   role: WorkspaceRole;
   joinedAt: number;
+  /** In a directory group mapped to a role: the directory sets the role (decision 0017). */
+  directoryRole?: boolean;
 }
 
 export interface Seats {
@@ -273,9 +276,13 @@ export async function listMembers(
   const found = await scoped(global, input.userId, input.slug, "read");
   if (!found.ok) return found;
   const { workspace, actor } = found.value;
+  const holders = await directoryRoleHolders(global, workspace.id);
   return ok({
     workspace: { ...workspace, role: actor.role },
-    members: await members(global, workspace.id),
+    members: (await members(global, workspace.id)).map((row) => ({
+      ...row,
+      directoryRole: holders.has(row.userId),
+    })),
     seats: await workspaceSeats(global, workspace.id, input.now),
   });
 }

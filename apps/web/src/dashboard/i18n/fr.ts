@@ -2355,4 +2355,26 @@ export const fr = {
     "Désactivé par défaut : les fournisseurs d’identité annoncent généralement eux-mêmes les nouvelles applications. Dans tous les cas, la personne rejoint à sa première connexion avec cette adresse.",
   "scim.emailsSaved": "Enregistré.",
   "scim.actionFailed": "La modification n’a pas été enregistrée",
+  "audit.kind.scimRoleOn": "A donné le rôle {role} aux membres d’un groupe de l’annuaire",
+  "audit.kind.scimRoleOff": "A cessé de donner le rôle {role} par un groupe de l’annuaire",
+  "groups.directory": "Géré par votre annuaire",
+  "groups.directoryNote":
+    "L’annuaire de votre organisation gère ce groupe par SCIM : changez son nom et ses membres là-bas.",
+  "members.directoryRole": "Défini par les groupes de votre annuaire",
+  "scim.roles.title": "Rôles à partir des groupes de l’annuaire",
+  "scim.roles.description":
+    "Les membres du groupe choisi reçoivent ce rôle ; toutes les autres personnes ajoutées par l’annuaire sont membres. Un rôle changé à la main pour une personne d’un groupe associé est redéfini par l’annuaire au prochain changement de ses groupes.",
+  "scim.roles.access":
+    "Un groupe indiqué sur un artifact permet à ses membres de le lire : votre annuaire décide désormais qui lit ces artifacts.",
+  "scim.roles.editor": "Groupe dont les membres sont éditeurs",
+  "scim.roles.admin": "Groupe dont les membres sont administrateurs",
+  "scim.roles.none": "Aucun groupe",
+  "scim.roles.option": "{name} ({count, plural, one {# membre} other {# membres}})",
+  "scim.roles.noGroups": "Votre annuaire n’a encore envoyé aucun groupe.",
+  "scim.roles.save": "Enregistrer les rôles",
+  "scim.roles.saved": "Rôles enregistrés.",
+  "scim.roles.confirm.title": "Faire des membres de {name} des administrateurs ?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {# personne est} other {# personnes sont}} dans {name} actuellement. Qui contrôle votre annuaire décidera de qui administre cet espace de travail : ses membres, ses règles, ses jetons et ses réglages.",
+  "scim.roles.confirm.action": "En faire des administrateurs",
 } satisfies Catalog;
