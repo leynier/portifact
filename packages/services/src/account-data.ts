@@ -684,8 +684,9 @@ export async function advanceAccountDeletion(
 }
 
 /**
- * The account's workspaces and role; for those it is an admin of, the verified email domains it
- * manages (decision 0010), never their tokens. Other members see no domains.
+ * The account's workspaces and role, with the groups it is in there (decision 0014: names and
+ * when it was added, never the other members); for those it is an admin of, the verified email
+ * domains it manages (decision 0010), never their tokens. Other members see no domains.
  */
 async function exportWorkspaces(global: GlobalDb, userId: string) {
   const rows = await global
@@ -700,6 +701,19 @@ async function exportWorkspaces(global: GlobalDb, userId: string) {
     .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
     .where(eq(schema.workspaceMembers.userId, userId))
     .orderBy(asc(schema.workspaces.slug));
+  const groups = await global
+    .select({
+      workspaceId: schema.workspaceGroupMembers.workspaceId,
+      name: schema.workspaceGroups.name,
+      addedAt: schema.workspaceGroupMembers.createdAt,
+    })
+    .from(schema.workspaceGroupMembers)
+    .innerJoin(
+      schema.workspaceGroups,
+      eq(schema.workspaceGroups.id, schema.workspaceGroupMembers.groupId),
+    )
+    .where(eq(schema.workspaceGroupMembers.userId, userId))
+    .orderBy(asc(schema.workspaceGroups.name));
   const admin = rows.filter((row) => row.role === "admin").map((row) => row.id);
   const domains =
     admin.length === 0
@@ -717,6 +731,9 @@ async function exportWorkspaces(global: GlobalDb, userId: string) {
   return rows.map(({ id, ...row }) => ({
     ...row,
     joinedAt: iso(row.joinedAt),
+    groups: groups
+      .filter((group) => group.workspaceId === id)
+      .map((group) => ({ name: group.name, addedAt: iso(group.addedAt) })),
     ...(row.role === "admin"
       ? {
           domains: domains

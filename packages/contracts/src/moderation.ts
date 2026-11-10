@@ -243,6 +243,8 @@ export const AccountExport = z.object({
       name: z.string(),
       role: z.enum(["admin", "editor", "member"]),
       joinedAt: Iso,
+      /** The groups the account is in there (decision 0014), never their other members. */
+      groups: z.array(z.strictObject({ name: z.string(), addedAt: Iso })),
       domains: z
         .array(
           z.strictObject({

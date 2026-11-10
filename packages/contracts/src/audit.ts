@@ -317,7 +317,9 @@ export const GetAuditLogInput = z.object({
   actor: opaqueId.optional().describe("Only events by this account ID (actor.id of an event)."),
   target: opaqueId
     .optional()
-    .describe("Only events about this target: an artifact, member, share link or webhook ID."),
+    .describe(
+      "Only events about this target: an artifact, member, share link, webhook or group ID.",
+    ),
   from: z.iso
     .datetime()
     .optional()

@@ -7,6 +7,7 @@ import { schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAccess, updateAccess } from "../src/access.ts";
+import { exportAccount } from "../src/account-data.ts";
 import {
   createAnnotationThread,
   exportAnnotations,
@@ -408,6 +409,21 @@ describe("managing groups", () => {
           createdAt: NOW,
         }),
     ).rejects.toThrow();
+  });
+});
+
+describe("the account export", () => {
+  it("lists the groups the account is in, never the other members", async () => {
+    const t = await team();
+    const group = value(await create(t, "Design"));
+    value(await join(t, group.id, t.member.id));
+    value(await join(t, group.id, t.other.id));
+    const exported = value(await exportAccount(db(), { userId: t.member.id, now: NOW }));
+    const space = exported.workspaces.find((w) => w.slug === t.slug);
+    expect(space?.groups).toEqual([{ name: "Design", addedAt: new Date(NOW).toISOString() }]);
+    expect(JSON.stringify(exported)).not.toContain(t.other.id);
+    const admin = value(await exportAccount(db(), { userId: t.admin.id, now: NOW }));
+    expect(admin.workspaces.find((w) => w.slug === t.slug)?.groups).toEqual([]);
   });
 });
 
