@@ -135,6 +135,67 @@ function tagEnd(html: string, from: number): number {
   return html.length;
 }
 
+/** Elements where `/>` closes the element (foreign content). */
+const FOREIGN = new Set(["svg", "math"]);
+/** Hidden elements that can hold themselves, so their end is the matching closing tag. */
+const NESTING = new Set(["template", "svg", "math", "object"]);
+
+/** Whether `<name` or `</name` starts a tag of `name` at `at` (`at` is the `<`). */
+function tagOf(html: string, at: number, name: string): "open" | "close" | null {
+  const closing = html[at + 1] === "/";
+  const start = at + (closing ? 2 : 1);
+  if (html.slice(start, start + name.length).toLowerCase() !== name) return null;
+  const after = html[start + name.length];
+  if (after !== undefined && NAME_CHAR.test(after)) return null;
+  return closing ? "close" : "open";
+}
+
+/** Where the matching closing tag of a nesting element starts, counting the ones it holds. */
+function nestedClosingTag(html: string, from: number, name: string): number {
+  let depth = 1;
+  let at = html.indexOf("<", from);
+  while (at !== -1) {
+    const kind = tagOf(html, at, name);
+    if (kind === "open") {
+      // A nested `<svg/>` closes itself.
+      const end = tagEnd(html, at + 1 + name.length);
+      if (!(FOREIGN.has(name) && html[end - 1] === "/")) depth++;
+      at = html.indexOf("<", end);
+      continue;
+    }
+    if (kind === "close" && --depth === 0) return at;
+    at = html.indexOf("<", at + 1);
+  }
+  return html.length;
+}
+
+/**
+ * Where a script's closing tag starts, following the HTML tokenizer's script states: `<!--` opens
+ * the escaped state, where `<script` opens the double-escaped state, in which `</script>` only
+ * goes back to escaped; `-->` returns to plain script data. One forward pass.
+ */
+function scriptEnd(html: string, from: number): number {
+  let state: "data" | "escaped" | "double" = "data";
+  for (let at = from; at < html.length; at++) {
+    const char = html[at];
+    if (char === "-" && state !== "data" && html.startsWith("-->", at)) {
+      state = "data";
+      at += 2;
+    } else if (char === "<") {
+      if (state === "data" && html.startsWith("<!--", at)) {
+        state = "escaped";
+        at += 3;
+      } else if (tagOf(html, at, "script") === "close") {
+        if (state === "double") state = "escaped";
+        else return at;
+      } else if (state === "escaped" && tagOf(html, at, "script") === "open") {
+        state = "double";
+      }
+    }
+  }
+  return html.length;
+}
+
 /** Where the closing tag of `name` starts at or after `from`, ASCII case-insensitive. */
 function closingTag(html: string, from: number, name: string): number {
   let at = html.indexOf("</", from);
@@ -209,9 +270,16 @@ export function htmlText(html: string, maxChars: number): { text: string; trunca
         const close = tagEnd(html, end);
         if (!INLINE.has(name)) push(" ");
         i = close + 1;
-        // A self-closing hidden element (`<svg/>`) has no content to skip.
-        if (HIDDEN.has(name) && html[close - 1] !== "/") {
-          const closing = closingTag(html, i, name);
+        // `/>` closes an element only in foreign content (`<svg/>`, `<math/>`); a browser
+        // ignores it on HTML elements, so `<script/>` still has a body to skip.
+        const selfClosing = FOREIGN.has(name) && html[close - 1] === "/";
+        if (HIDDEN.has(name) && !selfClosing) {
+          const closing =
+            name === "script"
+              ? scriptEnd(html, i)
+              : NESTING.has(name)
+                ? nestedClosingTag(html, i, name)
+                : closingTag(html, i, name);
           i = tagEnd(html, closing) + 1;
         }
       } else {

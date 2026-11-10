@@ -40,6 +40,18 @@ describe("htmlText", () => {
     ["</script>after", "after"],
     ["<scripts>shown</scripts>", "shown"],
     ["<script>a</scripts>b</script>c", "c"],
+    // Self-closing is honored only in svg and math: these bodies stay hidden.
+    ["<script src=/a.js/>secret</script>after", "after"],
+    ["<style/>secret</style>after", "after"],
+    ["<template/>secret</template>after", "after"],
+    ["<noscript/>secret</noscript>after", "after"],
+    ["<math/>shown", "shown"],
+    // The double-escaped script state: the first `</script>` does not end it, as in a browser.
+    ["<script><!--<script>x</script>y</script>-->after", "-->after"],
+    ["<script><!--<script>x</script>y</script>", ""],
+    ["<script><!-- x --></script>after", "after"],
+    // Templates nest: the outer one ends at its own closing tag.
+    ["<template><template>a</template>secret</template>after", "after"],
   ])("%j gives %j", (html, expected) => {
     expect(text(html)).toBe(expected);
   });
@@ -63,6 +75,25 @@ describe("htmlText", () => {
           const safeBefore = before.replace(/[<&]/g, " ");
           const out = text(`${safeBefore}<${tag}>SECRETXYZ</${tag}>${after}`);
           expect(out.slice(0, safeBefore.trim().length + 1)).not.toContain("SECRETXYZ");
+        },
+      ),
+    );
+  });
+
+  it("never returns text inside script, style or template, whatever the body holds", () => {
+    const pieces = ["<", "/", ">", "!--", "-->", "x", " ", "script", "style", "template", '"', "'"];
+    fc.assert(
+      fc.property(
+        fc.constantFrom("script", "style", "template"),
+        fc.constantFrom("", "/", ' src="/a.js"/', " type=x"),
+        fc.array(fc.constantFrom(...pieces), { maxLength: 30 }),
+        fc.array(fc.constantFrom(...pieces), { maxLength: 30 }),
+        (tag, attributes, before, after) => {
+          const inner = (parts: string[]) => parts.join("");
+          const body = `${inner(before)}SECRETXYZ${inner(after)}`;
+          // Only bodies a browser keeps inside the element: no closing tag of it in the body.
+          fc.pre(!body.toLowerCase().includes(`</${tag}`));
+          expect(text(`<${tag}${attributes}>${body}</${tag}>tail`)).not.toContain("SECRETXYZ");
         },
       ),
     );
