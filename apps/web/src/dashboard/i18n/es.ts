@@ -1011,4 +1011,5 @@ export const es = {
   "error.reauthentication_required": "Vuelve a iniciar sesión para hacer eso.",
   "error.human_verification_required":
     "Tus primeros comentarios en artifacts de otras personas necesitan una verificación rápida de que eres humano. Complétala y luego publica de nuevo.",
+  "error.plan_required": "Esta función no forma parte del plan del dueño del artifact.",
 } satisfies Catalog;

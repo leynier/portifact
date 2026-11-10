@@ -308,4 +308,5 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   human_verification_required: 403,
   capacity_unavailable: 503,
   sole_workspace_admin: 409,
+  plan_required: 403,
 };

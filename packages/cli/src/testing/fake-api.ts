@@ -25,7 +25,9 @@ import {
   IdempotencyKey,
   type ManifestFile,
   PLANS,
+  type PlanFeature,
   PublishRequest,
+  planRequiredMessage,
   RollbackRequest,
   type SourceOrigin,
   UploadedPart,
@@ -1036,6 +1038,11 @@ function summary(artifact: FakeArtifact): ArtifactSummary {
 
 export function error(code: ErrorCode, message: string): Reply {
   return { status: ERROR_STATUS[code], body: { error: { code, message } } };
+}
+
+/** The API's refusal of a paid feature the owner's plan does not include. */
+export function planRequired(feature: PlanFeature): Reply {
+  return error("plan_required", planRequiredMessage(feature));
 }
 
 function newArtifactId(): string {

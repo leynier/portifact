@@ -1015,4 +1015,6 @@ export const fr = {
   "error.reauthentication_required": "Reconnectez-vous pour faire cela.",
   "error.human_verification_required":
     "Vos premiers commentaires sur les artifacts d’autres personnes nécessitent une vérification rapide que vous êtes humain. Terminez-la, puis publiez de nouveau.",
+  "error.plan_required":
+    "Cette fonctionnalité ne fait pas partie de l’offre du propriétaire de l’artifact.",
 } satisfies Catalog;

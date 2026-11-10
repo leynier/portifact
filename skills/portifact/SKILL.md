@@ -158,7 +158,7 @@ With `--json`, the result is one JSON object on stdout, and a failure is `{"erro
 | 4         | The login was denied (`authorization_denied`) or its code expired (`authorization_expired`)                                                                |
 | 5         | The artifact, version, upload, thread, message or token does not exist, is no longer retained or belongs to someone else (`not_found`), or the session lacks permission (`forbidden`) |
 | 6         | Conflict with the artifact's state: `version_conflict`, `upload_incomplete` or `artifact_archived` (restore it first)                                     |
-| 7         | A limit was reached: `quota_exceeded`, `traffic_exceeded`, `account_too_new_for_public` or `human_verification_required` (a first comment that must come from the viewer) |
+| 7         | A limit was reached: `quota_exceeded`, `traffic_exceeded`, `account_too_new_for_public`, `human_verification_required` (a first comment that must come from the viewer) or `plan_required` (the owner's plan does not include the feature; the message names the plan that does) |
 
 ## Choosing the CLI or MCP
 

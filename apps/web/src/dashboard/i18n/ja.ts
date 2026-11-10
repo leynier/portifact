@@ -993,4 +993,5 @@ export const ja = {
   "error.reauthentication_required": "この操作を行うには、もう一度サインインしてください。",
   "error.human_verification_required":
     "ほかの人のartifactへの最初のコメントでは、人間であることの簡単な確認が必要です。確認を完了してから、もう一度投稿してください。",
+  "error.plan_required": "この機能は、artifactの所有者のプランに含まれていません。",
 } satisfies Catalog;
