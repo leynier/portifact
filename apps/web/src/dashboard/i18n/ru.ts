@@ -1160,4 +1160,73 @@ export const ru = {
     "Не менее {min} символов. Посетители вводят его перед открытием artifact. Отправьте его отдельно от ссылки.",
   "shareLinks.password.short": "Используйте не менее {min} символов или оставьте поле пустым.",
   "accessLog.shareLink": "Ссылка для доступа: {label}",
+  "shell.brandingLink": "Бренд",
+  "branding.title": "Бренд",
+  "branding.description":
+    "Показывайте своё название, логотип, цвет и ссылку на панели над вашими artifacts в просмотрщике. Отметка Portifact, адрес artifact и ссылка для жалобы всегда остаются на панели.",
+  "branding.loading": "Загрузка бренда",
+  "branding.error": "Не удалось загрузить бренд",
+  "branding.paidTitle": "Бренд входит в платный тариф",
+  "branding.paid":
+    "Бренд на панели просмотрщика входит в тариф {plan}. Ваши artifacts показывают стандартную панель, а сохранённый бренд остаётся здесь до тех пор, пока тариф снова его не включит.",
+  "branding.suspendedTitle": "Ваш бренд приостановлен",
+  "branding.suspended":
+    "Пока действует приостановка, ваши artifacts показывают стандартную панель. Напишите об этом на abuse@portifact.com.",
+  "branding.form.title": "Бренд",
+  "branding.form.hint":
+    "Показывается как текст и ссылка. Ничто здесь не меняет вид самих artifacts.",
+  "branding.form.name": "Название",
+  "branding.form.nameHint": "До {max} символов. Оно не может читаться как Portifact.",
+  "branding.form.nameRequired": "Введите название для показа.",
+  "branding.form.nameTooLong": "Используйте не более {max} символов.",
+  "branding.form.link": "Ссылка (необязательно)",
+  "branding.form.linkHint":
+    "Ваш собственный сайт, открывается в новой вкладке. Начинается с https://.",
+  "branding.form.linkInvalid": "Введите адрес, который начинается с https://.",
+  "branding.form.color": "Акцентный цвет (необязательно)",
+  "branding.form.colorHint":
+    "Цвет вида #1a2b3c. Он заливает плашку бренда, а текст на ней становится чёрным или белым, чтобы оставаться читаемым.",
+  "branding.form.colorPicker": "Выбрать акцентный цвет",
+  "branding.form.colorInvalid": "Используйте цвет вида #1a2b3c.",
+  "branding.form.save": "Сохранить бренд",
+  "branding.form.saved": "Бренд сохранён.",
+  "branding.form.failed": "Не удалось сохранить бренд",
+  "branding.form.invalid":
+    "Проверьте название и ссылку: название не может читаться как Portifact, а ссылка должна быть https-адресом вашего собственного сайта.",
+  "branding.logo.title": "Логотип",
+  "branding.logo.hint":
+    "Изображение PNG, JPEG или WebP не больше {kb} КБ и {px} на {px} пикселей, без анимации. Оно учитывается в вашем хранилище.",
+  "branding.logo.needsName": "Сначала сохраните название бренда, затем добавьте логотип.",
+  "branding.logo.none": "Логотипа пока нет.",
+  "branding.logo.current": "{type}, {width} на {height} пикселей, {size}.",
+  "branding.logo.choose": "Выбрать логотип",
+  "branding.logo.replace": "Заменить логотип",
+  "branding.logo.remove": "Удалить логотип",
+  "branding.logo.uploaded": "Логотип сохранён.",
+  "branding.logo.removed": "Логотип удалён.",
+  "branding.logo.failed": "Не удалось сохранить логотип",
+  "branding.logo.invalid":
+    "Используйте изображение PNG, JPEG или WebP не больше {kb} КБ и {px} на {px} пикселей, без анимации и без сохранённого в нём текста.",
+  "branding.logo.full": "Хранилище заполнено. Сначала удалите что-нибудь.",
+  "branding.preview.title": "Предпросмотр",
+  "branding.preview.hint":
+    "Панель в каждой теме с тем, что указано в форме, сохранено это или нет.",
+  "branding.preview.light": "Светлая тема",
+  "branding.preview.dark": "Тёмная тема",
+  "branding.preview.sample": "Квартальный отчёт",
+  "branding.preview.noName": "Ваше название",
+  "branding.preview.origin": "a1b2c3d4e5.portifact.dev",
+  "branding.delete.title": "Удалить бренд",
+  "branding.delete.hint":
+    "Ваши artifacts снова показывают стандартную панель, а логотип удаляется.",
+  "branding.delete.action": "Удалить бренд",
+  "branding.delete.confirm": "Удалить бренд?",
+  "branding.delete.body":
+    "Название, цвет, ссылка и логотип удаляются, и просмотрщик показывает стандартную панель на всех ваших artifacts.",
+  "branding.delete.done": "Бренд удалён.",
+  "branding.delete.failed": "Не удалось удалить бренд",
+  "branding.delete.cancel": "Отмена",
+  "viewer.brandNewTab": "(откроется в новой вкладке)",
+  "viewer.hosting.poweredBy": "Работает на Portifact",
+  "viewer.hosting.origin": "Опубликовано на",
 } satisfies Catalog;

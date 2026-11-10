@@ -23,6 +23,8 @@ import {
   type ArtifactListFilters,
   ArtifactStatsView,
   ArtifactSummary,
+  BrandSettings,
+  type BrandUpdate,
   BrowserSessionList,
   CommentNoticeMute,
   CommittedPublish,
@@ -104,6 +106,13 @@ export interface DashboardApi {
   /** The defaults new artifacts start with. */
   accountSettings(): Promise<AccountSettings>;
   updateAccountSettings(update: AccountSettingsUpdate): Promise<AccountSettings>;
+  /** The brand of the account's space on the viewer's bar, and whether its plan includes it. */
+  brandSettings(): Promise<BrandSettings>;
+  updateBrand(update: BrandUpdate): Promise<BrandSettings>;
+  deleteBrand(): Promise<BrandSettings>;
+  /** Sends the logo file's bytes as they are; the server judges them. */
+  uploadBrandLogo(file: Blob): Promise<BrandSettings>;
+  removeBrandLogo(): Promise<BrandSettings>;
   /** Whether the artifact's owner has comment notices, and whether the caller muted it. */
   commentNoticeMute(artifactId: string): Promise<CommentNoticeMute>;
   /** Mutes or unmutes the artifact's comment notices for the caller. */
@@ -215,6 +224,14 @@ export interface DashboardApi {
   setAnnotationMode(artifactId: string, mode: AnnotationsState): Promise<AnnotationModeView>;
 }
 
+/** The brand of the account's space (session only). */
+export const BRAND_PATH = "/api/v1/account/branding";
+
+/** The stored logo for the Branding page's preview, versioned by its hash for the cache. */
+export function brandLogoPreview(sha256: string): string {
+  return `${BRAND_PATH}/logo?v=${sha256}`;
+}
+
 /** The account's data as a JSON download (a plain link: the browser saves the attachment). */
 export const ACCOUNT_EXPORT_PATH = "/api/v1/account/export";
 
@@ -250,10 +267,17 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         credentials: "same-origin",
         headers: {
           accept: "application/json",
-          ...(payload === undefined ? {} : { "content-type": "application/json" }),
+          ...(payload === undefined
+            ? {}
+            : {
+                "content-type":
+                  payload instanceof Blob ? "application/octet-stream" : "application/json",
+              }),
           ...extraHeaders,
         },
-        ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+        ...(payload === undefined
+          ? {}
+          : { body: payload instanceof Blob ? payload : JSON.stringify(payload) }),
       });
     } catch {
       throw new ApiFailure("network", 0);
@@ -353,6 +377,21 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     updateAccountSettings(update) {
       return call("/api/v1/account/settings", AccountSettings, "PATCH", update);
+    },
+    brandSettings() {
+      return call(BRAND_PATH, BrandSettings);
+    },
+    updateBrand(update) {
+      return call(BRAND_PATH, BrandSettings, "PUT", update);
+    },
+    deleteBrand() {
+      return call(BRAND_PATH, BrandSettings, "DELETE");
+    },
+    uploadBrandLogo(file) {
+      return call(`${BRAND_PATH}/logo`, BrandSettings, "PUT", file);
+    },
+    removeBrandLogo() {
+      return call(`${BRAND_PATH}/logo`, BrandSettings, "DELETE");
     },
     commentNoticeMute(artifactId) {
       return call(

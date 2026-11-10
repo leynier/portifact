@@ -14,6 +14,8 @@ import { Button } from "../components/button.tsx";
 import {
   Checkbox,
   type CheckboxProps,
+  ColorField as ColorFieldControl,
+  type ColorFieldProps,
   RadioGroup as RadioGroupControl,
   type RadioGroupProps,
   SearchField as SearchFieldControl,
@@ -72,6 +74,20 @@ function SearchField(props: Omit<Bound<SearchFieldProps>, "onClear">) {
         field.handleChange("");
         void form.handleSubmit();
       }}
+      error={firstError(field.state.meta.errors)}
+    />
+  );
+}
+
+function ColorField(props: Bound<ColorFieldProps>) {
+  const field = useFieldContext<string>();
+  return (
+    <ColorFieldControl
+      {...props}
+      name={field.name}
+      value={field.state.value}
+      onChange={field.handleChange}
+      onBlur={field.handleBlur}
       error={firstError(field.state.meta.errors)}
     />
   );
@@ -207,6 +223,7 @@ export const { useAppForm, withForm } = createFormHook({
   formContext,
   fieldComponents: {
     TextField,
+    ColorField,
     SearchField,
     TextAreaField,
     CheckboxField,

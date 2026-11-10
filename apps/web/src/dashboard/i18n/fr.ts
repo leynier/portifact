@@ -1174,4 +1174,73 @@ export const fr = {
     "Au moins {min} caractères. Les visiteurs le saisissent avant que l'artifact s'ouvre. Envoyez-le séparément du lien.",
   "shareLinks.password.short": "Utilisez au moins {min} caractères, ou laissez vide.",
   "accessLog.shareLink": "Lien de partage : {label}",
+  "shell.brandingLink": "Marque",
+  "branding.title": "Marque",
+  "branding.description":
+    "Affichez votre nom, votre logo, votre couleur et votre lien sur la barre au-dessus de vos artifacts dans la visionneuse. La mention de Portifact, l’adresse de l’artifact et le lien de signalement restent toujours sur la barre.",
+  "branding.loading": "Chargement de votre marque",
+  "branding.error": "Impossible de charger votre marque",
+  "branding.paidTitle": "La marque fait partie d’une offre payante",
+  "branding.paid":
+    "Afficher votre marque sur la barre de la visionneuse fait partie de l’offre {plan}. Vos artifacts affichent la barre par défaut, et la marque enregistrée reste ici pour le jour où votre offre l’inclura de nouveau.",
+  "branding.suspendedTitle": "Votre marque est suspendue",
+  "branding.suspended":
+    "Vos artifacts affichent la barre par défaut tant que dure la suspension. Écrivez à abuse@portifact.com à ce sujet.",
+  "branding.form.title": "Marque",
+  "branding.form.hint":
+    "Affichée sous forme de texte et de lien. Rien ici ne change l’apparence des artifacts eux-mêmes.",
+  "branding.form.name": "Nom",
+  "branding.form.nameHint": "Jusqu’à {max} caractères. Il ne peut pas se lire comme Portifact.",
+  "branding.form.nameRequired": "Saisissez le nom à afficher.",
+  "branding.form.nameTooLong": "Utilisez au plus {max} caractères.",
+  "branding.form.link": "Lien (facultatif)",
+  "branding.form.linkHint":
+    "Votre propre site, ouvert dans un nouvel onglet. Il commence par https://.",
+  "branding.form.linkInvalid": "Saisissez une adresse qui commence par https://.",
+  "branding.form.color": "Couleur d’accent (facultatif)",
+  "branding.form.colorHint":
+    "Une couleur comme #1a2b3c. Elle remplit l’étiquette de la marque, et le texte passe en noir ou en blanc pour rester lisible.",
+  "branding.form.colorPicker": "Choisir la couleur d’accent",
+  "branding.form.colorInvalid": "Utilisez une couleur comme #1a2b3c.",
+  "branding.form.save": "Enregistrer la marque",
+  "branding.form.saved": "Marque enregistrée.",
+  "branding.form.failed": "Impossible d’enregistrer la marque",
+  "branding.form.invalid":
+    "Vérifiez le nom et le lien : le nom ne peut pas se lire comme Portifact, et le lien doit être l’adresse https de votre propre site.",
+  "branding.logo.title": "Logo",
+  "branding.logo.hint":
+    "Une image PNG, JPEG ou WebP de {kb} Ko et {px} sur {px} pixels au plus, sans animation. Elle compte dans votre stockage.",
+  "branding.logo.needsName": "Enregistrez d’abord le nom de la marque, puis ajoutez un logo.",
+  "branding.logo.none": "Pas encore de logo.",
+  "branding.logo.current": "{type}, {width} sur {height} pixels, {size}.",
+  "branding.logo.choose": "Choisir un logo",
+  "branding.logo.replace": "Remplacer le logo",
+  "branding.logo.remove": "Retirer le logo",
+  "branding.logo.uploaded": "Logo enregistré.",
+  "branding.logo.removed": "Logo retiré.",
+  "branding.logo.failed": "Impossible d’enregistrer le logo",
+  "branding.logo.invalid":
+    "Utilisez une image PNG, JPEG ou WebP de {kb} Ko et {px} sur {px} pixels au plus, sans animation ni texte enregistré dedans.",
+  "branding.logo.full": "Votre stockage est plein. Supprimez d’abord quelque chose.",
+  "branding.preview.title": "Aperçu",
+  "branding.preview.hint":
+    "La barre dans chaque thème avec le contenu du formulaire, enregistré ou non.",
+  "branding.preview.light": "Thème clair",
+  "branding.preview.dark": "Thème sombre",
+  "branding.preview.sample": "Rapport trimestriel",
+  "branding.preview.noName": "Votre nom",
+  "branding.preview.origin": "a1b2c3d4e5.portifact.dev",
+  "branding.delete.title": "Supprimer la marque",
+  "branding.delete.hint":
+    "Vos artifacts affichent de nouveau la barre par défaut, et le logo est supprimé.",
+  "branding.delete.action": "Supprimer la marque",
+  "branding.delete.confirm": "Supprimer la marque ?",
+  "branding.delete.body":
+    "Le nom, la couleur, le lien et le logo sont retirés, et la visionneuse affiche la barre par défaut sur tous vos artifacts.",
+  "branding.delete.done": "Marque supprimée.",
+  "branding.delete.failed": "Impossible de supprimer la marque",
+  "branding.delete.cancel": "Annuler",
+  "viewer.brandNewTab": "(s’ouvre dans un nouvel onglet)",
+  "viewer.hosting.poweredBy": "Propulsé par Portifact",
+  "viewer.hosting.origin": "Publié sur",
 } satisfies Catalog;

@@ -119,6 +119,77 @@ export function SearchField({ label, error, clearLabel, onClear, ...rest }: Sear
   );
 }
 
+export interface ColorFieldProps extends Omit<NativeInput, "value" | "onChange" | "defaultValue"> {
+  label: string;
+  description?: ReactNode;
+  error?: string | undefined;
+  /** The color as typed, `#rrggbb` when valid. */
+  value: string;
+  onChange(value: string): void;
+  /** Accessible name of the color picker beside the text box. */
+  pickerLabel: string;
+}
+
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * A color typed as `#rrggbb` in a labelled text box, with the browser's color picker beside it
+ * for people who prefer to pick. The text box is the keyboard and screen reader path; the picker
+ * only fills it in, and it shows the last valid color while the text is being typed.
+ */
+export function ColorField({
+  label,
+  description,
+  error,
+  value,
+  onChange,
+  pickerLabel,
+  disabled,
+  ...rest
+}: ColorFieldProps) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
+  const lastValid = useRef("#000000");
+  if (HEX_COLOR.test(value)) lastValid.current = value.toLowerCase();
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor={id} className="text-sm font-medium">
+        {label}
+      </label>
+      {description ? (
+        <p id={hintId} className="text-sm text-text-muted">
+          {description}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          aria-label={pickerLabel}
+          value={lastValid.current}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-10 w-12 shrink-0 rounded-sm border border-border-strong bg-canvas p-1 disabled:opacity-55"
+        />
+        <input
+          {...rest}
+          id={id}
+          type="text"
+          value={value}
+          disabled={disabled}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(event) => onChange(event.target.value)}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy(description !== undefined && hintId, error && errorId)}
+          className="h-10 w-full rounded-sm border border-border-strong bg-canvas px-3 font-mono text-sm text-text transition-colors duration-150 placeholder:text-text-muted hover:border-text disabled:opacity-55 disabled:hover:border-border-strong aria-invalid:border-2 aria-invalid:border-text"
+        />
+      </div>
+      {error ? <FieldError id={errorId}>{error}</FieldError> : null}
+    </div>
+  );
+}
+
 export interface TextAreaProps
   extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "className" | "id"> {
   label: string;

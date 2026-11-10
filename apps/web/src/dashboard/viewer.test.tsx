@@ -1880,3 +1880,72 @@ describe("when the review session cannot start", () => {
     expect(raw.getAttribute("href")).toBe(`${ORIGIN}/__portifact/raw`);
   });
 });
+
+describe("the owner's brand on the bar", () => {
+  const BRAND = {
+    name: 'Acme <img src=x onerror="alert(1)">',
+    accentColor: "#0000ff",
+    link: "https://acme.example.com/",
+    logo: { url: `${ORIGIN}/__portifact/brand/${"b".repeat(64)}`, width: 64, height: 32 },
+  };
+
+  function branded(role: "owner" | "reader") {
+    server.viewers[ID] = {
+      artifactId: ID,
+      name: "Launch plan",
+      type: "site",
+      origin: ORIGIN,
+      versionNumber: 1,
+      accessMode: "restricted",
+      annotations: "open",
+      role,
+      brand: BRAND,
+    };
+    const store = server.annotations[ID];
+    if (store && role === "reader") store.role = "participant";
+  }
+
+  it("shows a reader the owner's brand, with Portifact, the real origin and the report link kept", async () => {
+    branded("reader");
+    const { container } = await open();
+    const bar = screen.getByRole("banner");
+    const home = within(bar).getByRole("link", { name: `${BRAND.name} (opens in a new tab)` });
+    expect(home.getAttribute("href")).toBe("https://acme.example.com/");
+    expect(home.getAttribute("target")).toBe("_blank");
+    expect(home.getAttribute("rel")).toBe("noopener noreferrer");
+    // The name is text: the markup in it never becomes an element.
+    expect(home.querySelectorAll("img")).toHaveLength(1);
+    expect(home.querySelector("img")?.getAttribute("src")).toBe(BRAND.logo.url);
+    expect(home.textContent).toContain(BRAND.name);
+    // Portifact's mark is not the bar's home any more, but Portifact stays named under it.
+    expect(within(bar).queryByRole("link", { name: "Portifact" })).toBeNull();
+    const notice = screen.getByText("Powered by Portifact").parentElement as HTMLElement;
+    expect(bar.contains(notice)).toBe(true);
+    expect(notice.textContent).toContain("Published at");
+    expect(notice.textContent).toContain(`${ID}.portifact.dev`);
+    expect(
+      within(notice).getByRole("link", { name: "Report this artifact" }).getAttribute("href"),
+    ).toBe(`/report?artifact=${ID}`);
+    // The bar's own report link is still there too.
+    expect(within(bar).getAllByRole("link", { name: "Report this artifact" })).toHaveLength(2);
+    // Review mode is never branded: the sidebar and the comments carry no brand.
+    const sidebar = screen.getByRole("complementary", { name: "Comments" });
+    expect(sidebar.textContent).not.toContain("Acme");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("shows the owner the brand without a report link in the notice", async () => {
+    branded("owner");
+    await open();
+    expect(screen.getByText("Powered by Portifact")).toBeTruthy();
+    const notice = screen.getByText("Powered by Portifact").parentElement as HTMLElement;
+    expect(within(notice).queryByRole("link")).toBeNull();
+  });
+
+  it("keeps the default bar, with no notice, when the API returns no brand", async () => {
+    await open();
+    const bar = screen.getByRole("banner");
+    expect(within(bar).getByRole("link", { name: "Portifact" })).toBeTruthy();
+    expect(screen.queryByText("Powered by Portifact")).toBeNull();
+  });
+});

@@ -28,7 +28,15 @@ const EDITOR: readonly RoleAction[] = [
   "access_log",
   "usage",
 ];
-const ADMIN: readonly RoleAction[] = [...EDITOR, "members", "plan", "policies", "delete_workspace"];
+const ADMIN: readonly RoleAction[] = [
+  ...EDITOR,
+  "members",
+  "plan",
+  "policies",
+  "delete_workspace",
+  // The owner's brand on the viewer's bar (premium plan P9): what visitors see as the owner.
+  "brand",
+];
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {
   admin: new Set(ADMIN),

@@ -62,6 +62,7 @@ export const DASHBOARD_ROUTES = [
   "/profile",
   "/apps",
   "/usage",
+  "/branding",
   "/settings",
   // The old account page; the dashboard sends it on to the page that holds each section now.
   "/account",
@@ -163,19 +164,23 @@ export async function dashboardCsp(
 
 /**
  * The viewer's policy: the dashboard's, with `frame-src` narrowed to the one artifact it shows
- * (and the human check), so its frame can never be navigated to another artifact or site. Its
+ * (and the human check), so its frame can never be navigated to another artifact or site, and
+ * `img-src` widened to that one origin for the owner's logo. Its
  * links to the dashboard load a new page, which gets the dashboard's own policy.
  */
 export async function viewerCsp(
   env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">,
   artifactId: string,
 ): Promise<string> {
+  const origin = `https://${artifactId}.${env.CONTENT_DOMAIN}`;
+  // The owner's logo on a branded bar comes from that same artifact origin
+  // (`/__portifact/brand/<sha256>`), so `img-src` adds exactly it and no host an owner chose.
   return dashboardPolicy(
     storageOrigin(env.R2_ACCOUNT_ID),
     await documentStylesheetSource(),
     env.CONTENT_DOMAIN,
-    `https://${artifactId}.${env.CONTENT_DOMAIN}`,
-  );
+    origin,
+  ).replace("img-src 'self'", `img-src 'self' ${origin}`);
 }
 
 export function createAppHost(depsFor: (env: Env) => AuthDeps) {
