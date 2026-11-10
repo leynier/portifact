@@ -1,7 +1,7 @@
 // Worker for artifact origins (`<id>.portifact.dev`). Serves user content only and holds no
 // admin credentials; its only state changes are redeeming one-use sign-in codes under
-// /__portifact/, adding served traffic to the owner's counter and recording openings by signed-in
-// visitors in the owner's access log. See docs/security.md for the invariants enforced here.
+// /__portifact/, adding served traffic to the owner's counter, recording openings by signed-in
+// visitors in the owner's access log and counting page views for owners with analytics. See docs/security.md for the invariants enforced here.
 import { ERROR_STATUS, REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import {
   type AccessDb,
@@ -18,13 +18,16 @@ import {
   chargedBytes,
   effectiveState,
   entitlements,
+  hasFeature,
   isArtifactId,
   isLoggedLinkOpening,
   isLoggedOpening,
   normalizePath,
+  pageView,
   type TrafficCycle,
   trafficCycle,
   trafficExhausted,
+  viewsExpireAt,
 } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
 import {
@@ -32,6 +35,7 @@ import {
   personalHandles,
   recordOpenings,
   recordTraffic,
+  recordViews,
 } from "@portifact/services";
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
@@ -77,6 +81,7 @@ import {
   viewerLocation,
   viewerRedirect,
 } from "./viewer.ts";
+import { type CountView, ViewMeter } from "./views.ts";
 
 // The Durable Object class the TRAFFIC_LIMITER binding names (wrangler.jsonc).
 export { TrafficLimiter } from "./traffic-limiter.ts";
@@ -158,6 +163,18 @@ export function isolateOpenings(env: Env): OpeningLog {
   return openings;
 }
 
+/** One view meter per isolate, like the traffic meter. */
+let views: ViewMeter | undefined;
+
+/** The isolate's view meter, writing to the access database of the request that creates it. */
+export function isolateViews(env: Env): ViewMeter {
+  views ??= new ViewMeter((deltas) => {
+    const region = defaultRegion(env);
+    return recordViews(region.db.global, accessDbOf(region), deltas);
+  });
+  return views;
+}
+
 export default {
   fetch: (request, env, ctx) => {
     const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
@@ -167,19 +184,22 @@ export default {
       Date.now(),
       (charge) => isolateMeter(env).count(charge, waitUntil),
       (opening) => isolateOpenings(env).record(opening, waitUntil),
+      (view) => isolateViews(env).count(view, waitUntil),
     );
   },
 } satisfies ExportedHandler<Env>;
 
 const NO_TRAFFIC: CountTraffic = () => {};
 const NO_OPENINGS: LogOpening = () => {};
+const NO_VIEWS: CountView = () => {};
 
 /**
  * Answers one request. `countTraffic` is charged once for every authorized request served for an
  * artifact; requests refused before authorization (sign-in, unknown or unavailable artifacts)
  * and the 429 itself charge nothing. `logOpening` gets every page served to a signed-in visitor
  * who is not the owner of a `restricted` artifact (`isLoggedOpening`); anonymous visits, public and
- * `authenticated` artifacts and subresources are never logged.
+ * `authenticated` artifacts and subresources are never logged. `countView` gets every page view
+ * (`pageView`) of an artifact whose owner's plan includes analytics.
  */
 export async function handle(
   request: Request,
@@ -187,8 +207,9 @@ export async function handle(
   now: number,
   countTraffic: CountTraffic = NO_TRAFFIC,
   logOpening: LogOpening = NO_OPENINGS,
+  countView: CountView = NO_VIEWS,
 ): Promise<Response> {
-  const response = await route(request, env, now, countTraffic, logOpening);
+  const response = await route(request, env, now, countTraffic, logOpening, countView);
   // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
   const stray = strayFrameCookie(request);
   // Cookies siblings set on the shared domain: expired once they grow, on every answer, so the
@@ -213,6 +234,7 @@ async function route(
   now: number,
   countTraffic: CountTraffic,
   logOpening: LogOpening,
+  countView: CountView,
 ): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
@@ -273,7 +295,17 @@ async function route(
   const cycle = trafficCycle(now);
   const found = await findDeliveryArtifact(db, id, cycle.start);
   const artifact = found && isServable(found, now) ? found : null;
-  const delivery: Delivery = { request, env, db, url, now, cycle, countTraffic, logOpening };
+  const delivery: Delivery = {
+    request,
+    env,
+    db,
+    url,
+    now,
+    cycle,
+    countTraffic,
+    logOpening,
+    countView,
+  };
   // Review mode first: the viewer's iframe reads the pinned version with the bridge, and a
   // review tab reads it with the review banner.
   const review = await authorizeReview(request, env, db, id, artifact, now);
@@ -316,6 +348,7 @@ interface Delivery {
   cycle: TrafficCycle;
   countTraffic: CountTraffic;
   logOpening: LogOpening;
+  countView: CountView;
 }
 
 /**
@@ -343,8 +376,9 @@ async function serve(
   linkId?: string,
 ): Promise<Response> {
   const { request, cycle, now } = delivery;
-  // The plan came with the artifact lookup, so the quota adds no read per request.
-  if (trafficExhausted(artifact.traffic, entitlements(artifact.plan, now).limits)) {
+  // The plan came with the artifact lookup, so the quota and the view count add no read.
+  const plan = entitlements(artifact.plan, now);
+  if (trafficExhausted(artifact.traffic, plan.limits)) {
     return withCookies(trafficExceeded(cycle.resetsAt, now), setCookies);
   }
   // Then budget protection (plan section 12): a tight per-visitor limit, public traffic first.
@@ -356,7 +390,7 @@ async function serve(
     limited.headers.set("Retry-After", String(Math.max(1, Math.ceil((limitedUntil - now) / 1000))));
     return limited;
   }
-  const { response, bytes } = await serveFile(
+  const { response, bytes, page, redirect } = await serveFile(
     delivery,
     artifact,
     setCookies,
@@ -368,6 +402,28 @@ async function serve(
     cycleStart: cycle.start,
     bytes: chargedBytes(response.status, request.method, bytes),
   });
+  const view = pageView({
+    method: request.method,
+    fetchMode: request.headers.get("Sec-Fetch-Mode"),
+    fetchDest: request.headers.get("Sec-Fetch-Dest"),
+    fetchSite: request.headers.get("Sec-Fetch-Site"),
+    status: response.status,
+    isPage: page,
+    viewerRedirect: redirect,
+    // A share link's session names no visitor: its page loads are anonymous views.
+    visitorId: linkId === undefined ? visitorId : null,
+    ownerId: artifact.ownerId,
+    analytics: hasFeature(plan, "analytics"),
+  });
+  if (view !== null) {
+    delivery.countView({
+      artifactId: artifact.id,
+      ownerId: artifact.ownerId,
+      at: now,
+      visitorId: view === "signedIn" ? visitorId : null,
+      expiresAt: viewsExpireAt(now, plan),
+    });
+  }
   if (
     response.status < 400 &&
     isLoggedOpening({
@@ -404,13 +460,24 @@ function isPageLoad(request: Request): boolean {
   );
 }
 
-/** A response and the body bytes it sends, for the traffic counter. */
+/**
+ * A response, the body bytes it sends (for the traffic counter), whether it is a page the
+ * visitor sees (an HTML file or a rendered page) and whether it is the redirect to the viewer
+ * (for the view count).
+ */
 interface Served {
   response: Response;
   bytes: number;
+  page: boolean;
+  redirect: boolean;
 }
 
-const served = (response: Response, bytes = 0): Served => ({ response, bytes });
+const served = (response: Response, bytes = 0): Served => ({
+  response,
+  bytes,
+  page: false,
+  redirect: false,
+});
 
 /**
  * Serves a file of the artifact's current version, or in review mode (`reviewSession`) of the
@@ -436,12 +503,16 @@ async function serveFile(
   }
   if (!resolved) return served(withCookies(notFound(), setCookies));
   const { file, role } = resolved;
+  const page = isPage(file, role);
   // A link visitor has no account for the viewer to show: they get the artifact itself.
   if (!review && !link && opensInViewer(request, artifact, file, role)) {
     const location = viewerLocation(env.APP_ORIGIN, artifact.id, url);
     // A redirect sends no file, so it charges the request and no bytes.
-    if (location) return served(viewerRedirect(location, setCookies));
+    if (location) {
+      return { ...served(viewerRedirect(location, setCookies)), page, redirect: true };
+    }
   }
+  const sent = (response: Response, bytes = 0): Served => ({ ...served(response, bytes), page });
 
   const headers = contentHeaders(artifact, env, review, link);
   for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
@@ -467,30 +538,30 @@ async function serveFile(
   if (inject && reviewSession) {
     // The bridge or banner adds a few bytes to the page; the file's size is what is charged.
     const response = await serveWithBridge(request, env, file, headers, nonce, reviewSession);
-    return served(response, file.size);
+    return sent(response, file.size);
   }
   headers.set("ETag", `"${file.sha256}"`);
   headers.set("Accept-Ranges", "bytes");
 
   if (request.headers.get("If-None-Match") === `"${file.sha256}"`) {
-    return served(new Response(null, { status: 304, headers }));
+    return sent(new Response(null, { status: 304, headers }));
   }
   if (request.method === "HEAD") {
     headers.set("Content-Length", String(file.size));
-    return served(new Response(null, { status: 200, headers }));
+    return sent(new Response(null, { status: 200, headers }));
   }
 
   const object = await env.ARTIFACTS.get(file.r2Key, { range: request.headers });
-  if (!object) return served(withCookies(message(503, PAGES.fileUnavailable), setCookies));
+  if (!object) return sent(withCookies(message(503, PAGES.fileUnavailable), setCookies));
   // R2 reports a range even for whole-object reads; only answer 206 when the client asked for one.
   if (request.headers.has("Range") && object.range) {
     const { start, length } = byteSpan(object.range, file.size);
     headers.set("Content-Range", `bytes ${start}-${start + length - 1}/${file.size}`);
     headers.set("Content-Length", String(length));
-    return served(new Response(object.body, { status: 206, headers }), length);
+    return sent(new Response(object.body, { status: 206, headers }), length);
   }
   headers.set("Content-Length", String(file.size));
-  return served(new Response(object.body, { status: 200, headers }), file.size);
+  return sent(new Response(object.body, { status: 200, headers }), file.size);
 }
 
 /**
@@ -550,6 +621,11 @@ function opensInViewer(
   role: Resolved["role"],
 ): boolean {
   if (!artifact.bar || !isTopLevelVisit(request) || skipsViewer(request)) return false;
+  return isPage(file, role);
+}
+
+/** A page: a document's rendered page or an HTML file of a site. */
+function isPage(file: DeliveryFile, role: Resolved["role"]): boolean {
   return role === "page" || (role === "file" && file.contentType.startsWith("text/html"));
 }
 

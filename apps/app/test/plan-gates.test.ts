@@ -149,6 +149,13 @@ const GATED: GatedOperation[] = [
     (id) => ({ artifactId: id, label: "Gate" }),
   ),
   route(
+    "analytics",
+    "read an artifact's analytics",
+    (id) => [`/api/v1/artifacts/${id}/stats`],
+    "get_artifact_stats",
+    (id) => ({ artifactId: id }),
+  ),
+  route(
     "versionDiff",
     "compare two versions",
     (id) => [`/api/v1/artifacts/${id}/versions/current/diff/current`],

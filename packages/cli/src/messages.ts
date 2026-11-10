@@ -152,6 +152,8 @@ export const messages = {
   logsNote: (minutes: number, days: number) =>
     `One entry per visitor every ${minutes} minutes, kept ${days} days. Only artifacts restricted to listed readers record signed-in openings, share link openings name only the link, your own visits are not recorded, and some openings may be missing.`,
   logsShareLink: (label: string) => `share link: ${label}`,
+  statsNote: (logged: boolean, days: number) =>
+    `Views per UTC day; SIGNED IN counts views with a signed-in visitor.${logged ? " VISITORS counts distinct signed-in readers from the access log; the total counts each reader once." : " Distinct visitors are shown only for artifacts restricted to listed readers."} Kept ${days} days. Your own visits and link previews are not counted, automated browsers can be: an indicator, not an audit.`,
   rolledBack: (id: string, version: number, from: number, url: string, expiresAt: string | null) =>
     [
       `Rolled back ${id}: version ${version} has the files of version ${from}. Access did not change.`,
@@ -253,6 +255,10 @@ export const messages = {
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,
     invalidSince: (value: string) =>
       `${JSON.stringify(value)} is not a time. Use a duration like 30m, 12h or 7d, or an ISO date like 2026-11-01T00:00:00Z.`,
+    statsDaysWithRange: "Use --days or --from and --to, not both.",
+    invalidDays: (max: number) => `--days takes a whole number from 1 to ${max}.`,
+    invalidDay: (value: string) =>
+      `${JSON.stringify(value)} is not a day. Use a UTC date like 2026-11-01.`,
     invalidSearch: (max: number) => `Search for 1 to ${max} characters.`,
     invalidRevision: "Use the message revision, a whole number from 1.",
     notFoundPath: (path: string) => `${path} does not exist or cannot be read.`,

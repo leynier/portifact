@@ -464,22 +464,54 @@ export const ptBR = {
   "account.actionFailed.title": "A ação não foi concluída",
   "accessLog.title": "Quem abriu",
   "accessLog.hint":
-    "Visitantes com login que abriram este artifact nos últimos 30 dias, do mais recente ao mais antigo, uma entrada por visitante a cada 30 minutos. Só você vê esta lista. Só os artifacts restritos às pessoas que você lista registram aberturas, suas próprias visitas não são registradas, e algumas aberturas podem faltar.",
+    "Visitantes com login que abriram este artifact nos últimos {days, plural, one {# dia} other {# dias}}, do mais recente ao mais antigo, uma entrada por visitante a cada 30 minutos. Só você vê esta lista. Só os artifacts restritos às pessoas que você lista registram aberturas, suas próprias visitas não são registradas, e algumas aberturas podem faltar.",
   "accessLog.loading": "Carregando quem abriu o artifact",
   "accessLog.error.title": "Não foi possível carregar o registro de acesso",
   "accessLog.empty.title": "Nenhum visitante ainda",
-  "accessLog.empty.body": "Ninguém com login abriu este artifact nos últimos 30 dias.",
+  "accessLog.empty.body":
+    "Ninguém com login abriu este artifact nos últimos {days, plural, one {# dia} other {# dias}}.",
   "accessLog.caption": "Aberturas deste artifact por visitantes com login",
   "accessLog.column.opened": "Aberto",
   "accessLog.column.visitor": "Visitante",
   "accessLog.loadMore": "Mostrar mais",
   "accessLog.export.hint":
-    "As exportações incluem todas as entradas dos últimos 30 dias, não só as exibidas.",
+    "As exportações incluem todas as entradas dos últimos {days, plural, one {# dia} other {# dias}}, não só as exibidas.",
   "accessLog.export.csv": "Exportar como CSV",
   "accessLog.export.json": "Exportar como JSON",
   "accessLog.export.doneCsv": "O registro de acesso foi exportado como CSV.",
   "accessLog.export.doneJson": "O registro de acesso foi exportado como JSON.",
   "accessLog.export.failed": "Não foi possível exportar o registro de acesso",
+
+  "analytics.title": "Estatísticas",
+  "analytics.hint":
+    "Visualizações de página por dia (UTC) e, nos artifacts restritos às pessoas que você lista, quantas delas o abriram. Apenas contagens: ninguém é identificado aqui.",
+  "analytics.loading": "Carregando as estatísticas do artifact",
+  "analytics.error.title": "Não foi possível carregar as estatísticas",
+  "analytics.planRequired":
+    "Estatísticas por artifact e um registro de acessos de um ano fazem parte do plano {plan}.",
+  "analytics.range.label": "Período",
+  "analytics.range.days": "Últimos {count, plural, one {# dia} other {# dias}}",
+  "analytics.total.views": "Visualizações",
+  "analytics.total.signedIn": "Visualizações de visitantes com login",
+  "analytics.total.visitors": "Visitantes distintos com login",
+  "analytics.visitors.notKept": "Contados só em artifacts restritos às pessoas que você lista",
+  "analytics.chart.label": "Visualizações por dia",
+  "analytics.chart.summary":
+    "Visualizações: {views} em {days, plural, one {# dia} other {# dias}}. Dia com mais visualizações: {busiest}, com {most}.",
+  "analytics.chart.summaryEmpty":
+    "Nenhuma visualização nos últimos {days, plural, one {# dia} other {# dias}}.",
+  "analytics.chart.day": "{day}. Visualizações: {views}. Com login: {signedIn}.",
+  "analytics.chart.dayWithVisitors":
+    "{day}. Visualizações: {views}. Com login: {signedIn}. Visitantes distintos: {visitors}.",
+  "analytics.chart.keyboard": "Coloque o foco no gráfico e use as setas para ler cada dia.",
+  "analytics.table.show": "Mostrar os números em uma tabela",
+  "analytics.table.caption": "Visualizações por dia deste artifact",
+  "analytics.column.day": "Dia",
+  "analytics.column.views": "Visualizações",
+  "analytics.column.signedIn": "Com login",
+  "analytics.column.visitors": "Visitantes distintos",
+  "analytics.note":
+    "Guardadas por {days, plural, one {# dia} other {# dias}}. Suas próprias visitas e as prévias de links não são contadas, mas navegadores automatizados podem ser, então estes números são um indicador, não uma auditoria.",
 
   "usage.title": "Uso",
   "usage.description":

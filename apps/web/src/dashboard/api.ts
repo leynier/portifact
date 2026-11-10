@@ -21,6 +21,7 @@ import {
   ApiError,
   ArtifactList,
   type ArtifactListFilters,
+  ArtifactStatsView,
   ArtifactSummary,
   BrowserSessionList,
   CommentNoticeMute,
@@ -121,6 +122,8 @@ export interface DashboardApi {
   revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
+  /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
+  stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -397,6 +400,13 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return call(
         `/api/v1/artifacts/${encodeURIComponent(artifactId)}/access-log${query}`,
         AccessLogView,
+      );
+    },
+    stats(artifactId, from) {
+      const query = from ? `?${new URLSearchParams({ from })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/stats${query}`,
+        ArtifactStatsView,
       );
     },
     preparePublish(request, idempotencyKey) {

@@ -40,8 +40,8 @@ const count = z.number().int().min(0);
 
 /**
  * The limits a plan sets. Sizes are decimal bytes. `bytesPerMonth` is the traffic served, an
- * abuse cap. Archive, version, access-log and domain values are carried for later features;
- * nothing applies them yet.
+ * abuse cap. `accessLogRetentionDays` is how long the access log and the analytics view counters
+ * are kept. Version and domain values are carried for later features; nothing applies them yet.
  */
 export const PlanLimits = z
   .object({

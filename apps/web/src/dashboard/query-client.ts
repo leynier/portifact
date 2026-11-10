@@ -1,7 +1,10 @@
 import { QueryClient } from "@tanstack/react-query";
 import { ApiFailure } from "./api.ts";
 
-/** Retries once, except answers that cannot change by retrying: missing, refused, signed out or not in the plan. */
+/**
+ * Retries once, except answers that cannot change by retrying: missing, refused, signed out or
+ * not on the owner's plan.
+ */
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
