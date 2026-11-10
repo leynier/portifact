@@ -2273,10 +2273,10 @@ export const en = {
   "groups.directory": "Managed by your directory",
   "groups.directoryNote":
     "Your organization's directory manages this group through SCIM: change its name and members there.",
-  "members.directoryRole": "Set by your directory's groups",
+  "members.directoryRole": "In a directory group with a role",
   "scim.roles.title": "Roles from directory groups",
   "scim.roles.description":
-    "Members of the group you choose get that role; everyone else the directory adds is a member. A role you change by hand for someone in a mapped group is set again by the directory the next time their groups change.",
+    "Members of the group you choose get that role when it is more than they have. The directory takes back only a role it gave: it never lowers a role an admin set by hand, and a role you change by hand is yours from then on.",
   "scim.roles.access":
     "A group listed on an artifact lets its members read it, so your directory now decides who reads those artifacts.",
   "scim.roles.editor": "Group whose members are editors",
@@ -2288,8 +2288,15 @@ export const en = {
   "scim.roles.saved": "Roles saved.",
   "scim.roles.confirm.title": "Make the members of {name} admins?",
   "scim.roles.confirm.body":
-    "{count, plural, one {# person is} other {# people are}} in {name} now. Whoever controls your directory will decide who administers this workspace: its members, policies, tokens and settings.",
+    "{count, plural, one {# person is} other {# people are}} in {name} now, and {pending, plural, =0 {no one else will be} one {# more will be} other {# more will be}} when they sign in. Whoever controls your directory will decide who administers this workspace: its members, policies, tokens and settings.",
   "scim.roles.confirm.action": "Make them admins",
+  "groups.stopSync": "Stop syncing",
+  "groups.stopSyncLabel": "Stop syncing {name}",
+  "groups.stopSync.title": "Stop syncing {name} from your directory?",
+  "groups.stopSync.body":
+    "Your directory will no longer manage this group: admins edit it here from now on. Its role mapping is cleared, and the people it made editors or admins keep their roles. If the directory pushes a group with the same name later, it is refused.",
+  "groups.stopSync.done": "{name} is no longer synced from your directory.",
+  "audit.kind.groupSyncStopped": "Stopped syncing the group {group} from the directory",
 } as const;
 
 export type MessageId = keyof typeof en;

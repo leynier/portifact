@@ -21,6 +21,7 @@ import {
   fail,
   ok,
   type Result,
+  requireFeature,
   type ScimGroupFilter,
   type ScimGroupInput,
   type ScimGroupRecord,
@@ -31,7 +32,9 @@ import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { type AuditActor, auditEvent } from "./audit.ts";
 import { hex } from "./objects.ts";
+import { ownerEntitlements } from "./plans.ts";
 import type { ScimCaller } from "./scim.ts";
+import { scoped, stillAdmin } from "./workspaces.ts";
 
 const g = schema.workspaceGroups;
 const gm = schema.workspaceGroupMembers;
@@ -73,11 +76,18 @@ function desiredRoleSql(W: string, user: SQL, excluding: string | null): SQL {
   return sql`(case when ${inMapped("admin_group_id")} then 'admin' when ${inMapped("editor_group_id")} then 'editor' else 'member' end)`;
 }
 
+const rank = (role: SQL) => sql`(case ${role} when 'admin' then 2 when 'editor' then 1 else 0 end)`;
+
 /**
  * Recomputes the role of the workspace's members among `who` (a subquery of user IDs) from the
- * mapping, in the batch of the change that may move it: the audit event (`member.role_changed`)
- * from the row, the role, then `scim_users.mapped_role`. Only for someone the mapping gives a role
- * to now or gave one to before.
+ * mapping, in the batch of the change that may move it (decision 0017, "Groups and roles"). The
+ * directory only takes back what it gave: a role is raised when the mapped groups give more than
+ * the current one, and lowered only when `scim_users.mapped_role` equals the current role (the
+ * directory set it and nobody changed it since). A role set by hand is never lowered by a sync.
+ * In order: the audit event (`member.role_changed`) from the row; `mapped_role` set to the new
+ * role of everyone who changes (`member` as a marker for a lowering to member); the roles of
+ * exactly those people; then the marker cleared. The last-admin trigger refuses the whole batch
+ * if a lowering would leave no admin.
  */
 export function roleSyncStatements(
   global: GlobalDb,
@@ -92,9 +102,12 @@ export function roleSyncStatements(
 ): BatchItem<"sqlite">[] {
   const W = input.workspaceId;
   const excluding = input.excluding ?? null;
-  const eligible = (user: SQL, role: SQL) => {
+  const mappedOf = (user: SQL) =>
+    sql`(select "ds"."mapped_role" from ${su} as "ds" where "ds"."workspace_id" = ${W} and "ds"."user_id" = ${user} limit 1)`;
+  /** Whether a sync changes this person's role, from the state before the batch's writes. */
+  const changes = (user: SQL, role: SQL, mapped: SQL) => {
     const desired = desiredRoleSql(W, user, excluding);
-    return sql`${user} in ${input.who} and ${role} <> ${desired} and (${desired} <> 'member' or exists (select 1 from ${su} as "ds" where "ds"."workspace_id" = ${W} and "ds"."user_id" = ${user} and "ds"."mapped_role" is not null)) and ${input.condition}`;
+    return sql`${user} in ${input.who} and ${role} <> ${desired} and (${rank(desired)} > ${rank(role)} or ${mapped} = ${role}) and ${input.condition}`;
   };
   const actorType = input.actor.type;
   const actorId =
@@ -107,29 +120,50 @@ export function roleSyncStatements(
     global
       .insert(schema.auditEvents)
       .select(
-        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'member.role_changed', ${actorType}, ${actorId}, ${row}, null, json_object('from', "rm"."role", 'to', ${desiredRoleSql(W, row, excluding)}) from ${m} as "rm" where "rm"."workspace_id" = ${W} and ${eligible(row, sql`"rm"."role"`)}`,
+        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'member.role_changed', ${actorType}, ${actorId}, ${row}, null, json_object('from', "rm"."role", 'to', ${desiredRoleSql(W, row, excluding)}) from ${m} as "rm" where "rm"."workspace_id" = ${W} and ${changes(row, sql`"rm"."role"`, mappedOf(row))}`,
+      ),
+    global
+      .update(su)
+      .set({ mappedRole: sql`${desiredRoleSql(W, linked, excluding)}` })
+      .where(
+        sql`"scim_users"."workspace_id" = ${W} and exists (select 1 from ${m} as "sm" where "sm"."workspace_id" = ${W} and "sm"."user_id" = ${linked} and ${changes(linked, sql`"sm"."role"`, sql`"scim_users"."mapped_role"`)})`,
       ),
     global
       .update(m)
       .set({ role: sql`${desiredRoleSql(W, self, excluding)}`, updatedAt: input.now })
       .where(
-        sql`"workspace_members"."workspace_id" = ${W} and ${eligible(self, sql`"workspace_members"."role"`)}`,
+        sql`"workspace_members"."workspace_id" = ${W} and ${self} in ${input.who} and "workspace_members"."role" <> ${desiredRoleSql(W, self, excluding)} and ${mappedOf(self)} = ${desiredRoleSql(W, self, excluding)} and ${input.condition}`,
       ),
     global
       .update(su)
-      .set({
-        mappedRole: sql`(case ${desiredRoleSql(W, linked, excluding)} when 'member' then null else ${desiredRoleSql(W, linked, excluding)} end)`,
-      })
-      .where(
-        sql`"scim_users"."workspace_id" = ${W} and ${linked} in ${input.who} and exists (select 1 from ${m} as "sm" where "sm"."workspace_id" = ${W} and "sm"."user_id" = ${linked}) and ${input.condition}`,
-      ),
+      .set({ mappedRole: null })
+      .where(sql`"scim_users"."workspace_id" = ${W} and "scim_users"."mapped_role" = 'member'`),
   ];
+}
+
+/**
+ * Links a person's directory user to their account when it is not linked yet, through the
+ * address only while its domain is one the workspace verified, for a batch that just made them a
+ * member through another path (an admin's invitation, single sign-on).
+ */
+export function linkDirectoryUser(
+  global: GlobalDb,
+  input: { workspaceId: string; userId: string; condition: SQL },
+) {
+  const W = input.workspaceId;
+  return global
+    .update(su)
+    .set({ userId: input.userId })
+    .where(
+      sql`"scim_users"."workspace_id" = ${W} and "scim_users"."user_id" is null and "scim_users"."email" = (select lower(${schema.users.email}) from ${schema.users} where ${schema.users.id} = ${input.userId}) and exists (select 1 from ${schema.workspaceDomains} as "ld" where "ld"."workspace_id" = ${W} and "ld"."state" = 'verified' and "ld"."domain" = substr("scim_users"."email", instr("scim_users"."email", '@') + 1)) and exists (select 1 from ${m} as "lm" where "lm"."workspace_id" = ${W} and "lm"."user_id" = ${input.userId}) and ${input.condition}`,
+    );
 }
 
 /**
  * The statements that give a person who just became a workspace member the groups the directory
  * listed them in (as a directory user linked to their account), with their events, and the role
- * those groups map to. For the batch of the join, after the membership insert and the link.
+ * those groups map to. For the batch of every join (the directory's claim, an admin's invitation,
+ * single sign-on), after the membership insert and the link.
  */
 export function joinGroupStatements(
   global: GlobalDb,
@@ -360,7 +394,9 @@ function membershipStatements(
       .onConflictDoNothing(),
     ...roleSyncStatements(global, {
       workspaceId: W,
-      who: sql`(select ${su.userId} from ${su} where ${su.workspaceId} = ${W} and ${su.userId} is not null and ${su.id} in ${jsonList(input.affected)})`,
+      // Everyone whose groups this write changed: the directory users it added or removed, and
+      // anyone whose group row it inserted (a person linked since the last push).
+      who: sql`(select ${su.userId} from ${su} where ${su.workspaceId} = ${W} and ${su.userId} is not null and ${su.id} in ${jsonList(input.affected)} union select "ig"."user_id" from ${gm} as "ig" where "ig"."group_id" = ${G} and "ig"."created_at" = ${input.now})`,
       actor,
       now: input.now,
       condition: input.claim,
@@ -676,10 +712,13 @@ export interface RoleMappingChange {
 
 /**
  * Validates and builds the statements that change the role mapping, for `updateScimSettings`'s
- * batch: only directory-managed groups of the workspace; mapping a group to `admin` needs the
- * confirmation naming it. The roles of everyone in the old and new mapped groups are recomputed
- * in the same batch, with the admin who changed it as the actor (they caused the change; the
- * directory did not act). `condition` is the batch's guard (`stillAdmin`).
+ * batch: only directory-managed groups of the workspace; setting a mapping to a group needs `scim`
+ * in the plan (unmapping never does); mapping a group to `admin` needs the confirmation naming it.
+ * The write is conditioned on the mapping revision read, so of two concurrent changes the later
+ * one changes nothing, and on the groups still being directory-managed. `applied` holds only when
+ * the write happened: every other statement of the batch is conditioned on it. Roles are
+ * recomputed, inside the batch, for everyone the directory gave a role to (`mapped_role`) and
+ * everyone in the groups being mapped and unmapped, with the admin who changed it as the actor.
  */
 export async function roleMappingStatements(
   global: GlobalDb,
@@ -690,70 +729,93 @@ export async function roleMappingStatements(
     now: number;
     condition: SQL;
   },
-): Promise<Result<{ statements: BatchItem<"sqlite">[]; changed: RoleMappingChange }>> {
+): Promise<
+  Result<{
+    statements: BatchItem<"sqlite">[];
+    changed: RoleMappingChange;
+    applied: SQL;
+    writeId: string;
+  }>
+> {
   const W = input.workspaceId;
   const [current] = await global
-    .select({ editor: ws.editorGroupId, admin: ws.adminGroupId })
+    .select({ editor: ws.editorGroupId, admin: ws.adminGroupId, revision: ws.mappingRevision })
     .from(ws)
     .where(eq(ws.workspaceId, W))
     .limit(1);
   const changed: RoleMappingChange = {};
-  for (const role of ["editor", "admin"] as const) {
-    const wanted = role === "editor" ? input.body.editorGroup : input.body.adminGroup;
-    if (wanted === undefined || wanted === (current?.[role] ?? null)) continue;
-    if (wanted !== null) {
-      const [managed] = await global
-        .select({ id: sg.groupId })
-        .from(sg)
-        .where(and(eq(sg.groupId, wanted), eq(sg.workspaceId, W)))
-        .limit(1);
-      if (!managed) {
-        return fail("invalid_input", "Only a group the directory manages can be mapped to a role.");
-      }
-      if (role === "admin" && input.body.confirmAdminGroup !== wanted) {
-        return fail(
-          "invalid_input",
-          "Mapping a group to admin needs a confirmation that names the group.",
-        );
-      }
-    }
-    if (role === "editor") changed.editorGroup = wanted;
+  for (const mapped of ["editor", "admin"] as const) {
+    const wanted = mapped === "editor" ? input.body.editorGroup : input.body.adminGroup;
+    if (wanted === undefined || wanted === (current?.[mapped] ?? null)) continue;
+    if (mapped === "editor") changed.editorGroup = wanted;
     else changed.adminGroup = wanted;
   }
+  const writeId = randomHex(16);
+  const applied = sql`exists (select 1 from ${ws} where ${ws.workspaceId} = ${W} and ${ws.mappingWriteId} = ${writeId})`;
   if (changed.editorGroup === undefined && changed.adminGroup === undefined) {
-    return ok({ statements: [], changed });
+    return ok({ statements: [], changed, applied: sql`1`, writeId });
   }
-  const groups = [current?.editor, current?.admin, changed.editorGroup, changed.adminGroup].filter(
+  const setting = [changed.editorGroup, changed.adminGroup].some((id) => typeof id === "string");
+  if (setting) {
+    const gate = requireFeature(await ownerEntitlements(global, W, input.now), "scim");
+    if (!gate.ok) return gate;
+  }
+  for (const mapped of ["editor", "admin"] as const) {
+    const wanted = mapped === "editor" ? changed.editorGroup : changed.adminGroup;
+    if (typeof wanted !== "string") continue;
+    const [managed] = await global
+      .select({ id: sg.groupId })
+      .from(sg)
+      .where(and(eq(sg.groupId, wanted), eq(sg.workspaceId, W)))
+      .limit(1);
+    if (!managed) {
+      return fail("invalid_input", "Only a group the directory manages can be mapped to a role.");
+    }
+    if (mapped === "admin" && input.body.confirmAdminGroup !== wanted) {
+      return fail(
+        "invalid_input",
+        "Mapping a group to admin needs a confirmation that names the group.",
+      );
+    }
+  }
+  const before = [current?.editor, current?.admin].filter(
     (id): id is string => typeof id === "string",
   );
-  const managed = sql`exists (select 1 from ${sg} where ${sg.workspaceId} = ${W} and ${sg.groupId} = `;
   const valid = (id: string | null | undefined) =>
-    id === undefined || id === null ? sql`1` : sql`${managed}${id})`;
-  const condition = sql`${input.condition} and ${valid(changed.editorGroup)} and ${valid(changed.adminGroup)}`;
+    typeof id === "string"
+      ? sql`exists (select 1 from ${sg} where ${sg.workspaceId} = ${W} and ${sg.groupId} = ${id})`
+      : sql`1`;
+  const revisionHolds = current
+    ? sql`(select ${ws.mappingRevision} from ${ws} where ${ws.workspaceId} = ${W}) = ${current.revision}`
+    : sql`not exists (select 1 from ${ws} where ${ws.workspaceId} = ${W})`;
+  const writes = sql`${input.condition} and ${revisionHolds} and ${valid(changed.editorGroup)} and ${valid(changed.adminGroup)}`;
   const statements: BatchItem<"sqlite">[] = [
     global
       .insert(ws)
-      // Columns in schema order: workspace, invitation emails, editor group, admin group, updated.
+      // Columns in schema order: workspace, invitation emails, editor group, admin group,
+      // mapping revision, mapping write ID, updated.
       .select(
-        sql`select ${W}, 0, ${changed.editorGroup ?? null}, ${changed.adminGroup ?? null}, ${input.now} where ${condition}`,
+        sql`select ${W}, 0, ${changed.editorGroup ?? null}, ${changed.adminGroup ?? null}, 1, ${writeId}, ${input.now} where ${writes}`,
       )
       .onConflictDoUpdate({
         target: ws.workspaceId,
         set: {
           ...(changed.editorGroup === undefined ? {} : { editorGroupId: changed.editorGroup }),
           ...(changed.adminGroup === undefined ? {} : { adminGroupId: changed.adminGroup }),
+          mappingRevision: sql`${ws.mappingRevision} + 1`,
+          mappingWriteId: writeId,
           updatedAt: input.now,
         },
       }),
     ...roleSyncStatements(global, {
       workspaceId: W,
-      who: sql`(select ${gm.userId} from ${gm} where ${gm.groupId} in ${jsonList(groups)})`,
+      who: sql`(select ${su.userId} from ${su} where ${su.workspaceId} = ${W} and ${su.mappedRole} is not null and ${su.userId} is not null union select ${gm.userId} from ${gm} where ${gm.workspaceId} = ${W} and (${gm.groupId} in (select ${ws.editorGroupId} from ${ws} where ${ws.workspaceId} = ${W} union select ${ws.adminGroupId} from ${ws} where ${ws.workspaceId} = ${W}) or ${gm.groupId} in ${jsonList(before)}))`,
       actor: { type: "user", id: input.userId },
       now: input.now,
-      condition,
+      condition: applied,
     }),
   ];
-  return ok({ statements, changed });
+  return ok({ statements, changed, applied, writeId });
 }
 
 /** Whether a mapping change failed on the last admin, for the settings' answer. */
@@ -766,19 +828,123 @@ export function lastAdminRefusal(error: unknown): Result<never> | null {
     : null;
 }
 
-/** The directory-managed groups of a workspace, for the dashboard's mapping choices. */
+/**
+ * The directory-managed groups of a workspace, for the dashboard's mapping choices: how many of
+ * their people are members now, and how many are pending (active in the directory, no membership
+ * yet), who get the group's role when they sign in.
+ */
 export async function directoryGroupChoices(global: GlobalDb, workspaceId: string) {
   const rows = await global
     .select({
       id: g.id,
       name: g.name,
       members: sql<number>`(select count(*) from ${gm} where ${gm.groupId} = "workspace_groups"."id")`,
+      pending: sql<number>`(select count(*) from ${sgm} as "pg" inner join ${su} as "pu" on "pu"."id" = "pg"."scim_user_id" where "pg"."group_id" = "workspace_groups"."id" and "pu"."active" = 1 and "pu"."removed_at" is null and not exists (select 1 from ${m} as "pm" where "pm"."workspace_id" = "pu"."workspace_id" and "pm"."user_id" = "pu"."user_id"))`,
     })
     .from(sg)
     .innerJoin(g, eq(g.id, sg.groupId))
     .where(eq(sg.workspaceId, workspaceId))
     .orderBy(sql`lower(${g.name})`, asc(g.id));
-  return rows.map((row) => ({ ...row, members: Number(row.members) }));
+  return rows.map((row) => ({
+    ...row,
+    members: Number(row.members),
+    pending: Number(row.pending),
+  }));
+}
+
+/**
+ * Stops syncing a directory-managed group (decision 0017, "Groups and roles"), for an admin,
+ * whatever the plan, the token or the switch: it becomes an ordinary group admins edit. In one
+ * batch, conditioned on the caller still being an admin: its mapping is cleared, the people it
+ * gave a role keep that role as set by hand (`mapped_role` cleared; nothing is lowered), the event
+ * is recorded and the directory's marker and member list are deleted. A later push of a group
+ * with the same name answers 409, and SCIM requests for this one 404.
+ */
+export async function stopDirectorySync(
+  global: GlobalDb,
+  input: { userId: string; slug: string; groupId: string; now: number },
+): Promise<Result<true>> {
+  const found = await scoped(global, input.userId, input.slug, "scim");
+  if (!found.ok) return found;
+  const W = found.value.workspace.id;
+  const G = input.groupId;
+  const managed = sql`exists (select 1 from ${sg} where ${sg.groupId} = ${G} and ${sg.workspaceId} = ${W})`;
+  const holds = sql`${managed} and ${stillAdmin(W, input.userId)}`;
+  const [, , , deleted] = (await global.batch([
+    auditEvent(
+      global,
+      {
+        ownerId: W,
+        kind: "group.sync_stopped",
+        actor: { type: "user", id: input.userId },
+        targetId: G,
+        detail: {},
+        now: input.now,
+      },
+      holds,
+    ),
+    global
+      .update(su)
+      .set({ mappedRole: null })
+      .where(
+        sql`${su.workspaceId} = ${W} and ${su.userId} in (select ${gm.userId} from ${gm} where ${gm.groupId} = ${G}) and ${holds}`,
+      ),
+    global
+      .update(ws)
+      .set({
+        editorGroupId: sql`case when ${ws.editorGroupId} = ${G} then null else ${ws.editorGroupId} end`,
+        adminGroupId: sql`case when ${ws.adminGroupId} = ${G} then null else ${ws.adminGroupId} end`,
+        mappingRevision: sql`${ws.mappingRevision} + 1`,
+      })
+      .where(
+        sql`${ws.workspaceId} = ${W} and (${ws.editorGroupId} = ${G} or ${ws.adminGroupId} = ${G}) and ${holds}`,
+      ),
+    global
+      .delete(sg)
+      .where(and(eq(sg.groupId, G), eq(sg.workspaceId, W), stillAdmin(W, input.userId)) as SQL)
+      .returning({ id: sg.groupId }),
+  ])) as [unknown, unknown, unknown, unknown[]];
+  if (deleted.length === 1) return ok(true);
+  const again = await scoped(global, input.userId, input.slug, "scim");
+  return again.ok ? fail("not_found", "This group is not synced from your directory.") : again;
+}
+
+/**
+ * After a D1 Time Travel restore (`applyTombstones`): recomputes roles from the current directory
+ * groups for every workspace with a mapping, with the same statements a sync runs, so a role the
+ * directory took away does not come back. One batch per workspace over that workspace's members;
+ * at most `limit` workspaces a run (`more` says to run it again; it is idempotent). A workspace
+ * whose recompute would leave no admin is skipped and counted in `refused`.
+ */
+export async function recomputeDirectoryRoles(
+  global: GlobalDb,
+  now: number,
+  limit = 500,
+): Promise<{ workspaces: number; refused: number; more: boolean }> {
+  const rows = await global
+    .select({ id: ws.workspaceId })
+    .from(ws)
+    .where(sql`${ws.editorGroupId} is not null or ${ws.adminGroupId} is not null`)
+    .orderBy(asc(ws.workspaceId))
+    .limit(limit + 1);
+  let refused = 0;
+  for (const { id } of rows.slice(0, limit)) {
+    try {
+      await global.batch(
+        roleSyncStatements(global, {
+          workspaceId: id,
+          who: sql`(select ${m.userId} from ${m} where ${m.workspaceId} = ${id})`,
+          actor: { type: "system" },
+          now,
+          condition: sql`1`,
+        }) as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+      );
+    } catch (error) {
+      if (!causeIncludes(error, "sole_workspace_admin")) throw error;
+      refused += 1;
+    }
+  }
+  return { workspaces: Math.min(rows.length, limit), refused, more: rows.length > limit };
 }
 
 /** The members of `workspaceId` whose role the mapping sets (they are in a mapped group). */

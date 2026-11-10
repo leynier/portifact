@@ -357,7 +357,11 @@ export async function updateScimSettings(
   if (changed.editorGroup !== undefined) fields.push("editorGroup");
   if (changed.adminGroup !== undefined) fields.push("adminGroup");
   if (fields.length === 0) return ok(true);
+  const mapped = changed.editorGroup !== undefined || changed.adminGroup !== undefined;
+  // With a mapping change, nothing applies unless the mapping write did (decision 0017).
+  const holds = mapped ? sql`${admin} and ${mapping.value.applied}` : admin;
   const statements: BatchItem<"sqlite">[] = [
+    ...mapping.value.statements,
     auditEvent(
       global,
       {
@@ -373,18 +377,17 @@ export async function updateScimSettings(
         },
         now: input.now,
       },
-      admin,
+      holds,
     ),
-    ...mapping.value.statements,
   ];
   if (emailsChange) {
     statements.push(
       global
         .insert(ws)
         // Columns in schema order: workspace, invitation emails, editor group, admin group,
-        // updated.
+        // mapping revision, mapping write ID, updated.
         .select(
-          sql`select ${workspaceId}, ${emails ? 1 : 0}, null, null, ${input.now} where ${admin}`,
+          sql`select ${workspaceId}, ${emails ? 1 : 0}, null, null, 0, null, ${input.now} where ${holds}`,
         )
         .onConflictDoUpdate({
           target: ws.workspaceId,
@@ -400,7 +403,21 @@ export async function updateScimSettings(
     throw error;
   }
   const again = await scoped(global, input.userId, input.slug, "scim");
-  return again.ok ? ok(true) : again;
+  if (!again.ok) return again;
+  if (mapped) {
+    const [row] = await global
+      .select({ writeId: ws.mappingWriteId })
+      .from(ws)
+      .where(eq(ws.workspaceId, workspaceId))
+      .limit(1);
+    if (row?.writeId !== mapping.value.writeId) {
+      return fail(
+        "version_conflict",
+        "The mapping or its groups changed meanwhile. Reload and try again.",
+      );
+    }
+  }
+  return ok(true);
 }
 
 // Authentication ----------------------------------------------------------------------------
@@ -755,7 +772,11 @@ function memberRemoval(
         target: [schema.workspaceRemovals.workspaceId, schema.workspaceRemovals.userId],
         set: { removedAt: now },
       }),
-    global.update(su).set({ sessionsPending: true }).where(sql`${su.id} = ${id} and ${isMember}`),
+    // The removal ends the person's sessions once, and forgets the role the directory gave them.
+    global
+      .update(su)
+      .set({ sessionsPending: true, mappedRole: null })
+      .where(sql`${su.id} = ${id} and ${isMember}`),
     global.delete(m).where(sql`${memberWhere} and ${condition}`),
   ];
 }

@@ -548,12 +548,13 @@ describe("roles from groups", () => {
     expect(await role(t, bobAccount)).toBe("editor");
   });
 
-  it("lets the directory win at the next change of a hand-changed person's groups", async () => {
+  it("never takes back a role an admin set by hand, even at the next change of the person's groups", async () => {
     const t = await team();
     const [ada, adaAccount] = await memberUser(t, "ada");
     const [cy] = await memberUser(t, "cy");
     const created = ok(await createScimGroup(global(), t.caller, group("Editors", [ada]), NOW));
     value(await settings(t, { editorGroup: created.id }));
+    expect(await role(t, adaAccount)).toBe("editor");
     value(
       await changeMemberRole(global(), {
         userId: t.admin,
@@ -565,7 +566,6 @@ describe("roles from groups", () => {
     );
     const members = value(await listMembers(global(), { userId: t.admin, slug: t.slug, now: NOW }));
     expect(members.members.find((m) => m.userId === adaAccount)?.directoryRole).toBe(true);
-    // A push that does not change Ada's groups leaves her hand-set role.
     ok(
       await patchScimGroup(
         global(),
@@ -575,8 +575,6 @@ describe("roles from groups", () => {
         NOW + 1,
       ),
     );
-    expect(await role(t, adaAccount)).toBe("admin");
-    // A push that does change them: the directory wins.
     ok(
       await patchScimGroup(
         global(),
@@ -586,13 +584,25 @@ describe("roles from groups", () => {
         NOW + 2,
       ),
     );
+    expect(await role(t, adaAccount)).toBe("admin");
+    // An admin who lowers someone by hand is not overruled either: the directory only raises
+    // past a role when the mapped groups give more, at the next change of the person's groups.
+    value(
+      await changeMemberRole(global(), {
+        userId: t.admin,
+        slug: t.slug,
+        memberId: adaAccount,
+        role: "member",
+        now: NOW + 3,
+      }),
+    );
     ok(
       await patchScimGroup(
         global(),
         t.caller,
         created.id,
         { Operations: [{ op: "add", path: "members", value: [{ value: ada }] }] },
-        NOW + 3,
+        NOW + 4,
       ),
     );
     expect(await role(t, adaAccount)).toBe("editor");

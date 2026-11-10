@@ -23,7 +23,16 @@ import {
   TextInput,
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Info, Pencil, Trash2, UserMinus, UserPlus, UsersRound } from "lucide-react";
+import {
+  CircleAlert,
+  Info,
+  Pencil,
+  Trash2,
+  Unlink,
+  UserMinus,
+  UserPlus,
+  UsersRound,
+} from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
@@ -209,7 +218,17 @@ function GroupCard({
   const [open, setOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const refresh = () => queryClient.invalidateQueries({ queryKey: groupsQuery(space.slug) });
+  const stop = useMutation({
+    mutationFn: () => api.stopGroupSync(space.slug, group.id),
+    onSuccess: async () => {
+      setStopping(false);
+      await refresh();
+      announce(t("groups.stopSync.done", { name: group.name }));
+    },
+    onError: () => setStopping(false),
+  });
   const remove = useMutation({
     mutationFn: () => api.deleteGroup(space.slug, group.id),
     onSuccess: async () => {
@@ -245,7 +264,17 @@ function GroupCard({
           >
             {t(open ? "groups.hideMembers" : "groups.showMembers")}
           </Button>
-          {group.directory ? null : (
+          {group.directory ? (
+            <Button
+              size="sm"
+              icon={<Unlink className="size-4" />}
+              aria-label={t("groups.stopSyncLabel", { name: group.name })}
+              disabled={stop.isPending}
+              onClick={() => setStopping(true)}
+            >
+              {t("groups.stopSync")}
+            </Button>
+          ) : (
             <>
               <Button
                 size="sm"
@@ -277,15 +306,27 @@ function GroupCard({
           <GroupMembers space={space} group={group} available={available} />
         </div>
       ) : null}
-      {remove.isError ? (
+      {remove.isError || stop.isError ? (
         <Callout
           tone="error"
           title={t("groups.actionFailed")}
           icon={<CircleAlert className="size-5" />}
         >
-          {errorMessage(t, remove.error)}
+          {errorMessage(t, remove.error ?? stop.error)}
         </Callout>
       ) : null}
+      <ConfirmDialog
+        open={stopping}
+        title={t("groups.stopSync.title", { name: group.name })}
+        confirmLabel={t("groups.stopSync")}
+        cancelLabel={t("account.cancel")}
+        confirmIcon={<Unlink className="size-4" />}
+        busy={stop.isPending}
+        onConfirm={() => stop.mutate()}
+        onCancel={() => setStopping(false)}
+      >
+        {t("groups.stopSync.body")}
+      </ConfirmDialog>
       <ConfirmDialog
         open={confirming}
         title={t("groups.confirm.title", { name: group.name })}

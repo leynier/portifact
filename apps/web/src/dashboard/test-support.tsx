@@ -367,7 +367,7 @@ export interface FakeWorkspace {
   /** The plan includes workspace sharing. */
   domainsAvailable: boolean;
   /** Its groups (decision 0014), with their members' user IDs. */
-  groups: (WorkspaceGroupView & { memberIds: string[] })[];
+  groups: (WorkspaceGroupView & { memberIds: string[]; pendingIds?: string[] })[];
   /**
    * Single sign-on (decision 0016): switched on for the deployment, in the plan, and the provider.
    * Off by default, as deployed: the routes answer `capacity_unavailable`.
@@ -1082,7 +1082,9 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
     return json(server.workspaces[target.slug]?.view);
   }
   const groups =
-    /^\/api\/v1\/workspaces\/([^/]+)\/groups(?:\/([^/]+))?(?:\/members(?:\/([^/]+))?)?$/.exec(path);
+    /^\/api\/v1\/workspaces\/([^/]+)\/groups(?:\/([^/]+))?(?:\/members(?:\/([^/]+))?|\/stop-sync)?$/.exec(
+      path,
+    );
   if (groups) return groupRoute(server, groups, path, method, body);
   const policies = /^\/api\/v1\/workspaces\/([^/]+)\/policies(\/preview)?$/.exec(path);
   if (policies) return policyRoute(server, policies, method, body);
@@ -1185,7 +1187,12 @@ function ssoSettings(w: FakeWorkspace): SsoSettings {
 function scimOverview(w: FakeWorkspace): ScimOverview {
   const choices = w.groups
     .filter((g) => g.directory)
-    .map((g) => ({ id: g.id, name: g.name, members: g.memberIds.length }));
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      members: g.memberIds.length,
+      pending: g.pendingIds?.length ?? 0,
+    }));
   return {
     baseUrl: "https://app.portifact.com/scim/v2",
     available: w.scim.available,
@@ -2369,6 +2376,14 @@ function groupRoute(
     }),
     limit: 500,
   });
+  // Like the API: stopping the sync makes it an ordinary group, and clears its mapping.
+  if (path.endsWith("/stop-sync") && method === "POST") {
+    if (!group.directory) return apiError("not_found", 404);
+    group.directory = false;
+    if (w.scim.editorGroup === group.id) w.scim.editorGroup = null;
+    if (w.scim.adminGroup === group.id) w.scim.adminGroup = null;
+    return json({ stopped: true });
+  }
   // Like the API: the directory manages its groups; the dashboard changes none of them.
   if (group.directory && method !== "GET") return apiError("forbidden", 403);
   if (membersPath && method === "POST") {

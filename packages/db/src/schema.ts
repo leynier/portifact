@@ -1854,6 +1854,10 @@ export const workspaceScim = sqliteTable("workspace_scim", {
    */
   editorGroupId: text("editor_group_id"),
   adminGroupId: text("admin_group_id"),
+  /** Moves with every mapping change; a change is conditioned on the revision it read. */
+  mappingRevision: integer("mapping_revision").notNull().default(0),
+  /** The per-request token of the last mapping write, read back to tell a write from a race. */
+  mappingWriteId: text("mapping_write_id"),
   updatedAt: timestamp("updated_at").notNull(),
 });
 

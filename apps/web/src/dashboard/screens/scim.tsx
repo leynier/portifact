@@ -257,6 +257,7 @@ function RoleMapping({ space, overview }: { space: WorkspaceSpace; overview: Sci
         {t("scim.roles.confirm.body", {
           name: adminGroup?.name ?? "",
           count: adminGroup?.members ?? 0,
+          pending: adminGroup?.pending ?? 0,
         })}
       </ConfirmDialog>
     </section>

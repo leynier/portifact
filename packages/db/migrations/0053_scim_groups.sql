@@ -23,4 +23,6 @@ CREATE TABLE `scim_groups` (
 CREATE INDEX `scim_groups_workspace_external_idx` ON `scim_groups` (`workspace_id`,`external_id`);--> statement-breakpoint
 ALTER TABLE `scim_users` ADD `mapped_role` text;--> statement-breakpoint
 ALTER TABLE `workspace_scim` ADD `editor_group_id` text;--> statement-breakpoint
-ALTER TABLE `workspace_scim` ADD `admin_group_id` text;
+ALTER TABLE `workspace_scim` ADD `admin_group_id` text;--> statement-breakpoint
+ALTER TABLE `workspace_scim` ADD `mapping_revision` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE `workspace_scim` ADD `mapping_write_id` text;

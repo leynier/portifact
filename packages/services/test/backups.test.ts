@@ -258,6 +258,7 @@ describe("tombstones after a restore", () => {
       scimUsers: 0,
       invitations: 0,
       members: 0,
+      directoryRoles: 0,
     });
     expect((await artifactRow(purged.artifactId))?.state).toBe("purging");
     expect((await artifactRow(leavingSite.artifactId))?.state).toBe("purging");
@@ -319,6 +320,7 @@ describe("tombstones after a restore", () => {
       scimUsers: 0,
       invitations: 0,
       members: 0,
+      directoryRoles: 0,
     });
     expect((await artifactRow(kept.artifactId))?.state).toBe("active");
   });

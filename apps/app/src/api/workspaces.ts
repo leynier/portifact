@@ -104,6 +104,7 @@ import {
   saveSsoProvider,
   setWorkspacePolicy,
   ssoKeys,
+  stopDirectorySync,
   testSsoIssuer,
   type UserWorkspace,
   updateScimSettings,
@@ -461,9 +462,11 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
   // Switched off without SCIM_ENABLED.
   const scimRoute = (
     handler: (c: WorkspaceContext, userId: string, slug: string) => Promise<Response>,
+    /** Whether this request may go through while switched off (only unmapping, decision 0017). */
+    whileOff: (c: WorkspaceContext) => Promise<boolean> = async () => false,
   ) =>
     sessionOnly(async (c, userId) => {
-      if (!scimEnabled(c.env)) {
+      if (!scimEnabled(c.env) && !(await whileOff(c))) {
         return error(c, "capacity_unavailable", "Directory sync is not available yet.");
       }
       const slug = slugOf(c);
@@ -481,6 +484,22 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
     return c.json(ScimOverview.parse(result.value));
   };
   routes.get("/api/v1/workspaces/:slug/scim", scimRoute(scimOverview));
+  /**
+   * Unmapping a role (both mappings null, nothing else) stays possible while SCIM is switched
+   * off, so a directory's groups never freeze the workspace's roles (decision 0017).
+   */
+  const unmappingOnly = async (c: WorkspaceContext) => {
+    const body = (await c.req.raw
+      .clone()
+      .json()
+      .catch(() => null)) as Record<string, unknown> | null;
+    if (body === null || typeof body !== "object") return false;
+    const keys = Object.keys(body);
+    return (
+      keys.length > 0 &&
+      keys.every((key) => (key === "editorGroup" || key === "adminGroup") && body[key] === null)
+    );
+  };
   routes.patch(
     "/api/v1/workspaces/:slug/scim",
     scimRoute(async (c, userId, slug) => {
@@ -493,8 +512,10 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
+      // Switched off there is no overview to show; the unmapping is done.
+      if (!scimEnabled(c.env)) return c.json({ unmapped: true });
       return scimOverview(c, userId, slug);
-    }),
+    }, unmappingOnly),
   );
   // No idempotency key: a stored replay would keep the secret, as for service tokens.
   routes.post(
@@ -861,6 +882,17 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
     groupRoute(async (c, ids) =>
       reply(c, await deleteWorkspaceGroup(global(c), { ...ids, now: deps.now() }), () =>
         c.body(null, 204),
+      ),
+    ),
+  );
+
+  // Stops syncing a directory-managed group (decision 0017): admins, whatever the switch, the
+  // token or the plan, so a directory's group is never frozen.
+  routes.post(
+    "/api/v1/workspaces/:slug/groups/:groupId/stop-sync",
+    groupRoute(async (c, ids) =>
+      reply(c, await stopDirectorySync(global(c), { ...ids, now: deps.now() }), () =>
+        c.json({ stopped: true }),
       ),
     ),
   );

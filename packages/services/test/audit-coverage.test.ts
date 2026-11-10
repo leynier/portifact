@@ -36,7 +36,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   removeBrandLogo: ["brand.removed"],
   inviteMember: ["member.invited"],
   revokeInvitation: ["member.invitation_revoked"],
-  acceptInvitation: ["member.joined", "member.role_changed"],
+  acceptInvitation: ["member.joined", "member.role_changed", "group.member_added"],
   createWorkspace: ["member.joined"],
   changeMemberRole: ["member.role_changed"],
   removeMember: ["member.removed", "member.left"],
@@ -59,7 +59,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   removeGroupMember: ["group.member_removed"],
   saveSsoProvider: ["sso.created", "sso.changed"],
   removeSsoProvider: ["sso.removed"],
-  joinWorkspaceThroughSso: ["member.joined"],
+  joinWorkspaceThroughSso: ["member.joined", "group.member_added", "member.role_changed"],
   // SCIM (decision 0017): the directory's token and settings by an admin, and what a directory
   // changes, with the directory as the actor; a sign-in that claims a pending membership.
   createScimToken: ["scim_token.created"],
@@ -105,6 +105,11 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
     "member.role_changed",
   ],
   deleteScimGroup: ["group.deleted", "member.role_changed"],
+  // An admin stops syncing a directory group; the roles it gave are kept, nothing is recorded
+  // for them (no role changes).
+  stopDirectorySync: ["group.sync_stopped"],
+  // After a restore, with the system as actor.
+  recomputeDirectoryRoles: ["member.role_changed"],
   // Workspace policies (decision 0015): a change records which fields and values, and each step
   // that applies one to existing artifacts records its counts and each changed artifact's own
   // access change, as the system.

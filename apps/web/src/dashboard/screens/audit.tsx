@@ -103,6 +103,7 @@ export const AUDIT_GROUPS = {
     "group.created",
     "group.renamed",
     "group.deleted",
+    "group.sync_stopped",
     "group.member_added",
     "group.member_removed",
   ],
@@ -602,6 +603,8 @@ export function describeAuditEvent(
       return t("audit.kind.groupCreated", { group: groupName(t, event) });
     case "group.renamed":
       return t("audit.kind.groupRenamed", { group: groupName(t, event) });
+    case "group.sync_stopped":
+      return t("audit.kind.groupSyncStopped", { group: groupName(t, event) });
     case "group.deleted":
       return t("audit.kind.groupDeleted", { group: groupName(t, event) });
     case "group.member_added":

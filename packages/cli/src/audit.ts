@@ -181,6 +181,8 @@ export function auditSummary(event: AuditEventView): string {
       return `Renamed the group ${groupName(event)}`;
     case "group.deleted":
       return `Deleted the group ${groupName(event)}`;
+    case "group.sync_stopped":
+      return `Stopped syncing the group ${groupName(event)} from the directory`;
     case "group.member_added":
       return `Added ${member} to the group ${groupName(event)}`;
     case "group.member_removed":

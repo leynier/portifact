@@ -540,6 +540,12 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Each workspace the account is in records that the member is gone, before the cascade.
     accountLeftEvents(db, input.userId, input.now),
+    // A role a directory gave goes with the membership (decision 0017): forget it, so the
+    // directory's copy never takes back a role someone else holds later.
+    db
+      .update(schema.scimUsers)
+      .set({ mappedRole: null })
+      .where(eq(schema.scimUsers.userId, input.userId)),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
     // and workspace memberships.
     db.delete(schema.users).where(eq(schema.users.id, input.userId)),

@@ -2347,10 +2347,10 @@ export const de = {
   "groups.directory": "Von Ihrem Verzeichnis verwaltet",
   "groups.directoryNote":
     "Das Verzeichnis Ihrer Organisation verwaltet diese Gruppe über SCIM: Ändern Sie Namen und Mitglieder dort.",
-  "members.directoryRole": "Von den Gruppen Ihres Verzeichnisses festgelegt",
+  "members.directoryRole": "In einer Verzeichnisgruppe mit Rolle",
   "scim.roles.title": "Rollen aus Verzeichnisgruppen",
   "scim.roles.description":
-    "Mitglieder der gewählten Gruppe erhalten diese Rolle; alle anderen, die das Verzeichnis hinzufügt, sind Mitglieder. Eine Rolle, die Sie für jemanden in einer zugeordneten Gruppe von Hand ändern, setzt das Verzeichnis bei der nächsten Änderung seiner Gruppen neu.",
+    "Mitglieder der gewählten Gruppe erhalten diese Rolle, wenn sie mehr ist als ihre jetzige. Das Verzeichnis nimmt nur eine Rolle zurück, die es vergeben hat: Es senkt nie eine Rolle, die ein Admin von Hand gesetzt hat, und eine Rolle, die Sie von Hand ändern, gehört ab dann Ihnen.",
   "scim.roles.access":
     "Eine Gruppe, die bei einem Artifact eingetragen ist, lässt ihre Mitglieder es lesen: Ihr Verzeichnis entscheidet jetzt, wer diese Artifacts liest.",
   "scim.roles.editor": "Gruppe, deren Mitglieder Editoren sind",
@@ -2362,6 +2362,14 @@ export const de = {
   "scim.roles.saved": "Rollen gespeichert.",
   "scim.roles.confirm.title": "Die Mitglieder von {name} zu Admins machen?",
   "scim.roles.confirm.body":
-    "In {name} {count, plural, one {ist jetzt # Person} other {sind jetzt # Personen}}. Wer Ihr Verzeichnis kontrolliert, entscheidet, wer diesen Workspace verwaltet: seine Mitglieder, Richtlinien, Tokens und Einstellungen.",
+    "In {name} {count, plural, one {ist jetzt # Person} other {sind jetzt # Personen}}, und {pending, plural, =0 {niemand sonst kommt dazu} one {# weitere kommt dazu} other {# weitere kommen dazu}}, sobald sie sich anmelden. Wer Ihr Verzeichnis kontrolliert, entscheidet, wer diesen Workspace verwaltet: seine Mitglieder, Richtlinien, Tokens und Einstellungen.",
   "scim.roles.confirm.action": "Zu Admins machen",
+  "groups.stopSync": "Synchronisierung beenden",
+  "groups.stopSyncLabel": "Synchronisierung von {name} beenden",
+  "groups.stopSync.title": "{name} nicht mehr aus Ihrem Verzeichnis synchronisieren?",
+  "groups.stopSync.body":
+    "Ihr Verzeichnis verwaltet diese Gruppe nicht mehr: Admins bearbeiten sie ab jetzt hier. Ihre Rollenzuordnung wird entfernt, und Personen, die sie zu Editoren oder Admins gemacht hat, behalten ihre Rolle. Überträgt das Verzeichnis später eine Gruppe mit demselben Namen, wird sie abgelehnt.",
+  "groups.stopSync.done": "{name} wird nicht mehr aus Ihrem Verzeichnis synchronisiert.",
+  "audit.kind.groupSyncStopped":
+    "Hat die Synchronisierung der Gruppe {group} aus dem Verzeichnis beendet",
 } satisfies Catalog;

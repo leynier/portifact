@@ -145,6 +145,7 @@ describe("the Directory sync section", () => {
           createdAt: "2026-11-10T12:00:00.000Z",
           directory: true,
           memberIds: ["u_ada", "u_grace"],
+          pendingIds: ["su_1", "su_2", "su_3"],
         },
         {
           id: OPS,
@@ -183,7 +184,9 @@ describe("the Directory sync section", () => {
       const dialog = await screen.findByRole("dialog", {
         name: "Make the members of Engineering admins?",
       });
-      expect(dialog.textContent).toContain("2 people are in Engineering now");
+      expect(dialog.textContent).toContain(
+        "2 people are in Engineering now, and 3 more will be when they sign in",
+      );
       expect(await axeViolations(container)).toEqual([]);
       fireEvent.click(within(dialog).getByRole("button", { name: "Make them admins" }));
       await waitFor(() =>

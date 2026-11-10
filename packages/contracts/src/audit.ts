@@ -256,6 +256,8 @@ export const AUDIT_DETAILS = {
   "group.created": empty,
   "group.renamed": empty,
   "group.deleted": empty,
+  /** An admin stopped syncing a directory-managed group: it is an ordinary group now (0017). */
+  "group.sync_stopped": empty,
   "group.member_added": z.strictObject({ group: WorkspaceGroupId }),
   "group.member_removed": z.strictObject({ group: WorkspaceGroupId }),
   /**
@@ -375,6 +377,7 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "group.created": "group",
   "group.renamed": "group",
   "group.deleted": "group",
+  "group.sync_stopped": "group",
   "group.member_added": "member",
   "group.member_removed": "member",
   "audit.exported": "audit_log",

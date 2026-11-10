@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "bb42cdf8-9b5c-4232-8ac8-c9b88fa874a1",
+  "id": "4a0c5b51-1a9c-4721-9849-62b47fd05721",
   "prevId": "db8309ed-e47f-41c6-ab98-9dc1b08bcdd9",
   "tables": {
     "abuse_reports": {
@@ -6038,6 +6038,21 @@
         },
         "admin_group_id": {
           "name": "admin_group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mapping_revision": {
+          "name": "mapping_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "mapping_write_id": {
+          "name": "mapping_write_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

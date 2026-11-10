@@ -2289,10 +2289,10 @@ export const ja = {
   "groups.directory": "ディレクトリが管理",
   "groups.directoryNote":
     "組織のディレクトリが SCIM でこのグループを管理しています。名前とメンバーはディレクトリで変更してください。",
-  "members.directoryRole": "ディレクトリのグループで設定",
+  "members.directoryRole": "ロールが割り当てられたディレクトリグループに所属",
   "scim.roles.title": "ディレクトリグループからのロール",
   "scim.roles.description":
-    "選んだグループのメンバーにそのロールが付与され、ディレクトリが追加するそれ以外の人はメンバーになります。割り当てられたグループにいる人のロールを手動で変えても、その人のグループが次に変わったときにディレクトリが設定し直します。",
+    "選んだグループのメンバーには、現在より上のロールであればそのロールが付与されます。ディレクトリが取り消すのは自分が付与したロールだけです。管理者が手動で設定したロールを下げることはなく、手動で変更したロールはそれ以降あなたのものになります。",
   "scim.roles.access":
     "artifact に登録されたグループのメンバーはその artifact を閲覧できるため、今後はディレクトリがそれらの artifact を閲覧できる人を決めます。",
   "scim.roles.editor": "メンバーを編集者にするグループ",
@@ -2304,6 +2304,13 @@ export const ja = {
   "scim.roles.saved": "ロールを保存しました。",
   "scim.roles.confirm.title": "{name} のメンバーを管理者にしますか？",
   "scim.roles.confirm.body":
-    "現在 {name} には {count, plural, one {# 人} other {# 人}} います。ディレクトリを管理する人が、このワークスペースのメンバー、ポリシー、トークン、設定を管理する人を決めることになります。",
+    "現在 {name} には {count, plural, one {# 人} other {# 人}} おり、サインイン時に {pending, plural, =0 {追加はありません} one {さらに # 人加わります} other {さらに # 人加わります}}。ディレクトリを管理する人が、このワークスペースのメンバー、ポリシー、トークン、設定を管理する人を決めることになります。",
   "scim.roles.confirm.action": "管理者にする",
+  "groups.stopSync": "同期を停止",
+  "groups.stopSyncLabel": "{name} の同期を停止",
+  "groups.stopSync.title": "{name} のディレクトリからの同期を停止しますか？",
+  "groups.stopSync.body":
+    "このグループはディレクトリで管理されなくなり、今後は管理者がここで編集します。ロールの割り当ては解除され、このグループによって編集者や管理者になった人はそのロールを保持します。後でディレクトリが同じ名前のグループを送ってきた場合は拒否されます。",
+  "groups.stopSync.done": "{name} はディレクトリから同期されなくなりました。",
+  "audit.kind.groupSyncStopped": "グループ {group} のディレクトリからの同期を停止しました",
 } satisfies Catalog;

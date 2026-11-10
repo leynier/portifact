@@ -127,7 +127,10 @@ export type ScimSettingsUpdate = z.infer<typeof ScimSettingsUpdate>;
 export const ScimGroupChoice = z.object({
   id: WorkspaceGroupId,
   name: z.string(),
+  /** Workspace members in the group now. */
   members: z.int().min(0),
+  /** People the directory lists in it who get its role when they sign in. */
+  pending: z.int().min(0),
 });
 export type ScimGroupChoice = z.infer<typeof ScimGroupChoice>;
 

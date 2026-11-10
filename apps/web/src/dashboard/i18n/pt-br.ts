@@ -2312,10 +2312,10 @@ export const ptBR = {
   "groups.directory": "Gerenciado pelo seu diretório",
   "groups.directoryNote":
     "O diretório da sua organização gerencia este grupo por SCIM: mude o nome e os membros lá.",
-  "members.directoryRole": "Definido pelos grupos do seu diretório",
+  "members.directoryRole": "Em um grupo do diretório com papel",
   "scim.roles.title": "Papéis a partir de grupos do diretório",
   "scim.roles.description":
-    "Os membros do grupo que você escolher recebem esse papel; todos os outros que o diretório adiciona são membros. Se você mudar à mão o papel de alguém em um grupo mapeado, o diretório o define de novo na próxima vez que os grupos da pessoa mudarem.",
+    "Os membros do grupo que você escolher recebem esse papel quando ele é maior que o atual. O diretório só retira um papel que deu: nunca rebaixa um papel definido à mão por um administrador, e um papel que você muda à mão passa a ser seu.",
   "scim.roles.access":
     "Um grupo listado em um artifact permite que seus membros o leiam, então agora seu diretório decide quem lê esses artifacts.",
   "scim.roles.editor": "Grupo cujos membros são editores",
@@ -2327,6 +2327,13 @@ export const ptBR = {
   "scim.roles.saved": "Papéis salvos.",
   "scim.roles.confirm.title": "Tornar administradores os membros de {name}?",
   "scim.roles.confirm.body":
-    "{count, plural, one {Há # pessoa} other {Há # pessoas}} em {name} agora. Quem controla seu diretório vai decidir quem administra este espaço de trabalho: seus membros, políticas, tokens e configurações.",
+    "{count, plural, one {Há # pessoa} other {Há # pessoas}} em {name} agora, e {pending, plural, =0 {mais ninguém estará} one {mais # estará} other {mais # estarão}} quando fizerem login. Quem controla seu diretório vai decidir quem administra este espaço de trabalho: seus membros, políticas, tokens e configurações.",
   "scim.roles.confirm.action": "Torná-los administradores",
+  "groups.stopSync": "Parar de sincronizar",
+  "groups.stopSyncLabel": "Parar de sincronizar {name}",
+  "groups.stopSync.title": "Parar de sincronizar {name} do seu diretório?",
+  "groups.stopSync.body":
+    "Seu diretório não vai mais gerenciar este grupo: a partir de agora os administradores o editam aqui. O mapeamento de papel é removido, e as pessoas que ele tornou editores ou administradores mantêm seus papéis. Se o diretório enviar depois um grupo com o mesmo nome, ele é recusado.",
+  "groups.stopSync.done": "{name} não é mais sincronizado do seu diretório.",
+  "audit.kind.groupSyncStopped": "Parou de sincronizar o grupo {group} do diretório",
 } satisfies Catalog;

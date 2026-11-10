@@ -2334,10 +2334,10 @@ export const es = {
   "groups.directory": "Lo administra tu directorio",
   "groups.directoryNote":
     "El directorio de tu organización administra este grupo mediante SCIM: cambia su nombre y sus miembros allí.",
-  "members.directoryRole": "Lo define el grupo de tu directorio",
+  "members.directoryRole": "En un grupo del directorio con un rol",
   "scim.roles.title": "Roles desde grupos del directorio",
   "scim.roles.description":
-    "Los miembros del grupo que elijas reciben ese rol; todos los demás que agrega el directorio son miembros. Si cambias a mano el rol de alguien en un grupo asignado, el directorio lo vuelve a definir la próxima vez que cambien sus grupos.",
+    "Los miembros del grupo que elijas reciben ese rol cuando es mayor que el que tienen. El directorio solo quita un rol que dio: nunca baja un rol que un administrador asignó a mano, y un rol que cambias a mano es tuyo desde entonces.",
   "scim.roles.access":
     "Un grupo que figura en un artifact permite que sus miembros lo lean, así que ahora tu directorio decide quién lee esos artifacts.",
   "scim.roles.editor": "Grupo cuyos miembros son editores",
@@ -2349,6 +2349,13 @@ export const es = {
   "scim.roles.saved": "Roles guardados.",
   "scim.roles.confirm.title": "¿Hacer administradores a los miembros de {name}?",
   "scim.roles.confirm.body":
-    "{count, plural, one {Hay # persona} other {Hay # personas}} en {name} ahora. Quien controle tu directorio decidirá quién administra este espacio de trabajo: sus miembros, políticas, tokens y ajustes.",
+    "{count, plural, one {Hay # persona} other {Hay # personas}} en {name} ahora, y {pending, plural, =0 {nadie más estará} one {# más estará} other {# más estarán}} al iniciar sesión. Quien controle tu directorio decidirá quién administra este espacio de trabajo: sus miembros, políticas, tokens y ajustes.",
   "scim.roles.confirm.action": "Hacerlos administradores",
+  "groups.stopSync": "Dejar de sincronizar",
+  "groups.stopSyncLabel": "Dejar de sincronizar {name}",
+  "groups.stopSync.title": "¿Dejar de sincronizar {name} desde tu directorio?",
+  "groups.stopSync.body":
+    "Tu directorio dejará de administrar este grupo: desde ahora lo editan los administradores aquí. Se quita su asignación de rol, y las personas a las que hizo editores o administradores conservan su rol. Si el directorio envía más adelante un grupo con el mismo nombre, se rechaza.",
+  "groups.stopSync.done": "{name} ya no se sincroniza desde tu directorio.",
+  "audit.kind.groupSyncStopped": "Dejó de sincronizar el grupo {group} desde el directorio",
 } satisfies Catalog;

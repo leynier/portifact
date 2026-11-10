@@ -768,6 +768,78 @@ describe("groups", () => {
   });
 });
 
+describe("a directory group never freezes", () => {
+  it("stops syncing and unmaps without the switch, the token or the plan", async () => {
+    const t = await team();
+    const pushed = await t.h.request(
+      `${SCIM}/Groups`,
+      scim(t.secret, "POST", { displayName: "Eds" }),
+    );
+    const id = (await pushed.json<{ id: string }>()).id;
+    const mapped = await t.h.request(
+      `/api/v1/workspaces/${t.slug}/scim`,
+      dashboard(t.adminCookie, "PATCH", { editorGroup: id }),
+    );
+    expect(mapped.status).toBe(200);
+    // Switched off, the token revoked and the plan lapsed, all at once.
+    await global().delete(schema.scimTokens).where(eq(schema.scimTokens.workspaceId, t.id));
+    await db()
+      .update(schema.ownerPlans)
+      .set({ plan: "team" })
+      .where(eq(schema.ownerPlans.ownerId, t.id));
+    const off = createHarness({ env: { SCIM_ENABLED: undefined } });
+    const setting = await off.request(
+      `/api/v1/workspaces/${t.slug}/scim`,
+      dashboard(t.adminCookie, "PATCH", { editorGroup: { id } }),
+    );
+    expect(setting.status).toBe(503);
+    const refusedSetting = await off.request(
+      `/api/v1/workspaces/${t.slug}/scim`,
+      dashboard(t.adminCookie, "PATCH", { invitationEmails: true }),
+    );
+    expect(refusedSetting.status).toBe(503);
+    const unmapped = await off.request(
+      `/api/v1/workspaces/${t.slug}/scim`,
+      dashboard(t.adminCookie, "PATCH", { editorGroup: null }),
+    );
+    expect(await unmapped.json()).toEqual({ unmapped: true });
+    const stopped = await off.request(
+      `/api/v1/workspaces/${t.slug}/groups/${id}/stop-sync`,
+      dashboard(t.adminCookie, "POST"),
+    );
+    expect(await stopped.json()).toEqual({ stopped: true });
+    const renamed = await off.request(
+      `/api/v1/workspaces/${t.slug}/groups/${id}`,
+      dashboard(t.adminCookie, "PATCH", { name: "Editors" }),
+    );
+    expect(renamed.status).toBe(200);
+    const again = await off.request(
+      `/api/v1/workspaces/${t.slug}/groups/${id}/stop-sync`,
+      dashboard(t.adminCookie, "POST"),
+    );
+    expect(again.status).toBe(404);
+  });
+
+  it("answers 404 to SCIM for a group that stopped syncing", async () => {
+    const t = await team();
+    const pushed = await t.h.request(
+      `${SCIM}/Groups`,
+      scim(t.secret, "POST", { displayName: "Ops" }),
+    );
+    const id = (await pushed.json<{ id: string }>()).id;
+    await t.h.request(
+      `/api/v1/workspaces/${t.slug}/groups/${id}/stop-sync`,
+      dashboard(t.adminCookie, "POST"),
+    );
+    expect((await t.h.request(`${SCIM}/Groups/${id}`, scim(t.secret))).status).toBe(404);
+    const recreated = await t.h.request(
+      `${SCIM}/Groups`,
+      scim(t.secret, "POST", { displayName: "Ops" }),
+    );
+    expect(recreated.status).toBe(409);
+  });
+});
+
 describe("route inventory", () => {
   it("classifies every SCIM route: bearer-only protocol endpoints behind the switch and the token", () => {
     const routes = scimRoutes({
