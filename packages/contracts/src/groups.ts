@@ -34,8 +34,8 @@ export const WorkspaceGroupName = z
   .trim()
   .min(1)
   .max(WORKSPACE_GROUPS.nameMaxLength)
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point
   .refine(
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point
     (value) => !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/.test(value),
     "No control characters or direction overrides",
   )

@@ -79,7 +79,9 @@ export function registerWorkspaceTools(register: RegisterTool, context: ToolCont
           ...lines,
           ...(body.available
             ? []
-            : ["The workspace's plan does not include workspace sharing now: groups let nobody read."]),
+            : [
+                "The workspace's plan does not include workspace sharing now: groups let nobody read.",
+              ]),
         ].join("\n"),
         body,
       );

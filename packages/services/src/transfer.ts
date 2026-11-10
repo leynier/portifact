@@ -222,7 +222,9 @@ export async function transferArtifact(
         ),
       // Groups name the source workspace's people: the artifact leaves them behind (decision
       // 0014), in the same batch, so no target member is ever matched against them.
-      db.delete(schema.artifactGroups).where(guarded(eq(schema.artifactGroups.artifactId, artifact.id))),
+      db
+        .delete(schema.artifactGroups)
+        .where(guarded(eq(schema.artifactGroups.artifactId, artifact.id))),
       // The access history follows the artifact (the job re-owns its openings and views).
       accessHistoryMoveJob(db, artifact.id, unchanged, input.now),
       db.insert(schema.lifecycleEvents).select(

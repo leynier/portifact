@@ -1335,7 +1335,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       for (const entry of change.groupCommentVisibility ?? []) {
         const group = groups.get(entry.group);
         if (!group) return error("invalid_input", "Not a group of the artifact.");
-        group.commentVisibility = entry.commentVisibility === "inherit" ? null : entry.commentVisibility;
+        group.commentVisibility =
+          entry.commentVisibility === "inherit" ? null : entry.commentVisibility;
       }
       artifact.groups = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
       const readers = new Set(artifact.access.readers);

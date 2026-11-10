@@ -150,9 +150,9 @@ describe("the catalog's exact shapes", () => {
     }
     expect(AUDIT_DETAILS["group.created"].safeParse({ name: "Design" }).success).toBe(false);
     const access = AUDIT_DETAILS["access.changed"];
-    expect(access.safeParse({ groupsAdded: 20, groupsRemoved: 1, groupExceptions: 0 }).success).toBe(
-      true,
-    );
+    expect(
+      access.safeParse({ groupsAdded: 20, groupsRemoved: 1, groupExceptions: 0 }).success,
+    ).toBe(true);
     expect(access.safeParse({ groupsAdded: 21 }).success).toBe(false);
     expect(access.safeParse({ groups: [group] }).success).toBe(false);
   });

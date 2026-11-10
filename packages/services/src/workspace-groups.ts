@@ -49,7 +49,8 @@ const missingGroup = () => fail<never>("not_found", "Group not found.");
 const missingMember = () => fail<never>("not_found", "Member not found.");
 const changedMeanwhile = () =>
   fail<never>("version_conflict", "The group changed meanwhile. Reload and try again.");
-const nameTaken = () => fail<never>("invalid_input", "The workspace already has a group with this name.");
+const nameTaken = () =>
+  fail<never>("invalid_input", "The workspace already has a group with this name.");
 
 function hex(bytes: number): string {
   return [...crypto.getRandomValues(new Uint8Array(bytes))]

@@ -8,6 +8,7 @@ import {
   ArtifactType,
   CommentVisibility,
 } from "./core.ts";
+import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { LIMITS } from "./limits.ts";
 import {
   IdempotencyKey,
@@ -20,7 +21,6 @@ import {
   UploadedPart,
 } from "./publishing.ts";
 import { PublishKey } from "./service-tokens.ts";
-import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { WorkspaceSlug } from "./workspaces.ts";
 
 const keyArg = PublishKey.optional().describe(

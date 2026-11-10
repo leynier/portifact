@@ -235,11 +235,14 @@ describe("plain words for every kind", () => {
 
   it("names a group by its current name, or as deleted, never from the event", () => {
     expect(
-      auditSummary(event(0, { kind: "group.deleted", group: { id: "wg_11111111111111111111111111111111", name: null } })),
+      auditSummary(
+        event(0, {
+          kind: "group.deleted",
+          group: { id: "wg_11111111111111111111111111111111", name: null },
+        }),
+      ),
     ).toBe("Deleted the group (deleted)");
-    expect(auditSummary(event(0, { kind: "group.created" }))).toBe(
-      "Created the group (unknown)",
-    );
+    expect(auditSummary(event(0, { kind: "group.created" }))).toBe("Created the group (unknown)");
     expect(
       auditSummary(
         event(0, {
@@ -247,9 +250,7 @@ describe("plain words for every kind", () => {
           detail: { groupsAdded: 2, groupsRemoved: 1, groupExceptions: 1 },
         }),
       ),
-    ).toBe(
-      "Changed access: 2 group(s) added, 1 group(s) removed, 1 group comment exception(s)",
-    );
+    ).toBe("Changed access: 2 group(s) added, 1 group(s) removed, 1 group comment exception(s)");
   });
 
   it("covers the other variants and actors", () => {

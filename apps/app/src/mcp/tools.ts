@@ -444,7 +444,9 @@ export function createPortifactServer(context: ToolContext): McpServer {
       if (!result.ok) return failure(result.code, result.message);
       const body = AccessPolicyView.parse(result.value);
       const exceptions = body.readerCommentVisibility.length;
-      const groupExceptions = body.groups.filter((group) => group.commentVisibility !== null).length;
+      const groupExceptions = body.groups.filter(
+        (group) => group.commentVisibility !== null,
+      ).length;
       return success(
         `Comments on ${args.artifactId} are visible to ${body.commentVisibility === "owner" ? "the owner and, for each thread, the reader who started it" : "everyone who can open it"}, with ${exceptions} reader exception(s) and ${groupExceptions} group exception(s).`,
         body,

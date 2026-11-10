@@ -11,8 +11,8 @@ import {
   WorkspaceList,
   WorkspaceSlug,
 } from "@portifact/contracts";
-import { plain } from "./annotations.ts";
 import { z } from "zod";
+import { plain } from "./annotations.ts";
 import { callApi } from "./api.ts";
 import { table } from "./artifacts.ts";
 import { type OutputOptions, openSession, signedInPrincipal, writeJson } from "./commands.ts";

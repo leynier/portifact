@@ -38,7 +38,12 @@ import {
   removeGroupMember,
   renameWorkspaceGroup,
 } from "../src/workspace-groups.ts";
-import { changeMemberRole, leaveWorkspace, removeMember, resolveOwnerScope } from "../src/workspaces.ts";
+import {
+  changeMemberRole,
+  leaveWorkspace,
+  removeMember,
+  resolveOwnerScope,
+} from "../src/workspaces.ts";
 import { DAY, db, grantPlan, NOW, session, sha256, value } from "./fixtures.ts";
 import { raceBeforeFirstWrite, raceGlobalBeforeFirstWrite } from "./race.ts";
 
@@ -483,9 +488,9 @@ describe("groups on an artifact", () => {
     expect(value(await getAccess(db(), { userId: reader, artifactId, now: NOW })).groups).toEqual(
       [],
     );
-    expect(value(await getAccess(db(), { userId: sharer, artifactId, now: NOW })).groups).toHaveLength(
-      1,
-    );
+    expect(
+      value(await getAccess(db(), { userId: sharer, artifactId, now: NOW })).groups,
+    ).toHaveLength(1);
   });
 
   it("records group changes as counts in access.changed", async () => {
@@ -499,7 +504,10 @@ describe("groups on an artifact", () => {
       .select({ detail: schema.auditEvents.detail })
       .from(schema.auditEvents)
       .where(
-        and(eq(schema.auditEvents.artifactId, artifactId), eq(schema.auditEvents.kind, "access.changed")),
+        and(
+          eq(schema.auditEvents.artifactId, artifactId),
+          eq(schema.auditEvents.kind, "access.changed"),
+        ),
       );
     expect(events.map((e) => e.detail)).toEqual(
       expect.arrayContaining([{ groupsAdded: 1 }, { groupExceptions: 1 }]),
@@ -565,7 +573,14 @@ describe("revocation", () => {
     ).code;
     const host = `${artifactId}.portifact.dev`;
     return value(
-      await redeemReadHandoff(db(), { code, artifactId, states: ["s"], now: NOW, host, devHost: host }),
+      await redeemReadHandoff(db(), {
+        code,
+        artifactId,
+        states: ["s"],
+        now: NOW,
+        host,
+        devHost: host,
+      }),
     );
   }
   const refresh = (sessionId: string, artifactId: string, now = NOW + 61_000) =>
@@ -611,9 +626,9 @@ describe("revocation", () => {
         .where(eq(schema.artifactGroups.artifactId, artifactId)),
     ).toHaveLength(1);
     expect(await refresh(opened.sessionId, artifactId)).toMatchObject({ ok: false });
-    expect(value(await getAccess(db(), { userId: t.admin.id, artifactId, now: NOW }))).toMatchObject(
-      { groups: [], policyGeneration: 2 },
-    );
+    expect(
+      value(await getAccess(db(), { userId: t.admin.id, artifactId, now: NOW })),
+    ).toMatchObject({ groups: [], policyGeneration: 2 });
   });
 
   it("moves the generation when the group is removed from the artifact, so sessions end at once", async () => {
@@ -650,11 +665,29 @@ describe("comment visibility by group agrees on every read path", () => {
     { name: "setting only", visibility: "owner", reader: "none", groups: [null], sees: "own" },
     { name: "group all", visibility: "owner", reader: "none", groups: ["all"], sees: "all" },
     { name: "group own", visibility: "everyone", reader: "none", groups: ["own"], sees: "own" },
-    { name: "widest group", visibility: "owner", reader: "none", groups: ["own", "all"], sees: "all" },
-    { name: "inherit widens", visibility: "everyone", reader: "none", groups: ["own", null], sees: "all" },
+    {
+      name: "widest group",
+      visibility: "owner",
+      reader: "none",
+      groups: ["own", "all"],
+      sees: "all",
+    },
+    {
+      name: "inherit widens",
+      visibility: "everyone",
+      reader: "none",
+      groups: ["own", null],
+      sees: "all",
+    },
     { name: "reader row first", visibility: "owner", reader: "own", groups: ["all"], sees: "own" },
     { name: "reader row all", visibility: "owner", reader: "all", groups: ["own"], sees: "all" },
-    { name: "reader row inherits", visibility: "owner", reader: null, groups: ["all"], sees: "all" },
+    {
+      name: "reader row inherits",
+      visibility: "owner",
+      reader: null,
+      groups: ["all"],
+      sees: "all",
+    },
   ];
 
   it.each(rows)("$name", async (row) => {
@@ -792,7 +825,10 @@ describe("races", () => {
       await createWorkspaceGroup(raced, { userId: t.admin.id, slug: t.slug, name: "X", now: NOW }),
     ).toMatchObject({ ok: false, code: "forbidden" });
     expect(
-      await db().select().from(schema.workspaceGroups).where(eq(schema.workspaceGroups.workspaceId, t.id)),
+      await db()
+        .select()
+        .from(schema.workspaceGroups)
+        .where(eq(schema.workspaceGroups.workspaceId, t.id)),
     ).toEqual([]);
   });
 
@@ -818,9 +854,15 @@ describe("races", () => {
         .where(eq(schema.workspaceGroupMembers.groupId, group.id)),
     ).toEqual([]);
     expect(
-      await db().select().from(schema.auditEvents).where(
-        and(eq(schema.auditEvents.ownerId, t.id), eq(schema.auditEvents.kind, "group.member_added")),
-      ),
+      await db()
+        .select()
+        .from(schema.auditEvents)
+        .where(
+          and(
+            eq(schema.auditEvents.ownerId, t.id),
+            eq(schema.auditEvents.kind, "group.member_added"),
+          ),
+        ),
     ).toEqual([]);
   });
 
@@ -856,8 +898,13 @@ describe("races", () => {
       }),
     ).toMatchObject({ ok: false, code: "forbidden" });
     expect(
-      value(await getWorkspaceGroup(db().global, { userId: t.editor.id, slug: t.slug, groupId: group.id }))
-        .members,
+      value(
+        await getWorkspaceGroup(db().global, {
+          userId: t.editor.id,
+          slug: t.slug,
+          groupId: group.id,
+        }),
+      ).members,
     ).toHaveLength(1);
   });
 
@@ -911,7 +958,10 @@ describe("the scan and a restore", () => {
       if (checked === 0) break;
     }
     const rows = await db()
-      .select({ groupId: schema.artifactGroups.groupId, checkedAt: schema.artifactGroups.checkedAt })
+      .select({
+        groupId: schema.artifactGroups.groupId,
+        checkedAt: schema.artifactGroups.checkedAt,
+      })
       .from(schema.artifactGroups)
       .where(eq(schema.artifactGroups.artifactId, artifactId));
     expect(rows.map((r) => r.groupId)).toEqual([kept.id]);
@@ -954,13 +1004,16 @@ describe("the scan and a restore", () => {
     );
     const markers = await exportTombstones(db());
     // A restore from before the deletions brings the rows back (and the tombstones go).
+    await db().delete(schema.tombstones).where(eq(schema.tombstones.id, group.id));
     await db()
-      .delete(schema.tombstones)
-      .where(eq(schema.tombstones.id, group.id));
-    await db().insert(schema.workspaceGroups).values(groupRow as typeof schema.workspaceGroups.$inferInsert);
+      .insert(schema.workspaceGroups)
+      .values(groupRow as typeof schema.workspaceGroups.$inferInsert);
     await db()
       .insert(schema.workspaceGroupMembers)
-      .values([membership, otherMembership] as (typeof schema.workspaceGroupMembers.$inferInsert)[]);
+      .values([
+        membership,
+        otherMembership,
+      ] as (typeof schema.workspaceGroupMembers.$inferInsert)[]);
     expect(await reads(artifactId, t.member.id)).toBe(true);
     expect(await reads(artifactId, t.other.id)).toBe(true);
     const applied = await applyTombstones(db(), markers, NOW + 1);

@@ -20,12 +20,12 @@ import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { alignPlanLimits, ownerEntitlements, unpinLapsedPlans } from "./plans.ts";
 import { closeUploadSession } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
-import { pruneArtifactGroups } from "./workspace-groups.ts";
 import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneShareLinks } from "./share-links.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
+import { pruneArtifactGroups } from "./workspace-groups.ts";
 import { processWorkspaceDeletions } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;

@@ -121,9 +121,7 @@ export function registerAccessTools(
       annotations: CHANGE,
     },
     async (args: GroupChangeInput) =>
-      apply(args.artifactId, { addGroups: args.groups }, (body) =>
-        describe(args.artifactId, body),
-      ),
+      apply(args.artifactId, { addGroups: args.groups }, (body) => describe(args.artifactId, body)),
   );
 
   register(

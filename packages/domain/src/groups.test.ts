@@ -38,25 +38,98 @@ type Case = {
 
 const cases: Case[] = [
   // A member in a listed group reads a restricted artifact, as a listed reader does.
-  { name: "member in a group", mode: "restricted", actor: actor("member"), groups: matched(true), reads: true },
-  { name: "member in no listed group", mode: "restricted", actor: actor("member"), groups: matched(true, []), reads: false },
-  { name: "member without the group read", mode: "restricted", actor: actor("member"), reads: false },
+  {
+    name: "member in a group",
+    mode: "restricted",
+    actor: actor("member"),
+    groups: matched(true),
+    reads: true,
+  },
+  {
+    name: "member in no listed group",
+    mode: "restricted",
+    actor: actor("member"),
+    groups: matched(true, []),
+    reads: false,
+  },
+  {
+    name: "member without the group read",
+    mode: "restricted",
+    actor: actor("member"),
+    reads: false,
+  },
   // A lapsed plan makes groups grant nothing, never wider.
-  { name: "plan lapsed", mode: "restricted", actor: actor("member"), groups: matched(false), reads: false },
+  {
+    name: "plan lapsed",
+    mode: "restricted",
+    actor: actor("member"),
+    groups: matched(false),
+    reads: false,
+  },
   // Groups never reach past the owning workspace's members.
   { name: "not a member", mode: "restricted", actor: null, groups: matched(true), reads: false },
-  { name: "member of another workspace", mode: "restricted", actor: actor("member", OTHER_WS), groups: matched(true), reads: false },
-  { name: "personal artifact", mode: "restricted", ownerId: "u_owner", actor: actor("member"), groups: matched(true), reads: false },
-  { name: "anonymous", mode: "restricted", actor: null, viewer: null, groups: matched(true), reads: false },
+  {
+    name: "member of another workspace",
+    mode: "restricted",
+    actor: actor("member", OTHER_WS),
+    groups: matched(true),
+    reads: false,
+  },
+  {
+    name: "personal artifact",
+    mode: "restricted",
+    ownerId: "u_owner",
+    actor: actor("member"),
+    groups: matched(true),
+    reads: false,
+  },
+  {
+    name: "anonymous",
+    mode: "restricted",
+    actor: null,
+    viewer: null,
+    groups: matched(true),
+    reads: false,
+  },
   // Groups grant only in restricted: other modes decide as before.
-  { name: "authenticated mode", mode: "authenticated", actor: null, groups: matched(true), reads: true },
+  {
+    name: "authenticated mode",
+    mode: "authenticated",
+    actor: null,
+    groups: matched(true),
+    reads: true,
+  },
   { name: "public mode", mode: "public", actor: null, viewer: null, reads: true },
-  { name: "workspace mode, member", mode: "workspace", actor: actor("member"), groups: matched(false), reads: true },
-  { name: "domain mode, member", mode: "domain", actor: actor("member"), groups: matched(false), reads: true },
-  { name: "workspace mode, non-member", mode: "workspace", actor: null, groups: matched(true), reads: false },
+  {
+    name: "workspace mode, member",
+    mode: "workspace",
+    actor: actor("member"),
+    groups: matched(false),
+    reads: true,
+  },
+  {
+    name: "domain mode, member",
+    mode: "domain",
+    actor: actor("member"),
+    groups: matched(false),
+    reads: true,
+  },
+  {
+    name: "workspace mode, non-member",
+    mode: "workspace",
+    actor: null,
+    groups: matched(true),
+    reads: false,
+  },
   // The owner side reads without a group; a listed reader too.
   { name: "editor", mode: "restricted", actor: actor("editor"), reads: true },
-  { name: "listed reader", mode: "restricted", actor: null, readers: ["ana@example.com"], reads: true },
+  {
+    name: "listed reader",
+    mode: "restricted",
+    actor: null,
+    readers: ["ana@example.com"],
+    reads: true,
+  },
 ];
 
 describe("canRead with groups", () => {
@@ -84,8 +157,11 @@ describe("canRead with groups", () => {
   it("admits through a group only the member the role came from", () => {
     const someoneElse: Actor = { ...actor("member"), userId: "u_other" };
     expect(
-      canRead({ mode: "restricted", ownerId: WS, readers: [], groups: matched(true) }, viewer, someoneElse)
-        .ok,
+      canRead(
+        { mode: "restricted", ownerId: WS, readers: [], groups: matched(true) },
+        viewer,
+        someoneElse,
+      ).ok,
     ).toBe(false);
   });
 });

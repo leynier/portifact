@@ -56,9 +56,9 @@ import {
   commentScope,
   type Entitlements,
   effectiveState,
-  type GroupMatch,
   entitlements,
   fail,
+  type GroupMatch,
   type HumanVerdict,
   type ModerationAction,
   moderationTransition,
@@ -219,7 +219,8 @@ async function roleOf(
 ): Promise<Caller> {
   // Comments are people's words: a service token takes no part, whatever its role (decision
   // 0011), and gets what a missing artifact gives.
-  if (isServiceTokenId(userId)) return { role: null, verifiedEmail: null, exception: null, groups: [] };
+  if (isServiceTokenId(userId))
+    return { role: null, verifiedEmail: null, exception: null, groups: [] };
   const actor = await actorOn(db.global, userId, artifact.ownerId);
   if (actsForOwner(actor, artifact.ownerId)) {
     return { role: "owner", verifiedEmail: null, exception: null, groups: [] };

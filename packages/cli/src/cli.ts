@@ -546,7 +546,9 @@ export async function run(
             io,
             runtime,
             id,
-            kind === "add" ? { kind: "group-add", groups: ids } : { kind: "group-remove", groups: ids },
+            kind === "add"
+              ? { kind: "group-add", groups: ids }
+              : { kind: "group-remove", groups: ids },
             { json: options.json === true },
           ),
         ),

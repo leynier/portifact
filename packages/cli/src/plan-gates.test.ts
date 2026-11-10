@@ -103,6 +103,12 @@ const GATED: GatedCommand[] = [
   },
   {
     feature: "workspaces",
+    args: (id) => ["access", "group", "add", id, `wg_${"a".repeat(32)}`],
+    method: "PATCH",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/access$/,
+  },
+  {
+    feature: "workspaces",
     args: () => ["feedback", "--workspace", "acme"],
     method: "GET",
     path: /^\/api\/v1\/feedback$/,

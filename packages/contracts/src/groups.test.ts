@@ -30,7 +30,12 @@ describe("workspace groups", () => {
   it("accepts only group IDs", () => {
     expect(WorkspaceGroupId.safeParse(ID).success).toBe(true);
     expect(isWorkspaceGroupId(ID)).toBe(true);
-    for (const wrong of [`wg_${"0".repeat(31)}`, `ws_${"0".repeat(32)}`, `wg_${"G".repeat(32)}`, ""]) {
+    for (const wrong of [
+      `wg_${"0".repeat(31)}`,
+      `ws_${"0".repeat(32)}`,
+      `wg_${"G".repeat(32)}`,
+      "",
+    ]) {
       expect(isWorkspaceGroupId(wrong)).toBe(false);
     }
   });
@@ -86,8 +91,12 @@ describe("workspace groups", () => {
         .success,
     ).toBe(true);
     expect(
-      ArtifactGroupView.safeParse({ id: ID, name: "Design", members: 1, commentVisibility: "inherit" })
-        .success,
+      ArtifactGroupView.safeParse({
+        id: ID,
+        name: "Design",
+        members: 1,
+        commentVisibility: "inherit",
+      }).success,
     ).toBe(false);
   });
 
