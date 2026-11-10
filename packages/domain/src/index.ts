@@ -4,6 +4,7 @@ export * from "./account-settings.ts";
 export * from "./actor.ts";
 export * from "./annotations.ts";
 export * from "./budget.ts";
+export * from "./comment-notices.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";

@@ -14,6 +14,7 @@ import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { Hono } from "hono";
 import type { SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
+import { noticeRoutes } from "./api/notices.ts";
 import { r2Presigner } from "./api/presign.ts";
 import { reportRoutes } from "./api/reports.ts";
 import { reviewRoutes } from "./api/review.ts";
@@ -36,10 +37,10 @@ import { mcpRoutes } from "./mcp/routes.ts";
 import { readRoutes } from "./read.ts";
 
 /**
- * Pages built by apps/web and served from static assets on this host only: the auth pages and
- * the public abuse report form.
+ * Pages built by apps/web and served from static assets on this host only: the auth pages, the
+ * public abuse report form and the page of comment notice unsubscribe links.
  */
-export const AUTH_PAGES = ["/login", "/device", "/consent", "/report"] as const;
+export const AUTH_PAGES = ["/login", "/device", "/consent", "/report", "/unsubscribe"] as const;
 
 /** The query parameter through which a link asks a page for a language (apps/web, src/i18n). */
 export const LOCALE_PARAM = "lang";
@@ -305,6 +306,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     "/",
     shareOpenRoutes({ siteverify: (env) => depsFor(env).siteverify, now: () => Date.now() }),
   );
+  app.route("/", noticeRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
   app.route(
     "/",

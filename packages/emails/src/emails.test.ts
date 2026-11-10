@@ -489,6 +489,10 @@ describe("previews", () => {
       "budget-alert-no-protection",
       "expiry-notice",
       "expiry-notice-one",
+      "comment-notice",
+      "comment-notice-one",
+      "comment-notice-without-names",
+      ...translated.map((code) => `comment-notice-${code}`),
       ...translated.map((code) => `expiry-notice-${code}`),
     ]);
     for (const { email } of previews()) {

@@ -808,6 +808,39 @@ describe("review viewer", () => {
   });
 });
 
+describe("comment notices in the viewer", () => {
+  it("mutes the artifact's comment emails from the comments, when the owner's plan has them", async () => {
+    server.commentNotices[ID] = { available: true, muted: false };
+    const { container } = await open();
+    const box = (await screen.findByRole("checkbox", {
+      name: "Email me about new comments on this artifact",
+    })) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(box);
+    expect(await screen.findByText("Comment emails for this artifact turned off.")).toBeTruthy();
+    expect(server.requests).toContainEqual({
+      method: "PUT",
+      path: `/api/v1/account/comment-notices/${ID}`,
+    });
+    expect(server.bodies.at(-1)).toEqual({ muted: true });
+    await waitFor(() => expect(box.checked).toBe(false));
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("offers nothing when the owner's plan has no comment notices", async () => {
+    await open();
+    await waitFor(() =>
+      expect(server.requests).toContainEqual({
+        method: "GET",
+        path: `/api/v1/account/comment-notices/${ID}`,
+      }),
+    );
+    expect(screen.queryByRole("checkbox", { name: /new comments on this artifact/ })).toBeNull();
+    expect(screen.queryByText(/part of the Pro plan/)).toBeNull();
+  });
+});
+
 describe("thread actions", () => {
   it("shows only the first message, folds the replies behind their count and no state badge", async () => {
     const store = server.annotations[ID];

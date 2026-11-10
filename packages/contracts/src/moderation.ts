@@ -190,6 +190,8 @@ export const AccountExport = z.object({
     settings: AccountSettings,
     /** The account's plan as it applies at the export, `free` when it has none. */
     plan: PlanView,
+    /** Artifacts whose comment notices the account muted. */
+    commentNoticeMutes: z.array(z.string()),
   }),
   artifacts: z.array(ExportArtifact),
   /**

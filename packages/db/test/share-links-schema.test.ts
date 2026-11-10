@@ -1,4 +1,4 @@
-// Migration 0031 (decision 0008): share links, their handoffs and sessions go with the artifact
+// Migration 0032 (decision 0008): share links, their handoffs and sessions go with the artifact
 // and with the link, a token is unique, and a password is stored whole or not at all.
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";

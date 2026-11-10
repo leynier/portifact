@@ -1,5 +1,5 @@
 // The jobs Worker. Its schedule runs the maintenance scans (the safety net, and the scan that
-// schedules expiry notices, which the consumer emails to owners), relays pending
+// schedules expiry and comment notices, which the consumer emails), relays pending
 // outbox rows to the `portifact-jobs` queue, reconciles a slice of storage with D1 and runs the
 // budget run (alerts and automatic protection, plan section 12). Its queue consumer runs the
 // relayed jobs (including the erasure of access logs in the separate access log database), and the
@@ -20,7 +20,7 @@ import {
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
-import { expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
+import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
 
 export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv {
   DB: D1Database;
@@ -124,6 +124,7 @@ export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: numb
   const access = createAccessDb(env.ACCESS_DB);
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   const notifier = expiryNotifierFromEnv(env);
+  const commentNotifier = commentNotifierFromEnv(env);
   for (const message of batch.messages) {
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {
@@ -133,7 +134,11 @@ export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: numb
       continue;
     }
     try {
-      const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, { access, notifier });
+      const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, {
+        access,
+        notifier,
+        commentNotifier,
+      });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });
       } else {

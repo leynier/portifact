@@ -169,7 +169,7 @@ describe("localizeAuthPage", () => {
   });
 
   it("renders the switcher on every auth page", async () => {
-    for (const name of ["login", "device", "consent", "report"] as const) {
+    for (const name of ["login", "device", "consent", "report", "unsubscribe"] as const) {
       loadPage(name);
       await localizeAuthPage(document, { url: `${ORIGIN}/${name}`, storage, languages: [] });
       expect(switcherLinks().map((link) => link.code)).toEqual([...LOCALE_CODES]);

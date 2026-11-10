@@ -98,6 +98,18 @@ const messages = {
     network: "Não foi possível conectar ao Portifact. Verifique sua conexão e tente de novo.",
     failed: "Não foi possível abrir o link. Tente de novo.",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "Este link está incompleto. Abra de novo o link do e-mail ou desative os avisos de comentários nas suas configurações.",
+    invalid:
+      "Este link não funciona mais. Desative os avisos de comentários nas suas configurações.",
+    rateLimited: "Muitas tentativas daqui. Tente de novo em alguns minutos.",
+    network: "Não foi possível conectar ao Portifact. Verifique sua conexão e tente de novo.",
+    failed:
+      "Não foi possível desativar os avisos de comentários. Tente de novo ou desative-os nas suas configurações.",
+    done: "Avisos de comentários desativados.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -230,5 +242,15 @@ export const ptBR: AuthCatalog = {
     "share.privacy":
       "Você lê o artifact sem uma conta. O Portifact não registra quem você é; o dono só vê que o link foi usado. O artifact é escrito pelo autor, não pelo Portifact: não digite senhas nem dados pessoais nele.",
     "share.report": "Denunciar abuso",
+
+    // unsubscribe.html
+    "unsubscribe.title": "Desativar os avisos de comentários do Portifact",
+    "unsubscribe.heading": "Desativar os avisos de comentários",
+    "unsubscribe.intro":
+      "Você deixará de receber e-mails sobre novos comentários em artifacts do Portifact. Os avisos de expiração e os e-mails de login não mudam.",
+    "unsubscribe.confirm": "Desativar os avisos de comentários",
+    "unsubscribe.doneHeading": "Os avisos de comentários estão desativados",
+    "unsubscribe.doneBody":
+      'Você pode ativá-los de novo nas suas <a href="/settings">configurações</a>.',
   },
 };

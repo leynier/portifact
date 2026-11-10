@@ -343,6 +343,7 @@ describe("account settings", () => {
       defaultCommentVisibility: "owner",
       defaultBar: true,
       expiryNotices: true,
+      commentNotices: true,
       locale: null,
     });
     const saved = await change(h, cookie, { defaultAnnotations: "open", defaultBar: false });
@@ -353,6 +354,7 @@ describe("account settings", () => {
       defaultCommentVisibility: "owner",
       defaultBar: false,
       expiryNotices: true,
+      commentNotices: true,
       locale: null,
     });
     expect(await (await settings(h, cookie)).json()).toMatchObject({ defaultBar: false });

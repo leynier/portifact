@@ -100,6 +100,17 @@ const messages = {
     network: "Impossible de joindre Portifact. Vérifiez votre connexion et réessayez.",
     failed: "Le lien n'a pas pu être ouvert. Réessayez.",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "Ce lien est incomplet. Ouvrez de nouveau le lien de l’e-mail, ou désactivez les avis de commentaires dans vos paramètres.",
+    invalid: "Ce lien ne fonctionne plus. Désactivez les avis de commentaires dans vos paramètres.",
+    rateLimited: "Trop de tentatives depuis cet endroit. Réessayez dans quelques minutes.",
+    network: "Portifact est injoignable. Vérifiez votre connexion et réessayez.",
+    failed:
+      "Les avis de commentaires n’ont pas pu être désactivés. Réessayez, ou désactivez-les dans vos paramètres.",
+    done: "Avis de commentaires désactivés.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -236,5 +247,15 @@ export const fr: AuthCatalog = {
     "share.privacy":
       "Vous lisez l'artifact sans compte. Portifact n'enregistre pas qui vous êtes ; le propriétaire voit seulement que le lien a été utilisé. L'artifact est écrit par son auteur, pas par Portifact : n'y saisissez ni mot de passe ni données personnelles.",
     "share.report": "Signaler un abus",
+
+    // unsubscribe.html
+    "unsubscribe.title": "Désactiver les avis de commentaires de Portifact",
+    "unsubscribe.heading": "Désactiver les avis de commentaires",
+    "unsubscribe.intro":
+      "Vous ne recevrez plus d’e-mails sur les nouveaux commentaires des artifacts Portifact. Les avis d’expiration et les e-mails de connexion ne changent pas.",
+    "unsubscribe.confirm": "Désactiver les avis de commentaires",
+    "unsubscribe.doneHeading": "Les avis de commentaires sont désactivés",
+    "unsubscribe.doneBody":
+      'Vous pouvez les réactiver dans vos <a href="/settings">paramètres</a>.',
   },
 };

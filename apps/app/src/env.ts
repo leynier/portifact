@@ -28,6 +28,11 @@ export interface Env {
   /** R2 API token limited to Object Read and Write on R2_BUCKET; signs upload and download URLs only. */
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
+  /**
+   * Checks the signed unsubscribe links of comment notices, which the jobs Worker signs with the
+   * same secret. Without it the unsubscribe endpoint answers 503.
+   */
+  UNSUBSCRIBE_SECRET?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

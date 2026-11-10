@@ -43,6 +43,23 @@ export function checkNoticeCapacity(sentThisCycle: number): Result<true> {
     : ok(true);
 }
 
+/**
+ * Emails of the cycle kept for expiry notices and sign-in codes once comment notices stop.
+ * Comment digests are the most frequent and the least needed, so they stop first.
+ */
+export const COMMENT_NOTICE_EMAIL_RESERVE = 5_000;
+
+/** Comment notices Portifact sends in one cycle at most, counting every email sent before them. */
+export const COMMENT_NOTICE_EMAILS_PER_CYCLE =
+  NOTICE_EMAILS_PER_CYCLE - COMMENT_NOTICE_EMAIL_RESERVE;
+
+/** Whether the cycle still has room for a comment notice. */
+export function checkCommentNoticeCapacity(sentThisCycle: number): Result<true> {
+  return sentThisCycle >= COMMENT_NOTICE_EMAILS_PER_CYCLE
+    ? fail("capacity_unavailable", "Comment notices are paused until the next cycle.")
+    : ok(true);
+}
+
 /** Whether the cycle still has room for another sign-in code. */
 export function checkEmailCapacity(sentThisCycle: number): Result<true> {
   return sentThisCycle >= SIGN_IN_EMAILS_PER_CYCLE

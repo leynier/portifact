@@ -20,7 +20,7 @@ The attacker may be: anyone who sees the link (a chat app, a mail scanner, a lin
 
 ### The link and its token
 
-- `share_links` (migration 0031): ID (`sl_` and 32 hex characters), artifact, label (1 to 80 characters, no control characters), the SHA-256 of the token, an optional expiry, the optional password hash with its salt and iteration count, who created it, created, revoked and last used (a UTC day). Rows cascade from the artifact.
+- `share_links` (migration 0032): ID (`sl_` and 32 hex characters), artifact, label (1 to 80 characters, no control characters), the SHA-256 of the token, an optional expiry, the optional password hash with its salt and iteration count, who created it, created, revoked and last used (a UTC day). Rows cascade from the artifact.
 - The token is 32 bytes from `crypto.getRandomValues` (256 bits), in unpadded base64url, the shape of `OpaqueToken`. Only its SHA-256 is stored; a fast hash is enough because the input has full entropy. It is returned once, in the create response, inside the link URL; no list, export, log or later response carries it. Creation therefore takes no idempotency key: a stored replay would keep the token in D1. A retried create makes a second link, which the owner revokes.
 - At most 20 active links per artifact (`SHARE_LINKS.activePerArtifact`, a safety cap, not a plan value), enforced by the insert itself (`insert … select … where (select count(*) …) < 20`), so concurrent creates cannot pass it. Active means not revoked and not expired.
 - Expiry is optional, at most 365 days ahead. Without one, a link lasts until it is revoked or the artifact is deleted.

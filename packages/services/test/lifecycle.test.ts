@@ -433,6 +433,7 @@ describe("purging archives", () => {
     expect(await runMaintenance(db(), env.ARTIFACTS, T0 + 31 * DAY)).toEqual({
       archived: 1,
       expiryNotices: 0,
+      commentNotices: 0,
       expiredUploads: 0,
       prunedVersions: 0,
       purged: 0,

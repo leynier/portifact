@@ -101,6 +101,18 @@ const messages = {
     network: "Portifact ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
     failed: "Der Link konnte nicht geöffnet werden. Versuche es erneut.",
   },
+  /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
+  unsubscribe: {
+    missing:
+      "Dieser Link ist unvollständig. Öffne den Link aus der E-Mail erneut oder schalte die Kommentarhinweise in deinen Einstellungen ab.",
+    invalid:
+      "Dieser Link funktioniert nicht mehr. Schalte die Kommentarhinweise in deinen Einstellungen ab.",
+    rateLimited: "Zu viele Versuche von hier. Versuche es in ein paar Minuten erneut.",
+    network: "Portifact ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
+    failed:
+      "Die Kommentarhinweise konnten nicht abgeschaltet werden. Versuche es erneut oder schalte sie in deinen Einstellungen ab.",
+    done: "Kommentarhinweise abgeschaltet.",
+  },
 } satisfies AuthMessages;
 
 const TERMS_LINKS = {
@@ -236,5 +248,15 @@ export const de: AuthCatalog = {
     "share.privacy":
       "Du liest das Artifact ohne Konto. Portifact speichert nicht, wer du bist; der Eigentümer sieht nur, dass der Link benutzt wurde. Das Artifact stammt von seinem Autor, nicht von Portifact: Gib darin keine Passwörter oder persönlichen Daten ein.",
     "share.report": "Missbrauch melden",
+
+    // unsubscribe.html
+    "unsubscribe.title": "Portifact-Kommentarhinweise abschalten",
+    "unsubscribe.heading": "Kommentarhinweise abschalten",
+    "unsubscribe.intro":
+      "Du bekommst keine E-Mails mehr über neue Kommentare zu Portifact-Artifacts. Ablaufhinweise und Anmelde-E-Mails ändern sich nicht.",
+    "unsubscribe.confirm": "Kommentarhinweise abschalten",
+    "unsubscribe.doneHeading": "Kommentarhinweise sind abgeschaltet",
+    "unsubscribe.doneBody":
+      'Du kannst sie in deinen <a href="/settings">Einstellungen</a> wieder einschalten.',
   },
 };
