@@ -322,24 +322,36 @@ describe("naming a workspace in the API and MCP", () => {
     ).toMatchObject({ status: 400 });
   });
 
-  it("lists members to every member, through bearer tokens too", async () => {
+  it("lists members only to a dashboard session of a member, never to a bearer token", async () => {
     const t = await team("wsm");
-    const listed = await viaApi(t.member, `/api/v1/workspaces/${t.slug}/members`);
+    const path = `/api/v1/workspaces/${t.slug}/members`;
+    expect(await viaApi(t.member, path)).toEqual({
+      status: 403,
+      body: {
+        error: { code: "forbidden", message: "Managing members needs a dashboard session." },
+      },
+    });
+    const cookie = await t.member.h.signIn(t.member.email);
+    const listed = await t.member.h.request(path, dashboard(cookie));
     expect(listed.status).toBe(200);
-    expect(listed.body).toMatchObject({
+    const body = await listed.json<{
+      workspace: unknown;
+      seats: unknown;
+      items: { role: string; you: boolean }[];
+    }>();
+    expect(body).toMatchObject({
       workspace: { slug: t.slug, role: "member" },
       seats: { used: 3, limit: 10 },
     });
-    const items = (listed.body as { items: { email: string; role: string; you: boolean }[] }).items;
-    expect(items.map((item) => [item.role, item.you]).sort()).toEqual([
+    expect(body.items.map((item) => [item.role, item.you]).sort()).toEqual([
       ["admin", false],
       ["editor", false],
       ["member", true],
     ]);
-    expect(await viaApi(t.outsider, `/api/v1/workspaces/${t.slug}/members`)).toEqual({
-      status: 404,
-      body: missingWorkspace,
-    });
+    const outsiderCookie = await t.outsider.h.signIn(t.outsider.email);
+    const outsider = await t.outsider.h.request(path, dashboard(outsiderCookie));
+    expect(outsider.status).toBe(404);
+    expect(await outsider.json()).toEqual(missingWorkspace);
   });
 });
 
@@ -504,7 +516,9 @@ describe("member and invitation routes", () => {
       const response = await h.request(path, dashboard(adminCookie, method, body));
       expect(response.status, `${method} ${path}`).toBe(404);
     }
-    expect((await viaApi(t.admin, "/api/v1/workspaces/Bad%20Slug/members")).status).toBe(404);
+    expect(
+      (await h.request("/api/v1/workspaces/Bad%20Slug/members", dashboard(adminCookie))).status,
+    ).toBe(404);
     expect((await viaApi(t.admin, "/api/v1/usage?workspace=Bad%20Slug")).status).toBe(404);
     const bad = await h.request(
       `/api/v1/workspaces/${t.slug}/members/${t.member.userId}`,

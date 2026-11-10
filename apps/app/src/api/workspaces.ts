@@ -1,10 +1,12 @@
-// Workspaces at /api/v1 (premium plan T1). Reading the caller's workspaces and a workspace's
-// members takes `artifacts:read` from a bearer token or the dashboard session, so the CLI and MCP
-// show where artifacts live. Managing members and invitations, and accepting or declining an
-// invitation, answer only the dashboard's session, like the other account endpoints: a membership
-// widens who can read and manage an owner's artifacts, so no OAuth scope reaches it and an agent
-// can never add or remove people (decision 0003 keeps account-level credentials out of scopes,
-// except the CLI's narrow `credentials:manage`). The services decide every role.
+// Workspaces at /api/v1 (premium plan T1). Reading the caller's own workspaces and role takes
+// `artifacts:read` from a bearer token or the dashboard session, so the CLI and MCP show where
+// artifacts live; it names no other person. The member list (every member's email), managing
+// members and invitations, and accepting or declining an invitation answer only the dashboard's
+// session, like the other account endpoints: they are account-level data and actions, and a
+// membership widens who can read and manage an owner's artifacts, so no OAuth scope reaches them
+// and an agent can never read the members or add or remove people (decision 0003 keeps
+// account-level credentials out of scopes, except the CLI's narrow `credentials:manage`). The
+// services decide every role.
 import {
   ERROR_STATUS,
   type ErrorCode,
@@ -119,37 +121,12 @@ export function invitationSender(
 }
 
 /** The read routes, behind the API's bearer-or-session gate. */
-export function workspaceReadRoutes(
-  api: Hono<{ Bindings: Env }>,
-  guarded: Guarded,
-  now: () => number,
-) {
+export function workspaceReadRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded) {
   api.get(
     "/api/v1/workspaces",
     guarded("artifacts:read", async (c, userId) =>
       c.json(workspaceListView(await listUserWorkspaces(regionsOf(c.env).global, userId))),
     ),
-  );
-
-  api.get(
-    "/api/v1/workspaces/:slug/members",
-    guarded("artifacts:read", async (c, userId) => {
-      const slug = WorkspaceSlug.safeParse(c.req.param("slug"));
-      if (!slug.success) return error(c, "not_found", "Workspace not found.");
-      const result = await listMembers(regionsOf(c.env).global, {
-        userId,
-        slug: slug.data,
-        now: now(),
-      });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.json(
-        WorkspaceMemberList.parse({
-          workspace: workspaceView(result.value.workspace),
-          items: result.value.members.map((row) => memberView(row, userId)),
-          seats: result.value.seats,
-        }),
-      );
-    }),
   );
 }
 
@@ -188,6 +165,24 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
     return slug.success ? slug.data : null;
   };
   const global = (c: WorkspaceContext) => regionsOf(c.env).global;
+
+  // Every member's name and email: account-level data, so only the dashboard's session reads it.
+  routes.get(
+    "/api/v1/workspaces/:slug/members",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const result = await listMembers(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(
+        WorkspaceMemberList.parse({
+          workspace: workspaceView(result.value.workspace),
+          items: result.value.members.map((row) => memberView(row, userId)),
+          seats: result.value.seats,
+        }),
+      );
+    }),
+  );
 
   routes.patch(
     "/api/v1/workspaces/:slug/members/:userId",
