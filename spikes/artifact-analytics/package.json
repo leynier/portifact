@@ -1,0 +1,19 @@
+{
+  "name": "@portifact/spike-artifact-analytics",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike S3: per-artifact analytics as daily D1 counters written by the delivery batching, in workerd with local D1 only. Never deployed.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.6.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
