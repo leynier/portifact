@@ -293,7 +293,7 @@ describe("operator backup commands", () => {
       // Other tests in this file write artifacts without directory rows, so the count varies.
       output: expect.stringMatching(
         new RegExp(
-          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, 0 service token\\(s\\) deleted again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
+          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, 0 service token\\(s\\) deleted again, 0 group\\(s\\) and 0 group membership\\(s\\) removed again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
         ),
       ),
     });
