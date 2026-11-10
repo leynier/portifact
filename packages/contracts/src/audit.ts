@@ -147,6 +147,11 @@ export const AUDIT_DETAILS = {
     commentVisibility: CommentVisibility.optional(),
     indexable: z.boolean().optional(),
     embeddable: z.boolean().optional(),
+    /**
+     * Set when a workspace policy made the change (decision 0015), by the system: the policy that
+     * did. The other fields say what changed, as for a manual change.
+     */
+    policy: z.enum(["publicAccess", "readerDomains"]).optional(),
   }),
   "share_link.created": z.strictObject({ password: z.boolean(), expires: z.boolean() }),
   "share_link.revoked": empty,

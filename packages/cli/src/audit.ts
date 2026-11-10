@@ -251,6 +251,7 @@ function accessParts(d: Record<string, unknown>): string[] {
   if (d.commentVisibility) parts.push(`comments visible to ${d.commentVisibility}`);
   if (d.indexable !== undefined) parts.push(`indexing ${d.indexable ? "on" : "off"}`);
   if (d.embeddable !== undefined) parts.push(`embedding ${d.embeddable ? "on" : "off"}`);
+  if (d.policy) parts.push("by the workspace's policy");
   return parts;
 }
 

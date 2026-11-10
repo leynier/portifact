@@ -9,15 +9,22 @@ import {
   type WorkspacePolicy,
 } from "@portifact/contracts";
 import { globalDb, type Regions, regionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { POLICY_MESSAGES } from "@portifact/domain";
-import { and, eq } from "drizzle-orm";
+import { eventBit, POLICY_MESSAGES } from "@portifact/domain";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
+import { setAnnotationMode } from "../src/annotations.ts";
+import { getApprovalReview, requestApprovalReview } from "../src/approval-reviews.ts";
 import { getAuditLog } from "../src/audit.ts";
 import { runJob } from "../src/outbox.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { createServiceToken } from "../src/service-tokens.ts";
-import { createShareLink, openShareLink } from "../src/share-links.ts";
+import {
+  createShareLink,
+  openShareLink,
+  redeemShareHandoff,
+  refreshShareSession,
+} from "../src/share-links.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import {
   applyWorkspacePolicies,
@@ -97,7 +104,7 @@ function manifest(body: string, digest: string) {
   ];
 }
 
-async function publishIn(userId: string, ownerId: string) {
+async function publishIn(userId: string, ownerId: string, now = NOW) {
   const body = `<p>${crypto.randomUUID()}</p>`;
   const digest = await sha256(body);
   const prepared = value(
@@ -109,12 +116,12 @@ async function publishIn(userId: string, ownerId: string) {
       entrypoint: "index.html",
       baseVersionId: null,
       files: manifest(body, digest),
-      now: NOW,
+      now,
     }),
   );
   await env.ARTIFACTS.put(`objects/${ownerId}/${digest}`, body);
   return value(
-    await commitPublish(db(), env.ARTIFACTS, { userId, sessionId: prepared.sessionId, now: NOW }),
+    await commitPublish(db(), env.ARTIFACTS, { userId, sessionId: prepared.sessionId, now }),
   ).artifactId;
 }
 
@@ -124,14 +131,18 @@ const save = (
   options: { userId?: string; revision?: number; confirm?: boolean; now?: number } = {},
   r: Regions = regions(),
 ) =>
-  setWorkspacePolicy(r, {
-    userId: options.userId ?? t.admin.id,
-    slug: t.slug,
-    policy: next,
-    revision: options.revision ?? 0,
-    confirm: options.confirm,
-    now: options.now ?? NOW,
-  });
+  (async () =>
+    setWorkspacePolicy(r, {
+      userId: options.userId ?? t.admin.id,
+      slug: t.slug,
+      policy: next,
+      revision: options.revision ?? 0,
+      // Confirming accepts what the preview shows at that moment, as the dashboard does.
+      confirmed: options.confirm
+        ? await policyImpact(db(), t.id, next, options.now ?? NOW)
+        : undefined,
+      now: options.now ?? NOW,
+    }))();
 const access = (
   userId: string,
   artifactId: string,
@@ -910,5 +921,370 @@ describe("cost on the write path", () => {
       createShareLink: createShareLinkTrips,
       openShareLink: openShareLinkTrips,
     }).toEqual(BASELINE);
+  });
+});
+
+// Review fixes (PR 186): the job and the scan at real sizes, the confirmation, the trail a change
+// by policy leaves, link sessions and the domain default.
+async function addReaders(artifactId: string, emails: string[]) {
+  // Chunks of 20 rows (4 values each): well under D1's 100 bound parameters.
+  for (let i = 0; i < emails.length; i += 20) {
+    await db()
+      .insert(schema.artifactReaders)
+      .values(emails.slice(i, i + 20).map((email) => ({ artifactId, email, createdAt: NOW })));
+  }
+}
+
+async function runUntilDone(workspaceId: string, now = NOW) {
+  const counts = { artifactsNarrowed: 0, readersRemoved: 0, linksRevoked: 0, sessionsEnded: 0 };
+  for (let step = 0; step < 50; step += 1) {
+    const result = await enforceWorkspacePolicy(db(), workspaceId, now);
+    for (const key of Object.keys(counts) as (keyof typeof counts)[]) {
+      counts[key] += result.counts[key];
+    }
+    if (result.outcome !== "pending") return { outcome: result.outcome, counts, steps: step + 1 };
+  }
+  throw new Error("the job never finished");
+}
+
+async function accessEvents(workspaceId: string) {
+  return db()
+    .select()
+    .from(schema.auditEvents)
+    .where(
+      and(
+        eq(schema.auditEvents.ownerId, workspaceId),
+        eq(schema.auditEvents.kind, "access.changed"),
+      ),
+    );
+}
+
+const MAX_DOMAINS = Array.from({ length: 20 }, (_, i) => `d${i}.example`);
+
+describe("the job at real sizes", () => {
+  it("narrows more public artifacts than one batch, with each artifact's own trail", async () => {
+    const t = await team();
+    const ids: string[] = [];
+    ids.push(await publishIn(t.editor.id, t.id));
+    // The fixture grants the plan row only; its limit columns are the free defaults (50 active).
+    await db()
+      .update(schema.accountUsage)
+      .set({ activeLimit: 1_000 })
+      .where(eq(schema.accountUsage.ownerId, t.id));
+    for (let i = 1; i < 55; i += 1) ids.push(await publishIn(t.editor.id, t.id));
+    for (let i = 0; i < ids.length; i += 50) {
+      await db()
+        .update(schema.artifacts)
+        .set({ accessMode: "public" })
+        .where(inArray(schema.artifacts.id, ids.slice(i, i + 50)));
+    }
+    value(await save(t, policy({ publicAccess: "forbidden" }), { confirm: true }));
+    const done = await runUntilDone(t.id);
+    expect(done.outcome).toBe("done");
+    expect(done.counts.artifactsNarrowed).toBe(55);
+    const rows = await db()
+      .select({ mode: schema.artifacts.accessMode })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.ownerId, t.id));
+    expect(rows.every((row) => row.mode === "workspace")).toBe(true);
+    const events = await accessEvents(t.id);
+    expect(events).toHaveLength(55);
+    expect(events[0]).toMatchObject({
+      actorType: "system",
+      actorId: null,
+      detail: { mode: "workspace", policy: "publicAccess" },
+    });
+    expect(new Set(events.map((event) => event.artifactId))).toEqual(new Set(ids));
+  });
+
+  it("removes 500 readers of one artifact outside the widest allowlist", async () => {
+    const t = await team();
+    const artifactId = await publishIn(t.editor.id, t.id);
+    const outside = Array.from({ length: 495 }, (_, i) => `r${i}@outside.example`);
+    const inside = Array.from({ length: 5 }, (_, i) => `r${i}@d${i}.example`);
+    await addReaders(artifactId, [...outside, ...inside]);
+    const before = (await artifactRow(artifactId))?.policyGeneration ?? 0;
+    value(await save(t, policy({ readerDomains: MAX_DOMAINS }), { confirm: true }));
+    const done = await runUntilDone(t.id);
+    expect(done.counts.readersRemoved).toBe(495);
+    const left = await db()
+      .select({ email: schema.artifactReaders.email })
+      .from(schema.artifactReaders)
+      .where(eq(schema.artifactReaders.artifactId, artifactId));
+    expect(left.map((row) => row.email).sort()).toEqual([...inside].sort());
+    expect((await artifactRow(artifactId))?.policyGeneration).toBeGreaterThan(before);
+    const events = await accessEvents(t.id);
+    expect(
+      events.reduce(
+        (sum, e) => sum + Number((e.detail as { readersRemoved?: number }).readersRemoved ?? 0),
+        0,
+      ),
+    ).toBe(495);
+    expect(events.every((e) => (e.detail as { policy?: string }).policy === "readerDomains")).toBe(
+      true,
+    );
+  });
+
+  it("revokes share links past one batch", async () => {
+    const t = await team();
+    const ids: string[] = [];
+    for (let a = 0; a < 3; a += 1) {
+      const artifactId = await publishIn(t.editor.id, t.id);
+      for (let i = 0; i < 20; i += 1) ids.push(value(await link(t.editor.id, artifactId)).link.id);
+    }
+    value(await save(t, policy({ shareLinks: "disabled" }), { confirm: true }));
+    const done = await runUntilDone(t.id);
+    expect(done.counts.linksRevoked).toBe(60);
+    const live = await db()
+      .select({ id: schema.shareLinks.id })
+      .from(schema.shareLinks)
+      .where(
+        and(inArray(schema.shareLinks.id, ids.slice(0, 50)), isNull(schema.shareLinks.revokedAt)),
+      );
+    expect(live).toEqual([]);
+  });
+
+  it("fires the webhook event and drops approval reviewers with their reader row", async () => {
+    const t = await team();
+    const artifactId = await publishIn(t.editor.id, t.id);
+    value(await access(t.editor.id, artifactId, { addReaders: ["eve@outside.example"] }));
+    value(
+      await setAnnotationMode(db(), {
+        userId: t.editor.id,
+        artifactId,
+        mode: "open",
+        now: NOW,
+      }),
+    );
+    value(
+      await requestApprovalReview(db(), {
+        userId: t.admin.id,
+        artifactId,
+        reviewers: ["eve@outside.example"],
+        requiredApprovals: null,
+        showStatus: false,
+        now: NOW,
+      }),
+    );
+    const webhookId = `wh_${hex()}`;
+    await db()
+      .insert(schema.webhooks)
+      .values({
+        id: webhookId,
+        ownerId: t.id,
+        host: "hooks.example.com",
+        format: "generic",
+        events: eventBit("artifact.access_changed"),
+        keyId: "k1",
+        urlBox: "sealed",
+        secretBox: "sealed",
+        createdVia: "session",
+      });
+    value(await save(t, policy({ readerDomains: ["corp.example"] }), { confirm: true }));
+    await runUntilDone(t.id);
+    const marks = await db()
+      .select()
+      .from(schema.webhookEvents)
+      .where(eq(schema.webhookEvents.webhookId, webhookId));
+    expect(marks.map((mark) => [mark.artifactId, mark.type])).toEqual([
+      [artifactId, "artifact.access_changed"],
+    ]);
+    const review = value(
+      await getApprovalReview(db(), { userId: t.admin.id, artifactId, now: NOW + 1 }),
+    );
+    expect(review.request?.reviewers.find((r) => r.email === "eve@outside.example")?.active).toBe(
+      false,
+    );
+  });
+});
+
+describe("transfers with many readers", () => {
+  it("moves an artifact with 500 readers inside the allowlist and refuses one outside", async () => {
+    const t = await team();
+    const owner = t.editor.id;
+    await grantPlan(owner, "pro");
+    value(await save(t, policy({ readerDomains: MAX_DOMAINS })));
+    const move = (id: string) =>
+      transferArtifact(db(), env.ARTIFACTS, {
+        userId: owner,
+        artifactId: id,
+        workspace: t.slug,
+        now: NOW,
+      });
+    const allowed = await publishIn(owner, owner);
+    await addReaders(
+      allowed,
+      Array.from({ length: 500 }, (_, i) => `r${i}@d${i % 20}.example`),
+    );
+    expect(value(await move(allowed)).ownerId).toBe(t.id);
+    const refusedOne = await publishIn(owner, owner);
+    await addReaders(refusedOne, [
+      ...Array.from({ length: 499 }, (_, i) => `r${i}@d${i % 20}.example`),
+      "eve@outside.example",
+    ]);
+    expect(await move(refusedOne)).toEqual(
+      refused(POLICY_MESSAGES.transferReaders([...MAX_DOMAINS].sort())),
+    );
+  });
+});
+
+describe("the scan", () => {
+  async function bareWorkspace(stored: unknown) {
+    const id = `ws_${hex()}`;
+    await db()
+      .insert(schema.workspaces)
+      .values({
+        id,
+        slug: `s${hex().slice(0, 20)}`,
+        name: "W",
+        createdBy: "u",
+        updatedAt: NOW,
+        policy: stored,
+      });
+    return id;
+  }
+
+  it("finds a violation in one run past many workspaces, and one failing workspace stops nothing", async () => {
+    for (let i = 0; i < 30; i += 1) await bareWorkspace(policy({ publicAccess: "forbidden" }));
+    const broken = await bareWorkspace({ publicAccess: "maybe" });
+    const t = await team();
+    value(await save(t, policy({ publicAccess: "forbidden" })));
+    const artifactId = await publishIn(t.editor.id, t.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ accessMode: "public" })
+      .where(eq(schema.artifacts.id, artifactId));
+    const result = await enforceWorkspacePolicies(db(), NOW);
+    expect((await artifactRow(artifactId))?.accessMode).toBe("workspace");
+    expect(result.failed).toBeGreaterThanOrEqual(1);
+    await db().delete(schema.workspaces).where(eq(schema.workspaces.id, broken));
+  });
+});
+
+describe("the confirmation is for what the admin saw", () => {
+  it("refuses a confirmed save whose counts grew since the preview", async () => {
+    const t = await team();
+    const first = await publishIn(t.editor.id, t.id);
+    value(await access(t.editor.id, first, { mode: "public" }));
+    const strict = policy({ publicAccess: "forbidden" });
+    const seen = value(
+      await previewWorkspacePolicy(regions(), {
+        userId: t.admin.id,
+        slug: t.slug,
+        policy: strict,
+        now: NOW,
+      }),
+    );
+    expect(seen.publicArtifacts).toBe(1);
+    const second = await publishIn(t.editor.id, t.id);
+    value(await access(t.editor.id, second, { mode: "public" }));
+    const stale = await setWorkspacePolicy(regions(), {
+      userId: t.admin.id,
+      slug: t.slug,
+      policy: strict,
+      revision: 0,
+      confirmed: seen,
+      now: NOW,
+    });
+    expect(stale).toEqual(refused(POLICY_MESSAGES.impactChanged));
+    const fresh = value(
+      await previewWorkspacePolicy(regions(), {
+        userId: t.admin.id,
+        slug: t.slug,
+        policy: strict,
+        now: NOW,
+      }),
+    );
+    expect(
+      value(
+        await setWorkspacePolicy(regions(), {
+          userId: t.admin.id,
+          slug: t.slug,
+          policy: strict,
+          revision: 0,
+          confirmed: fresh,
+          now: NOW,
+        }),
+      ).revision,
+    ).toBe(1);
+  });
+});
+
+describe("link sessions after a policy", () => {
+  it("refuses a code issued before the save and redeemed after the job", async () => {
+    const t = await team();
+    const artifactId = await publishIn(t.editor.id, t.id);
+    const created = value(await link(t.editor.id, artifactId));
+    const opened = await open(created.token);
+    if (opened.kind !== "opened") throw new Error(opened.kind);
+    value(await save(t, policy({ shareLinks: "password_required" }), { confirm: true }));
+    await runUntilDone(t.id);
+    const redeem = (now: number) =>
+      redeemShareHandoff(db(), {
+        code: opened.code,
+        artifactId,
+        now,
+        host: opened.host,
+        devHost: `${artifactId}.portifact.dev`,
+      });
+    expect(await redeem(NOW + 1)).toEqual({
+      ok: false,
+      code: "invalid_input",
+      message: "This link has expired or was already used.",
+    });
+  });
+
+  it("refuses to renew a link session the policy stops", async () => {
+    const t = await team();
+    const artifactId = await publishIn(t.editor.id, t.id);
+    const created = value(await link(t.editor.id, artifactId));
+    const opened = await open(created.token);
+    if (opened.kind !== "opened") throw new Error(opened.kind);
+    const session = value(
+      await redeemShareHandoff(db(), {
+        code: opened.code,
+        artifactId,
+        now: NOW,
+        host: opened.host,
+        devHost: `${artifactId}.portifact.dev`,
+      }),
+    );
+    // The policy is saved; the job has not run yet.
+    value(await save(t, policy({ shareLinks: "password_required" }), { confirm: true }));
+    expect(
+      await refreshShareSession(db(), {
+        sessionId: session.sessionId,
+        artifactId,
+        linkId: session.linkId,
+        now: NOW + 1,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+  });
+});
+
+describe("the domain default without a verified domain", () => {
+  it("starts new artifacts shared with the workspace, never wider, and restricted without the plan", async () => {
+    const t = await team();
+    const domainId = `wd_${hex()}`;
+    await db()
+      .insert(schema.workspaceDomains)
+      .values({
+        id: domainId,
+        workspaceId: t.id,
+        domain: `${hex().slice(0, 8)}.example`,
+        token: "t",
+        state: "verified",
+        createdAt: NOW,
+        expiresAt: NOW + DAY,
+      });
+    value(await save(t, policy({ defaultAccess: "domain" })));
+    expect((await artifactRow(await publishIn(t.editor.id, t.id)))?.accessMode).toBe("domain");
+    await db().delete(schema.workspaceDomains).where(eq(schema.workspaceDomains.id, domainId));
+    expect((await artifactRow(await publishIn(t.editor.id, t.id)))?.accessMode).toBe("workspace");
+    await db()
+      .update(schema.ownerPlans)
+      .set({ plan: "free" })
+      .where(eq(schema.ownerPlans.ownerId, t.id));
+    expect((await artifactRow(await publishIn(t.editor.id, t.id)))?.accessMode).toBe("restricted");
   });
 });

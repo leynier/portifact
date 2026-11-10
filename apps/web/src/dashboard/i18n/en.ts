@@ -2109,6 +2109,13 @@ export const en = {
     "{count, plural, one {revoked # share link} other {revoked # share links}}",
   "audit.policy.sessionsEnded":
     "{count, plural, one {ended # link session} other {ended # link sessions}}",
+  "policies.impact.stale":
+    "What this policy changes on existing artifacts grew since you reviewed it. Save again to review the new counts.",
+  "policies.savedWithChanges":
+    "Existing artifacts are being brought in line with the policies. Their pages and the audit log show what changed.",
+  "policies.default.domainLapsed":
+    "No email domain is verified, so new artifacts start shared with the workspace until one is verified again.",
+  "audit.access.byPolicy": "by the workspace's policy",
 } as const;
 
 export type MessageId = keyof typeof en;

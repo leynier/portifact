@@ -505,10 +505,25 @@ export async function openShareLink(
   return { kind: "opened", artifactId: found.artifactId, code, host };
 }
 
-/** A link's condition for SQL: not revoked and not expired at `now`. */
+/**
+ * A link's condition for SQL: not revoked, not expired at `now`, and still allowed by the
+ * workspace policy of its artifact's owner (decision 0015). The policy part is the SQL twin of
+ * `policyLinkOpens`, read from the workspace's row in the same statement (with one region the
+ * workspace and the link share a database, as the delivery lookup's plan join does), so redeeming
+ * a code or renewing a link session costs no extra round trip and answers like a link that does
+ * not open.
+ */
 function liveLink(now: number) {
   const l = schema.shareLinks;
-  return and(isNull(l.revokedAt), or(isNull(l.expiresAt), gt(l.expiresAt, now)));
+  const a = schema.artifacts;
+  const w = schema.workspaces;
+  const rule = (path: string) => sql`json_extract(${w.policy}, ${path})`;
+  const stopped = sql`exists (select 1 from ${a} join ${w} on ${w.id} = ${a.ownerId} where ${a.id} = ${l.artifactId} and ${w.policy} is not null and (${rule("$.shareLinks")} = 'disabled' or (${rule("$.shareLinks")} = 'password_required' and ${l.passwordHash} is null) or (${rule("$.shareLinkMaxDays")} is not null and ${l.createdAt} + ${rule("$.shareLinkMaxDays")} * 86400000 <= ${now})))`;
+  return and(
+    isNull(l.revokedAt),
+    or(isNull(l.expiresAt), gt(l.expiresAt, now)),
+    sql`not ${stopped}`,
+  );
 }
 
 export interface ShareSessionGrant {

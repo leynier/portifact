@@ -1966,4 +1966,9 @@ export const zhCN = {
     "{count, plural, one {撤销了 # 个分享链接} other {撤销了 # 个分享链接}}",
   "audit.policy.sessionsEnded":
     "{count, plural, one {结束了 # 个链接会话} other {结束了 # 个链接会话}}",
+  "policies.impact.stale": "自你检查后，此策略对现有工件的影响增加了。请再次保存以检查新的数量。",
+  "policies.savedWithChanges": "正在使现有工件符合策略。工件页面和审计日志会显示更改内容。",
+  "policies.default.domainLapsed":
+    "没有已验证的邮箱域名，因此在重新验证域名之前，新工件会与工作区共享。",
+  "audit.access.byPolicy": "依据工作区策略",
 } satisfies Catalog;

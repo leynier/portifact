@@ -430,6 +430,17 @@ describe("plain words for every kind", () => {
     ).toBe(expected[kind]);
   });
 
+  it("says when the workspace's policy changed access", () => {
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "access.changed",
+          detail: { mode: "workspace", policy: "publicAccess" },
+        }),
+      ),
+    ).toBe("Changed access: mode workspace, by the workspace's policy");
+  });
+
   it("names a group by its current name, or as deleted, never from the event", () => {
     expect(
       auditSummary(

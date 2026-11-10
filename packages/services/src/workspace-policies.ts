@@ -41,14 +41,15 @@ import {
   readerAllowed,
   requireFeature,
 } from "@portifact/domain";
-import { and, asc, eq, gt, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorOn } from "./actors.ts";
+import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
 import { cursorFor, saveCursor } from "./maintenance-cursors.ts";
 import type { JobOutcome } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
-import { markWebhookEvent } from "./webhook-activity.ts";
+import { markWebhookEvents } from "./webhook-activity.ts";
 import { missingWorkspace, stillAdmin } from "./workspaces.ts";
 
 const w = schema.workspaces;
@@ -145,8 +146,12 @@ function regionalOf(regions: Regions, row: { id: string; region: string }): Regi
 const live = (now: number) =>
   and(isNull(l.revokedAt), or(isNull(l.expiresAt), gt(l.expiresAt, now))) as SQL;
 const present = sql`${a.state} not in ('deleted', 'purging')`;
-/** The domain of a stored (lowercase) reader address, as SQL. */
-const readerDomain = sql`substr(${r.email}, instr(${r.email}, '@') + 1)`;
+/**
+ * The domain of a stored (lowercase) reader address, as SQL: the domain rule the job, the scan,
+ * the preview and transfers match against an allowlist without binding any address.
+ */
+export const readerDomainSql = sql`substr(${r.email}, instr(${r.email}, '@') + 1)`;
+const readerDomain = readerDomainSql;
 
 async function countOf(db: Db, query: SQL): Promise<number> {
   const [row] = await db.all<{ n: number }>(sql`select (${query}) as n`);
@@ -258,7 +263,7 @@ export function workspacePolicyJob(
 /**
  * Changes a workspace's policies, for an admin, from the revision they read. Setting or
  * tightening needs `policies` in the plan; loosening never does. A save that changes existing
- * artifacts is refused with the counts unless `confirm` is set; then the `workspace_policy` job
+ * artifacts is refused with the counts unless `confirmed` holds them (or more); then the `workspace_policy` job
  * applies it in bounded steps. The global batch records the event, writes the job and updates the
  * row, all conditioned on the caller still being an admin and the revision being the one read.
  */
@@ -269,7 +274,8 @@ export async function setWorkspacePolicy(
     slug: string;
     policy: WorkspacePolicy;
     revision: number;
-    confirm?: boolean | undefined;
+    /** The impact the admin saw in the preview and accepted. */
+    confirmed?: PolicyImpact | undefined;
     now: number;
   },
 ): Promise<Result<PolicyState>> {
@@ -290,7 +296,7 @@ export async function setWorkspacePolicy(
     if (!gate.ok) return gate;
   }
   const impact = await policyImpact(regionalOf(regions, row), row.id, next, input.now);
-  const confirmed = checkPolicyImpact(impact, input.confirm === true);
+  const confirmed = checkPolicyImpact(impact, input.confirmed);
   if (!confirmed.ok) return confirmed;
 
   const condition = sql`${stillAdmin(row.id, input.userId)} and exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})`;
@@ -303,7 +309,7 @@ export async function setWorkspacePolicy(
         kind: "policy.changed",
         actor: { type: "user", id: input.userId },
         targetId: row.id,
-        detail: policyChangeDetail(row.policy, next, input.confirm === true),
+        detail: policyChangeDetail(row.policy, next, input.confirmed !== undefined),
         now: input.now,
       },
       condition,
@@ -344,11 +350,74 @@ export interface EnforceCounts {
 }
 
 /**
+ * The rows one step changes, as statements that select them, never as lists of IDs: D1 allows at
+ * most 100 bound parameters per statement, and a list that grows with the batch would pass it.
+ * Their parameters:
+ * - `publicIds`: the owner and the limit, 2.
+ * - `readerRows`: the owner, at most `WORKSPACE_POLICIES.readerDomains` (20) allowlist domains
+ *   matched by the domain rule in SQL, and the limit, at most 22; `readerArtifacts` wraps it, 22.
+ * - `linkIds`: the owner, now (twice) and the limit, 4.
+ * - `sessionIds`: the owner, the lifetime cutoff and the limit, at most 3.
+ * The widest statement is the step's `policy.enforced` event, which counts all four selections in
+ * its detail and again in its condition: 2 × (2 + 22 + 4 + 3 + 4) = 70, plus its own 8 values, 78.
+ * The webhook statements name a selection twice (2 × 22 + 3 = 47); every other statement names
+ * one (at most 22 + 6). So no statement binds more than 78 parameters, whatever the batch size.
+ */
+interface Selections {
+  publicIds: SQL | null;
+  readerRows: SQL | null;
+  readerArtifacts: SQL | null;
+  linkIds: SQL | null;
+  sessionIds: SQL | null;
+}
+
+function selections(
+  workspaceId: string,
+  policy: WorkspacePolicy,
+  now: number,
+  limit: number,
+): Selections {
+  const owned = sql`${a.ownerId} = ${workspaceId} and ${present}`;
+  const readerRows = policy.readerDomains
+    ? sql`select ${r}.rowid from ${r} join ${a} on ${a.id} = ${r.artifactId} where ${owned} and ${readerDomain} not in ${policy.readerDomains} order by ${r.artifactId}, ${r.email} limit ${limit}`
+    : null;
+  const cutoff = lifetimeCutoff(policy, now);
+  const stopped = [
+    ...(policy.shareLinks === "password_required" ? [sql`${l.passwordHash} is null`] : []),
+    ...(cutoff === null ? [] : [sql`${l.createdAt} <= ${cutoff}`]),
+  ];
+  return {
+    publicIds:
+      policy.publicAccess === "forbidden"
+        ? sql`select ${a.id} from ${a} where ${owned} and ${a.accessMode} = 'public' order by ${a.id} limit ${limit}`
+        : null,
+    readerRows,
+    readerArtifacts: readerRows
+      ? sql`select distinct ${r.artifactId} from ${r} where ${r}.rowid in (${readerRows})`
+      : null,
+    linkIds:
+      policy.shareLinks === "disabled"
+        ? sql`select ${l.id} from ${l} join ${a} on ${a.id} = ${l.artifactId} where ${owned} and ${live(now)} order by ${l.id} limit ${limit}`
+        : null,
+    sessionIds:
+      policy.shareLinks !== "disabled" && stopped.length > 0
+        ? sql`select ${s.id} from ${s} join ${l} on ${l.id} = ${s.linkId} join ${a} on ${a.id} = ${l.artifactId} where ${owned} and (${sql.join(stopped, sql` or `)}) order by ${s.id} limit ${limit}`
+        : null,
+  };
+}
+
+const newAuditId = sql`'ae_' || lower(hex(randomblob(12)))`;
+
+/**
  * One bounded step of applying a workspace's current policy to its existing artifacts: at most
- * `limit` public artifacts become `workspace`, readers outside the allowlist are removed, active
- * links are revoked while links are disabled, and the link sessions of links the policy stops
- * opening end. Each statement is conditioned on the row still breaking the policy, so a retried
- * or concurrent step changes nothing twice. `pending` while a kind filled its limit.
+ * `limit` rows of each kind. Public artifacts become `workspace`, readers outside the allowlist are
+ * removed, active links are revoked while links are disabled, and the link sessions of links the
+ * policy stops opening end. Each changed artifact leaves the trail of a manual change: an
+ * `access.changed` event by the system that says it was by policy, the `artifact.access_changed`
+ * webhook event, the generation moved (sessions end) and approval reviewers who no longer take
+ * part dropped. The step's `policy.enforced` event sums it up. Every statement selects the rows it
+ * changes itself, so a retried or concurrent step changes nothing twice. `pending` while a kind
+ * filled its limit.
  */
 export async function enforceWorkspacePolicy(
   db: RegionalDb,
@@ -365,90 +434,51 @@ export async function enforceWorkspacePolicy(
   if (!row) return { outcome: "stale", counts };
   const policy = policyOf(row.policy);
   if (!policyTouchesArtifacts(policy)) return { outcome: "done", counts };
-  const owned = sql`${a.ownerId} = ${workspaceId} and ${present}`;
-
-  const publicIds =
-    policy.publicAccess === "forbidden"
-      ? (
-          await db
-            .select({ id: a.id })
-            .from(a)
-            .where(sql`${owned} and ${a.accessMode} = 'public'`)
-            .orderBy(asc(a.id))
-            .limit(limit)
-        ).map((one) => one.id)
-      : [];
-  const readers = policy.readerDomains
-    ? (
-        await db
-          .select({ artifactId: r.artifactId, email: r.email })
-          .from(r)
-          .innerJoin(a, eq(a.id, r.artifactId))
-          .where(sql`${owned} and ${readerDomain} not in ${policy.readerDomains}`)
-          .orderBy(asc(r.artifactId), asc(r.email))
-          .limit(limit)
-      ).filter((one) => !readerAllowed(policy, one.email))
-    : [];
-  const linkIds =
-    policy.shareLinks === "disabled"
-      ? (
-          await db
-            .select({ id: l.id })
-            .from(l)
-            .innerJoin(a, eq(a.id, l.artifactId))
-            .where(sql`${owned} and ${live(now)}`)
-            .orderBy(asc(l.id))
-            .limit(limit)
-        ).map((one) => one.id)
-      : [];
-  const cutoff = lifetimeCutoff(policy, now);
-  const stopped = [
-    ...(policy.shareLinks === "password_required" ? [sql`${l.passwordHash} is null`] : []),
-    ...(cutoff === null ? [] : [lte(l.createdAt, cutoff)]),
-  ];
-  const sessionIds =
-    policy.shareLinks !== "disabled" && stopped.length > 0
-      ? (
-          await db
-            .select({ id: s.id })
-            .from(s)
-            .innerJoin(l, eq(l.id, s.linkId))
-            .innerJoin(a, eq(a.id, l.artifactId))
-            .where(and(sql`${owned}`, or(...stopped)))
-            .orderBy(asc(s.id))
-            .limit(limit)
-        ).map((one) => one.id)
-      : [];
-  const pending =
-    publicIds.length === limit ||
-    readers.length === limit ||
-    linkIds.length === limit ||
-    sessionIds.length === limit;
-  if (publicIds.length + readers.length + linkIds.length + sessionIds.length === 0 && !pending) {
-    return { outcome: "done", counts };
-  }
-
+  const set = selections(workspaceId, policy, now, limit);
   const owner = await ownerEntitlements(db.global, workspaceId, now);
-  const stillPublic = (id: string) =>
-    sql`exists (select 1 from ${a} where ${a.id} = ${id} and ${a.ownerId} = ${workspaceId} and ${a.accessMode} = 'public')`;
-  const readerArtifacts = [...new Set(readers.map((one) => one.artifactId))];
-  const readerMatch = (one: { artifactId: string; email: string }) =>
-    and(eq(r.artifactId, one.artifactId), eq(r.email, one.email)) as SQL;
-  const statements: BatchItem<"sqlite">[] = [
-    enforceEvent(db, { workspaceId, publicIds, readers, linkIds, sessionIds, now }),
-    ...publicIds.flatMap((id) =>
-      markWebhookEvent(db, {
+  const approvals = await approvalDrops(db, workspaceId, policy, set, owner, now);
+
+  const ae = schema.auditEvents;
+  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
+  const statements: BatchItem<"sqlite">[] = [enforceEvent(db, workspaceId, set, now)];
+  if (set.publicIds) {
+    statements.push(
+      db
+        .insert(ae)
+        .select(
+          sql`select ${newAuditId}, ${workspaceId}, ${now}, 'access.changed', 'system', null, ${a.id}, ${a.id}, json_object('mode', 'workspace', 'policy', 'publicAccess') from ${a} where ${a.id} in (${set.publicIds})`,
+        ),
+      ...markWebhookEvents(db, {
         entitlements: owner,
         ownerId: workspaceId,
-        artifactId: id,
         type: "artifact.access_changed",
-        actorId: null,
+        artifacts: set.publicIds,
         access: "workspace",
         now,
-        condition: stillPublic(id),
       }),
-    ),
-    ...publicIds.map((id) =>
+    );
+  }
+  if (set.readerRows && set.readerArtifacts) {
+    statements.push(
+      db
+        .insert(ae)
+        .select(
+          sql`select ${newAuditId}, ${workspaceId}, ${now}, 'access.changed', 'system', null, ${r.artifactId}, ${r.artifactId}, json_object('readersRemoved', count(*), 'policy', 'readerDomains') from ${r} where ${r}.rowid in (${set.readerRows}) group by ${r.artifactId}`,
+        ),
+      ...markWebhookEvents(db, {
+        entitlements: owner,
+        ownerId: workspaceId,
+        type: "artifact.access_changed",
+        artifacts: set.readerArtifacts,
+        now,
+      }),
+    );
+  }
+  // Before the changes they follow, on the same rows still breaking the policy.
+  statements.push(...approvals);
+  const publicIndex = statements.length;
+  if (set.publicIds) {
+    statements.push(
       db
         .update(a)
         .set({
@@ -456,92 +486,142 @@ export async function enforceWorkspacePolicy(
           policyGeneration: sql`${a.policyGeneration} + 1`,
           updatedAt: now,
         })
-        .where(and(eq(a.id, id), eq(a.ownerId, workspaceId), eq(a.accessMode, "public"))),
-    ),
-    // A removed reader's sessions end on their next request: the generation moves.
-    ...readerArtifacts.map((id) =>
+        .where(sql`${a.id} in (${set.publicIds})`)
+        .returning({ id: a.id }),
+    );
+  }
+  const readerIndex = statements.length;
+  if (set.readerRows && set.readerArtifacts) {
+    statements.push(
+      // A removed reader's sessions end on their next request: the generation moves.
       db
         .update(a)
         .set({ policyGeneration: sql`${a.policyGeneration} + 1`, updatedAt: now })
-        .where(
-          and(
-            eq(a.id, id),
-            eq(a.ownerId, workspaceId),
-            or(
-              ...readers
-                .filter((one) => one.artifactId === id)
-                .map((one) => sql`exists (select 1 from ${r} where ${readerMatch(one)})`),
-            ),
-          ),
-        ),
-    ),
-    ...readers.map((one) => db.delete(r).where(readerMatch(one))),
-    ...(linkIds.length > 0
-      ? [
-          db.delete(s).where(inArray(s.linkId, linkIds)),
-          db
-            .update(l)
-            .set({ revokedAt: now })
-            .where(and(inArray(l.id, linkIds), isNull(l.revokedAt))),
-        ]
-      : []),
-    ...(sessionIds.length > 0 ? [db.delete(s).where(inArray(s.id, sessionIds))] : []),
-  ];
-  await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
-  counts.artifactsNarrowed = publicIds.length;
-  counts.readersRemoved = readers.length;
-  counts.linksRevoked = linkIds.length;
-  counts.sessionsEnded = sessionIds.length;
+        .where(sql`${a.id} in (${set.readerArtifacts})`),
+      db.delete(r).where(sql`${r}.rowid in (${set.readerRows})`).returning({ id: r.artifactId }),
+    );
+  }
+  const linkIndex = statements.length;
+  if (set.linkIds) {
+    statements.push(
+      db.delete(s).where(sql`${s.linkId} in (${set.linkIds})`).returning({ id: s.id }),
+      db
+        .update(l)
+        .set({ revokedAt: now })
+        .where(sql`${l.id} in (${set.linkIds})`)
+        .returning({ id: l.id }),
+    );
+  }
+  const sessionIndex = statements.length;
+  if (set.sessionIds) {
+    statements.push(
+      db.delete(s).where(sql`${s.id} in (${set.sessionIds})`).returning({ id: s.id }),
+    );
+  }
+  const results = (await db.batch(
+    statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+  )) as unknown[];
+  const rows = (index: number) => (results[index] as unknown[] | undefined)?.length ?? 0;
+  if (set.publicIds) counts.artifactsNarrowed = rows(publicIndex);
+  if (set.readerRows) counts.readersRemoved = rows(readerIndex + 1);
+  if (set.linkIds) {
+    counts.sessionsEnded += rows(linkIndex);
+    counts.linksRevoked = rows(linkIndex + 1);
+  }
+  if (set.sessionIds) counts.sessionsEnded += rows(sessionIndex);
+  const pending =
+    counts.artifactsNarrowed === limit ||
+    counts.readersRemoved === limit ||
+    counts.linksRevoked === limit ||
+    (set.sessionIds !== null && rows(sessionIndex) === limit);
   return { outcome: pending ? "pending" : "done", counts };
 }
 
 /**
- * The `policy.enforced` event of one step, first in its batch: the counts are what the step will
- * still change (read in the same statement), and nothing is recorded when that is nothing.
+ * Approval reviewers who would no longer take part once this step narrows an artifact or removes
+ * its readers, dropped in the step's batch as `updateAccess` drops them (decision 0013). One read
+ * finds the artifacts the step changes that have an open request (usually none); each of those
+ * costs the reads of `approvalAccessStatements` and one of its readers.
  */
-function enforceEvent(
+async function approvalDrops(
   db: RegionalDb,
-  input: {
-    workspaceId: string;
-    publicIds: string[];
-    readers: { artifactId: string; email: string }[];
-    linkIds: string[];
-    sessionIds: string[];
-    now: number;
-  },
-): BatchItem<"sqlite"> {
-  const none = sql`0`;
-  const artifactsNarrowed =
-    input.publicIds.length > 0
-      ? sql`(select count(*) from ${a} where ${inArray(a.id, input.publicIds)} and ${a.ownerId} = ${input.workspaceId} and ${a.accessMode} = 'public')`
-      : none;
-  const readersRemoved =
-    input.readers.length > 0
-      ? sql`(select count(*) from ${r} where ${or(...input.readers.map((one) => and(eq(r.artifactId, one.artifactId), eq(r.email, one.email))))})`
-      : none;
-  const linksRevoked =
-    input.linkIds.length > 0
-      ? sql`(select count(*) from ${l} where ${inArray(l.id, input.linkIds)} and ${l.revokedAt} is null)`
-      : none;
-  const sessionsEnded =
-    input.sessionIds.length + input.linkIds.length > 0
-      ? sql`(select count(*) from ${s} where ${or(
-          ...(input.sessionIds.length > 0 ? [inArray(s.id, input.sessionIds)] : []),
-          ...(input.linkIds.length > 0 ? [inArray(s.linkId, input.linkIds)] : []),
+  workspaceId: string,
+  policy: WorkspacePolicy,
+  set: Selections,
+  owner: Entitlements,
+  now: number,
+): Promise<BatchItem<"sqlite">[]> {
+  const changed = [
+    ...(set.publicIds ? [sql`${a.id} in (${set.publicIds})`] : []),
+    ...(set.readerArtifacts ? [sql`${a.id} in (${set.readerArtifacts})`] : []),
+  ];
+  if (changed.length === 0) return [];
+  const rq = schema.reviewRequests;
+  const affected = await db
+    .select({ id: a.id, ownerId: a.ownerId, accessMode: a.accessMode })
+    .from(a)
+    .where(
+      sql`(${sql.join(changed, sql` or `)}) and exists (select 1 from ${rq} where ${rq.artifactId} = ${a.id} and ${rq.cancelledAt} is null)`,
+    );
+  const statements: BatchItem<"sqlite">[] = [];
+  for (const artifact of affected) {
+    const readers = (
+      await db.select({ email: r.email }).from(r).where(eq(r.artifactId, artifact.id))
+    ).map((one) => one.email);
+    const narrowed = policy.publicAccess === "forbidden" && artifact.accessMode === "public";
+    const outside = sql`exists (select 1 from ${r} where ${r.artifactId} = ${artifact.id} and ${readerDomain} not in ${policy.readerDomains ?? [""]})`;
+    const still = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${workspaceId} and ${a.accessMode} = ${artifact.accessMode})`;
+    statements.push(
+      ...(await approvalAccessStatements(db, {
+        artifact,
+        policy: {
+          mode: narrowed ? "workspace" : artifact.accessMode,
+          readers: readers.filter((email) => readerAllowed(policy, email)),
+        },
+        owner,
+        condition: narrowed ? still : sql`${still} and ${outside}`,
+        now,
+      })),
+    );
+  }
+  return statements;
+}
+
+/**
+ * The `policy.enforced` event of one step, first in its batch: its counts are read in its own
+ * statement from the selections the step changes, and nothing is recorded when they are all zero.
+ */
+function enforceEvent(db: RegionalDb, workspaceId: string, set: Selections, now: number) {
+  const count = (selection: SQL | null) =>
+    selection ? sql`(select count(*) from (${selection}))` : sql`0`;
+  const sessions =
+    set.linkIds || set.sessionIds
+      ? sql`(select count(*) from ${s} where ${sql.join(
+          [
+            ...(set.linkIds ? [sql`${s.linkId} in (${set.linkIds})`] : []),
+            ...(set.sessionIds ? [sql`${s.id} in (${set.sessionIds})`] : []),
+          ],
+          sql` or `,
         )})`
-      : none;
+      : sql`0`;
+  const computed = {
+    artifactsNarrowed: count(set.publicIds),
+    readersRemoved: count(set.readerRows),
+    linksRevoked: count(set.linkIds),
+    sessionsEnded: sessions,
+  };
   return auditEvent(
     db,
     {
-      ownerId: input.workspaceId,
+      ownerId: workspaceId,
       kind: "policy.enforced",
       actor: { type: "system" },
-      targetId: input.workspaceId,
+      targetId: workspaceId,
       detail: { artifactsNarrowed: 0, readersRemoved: 0, linksRevoked: 0, sessionsEnded: 0 },
-      computed: { artifactsNarrowed, readersRemoved, linksRevoked, sessionsEnded },
-      now: input.now,
+      computed,
+      now,
     },
-    sql`(${artifactsNarrowed}) + (${readersRemoved}) + (${linksRevoked}) + (${sessionsEnded}) > 0`,
+    sql`${computed.artifactsNarrowed} + ${computed.readersRemoved} + ${computed.linksRevoked} + ${computed.sessionsEnded} > 0`,
   );
 }
 
@@ -557,26 +637,119 @@ export async function runWorkspacePolicyJob(
 
 const SCAN = "workspace_policies";
 
+/** A workspace's restricting flags, as the scan's query reads them from one JSON parameter. */
+function scanEntry(id: string, policy: WorkspacePolicy) {
+  return {
+    id,
+    p: policy.publicAccess === "forbidden" ? 1 : 0,
+    d: policy.readerDomains,
+    l: policy.shareLinks,
+    m: policy.shareLinkMaxDays,
+  };
+}
+
 /**
- * Maintenance safety net: one step for each of the next workspaces with a policy, resuming from
- * the scan's cursor. A request that read a policy before it tightened, and wrote after its job
- * ran, is brought back in line here.
+ * Maintenance safety net (decision 0015, "Races"): finds the workspaces whose artifacts break their
+ * policy and runs one step for each. Per run and region:
+ * - one global query reads the workspaces with a policy, at most `scanWorkspaces` (500) from a
+ *   cursor in `maintenance_cursors` (with more, the next run continues after the last one read);
+ * - one regional query, with the restricting flags of all of them as a single JSON parameter,
+ *   returns the workspaces with a violation, public artifacts where public is forbidden first, at
+ *   most `scanSteps` (20);
+ * - one step for each of those (bounded as `enforceWorkspacePolicy` says).
+ * A clean state costs the cursor read, the two queries and the cursor write. A violation among
+ * the first 500 workspaces with a policy is found and corrected within one run; past 20 at once,
+ * the rest are found on the next runs, worst first. A workspace whose step fails is logged and
+ * counted, and never stops the others or the maintenance steps after the scan.
  */
 export async function enforceWorkspacePolicies(
   db: RegionalDb,
   now: number,
-  workspaces: number = WORKSPACE_POLICIES.scanWorkspaces,
-): Promise<{ checked: number }> {
-  const cursor = await cursorFor(db.global, SCAN);
-  const rows = await db.global
-    .select({ id: w.id })
-    .from(w)
-    .where(and(sql`${w.policy} is not null`, gt(w.id, cursor)))
-    .orderBy(asc(w.id))
-    .limit(workspaces);
-  for (const one of rows) await enforceWorkspacePolicy(db, one.id, now);
-  await saveCursor(db.global, SCAN, rows.length < workspaces ? "" : (rows.at(-1)?.id ?? ""), now);
-  return { checked: rows.length };
+): Promise<{ checked: number; corrected: number; failed: number }> {
+  let failed = 0;
+  let checked = 0;
+  let corrected = 0;
+  try {
+    const cursor = await cursorFor(db.global, SCAN);
+    const rows = await db.global
+      .select({ id: w.id, policy: w.policy })
+      .from(w)
+      .where(and(sql`${w.policy} is not null`, gt(w.id, cursor)))
+      .orderBy(asc(w.id))
+      .limit(WORKSPACE_POLICIES.scanWorkspaces);
+    checked = rows.length;
+    const entries = rows.flatMap((one) => {
+      try {
+        const policy = policyOf(one.policy);
+        return policyTouchesArtifacts(policy) ? [scanEntry(one.id, policy)] : [];
+      } catch {
+        failed += 1;
+        console.error(JSON.stringify({ event: "workspace_policy_unreadable" }));
+        return [];
+      }
+    });
+    const found = entries.length === 0 ? [] : await violations(db, entries, now);
+    for (const id of found) {
+      try {
+        await enforceWorkspacePolicy(db, id, now);
+        corrected += 1;
+      } catch (error) {
+        failed += 1;
+        console.error(
+          JSON.stringify({
+            event: "workspace_policy_enforce_failed",
+            error: error instanceof Error ? error.name : "unknown",
+          }),
+        );
+      }
+    }
+    await saveCursor(
+      db.global,
+      SCAN,
+      rows.length < WORKSPACE_POLICIES.scanWorkspaces ? "" : (rows.at(-1)?.id ?? ""),
+      now,
+    );
+  } catch (error) {
+    failed += 1;
+    console.error(
+      JSON.stringify({
+        event: "workspace_policy_scan_failed",
+        error: error instanceof Error ? error.name : "unknown",
+      }),
+    );
+  }
+  return { checked, corrected, failed };
+}
+
+/**
+ * The workspaces among `entries` that have an artifact breaking their policy, in one regional
+ * query. The flags travel as one JSON parameter; with `now` and the cutoffs it binds 4 parameters
+ * whatever the number of workspaces.
+ */
+async function violations(
+  db: RegionalDb,
+  entries: ReturnType<typeof scanEntry>[],
+  now: number,
+): Promise<string[]> {
+  const rows = await db.all<{ id: string }>(sql`
+    with p as (
+      select json_extract(value, '$.id') as id, json_extract(value, '$.p') as forbid,
+        json_extract(value, '$.d') as domains, json_extract(value, '$.l') as links,
+        json_extract(value, '$.m') as days
+      from json_each(${JSON.stringify(entries)})
+    ),
+    found as (
+      select p.id, 0 as rank from p where p.forbid = 1 and exists (select 1 from ${a} where ${a.ownerId} = p.id and ${present} and ${a.accessMode} = 'public')
+      union all
+      select p.id, 1 from p where p.domains is not null and exists (select 1 from ${r} join ${a} on ${a.id} = ${r.artifactId} where ${a.ownerId} = p.id and ${present} and ${readerDomain} not in (select value from json_each(p.domains)))
+      union all
+      select p.id, 2 from p where p.links = 'disabled' and exists (select 1 from ${l} join ${a} on ${a.id} = ${l.artifactId} where ${a.ownerId} = p.id and ${present} and ${live(now)})
+      union all
+      select p.id, 3 from p where p.links <> 'disabled' and (p.links = 'password_required' or p.days is not null) and exists (select 1 from ${s} join ${l} on ${l.id} = ${s.linkId} join ${a} on ${a.id} = ${l.artifactId} where ${a.ownerId} = p.id and ((p.links = 'password_required' and ${l.passwordHash} is null) or (p.days is not null and ${l.createdAt} <= ${now} - p.days * 86400000)))
+    )
+    select id from found group by id order by min(rank), id limit ${WORKSPACE_POLICIES.scanSteps}
+  `);
+  return rows.map((one) => one.id);
 }
 
 /**

@@ -37,6 +37,11 @@ export interface Actor {
    * space, which has none.
    */
   policy?: WorkspacePolicy;
+  /**
+   * Whether the workspace has a verified email domain, read with the policy only when its
+   * `defaultAccess` is `domain` (true otherwise): what a new artifact may start with.
+   */
+  domainVerified?: boolean;
 }
 
 const MEMBER: readonly RoleAction[] = ["read", "comment"];

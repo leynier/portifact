@@ -106,7 +106,16 @@ describe("the Policies page", () => {
     const again = await screen.findByRole("dialog");
     fireEvent.click(within(again).getByRole("button", { name: "Apply and save" }));
     await waitFor(() => expect(puts()).toHaveLength(1));
-    expect(server.bodies.at(-1)).toMatchObject({ confirm: true, revision: 0 });
+    expect(server.bodies.at(-1)).toMatchObject({
+      revision: 0,
+      confirmed: { ...NO_IMPACT, publicArtifacts: 2, linksRevoked: 1 },
+    });
+    // After a save that changes existing artifacts, the page says where to see what changed.
+    expect(
+      await screen.findByText(
+        "Existing artifacts are being brought in line with the policies. Their pages and the audit log show what changed.",
+      ),
+    ).toBeTruthy();
   });
 
   it("checks the domains and the lifetime before any request", async () => {
@@ -140,6 +149,37 @@ describe("the Policies page", () => {
     expect(radio("Forbidden").closest("fieldset")?.disabled).toBe(true);
     expect(screen.queryByRole("button", { name: "Save policies" })).toBeNull();
     await themes(container);
+  });
+
+  it("refuses a confirmation whose counts grew since the preview, and says to review again", async () => {
+    acme("admin");
+    const workspaceState = server.workspaces.acme;
+    if (!workspaceState) throw new Error("no workspace");
+    workspaceState.policyImpact = { ...NO_IMPACT, publicArtifacts: 1 };
+    renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: "Public access" });
+    fireEvent.click(radio("Forbidden"));
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    const dialog = await screen.findByRole("dialog");
+    // Another artifact became public meanwhile.
+    workspaceState.policyImpact = { ...NO_IMPACT, publicArtifacts: 2 };
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply and save" }));
+    expect(
+      await screen.findByText(
+        "What this policy changes on existing artifacts grew since you reviewed it. Save again to review the new counts.",
+      ),
+    ).toBeTruthy();
+    expect(workspaceState.policyRevision).toBe(0);
+  });
+
+  it("says when the domain default has no verified domain", async () => {
+    acme("admin", { ...DEFAULT_POLICY, defaultAccess: "domain" });
+    renderDashboard("/policies?workspace=acme", server);
+    expect(
+      await screen.findByText(
+        "No email domain is verified, so new artifacts start shared with the workspace until one is verified again.",
+      ),
+    ).toBeTruthy();
   });
 
   it("says only loosening works when the plan does not include policies", async () => {

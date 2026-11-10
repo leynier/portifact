@@ -736,7 +736,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         ...ids,
         policy: body.value.policy,
         revision: body.value.revision,
-        confirm: body.value.confirm,
+        confirmed: body.value.confirmed,
         now: deps.now(),
       });
       return reply(c, result, (state) => c.json(policyView(state)));

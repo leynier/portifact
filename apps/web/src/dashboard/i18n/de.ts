@@ -2182,4 +2182,11 @@ export const de = {
     "{count, plural, one {# Freigabelink widerrufen} other {# Freigabelinks widerrufen}}",
   "audit.policy.sessionsEnded":
     "{count, plural, one {# Link-Sitzung beendet} other {# Link-Sitzungen beendet}}",
+  "policies.impact.stale":
+    "Was diese Richtlinie an bestehenden Artefakten ändert, ist seit deiner Prüfung gewachsen. Speichere erneut, um die neuen Zahlen zu prüfen.",
+  "policies.savedWithChanges":
+    "Bestehende Artefakte werden an die Richtlinien angepasst. Ihre Seiten und das Audit-Log zeigen, was sich geändert hat.",
+  "policies.default.domainLapsed":
+    "Keine E-Mail-Domain ist bestätigt, daher starten neue Artefakte mit dem Workspace geteilt, bis wieder eine bestätigt ist.",
+  "audit.access.byPolicy": "durch die Richtlinie des Workspace",
 } satisfies Catalog;

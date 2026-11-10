@@ -367,7 +367,7 @@ export interface FakeWorkspace {
   /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
   policyRevision: number;
   policiesAvailable: boolean;
-  /** What the fake preview answers; a save needs `confirm` while any count is above zero. */
+  /** What the fake preview answers; a save needs these counts confirmed while any is above zero. */
   policyImpact: PolicyImpact;
 }
 
@@ -2286,8 +2286,14 @@ function policyRoute(
   if (match[2] && method === "POST") return json(w.policyImpact);
   if (!match[2] && method === "PUT") {
     if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
+    // As the API: a save that changes existing artifacts needs the impact the preview showed,
+    // and is refused when a count grew past it since.
     const impact = Object.values(w.policyImpact).reduce((sum, count) => sum + count, 0);
-    if (impact > 0 && body?.confirm !== true) return apiError("policy_refused", 403);
+    const confirmed = body?.confirmed as PolicyImpact | undefined;
+    const grew = (Object.keys(w.policyImpact) as (keyof PolicyImpact)[]).some(
+      (key) => w.policyImpact[key] > (confirmed?.[key] ?? -1),
+    );
+    if (impact > 0 && grew) return apiError("policy_refused", 403);
     w.view = { ...w.view, policy: body?.policy as WorkspacePolicy };
     w.policyRevision += 1;
     return json(state());

@@ -2166,4 +2166,11 @@ export const es = {
   "audit.policy.linksRevoked": "{count, plural, one {revocó # enlace} other {revocó # enlaces}}",
   "audit.policy.sessionsEnded":
     "{count, plural, one {cerró # sesión de enlace} other {cerró # sesiones de enlace}}",
+  "policies.impact.stale":
+    "Lo que esta política cambia en los artefactos existentes creció desde que lo revisaste. Guarda de nuevo para revisar las cifras nuevas.",
+  "policies.savedWithChanges":
+    "Los artefactos existentes se están ajustando a las políticas. Sus páginas y el registro de auditoría muestran qué cambió.",
+  "policies.default.domainLapsed":
+    "No hay ningún dominio de correo verificado, así que los artefactos nuevos empiezan compartidos con el espacio de trabajo hasta que se verifique uno.",
+  "audit.access.byPolicy": "por la política del espacio de trabajo",
 } satisfies Catalog;

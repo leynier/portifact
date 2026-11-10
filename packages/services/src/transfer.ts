@@ -30,6 +30,7 @@ import { searchIndexJob } from "./content-search.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
+import { readerDomainSql } from "./workspace-policies.ts";
 import { missingWorkspace, workspaceBySlug } from "./workspaces.ts";
 
 const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
@@ -135,9 +136,10 @@ export async function transferArtifact(
   if (!allowedByPolicy.ok) return allowedByPolicy;
   const policyHolds = and(
     ...(policy?.publicAccess === "forbidden" ? [sql`${a.accessMode} <> 'public'`] : []),
+    // The domain rule itself, in SQL: at most 20 domains bound, however many readers it lists.
     ...(policy?.readerDomains
       ? [
-          sql`not exists (select 1 from ${schema.artifactReaders} where ${schema.artifactReaders.artifactId} = ${artifact.id} and ${schema.artifactReaders.email} not in ${policyReaders.length > 0 ? policyReaders : [""]})`,
+          sql`not exists (select 1 from ${schema.artifactReaders} where ${schema.artifactReaders.artifactId} = ${artifact.id} and ${readerDomainSql} not in ${policy.readerDomains})`,
         ]
       : []),
     ...(policy?.shareLinks === "disabled"

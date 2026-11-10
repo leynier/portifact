@@ -580,7 +580,7 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     webhooks: await maintainWebhooks(db, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
-    workspacePolicies: (await enforceWorkspacePolicies(db, now)).checked,
+    workspacePolicies: await enforceWorkspacePolicies(db, now),
     // The region's events, then the global ones (members, plans, domains); with one region both
     // passes read one database, and the second finds nothing left.
     prunedAuditEvents:

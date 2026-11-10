@@ -14,8 +14,13 @@ export const WORKSPACE_POLICIES = {
    * links revoked, link sessions ended); a larger workspace continues in the next delivery.
    */
   enforceBatch: 50,
-  /** Workspaces the maintenance scan re-checks per run, resuming from its cursor. */
-  scanWorkspaces: 20,
+  /**
+   * Workspaces with a policy the maintenance scan checks per run in one query (their flags travel
+   * as one JSON parameter); with more, the next run continues from a cursor.
+   */
+  scanWorkspaces: 500,
+  /** Workspaces with a violation the scan corrects per run, one step each, worst first. */
+  scanSteps: 20,
 } as const;
 
 export const PUBLIC_ACCESS_POLICIES = ["allowed", "forbidden"] as const;
@@ -106,13 +111,14 @@ export const WorkspacePolicyPreviewInput = z.strictObject({ policy: WorkspacePol
 export type WorkspacePolicyPreviewInput = z.infer<typeof WorkspacePolicyPreviewInput>;
 
 /**
- * `PUT /api/v1/workspaces/:slug/policies`. `confirm` accepts the changes to existing artifacts the
- * preview listed; without it a save that would change any is refused with `policy_refused`.
+ * `PUT /api/v1/workspaces/:slug/policies`. `confirmed` is the impact the preview showed and the
+ * admin accepted; without it a save that would change existing artifacts is refused with
+ * `policy_refused`, and so is one whose impact grew past it since (the admin reviews it again).
  */
 export const WorkspacePolicyUpdate = z.strictObject({
   policy: WorkspacePolicy,
   revision: z.int().min(0),
-  confirm: z.boolean().optional(),
+  confirmed: PolicyImpact.optional(),
 });
 export type WorkspacePolicyUpdate = z.infer<typeof WorkspacePolicyUpdate>;
 

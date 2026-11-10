@@ -212,8 +212,16 @@ describe("checkPolicyDefaults", () => {
 
 describe("checkPolicyImpact", () => {
   it("passes when nothing changes or the admin confirmed", () => {
-    expect(checkPolicyImpact(NONE, false).ok).toBe(true);
-    expect(checkPolicyImpact({ ...NONE, publicArtifacts: 3 }, true).ok).toBe(true);
+    expect(checkPolicyImpact(NONE, undefined).ok).toBe(true);
+    const three = { ...NONE, publicArtifacts: 3 };
+    expect(checkPolicyImpact(three, three).ok).toBe(true);
+    // Fewer than confirmed is still what the admin accepted; more is not.
+    expect(checkPolicyImpact({ ...NONE, publicArtifacts: 2 }, three).ok).toBe(true);
+    for (const key of Object.keys(NONE) as (keyof PolicyImpact)[]) {
+      expect(checkPolicyImpact({ ...three, [key]: three[key] + 1 }, three)).toEqual(
+        refused(POLICY_MESSAGES.impactChanged),
+      );
+    }
     expect(impactTotal({ ...NONE, readersOutside: 2, linksRevoked: 1 })).toBe(3);
   });
 
@@ -227,7 +235,7 @@ describe("checkPolicyImpact", () => {
           linksWithoutPassword: 1,
           linksOverLifetime: 4,
         },
-        false,
+        undefined,
       ),
     ).toEqual(
       refused(
@@ -399,6 +407,23 @@ describe("new artifacts and transfers", () => {
   it("starts new artifacts from the policy's default access", () => {
     expect(policyDefaultAccess(undefined)).toBe("restricted");
     expect(policyDefaultAccess(policy({ defaultAccess: "domain" }))).toBe("domain");
+    const rows: [WorkspacePolicy["defaultAccess"], boolean, boolean, AccessMode][] = [
+      ["domain", true, true, "domain"],
+      ["domain", false, true, "workspace"],
+      ["domain", true, false, "restricted"],
+      ["domain", false, false, "restricted"],
+      ["workspace", false, true, "workspace"],
+      ["workspace", true, false, "restricted"],
+      ["restricted", true, true, "restricted"],
+    ];
+    for (const [wanted, domainVerified, workspacesFeature, mode] of rows) {
+      expect(
+        policyDefaultAccess(policy({ defaultAccess: wanted }), {
+          domainVerified,
+          workspacesFeature,
+        }),
+      ).toBe(mode);
+    }
   });
 
   const base = { accessMode: "restricted" as AccessMode, readers: [] as string[], activeLinks: 0 };

@@ -112,6 +112,42 @@ export function markWebhookExpiring(
   ];
 }
 
+/**
+ * One event of `type` for every artifact of the owner that `artifacts` (a statement selecting
+ * artifact IDs) names, for a write that changes many artifacts at once (a workspace policy, decision
+ * 0015). `artifacts` is evaluated in each of the two statements, so it must bind a bounded number
+ * of parameters, never a list that grows with the batch. `access` is the access mode the artifacts
+ * have after the write: a constant, or by default each artifact's current mode.
+ */
+export function markWebhookEvents(
+  db: Db,
+  input: {
+    entitlements: Entitlements;
+    ownerId: string;
+    type: WebhookEventType;
+    artifacts: SQL;
+    access?: AccessMode | undefined;
+    now: number;
+  },
+): BatchItem<"sqlite">[] {
+  if (!hasFeature(input.entitlements, WEBHOOK_FEATURE)) return [];
+  const a = schema.artifacts;
+  const where = subscribed(input.ownerId, eventBit(input.type));
+  const access = input.access === undefined ? sql`${a.accessMode}` : sql`${input.access}`;
+  return [
+    upsert(
+      db,
+      sql`select ${w.id}, ${a.id}, ${input.type}, 1, ${input.now}, ${input.now}, null, null, ${access}, null from ${w} join ${a} on ${a.ownerId} = ${w.ownerId} where ${where} and ${a.id} in (${input.artifacts})`,
+    ),
+    deliveryJobs(
+      db,
+      sql`${where} and exists (select 1 from ${a} where ${a.ownerId} = ${w.ownerId} and ${a.id} in (${input.artifacts}))`,
+      input.now + WEBHOOK_LIMITS.coalesceMs,
+      input.now,
+    ),
+  ];
+}
+
 /** The test event of one webhook, sent without waiting for a burst. */
 export function markWebhookTest(
   db: Db,

@@ -2124,4 +2124,11 @@ export const ja = {
     "{count, plural, one {共有リンク # 件を取り消し} other {共有リンク # 件を取り消し}}",
   "audit.policy.sessionsEnded":
     "{count, plural, one {リンクのセッション # 件を終了} other {リンクのセッション # 件を終了}}",
+  "policies.impact.stale":
+    "このポリシーによる既存アーティファクトへの変更が、確認後に増えました。もう一度保存して新しい件数を確認してください。",
+  "policies.savedWithChanges":
+    "既存のアーティファクトをポリシーに合わせています。変更内容は各アーティファクトのページと監査ログで確認できます。",
+  "policies.default.domainLapsed":
+    "確認済みのメールドメインがないため、ドメインが再確認されるまで新しいアーティファクトはワークスペースと共有で作成されます。",
+  "audit.access.byPolicy": "ワークスペースのポリシーによる",
 } satisfies Catalog;

@@ -42,6 +42,8 @@ export const POLICY_MESSAGES = {
     "This artifact is public, and the target workspace's policy forbids public access. Narrow its access first, then move it.",
   transferReaders: (domains: readonly string[]) =>
     `This artifact lists readers outside the target workspace's reader domain policy (${domains.join(", ")}). Remove them first, then move it.`,
+  impactChanged:
+    "What this policy changes on existing artifacts grew since it was reviewed. Review the change again before saving.",
   transferLinks:
     "This artifact has active share links, and the target workspace's policy does not allow them. Revoke them first, then move it.",
 } as const;
@@ -160,12 +162,29 @@ export function impactTotal(impact: PolicyImpact): number {
   );
 }
 
+const IMPACT_KEYS = [
+  "publicArtifacts",
+  "readersOutside",
+  "linksRevoked",
+  "linksWithoutPassword",
+  "linksOverLifetime",
+] as const satisfies readonly (keyof PolicyImpact)[];
+
 /**
- * A save that would change existing artifacts is refused until the admin confirms it, naming
- * every count, so nothing is narrowed, removed or revoked silently.
+ * A save that would change existing artifacts is refused until the admin confirms the impact the
+ * preview showed, naming every count, so nothing is narrowed, removed or revoked silently. The
+ * confirmation holds only for what the admin saw: a count that grew since is refused again.
  */
-export function checkPolicyImpact(impact: PolicyImpact, confirmed: boolean): Result<true> {
-  if (confirmed || impactTotal(impact) === 0) return ok(true);
+export function checkPolicyImpact(
+  impact: PolicyImpact,
+  confirmed: PolicyImpact | undefined,
+): Result<true> {
+  if (impactTotal(impact) === 0) return ok(true);
+  if (confirmed) {
+    return IMPACT_KEYS.some((key) => impact[key] > confirmed[key])
+      ? refused(POLICY_MESSAGES.impactChanged)
+      : ok(true);
+  }
   const parts = [
     [impact.publicArtifacts, "public artifact", "public artifacts", "would become workspace-only"],
     [impact.readersOutside, "reader", "readers", "outside the allowed domains would be removed"],
@@ -259,9 +278,23 @@ export function policyLinkOpens(
   return max === null || now < link.createdAt + max * DAY_MS;
 }
 
-/** The access mode a new artifact of the workspace starts with. */
-export function policyDefaultAccess(policy: WorkspacePolicy | undefined): AccessMode {
-  return policy?.defaultAccess ?? DEFAULT_POLICY.defaultAccess;
+/**
+ * The access mode a new artifact of the workspace starts with: its `defaultAccess`, never wider
+ * than a mode the workspace can give now. `domain` without a verified email domain (one lapsed or
+ * was removed) starts as `workspace`, and without `workspaces` in the plan both workspace modes
+ * start as `restricted`, the modes `updateAccess` would still let an editor set.
+ */
+export function policyDefaultAccess(
+  policy: WorkspacePolicy | undefined,
+  workspace: { domainVerified: boolean; workspacesFeature: boolean } = {
+    domainVerified: true,
+    workspacesFeature: true,
+  },
+): AccessMode {
+  const wanted = policy?.defaultAccess ?? DEFAULT_POLICY.defaultAccess;
+  if (wanted === "restricted" || !workspace.workspacesFeature) return "restricted";
+  if (wanted === "domain" && !workspace.domainVerified) return "workspace";
+  return wanted;
 }
 
 /**

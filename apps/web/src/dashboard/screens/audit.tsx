@@ -634,5 +634,6 @@ function accessChanges(t: T, d: Record<string, unknown>, locale: string | undefi
   if (d.embeddable !== undefined) {
     parts.push(t("audit.access.embeddable", { on: flag(d.embeddable) }));
   }
+  if (d.policy) parts.push(t("audit.access.byPolicy"));
   return new Intl.ListFormat(locale, { style: "long", type: "unit" }).format(parts);
 }

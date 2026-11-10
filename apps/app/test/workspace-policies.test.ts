@@ -289,12 +289,31 @@ describe("policies through the dashboard's session", () => {
       dashboard(cookie, "POST", { policy: policy({ readerDomains: ["not a domain"] }) }),
     );
     expect(badPreview.status).toBe(400);
+    // A confirmation of less than the preview shows now is refused; the preview's own counts pass.
+    const seen = await (
+      await t.admin.h.request(
+        `${base}/preview`,
+        dashboard(cookie, "POST", { policy: policy({ publicAccess: "forbidden" }) }),
+      )
+    ).json<Record<string, number>>();
+    expect(seen.publicArtifacts).toBe(1);
+    const grown = await t.admin.h.request(
+      base,
+      dashboard(cookie, "PUT", {
+        policy: policy({ publicAccess: "forbidden" }),
+        revision: 0,
+        confirmed: { ...seen, publicArtifacts: 0 },
+      }),
+    );
+    expect(await grown.json()).toEqual({
+      error: { code: "policy_refused", message: POLICY_MESSAGES.impactChanged },
+    });
     const confirmed = await t.admin.h.request(
       base,
       dashboard(cookie, "PUT", {
         policy: policy({ publicAccess: "forbidden" }),
         revision: 0,
-        confirm: true,
+        confirmed: seen,
       }),
     );
     expect(confirmed.status).toBe(200);

@@ -145,22 +145,26 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
   const [pending, setPending] = useState<{ policy: WorkspacePolicy; impact: PolicyImpact } | null>(
     null,
   );
+  // Set after a save that changes existing artifacts: where the admin sees what changed.
+  const [applied, setApplied] = useState(false);
   const editable = view.editable;
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
 
   const save = useMutation({
-    mutationFn: async (input: { policy: WorkspacePolicy; confirm: boolean }) =>
+    // The confirmation carries the impact the admin saw: the API refuses it when that grew.
+    mutationFn: async (input: { policy: WorkspacePolicy; confirmed?: PolicyImpact }) =>
       api.savePolicies(space.slug, {
         policy: input.policy,
         revision: view.revision,
-        ...(input.confirm ? { confirm: true } : {}),
+        ...(input.confirmed ? { confirmed: input.confirmed } : {}),
       }),
-    onSuccess: async (next) => {
+    onSuccess: async (next, input) => {
       setPending(null);
+      setApplied(input.confirmed !== undefined);
       queryClient.setQueryData(policiesQuery(space.slug), next);
       await queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY });
-      announce(t("policies.saved"));
+      announce(t(input.confirmed ? "policies.savedWithChanges" : "policies.saved"));
     },
     onError: async (error) => {
       setPending(null);
@@ -181,7 +185,7 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
     const impact = await preview.mutateAsync(parsed.policy).catch(() => null);
     if (!impact) return;
     if (impactTotal(impact) > 0) setPending({ policy: parsed.policy, impact });
-    else save.mutate({ policy: parsed.policy, confirm: false });
+    else save.mutate({ policy: parsed.policy });
   };
 
   const failure = save.error ?? preview.error;
@@ -240,11 +244,14 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
           disabled={fieldsDisabled}
           onChange={(value) => set("defaultAccess", value)}
           options={DEFAULT_ACCESS_POLICIES.map((mode) => ({
+            // The domain default without a verified domain gives `workspace` (decision 0015).
             value: mode,
             label: t(`access.${mode}`),
             description:
               mode === "domain" && !view.domainVerified
-                ? t("policies.default.domainNone")
+                ? view.policy.defaultAccess === "domain"
+                  ? t("policies.default.domainLapsed")
+                  : t("policies.default.domainNone")
                 : t(`policies.default.${mode}`),
             // The current value stays selectable, so it can be kept.
             disabled:
@@ -332,7 +339,14 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         >
           {failure instanceof ApiFailure && failure.code === "version_conflict"
             ? t("policies.conflict")
-            : errorMessage(t, failure)}
+            : failure instanceof ApiFailure && failure.code === "policy_refused"
+              ? t("policies.impact.stale")
+              : errorMessage(t, failure)}
+        </Callout>
+      ) : null}
+      {applied && !failure ? (
+        <Callout tone="success" title={t("policies.saved")} icon={<Info className="size-5" />}>
+          {t("policies.savedWithChanges")}
         </Callout>
       ) : null}
       {editable ? (
@@ -356,7 +370,7 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         busy={save.isPending}
         onCancel={() => setPending(null)}
         onConfirm={() => {
-          if (pending) save.mutate({ policy: pending.policy, confirm: true });
+          if (pending) save.mutate({ policy: pending.policy, confirmed: pending.impact });
         }}
       >
         {pending ? <ImpactList space={space} impact={pending.impact} /> : null}

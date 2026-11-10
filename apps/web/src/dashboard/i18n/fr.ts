@@ -2189,4 +2189,11 @@ export const fr = {
   "audit.policy.linksRevoked": "{count, plural, one {a révoqué # lien} other {a révoqué # liens}}",
   "audit.policy.sessionsEnded":
     "{count, plural, one {a fermé # session de lien} other {a fermé # sessions de lien}}",
+  "policies.impact.stale":
+    "Ce que cette règle change sur les artefacts existants a augmenté depuis ta vérification. Enregistre à nouveau pour revoir les nouveaux chiffres.",
+  "policies.savedWithChanges":
+    "Les artefacts existants sont mis en conformité avec les règles. Leurs pages et le journal d’audit montrent ce qui a changé.",
+  "policies.default.domainLapsed":
+    "Aucun domaine de messagerie n’est vérifié : les nouveaux artefacts démarrent partagés avec l’espace de travail jusqu’à ce qu’un domaine soit de nouveau vérifié.",
+  "audit.access.byPolicy": "par la règle de l’espace de travail",
 } satisfies Catalog;

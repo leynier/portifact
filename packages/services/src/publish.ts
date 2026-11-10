@@ -389,7 +389,7 @@ export async function preparePublish(
 
   // A new artifact starts with the owner's defaults (access, comments, the bar); updates keep
   // the artifact's own policy.
-  const policy = createsArtifact ? await newArtifactDefaults(db, actor, input.now) : null;
+  const policy = createsArtifact ? await newArtifactDefaults(db, actor, input.now, owner) : null;
   if (!artifactId) {
     // The ID is claimed in the global directory before the regional batch (decision 0005).
     const claimed = await claimNewArtifactId(db.global, actor.region, input.now, drawArtifactId);

@@ -2148,4 +2148,11 @@ export const ptBR = {
   "audit.policy.linksRevoked": "{count, plural, one {revogou # link} other {revogou # links}}",
   "audit.policy.sessionsEnded":
     "{count, plural, one {encerrou # sessão de link} other {encerrou # sessões de link}}",
+  "policies.impact.stale":
+    "O que esta política muda nos artefatos existentes aumentou desde a sua revisão. Salve de novo para revisar os números novos.",
+  "policies.savedWithChanges":
+    "Os artefatos existentes estão sendo ajustados às políticas. As páginas deles e o log de auditoria mostram o que mudou.",
+  "policies.default.domainLapsed":
+    "Nenhum domínio de e-mail está verificado, então artefatos novos começam compartilhados com o espaço de trabalho até que um seja verificado.",
+  "audit.access.byPolicy": "pela política do espaço de trabalho",
 } satisfies Catalog;

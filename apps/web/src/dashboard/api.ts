@@ -203,7 +203,7 @@ export interface DashboardApi {
   previewPolicies(slug: string, policy: WorkspacePolicy): Promise<PolicyImpact>;
   savePolicies(
     slug: string,
-    update: { policy: WorkspacePolicy; revision: number; confirm?: boolean },
+    update: { policy: WorkspacePolicy; revision: number; confirmed?: PolicyImpact },
   ): Promise<WorkspacePolicyView>;
   changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
   removeMember(slug: string, userId: string): Promise<void>;
