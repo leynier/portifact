@@ -45,6 +45,8 @@ const app = createWorker((env) => ({
   email: capturedEmail(env.ARTIFACTS),
   siteverify: fakeSiteverify,
   domains: e2eDomains,
+  // Workspace email domain proofs read the same in-memory DNS; never the real resolver.
+  emailDomains: { txt: e2eDomains.txt },
 }));
 
 /**

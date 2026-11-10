@@ -3,7 +3,9 @@ import type { AccessMode, ArtifactState, ArtifactType } from "@portifact/contrac
 import { Badge } from "@portifact/ui";
 import {
   Archive,
+  AtSign,
   Ban,
+  Building2,
   CircleCheck,
   FileText,
   Globe,
@@ -47,6 +49,8 @@ const ACCESS_ICONS: Record<AccessMode, ReactNode> = {
   restricted: <Lock className={ICON} />,
   authenticated: <Users className={ICON} />,
   public: <Globe className={ICON} />,
+  workspace: <Building2 className={ICON} />,
+  domain: <AtSign className={ICON} />,
 };
 
 /** Who can open an artifact, as a short label with its icon. */

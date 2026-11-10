@@ -4,10 +4,11 @@
 // artifact and a forbidden one give the same answer.
 import { READ_SESSION } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { canRead, effectiveState, fail, ok, type Result } from "@portifact/domain";
+import { canRead, effectiveState, entitlements, fail, ok, type Result } from "@portifact/domain";
 import { and, eq, exists, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
+import { policyDomains } from "./workspace-domains.ts";
 
 const SECOND_MS = 1000;
 /** Rows each prune deletes per run, like the other maintenance jobs. */
@@ -65,12 +66,16 @@ export function randomToken(): string {
 /**
  * Whether `userId` may read the artifact now: it must be servable (active, not expired, with a
  * current version) and the access policy must admit the account, its verified email or its role
- * on the owner (an admin or editor of a workspace reads every artifact of it).
+ * on the owner (an admin or editor of a workspace reads every artifact of it; any member reads a
+ * `workspace` or `domain` one, and a verified address at a verified domain a `domain` one while
+ * the owner's plan includes `workspaces`, decision 0010). Read sessions renew through this every
+ * 60 seconds, so a removed member or domain stops reading within that time.
  */
 export async function checkReadAccess(
   db: RegionalDb,
   input: { artifactId: string; userId: string; now: number },
 ): Promise<Result<ReadGrant>> {
+  const p = schema.ownerPlans;
   const [artifact] = await db
     .select({
       ownerId: schema.artifacts.ownerId,
@@ -80,8 +85,11 @@ export async function checkReadAccess(
       currentVersionId: schema.artifacts.currentVersionId,
       expiresAt: schema.artifacts.expiresAt,
       archivedAt: schema.artifacts.archivedAt,
+      // The owner's plan comes with the artifact: the `domain` mode depends on it.
+      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
     })
     .from(schema.artifacts)
+    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   if (!artifact?.currentVersionId) return unavailable();
@@ -111,13 +119,19 @@ export async function checkReadAccess(
             .where(eq(schema.artifactReaders.artifactId, input.artifactId))
         ).map((row) => row.email)
       : [];
+  const verifiedEmails = user.emailVerified ? [user.email.toLowerCase()] : [];
+  const actor = await actorOn(db.global, input.userId, artifact.ownerId);
+  const domains = await policyDomains(db.global, {
+    mode: artifact.accessMode,
+    ownerId: artifact.ownerId,
+    actor,
+    verifiedEmails,
+    entitlements: entitlements(artifact.plan, input.now),
+  });
   const decision = canRead(
-    { mode: artifact.accessMode, ownerId: artifact.ownerId, readers },
-    {
-      userId: input.userId,
-      verifiedEmails: user.emailVerified ? [user.email.toLowerCase()] : [],
-    },
-    await actorOn(db.global, input.userId, artifact.ownerId),
+    { mode: artifact.accessMode, ownerId: artifact.ownerId, readers, domains },
+    { userId: input.userId, verifiedEmails },
+    actor,
   );
   if (!decision.ok) return unavailable();
   return ok({ userId: input.userId, policyGeneration: artifact.policyGeneration });

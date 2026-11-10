@@ -75,6 +75,7 @@ import { actorOn, ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
+import { policyDomains } from "./workspace-domains.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -166,7 +167,8 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     },
     new Date(input.now),
   );
-  const { role, verifiedEmail, exception } = await roleOf(db, artifact, input.userId);
+  const owner = entitlements(row.plan, input.now);
+  const { role, verifiedEmail, exception } = await roleOf(db, artifact, input.userId, owner);
   const scope = commentScope(role ?? "participant", artifact.commentVisibility, exception);
   return {
     artifact,
@@ -177,7 +179,7 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     scope,
     // A personal space needs no read.
     ownerSide: await ownerSide(db.global, artifact.ownerId),
-    entitlements: entitlements(row.plan, input.now),
+    entitlements: owner,
   };
 }
 
@@ -191,9 +193,15 @@ interface Caller {
 /**
  * The owner (an admin or editor of the artifact's owner), a reader admitted by the access
  * policy, or nobody. Members of a workspace are readers like anyone else unless the policy
- * admits them.
+ * admits them; members and domain readers of a `workspace` or `domain` artifact are participants
+ * whose scope follows the artifact's comment visibility and their exception (decision 0010).
  */
-async function roleOf(db: RegionalDb, artifact: ArtifactRow, userId: string): Promise<Caller> {
+async function roleOf(
+  db: RegionalDb,
+  artifact: ArtifactRow,
+  userId: string,
+  owner: Entitlements,
+): Promise<Caller> {
   const actor = await actorOn(db.global, userId, artifact.ownerId);
   if (actsForOwner(actor, artifact.ownerId)) {
     return { role: "owner", verifiedEmail: null, exception: null };
@@ -218,13 +226,21 @@ async function roleOf(db: RegionalDb, artifact: ArtifactRow, userId: string): Pr
             .select(columns)
             .from(r)
             .where(and(eq(r.artifactId, artifact.id), eq(r.email, verifiedEmail)));
+  const verifiedEmails = verifiedEmail === null ? [] : [verifiedEmail];
   const decision = canRead(
     {
       mode: artifact.accessMode,
       ownerId: artifact.ownerId,
       readers: artifact.accessMode === "restricted" ? listed.map((row) => row.email) : [],
+      domains: await policyDomains(db.global, {
+        mode: artifact.accessMode,
+        ownerId: artifact.ownerId,
+        actor,
+        verifiedEmails,
+        entitlements: owner,
+      }),
     },
-    { userId, verifiedEmails: verifiedEmail === null ? [] : [verifiedEmail] },
+    { userId, verifiedEmails },
     actor,
   );
   const exception =

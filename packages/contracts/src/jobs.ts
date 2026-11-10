@@ -97,11 +97,11 @@ export const CommentNoticePayload = z.strictObject({
 export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
 
 /**
- * One purged or deleted artifact or account, a revoked share link or a removed webhook, that a
- * restored backup must not bring back.
+ * One purged or deleted artifact or account, a revoked share link, a removed webhook or a removed
+ * or lapsed workspace email domain (by row ID), that a restored backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account", "share_link", "workspace", "webhook"]),
+  kind: z.enum(["artifact", "account", "share_link", "workspace", "webhook", "workspace_domain"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

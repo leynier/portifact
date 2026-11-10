@@ -11,6 +11,7 @@ export * from "./core.ts";
 export * from "./custom-domains.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
+export * from "./email-domains.ts";
 export * from "./human.ts";
 export * from "./jobs.ts";
 export * from "./legal.ts";

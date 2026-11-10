@@ -3,9 +3,12 @@
 // in one transaction. Every change but the bar and comment visibility bumps the policy
 // generation, which read sessions carry, so a revocation applies quickly.
 import {
+  type AccessAudience,
   type AccessMode,
   type CommentScope,
   type CommentVisibility,
+  isWorkspaceAccessMode,
+  isWorkspaceId,
   LIMITS,
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
@@ -17,11 +20,13 @@ import {
   fail,
   ok,
   type Result,
+  requireFeature,
 } from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn } from "./actors.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
+import { accessAudience } from "./workspace-domains.ts";
 
 export interface AccessPolicyState {
   mode: AccessMode;
@@ -33,6 +38,8 @@ export interface AccessPolicyState {
   /** Readers with an exception to `commentVisibility`, by address. */
   readerCommentVisibility: { email: string; commentVisibility: CommentScope }[];
   policyGeneration: number;
+  /** Who the workspace modes reach on the owner; null for a personal artifact. */
+  audience: AccessAudience | null;
 }
 
 export interface AccessChange {
@@ -68,6 +75,38 @@ function changesAccess(change: AccessChange): boolean {
 }
 
 type PlanRow = Parameters<typeof entitlements>[0];
+
+/**
+ * The `workspace` and `domain` modes (decision 0010) exist only for workspace artifacts, need
+ * `workspaces` in the owner's plan, and `domain` needs a verified domain. Checked after
+ * authorization, only when switching to one of them: narrowing never needs the plan.
+ */
+async function checkWorkspaceMode(
+  db: RegionalDb,
+  ownerId: string,
+  mode: AccessMode,
+  owner: ReturnType<typeof entitlements>,
+): Promise<Result<true>> {
+  if (!isWorkspaceAccessMode(mode)) return ok(true);
+  if (!isWorkspaceId(ownerId)) {
+    return fail(
+      "invalid_input",
+      "Only workspace artifacts can be shared with a workspace or an email domain.",
+    );
+  }
+  const gate = requireFeature(owner, "workspaces");
+  if (!gate.ok) return gate;
+  if (mode === "domain") {
+    const audience = await accessAudience(db.global, ownerId, owner);
+    if (!audience || audience.domains.length === 0) {
+      return fail(
+        "invalid_input",
+        "Verify an email domain on the workspace's Members page before sharing with it.",
+      );
+    }
+  }
+  return ok(true);
+}
 
 const missing = () => fail<never>("not_found", "Artifact not found.");
 
@@ -117,12 +156,17 @@ async function readers(db: Db, artifactId: string): Promise<string[]> {
 
 export async function getAccess(
   db: RegionalDb,
-  input: { userId: string; artifactId: string },
+  input: { userId: string; artifactId: string; now?: number | undefined },
 ): Promise<Result<AccessPolicyState>> {
   const loaded = await loadManaged(db, input.userId, input.artifactId);
   if (!loaded.ok) return loaded;
   const { artifact } = loaded.value;
   const rows = await readerRows(db, artifact.id);
+  const audience = await accessAudience(
+    db.global,
+    artifact.ownerId,
+    entitlements(loaded.value.plan, input.now ?? Date.now()),
+  );
   return ok({
     mode: artifact.accessMode,
     readers: rows.map((row) => row.email),
@@ -136,6 +180,7 @@ export async function getAccess(
         : [{ email: row.email, commentVisibility: row.commentVisibility }],
     ),
     policyGeneration: artifact.policyGeneration,
+    audience,
   });
 }
 
@@ -159,17 +204,19 @@ export async function updateAccess(
   // Widening the audience is checked against the age of the account making the change (the
   // owner's, in a personal space); narrowing it never is.
   if (change.mode && change.mode !== artifact.accessMode) {
-    const [owner] = await db.global
+    const [actingUser] = await db.global
       .select({ createdAt: schema.users.createdAt })
       .from(schema.users)
       .where(eq(schema.users.id, actor.userId))
       .limit(1);
     const allowed = checkAccessChange(
       change.mode,
-      owner?.createdAt ?? new Date(input.now),
+      actingUser?.createdAt ?? new Date(input.now),
       new Date(input.now),
     );
     if (!allowed.ok) return allowed;
+    const workspaceMode = await checkWorkspaceMode(db, artifact.ownerId, change.mode, owner);
+    if (!workspaceMode.ok) return workspaceMode;
   }
   const add = [...new Set(change.addReaders ?? [])];
   const remove = [...new Set(change.removeReaders ?? [])].filter((email) => !add.includes(email));

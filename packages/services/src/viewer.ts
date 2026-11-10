@@ -2,7 +2,7 @@
 // bar shows about an artifact and who is looking. Signed-in visitors pass the same access check
 // as reading the artifact; anonymous visitors see only public artifacts that are servable, so a
 // protected, unavailable or missing artifact gives the same answer until they sign in.
-import type { ViewerRole } from "@portifact/contracts";
+import type { AccessMode, ViewerRole } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
@@ -21,7 +21,7 @@ export interface ViewerArtifact {
   name: string;
   type: "site" | "markdown" | "text";
   versionNumber: number;
-  accessMode: "public" | "authenticated" | "restricted";
+  accessMode: AccessMode;
   annotations: "off" | "open" | "locked";
   role: ViewerRole;
   /** The owner's brand for the bar, or null for the default bar (premium plan P9). */

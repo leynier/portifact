@@ -1599,4 +1599,70 @@ export const ru = {
   "webhooks.personalOnly.title": "Webhooks настраиваются в личном пространстве",
   "webhooks.personalOnly.body":
     "Пока webhooks отправляют события только об artifacts вашего личного пространства. Перейдите в него, чтобы управлять ими.",
+  "access.workspace": "Весь workspace",
+  "access.domain": "Workspace и его почтовые домены",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Почтовый домен",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} после входа, в любой роли.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} и все, кто вошел с подтвержденным адресом в {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} и все, кто вошел с подтвержденным адресом в почтовых доменах workspace. Пока ни один домен не подтвержден: администратор добавляет его на странице «Участники».",
+  "accessSettings.mode.listOnlyRestricted":
+    "Люди из списка ниже могут открыть его, только пока доступ ограничен.",
+  "accessSettings.mode.workspacePlan": "Входит в план {plan}.",
+  "accessSettings.lapsed.title": "Пока этот artifact могут открыть только участники",
+  "accessSettings.lapsed.body":
+    "План workspace сейчас не включает доступ для почтовых доменов, поэтому только его участники могут открыть этот artifact, пока план снова его не включит. Ничего не изменено.",
+  "emailDomains.title": "Почтовые домены",
+  "emailDomains.description":
+    "Любой, кто вошел в Portifact с подтвержденным адресом в одном из этих доменов, может открыть artifacts workspace, к которым открыт доступ для его почтовых доменов. Учитывается только точный домен, без поддоменов.",
+  "emailDomains.loading": "Загрузка почтовых доменов",
+  "emailDomains.loadFailed": "Не удалось загрузить почтовые домены",
+  "emailDomains.rules":
+    "Подтвердите каждый домен записью DNS. Публичные почтовые сервисы (например, gmail.com), общие суффиксы и домены Portifact не принимаются. Portifact проверяет запись каждый день и удаляет домен после 3 неудачных проверок подряд.",
+  "emailDomains.addFailed": "Домен не добавлен",
+  "emailDomains.add": "Добавить домен",
+  "emailDomains.domain": "Домен",
+  "emailDomains.domainHint":
+    "Собственный домен вашей организации, например example.com. Не более {limit} доменов.",
+  "emailDomains.domainRequired": "Введите домен.",
+  "emailDomains.empty": "Почтовых доменов пока нет.",
+  "emailDomains.added": "{domain} добавлен. Создайте его запись TXT, затем подтвердите.",
+  "emailDomains.planTitle": "Почтовые домены входят в платный план",
+  "emailDomains.plan":
+    "Подтверждение почтовых доменов входит в план {plan}. Уже добавленные домены остаются, и их по-прежнему можно удалить.",
+  "emailDomains.state.verified": "Подтвержден",
+  "emailDomains.state.pending": "Ожидает запись DNS",
+  "emailDomains.verifiedOn": "Подтвержден {date}.",
+  "emailDomains.pendingUntil": "Создайте запись до {date}, иначе заявка будет отменена.",
+  "emailDomains.failing.title": "Запись DNS отсутствует",
+  "emailDomains.failing.body":
+    "{count, plural, one {Запись отсутствовала при последней ежедневной проверке.} few {Запись отсутствовала при последних # ежедневных проверках подряд.} many {Запись отсутствовала при последних # ежедневных проверках подряд.} other {Запись отсутствовала при последних # ежедневных проверках подряд.}} {left, plural, one {Еще # неудачная проверка, и домен будет удален.} few {Еще # неудачные проверки, и домен будет удален.} many {Еще # неудачных проверок, и домен будет удален.} other {Еще # неудачной проверки, и домен будет удален.}}",
+  "emailDomains.actionFailed": "Изменение не сохранено",
+  "emailDomains.recordHint":
+    "Создайте эту запись у вашего DNS-провайдера. Она может появиться не сразу.",
+  "emailDomains.verify": "Подтвердить",
+  "emailDomains.verifyNamed": "Подтвердить {domain}",
+  "emailDomains.remove": "Удалить",
+  "emailDomains.removeNamed": "Удалить {domain}",
+  "emailDomains.verified": "{domain} подтвержден.",
+  "emailDomains.removed": "{domain} удален.",
+  "emailDomains.confirmRemove.title": "Удалить {domain}?",
+  "emailDomains.confirmRemove.body":
+    "Те, кто открывает artifacts только благодаря этому домену, потеряют доступ в течение минуты. Позже его можно добавить снова с новой записью.",
+  "emailDomains.confirmRemove.action": "Удалить домен",
+  "emailDomains.error.quota_exceeded": "У workspace уже максимальное число почтовых доменов.",
+  "emailDomains.error.version_conflict":
+    "Домен тем временем изменился, или другой workspace все еще подтверждает его в своем DNS. Обновите страницу и попробуйте снова.",
+  "emailDomains.error.capacity_unavailable":
+    "Сейчас не удалось проверить DNS. Попробуйте чуть позже.",
+  "emailDomains.error.not_found": "Этого домена больше нет в списке.",
+  "emailDomains.error.refused":
+    "Этот домен нельзя добавить. Используйте собственный домен вашей организации: публичные почтовые сервисы, общие суффиксы, зарезервированные имена и домены Portifact не принимаются.",
+  "emailDomains.error.recordMissing":
+    "Запись TXT со значением этого домена пока не найдена. Изменения DNS могут появиться не сразу; попробуйте позже. Заявку старше 7 дней нужно добавить заново.",
+  "transfer.confirm.accessReset":
+    "Сейчас доступ к нему открыт для workspace или почтового домена, поэтому он станет ограниченным: читать его смогут только люди из списка читателей.",
 } satisfies Catalog;

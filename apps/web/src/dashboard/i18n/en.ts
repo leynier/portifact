@@ -1557,6 +1557,73 @@ export const en = {
   "webhooks.personalOnly.title": "Webhooks are set in your personal space",
   "webhooks.personalOnly.body":
     "For now, webhooks send events about the artifacts of your personal space only. Switch to it to manage them.",
+  "access.workspace": "Everyone in the workspace",
+  "access.domain": "The workspace and its email domains",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Email domain",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, after signing in, whatever their role.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, and anyone signed in with a verified address at {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, and anyone signed in with a verified address at the workspace's email domains. No domain is verified yet: an admin adds one on the Members page.",
+  "accessSettings.mode.listOnlyRestricted":
+    "The people listed below can open it only while it is restricted.",
+  "accessSettings.mode.workspacePlan": "Part of the {plan} plan.",
+  "accessSettings.lapsed.title": "Only members can open this artifact for now",
+  "accessSettings.lapsed.body":
+    "The workspace's plan does not include sharing with email domains right now, so only its members can open this artifact until the plan includes it again. Nothing was changed.",
+  "emailDomains.title": "Email domains",
+  "emailDomains.description":
+    "Anyone signed in to Portifact with a verified address at one of these domains can open the workspace's artifacts shared with its email domains. Only the exact domain counts, not its subdomains.",
+  "emailDomains.loading": "Loading email domains",
+  "emailDomains.loadFailed": "Email domains did not load",
+  "emailDomains.rules":
+    "Prove each domain with a DNS record. Public email providers (such as gmail.com), shared suffixes and Portifact's own domains are refused. Portifact checks the record every day and removes a domain after 3 missed checks in a row.",
+  "emailDomains.addFailed": "The domain was not added",
+  "emailDomains.add": "Add domain",
+  "emailDomains.domain": "Domain",
+  "emailDomains.domainHint":
+    "Your organization's own domain, such as example.com. Up to {limit} domains.",
+  "emailDomains.domainRequired": "Enter a domain.",
+  "emailDomains.empty": "No email domain yet.",
+  "emailDomains.added": "{domain} was added. Create its TXT record, then verify it.",
+  "emailDomains.planTitle": "Email domains are part of a paid plan",
+  "emailDomains.plan":
+    "Verifying email domains is part of the {plan} plan. Domains already listed stay, and you can still remove them.",
+  "emailDomains.state.verified": "Verified",
+  "emailDomains.state.pending": "Waiting for the DNS record",
+  "emailDomains.verifiedOn": "Verified on {date}.",
+  "emailDomains.pendingUntil": "Create the record before {date}, or the claim is dropped.",
+  "emailDomains.failing.title": "The DNS record is missing",
+  "emailDomains.failing.body":
+    "{count, plural, one {The record was missing at the last daily check.} other {The record was missing at the last # daily checks in a row.}} {left, plural, one {After # more missed check the domain is removed.} other {After # more missed checks the domain is removed.}}",
+  "emailDomains.actionFailed": "The change was not saved",
+  "emailDomains.recordHint":
+    "Create this record at your DNS provider. It can take a while to appear.",
+  "emailDomains.verify": "Verify",
+  "emailDomains.verifyNamed": "Verify {domain}",
+  "emailDomains.remove": "Remove",
+  "emailDomains.removeNamed": "Remove {domain}",
+  "emailDomains.verified": "{domain} is verified.",
+  "emailDomains.removed": "{domain} was removed.",
+  "emailDomains.confirmRemove.title": "Remove {domain}?",
+  "emailDomains.confirmRemove.body":
+    "People who open artifacts only through this domain lose access within a minute. You can add it again later with a new record.",
+  "emailDomains.confirmRemove.action": "Remove domain",
+  "emailDomains.error.quota_exceeded":
+    "The workspace already has the most email domains it can have.",
+  "emailDomains.error.version_conflict":
+    "The domain changed meanwhile, or another workspace still proves it in its DNS. Reload and try again.",
+  "emailDomains.error.capacity_unavailable":
+    "DNS could not be checked right now. Try again shortly.",
+  "emailDomains.error.not_found": "That domain is no longer listed.",
+  "emailDomains.error.refused":
+    "This domain cannot be added. Use your organization's own domain: public email providers, shared suffixes, reserved names and Portifact's domains are refused.",
+  "emailDomains.error.recordMissing":
+    "The TXT record was not found with this domain's value yet. DNS changes can take a while to appear; try again later. A claim older than 7 days must be added again.",
+  "transfer.confirm.accessReset":
+    "It is shared with its workspace or an email domain now, so it becomes restricted: only the people on its reader list keep reading it.",
 } as const;
 
 export type MessageId = keyof typeof en;

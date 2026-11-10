@@ -49,6 +49,7 @@ import {
   type ViewerInfo,
   type WebhookAttempt,
   type WebhookView,
+  type WorkspaceDomainView,
   type WorkspaceMemberView,
   type WorkspaceView,
 } from "@portifact/contracts";
@@ -334,6 +335,12 @@ export interface FakeWorkspace {
   invitations: InvitationView[];
   usage: AccountUsageView;
   branding: BrandSettings;
+  /** Its email domains (decision 0010); verifying one succeeds when `dns` holds its value. */
+  domains: WorkspaceDomainView[];
+  /** The TXT values the fake DNS answers, by record name. */
+  dns: Record<string, string[]>;
+  /** The plan includes workspace sharing. */
+  domainsAvailable: boolean;
 }
 
 export function workspace(
@@ -370,6 +377,9 @@ export function workspace(
     invitations: [],
     usage: usageView(),
     branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
+    domains: [],
+    dns: {},
+    domainsAvailable: true,
     ...rest,
   };
 }
@@ -962,6 +972,8 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
   const scoped = /^\/api\/v1\/workspaces\/([^/]+)\/(members|invitations|leave)(?:\/([^/]+))?$/.exec(
     path,
   );
+  const domains = /^\/api\/v1\/workspaces\/([^/]+)\/domains(?:\/([^/]+))?(\/verify)?$/.exec(path);
+  if (domains) return domainRoute(server, method, domains, body);
   if (!scoped) return undefined;
   const w = server.workspaces[decodeURIComponent(scoped[1] ?? "")];
   if (!w) return apiError("not_found", 404);
@@ -1021,6 +1033,59 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       : apiError("not_found", 404);
   }
   return undefined;
+}
+
+/** The email domain routes, answered like the Worker: admins only, a missing slug is missing. */
+function domainRoute(
+  server: FakeServer,
+  method: string,
+  match: RegExpExecArray,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  const [, , id, verify] = match;
+  if (!id && method === "GET") {
+    return json({ items: w.domains, available: w.domainsAvailable, limit: 10 });
+  }
+  if (!id && method === "POST") {
+    if (!w.domainsAvailable) return apiError("plan_required", 403);
+    const domain = String(body?.domain).trim().toLowerCase();
+    if (domain === "gmail.com") return apiError("invalid_input", 400);
+    const existing = w.domains.find((d) => d.domain === domain);
+    if (existing) return json(existing, 201);
+    const n = String(w.domains.length + 1).padStart(32, "0");
+    const view: WorkspaceDomainView = {
+      id: `wd_${n}`,
+      domain,
+      unicode: null,
+      state: "pending",
+      record: { name: `_portifact-email.${domain}`, value: `portifact-email-verify=${n}` },
+      createdAt: NOW,
+      verifiedAt: null,
+      checkedAt: null,
+      expiresAt: "2026-11-15T12:00:00.000Z",
+      failedChecks: 0,
+      problem: null,
+    };
+    w.domains = [...w.domains, view];
+    return json(view, 201);
+  }
+  const found = w.domains.find((d) => d.id === decodeURIComponent(id ?? ""));
+  if (!found) return apiError("not_found", 404);
+  if (verify && method === "POST") {
+    if (!(w.dns[found.record.name] ?? []).includes(found.record.value)) {
+      return apiError("invalid_input", 400);
+    }
+    Object.assign(found, { state: "verified", verifiedAt: NOW, checkedAt: NOW, expiresAt: null });
+    return json(found);
+  }
+  if (method === "DELETE") {
+    w.domains = w.domains.filter((d) => d !== found);
+    return json({ id: found.id, removed: true });
+  }
+  return apiError("not_found", 404);
 }
 
 function route(server: FakeServer, method: string, url: URL, headers: Headers): Response {
@@ -1342,7 +1407,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   if (access) {
     if (!owned)
       return Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
-    const policy = server.access[owned.id] ?? {
+    const space =
+      owned.owner.kind === "workspace" ? server.workspaces[owned.owner.slug] : undefined;
+    const policy: AccessPolicyView = server.access[owned.id] ?? {
       mode: owned.accessMode,
       readers: [],
       indexable: false,
@@ -1351,6 +1418,16 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       commentVisibility: "owner",
       readerCommentVisibility: [],
       policyGeneration: 1,
+      audience:
+        owned.owner.kind === "workspace"
+          ? {
+              members: space?.members.length ?? 1,
+              domains: (space?.domains ?? [])
+                .filter((d) => d.state === "verified")
+                .map((d) => d.domain),
+              featureAvailable: space?.domainsAvailable ?? true,
+            }
+          : null,
     };
     server.access[owned.id] = policy;
     if (method === "GET") return Response.json(policy);

@@ -16,7 +16,7 @@ export interface DeliveryArtifact {
   ownerId: string;
   type: "site" | "markdown" | "text";
   state: "draft" | "active" | "archived" | "suspended" | "purging" | "deleted";
-  accessMode: "public" | "authenticated" | "restricted";
+  accessMode: "public" | "authenticated" | "restricted" | "workspace" | "domain";
   policyGeneration: number;
   indexable: boolean;
   embeddable: boolean;

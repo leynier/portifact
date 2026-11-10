@@ -267,6 +267,13 @@
       "when": 1794307063234,
       "tag": "0037_webhooks",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1794313533627,
+      "tag": "0038_workspace_domains",
+      "breakpoints": true
     }
   ]
 }

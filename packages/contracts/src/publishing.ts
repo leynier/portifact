@@ -12,6 +12,7 @@ import {
   Email,
   type ErrorCode,
 } from "./core.ts";
+import { AccessAudience } from "./email-domains.ts";
 import { LIMITS } from "./limits.ts";
 import { SuspensionView } from "./moderation.ts";
 import { OwnerView } from "./workspaces.ts";
@@ -256,6 +257,11 @@ export const AccessPolicyView = z.object({
   ),
   /** Increases on every change; read sessions issued before it stop working. */
   policyGeneration: z.number().int().min(1),
+  /**
+   * Who the `workspace` and `domain` modes reach on this artifact's owner (decision 0010); null
+   * for a personal artifact, where neither mode exists.
+   */
+  audience: AccessAudience.nullable(),
 });
 export type AccessPolicyView = z.infer<typeof AccessPolicyView>;
 

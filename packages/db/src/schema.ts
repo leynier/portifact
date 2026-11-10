@@ -48,7 +48,10 @@ export const artifacts = sqliteTable(
     })
       .notNull()
       .default("draft"),
-    accessMode: text("access_mode", { enum: ["public", "authenticated", "restricted"] })
+    /** `workspace` and `domain` only on workspace artifacts (decision 0010); no CHECK, contracts decide. */
+    accessMode: text("access_mode", {
+      enum: ["public", "authenticated", "restricted", "workspace", "domain"],
+    })
       .notNull()
       .default("restricted"),
     /** Bumped on every access change; read sessions carry it so revocation applies quickly. */
@@ -725,10 +728,11 @@ export const tombstones = sqliteTable(
   {
     /**
      * `share_link` marks a revoked share link (decision 0008) and `webhook` a removed webhook
-     * (decision 0009), so a restore cannot revive them; `workspace` a deleted workspace.
+     * (decision 0009), so a restore cannot revive them; `workspace` a deleted workspace;
+     * `workspace_domain` a removed or lapsed verified email domain by its row ID (decision 0010).
      */
     kind: text("kind", {
-      enum: ["artifact", "account", "share_link", "workspace", "webhook"],
+      enum: ["artifact", "account", "share_link", "workspace", "webhook", "workspace_domain"],
     }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
@@ -1429,6 +1433,42 @@ export const workspaceInvitations = sqliteTable(
     uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email),
     index("workspace_invitations_email_idx").on(t.email),
     check("workspace_invitations_role", sql`${t.role} in ('admin', 'editor', 'member')`),
+  ],
+);
+
+/**
+ * Email domains a workspace claims or verified (premium plan T2, decision 0010). Global, like the
+ * workspace. A claim is `pending` with a fresh token until the TXT record
+ * `_portifact-email.<domain>` holds it; at most one workspace has a domain `verified` (the partial
+ * unique index). The token is the value of a public DNS record and is shown again, so it is
+ * stored as is; it is never logged or exported. Rows go with the workspace.
+ */
+export const workspaceDomains = sqliteTable(
+  "workspace_domains",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** Lowercase A-label. */
+    domain: text("domain").notNull(),
+    /** The Unicode form the admin typed, when it differs; display only. */
+    display: text("display"),
+    token: text("token").notNull(),
+    state: text("state", { enum: ["pending", "verified"] }).notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    /** When a pending claim is dropped. */
+    expiresAt: timestamp("expires_at").notNull(),
+    verifiedAt: timestamp("verified_at"),
+    checkedAt: timestamp("checked_at"),
+    failedChecks: integer("failed_checks").notNull().default(0),
+    problem: text("problem", { enum: ["txt_missing"] }),
+  },
+  (t) => [
+    uniqueIndex("workspace_domains_workspace_domain_idx").on(t.workspaceId, t.domain),
+    uniqueIndex("workspace_domains_verified_idx").on(t.domain).where(sql`${t.state} = 'verified'`),
+    index("workspace_domains_state_checked_idx").on(t.state, t.checkedAt),
+    check("workspace_domains_state", sql`${t.state} in ('pending', 'verified')`),
   ],
 );
 

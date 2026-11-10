@@ -304,8 +304,14 @@ function writeAccess(
       ["Indexable", policy.indexable ? "yes" : "no"],
       ["Embeddable", policy.embeddable ? "yes" : "no"],
       ["Portifact bar", policy.bar ? "on" : "off"],
+      ...(policy.audience
+        ? [["Workspace", messages.audience(policy.audience.members, policy.audience.domains)]]
+        : []),
     ]),
   );
+  if (policy.mode === "domain" && policy.audience && !policy.audience.featureAvailable) {
+    io.stdout(`${messages.domainModeLapsed}\n`);
+  }
 }
 
 /** Left-aligned columns separated by two spaces; the last column is not padded. */

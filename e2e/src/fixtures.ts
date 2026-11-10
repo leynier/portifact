@@ -51,18 +51,21 @@ export async function control<T>(path: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function createUser(name: string): Promise<User> {
-  const email = `${name.toLowerCase()}-${crypto.randomUUID().slice(0, 8)}@example.test`;
+export async function createUser(name: string, at?: string): Promise<User> {
+  const local = `${name.toLowerCase()}-${crypto.randomUUID().slice(0, 8)}`;
+  const email = `${local}@${at ?? "example.test"}`;
   const user = await control<Omit<User, "email" | "name">>("/user", { email, name });
   return { ...user, email, name };
 }
 
 export function publish(input: {
   ownerId: string;
+  /** A workspace to publish into as `ownerId`. */
+  targetOwnerId?: string;
   type?: "site" | "markdown" | "text";
   name: string;
   files: Record<string, string>;
-  accessMode?: "public" | "authenticated" | "restricted";
+  accessMode?: "public" | "authenticated" | "restricted" | "workspace" | "domain";
   readers?: string[];
   annotations?: "off" | "open" | "locked";
   /**

@@ -57,12 +57,21 @@ export function registerAccessTools(
   };
 
   const describe = (artifactId: string, body: AccessPolicyView) => {
+    const members = body.audience?.members ?? 0;
+    const domains = body.audience?.domains ?? [];
+    const lapsed = body.audience?.featureAvailable === false;
     const who =
       body.mode === "public"
         ? "anyone with the link"
         : body.mode === "authenticated"
           ? "anyone signed in to Portifact"
-          : `the owner and ${body.readers.length} reader(s) on the list, after signing in`;
+          : body.mode === "workspace"
+            ? `the ${members} member(s) of its workspace, after signing in`
+            : body.mode === "domain"
+              ? lapsed
+                ? `the ${members} member(s) of its workspace only, because the workspace's plan does not include workspace sharing now`
+                : `the ${members} member(s) of its workspace and anyone signed in with a verified address at ${domains.length > 0 ? domains.join(", ") : "no verified domain yet"}`
+              : `the owner and ${body.readers.length} reader(s) on the list, after signing in`;
     return `${artifactId} can now be opened by ${who}; ${body.indexable ? "indexable" : "noindex"}, ${body.embeddable ? "embeddable" : "not embeddable"}.`;
   };
 
@@ -71,7 +80,7 @@ export function registerAccessTools(
     {
       title: "Set who can open an artifact",
       description:
-        "Change who can open the user's artifact: mode restricted (the owner and the readers on the list, after signing in; the default), authenticated (anyone signed in to Portifact) or public (anyone with the link). For public artifacts, indexable lets search engines index it and embeddable lets other sites frame it; both are off by default and apply only while the artifact is public. Widening access exposes the artifact to more people: only call it with authenticated, public, indexable or embeddable after the user asked for exactly that. New accounts wait 15 minutes before making anything public (account_too_new_for_public). Readers whose access ends lose it within a minute. Returns the access policy.",
+        "Change who can open the user's artifact: mode restricted (the owner and the readers on the list, after signing in; the default), authenticated (anyone signed in to Portifact), public (anyone with the link), and for an artifact a workspace owns, workspace (every member of that workspace) or domain (every member plus anyone signed in with a verified address at one of the workspace's verified email domains; its admins verify domains in the dashboard). The workspace modes need a plan with workspace sharing (plan_required) and refuse a personal artifact (invalid_input). For public artifacts, indexable lets search engines index it and embeddable lets other sites frame it; both are off by default and apply only while the artifact is public. Widening access exposes the artifact to more people: ask the user first, and only call it with authenticated, public, workspace, domain, indexable or embeddable after the user asked for exactly that. New accounts wait 15 minutes before making anything public (account_too_new_for_public). Readers whose access ends lose it within a minute. Returns the access policy.",
       inputSchema: SetAccessInput,
       outputSchema: AccessPolicyView,
       annotations: CHANGE,

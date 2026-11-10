@@ -68,6 +68,7 @@ describe("access policy", () => {
         commentVisibility: "owner",
         readerCommentVisibility: [],
         policyGeneration: 1,
+        audience: null,
       },
     });
 
@@ -103,6 +104,7 @@ describe("access policy", () => {
       commentVisibility: "owner",
       readerCommentVisibility: [],
       policyGeneration: 3,
+      audience: null,
     });
   });
 

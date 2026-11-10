@@ -59,4 +59,5 @@ export * from "./viewer.ts";
 export * from "./webhook-activity.ts";
 export * from "./webhook-keys.ts";
 export * from "./webhooks.ts";
+export * from "./workspace-domains.ts";
 export * from "./workspaces.ts";
