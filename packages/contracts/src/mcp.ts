@@ -19,7 +19,12 @@ import {
   SourceOrigin,
   UploadedPart,
 } from "./publishing.ts";
+import { PublishKey } from "./service-tokens.ts";
 import { WorkspaceSlug } from "./workspaces.ts";
+
+const keyArg = PublishKey.optional().describe(
+  "A stable key such as pr-123 or docs/main: the first publish with it creates an artifact that carries it, and every later publish with the same key updates that artifact, from its current version. Not with artifactId.",
+);
 
 /**
  * The `workspace` argument of the tools that create or list: a workspace's slug from
@@ -67,6 +72,7 @@ export const ListArtifactsInput = z.object({
   annotations: AnnotationsState.optional().describe(
     "Only artifacts whose annotations are off, open or locked.",
   ),
+  key: PublishKey.optional().describe("Only the artifact published with this key, if any."),
 });
 export type ListArtifactsInput = z.infer<typeof ListArtifactsInput>;
 
@@ -99,6 +105,7 @@ export const PublishDocumentInput = z.object({
     .describe(
       "Required with artifactId: the currentVersionId you last read from get_artifact. A newer version published since then makes the call fail with version_conflict instead of overwriting it.",
     ),
+  key: keyArg,
   idempotencyKey: IdempotencyKey.optional().describe(
     "A unique string (8 to 128 letters, digits, '.', '_', ':' or '-') for this publish. Retrying with the same key and arguments returns the first result instead of publishing twice.",
   ),
@@ -226,6 +233,7 @@ export const PrepareUploadInput = z.object({
   sourceOrigin: SourceOrigin.optional().describe(
     "The git commit, branch and remote the source files came from, when there are source files.",
   ),
+  key: keyArg,
   multipart: z
     .boolean()
     .optional()

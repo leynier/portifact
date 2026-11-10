@@ -29,6 +29,7 @@ import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
+import { exportServiceTokens } from "./service-tokens.ts";
 import { exportWebhooks } from "./webhooks.ts";
 
 const IN_CHUNK = 80;
@@ -224,6 +225,8 @@ export async function exportAccount(
       // Destinations only by host: never the URL or the signing secret.
       webhooks: await exportWebhooks(db, input.userId),
       brand: await exportedBrand(db, input.userId),
+      // The service tokens of the workspaces the account administers: never a secret or hash.
+      serviceTokens: await exportServiceTokens(db.global, input.userId, input.now),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
@@ -483,6 +486,11 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
       .update(schema.webhooks)
       .set({ createdBy: null })
       .where(eq(schema.webhooks.createdBy, input.userId)),
+    // A workspace's service tokens stay with it (decision 0011); who created them goes.
+    db
+      .update(schema.serviceTokens)
+      .set({ createdBy: null })
+      .where(eq(schema.serviceTokens.createdBy, input.userId)),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
@@ -637,6 +645,10 @@ export async function advanceAccountDeletion(
       .update(schema.webhooks)
       .set({ createdBy: null })
       .where(eq(schema.webhooks.createdBy, userId)),
+    db
+      .update(schema.serviceTokens)
+      .set({ createdBy: null })
+      .where(eq(schema.serviceTokens.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
     db

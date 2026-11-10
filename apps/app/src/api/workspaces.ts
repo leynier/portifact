@@ -18,6 +18,10 @@ import {
   InvitationTokenInput,
   InvitationView,
   MemberRoleUpdate,
+  ServiceTokenCreate,
+  ServiceTokenCreated,
+  ServiceTokenId,
+  ServiceTokenList,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
@@ -28,6 +32,7 @@ import { invitationEmail } from "@portifact/emails";
 import {
   acceptInvitation,
   changeMemberRole,
+  createServiceToken,
   declineInvitation,
   type InvitationKey,
   type InvitationRow,
@@ -37,11 +42,13 @@ import {
   listIncomingInvitations,
   listInvitations,
   listMembers,
+  listServiceTokens,
   listUserWorkspaces,
   lookupInvitation,
   type MemberRow,
   removeMember,
   revokeInvitation,
+  revokeServiceToken,
   type UserWorkspace,
 } from "@portifact/services";
 import { type Context, Hono } from "hono";
@@ -148,12 +155,15 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
   const routes = new Hono<{ Bindings: Env }>();
 
   const sessionOnly =
-    (handler: (c: WorkspaceContext, userId: string) => Promise<Response>) =>
+    (
+      handler: (c: WorkspaceContext, userId: string) => Promise<Response>,
+      refusal = "Managing members needs a dashboard session.",
+    ) =>
     async (c: WorkspaceContext) => {
       c.header("Cache-Control", "no-store");
       const request = c.req.raw;
       if (request.headers.has("authorization")) {
-        return error(c, "forbidden", "Managing members needs a dashboard session.");
+        return error(c, "forbidden", refusal);
       }
       if (!hasSessionCookie(request.headers.get("cookie"))) {
         return error(c, "unauthenticated", "Sign in to manage workspaces.");
@@ -218,6 +228,59 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         userId,
         slug,
         memberId: c.req.param("userId") as string,
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.body(null, 204);
+    }),
+  );
+
+  // Service tokens (decision 0011): only admins, only from the dashboard session, so no bearer
+  // token (a service token included) can mint, list or revoke them.
+  const tokensOnly = (handler: (c: WorkspaceContext, userId: string) => Promise<Response>) =>
+    sessionOnly(handler, "Service tokens are managed from the dashboard.");
+
+  routes.get(
+    "/api/v1/workspaces/:slug/service-tokens",
+    tokensOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const result = await listServiceTokens(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ServiceTokenList.parse(result.value));
+    }),
+  );
+
+  // No idempotency key: a stored replay would keep the secret (decision 0011).
+  routes.post(
+    "/api/v1/workspaces/:slug/service-tokens",
+    tokensOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const body = await readJson(c, ServiceTokenCreate);
+      if (!body.ok) return body.response;
+      const result = await createServiceToken(global(c), {
+        userId,
+        slug,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ServiceTokenCreated.parse(result.value), 201);
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/service-tokens/:tokenId",
+    tokensOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const tokenId = ServiceTokenId.safeParse(c.req.param("tokenId"));
+      if (!tokenId.success) return error(c, "not_found", "Service token not found.");
+      const result = await revokeServiceToken(global(c), {
+        userId,
+        slug,
+        tokenId: tokenId.data,
+        now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.body(null, 204);

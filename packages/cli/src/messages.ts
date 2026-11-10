@@ -106,6 +106,11 @@ export const messages = {
   restored: (id: string, expiresAt: string | null) =>
     `Restored ${id}. It stays published until ${formatDate(expiresAt)}.`,
   deleted: (id: string) => `Deleted ${id} permanently.`,
+  keyRetry: (key: string) =>
+    `Another publish with the key ${key} finished first. Publishing again on top of it.`,
+  nothingWithKey: (key: string) => `No artifact has the key ${key}, so nothing was deleted.`,
+  serviceTokenWhoami: (origin: string, workspace: string, role: string) =>
+    `Using the service token in PORTIFACT_TOKEN on ${origin}: workspace ${workspace}, role ${role}.`,
   confirmDelete: (id: string, name: string) =>
     `This permanently deletes "${name}" (${id}) and every version of it. It cannot be undone.\nType the artifact ID to confirm: `,
   readersOnlyWhenRestricted: (mode: string) =>
@@ -256,6 +261,20 @@ export const messages = {
   historyNothing: (id: string) => `${id} has no published versions, so no Git history was created.`,
 
   errors: {
+    serviceTokenMalformed:
+      "PORTIFACT_TOKEN does not hold a Portifact service token (one starts with pfst_). Copy it again from the workspace's Service tokens page.",
+    serviceTokenRefused: (origin: string) =>
+      `${origin} refused the service token in PORTIFACT_TOKEN. Ask a workspace admin for a new one.`,
+    serviceTokenSet:
+      "PORTIFACT_TOKEN is set, so this CLI uses that service token and never a stored login. Unset it to sign in or out.",
+    serviceTokenWorkspace:
+      "A service token always acts on its own workspace, so there is no default to choose while PORTIFACT_TOKEN is set.",
+    keyWithArtifact: "Use --key or --artifact, not both.",
+    invalidKey: (value: string) =>
+      `${JSON.stringify(value)} is not a key: 1 to 128 letters, digits, dots, underscores, slashes or hyphens, starting with a letter or digit.`,
+    deleteNeedsTarget: "Name the artifact to delete: its ID, or --key with its publish key.",
+    keyConfirmationRequired: (key: string) =>
+      `Deleting is permanent. Run \`portifact delete --key ${key} --yes\` to confirm without a prompt.`,
     notSignedIn: (origin: string) =>
       `Not signed in to ${origin}. Run \`portifact login\` to sign in.`,
     sessionEnded: (origin: string) =>

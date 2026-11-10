@@ -95,7 +95,7 @@ async function loadManaged(
     .limit(1);
   const artifact = row?.artifact;
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
+  const actor = await authorizeOn(db, userId, artifact, "access", missing);
   if (!actor.ok) return actor;
   return ok({ artifact, actor: actor.value, plan: row.plan });
 }
@@ -159,11 +159,14 @@ export async function updateAccess(
   // Widening the audience is checked against the age of the account making the change (the
   // owner's, in a personal space); narrowing it never is.
   if (change.mode && change.mode !== artifact.accessMode) {
-    const [owner] = await db.global
-      .select({ createdAt: schema.users.createdAt })
-      .from(schema.users)
-      .where(eq(schema.users.id, actor.userId))
-      .limit(1);
+    // A service token has no account: its own age counts (decision 0011).
+    const [owner] = actor.token
+      ? [{ createdAt: new Date(actor.token.createdAt) }]
+      : await db.global
+          .select({ createdAt: schema.users.createdAt })
+          .from(schema.users)
+          .where(eq(schema.users.id, actor.userId))
+          .limit(1);
     const allowed = checkAccessChange(
       change.mode,
       owner?.createdAt ?? new Date(input.now),

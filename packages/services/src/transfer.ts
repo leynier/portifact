@@ -74,7 +74,7 @@ export async function transferArtifact(
   const a = schema.artifacts;
   const [artifact] = await db.select().from(a).where(eq(a.id, input.artifactId)).limit(1);
   if (!artifact) return missingArtifact();
-  const source = await authorizeOn(db, input.userId, artifact.ownerId, "transfer", missingArtifact);
+  const source = await authorizeOn(db, input.userId, artifact, "transfer", missingArtifact);
   if (!source.ok) return source;
 
   const targetId = await targetOwner(db.global, input.userId, input.workspace);

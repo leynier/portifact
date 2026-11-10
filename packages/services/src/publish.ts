@@ -1,7 +1,7 @@
 // Publishing use cases: prepare an upload (validate, deduplicate, admit and reserve) and commit
 // it (verify the uploaded bytes, then switch the current version atomically). Adapters (API,
 // MCP, CLI flows) call these; they never reimplement the rules.
-import { type ArtifactType, LIMITS } from "@portifact/contracts";
+import { type ArtifactType, LIMITS, PublishKey } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
@@ -9,6 +9,7 @@ import {
   checkDocumentManifest,
   checkPublish,
   checkPublishCapacity,
+  checkPublishKeyReach,
   checkRenderedVersion,
   checkSourceOrigin,
   DEFAULT_MULTIPART,
@@ -26,7 +27,7 @@ import {
 } from "@portifact/domain";
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { newArtifactDefaults } from "./account-settings.ts";
-import { actorOn, authorizeOn } from "./actors.ts";
+import { actorOn, authorizeOn, authorizeUploadOn } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
 import { claimNewArtifactId } from "./directory.ts";
 import {
@@ -85,6 +86,11 @@ export interface PrepareInput {
   files: ManifestEntry[];
   /** Declared git origin of the source files; owner-only metadata of the version. */
   sourceOrigin?: SourceOriginInput | undefined;
+  /**
+   * A stable publish key (decision 0011): the owner's artifact with this key is updated (from its
+   * current version), or a new one is created with it. Not with `artifactId`.
+   */
+  key?: string | undefined;
   now: number;
 }
 
@@ -231,7 +237,20 @@ export async function preparePublish(
   multipart?: MultipartOption,
   /** Draws new artifact IDs; only tests replace it. */
   drawArtifactId?: () => string,
+  /** Set on the second try of a keyed publish that lost the race to create the artifact. */
+  keyRetry = false,
 ): Promise<Result<PreparedUpload>> {
+  if (input.key !== undefined) {
+    if (input.artifactId) {
+      return fail("invalid_input", "Send an artifact ID or a key, not both.");
+    }
+    if (!PublishKey.safeParse(input.key).success) {
+      return fail(
+        "invalid_input",
+        "A key is 1 to 128 letters, digits, dots, underscores, slashes or hyphens, starting with a letter or digit.",
+      );
+    }
+  }
   const validated = validateManifest(input);
   if (!validated.ok) return validated;
   const entrypoint = normalizedEntrypoint(input.entrypoint);
@@ -265,13 +284,7 @@ export async function preparePublish(
       .limit(1);
     // An artifact of an owner the user has no role on looks the same as a missing one.
     if (!artifact) return missingArtifact();
-    const allowed = await authorizeOn(
-      db,
-      input.userId,
-      artifact.ownerId,
-      "update",
-      missingArtifact,
-    );
+    const allowed = await authorizeOn(db, input.userId, artifact, "update", missingArtifact);
     if (!allowed.ok) return allowed;
     actor = allowed.value;
     if (artifact.type !== input.type) {
@@ -301,6 +314,26 @@ export async function preparePublish(
     );
     if (!allowed.ok) return allowed;
     actor = allowed.value;
+    const reach = checkPublishKeyReach(actor.token, input.key);
+    if (!reach.ok) return reach;
+    if (input.key !== undefined) {
+      const keyed = await artifactByKey(db, actor.ownerId, input.key);
+      // The key names an artifact already: this publish is its next version.
+      if (keyed) {
+        return preparePublish(
+          db,
+          {
+            ...input,
+            key: undefined,
+            artifactId: keyed.id,
+            baseVersionId: keyed.currentVersionId,
+          },
+          multipart,
+          drawArtifactId,
+          true,
+        );
+      }
+    }
   }
   // Quotas, storage and the plan are the owner's: a workspace's, or the user's own.
   const ownerId = actor.ownerId;
@@ -404,6 +437,8 @@ export async function preparePublish(
               type: input.type,
               name,
               ...policy,
+              externalKey: input.key ?? null,
+              createdBy: input.userId,
               createdAt: input.now,
               updatedAt: input.now,
             }),
@@ -477,6 +512,10 @@ export async function preparePublish(
     ]);
   } catch (error) {
     if (multipart) await abortOpened(multipart.bucket, multipartRows);
+    // A concurrent first publish with the same key created the artifact: publish to it instead.
+    if (input.key !== undefined && !keyRetry && causeIncludes(error, "artifacts.external_key")) {
+      return preparePublish(db, input, multipart, drawArtifactId, true);
+    }
     if (constraintFailed(error, "UNIQUE")) {
       return fail("version_conflict", "Another publish to this artifact started first. Try again.");
     }
@@ -516,6 +555,27 @@ export async function preparePublish(
   });
 }
 
+/** The owner's artifact holding a publish key: deleted and purging artifacts hold none. */
+export async function artifactByKey(
+  db: Db,
+  ownerId: string,
+  key: string,
+): Promise<{ id: string; currentVersionId: string | null } | undefined> {
+  const a = schema.artifacts;
+  const [row] = await db
+    .select({ id: a.id, currentVersionId: a.currentVersionId })
+    .from(a)
+    .where(
+      and(
+        eq(a.ownerId, ownerId),
+        eq(a.externalKey, key),
+        sql`${a.state} not in ('purging', 'deleted')`,
+      ),
+    )
+    .limit(1);
+  return row;
+}
+
 function withMultipart(
   uploads: PendingUpload[],
   states: Map<string, MultipartState>,
@@ -543,9 +603,9 @@ const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
 async function authorizeUpload(
   db: RegionalDb,
   userId: string,
-  ownerId: string,
+  session: { ownerId: string; artifactId: string },
 ): Promise<Result<Actor>> {
-  return authorizeOn(db, userId, ownerId, "publish", missingUpload);
+  return authorizeUploadOn(db, userId, session, "publish", missingUpload);
 }
 
 export interface CommittedPublish {
@@ -581,7 +641,7 @@ export async function commitPublish(
     .where(eq(schema.uploadSessions.id, input.sessionId))
     .limit(1);
   if (!session) return missingUpload();
-  const allowed = await authorizeUpload(db, input.userId, session.ownerId);
+  const allowed = await authorizeUpload(db, input.userId, session);
   if (!allowed.ok) return allowed;
   const ownerId = session.ownerId;
   if (session.state === "committed") {
@@ -957,7 +1017,7 @@ export async function uploadProgress(
     .where(eq(schema.uploadSessions.id, input.sessionId))
     .limit(1);
   if (!session) return missingUpload();
-  const allowed = await authorizeUpload(db, input.userId, session.ownerId);
+  const allowed = await authorizeUpload(db, input.userId, session);
   if (!allowed.ok) return allowed;
   if (
     (session.state !== "uploading" && session.state !== "ready") ||
@@ -1001,12 +1061,15 @@ export async function uploadProgress(
 /** Cancels an open upload for the user and releases its reservations. Idempotent. */
 export async function abortPublish(db: RegionalDb, input: CommitInput): Promise<Result<true>> {
   const [session] = await db
-    .select({ ownerId: schema.uploadSessions.ownerId })
+    .select({
+      ownerId: schema.uploadSessions.ownerId,
+      artifactId: schema.uploadSessions.artifactId,
+    })
     .from(schema.uploadSessions)
     .where(eq(schema.uploadSessions.id, input.sessionId))
     .limit(1);
   if (!session) return missingUpload();
-  const allowed = await authorizeUpload(db, input.userId, session.ownerId);
+  const allowed = await authorizeUpload(db, input.userId, session);
   if (!allowed.ok) return allowed;
   return closeUploadSession(
     db,

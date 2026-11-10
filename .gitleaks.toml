@@ -20,3 +20,13 @@ regexes = ['''(?i)^idempotency[-_]?key"?\s*[:=]\s*"[a-z0-9-]+"$''']
 description = "The unsubscribe page test's placeholder token is not a credential"
 regexTarget = "match"
 regexes = ['''cn1\.dXNlcg\.1\.c2lnbmF0dXJl''']
+
+# Portifact's own service tokens (decision 0011): `pfst_` and 43 base64url characters, 32 random
+# bytes. A real one in the repository is a leak: revoke it (docs/operations.md, "A leaked service
+# token"). Tests build sample tokens at run time and documents write `pfst_…`, so nothing
+# committed matches; never allowlist this rule.
+[[rules]]
+id = "portifact-service-token"
+description = "Portifact service token"
+regex = '''pfst_[A-Za-z0-9_-]{43}'''
+keywords = ["pfst_"]

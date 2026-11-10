@@ -17,6 +17,7 @@ import {
   OwnerPlanExport,
   PLAN_NAMES,
   PlanName,
+  ServiceTokenId,
   TombstoneMarker,
 } from "@portifact/contracts";
 import { type Db, regionsFromEnv, schema } from "@portifact/db";
@@ -42,6 +43,7 @@ import {
   domainDbsOf,
   exportOwnerPlans,
   exportTombstones,
+  findServiceToken,
   getBudgetState,
   getOwnerPlan,
   getWorkspaceDetail,
@@ -53,6 +55,7 @@ import {
   listEmailSuppressions,
   listStorageFindings,
   type OwnerPlanState,
+  operatorRevokeServiceToken,
   rebuildArtifactDirectory,
   reconcileCustomDomains,
   reinstateAccount,
@@ -81,6 +84,8 @@ Commands:
   resolve-report <report-id> actioned|dismissed
   show-artifact <artifact-id>
   find-share-link              (reads the reported link or token from standard input)
+  find-service-token           (reads a leaked service token from standard input)
+  revoke-service-token <service-token-id>
   suspend-artifact <artifact-id> --reason <reason> [--report <report-id>] [--note <text>]
   reinstate-artifact <artifact-id>
   suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
@@ -625,6 +630,44 @@ export async function runOperator(
         ].join("\n"),
       };
     }
+    case "find-service-token": {
+      // A leaked secret comes from standard input, never the command line, and is never printed;
+      // only its hash is compared (decision 0011).
+      const global = regionsFromEnv({ DB: db.$client }).global;
+      const found = await findServiceToken(global, await files.read("/dev/stdin"));
+      if (!found) return { exitCode: 1, output: "No service token has this secret." };
+      const [workspace] = await global
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, found.workspaceId))
+        .limit(1);
+      return {
+        exitCode: 0,
+        output: [
+          `token      ${found.id}  ${found.label}`,
+          `workspace  ${workspace?.slug ?? found.workspaceId}`,
+          `expires    ${new Date(found.expiresAt).toISOString()}`,
+          `Revoke it with: revoke-service-token ${found.id}`,
+        ].join("\n"),
+      };
+    }
+    case "revoke-service-token": {
+      const [tokenId] = args;
+      if (!tokenId || !ServiceTokenId.safeParse(tokenId).success) {
+        return usage("revoke-service-token needs a service token ID (st_ and 32 hex characters).");
+      }
+      const revoked = await operatorRevokeServiceToken(
+        regionsFromEnv({ DB: db.$client }).global,
+        tokenId,
+        now,
+      );
+      return {
+        exitCode: revoked ? 0 : 1,
+        output: revoked
+          ? `Revoked ${tokenId}; its next request is refused. A tombstone keeps a restore from bringing it back.`
+          : "No service token has this ID (already revoked, or its workspace was deleted).",
+      };
+    }
     case "suspend-artifact": {
       const [artifactId] = args;
       const reason = reasonOption();
@@ -783,7 +826,7 @@ export async function runOperator(
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {

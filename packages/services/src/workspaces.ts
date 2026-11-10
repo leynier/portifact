@@ -5,6 +5,7 @@
 // triggers of the workspace_members_invitations migration refuse leaving a workspace without an admin even when a race slips past.
 import {
   DEFAULT_REGION,
+  isServiceTokenId,
   isWorkspaceId,
   type OwnerView,
   type Region,
@@ -73,10 +74,28 @@ export async function resolveOwnerScope(
   userId: string,
   slug: string | undefined,
 ): Promise<Result<Actor>> {
+  // A service token has no personal space: without a slug it acts on its own workspace.
+  if (isServiceTokenId(userId)) return tokenScope(global, userId, slug);
   if (slug === undefined) return ok(personalActor(userId));
   const workspace = await workspaceBySlug(global, slug);
   if (!workspace) return missingWorkspace();
   const actor = await actorOn(global, userId, workspace.id);
+  return actor ? ok(actor) : missingWorkspace();
+}
+
+async function tokenScope(
+  global: GlobalDb,
+  tokenId: string,
+  slug: string | undefined,
+): Promise<Result<Actor>> {
+  const [token] = await global
+    .select({ workspaceId: schema.serviceTokens.workspaceId, slug: w.slug })
+    .from(schema.serviceTokens)
+    .innerJoin(w, eq(w.id, schema.serviceTokens.workspaceId))
+    .where(eq(schema.serviceTokens.id, tokenId))
+    .limit(1);
+  if (!token || (slug !== undefined && slug !== token.slug)) return missingWorkspace();
+  const actor = await actorOn(global, tokenId, token.workspaceId);
   return actor ? ok(actor) : missingWorkspace();
 }
 
@@ -89,6 +108,24 @@ export async function listUserWorkspaces(
   global: GlobalDb,
   userId: string,
 ): Promise<UserWorkspace[]> {
+  // A service token belongs to one workspace, with its own role, and is nobody's member.
+  if (isServiceTokenId(userId)) {
+    const t = schema.serviceTokens;
+    const rows = await global
+      .select({
+        id: w.id,
+        slug: w.slug,
+        name: w.name,
+        region: w.region,
+        createdAt: w.createdAt,
+        role: t.role,
+      })
+      .from(t)
+      .innerJoin(w, eq(w.id, t.workspaceId))
+      .where(eq(t.id, userId))
+      .limit(1);
+    return rows.map((row) => ({ ...row, region: regionOf(row) }));
+  }
   const rows = await global
     .select({
       id: w.id,
@@ -186,7 +223,7 @@ async function members(global: GlobalDb, workspaceId: string): Promise<MemberRow
 }
 
 /** The workspace a request names, with the caller's actor allowed to do `action` there. */
-async function scoped(
+export async function scoped(
   global: GlobalDb,
   userId: string,
   slug: string,

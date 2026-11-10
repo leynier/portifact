@@ -5,6 +5,7 @@ import { AccountSettings } from "./account.ts";
 import { Brand } from "./branding.ts";
 import { ArtifactId, Email } from "./core.ts";
 import { PlanView } from "./plans.ts";
+import { ServiceTokenView } from "./service-tokens.ts";
 
 /** Categories of the Acceptable Use Policy, used by reports and by suspensions. */
 export const AbuseReason = z.enum([
@@ -218,6 +219,11 @@ export const AccountExport = z.object({
      * The logo's bytes are on the Branding page; the export lists what it is.
      */
     brand: Brand.nullable(),
+    /**
+     * The service tokens of the workspaces the account administers (decision 0011): never the
+     * secret or its hash.
+     */
+    serviceTokens: z.array(z.object({ workspace: z.string(), token: ServiceTokenView })),
   }),
   artifacts: z.array(ExportArtifact),
   /** The workspaces the account is a member of, with its role; not their artifacts. */

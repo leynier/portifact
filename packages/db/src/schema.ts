@@ -104,9 +104,23 @@ export const artifacts = sqliteTable(
      * appends it.
      */
     customHost: text("custom_host"),
+    /**
+     * The stable publish key (decision 0011): unique per owner while the artifact exists, so a
+     * deleted or purging artifact releases it at once. Kept last because `ALTER TABLE ADD COLUMN`
+     * appends it.
+     */
+    externalKey: text("external_key"),
+    /**
+     * Who created it: a user or a service token (decision 0011), for a token's `own`
+     * restriction. Null for artifacts created before the column. No foreign key.
+     */
+    createdBy: text("created_by"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
+    uniqueIndex("artifacts_owner_key_idx")
+      .on(t.ownerId, t.externalKey)
+      .where(sql`${t.externalKey} is not null and ${t.state} not in ('purging', 'deleted')`),
     uniqueIndex("artifacts_custom_host_idx")
       .on(t.customHost)
       .where(sql`${t.customHost} is not null`),
@@ -724,11 +738,12 @@ export const tombstones = sqliteTable(
   "tombstones",
   {
     /**
-     * `share_link` marks a revoked share link (decision 0008) and `webhook` a removed webhook
-     * (decision 0009), so a restore cannot revive them; `workspace` a deleted workspace.
+     * `share_link` marks a revoked share link (decision 0008), `webhook` a removed webhook
+     * (decision 0009) and `service_token` a revoked service token (decision 0011), so a restore
+     * cannot revive them; `workspace` a deleted workspace.
      */
     kind: text("kind", {
-      enum: ["artifact", "account", "share_link", "workspace", "webhook"],
+      enum: ["artifact", "account", "share_link", "workspace", "webhook", "service_token"],
     }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
@@ -1429,6 +1444,45 @@ export const workspaceInvitations = sqliteTable(
     uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email),
     index("workspace_invitations_email_idx").on(t.email),
     check("workspace_invitations_role", sql`${t.role} in ('admin', 'editor', 'member')`),
+  ],
+);
+
+/**
+ * Service tokens (premium plan T4, decision 0011): a workspace's credential for automation, with
+ * a fixed role (never admin) and scopes. Only the SHA-256 of the secret is stored. Revoking
+ * deletes the row and writes a `service_token` tombstone; deleting the workspace deletes its
+ * tokens. `created_by` has no foreign key: deleting that account clears it.
+ */
+export const serviceTokens = sqliteTable(
+  "service_tokens",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    role: text("role", { enum: ["editor", "member"] }).notNull(),
+    /** Space-separated scopes from `SERVICE_TOKEN_SCOPES`. */
+    scopes: text("scopes").notNull(),
+    restriction: text("restriction", { enum: ["none", "own", "key"] })
+      .notNull()
+      .default("none"),
+    keyPrefix: text("key_prefix"),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    /** Written at most once an hour (decision 0011, "Last used"). */
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (t) => [
+    uniqueIndex("service_tokens_hash_idx").on(t.tokenHash),
+    index("service_tokens_workspace_idx").on(t.workspaceId),
+    check("service_tokens_role", sql`${t.role} in ('editor', 'member')`),
+    check(
+      "service_tokens_restriction",
+      sql`(${t.restriction} = 'key') = (${t.keyPrefix} is not null)`,
+    ),
   ],
 );
 

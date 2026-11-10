@@ -1,9 +1,26 @@
+import { isServiceTokenSecret } from "@portifact/contracts";
 import type { CredentialStore, Credentials } from "./credentials.ts";
 import { CliError } from "./errors.ts";
 import { messages } from "./messages.ts";
 import { refreshTokens, type TokenSet } from "./oauth.ts";
 import type { Runtime } from "./runtime.ts";
 import type { Server } from "./server.ts";
+
+/**
+ * A workspace's service token (decision 0011), for CI: used instead of the stored login, never
+ * written to disk or printed, never refreshed.
+ */
+export const SERVICE_TOKEN_ENV = "PORTIFACT_TOKEN";
+
+/** The service token the environment holds, or undefined; a malformed one is refused. */
+export function serviceTokenOf(runtime: Pick<Runtime, "env">): string | undefined {
+  const value = runtime.env[SERVICE_TOKEN_ENV]?.trim();
+  if (!value) return undefined;
+  if (!isServiceTokenSecret(value)) {
+    throw new CliError("unauthenticated", messages.errors.serviceTokenMalformed);
+  }
+  return value;
+}
 
 /** Access tokens this close to expiry are refreshed before use, to absorb clock skew. */
 export const REFRESH_MARGIN_MS = 60_000;
@@ -43,6 +60,12 @@ export async function withAccessToken<T>(
   call: (accessToken: string) => Promise<Authorized<T>>,
 ): Promise<T> {
   const { runtime, server, store } = session;
+  const serviceToken = serviceTokenOf(runtime);
+  if (serviceToken) {
+    const result = await call(serviceToken);
+    if (result.kind === "ok") return result.value;
+    throw new CliError("unauthenticated", messages.errors.serviceTokenRefused(server.origin));
+  }
   let credentials = await store.load(server.origin);
   if (!credentials) {
     throw new CliError("unauthenticated", messages.errors.notSignedIn(server.origin));

@@ -124,12 +124,13 @@ export interface Cli {
   close(): void;
 }
 
-export function createCli(): Cli {
+/** `extraEnv` adds variables to the CLI's environment, such as `PORTIFACT_TOKEN` for a service token. */
+export function createCli(extraEnv: Record<string, string> = {}): Cli {
   const configDir = mkdtempSync(join(tmpdir(), "pf-shots-cli-"));
   const opened: string[] = [];
   const runtime: Runtime = {
     ...defaultRuntime(),
-    env: { PORTIFACT_APP_ORIGIN: APP_ORIGIN, PORTIFACT_NO_STAR_PROMPT: "1" },
+    env: { PORTIFACT_APP_ORIGIN: APP_ORIGIN, PORTIFACT_NO_STAR_PROMPT: "1", ...extraEnv },
     fetch: stackFetch,
     openBrowser: async (url) => {
       opened.push(url);

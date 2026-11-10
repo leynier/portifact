@@ -164,6 +164,8 @@ export async function getArtifactStats(
       ownerId: schema.artifacts.ownerId,
       state: schema.artifacts.state,
       accessMode: schema.artifacts.accessMode,
+      createdBy: schema.artifacts.createdBy,
+      externalKey: schema.artifacts.externalKey,
     })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, input.artifactId))
@@ -171,7 +173,7 @@ export async function getArtifactStats(
   const missing = () => ({ ok: false, code: "not_found", message: "Artifact not found." }) as const;
   if (!artifact || artifact.state === "purging" || artifact.state === "deleted") return missing();
   // The access log's action: the same admins and editors read both.
-  const allowed = await authorizeOn(db, input.userId, artifact.ownerId, "access_log", missing);
+  const allowed = await authorizeOn(db, input.userId, artifact, "access_log", missing);
   if (!allowed.ok) return allowed;
   const gate = requireFeature(
     await ownerEntitlements(db, artifact.ownerId, input.now),

@@ -14,6 +14,7 @@ import {
 } from "./core.ts";
 import { LIMITS } from "./limits.ts";
 import { SuspensionView } from "./moderation.ts";
+import { PublishKey } from "./service-tokens.ts";
 import { OwnerView } from "./workspaces.ts";
 
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "Invalid SHA-256");
@@ -65,6 +66,11 @@ export const PublishRequest = z.object({
    * object gets one presigned PUT, as for clients older than multipart uploads.
    */
   multipart: z.boolean().optional(),
+  /**
+   * A stable key (decision 0011): the first publish with it creates an artifact that carries it,
+   * later ones update that artifact. Not with `artifactId`.
+   */
+  key: PublishKey.optional(),
 });
 export type PublishRequest = z.infer<typeof PublishRequest>;
 
@@ -162,6 +168,8 @@ export const ArtifactSummary = z.object({
   purgeAt: z.iso.datetime().nullable(),
   /** Pinned: it stays active with no expiry until unpinned (a paid plan's `pin` feature). */
   pinned: z.boolean(),
+  /** The publish key it was created with (decision 0011), or null. */
+  key: z.string().nullable(),
   /** Why an operator suspended it; present only while `state` is `suspended`. */
   suspension: SuspensionView.optional(),
   createdAt: z.iso.datetime(),
@@ -218,6 +226,8 @@ export const ArtifactListFilters = z.object({
   type: ArtifactType.optional(),
   access: AccessMode.optional(),
   annotations: AnnotationsState.optional(),
+  /** The artifact with this publish key, if any (decision 0011). */
+  key: PublishKey.optional(),
 });
 export type ArtifactListFilters = z.infer<typeof ArtifactListFilters>;
 

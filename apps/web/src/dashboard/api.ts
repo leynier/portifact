@@ -51,6 +51,9 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  type ServiceTokenCreate,
+  ServiceTokenCreated,
+  ServiceTokenList,
   ShareLinkCreated,
   ShareLinkList,
   ShareLinkRevoked,
@@ -152,6 +155,11 @@ export interface DashboardApi {
   workspaces(): Promise<WorkspaceList>;
   /** A workspace's members and seats (session only). */
   members(slug: string): Promise<WorkspaceMemberList>;
+  /** A workspace's service tokens, for its admins (session only, decision 0011). */
+  serviceTokens(slug: string): Promise<ServiceTokenList>;
+  /** Creates a service token; the answer holds its secret once. */
+  createServiceToken(slug: string, body: ServiceTokenCreate): Promise<ServiceTokenCreated>;
+  revokeServiceToken(slug: string, tokenId: string): Promise<void>;
   changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
   removeMember(slug: string, userId: string): Promise<void>;
   leaveWorkspace(slug: string): Promise<void>;
@@ -537,6 +545,19 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     members(slug) {
       return call(`${workspacePath(slug)}/members`, WorkspaceMemberList);
+    },
+    serviceTokens(slug) {
+      return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenList);
+    },
+    createServiceToken(slug, body) {
+      return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenCreated, "POST", body);
+    },
+    async revokeServiceToken(slug, tokenId) {
+      await call(
+        `${workspacePath(slug)}/service-tokens/${encodeURIComponent(tokenId)}`,
+        z.null(),
+        "DELETE",
+      );
     },
     changeMemberRole(slug, userId, role) {
       return call(

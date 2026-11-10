@@ -77,6 +77,8 @@ export interface FakeArtifact {
   suspensionReason?: AbuseReason;
   /** The workspace it lives in; absent for the personal space. */
   workspace?: string | undefined;
+  /** Its publish key (decision 0011), if it was created with one. */
+  key?: string | undefined;
 }
 
 export interface FakeWorkspace {
@@ -118,6 +120,7 @@ interface UploadSession {
   entrypoint: string;
   files: ManifestFile[];
   sourceOrigin: SourceOrigin | null;
+  key: string | undefined;
   /** Objects this upload must send; they stay pending until the commit verifies them. */
   needed: Map<string, number>;
   /** Objects uploaded in parts, by SHA-256. */
@@ -894,6 +897,25 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const request = parsed.data;
     let artifactId = newArtifactId();
     let versionNumber = 1;
+    let isNew = !request.artifactId;
+    if (request.key !== undefined) {
+      if (request.artifactId)
+        return error("invalid_input", "Send an artifact ID or a key, not both.");
+      const keyed = [...state.artifacts.values()].find(
+        (artifact) =>
+          artifact.key === request.key &&
+          artifact.workspace === workspace &&
+          artifact.state !== "deleted",
+      );
+      if (keyed) {
+        if (keyed.state === "archived") {
+          return error("artifact_archived", "Restore the artifact before publishing to it.");
+        }
+        artifactId = keyed.id;
+        versionNumber = keyed.versions + 1;
+        isNew = false;
+      }
+    }
     if (request.artifactId) {
       const artifact = state.artifacts.get(request.artifactId);
       if (!artifact || artifact.state === "deleted")
@@ -927,7 +949,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       id: `up_${randomUUID().replaceAll("-", "")}`,
       ownerId,
       artifactId,
-      isNew: !request.artifactId,
+      isNew,
       workspace: request.artifactId ? undefined : workspace,
       name: request.name,
       type: request.type,
@@ -936,6 +958,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       entrypoint: request.entrypoint,
       files: request.files,
       sourceOrigin: request.sourceOrigin ?? null,
+      key: request.key,
       needed,
       multipart,
       state: "uploading",
@@ -998,6 +1021,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       },
       policyGeneration: 1,
       workspace: session.workspace,
+      key: session.key,
     };
     artifact.name = session.name;
     artifact.versions = session.versionNumber - 1;
@@ -1077,7 +1101,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       return error("invalid_input", "Invalid cursor or limit.");
     }
     const query = Object.fromEntries(
-      ["search", "state", "type", "access", "annotations"].flatMap((name) => {
+      ["search", "state", "type", "access", "annotations", "key"].flatMap((name) => {
         const value = url.searchParams.get(name);
         return value ? [[name, value]] : [];
       }),
@@ -1092,7 +1116,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       (filters.data.state === undefined || item.state === filters.data.state) &&
       (filters.data.type === undefined || item.type === filters.data.type) &&
       (filters.data.access === undefined || item.accessMode === filters.data.access) &&
-      (filters.data.annotations === undefined || item.annotations === filters.data.annotations);
+      (filters.data.annotations === undefined || item.annotations === filters.data.annotations) &&
+      (filters.data.key === undefined || item.key === filters.data.key);
     const all = [...state.artifacts.values()]
       .filter((artifact) => artifact.state !== "deleted" && artifact.workspace === workspace)
       .filter((artifact) => matches(summary(artifact, state.workspaces)));
@@ -1512,6 +1537,7 @@ function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): Arti
     archivedAt: artifact.archivedAt === null ? null : iso(artifact.archivedAt),
     purgeAt: artifact.purgeAt === null ? null : iso(artifact.purgeAt),
     pinned: artifact.pinned,
+    key: artifact.key ?? null,
     createdAt: iso(artifact.createdAt),
     updatedAt: iso(artifact.updatedAt),
   };

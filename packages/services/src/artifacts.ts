@@ -21,6 +21,7 @@ import {
   lt,
   ne,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
@@ -99,7 +100,18 @@ function filterConditions(filters: ArtifactListFilters = {}) {
     filters.type === undefined ? undefined : eq(t.type, filters.type),
     filters.access === undefined ? undefined : eq(t.accessMode, filters.access),
     filters.annotations === undefined ? undefined : eq(t.annotations, filters.annotations),
+    filters.key === undefined ? undefined : eq(t.externalKey, filters.key),
   ];
+}
+
+/** The artifacts a service token's restriction reaches (decision 0011); nothing for people. */
+function reachConditions(actor: Actor): SQL | undefined {
+  const t = schema.artifacts;
+  const restriction = actor.token?.restriction;
+  if (!restriction || restriction.kind === "none") return undefined;
+  if (restriction.kind === "own") return eq(t.createdBy, actor.userId);
+  // substr, not like: `_` and `%` are allowed in keys and would be wildcards.
+  return sql`substr(${t.externalKey}, 1, ${restriction.prefix.length}) = ${restriction.prefix}`;
 }
 
 /**
@@ -153,6 +165,7 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
         ne(t.state, "deleted"),
         ne(t.state, "draft"),
         ...filterConditions(input.filters),
+        reachConditions(input.actor),
         after
           ? or(
               lt(t.updatedAt, after.updatedAt),
@@ -202,7 +215,7 @@ export async function getArtifact(
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   if (!row || row.state === "deleted") return missing();
-  const actor = await authorizeOn(db, input.userId, row.ownerId, "list", missing);
+  const actor = await authorizeOn(db, input.userId, row, "list", missing);
   if (!actor.ok) return actor;
   return ok(row);
 }

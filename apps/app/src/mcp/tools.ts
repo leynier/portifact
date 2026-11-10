@@ -255,6 +255,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
           content: request.content,
           artifactId: request.artifactId,
           baseVersionId: request.baseVersionId ?? null,
+          key: request.key,
           now: context.now(),
         });
         return result.ok

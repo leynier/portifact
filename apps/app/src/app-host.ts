@@ -67,6 +67,7 @@ export const DASHBOARD_ROUTES = [
   "/branding",
   "/settings",
   "/members",
+  "/service-tokens",
   // The old account page; the dashboard sends it on to the page that holds each section now.
   "/account",
 ] as const;

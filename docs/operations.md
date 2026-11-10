@@ -36,6 +36,8 @@ bun run --cwd apps/jobs operator workspaces                          # every wor
 bun run --cwd apps/jobs operator workspace <slug|workspace-id>       # members, invitations, seats, artifacts and plan
 bun run --cwd apps/jobs operator workspace-create <slug> --name "Acme" --admin <user-id|email> [--plan team --seats 5 [--until 2027-01-31] [--note "why"]]
 bun run --cwd apps/jobs operator workspace-delete <slug|workspace-id> --confirm <slug>
+printf '%s' "$SECRET" | bun run --cwd apps/jobs operator find-service-token   # a leaked service token, from standard input
+bun run --cwd apps/jobs operator revoke-service-token <st_…>          # revoke it, with a tombstone
 bun run --cwd apps/jobs operator export-plans --out <absolute file>  # before restoring a backup
 bun run --cwd apps/jobs operator apply-plans --file <absolute file>  # after restoring a backup
 ```
@@ -183,6 +185,14 @@ Owners whose plan includes `branding` show a name, logo, color and link on the v
 ## Account deletions
 
 Deletions need no operator action: the request removes the user at once and the scheduled jobs finish the rest (see "Account deletion" in [security.md](security.md)). `select * from account_deletions` lists the ones still in progress.
+
+## A leaked service token
+
+A service token (decision 0011) leaked: in a log, a public repository, a compromised CI. Revoking it stops it at its next request.
+
+1. The workspace's admins revoke it on the workspace's Service tokens page in the dashboard. If they cannot be reached, the operator finds it from the secret and revokes it: `printf '%s' "$SECRET" | bun run --cwd apps/jobs operator find-service-token` (standard input, never the command line; it prints the token ID, label, workspace and expiry, never the secret), then `bun run --cwd apps/jobs operator revoke-service-token <st_…>`, which deletes the row and writes the `service_token` tombstone.
+2. Check what it did: versions whose author is the token ID (`select artifact_id, number, created_at from versions where author_id = '<st_…>'`), `lifecycle_events` with that `actor_id` (renewals, archives, deletions and access changes), and artifacts whose `created_by` is it. Its last use is on the Service tokens page, to the hour. If it held `artifacts:share`, check the workspace's artifacts that are `public` or have share links; if it held `artifacts:delete`, check `purging` artifacts of the workspace (a deletion cannot be undone).
+3. Tell the admins to create a new token for the job, with the narrowest scopes and a key prefix restriction.
 
 ## Workspaces
 

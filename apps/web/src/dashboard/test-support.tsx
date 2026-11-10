@@ -39,6 +39,8 @@ import {
   planRequiredMessage,
   type ReviewStart,
   RollbackRequest,
+  ServiceTokenCreate,
+  type ServiceTokenView,
   type ShareLinkCreated,
   type ShareLinkList,
   type ShareLinkView,
@@ -120,6 +122,7 @@ export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): 
     archivedAt: null,
     purgeAt: null,
     pinned: false,
+    key: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -334,6 +337,9 @@ export interface FakeWorkspace {
   invitations: InvitationView[];
   usage: AccountUsageView;
   branding: BrandSettings;
+  /** Service tokens (decision 0011) and whether the plan includes them. */
+  serviceTokens: ServiceTokenView[];
+  serviceTokensAvailable: boolean;
 }
 
 export function workspace(
@@ -370,6 +376,8 @@ export function workspace(
     invitations: [],
     usage: usageView(),
     branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
+    serviceTokens: [],
+    serviceTokensAvailable: true,
     ...rest,
   };
 }
@@ -684,6 +692,7 @@ function publishingRoute(
         archivedAt: null,
         purgeAt: null,
         pinned: false,
+        key: request.key ?? null,
         createdAt: NOW,
         updatedAt: NOW,
       };
@@ -959,6 +968,8 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
     server.workspaces[target.slug] = workspace(target.slug, role, { name: target.name });
     return json(server.workspaces[target.slug]?.view);
   }
+  const tokens = /^\/api\/v1\/workspaces\/([^/]+)\/service-tokens(?:\/([^/]+))?$/.exec(path);
+  if (tokens) return serviceTokenRoute(server, tokens, method, body);
   const scoped = /^\/api\/v1\/workspaces\/([^/]+)\/(members|invitations|leave)(?:\/([^/]+))?$/.exec(
     path,
   );
@@ -1856,4 +1867,48 @@ export function selectOptions(name: string): { options: string[]; chosen: string
   };
   fireEvent.keyDown(trigger, { key: "Escape" });
   return result;
+}
+
+/** The service token routes of a workspace, as apps/app/src/api/workspaces.ts answers them. */
+function serviceTokenRoute(
+  server: FakeServer,
+  match: RegExpExecArray,
+  method: string,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  const id = match[2] ? decodeURIComponent(match[2]) : undefined;
+  if (!id && method === "GET") {
+    return json({ items: w.serviceTokens, available: w.serviceTokensAvailable, limit: 20 });
+  }
+  if (!id && method === "POST") {
+    if (!w.serviceTokensAvailable) return apiError("plan_required", 403);
+    const parsed = ServiceTokenCreate.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    const token: ServiceTokenView = {
+      id: `st_${String(w.serviceTokens.length + 1).padStart(32, "0")}`,
+      label: parsed.data.label,
+      role: parsed.data.role,
+      scopes: parsed.data.scopes,
+      restriction: parsed.data.restriction,
+      createdAt: NOW,
+      expiresAt: new Date(Date.parse(NOW) + parsed.data.expiresInDays * 86_400_000).toISOString(),
+      lastUsedAt: null,
+      createdBy: { name: "Ada" },
+      expired: false,
+    };
+    w.serviceTokens.push(token);
+    // A placeholder of the secret's shape, built at run time (no committed value matches it).
+    const secret = ["pf", "st_", "x".repeat(43)].join("");
+    return json({ token, secret }, 201);
+  }
+  if (id && method === "DELETE") {
+    const before = w.serviceTokens.length;
+    w.serviceTokens = w.serviceTokens.filter((token) => token.id !== id);
+    if (w.serviceTokens.length === before) return apiError("not_found", 404);
+    return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
 }

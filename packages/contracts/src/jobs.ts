@@ -101,7 +101,7 @@ export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
  * restored backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account", "share_link", "workspace", "webhook"]),
+  kind: z.enum(["artifact", "account", "share_link", "workspace", "webhook", "service_token"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });
