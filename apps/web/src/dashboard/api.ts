@@ -28,6 +28,9 @@ import {
   CommittedPublish,
   ConnectedAppList,
   type CreateThreadRequest,
+  CustomDomainList,
+  CustomDomainRemoved,
+  CustomDomainView,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
@@ -120,6 +123,17 @@ export interface DashboardApi {
     input: { label: string; expiresAt?: string; password?: string },
   ): Promise<ShareLinkCreated>;
   revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
+  /** The artifact's custom domain and pending ones, with its owner's plan. */
+  artifactDomains(artifactId: string): Promise<CustomDomainList>;
+  /** Claims a hostname for the artifact; retrying with the same key answers the same claim. */
+  addDomain(
+    artifactId: string,
+    hostname: string,
+    idempotencyKey: string,
+  ): Promise<CustomDomainView>;
+  /** Checks a domain's DNS records and certificate again. */
+  verifyDomain(hostname: string): Promise<CustomDomainView>;
+  removeDomain(hostname: string): Promise<CustomDomainRemoved>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
@@ -391,6 +405,31 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         ShareLinkRevoked,
         "DELETE",
       );
+    },
+    artifactDomains(artifactId) {
+      return call(
+        `/api/v1/domains?${new URLSearchParams({ artifactId }).toString()}`,
+        CustomDomainList,
+      );
+    },
+    addDomain(artifactId, hostname, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/domain`,
+        CustomDomainView,
+        "POST",
+        { hostname },
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    verifyDomain(hostname) {
+      return call(
+        `/api/v1/domains/${encodeURIComponent(hostname)}/verify`,
+        CustomDomainView,
+        "POST",
+      );
+    },
+    removeDomain(hostname) {
+      return call(`/api/v1/domains/${encodeURIComponent(hostname)}`, CustomDomainRemoved, "DELETE");
     },
     accessLog(artifactId, cursor, limit) {
       const params = new URLSearchParams();

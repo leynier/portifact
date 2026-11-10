@@ -1156,5 +1156,73 @@ export const ptBR = {
   "shareLinks.password.hint":
     "Pelo menos {min} caracteres. Os visitantes a digitam antes de o artifact abrir. Envie-a separada do link.",
   "shareLinks.password.short": "Use pelo menos {min} caracteres ou deixe vazio.",
+  "domains.title": "Domínio próprio",
+  "domains.description":
+    "Sirva este artifact a partir de um domínio seu, como docs.example.com. O endereço do Portifact continua funcionando.",
+  "domains.loading": "Carregando o domínio próprio",
+  "domains.loadFailed": "Não foi possível carregar o domínio próprio",
+  "domains.paidTitle": "Domínios próprios fazem parte de um plano pago",
+  "domains.paid":
+    "Com um plano pago você pode servir este artifact a partir do seu próprio domínio.",
+  "domains.unavailableTitle": "Domínios próprios ainda não estão disponíveis",
+  "domains.unavailable":
+    "O Portifact ainda não serve domínios próprios. Esta seção será aberta quando servir.",
+  "domains.removingNote": "{hostname} está sendo removido.",
+  "domains.cardLabel": "Domínio próprio {hostname}",
+  "domains.state.pending": "Aguardando o DNS",
+  "domains.state.provisioning": "Configurando",
+  "domains.state.active": "Ativo",
+  "domains.state.removing": "Removendo",
+  "domains.next.pending":
+    "Crie os dois registros abaixo no seu provedor de DNS e verifique de novo.",
+  "domains.next.provisioning":
+    "Seu domínio foi verificado. O certificado costuma levar alguns minutos; verifique de novo em breve.",
+  "domains.next.active":
+    "Seu artifact é servido neste domínio. Mantenha o registro TXT: ele é verificado todos os dias.",
+  "domains.next.removing": "O domínio está sendo removido.",
+  "domains.problem.txt_missing": "O registro TXT não foi encontrado",
+  "domains.problem.txt_missing.hint":
+    "Confira se o nome e o valor do registro são exatamente iguais. Mudanças de DNS podem levar alguns minutos para aparecer.",
+  "domains.problem.certificate_pending": "O certificado ainda não está pronto",
+  "domains.problem.certificate_pending.hint":
+    "Confira se o registro CNAME aponta para o valor abaixo e verifique de novo em alguns minutos.",
+  "domains.problem.cloudflare_unavailable": "O serviço de certificados não respondeu",
+  "domains.problem.cloudflare_unavailable.hint":
+    "Não há nada errado do seu lado. Uma nova tentativa é feita em breve.",
+  "domains.missedChecks":
+    "{count, plural, one {O registro TXT faltou na última verificação diária. Depois de 3 falhas seguidas o domínio é removido.} other {O registro TXT faltou nas últimas # verificações diárias. Depois de 3 falhas seguidas o domínio é removido.}}",
+  "domains.records": "Registros a criar",
+  "domains.records.type": "Registro {type}",
+  "domains.records.txtHint":
+    "Prova que você controla o domínio. Mantenha-o depois que o domínio estiver ativo.",
+  "domains.records.cnameHint": "Aponta seu domínio para o Portifact.",
+  "domains.records.name": "Nome",
+  "domains.records.value": "Valor",
+  "domains.records.copy": "Copiar",
+  "domains.claimExpires": "Adicione os registros antes de {date}, ou adicione o domínio de novo.",
+  "domains.check": "Verificar de novo",
+  "domains.checkFailed": "Não foi possível verificar o domínio",
+  "domains.remove": "Remover domínio",
+  "domains.removed": "{hostname} foi removido.",
+  "domains.removeFailed": "Não foi possível remover o domínio",
+  "domains.confirm.title": "Remover {hostname}?",
+  "domains.confirm.body":
+    "O artifact deixa de ser servido neste domínio na hora e mantém seu endereço do Portifact. Adicionar o domínio de novo exige uma nova verificação de DNS.",
+  "domains.cancel": "Cancelar",
+  "domains.bar.title":
+    "As visitas abrem no visualizador enquanto a barra do Portifact estiver ligada",
+  "domains.bar.body":
+    "Enquanto a barra estiver ligada, quem abrir seu domínio vai parar no visualizador em app.portifact.com. Desligue a barra para manter seu domínio na barra de endereços.",
+  "domains.bar.turnOff": "Desligar a barra",
+  "domains.bar.done": "A barra do Portifact está desligada.",
+  "domains.add": "Adicionar domínio",
+  "domains.added": "{hostname} foi adicionado. Agora crie os registros DNS.",
+  "domains.addFailed": "Não foi possível adicionar o domínio",
+  "domains.full":
+    "{count, plural, one {Seu plano inclui # domínio próprio, e ele já está em uso.} other {Seu plano inclui # domínios próprios, e todos estão em uso.}}",
+  "domains.hostname.label": "Nome do host",
+  "domains.hostname.hint":
+    "Um subdomínio que você controla, como docs.example.com. Domínios raiz e curingas não são aceitos.",
+  "domains.hostname.invalid": "Digite um nome de host como docs.example.com.",
   "accessLog.shareLink": "Link de compartilhamento: {label}",
 } satisfies Catalog;
