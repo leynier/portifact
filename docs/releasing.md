@@ -134,6 +134,21 @@ The dashboard uploads to and downloads from the `portifact-artifacts` bucket's S
 
 Only the app origin is allowed: never add `*.portifact.dev` or `*`. The URLs are still presigned, so CORS only decides which page may read the answers. `host` and `content-length` are signed too, but the browser sets them and they are not CORS request headers. For local development against a real bucket, add `http://localhost:8787` in a separate rule and remove it afterwards. The dashboard's `connect-src` already allows `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com` (`dashboardCsp` in `apps/app/src/app-host.ts`).
 
+### EU region (not created yet)
+
+The code serves a second region (decision 0005, "Two-region audit"), but no EU resource exists: every deployed Worker is bound only to the default region and behaves exactly as with one region. Nothing below has been run. Do it in this order, only once the legal texts and the remaining code in decision 0005 ("What remains") are done; `euResidency` stays out of `AVAILABLE_PLAN_FEATURES` until then. Commands per Cloudflare's documentation (D1 and R2 data location, Wrangler R2 commands), re-checked on 2026-11-10.
+
+1. Create the databases, each in the EU jurisdiction (it cannot be set or changed later): `npx wrangler d1 create portifact-control-eu --jurisdiction=eu` and `npx wrangler d1 create portifact-access-eu --jurisdiction=eu`. Note both IDs. Verify: `npx wrangler d1 info portifact-control-eu` shows the jurisdiction.
+2. Apply the migrations, the same histories as the default region's: `npx wrangler d1 migrations apply portifact-control-eu --remote` (from `apps/app`, with a `migrations_dir` of `../../packages/db/migrations` on its binding) and `npx wrangler d1 migrations apply portifact-access-eu --remote` (`../../packages/db/access-migrations`). Verify: both list no pending migration, and the global tables of the EU control database are empty (the storage reconciliation reports any row there).
+3. Create the bucket: `npx wrangler r2 bucket create portifact-artifacts-eu --jurisdiction eu`. Verify: `npx wrangler r2 bucket info portifact-artifacts-eu --jurisdiction eu`.
+4. CORS and lifecycle, as for the default bucket ("Storage CORS for the dashboard"): `npx wrangler r2 bucket cors set portifact-artifacts-eu --file cors.json --jurisdiction eu`, and keep the default rule that aborts incomplete multipart uploads (`npx wrangler r2 bucket lifecycle list portifact-artifacts-eu --jurisdiction eu`). Verify from the dashboard's origin that a presigned `PUT` to `https://<R2_ACCOUNT_ID>.eu.r2.cloudflarestorage.com/portifact-artifacts-eu/...` passes the preflight and exposes `ETag`.
+5. Presigning: check whether the R2 API token in `R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY` covers the EU bucket (a jurisdiction endpoint reaches only its own buckets). If not, create a token limited to Object Read and Write on `portifact-artifacts-eu` and set `R2_ACCESS_KEY_ID_EU` and `R2_SECRET_ACCESS_KEY_EU` with `wrangler secret put` on the app Worker. Set the var `R2_BUCKET_EU` to `portifact-artifacts-eu`; the dashboard's `connect-src` then adds the EU endpoint by itself (`storageOrigins`).
+6. Bindings, the same names in the three Workers (`apps/app`, `apps/content`, `apps/jobs` `wrangler.jsonc`): `DB_EU` (`portifact-control-eu`), `ACCESS_DB_EU` (`portifact-access-eu`) and `ARTIFACTS_EU` (`{ "binding": "ARTIFACTS_EU", "bucket_name": "portifact-artifacts-eu", "jurisdiction": "eu" }`). `regionsFromEnv` adds the EU region only where `DB_EU` is bound. Never set `REGION_GUARD` on a deployed Worker. Add `DB_EU` (remote) to `apps/jobs/operator.wrangler.jsonc` so the operator reaches it.
+7. Queues: nothing new. Every database's outbox is relayed by the jobs Worker into the same `portifact-jobs` queue, each message naming its region; the consumers are unchanged. Deploy the jobs Worker with the bindings before the other two, so an EU job is never consumed by a Worker without the EU database.
+8. Budget: add the EU bucket and the two EU database IDs to `PORTIFACT_RESOURCES` in `apps/jobs/src/analytics.ts` (its test lists them) and check that the analytics token can read them.
+9. Restore drill, per database: run the backup drill of `docs/operations.md` on a scratch copy of each EU database, re-applying tombstones and rebuilding the directory for every region, and record whether Time Travel works the same on a jurisdictional database (decision 0005 leaves it open).
+10. Verify end to end on staging: create a workspace with `operator workspace-create <slug> --region eu`, publish to it, open it, comment, open a share link, delete it, and check that the rows are in the EU databases, the bytes in the EU bucket and nothing in the default ones.
+
 ### Custom domains (switched off)
 
 Custom domains ([decision 0006](decisions/0006-custom-domains.md), "Custom domains" in [security.md](security.md)) ship switched off. Two things are switched separately:
@@ -217,6 +232,22 @@ Single sign-on for workspaces ships switched off ([decision 0016](decisions/0016
 11. **No secrets in logs.** Tail the Worker during the flows: no code, token, ID token, client secret or claim appears.
 
 Then add `sso` to `AVAILABLE_PLAN_FEATURES` in the same change that turns it on.
+
+### SCIM
+
+SCIM provisioning ships switched off ([decision 0017](decisions/0017-workspace-scim.md)). No secret is needed. Before setting `SCIM_ENABLED="true"` on `portifact-app` (never in `wrangler.jsonc`), run these checks on a staging deployment against a test tenant of each directory, with a staging Enterprise workspace that verified a domain you control, and record each result in decision 0017 with the date:
+
+1. **Validators.** Okta's SCIM 2.0 test suite (the Runscope-based "SCIM 2.0 Spec Test" in Okta's integration wizard) and Microsoft's SCIM Validator (`scimvalidator.microsoft.com`) pass for `Users` with the base URL and a token from the dashboard. Note each failure and whether it concerns `Groups` (not served yet).
+2. **Okta.** Provisioning to App with Create Users, Update User Attributes and Deactivate Users: assign a person with an account (member at once), one without (pending, joins at sign-in), change a name (PATCH), unassign (deactivate: removed, signed out), reassign (back). Push Groups stays off until the second delivery.
+3. **Microsoft Entra ID.** An enterprise app with automatic provisioning: "Test Connection" passes; a provisioning cycle creates, updates (Entra's PATCH with `"False"` and capitalized ops), and on unassignment or soft delete deactivates; a hard delete sends `DELETE`. Check the attribute mappings send `userName` as the user's mail (not the UPN when they differ) and that `externalId` maps to `objectId`.
+4. **Google Workspace.** Only where a SCIM connector applies (Google's pre-integrated apps do not take custom SCIM apps on every edition); record what Google supports, or that it does not.
+5. **Filters and pagination.** Each directory's lookup before create (`userName eq`, Entra's `externalId eq`) and a full import with `startIndex`/`count` over more than 100 users.
+6. **Rate of sync.** A full sync of the largest tenant you have against the limits (300 a minute per token, 600 per workspace): no `429` in a normal cycle; if there are, record the directory's retry behavior and raise the limits in `SCIM` before turning it on.
+7. **Deactivation ends sessions.** A person signed in on the dashboard and through the CLI is signed out of both after the directory deactivates them, and cannot sign in through the workspace's single sign-on until reactivated.
+8. **Seats and the last admin.** Provisioning past the seats shows the directory's error with the detail; deactivating the last admin is refused with its detail, and the directory surfaces it.
+9. **Group push.** Okta (Push Groups, by name and by rule) and Entra (groups assigned to the app, "Provision Microsoft Entra ID Groups" on): a pushed group appears on the Groups page as managed by the directory, with the members who are workspace members. Membership adds and removes arrive as PATCH (Okta `add` and filtered `remove`, Entra `Add` and `Remove` with value lists) and are applied. A rename arrives as `replace` of `displayName`. Unlinking or deleting the group in the directory deletes it. Check how each directory handles a `409` for a name a dashboard group already has, record it, and what it shows the directory's admin.
+10. **Group size and sync rate.** Push a group at 500 members and replace it, then push 50 groups. No request is refused for size, none takes more than a few seconds, and a full sync stays under the rate limits.
+11. **Role mapping.** Map a pushed group to editor and another to admin (the confirmation names the group and its size). Adding and removing people in the directory moves their roles at the next push. Removing the last admin's group in the directory is refused with the detail the directory then shows.
 
 ## Platforms
 

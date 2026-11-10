@@ -42,7 +42,7 @@ import {
 } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
-import { artifactDb } from "../regions.ts";
+import { artifactDb, artifactRegion, artifactStorage } from "../regions.ts";
 import { type ApiContext, error, failure, type Guarded as Guard, iso, readJson } from "./http.ts";
 import type { Presigner } from "./presign.ts";
 import { type ApiDeps, contentUrl } from "./routes.ts";
@@ -217,7 +217,8 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
         },
       );
       if (!result.ok) return error(c, result.code, result.message);
-      return c.json(await versionDownload(deps.presigner(c.env), result.value, now));
+      const region = (await artifactRegion(c.env, c.req.param("artifactId") as string)).region;
+      return c.json(await versionDownload(deps.presigner(c.env, region), result.value, now));
     }),
   );
 
@@ -298,7 +299,7 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
         );
       }
       const artifactId = c.req.param("artifactId") as string;
-      const result = await diffVersionFile(await artifactDb(c.env, artifactId), c.env.ARTIFACTS, {
+      const result = await diffVersionFile(...(await artifactStorage(c.env, artifactId)), {
         userId,
         artifactId,
         fromVersionId: from.data,

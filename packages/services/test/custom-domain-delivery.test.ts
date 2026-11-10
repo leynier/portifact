@@ -179,18 +179,17 @@ describe("names refused before Cloudflare", () => {
         now: NOW,
       }),
     ).toEqual({ ok: false, code: "invalid_input", message: HOSTNAME_MESSAGES.blocked });
-    expect((await listBlockedHostnames(db())).map((row) => [row.name, row.note])).toContainEqual([
-      name,
-      "phishing",
-    ]);
+    expect(
+      (await listBlockedHostnames(db().global)).map((row) => [row.name, row.note]),
+    ).toContainEqual([name, "phishing"]);
     expect(await blockHostname(dbs(), { name: "not a name", now: NOW })).toMatchObject({
       ok: false,
     });
 
     // Lifting the block lets the name be added again; what it detached stays detached.
-    expect(await unblockHostname(db(), name)).toBe(true);
-    expect(await unblockHostname(db(), name)).toBe(false);
-    expect(await unblockHostname(db(), "not a name")).toBe(false);
+    expect(await unblockHostname(db().global, name)).toBe(true);
+    expect(await unblockHostname(db().global, name)).toBe(false);
+    expect(await unblockHostname(db().global, "not a name")).toBe(false);
     expect((await domainRow(covered))?.state).toBe("detaching");
   });
 
@@ -216,15 +215,15 @@ describe("the active custom host", () => {
     expect(await activeCustomHost(db(), artifactId, true)).toBe(hostname);
     // Switched off, the app's entries use the `.dev` host whatever the tables say.
     expect(await activeCustomHost(db(), artifactId, false)).toBeNull();
-    expect(await customHostHint(db(), hostname)).toEqual({ artifactId, region: "default" });
+    expect(await customHostHint(db().global, hostname)).toEqual({ artifactId, region: "default" });
     // A host the artifact holds without an active row (a restore, a race) is never used.
     await db()
       .update(schema.customDomains)
       .set({ state: "provisioning" })
       .where(eq(schema.customDomains.hostname, hostname));
     expect(await activeCustomHost(db(), artifactId, true)).toBeNull();
-    expect(await customHostHint(db(), hostname)).toBeNull();
-    expect(await customHostHint(db(), "nobody.example.com")).toBeNull();
+    expect(await customHostHint(db().global, hostname)).toBeNull();
+    expect(await customHostHint(db().global, "nobody.example.com")).toBeNull();
     await db()
       .update(schema.customDomains)
       .set({ state: "active", artifactId: "abcdefghij" })
@@ -460,7 +459,7 @@ describe("the downgrade notice", () => {
     expect(sent).toEqual([
       { to: owner.email, hostnames: names, detachAt: NOW + 6 * DAY, limit: 0, locale: null },
     ]);
-    expect(await emailsSentInCycle(db(), NOW)).toBe(1);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(1);
     // The job was claimed: a second delivery does nothing.
     expect(await sendDomainNotice(db(), job, NOW, send)).toBe("done");
     expect(sent).toHaveLength(1);
@@ -492,7 +491,7 @@ describe("the downgrade notice", () => {
     const [back] = await jobs();
     expect(back?.subject).toBe(owner.id);
     // Suppressed: nothing sent, nothing put back.
-    await suppressEmail(db(), { email: owner.email, reason: "hard_bounce", now: NOW });
+    await suppressEmail(db().global, { email: owner.email, reason: "hard_bounce", now: NOW });
     const { sent, send } = notifier();
     expect(await sendDomainNotice(db(), back as NonNullable<typeof back>, NOW, send)).toBe("stale");
     expect(sent).toEqual([]);
@@ -574,7 +573,7 @@ describe("the downgrade notice", () => {
         },
       };
       expect(await sendDomainNotice(db(), job, NOW, refused)).toBe("stale");
-      expect(await isEmailSuppressed(db(), owner.email, NOW)).toBe(true);
+      expect(await isEmailSuppressed(db().global, owner.email, NOW)).toBe(true);
       expect(await jobs()).toEqual([]);
       expect(reasons()).toEqual([
         { event: "domain_notice_skipped", reason: "renewed" },

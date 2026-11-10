@@ -24,10 +24,11 @@ import {
   ListArtifactsInput,
   type OAuthScope,
   PublishDocumentInput,
+  type Region,
   SetCommentVisibilityInput,
   SetPortifactBarInput,
 } from "@portifact/contracts";
-import type { RegionalDb } from "@portifact/db";
+import type { RegionalDb, RegionHandles } from "@portifact/db";
 import type { MultipartConfig } from "@portifact/domain";
 import type { DomainDeps, HumanCheck } from "@portifact/services";
 import {
@@ -46,7 +47,16 @@ import {
 } from "@portifact/services";
 import type { Presigner } from "../api/presign.ts";
 import type { Env } from "../env.ts";
-import { artifactDb, defaultDb, ownerOf, ownerScope } from "../regions.ts";
+import {
+  artifactDb,
+  artifactRegion,
+  artifactStorage,
+  bucketOf,
+  defaultDb,
+  ownerOf,
+  ownerScope,
+  regionsOf,
+} from "../regions.ts";
 import { ACCESS_LOG_TOOL_SCOPES, registerAccessLogTools } from "./access-log-tools.ts";
 import { ACCESS_TOOL_SCOPES, registerAccessTools } from "./access-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
@@ -114,7 +124,8 @@ export interface ToolContext {
   userId: string;
   now: () => number;
   /** Signs upload and download links, like the API's publish and download routes. */
-  presigner: Presigner;
+  /** The presigner of a region's bucket. */
+  presigner: (region: Region) => Presigner;
   /** Threshold and part size of multipart uploads; undefined for the defaults. */
   multipart?: MultipartConfig | undefined;
   /**
@@ -245,17 +256,17 @@ export function createPortifactServer(context: ToolContext): McpServer {
     async (args: PublishDocumentInput) => {
       const { idempotencyKey, ...request } = args;
       const run = async () => {
-        let target: RegionalDb;
+        let target: RegionHandles;
         let targetOwnerId: string | undefined;
         if (request.artifactId) {
-          target = await artifactDb(context.env, request.artifactId);
+          target = await artifactRegion(context.env, request.artifactId);
         } else {
           const scope = await ownerScope(context.env, context.userId, request.workspace);
           if (!scope.ok) return scope;
-          target = scope.value.db;
+          target = regionsOf(context.env).get(scope.value.actor.region);
           targetOwnerId = scope.value.actor.ownerId;
         }
-        const result = await publishInline(target, context.env.ARTIFACTS, {
+        const result = await publishInline(target.db, bucketOf(target), {
           userId: context.userId,
           targetOwnerId,
           type: request.type,
@@ -372,15 +383,11 @@ export function createPortifactServer(context: ToolContext): McpServer {
       }
       return lifecycleResponse(
         args.artifactId,
-        await deleteArtifact(
-          await artifactDb(context.env, args.artifactId),
-          context.env.ARTIFACTS,
-          {
-            userId: context.userId,
-            artifactId: args.artifactId,
-            now: context.now(),
-          },
-        ),
+        await deleteArtifact(...(await artifactStorage(context.env, args.artifactId)), {
+          userId: context.userId,
+          artifactId: args.artifactId,
+          now: context.now(),
+        }),
       );
     },
   );

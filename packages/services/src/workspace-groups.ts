@@ -35,6 +35,8 @@ export interface GroupRow {
   name: string;
   members: number;
   createdAt: number;
+  /** Managed by the workspace's directory through SCIM: the dashboard does not change it. */
+  directory: boolean;
 }
 
 export interface GroupMemberRow {
@@ -49,6 +51,18 @@ const missingGroup = () => fail<never>("not_found", "Group not found.");
 const missingMember = () => fail<never>("not_found", "Member not found.");
 const changedMeanwhile = () =>
   fail<never>("version_conflict", "The group changed meanwhile. Reload and try again.");
+/**
+ * A group the workspace's directory manages (decision 0017, "Groups and roles") is changed only
+ * by the directory: a dashboard change would be overwritten by the next sync, or would fight it.
+ */
+const directoryRefusal = () =>
+  fail<never>(
+    "forbidden",
+    "Your organization's directory manages this group. Change it in the directory.",
+  );
+/** Holds while the group is not directory-managed, inside a write's batch. */
+const notDirectory = (groupId: string) =>
+  sql`not exists (select 1 from ${schema.scimGroups} where ${schema.scimGroups.groupId} = ${groupId})`;
 const nameTaken = () =>
   fail<never>("invalid_input", "The workspace already has a group with this name.");
 
@@ -71,23 +85,42 @@ function isUniqueViolation(error: unknown): boolean {
 // Qualified by hand: Drizzle leaves select-field columns unqualified, so `${g.id}` would bind to
 // the subquery's own table.
 const memberCount = sql<number>`(select count(*) from ${gm} where ${gm.groupId} = "workspace_groups"."id")`;
+const directoryManaged = sql<number>`exists (select 1 from ${schema.scimGroups} where ${schema.scimGroups.groupId} = "workspace_groups"."id")`;
 
 async function groupsOf(global: GlobalDb, workspaceId: string): Promise<GroupRow[]> {
   const rows = await global
-    .select({ id: g.id, name: g.name, members: memberCount, createdAt: g.createdAt })
+    .select({
+      id: g.id,
+      name: g.name,
+      members: memberCount,
+      createdAt: g.createdAt,
+      directory: directoryManaged,
+    })
     .from(g)
     .where(eq(g.workspaceId, workspaceId))
     .orderBy(sql`lower(${g.name})`, asc(g.id));
-  return rows.map((row) => ({ ...row, members: Number(row.members) }));
+  return rows.map((row) => ({
+    ...row,
+    members: Number(row.members),
+    directory: Number(row.directory) === 1,
+  }));
 }
 
 async function groupRow(global: GlobalDb, workspaceId: string, groupId: string) {
   const [row] = await global
-    .select({ id: g.id, name: g.name, members: memberCount, createdAt: g.createdAt })
+    .select({
+      id: g.id,
+      name: g.name,
+      members: memberCount,
+      createdAt: g.createdAt,
+      directory: directoryManaged,
+    })
     .from(g)
     .where(and(eq(g.id, groupId), eq(g.workspaceId, workspaceId)))
     .limit(1);
-  return row ? { ...row, members: Number(row.members) } : null;
+  return row
+    ? { ...row, members: Number(row.members), directory: Number(row.directory) === 1 }
+    : null;
 }
 
 export interface GroupList {
@@ -246,12 +279,14 @@ export async function renameWorkspaceGroup(
   if (!name.ok) return name;
   const current = await groupRow(global, workspace.id, input.groupId);
   if (!current) return missingGroup();
+  if (current.directory) return directoryRefusal();
   if (current.name === name.value) return ok(current);
   const where = and(
     eq(g.id, current.id),
     eq(g.workspaceId, workspace.id),
     eq(g.name, current.name),
     stillAdmin(workspace.id, input.userId),
+    notDirectory(current.id),
   ) as SQL;
   let updated: unknown[];
   try {
@@ -295,10 +330,12 @@ export async function deleteWorkspaceGroup(
   const { workspace } = found.value;
   const current = await groupRow(global, workspace.id, input.groupId);
   if (!current) return missingGroup();
+  if (current.directory) return directoryRefusal();
   const target = and(
     eq(g.id, current.id),
     eq(g.workspaceId, workspace.id),
     stillAdmin(workspace.id, input.userId),
+    notDirectory(current.id),
   ) as SQL;
   const [, , deleted] = await global.batch([
     groupEvent(
@@ -337,6 +374,7 @@ export async function addGroupMember(
   if (!gate.ok) return gate;
   const group = await groupRow(global, workspace.id, input.groupId);
   if (!group) return missingGroup();
+  if (group.directory) return directoryRefusal();
   const [member] = await global
     .select({ userId: m.userId })
     .from(m)
@@ -345,7 +383,7 @@ export async function addGroupMember(
   if (!member) return missingMember();
   const id = newGroupMemberId();
   const cap = WORKSPACE_GROUPS.membersPerGroup;
-  const insertable = sql`exists (select 1 from ${m} where ${m.workspaceId} = ${workspace.id} and ${m.userId} = ${input.memberId}) and exists (select 1 from ${g} where ${g.id} = ${group.id} and ${g.workspaceId} = ${workspace.id}) and (select count(*) from ${gm} where ${gm.groupId} = ${group.id}) < ${cap} and ${stillAdmin(workspace.id, input.userId)}`;
+  const insertable = sql`exists (select 1 from ${m} where ${m.workspaceId} = ${workspace.id} and ${m.userId} = ${input.memberId}) and exists (select 1 from ${g} where ${g.id} = ${group.id} and ${g.workspaceId} = ${workspace.id}) and (select count(*) from ${gm} where ${gm.groupId} = ${group.id}) < ${cap} and ${stillAdmin(workspace.id, input.userId)} and ${notDirectory(group.id)}`;
   await global.batch([
     global
       .insert(gm)
@@ -392,11 +430,13 @@ export async function removeGroupMember(
   const { workspace } = found.value;
   const group = await groupRow(global, workspace.id, input.groupId);
   if (!group) return missingGroup();
+  if (group.directory) return directoryRefusal();
   const target = and(
     eq(gm.groupId, group.id),
     eq(gm.workspaceId, workspace.id),
     eq(gm.userId, input.memberId),
     stillAdmin(workspace.id, input.userId),
+    notDirectory(group.id),
   ) as SQL;
   const [, , deleted] = await global.batch([
     groupMemberEvent(

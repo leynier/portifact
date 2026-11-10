@@ -9,6 +9,7 @@ import { type Db, type GlobalDb, type Region, type RegionalDb, schema } from "@p
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { eraseAuditEventsOf } from "./audit.ts";
 import { purgeJobs } from "./outbox.ts";
+import { recomputeDirectoryRoles } from "./scim-groups.ts";
 import { revokedShareLinks } from "./share-links.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
@@ -203,27 +204,34 @@ export async function listStorageFindings(db: Db, limit = 100) {
  * progress and artifacts already claimed for purging (a purge cannot be undone). Taken from the
  * live database before restoring a backup.
  */
-export async function exportTombstones(db: Db): Promise<TombstoneMarker[]> {
+export async function exportTombstones(regions: {
+  global: GlobalDb;
+  all(): readonly { db: RegionalDb }[];
+}): Promise<TombstoneMarker[]> {
   const markers = new Map<string, TombstoneMarker>();
   const add = (marker: TombstoneMarker) => {
     const key = `${marker.kind}:${marker.id}`;
     if (!markers.has(key)) markers.set(key, marker);
   };
-  for (const row of await db.select().from(schema.tombstones)) add(row);
-  for (const row of await db.select().from(schema.accountDeletions)) {
+  const global = regions.global;
+  for (const row of await global.select().from(schema.tombstones)) add(row);
+  for (const row of await global.select().from(schema.accountDeletions)) {
     add({ kind: "account", id: row.userId, deletedAt: row.requestedAt });
   }
-  for (const row of await db.select().from(schema.workspaceDeletions)) {
+  for (const row of await global.select().from(schema.workspaceDeletions)) {
     add({ kind: "workspace", id: row.workspaceId, deletedAt: row.requestedAt });
   }
-  for (const row of await db
-    .select({ id: schema.artifacts.id, updatedAt: schema.artifacts.updatedAt })
-    .from(schema.artifacts)
-    .where(eq(schema.artifacts.state, "purging"))) {
-    add({ kind: "artifact", id: row.id, deletedAt: row.updatedAt });
+  // Purges and revocations are regional (decision 0005): every region's.
+  for (const { db } of regions.all()) {
+    for (const row of await db
+      .select({ id: schema.artifacts.id, updatedAt: schema.artifacts.updatedAt })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.state, "purging"))) {
+      add({ kind: "artifact", id: row.id, deletedAt: row.updatedAt });
+    }
+    // A revocation is permanent too: a restore must not reopen a link (decision 0008).
+    for (const marker of await revokedShareLinks(db)) add(marker);
   }
-  // A revocation is permanent too: a restore must not reopen a link (decision 0008).
-  for (const marker of await revokedShareLinks(db)) add(marker);
   return [...markers.values()].sort(
     (a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id),
   );
@@ -251,6 +259,19 @@ export interface ApplyTombstonesResult {
   /** Group memberships removed before the restore that it brought back. */
   groupMembers: number;
   ssoProviders: number;
+  /**
+   * Workspaces with a directory role mapping whose roles were recomputed from the current
+   * directory groups (decision 0017), so a role the directory took away does not come back.
+   */
+  directoryRoles?: number;
+  /** SCIM tokens revoked before the restore, deleted again (decision 0017). */
+  scimTokens: number;
+  /** Directory users the directory deleted before the restore, deleted again. */
+  scimUsers: number;
+  /** Pending memberships a directory withdrew before the restore, withdrawn again. */
+  invitations: number;
+  /** Memberships a directory ended before the restore, ended again. */
+  members: number;
 }
 
 /**
@@ -307,6 +328,7 @@ export async function applyTombstones(
     ,
     ,
     ,
+    ,
     webhooks,
     domains,
     groups,
@@ -314,6 +336,12 @@ export async function applyTombstones(
     ,
     ,
     ssoProviders,
+    ,
+    scimTokens,
+    scimUsers,
+    invitations,
+    ,
+    members,
   ] = await db.batch([
     db
       .insert(schema.outbox)
@@ -375,6 +403,11 @@ export async function applyTombstones(
     db.delete(ws).where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
     db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
     db.update(st).set({ createdBy: null }).where(sql`${st.createdBy} in (${tombstonedAccounts})`),
+    // A role a directory gave goes with the account (decision 0017).
+    db
+      .update(schema.scimUsers)
+      .set({ mappedRole: null })
+      .where(sql`${schema.scimUsers.userId} in (${tombstonedAccounts})`),
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
     // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
@@ -425,7 +458,48 @@ export async function applyTombstones(
       .returning({ id: schema.workspaceSso.id }),
     // Identities of providers that went above, removed or with a deleted workspace.
     deleteOrphanSsoIdentities(db),
+    // SCIM (decision 0017): a revoked directory token must never authenticate again, a deleted
+    // directory user stays deleted, and what a directory withdrew stays withdrawn: its pending
+    // memberships by row ID, and memberships it ended when they are older than the tombstone
+    // (a later membership of the same person survives).
+    db
+      .delete(schema.scimTokens)
+      .where(
+        sql`${schema.scimTokens.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_token')`,
+      )
+      .returning({ id: schema.scimTokens.id }),
+    db
+      .delete(schema.scimUsers)
+      .where(
+        sql`${schema.scimUsers.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_user')`,
+      )
+      .returning({ id: schema.scimUsers.id }),
+    db
+      .delete(schema.workspaceInvitations)
+      .where(
+        sql`${schema.workspaceInvitations.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_invitation')`,
+      )
+      .returning({ id: schema.workspaceInvitations.id }),
+    // The single sign-on block goes back with them, or the provider would let them in again.
+    db
+      .insert(schema.workspaceRemovals)
+      .select(
+        sql`select ${schema.workspaceMembers.workspaceId}, ${schema.workspaceMembers.userId}, ${t.deletedAt} from ${schema.workspaceMembers} inner join ${t} on ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} where ${schema.workspaceMembers.createdAt} <= ${t.deletedAt}`,
+      )
+      .onConflictDoNothing(),
+    db
+      .delete(schema.workspaceMembers)
+      .where(
+        sql`exists (select 1 from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} and ${schema.workspaceMembers.createdAt} <= ${t.deletedAt})`,
+      )
+      .returning({ userId: schema.workspaceMembers.userId }),
   ]);
+  // Roles from directory groups, recomputed from what the restore and the tombstones left
+  // (decision 0017): bounded per run (`recomputeDirectoryRoles`), run again while `more`.
+  // The mapping and the memberships are global rows: through the global handle when the caller
+  // gave a region's (the rest of this function is a known crossing, to split per database later).
+  const global = "global" in db ? (db as RegionalDb).global : (db as GlobalDb);
+  const roles = await recomputeDirectoryRoles(global, now);
   return {
     inserted,
     artifacts: artifacts.length,
@@ -438,6 +512,11 @@ export async function applyTombstones(
     groups: groups.length,
     groupMembers: groupMembers.length,
     ssoProviders: ssoProviders.length,
+    scimTokens: scimTokens.length,
+    scimUsers: scimUsers.length,
+    invitations: invitations.length,
+    members: members.length,
+    directoryRoles: roles.workspaces,
   };
 }
 
@@ -453,12 +532,9 @@ export async function rebuildArtifactDirectory(
   region: Region,
 ): Promise<number> {
   const a = schema.artifacts;
-  const missing = await regional
-    .select({ id: a.id, createdAt: a.createdAt })
-    .from(a)
-    .where(
-      sql`not exists (select 1 from ${schema.artifactDirectory} where ${schema.artifactDirectory.id} = ${a.id})`,
-    );
+  // The directory is global and the artifacts regional (decision 0005): every ID of the region is
+  // offered again and the ones the directory still has are left alone.
+  const missing = await regional.select({ id: a.id, createdAt: a.createdAt }).from(a);
   let added = 0;
   for (let i = 0; i < missing.length; i += 25) {
     const rows = await global

@@ -78,6 +78,7 @@ describe("job contracts", () => {
       "search_index",
       "review_notice",
       "workspace_policy",
+      "directory_notice",
     ]);
     for (const kind of ["artifact", "account", "share_link", "workspace", "webhook"]) {
       expect(TombstoneMarker.parse({ ...marker, kind }).kind).toBe(kind);

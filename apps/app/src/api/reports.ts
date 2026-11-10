@@ -15,7 +15,7 @@ import { Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
 import { checkLimits } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
-import { regionsOf } from "../regions.ts";
+import { artifactDb } from "../regions.ts";
 import { type ApiContext, error, readJson } from "./http.ts";
 
 export const REPORTS_PATH = "/api/v1/reports";
@@ -57,7 +57,7 @@ export function reportRoutes(deps: { now(): number }) {
     );
     if (!wider.ok) return limited(c, wider.retryAfterSeconds);
 
-    await submitAbuseReport(regionsOf(c.env).global, {
+    await submitAbuseReport(await artifactDb(c.env, artifactId), {
       artifactId,
       reason: body.value.reason,
       details: body.value.details,

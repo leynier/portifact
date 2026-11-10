@@ -1,8 +1,10 @@
 import { env } from "cloudflare:test";
+import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   createDb,
   findDeliveryArtifact,
+  findDeliveryPlan,
   findPublishedFile,
   findRenderedPage,
   schema,
@@ -95,12 +97,12 @@ describe("delivery queries", () => {
     });
   });
 
-  it("joins the owner's plan row, null without one, never another owner's", async () => {
-    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+  it("never joins the plan (global, decision 0005), which its own read finds, never another owner's", async () => {
+    expect(await findDeliveryPlan(db(), "u_owner")).toBeNull();
     await db()
       .insert(schema.ownerPlans)
       .values({ ownerId: "u_other", plan: "enterprise", grantedBy: "test", updatedAt: CYCLE });
-    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+    expect(await findDeliveryPlan(db(), "u_owner")).toBeNull();
     await db()
       .insert(schema.ownerPlans)
       .values({
@@ -112,7 +114,43 @@ describe("delivery queries", () => {
         grantedBy: "test",
         updatedAt: CYCLE,
       });
-    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toEqual({
+    // The artifact's lookup leaves the plan to the caller, whatever the plan row says, unless it
+    // is asked to join it (one database, `bothSides`).
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+    const joined = await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE, undefined, {
+      withPlan: true,
+    });
+    expect(joined?.plan).toEqual({
+      plan: "team",
+      seats: 3,
+      validUntil: CYCLE + 1,
+      overrides: { limits: { activeArtifacts: 9 } },
+    });
+    expect(joined?.traffic).toEqual({ requests: 0, bytes: 0 });
+    expect(
+      await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE, "other.example.com", {
+        withPlan: true,
+      }),
+    ).toBeNull();
+    expect(
+      (await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE, undefined, { withPlan: true }))?.id,
+    ).toBe("k7d2qm4xab");
+    await db().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, "u_owner"));
+    expect(
+      (await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE, undefined, { withPlan: true }))?.plan,
+    ).toBeNull();
+    await db()
+      .insert(schema.ownerPlans)
+      .values({
+        ownerId: "u_owner",
+        plan: "team",
+        seats: 3,
+        validUntil: CYCLE + 1,
+        overrides: { limits: { activeArtifacts: 9 } },
+        grantedBy: "test",
+        updatedAt: CYCLE,
+      });
+    expect(await findDeliveryPlan(db(), "u_owner")).toEqual({
       plan: "team",
       seats: 3,
       validUntil: CYCLE + 1,

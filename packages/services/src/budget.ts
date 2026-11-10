@@ -1,7 +1,7 @@
 // Budget state, alerts and the operator override (plan section 12). The jobs Worker records a
 // measurement every run; services read the effective protection to enforce it; the operator tool
 // shows the state and overrides it. The rules themselves are in packages/domain/src/budget.ts.
-import { type Db, schema } from "@portifact/db";
+import { type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   assessBudget,
   type BudgetAssessment,
@@ -96,7 +96,7 @@ function stateOf(row: BudgetRow, now: number): BudgetState {
   };
 }
 
-async function budgetRow(db: Db): Promise<BudgetRow | undefined> {
+async function budgetRow(db: GlobalDb): Promise<BudgetRow | undefined> {
   const [row] = await db
     .select()
     .from(schema.platformBudget)
@@ -106,13 +106,13 @@ async function budgetRow(db: Db): Promise<BudgetRow | undefined> {
 }
 
 /** The persisted budget state, or null before the first measurement or override. */
-export async function getBudgetState(db: Db, now: number): Promise<BudgetState | null> {
+export async function getBudgetState(db: GlobalDb, now: number): Promise<BudgetState | null> {
   const row = await budgetRow(db);
   return row ? stateOf(row, now) : null;
 }
 
 /** The protection that applies now; none before anything was measured. */
-export async function platformProtection(db: Db, now: number): Promise<Protection> {
+export async function platformProtection(db: GlobalDb, now: number): Promise<Protection> {
   return (await getBudgetState(db, now))?.effective ?? NO_PROTECTION;
 }
 
@@ -122,14 +122,25 @@ export async function platformProtection(db: Db, now: number): Promise<Protectio
  * upload), and the emails counted as they were sent (`email_counters`). Cloudflare's analytics,
  * when configured, replace the estimates with measured values.
  */
-export async function measurePlatformUsage(db: Db, now: number): Promise<PlatformMetrics> {
+export async function measurePlatformUsage(
+  regions: { global: GlobalDb; all(): readonly { db: RegionalDb }[] },
+  now: number,
+): Promise<PlatformMetrics> {
   const { start } = budgetCycle(now);
   const o = schema.objects;
-  const [stored] = await db.select({ bytes: sum(o.size) }).from(o);
-  const [created] = await db.select({ count: count() }).from(o).where(gte(o.createdAt, start));
+  // Objects live in their owner's region (decision 0005): the platform's usage is every region's.
+  let storedBytes = 0;
+  let classA = 0;
+  for (const { db } of regions.all()) {
+    const [stored] = await db.select({ bytes: sum(o.size) }).from(o);
+    const [created] = await db.select({ count: count() }).from(o).where(gte(o.createdAt, start));
+    storedBytes += Number(stored?.bytes ?? 0);
+    classA += created?.count ?? 0;
+  }
+  const db = regions.global;
   return {
-    storedBytes: Number(stored?.bytes ?? 0),
-    r2ClassA: created?.count ?? 0,
+    storedBytes,
+    r2ClassA: classA,
     r2ClassB: null,
     workerRequests: null,
     d1RowsRead: null,
@@ -157,7 +168,7 @@ const sameActions = (a: readonly string[], b: readonly string[]) =>
  * to run concurrently: the state is one upserted row and the alerts' unique index drops repeats.
  */
 export async function recordBudgetMeasurement(
-  db: Db,
+  db: GlobalDb,
   input: { metrics: PlatformMetrics; analytics: AnalyticsStatus; now: number },
 ): Promise<RecordedMeasurement> {
   const previous = await budgetRow(db);
@@ -238,7 +249,7 @@ const EMPTY_METRICS: PlatformMetrics = {
  * until `until` or until cleared. Creates the state row if nothing was measured yet.
  */
 export async function setBudgetOverride(
-  db: Db,
+  db: GlobalDb,
   input: {
     level: BudgetLevel;
     steps: number;
@@ -269,7 +280,7 @@ export async function setBudgetOverride(
 }
 
 /** Clears the operator override; the automatic decision applies again at once. */
-export async function clearBudgetOverride(db: Db, now: number): Promise<BudgetState | null> {
+export async function clearBudgetOverride(db: GlobalDb, now: number): Promise<BudgetState | null> {
   await db
     .update(schema.platformBudget)
     .set({
@@ -285,7 +296,7 @@ export async function clearBudgetOverride(db: Db, now: number): Promise<BudgetSt
 
 /** Recorded alerts, newest first, optionally only those of one cycle. */
 export async function listBudgetAlerts(
-  db: Db,
+  db: GlobalDb,
   input: { cycleStart?: number; limit: number },
 ): Promise<BudgetAlert[]> {
   const a = schema.budgetAlerts;
@@ -299,7 +310,10 @@ export async function listBudgetAlerts(
 }
 
 /** Alerts of the cycle whose email has not gone out yet, oldest first. */
-export async function pendingBudgetAlerts(db: Db, cycleStart: number): Promise<BudgetAlert[]> {
+export async function pendingBudgetAlerts(
+  db: GlobalDb,
+  cycleStart: number,
+): Promise<BudgetAlert[]> {
   const a = schema.budgetAlerts;
   const rows = await db
     .select()
@@ -310,7 +324,11 @@ export async function pendingBudgetAlerts(db: Db, cycleStart: number): Promise<B
 }
 
 /** Marks alerts as sent; an alert already marked keeps its first time. */
-export async function markBudgetAlertsNotified(db: Db, ids: number[], now: number): Promise<void> {
+export async function markBudgetAlertsNotified(
+  db: GlobalDb,
+  ids: number[],
+  now: number,
+): Promise<void> {
   if (ids.length === 0) return;
   const a = schema.budgetAlerts;
   await db

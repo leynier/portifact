@@ -16,7 +16,9 @@ export default defineConfig(async () => {
           compatibilityDate: "2026-08-01",
           compatibilityFlags: ["nodejs_compat"],
           // MIGRATION_DB starts empty, for tests that apply the migrations in steps.
-          d1Databases: ["DB", "ACCESS_DB", "MIGRATION_DB"],
+          // DB_EU, ACCESS_DB_EU and ARTIFACTS_EU are the second region (decision 0005).
+          d1Databases: ["DB", "ACCESS_DB", "MIGRATION_DB", "DB_EU", "ACCESS_DB_EU"],
+          r2Buckets: ["ARTIFACTS", "ARTIFACTS_EU"],
           bindings: { TEST_MIGRATIONS: migrations, TEST_ACCESS_MIGRATIONS: accessMigrations },
         },
       }),

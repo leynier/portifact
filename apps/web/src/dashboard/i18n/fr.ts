@@ -2289,4 +2289,99 @@ export const fr = {
   "policies.default.domainLapsed":
     "Aucun domaine de messagerie n’est vérifié : les nouveaux artefacts démarrent partagés avec l’espace de travail jusqu’à ce qu’un domaine soit de nouveau vérifié.",
   "audit.access.byPolicy": "par la règle de l’espace de travail",
+  "audit.actor.directory": "{label} (annuaire)",
+  "audit.actor.directoryGone": "Annuaire (jeton SCIM révoqué)",
+  "audit.kind.memberJoinedDirectory": "{member} a rejoint en tant que {role} via l’annuaire",
+  "audit.kind.memberProvisioned":
+    "A provisionné une personne de {domain} en tant que {role} ; elle rejoint à sa connexion",
+  "audit.kind.scimTokenCreated":
+    "A créé un jeton SCIM ({days, plural, one {# jour} other {# jours}})",
+  "audit.kind.scimTokenRevoked": "A révoqué un jeton SCIM",
+  "audit.kind.scimEmailsOn": "A activé les e-mails d’invitation pour les personnes provisionnées",
+  "audit.kind.scimEmailsOff":
+    "A désactivé les e-mails d’invitation pour les personnes provisionnées",
+  "pending.directory": "De l’annuaire",
+  "pending.directoryDetail":
+    "{role}, provisionné par l’annuaire : rejoint à sa première connexion, occupe une place jusqu’au {date}",
+  "scim.title": "Synchronisation de l’annuaire (SCIM)",
+  "scim.description":
+    "Laissez votre fournisseur d’identité ajouter et retirer les personnes de l’espace de travail. Il provisionne des adresses de vos domaines de messagerie vérifiés ; une personne sans compte Portifact rejoint à sa première connexion avec cette adresse.",
+  "scim.loadFailed": "La synchronisation de l’annuaire n’a pas pu être chargée",
+  "scim.baseUrl": "URL de base SCIM",
+  "scim.baseUrlCopy": "Copier l’URL",
+  "scim.baseUrlHint":
+    "Collez-la dans votre fournisseur d’identité comme URL de base SCIM ou URL du locataire, avec un jeton ci-dessous comme jeton porteur.",
+  "scim.planTitle": "Pas dans cette offre",
+  "scim.plan":
+    "La synchronisation de l’annuaire nécessite l’offre {plan}. D’ici là, les requêtes de l’annuaire sont refusées ; vous pouvez toujours révoquer ses jetons.",
+  "scim.rules":
+    "Les nouvelles personnes rejoignent en tant que membres. Désactiver une personne dans l’annuaire la retire de l’espace de travail et ferme toutes ses sessions ; son compte et son espace personnel restent les siens. Une personne retirée ici à la main n’est pas rajoutée par la synchronisation suivante.",
+  "scim.lastSync": "Dernière synchronisation",
+  "scim.lastSyncNever": "L’annuaire ne s’est pas encore connecté.",
+  "scim.pendingLabel": "En attente de connexion",
+  "scim.pending":
+    "{count, plural, =0 {Personne} one {# personne, dans les invitations en attente} other {# personnes, dans les invitations en attente}}",
+  "scim.tokens": "Jetons",
+  "scim.tokensEmpty": "Aucun jeton pour l’instant.",
+  "scim.tokenExpires": "Expire le {date}",
+  "scim.tokenExpired": "A expiré le {date}",
+  "scim.tokenUsed": "dernière utilisation le {date}",
+  "scim.tokenUnused": "jamais utilisé",
+  "scim.create": "Créer un jeton SCIM",
+  "scim.label": "Libellé",
+  "scim.labelHint": "Par exemple le nom du fournisseur d’identité.",
+  "scim.labelRequired": "Saisissez un libellé de 80 caractères au plus.",
+  "scim.expiry": "Expire après",
+  "scim.days": "{count, plural, one {# jour} other {# jours}}",
+  "scim.limit":
+    "Un espace de travail a au plus {count} jetons SCIM, pour qu’un jeton en remplace un autre sans interruption. Révoquez-en un pour en créer un autre.",
+  "scim.secret.title": "Copiez le jeton maintenant",
+  "scim.secret.body":
+    "Il n’est affiché qu’une fois. Collez-le dans votre fournisseur d’identité comme jeton porteur.",
+  "scim.secret.label": "Jeton SCIM {label}",
+  "scim.secret.copy": "Copier le jeton",
+  "scim.secret.done": "Je l’ai enregistré",
+  "scim.revoke": "Révoquer",
+  "scim.revokeNamed": "Révoquer : {label}",
+  "scim.confirmRevoke.title": "Révoquer {label} ?",
+  "scim.confirmRevoke.body":
+    "La prochaine requête de l’annuaire avec ce jeton est refusée. Les personnes qu’il a provisionnées restent telles quelles.",
+  "scim.confirmRevoke.action": "Révoquer le jeton",
+  "scim.revoked": "Le jeton {label} a été révoqué.",
+  "scim.created": "Le jeton {label} a été créé. Copiez-le maintenant.",
+  "scim.emails":
+    "Envoyer l’e-mail d’invitation aux personnes que l’annuaire provisionne sans compte Portifact",
+  "scim.emailsHint":
+    "Désactivé par défaut : les fournisseurs d’identité annoncent généralement eux-mêmes les nouvelles applications. Dans tous les cas, la personne rejoint à sa première connexion avec cette adresse.",
+  "scim.emailsSaved": "Enregistré.",
+  "scim.actionFailed": "La modification n’a pas été enregistrée",
+  "audit.kind.scimRoleOn": "A donné le rôle {role} aux membres d’un groupe de l’annuaire",
+  "audit.kind.scimRoleOff": "A cessé de donner le rôle {role} par un groupe de l’annuaire",
+  "groups.directory": "Géré par votre annuaire",
+  "groups.directoryNote":
+    "L’annuaire de votre organisation gère ce groupe par SCIM : changez son nom et ses membres là-bas.",
+  "members.directoryRole": "Dans un groupe de l’annuaire avec un rôle",
+  "scim.roles.title": "Rôles à partir des groupes de l’annuaire",
+  "scim.roles.description":
+    "Les membres du groupe choisi reçoivent ce rôle quand il est supérieur au leur. L’annuaire ne reprend qu’un rôle qu’il a donné : il n’abaisse jamais un rôle défini à la main par un administrateur, et un rôle que vous changez à la main vous revient ensuite.",
+  "scim.roles.access":
+    "Un groupe indiqué sur un artifact permet à ses membres de le lire : votre annuaire décide désormais qui lit ces artifacts.",
+  "scim.roles.editor": "Groupe dont les membres sont éditeurs",
+  "scim.roles.admin": "Groupe dont les membres sont administrateurs",
+  "scim.roles.none": "Aucun groupe",
+  "scim.roles.option": "{name} ({count, plural, one {# membre} other {# membres}})",
+  "scim.roles.noGroups": "Votre annuaire n’a encore envoyé aucun groupe.",
+  "scim.roles.save": "Enregistrer les rôles",
+  "scim.roles.saved": "Rôles enregistrés.",
+  "scim.roles.confirm.title": "Faire des membres de {name} des administrateurs ?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {# personne est} other {# personnes sont}} dans {name} actuellement, et {pending, plural, =0 {personne d’autre ne le sera} one {# de plus le sera} other {# de plus le seront}} à leur connexion. Qui contrôle votre annuaire décidera de qui administre cet espace de travail : ses membres, ses règles, ses jetons et ses réglages.",
+  "scim.roles.confirm.action": "En faire des administrateurs",
+  "groups.stopSync": "Arrêter la synchronisation",
+  "groups.stopSyncLabel": "Arrêter la synchronisation de {name}",
+  "groups.stopSync.title": "Arrêter de synchroniser {name} depuis votre annuaire ?",
+  "groups.stopSync.body":
+    "Votre annuaire ne gérera plus ce groupe : les administrateurs le modifient ici désormais. Son association de rôle est supprimée, et les personnes qu’il a faites éditeurs ou administrateurs gardent leur rôle. Si l’annuaire envoie plus tard un groupe du même nom, il est refusé.",
+  "groups.stopSync.done": "{name} n’est plus synchronisé depuis votre annuaire.",
+  "audit.kind.groupSyncStopped": "A arrêté de synchroniser le groupe {group} depuis l’annuaire",
 } satisfies Catalog;

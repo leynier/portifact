@@ -7,13 +7,9 @@
 // hint misses, is dropped, the global table is read once more on the same request, and the answer
 // is that or 404. So a warm request costs today's one read, a cold one two, a host that moved
 // three, and a removal holds at the very next request in every isolate. A miss is never cached.
-import {
-  type DeliveryArtifact,
-  findDeliveryArtifact,
-  type Region,
-  type Regions,
-} from "@portifact/db";
+import type { DeliveryArtifact, Region, Regions } from "@portifact/db";
 import { customHostHint } from "@portifact/services";
+import { lookupDelivery } from "./directory.ts";
 
 /** Hostnames one isolate remembers, least recently used dropped first. */
 export const HOST_CACHE_ENTRIES = 10_000;
@@ -97,12 +93,15 @@ export async function resolveCustomHost(
   hosts: HostDirectory,
   hostname: string,
   cycleStart: number,
+  now: number,
 ): Promise<CustomHostTarget | null> {
   const lookup = async (hint: HostHint) => {
-    const artifact = await findDeliveryArtifact(
+    const artifact = await lookupDelivery(
+      regions,
       regions.get(hint.region).db,
       hint.artifactId,
       cycleStart,
+      now,
       hostname,
     );
     return artifact ? { artifact, region: hint.region } : null;

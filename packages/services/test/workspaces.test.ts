@@ -2,6 +2,7 @@
 // acting user's role on the artifact's owner, admins and editors manage, members manage nothing,
 // and a user with no role on the owner cannot tell its artifacts exist. Workspaces and members
 // are inserted as rows: nothing creates them yet.
+
 import { env } from "cloudflare:test";
 import { type AnnotationTarget, DEFAULT_POLICY, type WorkspaceRole } from "@portifact/contracts";
 import {
@@ -64,7 +65,18 @@ import {
   rollbackArtifact,
 } from "../src/versions.ts";
 import { getViewerArtifact } from "../src/viewer.ts";
-import { DAY, db, grantPlan, NOW, session, sha256, user, value } from "./fixtures.ts";
+import { singleRegion } from "../src/workspaces.ts";
+import {
+  DAY,
+  db,
+  grantPlan,
+  NOW,
+  racingGlobally,
+  session,
+  sha256,
+  user,
+  value,
+} from "./fixtures.ts";
 
 const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
 const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "document" } };
@@ -257,7 +269,8 @@ describe("regions", () => {
   });
 
   it("needs no directory read with one region, and finds the personal space there", async () => {
-    const single = regionsFromEnv(env);
+    // Only the default region bound, as production is today.
+    const single = regionsFromEnv({ DB: env.DB, ACCESS_DB: env.ACCESS_DB });
     // Unknown to the directory, yet the only region is the answer: nothing to look up.
     expect((await artifactHandles(single, MISSING))?.region).toBe("default");
     expect(personalHandles(single)).toBe(single.get("default"));
@@ -647,7 +660,7 @@ describe("'the owner' means an admin or editor of the owner", () => {
 
   it("applies personal defaults only in the personal space", async () => {
     const t = await team();
-    await updateAccountSettings(db(), {
+    await updateAccountSettings(db().global, {
       userId: t.editor.id,
       update: { defaultAnnotations: "open", defaultBar: false },
       now: NOW,
@@ -675,7 +688,7 @@ describe("'the owner' means an admin or editor of the owner", () => {
     await db()
       .insert(schema.workspaceMembers)
       .values({ workspaceId: t.id, userId: second.id, role: "admin", updatedAt: NOW });
-    await updateAccountSettings(db(), {
+    await updateAccountSettings(db().global, {
       userId: second.id,
       update: { expiryNotices: false },
       now: NOW,
@@ -948,7 +961,7 @@ describe("expiry notices to several admins", () => {
 describe("account deletion with memberships", () => {
   async function deletion(u: { id: string; email: string }) {
     const sessionId = await session(u.id);
-    return requestAccountDeletion(db(), {
+    return requestAccountDeletion(regionsFromEnv(env), {
       userId: u.id,
       sessionId,
       confirmEmail: u.email,
@@ -982,26 +995,17 @@ describe("account deletion with memberships", () => {
       .insert(schema.workspaceMembers)
       .values({ workspaceId: t.id, userId: other.id, role: "admin", updatedAt: NOW });
     const sessionId = await session(t.admin.id);
-    const base = db();
-    let raced = false;
-    // The other admin's membership disappears right before the deletion batch runs.
-    const racing = new Proxy(base, {
-      get(target, property, receiver) {
-        if (property !== "batch" || raced) return Reflect.get(target, property, receiver);
-        return async (statements: Parameters<typeof base.batch>[0]) => {
-          raced = true;
-          await base
-            .delete(schema.workspaceMembers)
-            .where(
-              and(
-                eq(schema.workspaceMembers.workspaceId, t.id),
-                eq(schema.workspaceMembers.userId, other.id),
-              ),
-            );
-          return target.batch(statements);
-        };
-      },
-    }) as typeof base;
+    // The other admin's membership disappears right before the global deletion batch runs.
+    const racing = racingGlobally(() =>
+      db()
+        .global.delete(schema.workspaceMembers)
+        .where(
+          and(
+            eq(schema.workspaceMembers.workspaceId, t.id),
+            eq(schema.workspaceMembers.userId, other.id),
+          ),
+        ),
+    );
     expect(
       await requestAccountDeletion(racing, {
         userId: t.admin.id,

@@ -29,6 +29,8 @@ export * from "./paths.ts";
 export * from "./plans.ts";
 export * from "./quotas.ts";
 export * from "./result.ts";
+export * from "./scim.ts";
+export * from "./scim-groups.ts";
 export * from "./service-tokens.ts";
 export * from "./share-links.ts";
 export * from "./sources.ts";

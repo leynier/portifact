@@ -24,7 +24,13 @@ export default defineConfig(async () => {
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
+          // The second region (decision 0005): its own control and access log databases and its
+          // own bucket, bound only in tests and the e2e Worker, never in wrangler.jsonc.
+          d1Databases: ["DB_EU", "ACCESS_DB_EU"],
+          r2Buckets: ["ARTIFACTS_EU"],
           bindings: {
+            // Every handle refuses the other side's tables (packages/db/src/region-guard.ts).
+            REGION_GUARD: process.env.REGION_GUARD ?? "strict",
             // Fixed value that only exists in local tests. The real one uses wrangler secret.
             READ_SESSION_SECRET: "test-only-read-session-secret-0123456789abcdef",
             TEST_MIGRATIONS: migrations,

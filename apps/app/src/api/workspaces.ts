@@ -18,6 +18,11 @@ import {
   InvitationTokenInput,
   InvitationView,
   MemberRoleUpdate,
+  ScimOverview,
+  ScimSettingsUpdate,
+  ScimTokenCreate,
+  ScimTokenCreated,
+  ScimTokenId,
   ServiceTokenCreate,
   ServiceTokenCreated,
   ServiceTokenId,
@@ -56,6 +61,7 @@ import {
   addGroupMember,
   addWorkspaceDomain,
   changeMemberRole,
+  createScimToken,
   createServiceToken,
   createWorkspaceGroup,
   declineInvitation,
@@ -64,6 +70,7 @@ import {
   type GroupList,
   type GroupMemberRow,
   type GroupRow,
+  getScimOverview,
   getSsoSettings,
   getWorkspaceGroup,
   getWorkspacePolicy,
@@ -89,6 +96,7 @@ import {
   removeWorkspaceDomain,
   renameWorkspaceGroup,
   revokeInvitation,
+  revokeScimToken,
   revokeServiceToken,
   type SsoFetch,
   type SsoProviderRow,
@@ -96,8 +104,10 @@ import {
   saveSsoProvider,
   setWorkspacePolicy,
   ssoKeys,
+  stopDirectorySync,
   testSsoIssuer,
   type UserWorkspace,
+  updateScimSettings,
   verifyWorkspaceDomain,
   type WorkspaceDomainRow,
 } from "@portifact/services";
@@ -107,6 +117,7 @@ import type { EmailSender } from "../auth/email.ts";
 import { ssoEnabled } from "../auth/sso.ts";
 import type { Env } from "../env.ts";
 import { regionsOf } from "../regions.ts";
+import { scimBaseUrl, scimEnabled } from "../scim.ts";
 import { fromAppOrigin, hasSessionCookie, type SessionLookup } from "./access.ts";
 import { type Guarded, iso, readJson } from "./http.ts";
 
@@ -143,6 +154,7 @@ function memberView(row: MemberRow, userId: string): WorkspaceMemberView {
     role: row.role,
     joinedAt: iso(row.joinedAt),
     you: row.userId === userId,
+    directoryRole: row.directoryRole === true,
   });
 }
 
@@ -176,6 +188,7 @@ function invitationView(row: InvitationRow): InvitationView {
     invitedBy: row.invitedBy,
     createdAt: iso(row.createdAt),
     expiresAt: iso(row.expiresAt),
+    source: row.source,
   });
 }
 
@@ -217,6 +230,7 @@ export function groupView(row: GroupRow): WorkspaceGroupView {
     name: row.name,
     members: row.members,
     createdAt: iso(row.createdAt),
+    directory: row.directory,
   });
 }
 
@@ -433,6 +447,98 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
       const tokenId = ServiceTokenId.safeParse(c.req.param("tokenId"));
       if (!tokenId.success) return error(c, "not_found", "Service token not found.");
       const result = await revokeServiceToken(global(c), {
+        userId,
+        slug,
+        tokenId: tokenId.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.body(null, 204);
+    }),
+  );
+
+  // SCIM provisioning (decision 0017): admins only, through the dashboard session only, so no
+  // bearer token (a SCIM token included) can mint, list or revoke the directory's tokens.
+  // Switched off without SCIM_ENABLED.
+  const scimRoute = (
+    handler: (c: WorkspaceContext, userId: string, slug: string) => Promise<Response>,
+    /** Whether this request may go through while switched off (only unmapping, decision 0017). */
+    whileOff: (c: WorkspaceContext) => Promise<boolean> = async () => false,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      if (!scimEnabled(c.env) && !(await whileOff(c))) {
+        return error(c, "capacity_unavailable", "Directory sync is not available yet.");
+      }
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      return handler(c, userId, slug);
+    }, "Directory sync is managed from the dashboard.");
+  const scimOverview = async (c: WorkspaceContext, userId: string, slug: string) => {
+    const result = await getScimOverview(global(c), {
+      userId,
+      slug,
+      now: deps.now(),
+      baseUrl: scimBaseUrl(c.env),
+    });
+    if (!result.ok) return error(c, result.code, result.message);
+    return c.json(ScimOverview.parse(result.value));
+  };
+  routes.get("/api/v1/workspaces/:slug/scim", scimRoute(scimOverview));
+  /**
+   * Unmapping a role (both mappings null, nothing else) stays possible while SCIM is switched
+   * off, so a directory's groups never freeze the workspace's roles (decision 0017).
+   */
+  const unmappingOnly = async (c: WorkspaceContext) => {
+    const body = (await c.req.raw
+      .clone()
+      .json()
+      .catch(() => null)) as Record<string, unknown> | null;
+    if (body === null || typeof body !== "object") return false;
+    const keys = Object.keys(body);
+    return (
+      keys.length > 0 &&
+      keys.every((key) => (key === "editorGroup" || key === "adminGroup") && body[key] === null)
+    );
+  };
+  routes.patch(
+    "/api/v1/workspaces/:slug/scim",
+    scimRoute(async (c, userId, slug) => {
+      const body = await readJson(c, ScimSettingsUpdate);
+      if (!body.ok) return body.response;
+      const result = await updateScimSettings(global(c), {
+        userId,
+        slug,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      // Switched off there is no overview to show; the unmapping is done.
+      if (!scimEnabled(c.env)) return c.json({ unmapped: true });
+      return scimOverview(c, userId, slug);
+    }, unmappingOnly),
+  );
+  // No idempotency key: a stored replay would keep the secret, as for service tokens.
+  routes.post(
+    "/api/v1/workspaces/:slug/scim/tokens",
+    scimRoute(async (c, userId, slug) => {
+      const body = await readJson(c, ScimTokenCreate);
+      if (!body.ok) return body.response;
+      const result = await createScimToken(global(c), {
+        userId,
+        slug,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ScimTokenCreated.parse(result.value), 201);
+    }),
+  );
+  routes.delete(
+    "/api/v1/workspaces/:slug/scim/tokens/:tokenId",
+    scimRoute(async (c, userId, slug) => {
+      const tokenId = ScimTokenId.safeParse(c.req.param("tokenId"));
+      if (!tokenId.success) return error(c, "not_found", "SCIM token not found.");
+      const result = await revokeScimToken(global(c), {
         userId,
         slug,
         tokenId: tokenId.data,
@@ -776,6 +882,17 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
     groupRoute(async (c, ids) =>
       reply(c, await deleteWorkspaceGroup(global(c), { ...ids, now: deps.now() }), () =>
         c.body(null, 204),
+      ),
+    ),
+  );
+
+  // Stops syncing a directory-managed group (decision 0017): admins, whatever the switch, the
+  // token or the plan, so a directory's group is never frozen.
+  routes.post(
+    "/api/v1/workspaces/:slug/groups/:groupId/stop-sync",
+    groupRoute(async (c, ids) =>
+      reply(c, await stopDirectorySync(global(c), { ...ids, now: deps.now() }), () =>
+        c.json({ stopped: true }),
       ),
     ),
   );

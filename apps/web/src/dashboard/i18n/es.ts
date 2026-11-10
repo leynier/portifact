@@ -2264,4 +2264,98 @@ export const es = {
   "policies.default.domainLapsed":
     "No hay ningún dominio de correo verificado, así que los artefactos nuevos empiezan compartidos con el espacio de trabajo hasta que se verifique uno.",
   "audit.access.byPolicy": "por la política del espacio de trabajo",
+  "audit.actor.directory": "{label} (directorio)",
+  "audit.actor.directoryGone": "Directorio (token SCIM revocado)",
+  "audit.kind.memberJoinedDirectory": "{member} se unió como {role} mediante el directorio",
+  "audit.kind.memberProvisioned":
+    "Aprovisionó a alguien de {domain} como {role}; se une al iniciar sesión",
+  "audit.kind.scimTokenCreated": "Creó un token SCIM ({days, plural, one {# día} other {# días}})",
+  "audit.kind.scimTokenRevoked": "Revocó un token SCIM",
+  "audit.kind.scimEmailsOn": "Activó los correos de invitación para las personas aprovisionadas",
+  "audit.kind.scimEmailsOff":
+    "Desactivó los correos de invitación para las personas aprovisionadas",
+  "pending.directory": "Del directorio",
+  "pending.directoryDetail":
+    "{role}, aprovisionado por el directorio: se une al iniciar sesión por primera vez, ocupa un puesto hasta el {date}",
+  "scim.title": "Sincronización de directorio (SCIM)",
+  "scim.description":
+    "Deja que tu proveedor de identidad agregue y quite a las personas del espacio de trabajo. Aprovisiona direcciones de tus dominios de correo verificados; quien no tiene cuenta de Portifact se une al iniciar sesión por primera vez con esa dirección.",
+  "scim.loadFailed": "No se pudo cargar la sincronización de directorio",
+  "scim.baseUrl": "URL base de SCIM",
+  "scim.baseUrlCopy": "Copiar URL",
+  "scim.baseUrlHint":
+    "Pégala en tu proveedor de identidad como URL base de SCIM o URL del inquilino, y un token de abajo como token de portador.",
+  "scim.planTitle": "No está en este plan",
+  "scim.plan":
+    "La sincronización de directorio necesita el plan {plan}. Hasta entonces se rechazan las solicitudes del directorio; igual puedes revocar sus tokens.",
+  "scim.rules":
+    "Las personas nuevas se unen como miembros. Desactivar a alguien en el directorio lo quita del espacio de trabajo y cierra todas sus sesiones; su cuenta y su espacio personal siguen siendo suyos. A quien quites aquí a mano, la próxima sincronización no lo vuelve a agregar.",
+  "scim.lastSync": "Última sincronización",
+  "scim.lastSyncNever": "El directorio todavía no se conectó.",
+  "scim.pendingLabel": "Esperando iniciar sesión",
+  "scim.pending":
+    "{count, plural, =0 {Nadie} one {# persona, en las invitaciones pendientes} other {# personas, en las invitaciones pendientes}}",
+  "scim.tokens": "Tokens",
+  "scim.tokensEmpty": "Todavía no hay tokens.",
+  "scim.tokenExpires": "Vence el {date}",
+  "scim.tokenExpired": "Venció el {date}",
+  "scim.tokenUsed": "último uso el {date}",
+  "scim.tokenUnused": "nunca usado",
+  "scim.create": "Crear un token SCIM",
+  "scim.label": "Etiqueta",
+  "scim.labelHint": "Por ejemplo, el nombre del proveedor de identidad.",
+  "scim.labelRequired": "Escribe una etiqueta de hasta 80 caracteres.",
+  "scim.expiry": "Vence después de",
+  "scim.days": "{count, plural, one {# día} other {# días}}",
+  "scim.limit":
+    "Un espacio de trabajo tiene como máximo {count} tokens SCIM, para que uno reemplace a otro sin cortes. Revoca uno para crear otro.",
+  "scim.secret.title": "Copia el token ahora",
+  "scim.secret.body":
+    "Se muestra una sola vez. Pégalo en tu proveedor de identidad como token de portador.",
+  "scim.secret.label": "Token SCIM {label}",
+  "scim.secret.copy": "Copiar token",
+  "scim.secret.done": "Ya lo guardé",
+  "scim.revoke": "Revocar",
+  "scim.revokeNamed": "Revocar: {label}",
+  "scim.confirmRevoke.title": "¿Revocar {label}?",
+  "scim.confirmRevoke.body":
+    "Se rechaza la próxima solicitud del directorio con él. Las personas que aprovisionó quedan como están.",
+  "scim.confirmRevoke.action": "Revocar token",
+  "scim.revoked": "Se revocó el token {label}.",
+  "scim.created": "Se creó el token {label}. Cópialo ahora.",
+  "scim.emails":
+    "Enviar el correo de invitación a las personas que el directorio aprovisiona sin cuenta de Portifact",
+  "scim.emailsHint":
+    "Desactivado por defecto: los proveedores de identidad suelen avisar ellos mismos de las apps nuevas. En cualquier caso, se unen al iniciar sesión por primera vez con esa dirección.",
+  "scim.emailsSaved": "Guardado.",
+  "scim.actionFailed": "No se guardó el cambio",
+  "audit.kind.scimRoleOn": "Dio el rol {role} a los miembros de un grupo del directorio",
+  "audit.kind.scimRoleOff": "Dejó de dar el rol {role} mediante un grupo del directorio",
+  "groups.directory": "Lo administra tu directorio",
+  "groups.directoryNote":
+    "El directorio de tu organización administra este grupo mediante SCIM: cambia su nombre y sus miembros allí.",
+  "members.directoryRole": "En un grupo del directorio con un rol",
+  "scim.roles.title": "Roles desde grupos del directorio",
+  "scim.roles.description":
+    "Los miembros del grupo que elijas reciben ese rol cuando es mayor que el que tienen. El directorio solo quita un rol que dio: nunca baja un rol que un administrador asignó a mano, y un rol que cambias a mano es tuyo desde entonces.",
+  "scim.roles.access":
+    "Un grupo que figura en un artifact permite que sus miembros lo lean, así que ahora tu directorio decide quién lee esos artifacts.",
+  "scim.roles.editor": "Grupo cuyos miembros son editores",
+  "scim.roles.admin": "Grupo cuyos miembros son administradores",
+  "scim.roles.none": "Ningún grupo",
+  "scim.roles.option": "{name} ({count, plural, one {# miembro} other {# miembros}})",
+  "scim.roles.noGroups": "Tu directorio todavía no envió ningún grupo.",
+  "scim.roles.save": "Guardar roles",
+  "scim.roles.saved": "Roles guardados.",
+  "scim.roles.confirm.title": "¿Hacer administradores a los miembros de {name}?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {Hay # persona} other {Hay # personas}} en {name} ahora, y {pending, plural, =0 {nadie más estará} one {# más estará} other {# más estarán}} al iniciar sesión. Quien controle tu directorio decidirá quién administra este espacio de trabajo: sus miembros, políticas, tokens y ajustes.",
+  "scim.roles.confirm.action": "Hacerlos administradores",
+  "groups.stopSync": "Dejar de sincronizar",
+  "groups.stopSyncLabel": "Dejar de sincronizar {name}",
+  "groups.stopSync.title": "¿Dejar de sincronizar {name} desde tu directorio?",
+  "groups.stopSync.body":
+    "Tu directorio dejará de administrar este grupo: desde ahora lo editan los administradores aquí. Se quita su asignación de rol, y las personas a las que hizo editores o administradores conservan su rol. Si el directorio envía más adelante un grupo con el mismo nombre, se rechaza.",
+  "groups.stopSync.done": "{name} ya no se sincroniza desde tu directorio.",
+  "audit.kind.groupSyncStopped": "Dejó de sincronizar el grupo {group} desde el directorio",
 } satisfies Catalog;

@@ -35,7 +35,7 @@ const prepare = (ownerId: string, files: ManifestEntry[], now = NOW) =>
 describe("owner entitlements", () => {
   it("reads an owner without a row as free", async () => {
     const owner = await user();
-    expect(await ownerEntitlements(db(), owner.id, NOW)).toEqual({
+    expect(await ownerEntitlements(db().global, owner.id, NOW)).toEqual({
       plan: "free",
       seats: 1,
       validUntil: null,
@@ -51,26 +51,26 @@ describe("owner entitlements", () => {
       seats: 2,
       overrides: { limits: { activeArtifacts: 3_000 }, features: { sso: true } },
     });
-    const team = await ownerEntitlements(db(), owner.id, NOW);
+    const team = await ownerEntitlements(db().global, owner.id, NOW);
     expect(team).toMatchObject({ plan: "team", seats: 2 });
     expect(team.limits).toMatchObject({ activeArtifacts: 3_000, accountBytes: 60_000_000_000 });
     expect(team.features).toContain("sso");
-    expect((await ownerEntitlements(db(), other.id, NOW)).plan).toBe("free");
+    expect((await ownerEntitlements(db().global, other.id, NOW)).plan).toBe("free");
   });
 
   it("reads an expired row and invalid overrides safely", async () => {
     const owner = await user();
     await grantPlan(owner.id, "pro", { validUntil: NOW });
-    expect((await ownerEntitlements(db(), owner.id, NOW)).plan).toBe("free");
-    expect((await ownerEntitlements(db(), owner.id, NOW - 1)).plan).toBe("pro");
+    expect((await ownerEntitlements(db().global, owner.id, NOW)).plan).toBe("free");
+    expect((await ownerEntitlements(db().global, owner.id, NOW - 1)).plan).toBe("pro");
     await grantPlan(owner.id, "pro", { overrides: { limits: { activeArtifacts: -5 } } });
-    expect((await ownerEntitlements(db(), owner.id, NOW)).limits).toEqual(PLANS.pro.limits);
+    expect((await ownerEntitlements(db().global, owner.id, NOW)).limits).toEqual(PLANS.pro.limits);
   });
 
   it("shows the plan with ISO dates", async () => {
     const owner = await user();
     await grantPlan(owner.id, "pro", { validUntil: Date.UTC(2027, 0, 1) });
-    expect(planView(await ownerEntitlements(db(), owner.id, NOW))).toEqual({
+    expect(planView(await ownerEntitlements(db().global, owner.id, NOW))).toEqual({
       name: "pro",
       validUntil: "2027-01-01T00:00:00.000Z",
       seats: 1,
@@ -154,15 +154,20 @@ describe("usage with a plan", () => {
 describe("requireOwnerFeature", () => {
   it("refuses a free owner with plan_required and gives a paid owner its entitlements", async () => {
     const owner = await user();
-    expect(await requireOwnerFeature(db(), { ownerId: owner.id }, "pin", NOW)).toEqual({
+    expect(await requireOwnerFeature(db().global, { ownerId: owner.id }, "pin", NOW)).toEqual({
       ok: false,
       code: "plan_required",
       message: "Pinning artifacts is part of the Pro plan.",
     });
     await grantPlan(owner.id, "pro");
-    const granted = await requireOwnerFeature(db(), { ownerId: owner.id }, "pin", NOW);
-    expect(granted).toEqual({ ok: true, value: await ownerEntitlements(db(), owner.id, NOW) });
-    expect(await requireOwnerFeature(db(), { ownerId: owner.id }, "workspaces", NOW)).toEqual({
+    const granted = await requireOwnerFeature(db().global, { ownerId: owner.id }, "pin", NOW);
+    expect(granted).toEqual({
+      ok: true,
+      value: await ownerEntitlements(db().global, owner.id, NOW),
+    });
+    expect(
+      await requireOwnerFeature(db().global, { ownerId: owner.id }, "workspaces", NOW),
+    ).toEqual({
       ok: false,
       code: "plan_required",
       message: "Using workspaces is part of the Team plan.",
@@ -172,8 +177,12 @@ describe("requireOwnerFeature", () => {
   it("reads an expired plan as free", async () => {
     const owner = await user();
     await grantPlan(owner.id, "pro", { validUntil: NOW });
-    expect((await requireOwnerFeature(db(), { ownerId: owner.id }, "pin", NOW)).ok).toBe(false);
-    expect((await requireOwnerFeature(db(), { ownerId: owner.id }, "pin", NOW - 1)).ok).toBe(true);
+    expect((await requireOwnerFeature(db().global, { ownerId: owner.id }, "pin", NOW)).ok).toBe(
+      false,
+    );
+    expect((await requireOwnerFeature(db().global, { ownerId: owner.id }, "pin", NOW - 1)).ok).toBe(
+      true,
+    );
   });
 
   it("uses the artifact owner's plan, not the acting user's", async () => {
@@ -199,19 +208,21 @@ describe("requireOwnerFeature", () => {
     const actor = value(await authorizeOn(db(), editor.id, workspaceId, "manage", missing));
 
     // The editor's own space is free, yet acting on the Team workspace the feature is there.
-    expect((await requireOwnerFeature(db(), actor, "workspaces", NOW)).ok).toBe(true);
-    expect((await requireOwnerFeature(db(), { ownerId: editor.id }, "workspaces", NOW)).ok).toBe(
-      false,
-    );
+    expect((await requireOwnerFeature(db().global, actor, "workspaces", NOW)).ok).toBe(true);
+    expect(
+      (await requireOwnerFeature(db().global, { ownerId: editor.id }, "workspaces", NOW)).ok,
+    ).toBe(false);
 
     // And the other way: a Pro user acting on a free workspace does not bring their plan along.
     await grantPlan(editor.id, "pro");
     await grantPlan(workspaceId, "free");
-    expect(await requireOwnerFeature(db(), actor, "pin", NOW)).toEqual({
+    expect(await requireOwnerFeature(db().global, actor, "pin", NOW)).toEqual({
       ok: false,
       code: "plan_required",
       message: "Pinning artifacts is part of the Pro plan.",
     });
-    expect((await requireOwnerFeature(db(), personalActor(editor.id), "pin", NOW)).ok).toBe(true);
+    expect((await requireOwnerFeature(db().global, personalActor(editor.id), "pin", NOW)).ok).toBe(
+      true,
+    );
   });
 });

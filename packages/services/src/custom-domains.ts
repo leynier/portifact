@@ -27,6 +27,7 @@ import {
 import {
   type Db,
   type GlobalDb,
+  isRegion,
   type Region,
   type RegionalDb,
   type Regions,
@@ -90,7 +91,7 @@ const busy = (hostname: string) =>
  * (the artifact's `custom_host`).
  */
 export interface DomainDbs {
-  global: Db;
+  global: GlobalDb;
   regional(region: Region): Db;
 }
 
@@ -102,9 +103,8 @@ export function domainDbs(regions: Regions): DomainDbs {
  * For the paths that hold the artifact's own region (purges, suspensions): the artifact's
  * `custom_host` is in `db`, the domains in its deployment's global database.
  */
-export function domainDbsOf(db: Db | RegionalDb): DomainDbs {
-  const global = "global" in db ? db.global : db;
-  return { global, regional: () => db };
+export function domainDbsOf(db: RegionalDb): DomainDbs {
+  return { global: db.global, regional: () => db };
 }
 
 /** One domain or pending claim, as the services hand it to the adapters. */
@@ -159,7 +159,7 @@ function newToken(): string {
     .join("");
 }
 
-async function domainRow(global: Db, hostname: string): Promise<DomainRow | undefined> {
+async function domainRow(global: GlobalDb, hostname: string): Promise<DomainRow | undefined> {
   const [row] = await global.select().from(c).where(eq(c.hostname, hostname)).limit(1);
   return row;
 }
@@ -372,7 +372,7 @@ const dnsUnavailable = () =>
   fail<never>("capacity_unavailable", "DNS could not be checked right now. Try again in a minute.");
 
 /** The operator's block list: a small table read whole. */
-export async function blockedNames(global: Db): Promise<string[]> {
+export async function blockedNames(global: GlobalDb): Promise<string[]> {
   return (
     await global.select({ name: schema.blockedHostnames.name }).from(schema.blockedHostnames)
   ).map((row) => row.name);
@@ -383,7 +383,7 @@ export async function blockedNames(global: Db): Promise<string[]> {
  * (or a name above it), or it is the apex of its DNS zone. Null when it may be used.
  */
 async function refusedName(
-  global: Db,
+  global: GlobalDb,
   deps: DomainDeps,
   hostname: string,
 ): Promise<Result<never> | null> {
@@ -514,7 +514,7 @@ async function proveClaim(
 }
 
 /** The owner's domains that count toward the limit, other than `hostname`. */
-async function countOwned(global: Db, ownerId: string, hostname: string): Promise<number> {
+async function countOwned(global: GlobalDb, ownerId: string, hostname: string): Promise<number> {
   const [counted] = await global
     .select({ n: sql<number>`count(*)` })
     .from(c)
@@ -549,7 +549,12 @@ async function checkAgain(
   return ok(domainRecord((await domainRow(dbs.global, row.hostname)) ?? row));
 }
 
-async function setProblem(global: Db, row: DomainRow, problem: CustomDomainProblem, now: number) {
+async function setProblem(
+  global: GlobalDb,
+  row: DomainRow,
+  problem: CustomDomainProblem,
+  now: number,
+) {
   await global
     .update(c)
     .set({ problem, checkedAt: now })
@@ -822,7 +827,7 @@ export interface DomainListing {
 }
 
 async function listing(
-  global: Db,
+  global: GlobalDb,
   deps: DomainDeps | null,
   ownerId: string,
   owner: Entitlements,
@@ -894,7 +899,7 @@ export async function artifactCustomDomains(
   );
 }
 
-async function planRow(global: Db, ownerId: string) {
+async function planRow(global: GlobalDb, ownerId: string) {
   const [row] = await global
     .select({
       plan: schema.ownerPlans.plan,
@@ -1010,8 +1015,89 @@ export async function checkCustomDomains(
     }
   }
   result.detached += await enforceDomainLimits(dbs, now);
+  const moved = await releaseMovedArtifactDomains(dbs, now, batch);
+  result.prunedClaims += moved.claims;
+  result.detached += moved.detached;
   result.notices = await scheduleDomainNotices(dbs.global, now);
   return result;
+}
+
+/**
+ * Releases claims and domains whose artifact is no longer their owner's (it moved, or it is
+ * gone). With one database a transfer refuses an artifact with either in the same batch; with a
+ * separate regional database the move releases a claim that raced it right after, and this scan
+ * is what finishes that release if the transfer stopped in between (decision 0005,
+ * "Two-region audit"). Bounded: `limit` claims and `limit` domains a run, one regional read of
+ * their artifacts per region; releasing twice changes nothing.
+ */
+export async function releaseMovedArtifactDomains(
+  dbs: DomainDbs,
+  now: number,
+  limit = DOMAIN_CHECK_BATCH,
+): Promise<{ claims: number; detached: number }> {
+  const claims = await dbs.global
+    .select({
+      hostname: k.hostname,
+      ownerId: k.ownerId,
+      artifactId: k.artifactId,
+      region: k.region,
+    })
+    .from(k)
+    .orderBy(asc(k.expiresAt))
+    .limit(limit);
+  const domains = await dbs.global
+    .select({
+      hostname: c.hostname,
+      ownerId: c.ownerId,
+      artifactId: c.artifactId,
+      region: c.region,
+    })
+    .from(c)
+    .where(ne(c.state, "detaching"))
+    .orderBy(asc(c.checkedAt))
+    .limit(limit);
+  const owners = new Map<string, string>();
+  const byRegion = new Map<Region, Set<string>>();
+  for (const row of [...claims, ...domains]) {
+    if (!isRegion(row.region)) continue;
+    const set = byRegion.get(row.region) ?? new Set<string>();
+    set.add(row.artifactId);
+    byRegion.set(row.region, set);
+  }
+  // Only a region this Worker reads decides anything; a row in another region is left alone.
+  const read = new Set<string>();
+  for (const [region, ids] of byRegion) {
+    let regional: ReturnType<DomainDbs["regional"]>;
+    try {
+      regional = dbs.regional(region);
+    } catch {
+      continue;
+    }
+    for (const row of await regional
+      .select({ id: schema.artifacts.id, ownerId: schema.artifacts.ownerId })
+      .from(schema.artifacts)
+      .where(inArray(schema.artifacts.id, [...ids]))) {
+      owners.set(row.id, row.ownerId);
+    }
+    read.add(region);
+  }
+  const stray = (row: { artifactId: string; ownerId: string; region: string }) =>
+    read.has(row.region) && owners.get(row.artifactId) !== row.ownerId;
+  let released = 0;
+  for (const row of claims.filter(stray)) {
+    released += (
+      await dbs.global
+        .delete(k)
+        .where(and(eq(k.hostname, row.hostname), eq(k.ownerId, row.ownerId)))
+        .returning({ hostname: k.hostname })
+    ).length;
+  }
+  let detached = 0;
+  for (const row of domains.filter(stray)) {
+    const reason = owners.has(row.artifactId) ? "removed" : "artifact_unavailable";
+    if (await detachDomain(dbs, row.hostname, reason, now, { ownerId: row.ownerId })) detached += 1;
+  }
+  return { claims: released, detached };
 }
 
 /** The daily check of an active domain. True when it detached it. */
@@ -1199,7 +1285,7 @@ export async function reconcileCustomDomains(
 
 /** An owner's domains and live claims per artifact, for the account export. */
 export async function exportOwnerDomains(
-  global: Db,
+  global: GlobalDb,
   ownerId: string,
   now: number,
 ): Promise<
@@ -1249,7 +1335,7 @@ export async function activeCustomHost(
 
 /** Where a custom host points, from the global table: the content Worker's hint. */
 export async function customHostHint(
-  global: Db,
+  global: GlobalDb,
   hostname: string,
 ): Promise<{ artifactId: string; region: Region } | null> {
   const [row] = await global
@@ -1299,7 +1385,7 @@ export async function blockHostname(
 }
 
 /** Operator: lifts a block. Domains it detached stay detached; their owners add them again. */
-export async function unblockHostname(global: Db, name: string): Promise<boolean> {
+export async function unblockHostname(global: GlobalDb, name: string): Promise<boolean> {
   const normalized = normalizeBlockName(name);
   if (normalized === null) return false;
   const deleted = await global
@@ -1310,7 +1396,7 @@ export async function unblockHostname(global: Db, name: string): Promise<boolean
 }
 
 /** Operator: the block list, oldest first. */
-export async function listBlockedHostnames(global: Db) {
+export async function listBlockedHostnames(global: GlobalDb) {
   return global
     .select()
     .from(schema.blockedHostnames)

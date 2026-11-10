@@ -333,7 +333,15 @@ describe("groups in the API and MCP", () => {
     expect(response.status).toBe(200);
     const body = await response.json<Record<string, unknown>>();
     expect(body).toEqual({
-      items: [{ id: group.id, name: "Design", members: 1, createdAt: new Date(NOW).toISOString() }],
+      items: [
+        {
+          id: group.id,
+          name: "Design",
+          members: 1,
+          createdAt: new Date(NOW).toISOString(),
+          directory: false,
+        },
+      ],
       available: true,
       limit: 50,
     });

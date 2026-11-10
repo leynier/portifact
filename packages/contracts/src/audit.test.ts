@@ -144,9 +144,14 @@ describe("the catalog's exact shapes", () => {
       "sso.created": "sso",
       "sso.changed": "sso",
       "sso.removed": "sso",
+      "scim_token.created": "scim_token",
+      "scim_token.revoked": "scim_token",
+      "member.provisioned": "invitation",
+      "scim.changed": "scim",
       "group.created": "group",
       "group.renamed": "group",
       "group.deleted": "group",
+      "group.sync_stopped": "group",
       "group.member_added": "member",
       "group.member_removed": "member",
       "audit.exported": "audit_log",
@@ -237,7 +242,10 @@ describe("the catalog's exact shapes", () => {
   });
 
   it("knows a service token as an actor and as a target", () => {
-    expect([...AUDIT_ACTOR_TYPES]).toEqual(["user", "operator", "system", "token"]);
+    expect([...AUDIT_ACTOR_TYPES]).toEqual(["user", "operator", "system", "token", "directory"]);
+    const directory = { type: "directory", id: "sc_1", label: null };
+    expect(AuditActorView.safeParse(directory).success).toBe(true);
+    expect(AuditActorView.safeParse({ type: "directory", id: "sc_1" }).success).toBe(false);
     const token = { type: "service_token", id: "st_1", label: null };
     expect(AuditActorView.safeParse(token).success).toBe(true);
     expect(AuditActorView.safeParse({ ...token, label: "CI" }).success).toBe(true);

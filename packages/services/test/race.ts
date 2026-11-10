@@ -2,21 +2,28 @@
 // updates or deletes) first runs `before`, so another request's change commits between the
 // service's reads and its writes, the way a concurrent request would.
 import { env } from "cloudflare:test";
-import { type GlobalDb, globalDb, type RegionalDb, regionalDb } from "@portifact/db";
+import { aliasBinding, type GlobalDb, globalDb, type RegionalDb, regionalDb } from "@portifact/db";
 
 const WRITE = /^\s*(insert|update|delete|with)\b/i;
 
-export function raceBeforeFirstWrite(before: () => Promise<void>): RegionalDb {
-  return regionalDb(racedD1(before), globalDb(env.DB));
+/**
+ * The default region's handle over `env.DB`, racing; it stands for `env.DB` (`aliasBinding`), so
+ * the services see one database, today's production shape. `binding` gives another region's
+ * database instead (`env.DB_EU`), a separate one.
+ */
+export function raceBeforeFirstWrite(
+  before: () => Promise<void>,
+  binding: D1Database = env.DB,
+): RegionalDb {
+  return regionalDb(aliasBinding(racedD1(before, binding), binding), globalDb(env.DB));
 }
 
 /** The same, for services that take the global database. */
 export function raceGlobalBeforeFirstWrite(before: () => Promise<void>): GlobalDb {
-  return globalDb(racedD1(before));
+  return globalDb(aliasBinding(racedD1(before), env.DB));
 }
 
-function racedD1(before: () => Promise<void>): D1Database {
-  const d1 = env.DB;
+function racedD1(before: () => Promise<void>, d1: D1Database = env.DB): D1Database {
   let fired = false;
   const fire = async () => {
     if (fired) return;

@@ -39,11 +39,20 @@
     // Worker leaves it unset (decision 0016).
     "SSO_ENABLED": "true",
     "SSO_KEY": "e2e-only-sso-sealing-key-0123456789abcdef",
+    // SCIM provisioning, driven by the test as the directory; the deployed app Worker leaves it
+    // unset (decision 0017).
+    "SCIM_ENABLED": "true",
     // The human check runs against a fake Turnstile: the test front end serves the script at its
     // real URL (src/turnstile-fake.ts) and the e2e Worker fakes siteverify (worker/index.ts), so
     // nothing leaves the machine. Not secrets.
     "TURNSTILE_SITE_KEY": "e2e-turnstile-site-key",
-    "TURNSTILE_SECRET_KEY": "e2e-turnstile-secret"
+    "TURNSTILE_SECRET_KEY": "e2e-turnstile-secret",
+    // The second region (decision 0005): its own control and access log databases and bucket,
+    // below, and the EU bucket's name for presigning. The guard makes every request fail on a
+    // statement that reaches the other side's tables (packages/db/src/region-guard.ts). Neither
+    // is ever set on a deployed Worker.
+    "R2_BUCKET_EU": "portifact-e2e-eu",
+    "REGION_GUARD": "strict"
   },
   "d1_databases": [
     {
@@ -57,7 +66,22 @@
       "database_name": "portifact-e2e-access",
       "database_id": "00000000-0000-4000-8000-00000000e2e1",
       "migrations_dir": "../packages/db/access-migrations"
+    },
+    {
+      "binding": "DB_EU",
+      "database_name": "portifact-e2e-eu",
+      "database_id": "00000000-0000-4000-8000-00000000e2e2",
+      "migrations_dir": "../packages/db/migrations"
+    },
+    {
+      "binding": "ACCESS_DB_EU",
+      "database_name": "portifact-e2e-access-eu",
+      "database_id": "00000000-0000-4000-8000-00000000e2e3",
+      "migrations_dir": "../packages/db/access-migrations"
     }
   ],
-  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-e2e" }]
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "portifact-e2e" },
+    { "binding": "ARTIFACTS_EU", "bucket_name": "portifact-e2e-eu" }
+  ]
 }

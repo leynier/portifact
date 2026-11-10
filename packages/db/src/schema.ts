@@ -12,10 +12,10 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { sessions, users } from "./auth-schema.ts";
+import { users } from "./auth-schema.ts";
 
 /** Regions and roles, as in @portifact/contracts (packages/db does not depend on it). */
-export const REGIONS = ["default"] as const;
+export const REGIONS = ["default", "eu"] as const;
 export const WORKSPACE_ROLES = ["admin", "editor", "member"] as const;
 
 /** Categories of the Acceptable Use Policy, for reports and suspensions (contracts: AbuseReason). */
@@ -200,17 +200,14 @@ export const readHandoffs = sqliteTable(
     artifactId: text("artifact_id")
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     stateHash: text("state_hash").notNull(),
     /**
-     * The app.portifact.com session that asked for the code. Signing out deletes it, which
-     * deletes the code and every read session that came from it.
+     * The app.portifact.com session that asked for the code. Users and sessions are global and
+     * this row is regional (decision 0005), so there is no foreign key: redeeming checks that the
+     * session is still live in the global database, so a signed-out session redeems nothing.
      */
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    authSessionId: text("auth_session_id").notNull(),
     /** Policy generation the access check passed against; the read session starts from it. */
     policyGeneration: integer("policy_generation").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
@@ -238,16 +235,12 @@ export const readSessions = sqliteTable(
     artifactId: text("artifact_id")
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     /**
      * The app.portifact.com session the reader signed in with. Claims are renewed only while it
      * exists and has not expired, so signing out of the app ends the read session too.
      */
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    authSessionId: text("auth_session_id").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     createdAt: createdAt(),
   },
@@ -366,13 +359,12 @@ export const reviewHandoffs = sqliteTable(
     versionId: text("version_id")
       .notNull()
       .references(() => versions.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    /** The app.portifact.com session that asked for the code; signing out deletes the code. */
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    /**
+     * The app.portifact.com session that asked for the code. No foreign key (decision 0005):
+     * redeeming checks the session in the global database.
+     */
+    authSessionId: text("auth_session_id").notNull(),
     policyGeneration: integer("policy_generation").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     usedAt: timestamp("used_at"),
@@ -413,12 +405,9 @@ export const reviewSessions = sqliteTable(
     versionId: text("version_id")
       .notNull()
       .references(() => versions.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    /** No foreign key (decision 0005): renewing checks the session in the global database. */
+    authSessionId: text("auth_session_id").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     createdAt: createdAt(),
   },
@@ -714,6 +703,7 @@ export const OUTBOX_TOPICS = [
   "search_index",
   "review_notice",
   "workspace_policy",
+  "directory_notice",
 ] as const;
 
 /**
@@ -794,7 +784,11 @@ export const tombstones = sqliteTable(
      * cannot revive them; `workspace` a deleted workspace; `workspace_domain` a removed or lapsed
      * verified email domain by its row ID (decision 0010); `workspace_group` a deleted group and
      * `workspace_group_member` a removed group membership by its row ID (decision 0014);
-     * `workspace_sso` a removed single sign-on provider by its row ID (decision 0016).
+     * `workspace_sso` a removed single sign-on provider by its row ID (decision 0016);
+     * `scim_token` a revoked SCIM token and `scim_user` a directory user the directory deleted,
+     * `workspace_invitation` a pending membership the directory withdrew by its row ID and
+     * `workspace_member` a membership the directory ended, as `<workspace>:<user>`, which a
+     * restore must not bring back if it was created before the tombstone (decision 0017).
      */
     kind: text("kind", {
       enum: [
@@ -808,6 +802,10 @@ export const tombstones = sqliteTable(
         "workspace_group",
         "workspace_group_member",
         "workspace_sso",
+        "scim_token",
+        "scim_user",
+        "workspace_invitation",
+        "workspace_member",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1641,10 +1639,20 @@ export const workspaceInvitations = sqliteTable(
     invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
+    /**
+     * `directory` when the workspace's directory provisioned the address through SCIM (decision
+     * 0017): it becomes a membership when the person first signs in with that verified address,
+     * without an accept step. Holds a seat like any invitation.
+     */
+    source: text("source", { enum: ["admin", "directory"] })
+      .notNull()
+      .default("admin"),
   },
   (t) => [
     uniqueIndex("workspace_invitations_token_idx").on(t.tokenHash),
-    uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email),
+    // One pending invitation per workspace, address and source: a directory's pending
+    // membership sits beside an admin's invitation and never changes it (decision 0017).
+    uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email, t.source),
     index("workspace_invitations_email_idx").on(t.email),
     check("workspace_invitations_role", sql`${t.role} in ('admin', 'editor', 'member')`),
   ],
@@ -1688,6 +1696,159 @@ export const serviceTokens = sqliteTable(
     ),
   ],
 );
+
+/**
+ * SCIM tokens (premium plan E2, decision 0017): the credential a workspace's directory uses at
+ * `/scim/v2`, and nothing else. Separate from service tokens so no actor resolution can ever give
+ * one a role on artifacts. Only the SHA-256 of the secret is stored. Revoking deletes the row and
+ * writes a `scim_token` tombstone; deleting the workspace deletes its tokens. `created_by` has no
+ * foreign key: deleting that account clears it.
+ */
+export const scimTokens = sqliteTable(
+  "scim_tokens",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    /** Written at most once an hour, like a service token's. */
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (t) => [
+    uniqueIndex("scim_tokens_hash_idx").on(t.tokenHash),
+    index("scim_tokens_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * The directory's users of a workspace (decision 0017): the SCIM resource the directory created,
+ * by an unguessable ID. `email` is the directory's `userName`, lowercase, always in one of the
+ * workspace's verified email domains when written. `user_id` links the account once the person
+ * is a member through it (at once when an account had the address, or at their first sign-in);
+ * the membership itself is in `workspace_members`, the pending one in `workspace_invitations`
+ * with `source = 'directory'`. `removed_at` records that an admin removed the person, withdrew
+ * the pending membership or the person left by hand: a routine sync does not undo it, only an
+ * explicit reactivation or a new provisioning does. Global, next to the memberships; goes with the
+ * workspace, and the account link is cleared with the account.
+ */
+export const scimUsers = sqliteTable(
+  "scim_users",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    externalId: text("external_id"),
+    /** `displayName` and `name` as the directory sent them, JSON; echoed back to it only. */
+    names: text("names", { mode: "json" }),
+    active: integer("active", { mode: "boolean" }).notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    removedAt: timestamp("removed_at"),
+    /**
+     * Who made the removal by hand: `admin` (a removed member or a withdrawn pending membership),
+     * which an explicit reactivation lifts, or `self` (the person left), which only a new create
+     * after a delete lifts.
+     */
+    removal: text("removal", { enum: ["admin", "self"] }),
+    /**
+     * Set in the batch that removed the linked account's membership and cleared once its sessions
+     * ended, so a retry after a failure ends them, and only for that removal.
+     */
+    sessionsPending: integer("sessions_pending", { mode: "boolean" }).notNull().default(false),
+    /**
+     * The role the directory's group mapping last gave the linked account (`editor` or `admin`),
+     * null when it gave none: a sync changes a role only for someone it gave one to or gives one
+     * to now, so a role an admin set by hand for anyone else is never touched.
+     */
+    mappedRole: text("mapped_role", { enum: ["editor", "admin"] }),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    /**
+     * A per-request unique token each write sets in its guarded first statement; the rest of the
+     * batch is conditioned on it, so of two concurrent writes only the one that claimed the row
+     * applies its effects (AGENTS.md, D1 batches).
+     */
+    writeId: text("write_id").notNull(),
+  },
+  (t) => [
+    uniqueIndex("scim_users_workspace_email_idx").on(t.workspaceId, t.email),
+    index("scim_users_workspace_created_idx").on(t.workspaceId, t.createdAt, t.id),
+    index("scim_users_workspace_external_idx").on(t.workspaceId, t.externalId),
+    index("scim_users_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * Groups a workspace's directory manages through SCIM (decision 0017, "Groups and roles"): a row
+ * here marks the `workspace_groups` row as directory-managed, so the dashboard does not change it.
+ * Goes with the group. `write_id` claims each write, like a directory user's.
+ */
+export const scimGroups = sqliteTable(
+  "scim_groups",
+  {
+    groupId: text("group_id")
+      .primaryKey()
+      .references(() => workspaceGroups.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    externalId: text("external_id"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    writeId: text("write_id").notNull(),
+  },
+  (t) => [index("scim_groups_workspace_external_idx").on(t.workspaceId, t.externalId)],
+);
+
+/**
+ * Who the directory says is in each of its groups, by directory user: pending people included.
+ * `workspace_group_members` holds the members among them who are workspace members; a person who
+ * joins later gets their group rows from here in the batch of the join. Goes with the group and
+ * with the directory user.
+ */
+export const scimGroupMembers = sqliteTable(
+  "scim_group_members",
+  {
+    groupId: text("group_id")
+      .notNull()
+      .references(() => scimGroups.groupId, { onDelete: "cascade" }),
+    scimUserId: text("scim_user_id")
+      .notNull()
+      .references(() => scimUsers.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.groupId, t.scimUserId] }),
+    index("scim_group_members_user_idx").on(t.scimUserId),
+  ],
+);
+
+/** A workspace's SCIM settings (decision 0017); no row means the defaults. */
+export const workspaceScim = sqliteTable("workspace_scim", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  /** Whether a person provisioned without an account gets the invitation email. Off by default. */
+  invitationEmails: integer("invitation_emails", { mode: "boolean" }).notNull().default(false),
+  /**
+   * The directory-managed groups whose members get `editor` and `admin` (decision 0017, "Groups
+   * and roles"); null when unmapped. Cleared in the batch that deletes the group.
+   */
+  editorGroupId: text("editor_group_id"),
+  adminGroupId: text("admin_group_id"),
+  /** Moves with every mapping change; a change is conditioned on the revision it read. */
+  mappingRevision: integer("mapping_revision").notNull().default(0),
+  /** The per-request token of the last mapping write, read back to tell a write from a race. */
+  mappingWriteId: text("mapping_write_id"),
+  updatedAt: timestamp("updated_at").notNull(),
+});
 
 /**
  * Email domains a workspace claims or verified (premium plan T2, decision 0010). Global, like the
@@ -1966,7 +2127,9 @@ export const auditEvents = sqliteTable(
     ownerId: text("owner_id").notNull(),
     at: timestamp("at").notNull(),
     kind: text("kind").notNull(),
-    actorType: text("actor_type", { enum: ["user", "operator", "system", "token"] }).notNull(),
+    actorType: text("actor_type", {
+      enum: ["user", "operator", "system", "token", "directory"],
+    }).notNull(),
     actorId: text("actor_id"),
     targetId: text("target_id"),
     artifactId: text("artifact_id"),

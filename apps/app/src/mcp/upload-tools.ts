@@ -14,7 +14,7 @@ import {
   PublishRequest,
   UploadRef,
 } from "@portifact/contracts";
-import type { RegionalDb } from "@portifact/db";
+import type { RegionalDb, RegionHandles } from "@portifact/db";
 import {
   commitPublish,
   hashRequest,
@@ -24,7 +24,7 @@ import {
 } from "@portifact/services";
 import { failure as storedFailure } from "../api/http.ts";
 import { preparedPublish, prepareUpload } from "../api/uploads.ts";
-import { artifactDb, ownerScope } from "../regions.ts";
+import { artifactRegion, bucketOf, ownerScope, regionsOf, uploadRegion } from "../regions.ts";
 import { committedPublish } from "./present.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
@@ -57,9 +57,10 @@ export function registerUploadTools(
   context: ToolContext,
   db: RegionalDb,
 ): void {
-  const uploadDeps = () => ({
-    bucket: context.env.ARTIFACTS,
-    presigner: context.presigner,
+  // The owner's region's bucket and presigner (decision 0005).
+  const uploadDeps = (handles: RegionHandles) => ({
+    bucket: bucketOf(handles),
+    presigner: context.presigner(handles.region),
     multipart: context.multipart,
   });
 
@@ -99,9 +100,10 @@ export function registerUploadTools(
         },
         async () => {
           if (request.data.artifactId) {
+            const handles = await artifactRegion(context.env, request.data.artifactId);
             return prepareUpload(
-              await artifactDb(context.env, request.data.artifactId),
-              uploadDeps(),
+              handles.db,
+              uploadDeps(handles),
               context.userId,
               request.data,
               now,
@@ -112,7 +114,7 @@ export function registerUploadTools(
           if (!scope.ok) return storedFailure(scope.code, scope.message);
           return prepareUpload(
             scope.value.db,
-            uploadDeps(),
+            uploadDeps(regionsOf(context.env).get(scope.value.actor.region)),
             context.userId,
             request.data,
             now,
@@ -146,13 +148,14 @@ export function registerUploadTools(
     },
     async (args: UploadRef) => {
       const now = context.now();
-      const result = await uploadProgress(db, {
+      const handles = await uploadRegion(context.env, args.uploadId);
+      const result = await uploadProgress(handles.db, {
         userId: context.userId,
         sessionId: args.uploadId,
         now,
       });
       if (!result.ok) return failure(result.code, result.message);
-      const body = await preparedPublish(context.presigner, result.value, now);
+      const body = await preparedPublish(context.presigner(handles.region), result.value, now);
       return success(nextSteps(body), body);
     },
   );
@@ -174,12 +177,17 @@ export function registerUploadTools(
     },
     async (args: CommitUploadInput) => {
       const session = { userId: context.userId, sessionId: args.uploadId };
+      const handles = await uploadRegion(context.env, args.uploadId);
       // The same report as POST /api/v1/publishes/:uploadId/parts, once per part.
       for (const part of args.parts ?? []) {
-        const reported = await reportUploadedPart(db, { ...session, ...part, now: context.now() });
+        const reported = await reportUploadedPart(handles.db, {
+          ...session,
+          ...part,
+          now: context.now(),
+        });
         if (!reported.ok) return failure(reported.code, reported.message);
       }
-      const result = await commitPublish(db, context.env.ARTIFACTS, {
+      const result = await commitPublish(handles.db, bucketOf(handles), {
         ...session,
         now: context.now(),
       });

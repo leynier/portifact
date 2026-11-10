@@ -151,7 +151,7 @@ function mineCondition(userId: string): SQL {
 
 /** The caller's verified address, which the reader list and its exceptions match. */
 async function verifiedEmailOf(db: RegionalDb, userId: string): Promise<string | null> {
-  const [user] = await db
+  const [user] = await db.global
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
@@ -170,7 +170,7 @@ export async function listOpenFeedback(
   input: FeedbackInput,
 ): Promise<Result<FeedbackResult>> {
   const owner = input.actor.ownerId;
-  const entitlements = await ownerEntitlements(db, owner, input.now);
+  const entitlements = await ownerEntitlements(db.global, owner, input.now);
   if (isWorkspaceId(owner)) {
     const gate = requireFeature(entitlements, "workspaces");
     if (!gate.ok) return gate;

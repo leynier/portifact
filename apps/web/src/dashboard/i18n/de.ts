@@ -2278,4 +2278,98 @@ export const de = {
   "policies.default.domainLapsed":
     "Keine E-Mail-Domain ist bestätigt, daher starten neue Artefakte mit dem Workspace geteilt, bis wieder eine bestätigt ist.",
   "audit.access.byPolicy": "durch die Richtlinie des Workspace",
+  "audit.actor.directory": "{label} (Verzeichnis)",
+  "audit.actor.directoryGone": "Verzeichnis (widerrufenes SCIM-Token)",
+  "audit.kind.memberJoinedDirectory": "{member} ist als {role} über das Verzeichnis beigetreten",
+  "audit.kind.memberProvisioned":
+    "Jemanden bei {domain} als {role} bereitgestellt; tritt bei der Anmeldung bei",
+  "audit.kind.scimTokenCreated": "SCIM-Token erstellt ({days, plural, one {# Tag} other {# Tage}})",
+  "audit.kind.scimTokenRevoked": "SCIM-Token widerrufen",
+  "audit.kind.scimEmailsOn": "Einladungs-E-Mails für bereitgestellte Personen eingeschaltet",
+  "audit.kind.scimEmailsOff": "Einladungs-E-Mails für bereitgestellte Personen ausgeschaltet",
+  "pending.directory": "Aus dem Verzeichnis",
+  "pending.directoryDetail":
+    "{role}, vom Verzeichnis bereitgestellt: tritt bei der ersten Anmeldung bei, belegt einen Platz bis {date}",
+  "scim.title": "Verzeichnissynchronisierung (SCIM)",
+  "scim.description":
+    "Lass deinen Identitätsanbieter Personen zum Workspace hinzufügen und entfernen. Er stellt Adressen aus deinen bestätigten E-Mail-Domains bereit; wer kein Portifact-Konto hat, tritt bei der ersten Anmeldung mit dieser Adresse bei.",
+  "scim.loadFailed": "Die Verzeichnissynchronisierung konnte nicht geladen werden",
+  "scim.baseUrl": "SCIM-Basis-URL",
+  "scim.baseUrlCopy": "URL kopieren",
+  "scim.baseUrlHint":
+    "Füge sie bei deinem Identitätsanbieter als SCIM-Basis-URL oder Mandanten-URL ein und ein Token unten als Bearer-Token.",
+  "scim.planTitle": "Nicht in diesem Tarif",
+  "scim.plan":
+    "Die Verzeichnissynchronisierung braucht den Tarif {plan}. Bis dahin werden die Anfragen des Verzeichnisses abgelehnt; seine Tokens kannst du trotzdem widerrufen.",
+  "scim.rules":
+    "Neue Personen treten als Mitglieder bei. Wer im Verzeichnis deaktiviert wird, verlässt den Workspace und wird überall abgemeldet; Konto und persönlicher Bereich bleiben bei der Person. Wer hier von Hand entfernt wurde, wird von der nächsten Synchronisierung nicht wieder hinzugefügt.",
+  "scim.lastSync": "Letzte Synchronisierung",
+  "scim.lastSyncNever": "Das Verzeichnis hat sich noch nicht gemeldet.",
+  "scim.pendingLabel": "Warten auf Anmeldung",
+  "scim.pending":
+    "{count, plural, =0 {Niemand} one {# Person, bei den offenen Einladungen} other {# Personen, bei den offenen Einladungen}}",
+  "scim.tokens": "Tokens",
+  "scim.tokensEmpty": "Noch kein Token.",
+  "scim.tokenExpires": "Läuft am {date} ab",
+  "scim.tokenExpired": "Am {date} abgelaufen",
+  "scim.tokenUsed": "zuletzt verwendet am {date}",
+  "scim.tokenUnused": "nie verwendet",
+  "scim.create": "SCIM-Token erstellen",
+  "scim.label": "Bezeichnung",
+  "scim.labelHint": "Zum Beispiel der Name des Identitätsanbieters.",
+  "scim.labelRequired": "Gib eine Bezeichnung mit höchstens 80 Zeichen ein.",
+  "scim.expiry": "Läuft ab nach",
+  "scim.days": "{count, plural, one {# Tag} other {# Tagen}}",
+  "scim.limit":
+    "Ein Workspace hat höchstens {count} SCIM-Tokens, damit eines ein anderes ohne Unterbrechung ersetzen kann. Widerrufe eines, um ein neues zu erstellen.",
+  "scim.secret.title": "Kopiere das Token jetzt",
+  "scim.secret.body":
+    "Es wird nur einmal angezeigt. Füge es bei deinem Identitätsanbieter als Bearer-Token ein.",
+  "scim.secret.label": "SCIM-Token {label}",
+  "scim.secret.copy": "Token kopieren",
+  "scim.secret.done": "Ich habe es gespeichert",
+  "scim.revoke": "Widerrufen",
+  "scim.revokeNamed": "Widerrufen: {label}",
+  "scim.confirmRevoke.title": "{label} widerrufen?",
+  "scim.confirmRevoke.body":
+    "Die nächste Anfrage des Verzeichnisses damit wird abgelehnt. Von ihm bereitgestellte Personen bleiben, wie sie sind.",
+  "scim.confirmRevoke.action": "Token widerrufen",
+  "scim.revoked": "Das Token {label} wurde widerrufen.",
+  "scim.created": "Das Token {label} wurde erstellt. Kopiere es jetzt.",
+  "scim.emails":
+    "Personen, die das Verzeichnis ohne Portifact-Konto bereitstellt, die Einladungs-E-Mail senden",
+  "scim.emailsHint":
+    "Standardmäßig aus: Identitätsanbieter informieren meist selbst über neue Apps. So oder so tritt die Person bei der ersten Anmeldung mit dieser Adresse bei.",
+  "scim.emailsSaved": "Gespeichert.",
+  "scim.actionFailed": "Die Änderung wurde nicht gespeichert",
+  "audit.kind.scimRoleOn": "Hat den Mitgliedern einer Verzeichnisgruppe die Rolle {role} gegeben",
+  "audit.kind.scimRoleOff": "Gibt die Rolle {role} nicht mehr über eine Verzeichnisgruppe",
+  "groups.directory": "Von Ihrem Verzeichnis verwaltet",
+  "groups.directoryNote":
+    "Das Verzeichnis Ihrer Organisation verwaltet diese Gruppe über SCIM: Ändern Sie Namen und Mitglieder dort.",
+  "members.directoryRole": "In einer Verzeichnisgruppe mit Rolle",
+  "scim.roles.title": "Rollen aus Verzeichnisgruppen",
+  "scim.roles.description":
+    "Mitglieder der gewählten Gruppe erhalten diese Rolle, wenn sie mehr ist als ihre jetzige. Das Verzeichnis nimmt nur eine Rolle zurück, die es vergeben hat: Es senkt nie eine Rolle, die ein Admin von Hand gesetzt hat, und eine Rolle, die Sie von Hand ändern, gehört ab dann Ihnen.",
+  "scim.roles.access":
+    "Eine Gruppe, die bei einem Artifact eingetragen ist, lässt ihre Mitglieder es lesen: Ihr Verzeichnis entscheidet jetzt, wer diese Artifacts liest.",
+  "scim.roles.editor": "Gruppe, deren Mitglieder Editoren sind",
+  "scim.roles.admin": "Gruppe, deren Mitglieder Admins sind",
+  "scim.roles.none": "Keine Gruppe",
+  "scim.roles.option": "{name} ({count, plural, one {# Mitglied} other {# Mitglieder}})",
+  "scim.roles.noGroups": "Ihr Verzeichnis hat noch keine Gruppe übertragen.",
+  "scim.roles.save": "Rollen speichern",
+  "scim.roles.saved": "Rollen gespeichert.",
+  "scim.roles.confirm.title": "Die Mitglieder von {name} zu Admins machen?",
+  "scim.roles.confirm.body":
+    "In {name} {count, plural, one {ist jetzt # Person} other {sind jetzt # Personen}}, und {pending, plural, =0 {niemand sonst kommt dazu} one {# weitere kommt dazu} other {# weitere kommen dazu}}, sobald sie sich anmelden. Wer Ihr Verzeichnis kontrolliert, entscheidet, wer diesen Workspace verwaltet: seine Mitglieder, Richtlinien, Tokens und Einstellungen.",
+  "scim.roles.confirm.action": "Zu Admins machen",
+  "groups.stopSync": "Synchronisierung beenden",
+  "groups.stopSyncLabel": "Synchronisierung von {name} beenden",
+  "groups.stopSync.title": "{name} nicht mehr aus Ihrem Verzeichnis synchronisieren?",
+  "groups.stopSync.body":
+    "Ihr Verzeichnis verwaltet diese Gruppe nicht mehr: Admins bearbeiten sie ab jetzt hier. Ihre Rollenzuordnung wird entfernt, und Personen, die sie zu Editoren oder Admins gemacht hat, behalten ihre Rolle. Überträgt das Verzeichnis später eine Gruppe mit demselben Namen, wird sie abgelehnt.",
+  "groups.stopSync.done": "{name} wird nicht mehr aus Ihrem Verzeichnis synchronisiert.",
+  "audit.kind.groupSyncStopped":
+    "Hat die Synchronisierung der Gruppe {group} aus dem Verzeichnis beendet",
 } satisfies Catalog;

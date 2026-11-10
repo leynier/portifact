@@ -10,7 +10,7 @@ const MID = Date.UTC(2026, 10, 16);
 const run = (...argv: string[]) => runOperator(db(), argv, MID);
 
 async function measure(usd: number) {
-  await recordBudgetMeasurement(db(), {
+  await recordBudgetMeasurement(db().global, {
     metrics: {
       storedBytes: 0,
       r2ClassA: null,

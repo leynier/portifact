@@ -7,7 +7,7 @@ import {
   isLocale,
   isWorkspaceId,
 } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type GlobalDb, schema } from "@portifact/db";
 import {
   type Actor,
   BUILT_IN_SETTINGS,
@@ -24,7 +24,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 
 /** The stored defaults, or the built-in ones without a row. */
-export async function loadSettings(db: Db, userId: string): Promise<AccountSettings> {
+export async function loadSettings(db: GlobalDb, userId: string): Promise<AccountSettings> {
   const [row] = await db
     .select({
       defaultAccessMode: schema.accountSettings.defaultAccessMode,
@@ -43,7 +43,7 @@ export async function loadSettings(db: Db, userId: string): Promise<AccountSetti
   return { ...row, locale: isLocale(row.locale) ? row.locale : null };
 }
 
-async function accountCreatedAt(db: Db, userId: string): Promise<Date | undefined> {
+async function accountCreatedAt(db: GlobalDb, userId: string): Promise<Date | undefined> {
   const [user] = await db
     .select({ createdAt: schema.users.createdAt })
     .from(schema.users)
@@ -54,7 +54,7 @@ async function accountCreatedAt(db: Db, userId: string): Promise<Date | undefine
 
 /** The account's defaults, the built-in ones when the owner never changed them. */
 export async function getAccountSettings(
-  db: Db,
+  db: GlobalDb,
   input: { userId: string },
 ): Promise<Result<AccountSettings>> {
   if (!(await accountCreatedAt(db, input.userId))) {
@@ -68,7 +68,7 @@ export async function getAccountSettings(
  * change twice leaves the same settings.
  */
 export async function updateAccountSettings(
-  db: Db,
+  db: GlobalDb,
   input: { userId: string; update: AccountSettingsUpdate; now: number },
 ): Promise<Result<AccountSettings>> {
   const createdAt = await accountCreatedAt(db, input.userId);
@@ -109,7 +109,7 @@ export async function updateAccountSettings(
  * workspace artifact starts from the built-in defaults.
  */
 export async function newArtifactDefaults(
-  db: Db,
+  db: GlobalDb,
   actor: Actor,
   now: number,
   /** The owner's entitlements, which the publish already loaded. */

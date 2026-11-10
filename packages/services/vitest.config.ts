@@ -15,10 +15,16 @@ export default defineConfig(async () => {
         miniflare: {
           compatibilityDate: "2026-08-01",
           compatibilityFlags: ["nodejs_compat"],
-          // SECOND_DB stands in for a second region (decision 0005) where a test needs one.
-          d1Databases: ["DB", "ACCESS_DB", "SECOND_DB"],
-          r2Buckets: ["ARTIFACTS"],
-          bindings: { TEST_MIGRATIONS: migrations, TEST_ACCESS_MIGRATIONS: accessMigrations },
+          // DB_EU, ACCESS_DB_EU and ARTIFACTS_EU are the second region (decision 0005), each its
+          // own database and bucket; SECOND_DB is a scratch control database for single tests.
+          d1Databases: ["DB", "ACCESS_DB", "SECOND_DB", "DB_EU", "ACCESS_DB_EU"],
+          r2Buckets: ["ARTIFACTS", "ARTIFACTS_EU"],
+          bindings: {
+            TEST_MIGRATIONS: migrations,
+            TEST_ACCESS_MIGRATIONS: accessMigrations,
+            // Every handle refuses the other side's tables (packages/db/src/region-guard.ts).
+            REGION_GUARD: process.env.REGION_GUARD ?? "strict",
+          },
         },
       }),
     ],

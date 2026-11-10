@@ -2,7 +2,7 @@
 // section 6). Every query is keyed by the user ID from the session, so a user can only see and
 // end their own grants. Better Auth owns these tables: ending sessions goes through Better Auth
 // (apps/app), so its session hooks revoke the tokens bound to them; tokens are never exposed.
-import { type Db, schema } from "@portifact/db";
+import { type GlobalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
 
@@ -18,7 +18,7 @@ export interface BrowserSessionRow {
 }
 
 export async function listBrowserSessions(
-  db: Db,
+  db: GlobalDb,
   input: { userId: string; currentSessionId: string; now: number },
 ): Promise<BrowserSessionRow[]> {
   const rows = await db
@@ -77,7 +77,7 @@ interface TokenGroup {
  * token that is neither revoked nor rotated away. One entry per client, newest activity first.
  */
 export async function listConnectedApps(
-  db: Db,
+  db: GlobalDb,
   input: { userId: string; now: number },
 ): Promise<ConnectedAppRow[]> {
   const now = new Date(input.now);
@@ -162,7 +162,7 @@ export async function listConnectedApps(
  * Only the user's own grants are touched; another user's grants for the same client stay.
  */
 export async function disconnectApp(
-  db: Db,
+  db: GlobalDb,
   input: { userId: string; clientId: string },
 ): Promise<Result<{ clientId: string }>> {
   const [accessTokens, refreshTokens, consents] = await db.batch([

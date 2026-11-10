@@ -11,7 +11,7 @@ import { WorkspacePolicy } from "./policies.ts";
  * EU region arrives with E5. A personal space is always in the default region, and a
  * workspace's region is fixed when it is created.
  */
-export const REGIONS = ["default"] as const;
+export const REGIONS = ["default", "eu"] as const;
 export const Region = z.enum(REGIONS);
 export type Region = z.infer<typeof Region>;
 export const DEFAULT_REGION: Region = "default";
@@ -89,6 +89,8 @@ export const ROLE_ACTIONS = [
   "tokens",
   /** The workspace's single sign-on provider (decision 0016): who can sign in as its people. */
   "sso",
+  /** The workspace's SCIM provisioning (decision 0017): its tokens and settings. */
+  "scim",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;
@@ -145,6 +147,11 @@ export const WorkspaceMemberView = z.object({
   joinedAt: z.iso.datetime(),
   /** The member is the caller. */
   you: z.boolean(),
+  /**
+   * The member is in a directory group mapped to a role (decision 0017): the directory sets
+   * their role again at the next change of their groups.
+   */
+  directoryRole: z.boolean(),
 });
 export type WorkspaceMemberView = z.infer<typeof WorkspaceMemberView>;
 
@@ -187,6 +194,11 @@ export const InvitationView = z.object({
   invitedBy: z.string().nullable(),
   createdAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
+  /**
+   * `directory` when the workspace's directory provisioned the person through SCIM (decision
+   * 0017): they become a member when they first sign in with that address.
+   */
+  source: z.enum(["admin", "directory"]),
 });
 export type InvitationView = z.infer<typeof InvitationView>;
 

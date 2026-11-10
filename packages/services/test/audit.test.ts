@@ -1070,7 +1070,7 @@ describe("events go with their owner", () => {
     expect(await events(owner.id)).toHaveLength(2);
     const sessionId = await session(owner.id);
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: owner.id,
         sessionId,
         confirmEmail: owner.email,
@@ -1079,7 +1079,7 @@ describe("events go with their owner", () => {
     );
     for (let i = 0; i < 10; i += 1) {
       await purgeArchived(db(), env.ARTIFACTS, NOW + 1, 500);
-      if ((await processAccountDeletions(db(), env.ARTIFACTS, NOW + 1, 100)).processed === 0) break;
+      if ((await processAccountDeletions(regionsFromEnv(env), NOW + 1, 100)).processed === 0) break;
     }
     expect(await events(owner.id)).toEqual([]);
   });
@@ -1087,8 +1087,8 @@ describe("events go with their owner", () => {
   it("erases a workspace's events when its deletion finishes, and after a restore", async () => {
     const t = await team();
     expect(await events(t.id)).not.toEqual([]);
-    value(await deleteWorkspace(db(), { workspaceId: t.id, now: NOW + 1 }));
-    expect(await advanceWorkspaceDeletion(db(), env.ARTIFACTS, t.id, NOW + 2)).toBe("finished");
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: t.id, now: NOW + 1 }));
+    expect(await advanceWorkspaceDeletion(regionsFromEnv(env), t.id, NOW + 2)).toBe("finished");
     expect(await events(t.id)).toEqual([]);
 
     // A restore brings events of a deleted owner back; re-applying the tombstones erases them.
@@ -1197,7 +1197,7 @@ describe("a member who deletes their account", () => {
       .values({ workspaceId: other.id, userId: t.editor.id, role: "member", updatedAt: NOW });
     const sessionId = await session(t.editor.id);
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: t.editor.id,
         sessionId,
         confirmEmail: t.editor.email,
@@ -1233,7 +1233,7 @@ describe("a member who deletes their account", () => {
     const t = await team();
     const sessionId = await session(t.admin.id);
     expect(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: t.admin.id,
         sessionId,
         confirmEmail: t.admin.email,
@@ -1275,11 +1275,16 @@ describe("edges of reading and pruning", () => {
         "group.created",
         "group.renamed",
         "group.deleted",
+        "group.sync_stopped",
         "group.member_added",
         "group.member_removed",
         "sso.created",
         "sso.changed",
         "sso.removed",
+        "scim_token.created",
+        "scim_token.revoked",
+        "member.provisioned",
+        "scim.changed",
         "policy.changed",
         "service_token.created",
         "service_token.revoked",

@@ -5,6 +5,7 @@
 // visitors in the owner's access log and counting page views for owners with analytics. See docs/security.md for the invariants enforced here.
 import {
   BRAND_LOGO_PATH,
+  DEFAULT_REGION,
   ERROR_STATUS,
   REVIEW_SESSION,
   type ReviewKind,
@@ -13,9 +14,9 @@ import {
   type AccessDb,
   type DeliveryArtifact,
   type DeliveryFile,
-  findDeliveryArtifact,
   findPublishedFile,
   findRenderedPage,
+  type Region,
   type RegionalDb,
   type RegionHandles,
   type Regions,
@@ -40,10 +41,8 @@ import {
 } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
 import {
-  artifactHandles,
   customDomainsServing,
   findBrandLogo,
-  personalHandles,
   recordOpenings,
   recordTraffic,
   recordViews,
@@ -52,6 +51,7 @@ import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import { hintAgrees, isolateHosts, resolveCustomHost } from "./custom-hosts.ts";
 import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
+import { deliveryRegion, lookupDelivery } from "./directory.ts";
 import {
   BRIDGE_PATH,
   bannerLocale,
@@ -165,37 +165,54 @@ const RETRY_PAGES = new Set<Page>(["signIn", "linkExpired", "shareEnded"]);
 
 const HTML_PAGE = "text/html; charset=utf-8";
 
-/** One meter per isolate; every request of the isolate adds to it. */
-let meter: TrafficMeter | undefined;
+/**
+ * One meter per region per isolate; every request of the isolate adds to its artifact's region's
+ * (decision 0005): an owner is in one region, so each pending batch is one regional upsert.
+ */
+const meters = new Map<Region, TrafficMeter>();
 
-/** The isolate's meter, writing to the D1 binding of the request that creates it. */
-export function isolateMeter(env: Env): TrafficMeter {
-  // One region for now; with a second (E5) the meter keeps one pending batch per region.
-  meter ??= new TrafficMeter((deltas) => recordTraffic(defaultRegion(env).db, deltas, Date.now()));
+/** The isolate's meter for a region, writing to the D1 binding of the request that creates it. */
+export function isolateMeter(env: Env, region: Region = DEFAULT_REGION): TrafficMeter {
+  let meter = meters.get(region);
+  if (!meter) {
+    meter = new TrafficMeter((deltas) =>
+      recordTraffic(regionsFromEnv(env).get(region).db, deltas, Date.now()),
+    );
+    meters.set(region, meter);
+  }
   return meter;
 }
 
-/** One access log buffer per isolate, like the traffic meter. */
-let openings: OpeningLog | undefined;
+/** One access log buffer per region per isolate, like the traffic meter. */
+const openingLogs = new Map<Region, OpeningLog>();
 
-/** The isolate's access log buffer, writing through the bindings of the request that creates it. */
-export function isolateOpenings(env: Env): OpeningLog {
-  openings ??= new OpeningLog((batch) =>
-    recordOpenings(defaultRegion(env).db, accessDbOf(defaultRegion(env)), batch),
-  );
-  return openings;
+/** The isolate's access log buffer for a region, in that region's access log database. */
+export function isolateOpenings(env: Env, region: Region = DEFAULT_REGION): OpeningLog {
+  let log = openingLogs.get(region);
+  if (!log) {
+    log = new OpeningLog((batch) => {
+      const handles = regionsFromEnv(env).get(region);
+      return recordOpenings(handles.db, accessDbOf(handles), batch);
+    });
+    openingLogs.set(region, log);
+  }
+  return log;
 }
 
-/** One view meter per isolate, like the traffic meter. */
-let views: ViewMeter | undefined;
+/** One view meter per region per isolate, like the traffic meter. */
+const viewMeters = new Map<Region, ViewMeter>();
 
-/** The isolate's view meter, writing to the access database of the request that creates it. */
-export function isolateViews(env: Env): ViewMeter {
-  views ??= new ViewMeter((deltas) => {
-    const region = defaultRegion(env);
-    return recordViews(region.db.global, accessDbOf(region), deltas);
-  });
-  return views;
+/** The isolate's view meter for a region, in that region's access log database. */
+export function isolateViews(env: Env, region: Region = DEFAULT_REGION): ViewMeter {
+  let meter = viewMeters.get(region);
+  if (!meter) {
+    meter = new ViewMeter((deltas) => {
+      const handles = regionsFromEnv(env).get(region);
+      return recordViews(handles.db.global, accessDbOf(handles), deltas);
+    });
+    viewMeters.set(region, meter);
+  }
+  return meter;
 }
 
 export default {
@@ -205,9 +222,9 @@ export default {
       request,
       env,
       Date.now(),
-      (charge) => isolateMeter(env).count(charge, waitUntil),
-      (opening) => isolateOpenings(env).record(opening, waitUntil),
-      (view) => isolateViews(env).count(view, waitUntil),
+      (charge, region) => isolateMeter(env, region).count(charge, waitUntil),
+      (opening, region) => isolateOpenings(env, region).record(opening, waitUntil),
+      (view, region) => isolateViews(env, region).count(view, waitUntil),
     );
   },
 } satisfies ExportedHandler<Env>;
@@ -256,12 +273,13 @@ export async function handle(
 
 async function route(
   request: Request,
-  env: Env,
+  workerEnv: Env,
   now: number,
-  countTraffic: CountTraffic,
-  logOpening: LogOpening,
-  countView: CountView,
+  countRegionTraffic: CountTraffic,
+  logRegionOpening: LogOpening,
+  countRegionView: CountView,
 ): Promise<Response> {
+  let env = workerEnv;
   if (request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
   }
@@ -275,11 +293,12 @@ async function route(
   const cycle = trafficCycle(now);
   // `<id>.portifact.dev` as always; any other host only while custom domains are on.
   let id = artifactIdFromHost(url.hostname, env.CONTENT_DOMAIN);
-  let db: RegionalDb;
+  let handles: RegionHandles;
   let resolved: DeliveryArtifact | null | undefined;
   if (id) {
     // The region that holds the artifact, from the global directory (decision 0005).
-    db = ((await artifactHandles(regions, id)) ?? personalHandles(regions)).db;
+    // Cached per isolate: a warm request reads nothing here.
+    handles = await deliveryRegion(regions, id, now);
   } else {
     const host = classifyHost(url.hostname, env.CONTENT_DOMAIN);
     if (host.kind !== "custom" || !customDomainsOn(env)) return notFound();
@@ -289,12 +308,20 @@ async function route(
     // Portifact's own scripts need no artifact, like on `.dev`.
     if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
     if (isDiagramPath(url.pathname)) return diagramScript(request);
-    const target = await resolveCustomHost(regions, isolateHosts(), url.hostname, cycle.start);
+    const target = await resolveCustomHost(regions, isolateHosts(), url.hostname, cycle.start, now);
     if (!target) return notFound();
     id = target.artifact.id;
-    db = regions.get(target.region).db;
+    handles = regions.get(target.region);
     resolved = target.artifact;
   }
+  // Everything below reads the artifact's region: its database, its bucket (as `ARTIFACTS`, so
+  // every read of the bytes uses it) and its traffic, opening and view counters.
+  const db = handles.db;
+  const region = handles.region;
+  if (handles.bucket) env = { ...env, ARTIFACTS: handles.bucket };
+  const countTraffic: CountTraffic = (charge) => countRegionTraffic(charge, region);
+  const logOpening: LogOpening = (opening) => logRegionOpening(opening, region);
+  const countView: CountView = (view) => countRegionView(view, region);
   // The exact host a one-use code must have been issued for, and the artifact's `.dev` host.
   const hosts = { host: url.hostname, devHost: `${id}.${env.CONTENT_DOMAIN}` };
 
@@ -348,7 +375,8 @@ async function route(
     return response ?? message(400, PAGES.noBarRefused);
   }
 
-  const found = resolved === undefined ? await findDeliveryArtifact(db, id, cycle.start) : resolved;
+  const found =
+    resolved === undefined ? await lookupDelivery(regions, db, id, cycle.start, now) : resolved;
   const artifact = found && isServable(found, now) ? found : null;
   const delivery: Delivery = {
     request,
@@ -456,7 +484,13 @@ async function serve(
   // Then budget protection (plan section 12): a tight per-visitor limit, public traffic first.
   // A refused request sends no file, so it charges no traffic.
   const isPublic = artifact.accessMode === "public" && reviewSession === undefined;
-  const limitedUntil = await overTrafficLimit(request, delivery.env, delivery.db, isPublic, now);
+  const limitedUntil = await overTrafficLimit(
+    request,
+    delivery.env,
+    delivery.db.global,
+    isPublic,
+    now,
+  );
   if (limitedUntil !== null) {
     const limited = withCookies(message(429, PAGES.slowDown), setCookies);
     limited.headers.set("Retry-After", String(Math.max(1, Math.ceil((limitedUntil - now) / 1000))));
@@ -963,11 +997,6 @@ function httpsUpgrade(url: URL): Response {
     status: 308,
     headers: { Location: target.toString(), "Cache-Control": "no-store" },
   });
-}
-
-/** The default region's handles: the only region until E5. */
-function defaultRegion(env: Env): RegionHandles {
-  return personalHandles(regionsFromEnv(env));
 }
 
 /** The region's access log database; the content Worker is always bound to it. */

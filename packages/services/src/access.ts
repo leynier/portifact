@@ -13,9 +13,10 @@ import {
   LIMITS,
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
+  authorize,
   checkAccessChange,
   checkArtifactGroups,
   checkCommentVisibilityChange,
@@ -31,9 +32,10 @@ import {
 } from "@portifact/domain";
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { authorizeOn } from "./actors.ts";
+import { actorAndPlanOn, authorizeOn } from "./actors.ts";
 import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
+import { ownerPlanRecord } from "./plans.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { accessAudience } from "./workspace-domains.ts";
 import { artifactGroupRows, groupSummaries } from "./workspace-groups.ts";
@@ -142,22 +144,38 @@ async function loadManaged(
 ): Promise<
   Result<{ artifact: typeof schema.artifacts.$inferSelect; actor: Actor; plan: PlanRow }>
 > {
-  const p = schema.ownerPlans;
-  const [row] = await db
-    .select({
-      artifact: schema.artifacts,
-      // The owner's plan comes with the artifact, so the webhook event costs no read.
-      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
-    })
+  // The owner's plan comes with the artifact when the region's database is the global one, as
+  // it always did; otherwise in the membership's own batch (decision 0005). Either way the
+  // webhook event costs no read.
+  const both = bothSides(db);
+  if (both) {
+    const p = schema.ownerPlans;
+    const [row] = await both
+      .select({
+        artifact: schema.artifacts,
+        plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+      })
+      .from(schema.artifacts)
+      .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
+      .where(eq(schema.artifacts.id, artifactId))
+      .limit(1);
+    const artifact = row?.artifact;
+    if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
+    const actor = await authorizeOn(db, userId, artifact, "access", missing);
+    if (!actor.ok) return actor;
+    return ok({ artifact, actor: actor.value, plan: row.plan });
+  }
+  const [artifact] = await db
+    .select()
     .from(schema.artifacts)
-    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
-  const artifact = row?.artifact;
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const actor = await authorizeOn(db, userId, artifact, "access", missing);
-  if (!actor.ok) return actor;
-  return ok({ artifact, actor: actor.value, plan: row.plan });
+  const { actor, plan } = await actorAndPlanOn(db.global, userId, artifact);
+  if (!actor) return missing();
+  const authorized = authorize(actor, "access");
+  if (!authorized.ok) return authorized;
+  return ok({ artifact, actor: authorized.value, plan });
 }
 
 async function readerRows(db: Db, artifactId: string) {

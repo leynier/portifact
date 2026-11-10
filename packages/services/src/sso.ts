@@ -36,6 +36,7 @@ import { auditEvent } from "./audit.ts";
 import { seatLimit } from "./invitations.ts";
 import { hex } from "./objects.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { joinGroupStatements, linkDirectoryUser } from "./scim-groups.ts";
 import { openSsoSecret, type SsoKey, sealSsoSecret } from "./sso-keys.ts";
 import { memberEvent, scoped, seatsUsedSql, stillAdmin } from "./workspaces.ts";
 
@@ -723,12 +724,28 @@ export async function joinWorkspaceThroughSso(
       .onConflictDoNothing()
       .returning({ userId: m.userId }),
   ] as const;
-  const [, inserted] = invitation
+  // A person the workspace's directory knows gets its groups and their role in this batch.
+  const directory = [
+    linkDirectoryUser(global, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      condition: sql`1`,
+    }),
+    ...joinGroupStatements(global, {
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      actor: { type: "user", id: input.userId },
+      now: input.now,
+      condition: sql`1`,
+    }),
+  ];
+  const [, inserted] = (invitation
     ? await global.batch([
         ...statements,
         global.delete(inv).where(and(eq(inv.id, invitation.id), member) as SQL),
+        ...directory,
       ])
-    : await global.batch(statements);
+    : await global.batch([...statements, ...directory])) as unknown as [unknown, unknown[]];
   if (inserted.length > 0) return ok({ joined: true, role, pendingInvitation: false });
   const now = await current();
   if (now) return ok({ joined: false, role: now.role, pendingInvitation: false });

@@ -604,7 +604,7 @@ export async function searchContent(
 ): Promise<Result<SearchPage>> {
   const allowed = authorize(input.actor, "search");
   if (!allowed.ok) return allowed;
-  const owner = await ownerEntitlements(db, input.actor.ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, input.actor.ownerId, input.now);
   const gated = requireFeature(owner, CONTENT_SEARCH_FEATURE);
   if (!gated.ok) return gated;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);

@@ -11,10 +11,11 @@ import {
   LifecycleResult,
   type OAuthScope,
   PublishRequest,
+  type Region,
   TransferRequest,
   UploadedPart,
 } from "@portifact/contracts";
-import type { RegionalDb } from "@portifact/db";
+import type { RegionalDb, RegionHandles } from "@portifact/db";
 import type { MultipartConfig } from "@portifact/domain";
 import {
   abortPublish,
@@ -43,11 +44,13 @@ import type { Env } from "../env.ts";
 import { artifactListItem, artifactSummary } from "../mcp/present.ts";
 import {
   artifactDb,
-  defaultDb,
+  artifactRegion,
+  artifactStorage,
+  bucketOf,
   ownerOf,
   ownerScope,
-  personalScope,
   regionsOf,
+  uploadRegion,
 } from "../regions.ts";
 import { authorizeAccountRequest, authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
@@ -82,7 +85,8 @@ export interface ApiDeps {
   resource(env: Env): ProtectedResource;
   /** The dashboard's session cookie, accepted from the app origin only (./access.ts). */
   session(env: Env): SessionLookup;
-  presigner(env: Env): Presigner;
+  /** The presigner of a region's bucket; the default region's without one. */
+  presigner(env: Env, region?: Region): Presigner;
   /** Turnstile's siteverify transport, for the human check of new comments. */
   siteverify(env: Env): FetchLike;
   now(): number;
@@ -143,24 +147,26 @@ export function apiRoutes(deps: ApiDeps) {
       const workspace = workspaceParam(c);
       if (!workspace.ok) return error(c, "not_found", "Workspace not found.");
       // An update goes to the artifact's own owner; a new artifact to the space the request names.
-      let db: RegionalDb;
+      let handles: RegionHandles;
       let targetOwnerId: string | undefined;
       if (body.value.artifactId) {
-        db = await artifactDb(c.env, body.value.artifactId);
+        handles = await artifactRegion(c.env, body.value.artifactId);
       } else {
         const scope = await ownerScope(c.env, userId, workspace.slug);
         if (!scope.ok) return error(c, scope.code, scope.message);
-        db = scope.value.db;
+        handles = regionsOf(c.env).get(scope.value.actor.region);
         targetOwnerId = scope.value.actor.ownerId;
       }
+      // The upload, its objects and its presigned URLs are the owner's region's (decision 0005).
+      const db = handles.db;
       const now = deps.now();
       const request = workspace.slug ? { ...body.value, workspace: workspace.slug } : body.value;
       return idempotent(c, { userId, operation: "publish.prepare", request, now }, () =>
         prepareUpload(
           db,
           {
-            bucket: c.env.ARTIFACTS,
-            presigner: deps.presigner(c.env),
+            bucket: bucketOf(handles),
+            presigner: deps.presigner(c.env, handles.region),
             multipart: deps.multipart?.(c.env),
           },
           userId,
@@ -177,13 +183,13 @@ export function apiRoutes(deps: ApiDeps) {
     "/api/v1/publishes/:uploadId",
     guarded("artifacts:write", async (c, userId) => {
       const now = deps.now();
-      const result = await uploadProgress(defaultDb(c.env), {
-        userId,
-        sessionId: c.req.param("uploadId") as string,
-        now,
-      });
+      const sessionId = c.req.param("uploadId") as string;
+      const handles = await uploadRegion(c.env, sessionId);
+      const result = await uploadProgress(handles.db, { userId, sessionId, now });
       if (!result.ok) return error(c, result.code, result.message);
-      return c.json(await preparedPublish(deps.presigner(c.env), result.value, now));
+      return c.json(
+        await preparedPublish(deps.presigner(c.env, handles.region), result.value, now),
+      );
     }),
   );
 
@@ -193,9 +199,10 @@ export function apiRoutes(deps: ApiDeps) {
     guarded("artifacts:write", async (c, userId) => {
       const body = await readJson(c, UploadedPart);
       if (!body.ok) return body.response;
-      const result = await reportUploadedPart(defaultDb(c.env), {
+      const sessionId = c.req.param("uploadId") as string;
+      const result = await reportUploadedPart((await uploadRegion(c.env, sessionId)).db, {
         userId,
-        sessionId: c.req.param("uploadId") as string,
+        sessionId,
         ...body.value,
         now: deps.now(),
       });
@@ -207,9 +214,11 @@ export function apiRoutes(deps: ApiDeps) {
   api.post(
     "/api/v1/publishes/:uploadId/commit",
     guarded("artifacts:write", async (c, userId) => {
-      const result = await commitPublish(defaultDb(c.env), c.env.ARTIFACTS, {
+      const sessionId = c.req.param("uploadId") as string;
+      const handles = await uploadRegion(c.env, sessionId);
+      const result = await commitPublish(handles.db, bucketOf(handles), {
         userId,
-        sessionId: c.req.param("uploadId") as string,
+        sessionId,
         now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
@@ -228,9 +237,10 @@ export function apiRoutes(deps: ApiDeps) {
   api.delete(
     "/api/v1/publishes/:uploadId",
     guarded("artifacts:write", async (c, userId) => {
-      const result = await abortPublish(defaultDb(c.env), {
+      const sessionId = c.req.param("uploadId") as string;
+      const result = await abortPublish((await uploadRegion(c.env, sessionId)).db, {
         userId,
-        sessionId: c.req.param("uploadId") as string,
+        sessionId,
         now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
@@ -296,7 +306,7 @@ export function apiRoutes(deps: ApiDeps) {
       const body = await readJson(c, TransferRequest);
       if (!body.ok) return body.response;
       const artifactId = c.req.param("artifactId") as string;
-      const result = await transferArtifact(await artifactDb(c.env, artifactId), c.env.ARTIFACTS, {
+      const result = await transferArtifact(...(await artifactStorage(c.env, artifactId)), {
         userId,
         artifactId,
         workspace: body.value.workspace,
@@ -353,7 +363,7 @@ export function apiRoutes(deps: ApiDeps) {
   ) =>
     guarded(scope, async (c, userId) => {
       const artifactId = c.req.param("artifactId") as string;
-      const result = await action(await artifactDb(c.env, artifactId), c.env.ARTIFACTS, {
+      const result = await action(...(await artifactStorage(c.env, artifactId)), {
         userId,
         artifactId,
         now: deps.now(),

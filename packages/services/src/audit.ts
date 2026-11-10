@@ -27,6 +27,7 @@ import {
   type AuditFilters,
   type AuditKind,
   type AuditLogView,
+  isScimTokenId,
   isServiceTokenId,
   isWorkspaceId,
 } from "@portifact/contracts";
@@ -86,8 +87,14 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   "group.created",
   "group.renamed",
   "group.deleted",
+  "group.sync_stopped",
   "group.member_added",
   "group.member_removed",
+  // SCIM tokens and what a directory provisions are global rows too (decision 0017).
+  "scim_token.created",
+  "scim_token.revoked",
+  "member.provisioned",
+  "scim.changed",
   // The workspace's single sign-on provider is a global row (decision 0016).
   "sso.created",
   "sso.changed",
@@ -100,9 +107,14 @@ const REGIONAL_AUDIT_KINDS = AUDIT_KINDS.filter((kind) => !GLOBAL_AUDIT_KINDS.in
 /**
  * Who acted: a signed-in account, the operator tool or a scheduled job. A service token acts
  * with its ID where a user ID goes (decision 0011), so the writers pass it as `user` and
- * `auditEvent` stores it as a token.
+ * `auditEvent` stores it as a token. A workspace's directory acts through its SCIM token
+ * (decision 0017) and is stored as `directory` with that token's ID, never a secret.
  */
-export type AuditActor = { type: "user"; id: string } | { type: "operator" } | { type: "system" };
+export type AuditActor =
+  | { type: "user"; id: string }
+  | { type: "directory"; id: string }
+  | { type: "operator" }
+  | { type: "system" };
 
 export interface AuditEntry<K extends AuditKind> {
   ownerId: string;
@@ -136,7 +148,8 @@ export function auditEvent<K extends AuditKind>(
   for (const [field, value] of Object.entries(entry.computed ?? {})) {
     detail = sql`json_set(${detail}, ${`$.${field}`}, ${value})`;
   }
-  const actorId = entry.actor.type === "user" ? entry.actor.id : null;
+  const actorId =
+    entry.actor.type === "user" || entry.actor.type === "directory" ? entry.actor.id : null;
   const actorType = actorId !== null && isServiceTokenId(actorId) ? "token" : entry.actor.type;
   // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
   return db
@@ -254,16 +267,30 @@ async function memberNames(
   return names;
 }
 
-/** Current labels of the workspace's service tokens that events name; a revoked one has none. */
+/**
+ * Current labels of the workspace's service tokens and SCIM tokens that events name; a revoked
+ * one has none. Each table is read only when an event names one of its IDs.
+ */
 async function tokenLabels(global: GlobalDb, ownerId: string, tokenIds: readonly string[]) {
   const labels = new Map<string, string>();
-  if (tokenIds.length === 0) return labels;
-  const st = schema.serviceTokens;
-  const rows = await global
-    .select({ id: st.id, label: st.label })
-    .from(st)
-    .where(and(eq(st.workspaceId, ownerId), sql`${st.id} in ${ids(tokenIds)}`));
-  for (const row of rows) labels.set(row.id, row.label);
+  const service = tokenIds.filter((id) => isServiceTokenId(id));
+  const directory = tokenIds.filter((id) => isScimTokenId(id));
+  if (service.length > 0) {
+    const st = schema.serviceTokens;
+    const rows = await global
+      .select({ id: st.id, label: st.label })
+      .from(st)
+      .where(and(eq(st.workspaceId, ownerId), sql`${st.id} in ${ids(service)}`));
+    for (const row of rows) labels.set(row.id, row.label);
+  }
+  if (directory.length > 0) {
+    const sc = schema.scimTokens;
+    const rows = await global
+      .select({ id: sc.id, label: sc.label })
+      .from(sc)
+      .where(and(eq(sc.workspaceId, ownerId), sql`${sc.id} in ${ids(directory)}`));
+    for (const row of rows) labels.set(row.id, row.label);
+  }
   return labels;
 }
 
@@ -324,8 +351,11 @@ async function present(db: RegionalDb, ownerId: string, rows: readonly AuditRow[
   const names = await memberNames(db.global, ownerId, userIds);
   const tokenIds = rows.flatMap((row) => {
     const found: string[] = [];
-    if (row.actorType === "token" && row.actorId) found.push(row.actorId);
-    if (AUDIT_TARGETS[row.kind as AuditKind] === "service_token" && row.targetId) {
+    if ((row.actorType === "token" || row.actorType === "directory") && row.actorId) {
+      found.push(row.actorId);
+    }
+    const target = AUDIT_TARGETS[row.kind as AuditKind];
+    if ((target === "service_token" || target === "scim_token") && row.targetId) {
       found.push(row.targetId);
     }
     return found;
@@ -354,6 +384,9 @@ async function present(db: RegionalDb, ownerId: string, rows: readonly AuditRow[
           : {}),
         ...(targetType === "service_token" && row.targetId
           ? { serviceToken: auditActorView("token", row.targetId, names, tokens) }
+          : {}),
+        ...(targetType === "scim_token" && row.targetId
+          ? { scimToken: auditActorView("directory", row.targetId, names, tokens) }
           : {}),
       },
       artifact: row.artifactId

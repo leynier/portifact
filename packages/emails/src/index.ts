@@ -7,6 +7,12 @@ export {
   commentNoticeEmail,
 } from "./comment-notice.ts";
 export {
+  DIRECTORY_NOTICE_TEXT,
+  type DirectoryNoticeInput,
+  type DirectoryNoticeText,
+  directoryNoticeEmail,
+} from "./directory-notice.ts";
+export {
   DOMAIN_NOTICE_TEXT,
   type DomainNoticeInput,
   domainNoticeEmail,

@@ -4,6 +4,8 @@
 // Rows are keyed by artifact, visitor and 30-minute window, so an isolate also remembers what it
 // already wrote in the current window and skips it. An evicted isolate loses what it had not
 // written yet; the log says it is not a complete audit.
+
+import type { Region } from "@portifact/db";
 import { accessWindow } from "@portifact/domain";
 import type { Opening } from "@portifact/services";
 
@@ -13,7 +15,8 @@ export type { Opening };
 export const ACCESS_FLUSH_MS = 5_000;
 
 /** Records one opening; delivery calls it for every page load by a signed-in visitor. */
-export type LogOpening = (opening: Opening) => void;
+/** Logs an opening; `region` is the artifact's (decision 0005), the default one when absent. */
+export type LogOpening = (opening: Opening, region?: Region) => void;
 
 export type WriteOpenings = (openings: Opening[]) => Promise<unknown>;
 

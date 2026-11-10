@@ -68,6 +68,10 @@ export function auditActor(actor: AuditEventView["actor"]): string {
       return actor.label === null
         ? "Revoked service token"
         : `${plain(actor.label)} (service token)`;
+    case "directory":
+      return actor.label === null
+        ? "Directory (revoked SCIM token)"
+        : `${plain(actor.label)} (directory)`;
     case "operator":
       return "Portifact operator";
     case "system":
@@ -150,7 +154,7 @@ export function auditSummary(event: AuditEventView): string {
     case "member.invitation_revoked":
       return "Revoked an invitation";
     case "member.joined":
-      return `${member} joined as ${ROLE[d.role as keyof typeof ROLE]}${d.via === "sso" ? " through single sign-on" : ""}`;
+      return `${member} joined as ${ROLE[d.role as keyof typeof ROLE]}${JOINED_VIA[d.via as keyof typeof JOINED_VIA] ?? ""}`;
     case "member.role_changed":
       return `Changed ${member} from ${d.from} to ${d.to}`;
     case "member.removed":
@@ -177,6 +181,8 @@ export function auditSummary(event: AuditEventView): string {
       return `Renamed the group ${groupName(event)}`;
     case "group.deleted":
       return `Deleted the group ${groupName(event)}`;
+    case "group.sync_stopped":
+      return `Stopped syncing the group ${groupName(event)} from the directory`;
     case "group.member_added":
       return `Added ${member} to the group ${groupName(event)}`;
     case "group.member_removed":
@@ -187,6 +193,14 @@ export function auditSummary(event: AuditEventView): string {
       return `Changed single sign-on (${(d.fields as string[]).map((field) => SSO_FIELD[field as keyof typeof SSO_FIELD]).join(", ")})`;
     case "sso.removed":
       return "Removed single sign-on";
+    case "scim_token.created":
+      return `Created a SCIM token (${d.days} day${d.days === 1 ? "" : "s"})`;
+    case "scim_token.revoked":
+      return "Revoked a SCIM token";
+    case "member.provisioned":
+      return `Provisioned someone at ${d.emailDomain} as ${ROLE[d.role as keyof typeof ROLE]}; they join when they sign in`;
+    case "scim.changed":
+      return scimChanges(d).join("; ");
     case "audit.exported":
       return `Exported the audit log as ${String(d.format).toUpperCase()}${d.from || d.to ? ` (${d.from ?? "start"} to ${d.to ?? "now"})` : ""}`;
     case "policy.changed":
@@ -195,6 +209,34 @@ export function auditSummary(event: AuditEventView): string {
       return `Applied the workspace's policies: ${enforcedParts(d).join(", ")}`;
   }
 }
+
+/** What a directory settings change did, one phrase per field. */
+function scimChanges(d: Record<string, unknown>): string[] {
+  const fields = (d.fields as string[] | undefined) ?? [];
+  const parts: string[] = [];
+  if (fields.includes("invitationEmails")) {
+    parts.push(
+      d.invitationEmails
+        ? "Turned on invitation emails for provisioned people"
+        : "Turned off invitation emails for provisioned people",
+    );
+  }
+  for (const role of ["editor", "admin"] as const) {
+    const value = d[`${role}Group`];
+    if (!fields.includes(`${role}Group`)) continue;
+    parts.push(
+      value === null
+        ? `Stopped giving ${role} through a directory group`
+        : `Gave ${role} to the members of a directory group`,
+    );
+  }
+  return parts;
+}
+
+const JOINED_VIA = {
+  sso: " through single sign-on",
+  directory: " through the directory",
+} as const;
 
 const SSO_FIELD = {
   clientId: "client ID",

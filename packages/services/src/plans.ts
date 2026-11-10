@@ -1,7 +1,10 @@
 // The owner's plan (premium plan section 3, F1 and F2): the services read the `owner_plans` row
 // and pass the effective limits to the domain rules, so every adapter gets the same limits.
-// Adapters never resolve a plan themselves. The content Worker reads the row with its artifact
-// lookup instead (`findDeliveryArtifact`), so delivery adds no read.
+// Adapters never resolve a plan themselves. Plans are global (decision 0005): when a region's
+// database is the global one, the write paths and the content Worker's delivery lookup join the
+// row into their artifact read (`bothSides`, `findDeliveryArtifact` with `withPlan`), so they add
+// no read; with a separate regional database it comes in a global batch the path already makes
+// (`ownerPlanQuery`, `actorAndPlanOn`), and delivery caches it per isolate for a minute.
 //
 // Plans are granted only by the operator tool (`setOwnerPlan`, `removeOwnerPlan`); no web route,
 // API endpoint, MCP tool or CLI command reaches them. A grant writes the row and the four limit
@@ -18,7 +21,7 @@ import {
   PlanOverrides,
   type PlanView,
 } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type GlobalDb, schema } from "@portifact/db";
 import {
   alignedLimit,
   type Entitlements,
@@ -39,13 +42,12 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { ownerRetentionJob } from "./analytics.ts";
 import { auditEvent } from "./audit.ts";
 
-/** What the owner's plan grants at `now`; `free` without a row or once it expired. */
-export async function ownerEntitlements(
-  db: Db,
-  ownerId: string,
-  now: number,
-): Promise<Entitlements> {
-  const [row] = await db
+/**
+ * The query for the owner's plan row, for a batch of the global database (plans are global,
+ * decision 0005: no regional query may join them).
+ */
+export function ownerPlanQuery(db: GlobalDb, ownerId: string) {
+  return db
     .select({
       plan: schema.ownerPlans.plan,
       seats: schema.ownerPlans.seats,
@@ -55,7 +57,24 @@ export async function ownerEntitlements(
     .from(schema.ownerPlans)
     .where(eq(schema.ownerPlans.ownerId, ownerId))
     .limit(1);
-  return entitlements(row ?? null, now);
+}
+
+/** The owner's plan row, or null for an owner on `free` without one. */
+export async function ownerPlanRecord(
+  db: GlobalDb,
+  ownerId: string,
+): Promise<OwnerPlanRecord | null> {
+  const [row] = await ownerPlanQuery(db, ownerId);
+  return row ?? null;
+}
+
+/** What the owner's plan grants at `now`; `free` without a row or once it expired. */
+export async function ownerEntitlements(
+  db: GlobalDb,
+  ownerId: string,
+  now: number,
+): Promise<Entitlements> {
+  return entitlements(await ownerPlanRecord(db, ownerId), now);
 }
 
 /**
@@ -67,7 +86,7 @@ export async function ownerEntitlements(
  * that already holds the owner's entitlements calls `requireFeature` instead.
  */
 export async function requireOwnerFeature(
-  db: Db,
+  db: GlobalDb,
   owner: { ownerId: string },
   feature: PlanFeature,
   now: number,

@@ -2203,6 +2203,100 @@ export const en = {
   "policies.default.domainLapsed":
     "No email domain is verified, so new artifacts start shared with the workspace until one is verified again.",
   "audit.access.byPolicy": "by the workspace's policy",
+  "audit.actor.directory": "{label} (directory)",
+  "audit.actor.directoryGone": "Directory (revoked SCIM token)",
+  "audit.kind.memberJoinedDirectory": "{member} joined as {role} through the directory",
+  "audit.kind.memberProvisioned":
+    "Provisioned someone at {domain} as {role}; they join when they sign in",
+  "audit.kind.scimTokenCreated":
+    "Created a SCIM token ({days, plural, one {# day} other {# days}})",
+  "audit.kind.scimTokenRevoked": "Revoked a SCIM token",
+  "audit.kind.scimEmailsOn": "Turned on invitation emails for provisioned people",
+  "audit.kind.scimEmailsOff": "Turned off invitation emails for provisioned people",
+  "pending.directory": "From the directory",
+  "pending.directoryDetail":
+    "{role}, provisioned by the directory: joins at first sign-in, holds a seat until {date}",
+  "scim.title": "Directory sync (SCIM)",
+  "scim.description":
+    "Let your identity provider add and remove the workspace's people. It provisions addresses in your verified email domains; someone without a Portifact account joins when they first sign in with that address.",
+  "scim.loadFailed": "Directory sync could not be loaded",
+  "scim.baseUrl": "SCIM base URL",
+  "scim.baseUrlCopy": "Copy URL",
+  "scim.baseUrlHint":
+    "Paste it into your identity provider as the SCIM base URL or tenant URL, and a token below as the bearer token.",
+  "scim.planTitle": "Not on this plan",
+  "scim.plan":
+    "Directory sync needs the {plan} plan. Until then the directory's requests are refused; you can still revoke its tokens.",
+  "scim.rules":
+    "New people join as members. Deactivating someone in the directory removes them from the workspace and signs them out everywhere; their account and personal space stay theirs. Someone removed here by hand is not added back by the next sync.",
+  "scim.lastSync": "Last sync",
+  "scim.lastSyncNever": "The directory has not called yet.",
+  "scim.pendingLabel": "Waiting to sign in",
+  "scim.pending":
+    "{count, plural, =0 {No one} one {# person, listed with the pending invitations} other {# people, listed with the pending invitations}}",
+  "scim.tokens": "Tokens",
+  "scim.tokensEmpty": "No token yet.",
+  "scim.tokenExpires": "Expires on {date}",
+  "scim.tokenExpired": "Expired on {date}",
+  "scim.tokenUsed": "last used {date}",
+  "scim.tokenUnused": "never used",
+  "scim.create": "Create a SCIM token",
+  "scim.label": "Label",
+  "scim.labelHint": "For example the identity provider's name.",
+  "scim.labelRequired": "Enter a label of at most 80 characters.",
+  "scim.expiry": "Expires after",
+  "scim.days": "{count, plural, one {# day} other {# days}}",
+  "scim.limit":
+    "A workspace has at most {count} SCIM tokens, so one can replace another without a gap. Revoke one to create another.",
+  "scim.secret.title": "Copy the token now",
+  "scim.secret.body":
+    "It is shown only once. Paste it into your identity provider as the bearer token.",
+  "scim.secret.label": "SCIM token {label}",
+  "scim.secret.copy": "Copy token",
+  "scim.secret.done": "I saved it",
+  "scim.revoke": "Revoke",
+  "scim.revokeNamed": "Revoke: {label}",
+  "scim.confirmRevoke.title": "Revoke {label}?",
+  "scim.confirmRevoke.body":
+    "The directory's next request with it is refused. People it provisioned stay as they are.",
+  "scim.confirmRevoke.action": "Revoke token",
+  "scim.revoked": "The token {label} was revoked.",
+  "scim.created": "The token {label} was created. Copy it now.",
+  "scim.emails":
+    "Email the invitation to people the directory provisions without a Portifact account",
+  "scim.emailsHint":
+    "Off by default: identity providers usually tell people about new apps themselves. Either way, they join when they first sign in with that address.",
+  "scim.emailsSaved": "Saved.",
+  "scim.actionFailed": "The change was not saved",
+  "audit.kind.scimRoleOn": "Gave {role} to the members of a directory group",
+  "audit.kind.scimRoleOff": "Stopped giving {role} through a directory group",
+  "groups.directory": "Managed by your directory",
+  "groups.directoryNote":
+    "Your organization's directory manages this group through SCIM: change its name and members there.",
+  "members.directoryRole": "In a directory group with a role",
+  "scim.roles.title": "Roles from directory groups",
+  "scim.roles.description":
+    "Members of the group you choose get that role when it is more than they have. The directory takes back only a role it gave: it never lowers a role an admin set by hand, and a role you change by hand is yours from then on.",
+  "scim.roles.access":
+    "A group listed on an artifact lets its members read it, so your directory now decides who reads those artifacts.",
+  "scim.roles.editor": "Group whose members are editors",
+  "scim.roles.admin": "Group whose members are admins",
+  "scim.roles.none": "No group",
+  "scim.roles.option": "{name} ({count, plural, one {# member} other {# members}})",
+  "scim.roles.noGroups": "Your directory has not pushed a group yet.",
+  "scim.roles.save": "Save roles",
+  "scim.roles.saved": "Roles saved.",
+  "scim.roles.confirm.title": "Make the members of {name} admins?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {# person is} other {# people are}} in {name} now, and {pending, plural, =0 {no one else will be} one {# more will be} other {# more will be}} when they sign in. Whoever controls your directory will decide who administers this workspace: its members, policies, tokens and settings.",
+  "scim.roles.confirm.action": "Make them admins",
+  "groups.stopSync": "Stop syncing",
+  "groups.stopSyncLabel": "Stop syncing {name}",
+  "groups.stopSync.title": "Stop syncing {name} from your directory?",
+  "groups.stopSync.body":
+    "Your directory will no longer manage this group: admins edit it here from now on. Its role mapping is cleared, and the people it made editors or admins keep their roles. If the directory pushes a group with the same name later, it is refused.",
+  "groups.stopSync.done": "{name} is no longer synced from your directory.",
+  "audit.kind.groupSyncStopped": "Stopped syncing the group {group} from the directory",
 } as const;
 
 export type MessageId = keyof typeof en;

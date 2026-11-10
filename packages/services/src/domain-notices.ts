@@ -161,8 +161,8 @@ export async function sendDomainNotice(
   let sent = 0;
   let skip: Skip = "suppressed";
   for (const recipient of recipients) {
-    if (await isEmailSuppressed(db, recipient.email, now)) continue;
-    if (!checkNoticeCapacity(await emailsSentInCycle(db, now)).ok) {
+    if (await isEmailSuppressed(db.global, recipient.email, now)) continue;
+    if (!checkNoticeCapacity(await emailsSentInCycle(db.global, now)).ok) {
       skip = "capacity";
       break;
     }
@@ -176,7 +176,7 @@ export async function sendDomainNotice(
       });
     } catch (error) {
       if (error instanceof RecipientSuppressedError) {
-        await suppressEmail(db, { email: recipient.email, reason: "provider", now });
+        await suppressEmail(db.global, { email: recipient.email, reason: "provider", now });
         continue;
       }
       if (sent > 0) continue;
@@ -190,7 +190,7 @@ export async function sendDomainNotice(
       });
       throw error;
     }
-    await recordEmailsSent(db, now);
+    await recordEmailsSent(db.global, now);
     sent += 1;
   }
   return sent > 0 ? "done" : skipped(skip);

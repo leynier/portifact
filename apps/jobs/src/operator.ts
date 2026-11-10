@@ -12,16 +12,27 @@
 // services the tests cover, and prints plain text without secrets.
 import {
   AbuseReason,
+  DEFAULT_REGION,
   isWorkspaceId,
   OpaqueToken,
   OwnerPlanExport,
   PLAN_NAMES,
   PlanName,
+  REGIONS,
+  ScimTokenId,
   ServiceTokenId,
   TombstoneMarker,
   WorkspacePolicyExport,
 } from "@portifact/contracts";
-import { type Db, regionsFromEnv, schema } from "@portifact/db";
+import {
+  type Db,
+  type GlobalDb,
+  isRegion,
+  type RegionalDb,
+  type Regions,
+  regionsFromEnv,
+  schema,
+} from "@portifact/db";
 import {
   BUDGET_LEVELS,
   type BudgetLevel,
@@ -35,6 +46,7 @@ import {
   applyOwnerPlans,
   applyTombstones,
   applyWorkspacePolicies,
+  artifactHandles,
   type BudgetState,
   blockHostname,
   checkGrant,
@@ -47,6 +59,7 @@ import {
   exportOwnerPlans,
   exportTombstones,
   exportWorkspacePolicies,
+  findScimToken,
   findServiceToken,
   getBudgetState,
   getOwnerPlan,
@@ -60,6 +73,7 @@ import {
   listEmailSuppressions,
   listStorageFindings,
   type OwnerPlanState,
+  operatorRevokeScimToken,
   operatorRevokeServiceToken,
   rebuildArtifactDirectory,
   reconcileCustomDomains,
@@ -92,6 +106,8 @@ Commands:
   find-share-link              (reads the reported link or token from standard input)
   find-service-token           (reads a leaked service token from standard input)
   revoke-service-token <service-token-id>
+  find-scim-token              (reads a leaked SCIM token from standard input)
+  revoke-scim-token <scim-token-id>
   suspend-artifact <artifact-id> --reason <reason> [--report <report-id>] [--note <text>]
   reinstate-artifact <artifact-id>
   suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
@@ -249,7 +265,7 @@ export function parseArgs(argv: readonly string[]): {
   return { positional, options };
 }
 
-async function userIdFor(db: Db, value: string): Promise<string | undefined> {
+async function userIdFor(db: GlobalDb, value: string): Promise<string | undefined> {
   if (!value.includes("@")) return value;
   const [row] = await db
     .select({ id: schema.users.id })
@@ -260,7 +276,7 @@ async function userIdFor(db: Db, value: string): Promise<string | undefined> {
 }
 
 /** The owner a plan command names: an account by ID or email, or a workspace by slug or ID. */
-async function ownerIdFor(db: Db, value: string): Promise<string | undefined> {
+async function ownerIdFor(db: GlobalDb, value: string): Promise<string | undefined> {
   if (value.startsWith("workspace:") || isWorkspaceId(value)) {
     const key = value.startsWith("workspace:") ? value.slice("workspace:".length) : value;
     const [row] = await db
@@ -306,14 +322,14 @@ function budgetLines(state: BudgetState): string[] {
 }
 
 async function budgetOverride(
-  db: Db,
+  global: GlobalDb,
   args: string[],
   options: Map<string, string>,
   now: number,
 ): Promise<OperatorResult> {
   const [level] = args;
   if (level === "clear") {
-    const state = await clearBudgetOverride(db, now);
+    const state = await clearBudgetOverride(global, now);
     if (!state) return { exitCode: 0, output: "No budget state." };
     return { exitCode: 0, output: ["Override cleared.", ...budgetLines(state)].join("\n") };
   }
@@ -330,7 +346,7 @@ async function budgetOverride(
   if (hours !== null && (!Number.isFinite(hours) || hours <= 0 || hours > 24 * 31)) {
     return usage("--hours must be more than 0 and at most 744.");
   }
-  const state = await setBudgetOverride(db, {
+  const state = await setBudgetOverride(global, {
     level: level as BudgetLevel,
     steps,
     until: hours === null ? null : now + Math.round(hours * 3_600_000),
@@ -402,7 +418,7 @@ function parseUntil(value: string | undefined): number | null | "invalid" {
 }
 
 async function setPlan(
-  db: Db,
+  db: RegionalDb,
   args: string[],
   options: Map<string, string>,
   now: number,
@@ -421,7 +437,7 @@ async function setPlan(
       return usage("--overrides must be JSON.");
     }
   }
-  const userId = await ownerIdFor(db, who);
+  const userId = await ownerIdFor(db.global, who);
   if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
   const result = await setOwnerPlan(db, {
     ownerId: userId,
@@ -466,11 +482,20 @@ function workspaceLines(detail: WorkspaceDetail, plan: OwnerPlanState): string {
 }
 
 async function createWorkspaceCommand(
-  db: Db,
+  regions: Regions,
   args: string[],
   options: Map<string, string>,
   now: number,
 ): Promise<OperatorResult> {
+  const global = regions.global;
+  // The region is chosen once, here, and never changes (decision 0005): only a region this
+  // configuration binds, so the workspace's data has somewhere to go.
+  const region = options.get("region") ?? DEFAULT_REGION;
+  if (!isRegion(region)) return usage(`--region must be one of: ${REGIONS.join(", ")}.`);
+  if (!regions.all().some((handles) => handles.region === region)) {
+    return usage(`Region ${region} is not bound in this configuration.`);
+  }
+  const db = regions.get(region).db;
   const [slug] = args;
   const name = options.get("name")?.trim();
   const admin = options.get("admin");
@@ -489,7 +514,7 @@ async function createWorkspaceCommand(
   const validUntil = parseUntil(options.get("until"));
   if (validUntil === "invalid") return usage("--until must be an ISO date, like 2027-01-31.");
   const note = options.get("note")?.trim() || null;
-  const userId = await userIdFor(db, admin);
+  const userId = await userIdFor(global, admin);
   if (!userId) return { exitCode: 1, output: "Account not found." };
   // The plan is checked before the workspace exists, so a bad value creates nothing.
   if (plan?.success) {
@@ -505,8 +530,13 @@ async function createWorkspaceCommand(
     });
     if (!checked.ok) return { exitCode: 1, output: checked.message };
   }
-  const regions = regionsFromEnv({ DB: db.$client });
-  const created = await createWorkspace(regions.global, { slug, name, adminUserId: userId, now });
+  const created = await createWorkspace(regions.global, {
+    slug,
+    name,
+    adminUserId: userId,
+    now,
+    region,
+  });
   if (!created.ok) return { exitCode: 1, output: created.message };
   const lines = [
     `Created workspace ${created.value.slug} (${created.value.id}) with ${userId} as its admin.`,
@@ -535,19 +565,36 @@ async function createWorkspaceCommand(
   } else {
     lines.push("No plan: it is on free, with one seat, until set-plan grants one.");
   }
-  const detail = await getWorkspaceDetail(
-    regions.global,
-    regions.get("default").db,
-    created.value.id,
-    now,
-  );
+  const detail = await getWorkspaceDetail(regions, created.value.id, now);
   if (detail) lines.push(workspaceLines(detail, await getOwnerPlan(db, detail.id, now)));
   return { exitCode: 0, output: lines.join("\n") };
 }
 
 /** Runs one operator command against the database. */
+/** Whether the operator was given every region or one control database (tests, a drill). */
+function isRegions(target: Db | Regions): target is Regions {
+  return !("$client" in target);
+}
+
+/**
+ * The regions of a single control database handed to the operator: a region's own handle (a
+ * test's) as the default region, or a bare database (a drill's scratch copy) wrapped as one.
+ */
+function singleDatabase(target: Db | RegionalDb): Regions {
+  if (!("global" in target)) return regionsFromEnv({ DB: target.$client });
+  const handles = { region: DEFAULT_REGION, db: target, accessDb: undefined, bucket: undefined };
+  return { global: target.global, get: () => handles, all: () => [handles] };
+}
+
+/**
+ * Runs one operator command. `target` is every region the operator's configuration binds
+ * (decision 0005) or one control database, which is then the default region. `--region <name>`
+ * picks the region a command that reads or writes regional data acts on (the default region
+ * without it); commands that name an artifact find its region in the directory, and the scans
+ * (`storage-report`, `export-tombstones`) cover every region.
+ */
 export async function runOperator(
-  db: Db,
+  target: Db | Regions,
   argv: readonly string[],
   now: number,
   files: OperatorFiles = noFiles,
@@ -555,6 +602,21 @@ export async function runOperator(
 ): Promise<OperatorResult> {
   const { positional, options } = parseArgs(argv);
   const [command, ...args] = positional;
+  const regions = isRegions(target) ? target : singleDatabase(target);
+  const global = regions.global;
+  const regionName = options.get("region") ?? DEFAULT_REGION;
+  if (!isRegion(regionName) || !regions.all().some((h) => h.region === regionName)) {
+    return usage(
+      `--region must be one of: ${regions
+        .all()
+        .map((h) => h.region)
+        .join(", ")}.`,
+    );
+  }
+  const db = regions.get(regionName).db;
+  /** The database of the region that holds an artifact (the directory says), or `db`. */
+  const artifactDb = async (artifactId: string) =>
+    (await artifactHandles(regions, artifactId))?.db ?? db;
   const reasonOption = () => AbuseReason.safeParse(options.get("reason"));
   const suspendOptions = () => ({
     reportId: options.get("report") || undefined,
@@ -572,7 +634,7 @@ export async function runOperator(
       if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
         return usage("--limit must be 1 to 500.");
       }
-      const reports = await listAbuseReports(db, {
+      const reports = await listAbuseReports(global, {
         status: status === "all" ? undefined : (status as "open"),
         limit,
       });
@@ -589,7 +651,7 @@ export async function runOperator(
       if (!reportId || (status !== "actioned" && status !== "dismissed")) {
         return usage("resolve-report needs a report ID and actioned or dismissed.");
       }
-      const result = await resolveAbuseReport(db, { reportId, status, now });
+      const result = await resolveAbuseReport(global, { reportId, status, now });
       return result.ok
         ? { exitCode: 0, output: `Report ${reportId} marked ${status}.` }
         : { exitCode: 1, output: result.message };
@@ -597,7 +659,7 @@ export async function runOperator(
     case "show-artifact": {
       const [artifactId] = args;
       if (!artifactId) return usage("show-artifact needs an artifact ID.");
-      const [row] = await db
+      const [row] = await (await artifactDb(artifactId))
         .select({
           id: schema.artifacts.id,
           state: schema.artifacts.state,
@@ -645,7 +707,6 @@ export async function runOperator(
     case "find-service-token": {
       // A leaked secret comes from standard input, never the command line, and is never printed;
       // only its hash is compared (decision 0011).
-      const global = regionsFromEnv({ DB: db.$client }).global;
       const found = await findServiceToken(global, await files.read("/dev/stdin"));
       if (!found) return { exitCode: 1, output: "No service token has this secret." };
       const [workspace] = await global
@@ -668,16 +729,45 @@ export async function runOperator(
       if (!tokenId || !ServiceTokenId.safeParse(tokenId).success) {
         return usage("revoke-service-token needs a service token ID (st_ and 32 hex characters).");
       }
-      const revoked = await operatorRevokeServiceToken(
-        regionsFromEnv({ DB: db.$client }).global,
-        tokenId,
-        now,
-      );
+      const revoked = await operatorRevokeServiceToken(global, tokenId, now);
       return {
         exitCode: revoked ? 0 : 1,
         output: revoked
           ? `Revoked ${tokenId}; its next request is refused. A tombstone keeps a restore from bringing it back.`
           : "No service token has this ID (already revoked, or its workspace was deleted).",
+      };
+    }
+    case "find-scim-token": {
+      // Like a service token (decision 0017): the secret comes from standard input and is never
+      // printed; only its hash is compared.
+      const found = await findScimToken(global, await files.read("/dev/stdin"));
+      if (!found) return { exitCode: 1, output: "No SCIM token has this secret." };
+      const [workspace] = await global
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, found.workspaceId))
+        .limit(1);
+      return {
+        exitCode: 0,
+        output: [
+          `token      ${found.id}  ${found.label}`,
+          `workspace  ${workspace?.slug ?? found.workspaceId}`,
+          `expires    ${new Date(found.expiresAt).toISOString()}`,
+          `Revoke it with: revoke-scim-token ${found.id}`,
+        ].join("\n"),
+      };
+    }
+    case "revoke-scim-token": {
+      const [tokenId] = args;
+      if (!tokenId || !ScimTokenId.safeParse(tokenId).success) {
+        return usage("revoke-scim-token needs a SCIM token ID (sc_ and 32 hex characters).");
+      }
+      const revoked = await operatorRevokeScimToken(global, tokenId, now);
+      return {
+        exitCode: revoked ? 0 : 1,
+        output: revoked
+          ? `Revoked ${tokenId}; the directory's next request is refused. A tombstone keeps a restore from bringing it back.`
+          : "No SCIM token has this ID (already revoked, or its workspace was deleted).",
       };
     }
     case "suspend-artifact": {
@@ -686,7 +776,7 @@ export async function runOperator(
       if (!artifactId || !reason.success) {
         return usage("suspend-artifact needs an artifact ID and a valid --reason.");
       }
-      const result = await suspendArtifact(db, {
+      const result = await suspendArtifact(await artifactDb(artifactId), {
         artifactId,
         reason: reason.data,
         ...suspendOptions(),
@@ -702,7 +792,7 @@ export async function runOperator(
     case "reinstate-artifact": {
       const [artifactId] = args;
       if (!artifactId) return usage("reinstate-artifact needs an artifact ID.");
-      const result = await reinstateArtifact(db, { artifactId, now });
+      const result = await reinstateArtifact(await artifactDb(artifactId), { artifactId, now });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
         exitCode: 0,
@@ -717,7 +807,7 @@ export async function runOperator(
       if (!who || !reason.success) {
         return usage("suspend-account needs a user ID or email and a valid --reason.");
       }
-      const userId = await userIdFor(db, who);
+      const userId = await userIdFor(global, who);
       if (!userId) return { exitCode: 1, output: "Account not found." };
       const result = await suspendAccount(db, { userId, reason: reason.data, ...suspendOptions() });
       if (!result.ok) return { exitCode: 1, output: result.message };
@@ -731,7 +821,7 @@ export async function runOperator(
     case "reinstate-account": {
       const [who] = args;
       if (!who) return usage("reinstate-account needs a user ID or email.");
-      const userId = await userIdFor(db, who);
+      const userId = await userIdFor(global, who);
       if (!userId) return { exitCode: 1, output: "Account not found." };
       const result = await reinstateAccount(db, { userId, now });
       if (!result.ok) return { exitCode: 1, output: result.message };
@@ -745,7 +835,7 @@ export async function runOperator(
     case "brand": {
       const [who] = args;
       if (!who) return usage("brand needs a user ID, email or workspace ID.");
-      const ownerId = await userIdFor(db, who);
+      const ownerId = await userIdFor(global, who);
       if (!ownerId) return { exitCode: 1, output: "Account not found." };
       const state = await showBrand(db, ownerId, now);
       if (!state.brand) return { exitCode: 0, output: `${ownerId} has no brand.` };
@@ -770,7 +860,7 @@ export async function runOperator(
       if (!who || !reason.success) {
         return usage("suspend-brand needs an owner and a valid --reason.");
       }
-      const ownerId = await userIdFor(db, who);
+      const ownerId = await userIdFor(global, who);
       if (!ownerId) return { exitCode: 1, output: "Account not found." };
       const result = await suspendBrand(db, { ownerId, reason: reason.data, now });
       if (!result.ok) return { exitCode: 1, output: result.message };
@@ -784,7 +874,7 @@ export async function runOperator(
     case "reinstate-brand": {
       const [who] = args;
       if (!who) return usage("reinstate-brand needs an owner.");
-      const ownerId = await userIdFor(db, who);
+      const ownerId = await userIdFor(global, who);
       if (!ownerId) return { exitCode: 1, output: "Account not found." };
       const result = await reinstateBrand(db, { ownerId, now });
       if (!result.ok) return { exitCode: 1, output: result.message };
@@ -811,7 +901,7 @@ export async function runOperator(
     case "export-tombstones": {
       const out = options.get("out");
       if (!out) return usage("export-tombstones needs --out <file>.");
-      const markers = await exportTombstones(db);
+      const markers = await exportTombstones(regions);
       await files.write(out, markers.map((marker) => `${JSON.stringify(marker)}\n`).join(""));
       return { exitCode: 0, output: `Wrote ${markers.length} tombstone marker(s) to ${out}.` };
     }
@@ -831,7 +921,6 @@ export async function runOperator(
       }
       const result = await applyTombstones(db, markers, now);
       // A restore of the global database rewinds the artifact directory too (decision 0005).
-      const regions = regionsFromEnv({ DB: db.$client });
       let directory = 0;
       for (const handles of regions.all()) {
         directory += await rebuildArtifactDirectory(regions.global, handles.db, handles.region);
@@ -842,10 +931,13 @@ export async function runOperator(
       };
     }
     case "budget": {
-      const state = await getBudgetState(db, now);
+      const state = await getBudgetState(global, now);
       if (!state)
         return { exitCode: 0, output: "No budget state yet: the jobs Worker has not run." };
-      const alerts = await listBudgetAlerts(db, { cycleStart: budgetCycle(now).start, limit: 20 });
+      const alerts = await listBudgetAlerts(global, {
+        cycleStart: budgetCycle(now).start,
+        limit: 20,
+      });
       const alertLines = alerts.length > 0 ? alerts.map((a) => `  ${alertLine(a)}`) : ["  none"];
       return {
         exitCode: 0,
@@ -857,7 +949,7 @@ export async function runOperator(
       if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
         return usage("--limit must be 1 to 500.");
       }
-      const alerts = await listBudgetAlerts(db, { limit });
+      const alerts = await listBudgetAlerts(global, { limit });
       if (alerts.length === 0) return { exitCode: 0, output: "No budget alerts." };
       const lines = alerts.map(
         (a) => `${a.id}  cycle ${iso(a.cycleStart).slice(0, 7)}  ${a.level}  ${alertLine(a)}`,
@@ -865,13 +957,13 @@ export async function runOperator(
       return { exitCode: 0, output: lines.join("\n") };
     }
     case "budget-override":
-      return budgetOverride(db, args, options, now);
+      return budgetOverride(global, args, options, now);
     case "email-suppressions": {
       const limit = Number(options.get("limit") ?? 50);
       if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
         return usage("--limit must be 1 to 500.");
       }
-      const rows = await listEmailSuppressions(db, { now, limit });
+      const rows = await listEmailSuppressions(global, { now, limit });
       if (rows.length === 0) return { exitCode: 0, output: "No email suppressions." };
       // Addresses are stored only as a hash and a masked hint, so the hint is all there is.
       const lines = rows.map(
@@ -883,7 +975,7 @@ export async function runOperator(
     case "lift-email-suppression": {
       const [email] = args;
       if (!email?.includes("@")) return usage("lift-email-suppression needs the email address.");
-      const lifted = await liftEmailSuppression(db, email);
+      const lifted = await liftEmailSuppression(global, email);
       return {
         exitCode: lifted ? 0 : 1,
         output: lifted
@@ -894,7 +986,7 @@ export async function runOperator(
     case "plan": {
       const [who] = args;
       if (!who) return usage("plan needs an owner.");
-      const userId = await ownerIdFor(db, who);
+      const userId = await ownerIdFor(db.global, who);
       if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
       return {
         exitCode: 0,
@@ -906,7 +998,7 @@ export async function runOperator(
     case "remove-plan": {
       const [who] = args;
       if (!who) return usage("remove-plan needs an owner.");
-      const userId = await ownerIdFor(db, who);
+      const userId = await ownerIdFor(db.global, who);
       if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
       const result = await removeOwnerPlan(db, { ownerId: userId, now });
       if (!result.ok) return { exitCode: 1, output: result.message };
@@ -947,7 +1039,7 @@ export async function runOperator(
     case "export-policies": {
       const out = options.get("out");
       if (!out) return usage("export-policies needs --out <file>.");
-      const items = await exportWorkspacePolicies(regionsFromEnv({ DB: db.$client }).global);
+      const items = await exportWorkspacePolicies(global);
       await files.write(out, items.map((item) => `${JSON.stringify(item)}\n`).join(""));
       return { exitCode: 0, output: `Wrote ${items.length} workspace policy(ies) to ${out}.` };
     }
@@ -961,11 +1053,7 @@ export async function runOperator(
           output: `Line ${parsed.line} of ${file} is not an exported workspace policy; nothing was applied.`,
         };
       }
-      const result = await applyWorkspacePolicies(
-        regionsFromEnv({ DB: db.$client }).global,
-        parsed.items,
-        now,
-      );
+      const result = await applyWorkspacePolicies(global, parsed.items, now);
       const lines = [
         `Applied ${result.applied} workspace policy(ies); skipped ${result.skipped} (unchanged, or the workspace is gone).`,
       ];
@@ -978,7 +1066,7 @@ export async function runOperator(
       return { exitCode: 0, output: lines.join("\n") };
     }
     case "workspaces": {
-      const rows = await listAllWorkspaces(regionsFromEnv({ DB: db.$client }).global);
+      const rows = await listAllWorkspaces(global);
       if (rows.length === 0) return { exitCode: 0, output: "No workspaces." };
       return {
         exitCode: 0,
@@ -993,8 +1081,7 @@ export async function runOperator(
     case "workspace": {
       const [key] = args;
       if (!key) return usage("workspace needs a slug or workspace ID.");
-      const regions = regionsFromEnv({ DB: db.$client });
-      const detail = await getWorkspaceDetail(regions.global, regions.get("default").db, key, now);
+      const detail = await getWorkspaceDetail(regions, key, now);
       if (!detail) return { exitCode: 1, output: "Workspace not found." };
       return {
         exitCode: 0,
@@ -1002,19 +1089,18 @@ export async function runOperator(
       };
     }
     case "workspace-create":
-      return createWorkspaceCommand(db, args, options, now);
+      return createWorkspaceCommand(regions, args, options, now);
     case "workspace-delete": {
       const [key] = args;
       if (!key) return usage("workspace-delete needs a slug or workspace ID.");
-      const regions = regionsFromEnv({ DB: db.$client });
-      const detail = await getWorkspaceDetail(regions.global, regions.get("default").db, key, now);
+      const detail = await getWorkspaceDetail(regions, key, now);
       if (!detail) return { exitCode: 1, output: "Workspace not found." };
       if (options.get("confirm") !== detail.slug) {
         return usage(
           `workspace-delete needs --confirm ${detail.slug} to delete it and its artifacts.`,
         );
       }
-      const result = await deleteWorkspace(regions.get("default").db, {
+      const result = await deleteWorkspace(regions, {
         workspaceId: detail.id,
         now,
       });
@@ -1094,7 +1180,7 @@ export async function runOperator(
     case "unblock-domain": {
       const [name] = args;
       if (!name) return usage("unblock-domain needs a name.");
-      return (await unblockHostname(db, name))
+      return (await unblockHostname(db.global, name))
         ? {
             exitCode: 0,
             output: `Unblocked ${name.trim().toLowerCase()}. Detached domains stay detached.`,
@@ -1102,7 +1188,7 @@ export async function runOperator(
         : { exitCode: 1, output: "That name is not blocked." };
     }
     case "blocked-domains": {
-      const rows = await listBlockedHostnames(db);
+      const rows = await listBlockedHostnames(db.global);
       if (rows.length === 0) return { exitCode: 0, output: "No blocked names." };
       return {
         exitCode: 0,

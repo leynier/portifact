@@ -3,9 +3,9 @@
 // never by a web route. A suspended artifact is not servable, so delivery, read sessions,
 // downloads and annotations refuse it through their existing state checks.
 import type { AbuseReason } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import { fail, ok, purgeDate, type Result } from "@portifact/domain";
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -26,25 +26,38 @@ export interface AbuseReportSubmission {
  * are dropped instead of stored.
  */
 export async function submitAbuseReport(
-  db: Db,
+  db: RegionalDb,
   input: AbuseReportSubmission,
 ): Promise<{ stored: boolean }> {
   if (!input.artifactId) return { stored: false };
-  const id = `rep_${crypto.randomUUID().replaceAll("-", "")}`;
+  // The artifact is in its region and reports are global (decision 0005): no statement spans
+  // both, so the artifact is checked first. One that goes away in between leaves a report about
+  // a gone artifact, which the operator dismisses.
   const a = schema.artifacts;
-  const inserted = await db
-    .insert(schema.abuseReports)
-    .select(
-      sql`select ${id}, ${input.artifactId}, ${input.email || null}, ${input.reason}, ${input.details || null}, 'open', null, ${input.now} where exists (select 1 from ${a} where ${a.id} = ${input.artifactId} and ${a.state} not in ('draft', 'purging', 'deleted'))`,
-    )
-    .returning({ id: schema.abuseReports.id });
-  return { stored: inserted.length === 1 };
+  const [artifact] = await db
+    .select({ id: a.id })
+    .from(a)
+    .where(and(eq(a.id, input.artifactId), notInArray(a.state, ["draft", "purging", "deleted"])))
+    .limit(1);
+  if (!artifact) return { stored: false };
+  const id = `rep_${crypto.randomUUID().replaceAll("-", "")}`;
+  await db.global.insert(schema.abuseReports).values({
+    id,
+    artifactId: input.artifactId,
+    reporterEmail: input.email || null,
+    reason: input.reason,
+    details: input.details || null,
+    status: "open",
+    resolvedAt: null,
+    createdAt: input.now,
+  });
+  return { stored: true };
 }
 
 export type AbuseReportRow = typeof schema.abuseReports.$inferSelect;
 
 export async function listAbuseReports(
-  db: Db,
+  db: GlobalDb,
   input: { status?: AbuseReportRow["status"] | undefined; limit: number },
 ): Promise<AbuseReportRow[]> {
   return db
@@ -56,7 +69,7 @@ export async function listAbuseReports(
 }
 
 export async function resolveAbuseReport(
-  db: Db,
+  db: GlobalDb,
   input: { reportId: string; status: "actioned" | "dismissed"; now: number },
 ): Promise<Result<{ reportId: string }>> {
   const updated = await db
@@ -127,7 +140,7 @@ export async function accountSuspension(db: Db, userId: string) {
  * twice, and the artifact changes only if this row exists.
  */
 export async function suspendArtifact(
-  db: Db,
+  db: RegionalDb,
   input: SuspendInput & { artifactId: string; parentId?: string | undefined },
 ): Promise<Result<SuspensionOutcome>> {
   const [artifact] = await db
@@ -182,7 +195,7 @@ export async function suspendArtifact(
 
 /** After a lost claim: fine if another suspension won, a conflict if anything else changed. */
 async function alreadySuspended(
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   now: number,
 ): Promise<Result<SuspensionOutcome>> {
@@ -199,7 +212,7 @@ async function alreadySuspended(
  * can restore it later. An artifact suspended with its account is reinstated with the account.
  */
 export async function reinstateArtifact(
-  db: Db,
+  db: RegionalDb,
   input: { artifactId: string; now: number; viaAccount?: boolean },
 ): Promise<Result<{ state: "active" | "archived"; changed: boolean }>> {
   const [artifact] = await db
@@ -230,7 +243,7 @@ export async function reinstateArtifact(
   }
 
   // An artifact that goes back to the archive is kept for its owner's plan's months from now.
-  const archiveMonths = (await ownerEntitlements(db, artifact.ownerId, input.now)).limits
+  const archiveMonths = (await ownerEntitlements(db.global, artifact.ownerId, input.now)).limits
     .archiveMonths;
   const back = async (state: "active" | "archived") => {
     const a = schema.artifacts;
@@ -301,10 +314,10 @@ export async function reinstateArtifact(
  * suspension. The account can still sign in, see why, export its data and delete itself.
  */
 export async function suspendAccount(
-  db: Db,
+  db: RegionalDb,
   input: SuspendInput & { userId: string },
 ): Promise<Result<SuspensionOutcome & { artifacts: number }>> {
-  const [user] = await db
+  const [user] = await db.global
     .select({ id: schema.users.id })
     .from(schema.users)
     .where(eq(schema.users.id, input.userId))
@@ -366,7 +379,7 @@ export async function suspendAccount(
  * account itself last, so a run that stops halfway can simply be repeated.
  */
 export async function reinstateAccount(
-  db: Db,
+  db: RegionalDb,
   input: { userId: string; now: number },
 ): Promise<Result<{ artifacts: number; changed: boolean }>> {
   const open = await openSuspension(db, "account", input.userId);

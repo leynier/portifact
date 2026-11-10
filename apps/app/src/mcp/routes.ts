@@ -3,7 +3,7 @@
 // fallback for older clients. Every request passes the same token check as /api/v1, with the
 // scope of the tool it calls, before the SDK sees it; MCP has no privileged path.
 import { createMcpHandler } from "@modelcontextprotocol/server";
-import { LIMITS } from "@portifact/contracts";
+import { LIMITS, type Region } from "@portifact/contracts";
 import type { MultipartConfig } from "@portifact/domain";
 import type { DomainDeps } from "@portifact/services";
 import { Hono } from "hono";
@@ -23,7 +23,8 @@ import { createPortifactServer, TOOL_SCOPES } from "./tools.ts";
 export interface McpDeps {
   introspect(env: Env): Introspect;
   resource(env: Env): ProtectedResource;
-  presigner(env: Env): Presigner;
+  /** The presigner of a region's bucket; the default region's without one. */
+  presigner(env: Env, region?: Region): Presigner;
   /** Turnstile's siteverify transport, for the human check of new comments. */
   siteverify(env: Env): FetchLike;
   /** Threshold and part size of multipart uploads, as for the API; undefined for the defaults. */
@@ -60,7 +61,7 @@ export function mcpRoutes(deps: McpDeps) {
           env: c.env,
           userId: principal.userId,
           now: deps.now,
-          presigner: deps.presigner(c.env),
+          presigner: (region) => deps.presigner(c.env, region),
           multipart: deps.multipart?.(c.env),
           domains: deps.domains(c.env),
           humanCheck: humanCheck(c.env, deps.siteverify(c.env), c.req.raw, undefined),

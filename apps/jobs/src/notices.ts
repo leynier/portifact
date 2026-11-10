@@ -5,16 +5,19 @@
 // the artifact in the viewer, the settings and a signed one-click unsubscribe link (the same one:
 // one setting covers both), also offered to mail clients through the `List-Unsubscribe` headers
 // (RFC 8058).
-import { LIMITS } from "@portifact/contracts";
+import { DEFAULT_REGION, LIMITS } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
+import type { Region } from "@portifact/db";
 import {
   commentNoticeEmail,
+  directoryNoticeEmail,
   domainNoticeEmail,
   expiryNoticeEmail,
   reviewNoticeEmail,
 } from "@portifact/emails";
 import {
   type CommentNotifier,
+  type DirectoryNotifier,
   type DomainNotifier,
   type ExpiringArtifact,
   type ExpiryNotifier,
@@ -39,6 +42,15 @@ export interface NoticeEnv {
   UNSUBSCRIBE_SECRET?: string | undefined;
 }
 
+/**
+ * Whether a notice may name artifacts: only in the default region. A workspace whose data stays
+ * in the EU gets its notices with counts and links, never names or comment text (decision 0005,
+ * "What leaves the region": the email provider is outside the region).
+ */
+export function emailNames(region: Region): boolean {
+  return region === DEFAULT_REGION;
+}
+
 export const NOTICE_SENDER = { email: "noreply@portifact.com", name: "Portifact" } as const;
 
 /** The email of one notice, with the environment's addresses. */
@@ -47,8 +59,11 @@ export function noticeEmail(
   artifacts: ExpiringArtifact[],
   locale: LocaleCode | null = null,
   archiveMonths: number = LIMITS.archiveMonths,
+  /** The artifacts' region: outside the default one, names stay out (decision 0005). */
+  region: Region = DEFAULT_REGION,
 ) {
   return expiryNoticeEmail({
+    names: emailNames(region),
     artifacts: artifacts.map((artifact) => ({
       name: artifact.name,
       url: `https://${artifact.id}.${env.CONTENT_DOMAIN}/`,
@@ -62,14 +77,17 @@ export function noticeEmail(
   });
 }
 
-export function expiryNotifierFromEnv(env: NoticeEnv): ExpiryNotifier {
+export function expiryNotifierFromEnv(
+  env: NoticeEnv,
+  region: Region = DEFAULT_REGION,
+): ExpiryNotifier {
   return {
     async send({ to, artifacts, locale, archiveMonths }) {
       try {
         await env.EMAIL.send({
           from: NOTICE_SENDER,
           to,
-          ...noticeEmail(env, artifacts, locale, archiveMonths),
+          ...noticeEmail(env, artifacts, locale, archiveMonths, region),
         });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
@@ -94,6 +112,8 @@ export function commentEmail(
   env: Pick<NoticeEnv, "APP_ORIGIN">,
   notice: { artifacts: NoticeArtifact[]; more: number; locale: LocaleCode | null },
   token: string,
+  /** The artifacts' region: outside the default one, names stay out (decision 0005). */
+  region: Region = DEFAULT_REGION,
 ) {
   const urls = unsubscribeUrls(env.APP_ORIGIN, token);
   const email = commentNoticeEmail({
@@ -107,9 +127,7 @@ export function commentEmail(
     more: notice.more,
     settingsUrl: `${env.APP_ORIGIN}/settings`,
     unsubscribeUrl: urls.page,
-    // Every artifact is stored in the one global region today (decision 0005); an EU workspace
-    // will send its notices without names.
-    names: true,
+    names: emailNames(region),
     locale: notice.locale ?? undefined,
   });
   return {
@@ -121,14 +139,17 @@ export function commentEmail(
   };
 }
 
-export function commentNotifierFromEnv(env: NoticeEnv): CommentNotifier {
+export function commentNotifierFromEnv(
+  env: NoticeEnv,
+  region: Region = DEFAULT_REGION,
+): CommentNotifier {
   return {
     async send({ to, userId, issuedAt, artifacts, more, locale }) {
       const secret = env.UNSUBSCRIBE_SECRET;
       // Thrown before sending: the job goes back to the outbox until the secret is set.
       if (!secret) throw new Error("comment notices need UNSUBSCRIBE_SECRET");
       const token = await signUnsubscribeToken(secret, userId, issuedAt);
-      const email = commentEmail(env, { artifacts, more, locale }, token);
+      const email = commentEmail(env, { artifacts, more, locale }, token, region);
       try {
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
       } catch (error) {
@@ -150,6 +171,8 @@ export function reviewEmail(
   env: Pick<NoticeEnv, "APP_ORIGIN">,
   notice: Omit<ReviewNotice, "to" | "userId" | "issuedAt">,
   token: string,
+  /** The artifact's region: outside the default one, its name stays out (decision 0005). */
+  region: Region = DEFAULT_REGION,
 ) {
   const urls = unsubscribeUrls(env.APP_ORIGIN, token);
   const email = reviewNoticeEmail({
@@ -159,8 +182,7 @@ export function reviewEmail(
     url: `${env.APP_ORIGIN}/view/${notice.artifactId}`,
     settingsUrl: `${env.APP_ORIGIN}/settings`,
     unsubscribeUrl: urls.page,
-    // Every artifact is stored in the one global region today (decision 0005).
-    names: true,
+    names: emailNames(region),
     locale: notice.locale ?? undefined,
   });
   return {
@@ -172,7 +194,10 @@ export function reviewEmail(
   };
 }
 
-export function reviewNotifierFromEnv(env: NoticeEnv): ReviewNotifier {
+export function reviewNotifierFromEnv(
+  env: NoticeEnv,
+  region: Region = DEFAULT_REGION,
+): ReviewNotifier {
   return {
     async send({ to, userId, issuedAt, ...notice }) {
       const secret = env.UNSUBSCRIBE_SECRET;
@@ -180,7 +205,38 @@ export function reviewNotifierFromEnv(env: NoticeEnv): ReviewNotifier {
       if (!secret) throw new Error("review notices need UNSUBSCRIBE_SECRET");
       const token = await signUnsubscribeToken(secret, userId, issuedAt);
       try {
-        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...reviewEmail(env, notice, token) });
+        await env.EMAIL.send({
+          from: NOTICE_SENDER,
+          to,
+          ...reviewEmail(env, notice, token, region),
+        });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/**
+ * The notice of being added to a workspace by its directory (decision 0017), linking the
+ * workspace and its Members page, where the person can leave.
+ */
+export function directoryNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+): DirectoryNotifier {
+  return {
+    async send({ to, workspaceName, workspaceSlug, locale }) {
+      const space = `workspace=${encodeURIComponent(workspaceSlug)}`;
+      const email = directoryNoticeEmail({
+        workspaceName,
+        workspaceUrl: `${env.APP_ORIGIN}/?${space}`,
+        membersUrl: `${env.APP_ORIGIN}/members?${space}`,
+        locale: locale ?? undefined,
+      });
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

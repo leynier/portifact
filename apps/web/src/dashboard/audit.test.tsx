@@ -156,6 +156,85 @@ describe("audit log page", () => {
     );
   });
 
+  it("names a directory by its SCIM token's label, and says what it provisioned", async () => {
+    const tokenId = `sc_${"0".repeat(32)}`;
+    const live = { type: "directory", id: tokenId, label: "Okta" } as const;
+    const gone = { type: "directory", id: tokenId, label: null } as const;
+    const member = { type: "member", id: "u_grace", name: "Grace" } as const;
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    server.audit.acme = [
+      event({
+        at: at(1),
+        kind: "member.provisioned",
+        actor: live,
+        target: { type: "invitation", id: "inv_1" },
+        artifact: null,
+        detail: { role: "member", emailDomain: "corp.example" },
+      }),
+      event({
+        at: at(2),
+        kind: "member.joined",
+        actor: live,
+        target: { type: "member", id: "u_grace", member },
+        artifact: null,
+        detail: { role: "member", via: "directory" },
+      }),
+      event({
+        at: at(3),
+        kind: "scim_token.created",
+        target: { type: "scim_token", id: tokenId, scimToken: live },
+        artifact: null,
+        detail: { days: 365 },
+      }),
+      event({
+        at: at(4),
+        kind: "scim_token.revoked",
+        target: { type: "scim_token", id: tokenId, scimToken: gone },
+        artifact: null,
+      }),
+      ...[true, false].map((on, i) =>
+        event({
+          at: at(5 + i),
+          kind: "scim.changed",
+          target: { type: "scim", id: "ws_1" },
+          artifact: null,
+          detail: { fields: ["invitationEmails"], invitationEmails: on },
+        }),
+      ),
+      event({
+        at: at(6.5),
+        kind: "scim.changed",
+        target: { type: "scim", id: "ws_1" },
+        artifact: null,
+        detail: { fields: ["editorGroup", "adminGroup"], editorGroup: "wg_1", adminGroup: null },
+      }),
+      event({
+        at: at(7),
+        kind: "member.removed",
+        actor: gone,
+        target: { type: "member", id: "u_x" },
+        artifact: null,
+        detail: { role: "member" },
+      }),
+    ];
+    renderDashboard("/audit?workspace=acme", server);
+    const rows = within(await table()).getAllByRole("row");
+    const text = (row: number) => rows[row]?.textContent ?? "";
+    expect(text(1)).toContain("Okta (directory)");
+    expect(text(1)).toContain("Provisioned someone at corp.example as Member");
+    expect(text(2)).toContain("Grace joined as Member through the directory");
+    expect(text(3)).toContain("Created a SCIM token (365 days)");
+    expect(text(3)).toContain("Okta (directory)");
+    expect(text(4)).toContain("Revoked a SCIM token");
+    expect(text(4)).toContain("Directory (revoked SCIM token)");
+    expect(text(5)).toContain("Turned on invitation emails for provisioned people");
+    expect(text(5)).toContain("This space");
+    expect(text(6)).toContain("Turned off invitation emails for provisioned people");
+    expect(text(7)).toContain("Gave Editor to the members of a directory group");
+    expect(text(7)).toContain("Stopped giving Admin through a directory group");
+    expect(text(8)).toContain("Directory (revoked SCIM token)");
+  });
+
   it("filters by kind of change, person and period from keyboard reachable controls", async () => {
     server.audit[""] = EVENTS;
     renderDashboard("/audit", server);

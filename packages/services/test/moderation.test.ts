@@ -40,7 +40,7 @@ describe("abuse reports", () => {
       now: NOW,
     });
     expect(stored).toEqual({ stored: true });
-    const open = (await listAbuseReports(db(), { status: "open", limit: 500 })).filter(
+    const open = (await listAbuseReports(db().global, { status: "open", limit: 500 })).filter(
       (report) => report.artifactId === artifactId,
     );
     expect(open).toMatchObject([
@@ -52,13 +52,13 @@ describe("abuse reports", () => {
         createdAt: NOW,
       },
     ]);
-    const resolved = await resolveAbuseReport(db(), {
+    const resolved = await resolveAbuseReport(db().global, {
       reportId: open[0]?.id ?? "",
       status: "actioned",
       now: NOW + 1,
     });
     expect(resolved.ok).toBe(true);
-    const after = (await listAbuseReports(db(), { limit: 500 })).find(
+    const after = (await listAbuseReports(db().global, { limit: 500 })).find(
       (report) => report.id === open[0]?.id,
     );
     expect(after).toMatchObject({ status: "actioned", resolvedAt: NOW + 1 });
@@ -105,7 +105,11 @@ describe("abuse reports", () => {
 
   it("answers not_found when resolving a report that does not exist", async () => {
     expect(
-      await resolveAbuseReport(db(), { reportId: "rep_missing", status: "dismissed", now: NOW }),
+      await resolveAbuseReport(db().global, {
+        reportId: "rep_missing",
+        status: "dismissed",
+        now: NOW,
+      }),
     ).toMatchObject({ ok: false, code: "not_found" });
   });
 });

@@ -36,7 +36,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   removeBrandLogo: ["brand.removed"],
   inviteMember: ["member.invited"],
   revokeInvitation: ["member.invitation_revoked"],
-  acceptInvitation: ["member.joined"],
+  acceptInvitation: ["member.joined", "member.role_changed", "group.member_added"],
   createWorkspace: ["member.joined"],
   changeMemberRole: ["member.role_changed"],
   removeMember: ["member.removed", "member.left"],
@@ -59,7 +59,57 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   removeGroupMember: ["group.member_removed"],
   saveSsoProvider: ["sso.created", "sso.changed"],
   removeSsoProvider: ["sso.removed"],
-  joinWorkspaceThroughSso: ["member.joined"],
+  joinWorkspaceThroughSso: ["member.joined", "group.member_added", "member.role_changed"],
+  // SCIM (decision 0017): the directory's token and settings by an admin, and what a directory
+  // changes, with the directory as the actor; a sign-in that claims a pending membership.
+  createScimToken: ["scim_token.created"],
+  revokeScimToken: ["scim_token.revoked"],
+  operatorRevokeScimToken: ["scim_token.revoked"],
+  updateScimSettings: ["scim.changed"],
+  createScimUser: [
+    "member.provisioned",
+    "member.joined",
+    "group.member_added",
+    "member.role_changed",
+  ],
+  replaceScimUser: [
+    "member.provisioned",
+    "member.joined",
+    "group.member_added",
+    "member.role_changed",
+    "member.removed",
+    "member.invitation_revoked",
+  ],
+  patchScimUser: [
+    "member.provisioned",
+    "member.joined",
+    "group.member_added",
+    "member.role_changed",
+    "member.removed",
+    "member.invitation_revoked",
+  ],
+  deleteScimUser: ["member.removed", "member.invitation_revoked"],
+  claimDirectoryMemberships: ["member.joined", "group.member_added", "member.role_changed"],
+  // SCIM groups (decision 0017, "Groups and roles"), with the directory as the actor.
+  createScimGroup: ["group.created", "group.member_added", "member.role_changed"],
+  replaceScimGroup: [
+    "group.renamed",
+    "group.member_added",
+    "group.member_removed",
+    "member.role_changed",
+  ],
+  patchScimGroup: [
+    "group.renamed",
+    "group.member_added",
+    "group.member_removed",
+    "member.role_changed",
+  ],
+  deleteScimGroup: ["group.deleted", "member.role_changed"],
+  // An admin stops syncing a directory group; the roles it gave are kept, nothing is recorded
+  // for them (no role changes).
+  stopDirectorySync: ["group.sync_stopped"],
+  // After a restore, with the system as actor.
+  recomputeDirectoryRoles: ["member.role_changed"],
   // Workspace policies (decision 0015): a change records which fields and values, and each step
   // that applies one to existing artifacts records its counts and each changed artifact's own
   // access change, as the system.
@@ -114,7 +164,17 @@ reason("a claim before any DNS proof attaches nothing; verifying records it", [
 ]);
 reason("a token's use: what it changes is recorded as its own events, last use is a timestamp", [
   "authenticateServiceToken",
+  "authenticateScimToken",
+  "hitScimRateLimit",
+  "hitScimAuthFailure",
 ]);
+reason("statements for a settings change's own batch, which records scim.changed (decision 0017)", [
+  "roleMappingStatements",
+]);
+reason(
+  "what a directory said about people who never got an account, once it lapsed (decision 0017)",
+  ["pruneDirectoryUsers"],
+);
 reason("readers, visitors and reviewers, not the owner side: the access log covers reads", [
   "openShareLink",
   "redeemShareHandoff",
@@ -152,6 +212,8 @@ reason("the account's own preferences and sign-ins, not an owner's shared state"
   "disconnectApp",
 ]);
 reason("the owner is erased with its events", [
+  "finalDeletionStep",
+  "retried",
   "advanceAccountDeletion",
   "processAccountDeletions",
   "deleteWorkspace",
@@ -184,6 +246,7 @@ reason("reads that find a custom host or the operator's block list", [
   "customHostHint",
 ]);
 reason("scheduled jobs and their consequences of changes already recorded", [
+  "releaseMovedArtifactDomains",
   "archiveExpired",
   "expireUploads",
   "pruneVersions",
@@ -191,6 +254,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sweepOrphanObjects",
   "rerenderDocuments",
   "runMaintenance",
+  "runRegionalMaintenance",
   "pruneArtifactGroups",
   "pruneGroupTombstones",
   "relayOutbox",
@@ -208,6 +272,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "runReviewNotice",
   "scheduleDomainNotices",
   "sendDomainNotice",
+  // The notice of being added by a directory (decision 0017): sending changes nothing.
+  "sendDirectoryNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
   // Content search (decision 0012): the index is derived data, kept by a job and two scans.
@@ -253,6 +319,9 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  "appSessionLive",
+  "directoryGroupChoices",
+  "directoryRoleHolders",
   "seatLimit",
   "accessAudience",
   "approvalSummaries",

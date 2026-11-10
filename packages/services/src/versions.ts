@@ -131,7 +131,7 @@ export async function managedArtifact(
   const actor = await authorizeOn(db, userId, artifact, action, missing);
   if (!actor.ok) return actor;
   // Retention and paid features follow the owner's plan, a workspace's for a workspace.
-  const owner = await ownerEntitlements(db, artifact.ownerId, now);
+  const owner = await ownerEntitlements(db.global, artifact.ownerId, now);
   return ok({ artifact, actor: actor.value, owner });
 }
 
@@ -395,7 +395,7 @@ export async function getVersionDownload(
     });
     if (!access.ok) return missingVersion();
   }
-  const owner = await ownerEntitlements(db, artifact.ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, artifact.ownerId, input.now);
   const version = await resolveVersion(
     db,
     artifact,

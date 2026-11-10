@@ -353,6 +353,11 @@ describe("plain words for every kind", () => {
     "sso.created": { issuerHost: "login.corp.example", domains: 2 },
     "sso.changed": { fields: ["clientSecret", "domains"] },
     "sso.removed": {},
+    "scim_token.created": { days: 365 },
+    "scim_token.revoked": {},
+    "member.provisioned": { role: "member", emailDomain: "corp.example" },
+    "scim.changed": { fields: ["invitationEmails"], invitationEmails: true },
+    "group.sync_stopped": {},
     "audit.exported": { format: "csv", kinds: 0, from: "2026-01-01" },
     "policy.changed": {
       fields: ["publicAccess", "readerDomains", "shareLinks", "shareLinkMaxDays"],
@@ -415,6 +420,12 @@ describe("plain words for every kind", () => {
     "sso.created": "Set up single sign-on with login.corp.example for 2 domains",
     "sso.changed": "Changed single sign-on (client secret, domains)",
     "sso.removed": "Removed single sign-on",
+    "scim_token.created": "Created a SCIM token (365 days)",
+    "scim_token.revoked": "Revoked a SCIM token",
+    "member.provisioned":
+      "Provisioned someone at corp.example as member; they join when they sign in",
+    "scim.changed": "Turned on invitation emails for provisioned people",
+    "group.sync_stopped": 'Stopped syncing the group "Design" from the directory',
     "audit.exported": "Exported the audit log as CSV (2026-01-01 to now)",
     "policy.changed":
       "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days (existing artifacts changed)",
@@ -518,6 +529,40 @@ describe("plain words for every kind", () => {
     );
     expect(auditActor({ type: "service_token", id: "st_1", label: null })).toBe(
       "Revoked service token",
+    );
+    expect(auditActor({ type: "directory", id: "sc_1", label: "Okta" })).toBe("Okta (directory)");
+    expect(auditActor({ type: "directory", id: "sc_1", label: null })).toBe(
+      "Directory (revoked SCIM token)",
+    );
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "member.joined",
+          detail: { role: "member", via: "directory" },
+          target: { type: "member", id: "u1" },
+        }),
+      ),
+    ).toContain("joined as member through the directory");
+    expect(auditSummary(event(0, { kind: "scim_token.created", detail: { days: 1 } }))).toBe(
+      "Created a SCIM token (1 day)",
+    );
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "scim.changed",
+          detail: { fields: ["invitationEmails"], invitationEmails: false },
+        }),
+      ),
+    ).toBe("Turned off invitation emails for provisioned people");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "scim.changed",
+          detail: { fields: ["editorGroup", "adminGroup"], editorGroup: "wg_1", adminGroup: null },
+        }),
+      ),
+    ).toBe(
+      "Gave editor to the members of a directory group; Stopped giving admin through a directory group",
     );
     expect(auditActor({ type: "operator" })).toBe("Portifact operator");
     expect(auditActor({ type: "system" })).toBe("Portifact");
