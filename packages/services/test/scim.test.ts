@@ -36,11 +36,11 @@ import { raceGlobalBeforeFirstWrite } from "./race.ts";
 const hex = () => crypto.randomUUID().replaceAll("-", "");
 const global = () => db().global;
 const BASE = "https://app.portifact.com/scim/v2";
-const NO_EMAIL: ScimDeps = { sender: null };
 const ended: string[] = [];
 const END = async (account: string) => {
   ended.push(account);
 };
+const NO_EMAIL: ScimDeps = { sender: null, endSessions: END };
 
 async function person(email: string) {
   const id = `u_${hex()}`;
@@ -326,7 +326,7 @@ describe("provisioning", () => {
     const { caller } = await directory(t);
     const email = `new@${t.domain}`;
     const written = ok(await createScimUser(global(), NO_EMAIL, caller, user(email), NOW));
-    expect(written.endSessionsOf).toBeNull();
+    expect(written.ended).toBeNull();
     expect(written.user).toMatchObject({ email, active: true, names: { givenName: "Ada" } });
     expect(written.user.id).toMatch(/^su_[0-9a-f]{32}$/);
     expect(await pending(t, email)).toMatchObject({
@@ -543,7 +543,7 @@ describe("deactivation and deletion", () => {
       await patchScimUser(global(), NO_EMAIL, caller, created.user.id, deactivate, NOW + 1),
     );
     expect(off.user.active).toBe(false);
-    expect(off.endSessionsOf).toBe(ada);
+    expect(off.ended).toBe(ada);
     expect(await role(t, ada)).toBeNull();
     expect(await events(t)).toContainEqual(["member.removed", "directory"]);
     expect(await exportTombstones(global())).toContainEqual({
@@ -560,11 +560,11 @@ describe("deactivation and deletion", () => {
         consumeInvitation: true,
       }),
     ).toMatchObject({ ok: false, message: "sso_removed" });
-    // Deactivating again is harmless and still names the account, so its sessions end again.
+    // Deactivating again removes nobody, so it ends no session.
     const again = ok(
       await patchScimUser(global(), NO_EMAIL, caller, created.user.id, deactivate, NOW + 3),
     );
-    expect(again.endSessionsOf).toBe(ada);
+    expect(again.ended).toBeNull();
     // Reactivating brings them back and lifts the block.
     ok(await patchScimUser(global(), NO_EMAIL, caller, created.user.id, reactivate, NOW + 4));
     expect(await role(t, ada)).toBe("member");
@@ -588,7 +588,7 @@ describe("deactivation and deletion", () => {
     const off = ok(
       await patchScimUser(global(), NO_EMAIL, caller, created.user.id, deactivate, NOW + 2),
     );
-    expect(off.endSessionsOf).toBe(ada);
+    expect(off.ended).toBe(ada);
     expect(await role(t, ada)).toBeNull();
     expect(
       await patchScimUser(global(), NO_EMAIL, caller, created.user.id, reactivate, NOW + 3),
@@ -627,7 +627,7 @@ describe("deactivation and deletion", () => {
         NOW + 1,
       ),
     );
-    expect(off.endSessionsOf).toBeNull();
+    expect(off.ended).toBeNull();
     expect(await pending(t, email)).toBeNull();
     const later = await person(email);
     expect(await claimDirectoryMemberships(global(), { userId: later, now: NOW + 2 })).toBe(0);
@@ -832,7 +832,7 @@ describe("races", () => {
     const off = ok(
       await patchScimUser(raced, NO_EMAIL, caller, created.user.id, deactivate, NOW + 2),
     );
-    expect(off.endSessionsOf).toBe(racer);
+    expect(off.ended).toBe(racer);
     expect(await role(t, racer)).toBeNull();
   });
 

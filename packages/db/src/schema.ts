@@ -714,6 +714,7 @@ export const OUTBOX_TOPICS = [
   "search_index",
   "review_notice",
   "workspace_policy",
+  "directory_notice",
 ] as const;
 
 /**
@@ -1660,7 +1661,9 @@ export const workspaceInvitations = sqliteTable(
   },
   (t) => [
     uniqueIndex("workspace_invitations_token_idx").on(t.tokenHash),
-    uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email),
+    // One pending invitation per workspace, address and source: a directory's pending
+    // membership sits beside an admin's invitation and never changes it (decision 0017).
+    uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email, t.source),
     index("workspace_invitations_email_idx").on(t.email),
     check("workspace_invitations_role", sql`${t.role} in ('admin', 'editor', 'member')`),
   ],
@@ -1758,6 +1761,17 @@ export const scimUsers = sqliteTable(
     active: integer("active", { mode: "boolean" }).notNull(),
     userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     removedAt: timestamp("removed_at"),
+    /**
+     * Who made the removal by hand: `admin` (a removed member or a withdrawn pending membership),
+     * which an explicit reactivation lifts, or `self` (the person left), which only a new create
+     * after a delete lifts.
+     */
+    removal: text("removal", { enum: ["admin", "self"] }),
+    /**
+     * Set in the batch that removed the linked account's membership and cleared once its sessions
+     * ended, so a retry after a failure ends them, and only for that removal.
+     */
+    sessionsPending: integer("sessions_pending", { mode: "boolean" }).notNull().default(false),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
     /**

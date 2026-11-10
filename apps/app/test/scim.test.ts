@@ -264,6 +264,33 @@ describe("authentication", () => {
   });
 });
 
+describe("failed authentications", () => {
+  it("are limited per IP, without locking out the real directory", async () => {
+    const t = await team();
+    await env.DB.exec("DELETE FROM rate_limits");
+    const from = (ip: string, secret: string): RequestInit => {
+      const init = scim(secret);
+      return {
+        ...init,
+        headers: { ...(init.headers as Record<string, string>), "cf-connecting-ip": ip },
+      };
+    };
+    const statuses: number[] = [];
+    for (let i = 0; i < 25; i += 1) {
+      statuses.push(
+        (await t.h.request(`${SCIM}/Users`, from("203.0.113.9", `pfsc_${"q".repeat(43)}`))).status,
+      );
+    }
+    expect(statuses.slice(0, 20).every((status) => status === 401)).toBe(true);
+    expect(statuses.slice(20).every((status) => status === 429)).toBe(true);
+    // Garbage that is not a SCIM secret counts too.
+    expect((await t.h.request(`${SCIM}/Users`, from("203.0.113.9", "nonsense"))).status).toBe(429);
+    // The workspace's directory elsewhere, and even at that address, still gets in.
+    expect((await t.h.request(`${SCIM}/Users`, from("198.51.100.7", t.secret))).status).toBe(200);
+    expect((await t.h.request(`${SCIM}/Users`, from("203.0.113.9", t.secret))).status).toBe(200);
+  });
+});
+
 describe("the protocol", () => {
   it("describes itself", async () => {
     const t = await team();

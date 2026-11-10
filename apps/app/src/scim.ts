@@ -23,6 +23,7 @@ import {
   createScimUser,
   deleteScimUser,
   getScimUser,
+  hitScimAuthFailure,
   hitScimRateLimit,
   type InvitationSender,
   listScimUsers,
@@ -120,17 +121,28 @@ export function scimRoutes(deps: ScimRouteDeps) {
     const header = c.req.header("authorization") ?? "";
     const match = /^Bearer\s+(\S+)$/i.exec(header.trim());
     const challenge = { "WWW-Authenticate": 'Bearer realm="SCIM"' };
-    if (!match?.[1]) return refuse(c, UNAUTHENTICATED, challenge);
     const now = deps.now();
+    // A failed authentication is counted per IP; past the bound the answer is 429 (decision 0017).
+    const failed = async (error: ScimError) => {
+      const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+      const { limited } = await hitScimAuthFailure(global(c), ip, now);
+      if (limited) {
+        return refuse(
+          c,
+          { status: 429, detail: "Too many failed authentications. Retry later." },
+          { "Retry-After": String(SCIM.failedAuthPerIp.windowSeconds) },
+        );
+      }
+      return refuse(c, error, challenge);
+    };
+    if (!match?.[1]) return failed(UNAUTHENTICATED);
     const auth = await authenticateScimToken(global(c), match[1], now);
     if (!auth.ok) {
       if (auth.reason === "plan") return refuse(c, { status: 403, detail: auth.message });
-      return refuse(
-        c,
+      return failed(
         auth.reason === "expired"
           ? { status: 401, detail: "This SCIM token expired. Create a new one in Portifact." }
           : UNAUTHENTICATED,
-        challenge,
       );
     }
     const caller = { tokenId: auth.tokenId, workspaceId: auth.workspaceId };
@@ -173,27 +185,18 @@ export function scimRoutes(deps: ScimRouteDeps) {
   };
   const notFound = (c: ScimContext) => refuse(c, { status: 404, detail: "Resource not found." });
 
-  /** Ends the removed person's sessions; a failure asks the directory to retry (it is idempotent). */
-  const answerWrite = async (c: ScimContext, result: ScimResult<ScimWrite>, created = false) => {
+  /** The service ends the removed person's sessions; a failure is its 503, and a retry ends them. */
+  const answerWrite = (c: ScimContext, result: ScimResult<ScimWrite>, created = false) => {
     if (!result.ok) return refuse(c, result.error);
-    if (result.value.endSessionsOf !== null) {
-      const ended = await endSessions(c, result.value.endSessionsOf);
-      if (ended) return ended;
-    }
     const resource = scimUserResource(result.value.user, base(c));
     return created
       ? reply(c, resource, 201, { Location: resource.meta.location })
       : reply(c, resource);
   };
-  const endSessions = async (c: ScimContext, accountId: string) => {
-    try {
-      await deps.endSessions(c.env)(accountId);
-      return null;
-    } catch {
-      console.log(JSON.stringify({ event: "scim_sessions_not_ended" }));
-      return refuse(c, { status: 503, detail: "The person's sessions could not be ended. Retry." });
-    }
-  };
+  const writeDeps = (c: ScimContext) => ({
+    sender: deps.invitations(c.env),
+    endSessions: deps.endSessions(c.env),
+  });
 
   routes.get(`${SCIM_BASE_PATH}/Users`, async (c) => {
     const page = scimPage(c.req.query("startIndex"), c.req.query("count"));
@@ -230,7 +233,7 @@ export function scimRoutes(deps: ScimRouteDeps) {
     if (!input.ok) return refuse(c, input.error);
     const result = await createScimUser(
       global(c),
-      { sender: deps.invitations(c.env) },
+      writeDeps(c),
       c.get("caller"),
       input.value,
       deps.now(),
@@ -247,7 +250,7 @@ export function scimRoutes(deps: ScimRouteDeps) {
     if (!input.ok) return refuse(c, input.error);
     const result = await replaceScimUser(
       global(c),
-      { sender: deps.invitations(c.env) },
+      writeDeps(c),
       c.get("caller"),
       id,
       input.value,
@@ -263,7 +266,7 @@ export function scimRoutes(deps: ScimRouteDeps) {
     if (!body.ok) return refuse(c, body.error);
     const result = await patchScimUser(
       global(c),
-      { sender: deps.invitations(c.env) },
+      writeDeps(c),
       c.get("caller"),
       id,
       body.value,

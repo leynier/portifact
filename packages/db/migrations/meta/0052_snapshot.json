@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f8b90d78-4c67-4bf0-8853-c67d1c2f4433",
+  "id": "db8309ed-e47f-41c6-ab98-9dc1b08bcdd9",
   "prevId": "d6732bac-b4ab-4cf3-8c3f-e19d070b78f3",
   "tables": {
     "abuse_reports": {
@@ -3658,6 +3658,21 @@
           "notNull": false,
           "autoincrement": false
         },
+        "removal": {
+          "name": "removal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sessions_pending": {
+          "name": "sessions_pending",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -5670,7 +5685,7 @@
         },
         "workspace_invitations_workspace_email_idx": {
           "name": "workspace_invitations_workspace_email_idx",
-          "columns": ["workspace_id", "email"],
+          "columns": ["workspace_id", "email", "source"],
           "isUnique": true
         },
         "workspace_invitations_email_idx": {

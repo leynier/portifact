@@ -48,6 +48,11 @@ export const SCIM = {
   perTokenPerMinute: { max: 300, windowSeconds: 60 },
   perWorkspacePerMinute: { max: 600, windowSeconds: 60 },
   /**
+   * Failed authentications answered per IP before the rest answer 429, keyed by IP only so
+   * nobody can lock a workspace's real directory out from elsewhere.
+   */
+  failedAuthPerIp: { max: 20, windowSeconds: 600 },
+  /**
    * How long a provisioned person who never signed in holds a seat after the directory last
    * wrote them; the directory's next write renews it. Then the pending row and, once nothing
    * links it to an account, the directory's copy of the address are deleted.

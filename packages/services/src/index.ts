@@ -18,6 +18,7 @@ export * from "./comment-notices.ts";
 export * from "./content-search.ts";
 export * from "./custom-domains.ts";
 export * from "./directory.ts";
+export * from "./directory-notices.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
 export * from "./domain-notices.ts";
 export * from "./email.ts";

@@ -36,7 +36,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   removeBrandLogo: ["brand.removed"],
   inviteMember: ["member.invited"],
   revokeInvitation: ["member.invitation_revoked"],
-  acceptInvitation: ["member.joined"],
+  acceptInvitation: ["member.joined", "member.role_changed"],
   createWorkspace: ["member.joined"],
   changeMemberRole: ["member.role_changed"],
   removeMember: ["member.removed", "member.left"],

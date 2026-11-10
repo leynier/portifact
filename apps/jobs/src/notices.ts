@@ -9,12 +9,14 @@ import { LIMITS } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
 import {
   commentNoticeEmail,
+  directoryNoticeEmail,
   domainNoticeEmail,
   expiryNoticeEmail,
   reviewNoticeEmail,
 } from "@portifact/emails";
 import {
   type CommentNotifier,
+  type DirectoryNotifier,
   type DomainNotifier,
   type ExpiringArtifact,
   type ExpiryNotifier,
@@ -181,6 +183,33 @@ export function reviewNotifierFromEnv(env: NoticeEnv): ReviewNotifier {
       const token = await signUnsubscribeToken(secret, userId, issuedAt);
       try {
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...reviewEmail(env, notice, token) });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/**
+ * The notice of being added to a workspace by its directory (decision 0017), linking the
+ * workspace and its Members page, where the person can leave.
+ */
+export function directoryNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+): DirectoryNotifier {
+  return {
+    async send({ to, workspaceName, workspaceSlug, locale }) {
+      const space = `workspace=${encodeURIComponent(workspaceSlug)}`;
+      const email = directoryNoticeEmail({
+        workspaceName,
+        workspaceUrl: `${env.APP_ORIGIN}/?${space}`,
+        membersUrl: `${env.APP_ORIGIN}/members?${space}`,
+        locale: locale ?? undefined,
+      });
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

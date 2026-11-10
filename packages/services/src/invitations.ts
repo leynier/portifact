@@ -141,9 +141,12 @@ export async function seatLimit(global: GlobalDb, workspaceId: string, now: numb
   return { limit: entitlements(row ?? null, now).seats, guard };
 }
 
-/** Pending invitations to this address that a new one would replace. */
+/**
+ * The seat this address already holds through a pending invitation (an admin's, or a directory's
+ * beside it): a new invitation to it takes none.
+ */
 function replacedSql(workspaceId: string, email: string, now: number): SQL {
-  return sql`(select count(*) from ${inv} where ${inv.workspaceId} = ${workspaceId} and ${inv.email} = ${email} and ${inv.expiresAt} > ${now})`;
+  return sql`(select count(distinct ${inv.email}) from ${inv} where ${inv.workspaceId} = ${workspaceId} and ${inv.email} = ${email} and ${inv.expiresAt} > ${now})`;
 }
 
 function notSent(reason: "suppressed") {
@@ -220,8 +223,10 @@ export async function inviteMember(
       .select(
         sql`select ${id}, ${workspace.id}, ${email}, ${input.role}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, 'admin' where ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} < ${limit} and ${stillAdmin(workspace.id, input.userId)} and ${planUnchanged}`,
       )
+      // Replaces only this workspace's admin invitation to the address, never a directory's
+      // pending membership beside it (decision 0017).
       .onConflictDoUpdate({
-        target: [inv.workspaceId, inv.email],
+        target: [inv.workspaceId, inv.email, inv.source],
         set: {
           id: sql`excluded.id`,
           role: sql`excluded.role`,
@@ -353,7 +358,7 @@ export async function revokeInvitation(
     // (decision 0017), like removing a member does.
     global
       .update(schema.scimUsers)
-      .set({ removedAt: input.now ?? Date.now() })
+      .set({ removedAt: input.now ?? Date.now(), removal: "admin" })
       .where(
         sql`${schema.scimUsers.workspaceId} = ${scope.value.id} and ${schema.scimUsers.email} = (select ${inv.email} from ${inv} where ${where} and ${inv.source} = 'directory')`,
       ),
@@ -432,6 +437,7 @@ async function findInvitation(global: GlobalDb, key: InvitationKey) {
       email: inv.email,
       role: inv.role,
       expiresAt: inv.expiresAt,
+      source: inv.source,
     })
     .from(inv)
     .where(where)
@@ -474,7 +480,13 @@ export async function acceptInvitation(
   const member = sql`exists (select 1 from ${m} where ${m.workspaceId} = ${invitation.workspaceId} and ${m.userId} = ${input.userId})`;
   const active = sql`not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${input.userId})`;
   const joins = sql`${pending} and ${active} and not ${member} and ${seatsUsedSql(invitation.workspaceId, input.now, false)} < ${limit} and ${planUnchanged}`;
-  const [, inserted, deleted] = (await global.batch([
+  // A member through the workspace's directory (always `member`, decision 0017) who accepts an
+  // admin's invitation gets the invitation's role: the admin chose it and the person accepted.
+  const upgrades =
+    invitation.source === "admin" && invitation.role !== "member"
+      ? sql`${pending} and exists (select 1 from ${m} where ${m.workspaceId} = ${invitation.workspaceId} and ${m.userId} = ${input.userId} and ${m.role} = 'member')`
+      : sql`0`;
+  const [, inserted, , , deleted] = (await global.batch([
     // Before the insert, on its own condition: a retried accept finds the member and records nothing.
     memberEvent(
       global,
@@ -496,11 +508,34 @@ export async function acceptInvitation(
       )
       .onConflictDoNothing()
       .returning({ userId: m.userId }),
+    memberEvent(
+      global,
+      {
+        workspaceId: invitation.workspaceId,
+        memberId: input.userId,
+        now: input.now,
+        actor: { type: "user", id: input.userId },
+      },
+      "member.role_changed",
+      { from: "member", to: invitation.role },
+      upgrades,
+    ),
+    global
+      .update(m)
+      .set({ role: invitation.role, updatedAt: input.now })
+      .where(
+        and(
+          eq(m.workspaceId, invitation.workspaceId),
+          eq(m.userId, input.userId),
+          eq(m.role, "member"),
+          upgrades,
+        ) as SQL,
+      ),
     global
       .delete(inv)
       .where(and(eq(inv.id, invitation.id), member))
       .returning({ id: inv.id }),
-  ])) as [unknown, unknown[], unknown[]];
+  ])) as [unknown, unknown[], unknown, unknown, unknown[]];
   if (inserted.length === 0 && deleted.length === 0) {
     const still = await findInvitation(global, { invitationId: invitation.id });
     if (!still || still.expiresAt <= input.now) return fail("not_found", MISSING_INVITATION);

@@ -46,6 +46,7 @@ import {
 import { and, asc, eq, gt, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { type AuditActor, auditEvent } from "./audit.ts";
+import { directoryNoticeJob } from "./directory-notices.ts";
 import {
   emailHash,
   emailsSentInCycle,
@@ -427,6 +428,26 @@ export async function hitScimRateLimit(
   return allowed;
 }
 
+/**
+ * Counts one failed authentication from `ip` (atomically, in `rate_limits`) and says whether the
+ * IP is past `SCIM.failedAuthPerIp`. Keyed by IP only: a request that authenticates is never
+ * counted or refused here, so this never locks a workspace's directory out.
+ */
+export async function hitScimAuthFailure(
+  global: GlobalDb,
+  ip: string,
+  now: number,
+): Promise<{ limited: boolean }> {
+  const rule = SCIM.failedAuthPerIp;
+  const hit = await hitRateLimit(
+    global.$client,
+    `scim:authfail:${ip}`,
+    rule.windowSeconds * 1000,
+    now,
+  );
+  return { limited: hit.count > rule.max };
+}
+
 /** The token a leaked secret belongs to, for the operator; never the secret itself. */
 export async function findScimToken(
   global: GlobalDb,
@@ -536,18 +557,23 @@ export async function listScimUsers(
   return { users: rows.map(record), total: Number(total?.count ?? 0) };
 }
 
-/** What a write did, for the adapter: the resource and whose sessions must end now. */
+/** What a write did: the resource, and the account whose sessions it ended, if any. */
 export interface ScimWrite {
   user: ScimUserRecord;
-  /** The account removed from the workspace by this write, whose sessions the adapter ends. */
-  endSessionsOf: string | null;
+  /** The account this write took out of the workspace and signed out; null otherwise. */
+  ended: string | null;
 }
 
-/** Optional email delivery for provisioned people without an account. */
 export interface ScimDeps {
+  /** Sends the invitation email to people provisioned without an account, when turned on. */
   sender: InvitationSender | null;
   /** The language of the invitation email: the person has no account to say theirs. */
   locale?: LocaleCode | null;
+  /**
+   * Ends every session of an account through Better Auth, so its hooks run. Called only after a
+   * write removed that account's membership; without it the sessions stay pending.
+   */
+  endSessions?: ((accountId: string) => Promise<void>) | undefined;
 }
 
 function causeIncludes(error: unknown, text: string): boolean {
@@ -559,16 +585,20 @@ function causeIncludes(error: unknown, text: string): boolean {
 
 const LAST_ADMIN =
   "This person is the workspace's last admin and cannot be removed. Make another member an admin in Portifact first.";
+const OUTSIDE_DOMAINS =
+  "userName must be an address in one of the workspace's verified email domains.";
+const SESSIONS_NOT_ENDED = "The person's sessions could not be ended. Retry.";
 
 /** The token still exists and has not expired: every directory write is conditioned on it. */
 function tokenHolds(caller: ScimCaller, now: number): SQL {
   return sql`exists (select 1 from ${st} where ${st.id} = ${caller.tokenId} and ${st.workspaceId} = ${caller.workspaceId} and ${st.expiresAt} > ${now})`;
 }
 
+const domainOf = (email: string) => email.slice(email.lastIndexOf("@") + 1);
+
 /** The address's domain is still one the workspace verified. */
 function domainHolds(workspaceId: string, email: string): SQL {
-  const domain = email.slice(email.lastIndexOf("@") + 1);
-  return sql`exists (select 1 from ${wd} where ${wd.workspaceId} = ${workspaceId} and ${wd.domain} = ${domain} and ${wd.state} = 'verified')`;
+  return sql`exists (select 1 from ${wd} where ${wd.workspaceId} = ${workspaceId} and ${wd.domain} = ${domainOf(email)} and ${wd.state} = 'verified')`;
 }
 
 async function verifiedDomainsOf(global: GlobalDb, workspaceId: string): Promise<string[]> {
@@ -589,23 +619,32 @@ async function accountOf(global: GlobalDb, email: string) {
   return row?.id ?? null;
 }
 
-/** The workspace's member whose address is `email`, if any. */
+/**
+ * The workspace's member whose address is `email`, only while its domain is one the workspace
+ * verified: a directory speaks for addresses at its proven domains, never for anyone else.
+ */
 async function memberByEmail(global: GlobalDb, workspaceId: string, email: string) {
   const [row] = await global
     .select({ id: m.userId })
     .from(m)
     .innerJoin(u, eq(u.id, m.userId))
-    .where(and(eq(m.workspaceId, workspaceId), sql`lower(${u.email}) = ${email}`))
+    .where(
+      and(
+        eq(m.workspaceId, workspaceId),
+        sql`lower(${u.email}) = ${email}`,
+        domainHolds(workspaceId, email),
+      ),
+    )
     .limit(1);
   return row?.id ?? null;
 }
 
 /**
  * The account a directory user stands for, read when the batch runs: the linked one, or else a
- * member of the workspace whose address is the user's.
+ * member of the workspace with the user's address, only at a domain the workspace verified.
  */
-function linkedAccountSql(workspaceId: string, userId: string): SQL {
-  return sql`coalesce((select ${su.userId} from ${su} where ${su.id} = ${userId}), (select ${m.userId} from ${m} inner join ${u} on ${u.id} = ${m.userId} where ${m.workspaceId} = ${workspaceId} and lower(${u.email}) = (select ${su.email} from ${su} where ${su.id} = ${userId})))`;
+function linkedAccountSql(workspaceId: string, userId: string, email: string): SQL {
+  return sql`coalesce((select ${su.userId} from ${su} where ${su.id} = ${userId}), (select ${m.userId} from ${m} inner join ${u} on ${u.id} = ${m.userId} where ${m.workspaceId} = ${workspaceId} and lower(${u.email}) = ${email} and ${domainHolds(workspaceId, email)}))`;
 }
 
 /** This request's claim on the directory row: the rest of its batch holds only with it. */
@@ -615,11 +654,12 @@ function claimed(id: string, writeId: string): SQL {
 
 /**
  * Takes the linked account out of the workspace, for a deactivation or a deletion (decision
- * 0017): its event, tombstones of its group memberships (the cascade deletes them) and of the
- * membership itself (`workspace_member`, so a restore cannot bring it back), a
- * `workspace_removals` row so single sign-on does not either, then the membership. The account
- * is read through the directory row, which the batch's first statement links. The last-admin
- * trigger refuses the whole batch when the person is the last admin.
+ * 0017), only when it is a member: its event, tombstones of its group memberships (the cascade
+ * deletes them) and of the membership (`workspace_member`, so a restore cannot bring it back), a
+ * `workspace_removals` row so single sign-on does not either, the `sessions_pending` mark that
+ * makes this removal end the account's sessions, then the membership. The account is read
+ * through the directory row, which the batch's first statement links. The last-admin trigger
+ * refuses the whole batch when the person is the last admin.
  */
 function memberRemoval(
   global: GlobalDb,
@@ -656,18 +696,20 @@ function memberRemoval(
       }),
     global
       .insert(schema.workspaceRemovals)
-      .select(sql`select ${W}, ${account}, ${now} where ${account} is not null and ${condition}`)
+      .select(sql`select ${W}, ${account}, ${now} where ${isMember}`)
       .onConflictDoUpdate({
         target: [schema.workspaceRemovals.workspaceId, schema.workspaceRemovals.userId],
         set: { removedAt: now },
       }),
+    global.update(su).set({ sessionsPending: true }).where(sql`${su.id} = ${id} and ${isMember}`),
     global.delete(m).where(sql`${memberWhere} and ${condition}`),
   ];
 }
 
 /**
  * Withdraws the directory's pending membership for `email`, with its event and a
- * `workspace_invitation` tombstone so a restore cannot bring it back.
+ * `workspace_invitation` tombstone so a restore cannot bring it back. An admin's invitation to
+ * the same address is never touched.
  */
 function pendingRemoval(
   global: GlobalDb,
@@ -692,18 +734,50 @@ function pendingRemoval(
   ];
 }
 
+/**
+ * Ends the sessions a removal left pending, then clears the mark. A failure leaves it, so the
+ * directory's retry ends them; a write that removed nobody finds no mark and ends nothing.
+ */
+async function endPendingSessions(
+  global: GlobalDb,
+  id: string,
+  endSessions: ScimDeps["endSessions"],
+): Promise<ScimResult<string | null>> {
+  const [row] = await global
+    .select({ userId: su.userId, pending: su.sessionsPending })
+    .from(su)
+    .where(eq(su.id, id))
+    .limit(1);
+  if (!row?.pending || row.userId === null || !endSessions) return { ok: true, value: null };
+  try {
+    await endSessions(row.userId);
+  } catch {
+    // Only the event: never the account.
+    console.log(JSON.stringify({ event: "scim_sessions_not_ended" }));
+    return scimFail(503, SESSIONS_NOT_ENDED);
+  }
+  await global
+    .update(su)
+    .set({ sessionsPending: false })
+    .where(and(eq(su.id, id), eq(su.userId, row.userId)));
+  return { ok: true, value: row.userId };
+}
+
 /** What a write starts from: the stored directory user, or null for a create. */
 interface Current {
   row: UserRow | null;
 }
 
 /**
- * Applies what the directory says about one user. `explicit` is a provisioning the directory
- * asked for in so many words: a create, or turning `active` from false to true. Only an explicit
- * one lifts a removal made by hand (an admin's, or the person leaving) and the single sign-on
- * block; a routine sync (a PUT or PATCH that keeps `active` true) never brings back someone
- * removed by hand. Active: a member at once when an account has the address (or is linked), or a
- * pending membership that holds a seat until the first sign-in. Inactive: out of the workspace.
+ * Applies what the directory says about one user. A create, or a change of `userName`, needs the
+ * new address at one of the workspace's verified domains whatever `active` says; a deactivation
+ * of an unchanged address needs it too unless the row is already linked to an account through an
+ * earlier valid provisioning (so a lapsed domain never keeps a provisioned person in).
+ *
+ * `explicit` is a provisioning the directory asked for in so many words: a create, or turning
+ * `active` from false to true for someone not held by their own leaving. Only an explicit one
+ * lifts a removal by hand and the single sign-on block; a routine sync never brings back someone
+ * removed by hand, and someone who left comes back only through a new create after a delete.
  */
 async function writeUser(
   global: GlobalDb,
@@ -715,16 +789,15 @@ async function writeUser(
 ): Promise<ScimResult<ScimWrite>> {
   const W = caller.workspaceId;
   const next = { ...input, userName: normalizeEmail(input.userName) };
-  // Only provisioning needs the domain: taking someone out always works, even after it lapsed.
-  if (next.active && !scimDomainAllowed(next.userName, await verifiedDomainsOf(global, W))) {
-    return scimFail(
-      400,
-      "userName must be an address in one of the workspace's verified email domains.",
-      "invalidValue",
-    );
-  }
   const previous = current.row;
-  if (previous === null || previous.email !== next.userName) {
+  const verified = await verifiedDomainsOf(global, W);
+  const inDomain = scimDomainAllowed(next.userName, verified);
+  const renamed = previous === null || previous.email !== next.userName;
+  const linkedBefore = previous?.userId ?? null;
+  if (!inDomain && (renamed || next.active || linkedBefore === null)) {
+    return scimFail(400, OUTSIDE_DOMAINS, "invalidValue");
+  }
+  if (renamed) {
     const [taken] = await global
       .select({ id: su.id })
       .from(su)
@@ -734,11 +807,11 @@ async function writeUser(
   }
   const id = previous?.id ?? newScimUserId();
   const writeId = randomHex(16);
-  const explicit = previous === null || (!previous.active && next.active);
+  const explicit =
+    previous === null || (!previous.active && next.active && previous.removal !== "self");
   const held = !explicit && previous !== null && previous.removedAt !== null;
   const provision = next.active && !held;
-  const linked =
-    previous?.userId ?? (previous ? await memberByEmail(global, W, previous.email) : null);
+  const linked = linkedBefore ?? (previous ? await memberByEmail(global, W, previous.email) : null);
   const account = provision ? (linked ?? (await accountOf(global, next.userName))) : null;
   const [memberRow] = account
     ? await global
@@ -747,20 +820,21 @@ async function writeUser(
         .where(and(eq(m.workspaceId, W), eq(m.userId, account)))
         .limit(1)
     : [];
-  const [pendingRow] = provision
+  const live = provision
     ? await global
-        .select({ id: inv.id })
+        .select({ id: inv.id, source: inv.source })
         .from(inv)
         .where(and(eq(inv.workspaceId, W), eq(inv.email, next.userName), gt(inv.expiresAt, now)))
-        .limit(1)
     : [];
+  const directoryRow = live.find((row) => row.source === "directory");
   // A membership for an account that is not a member, or a pending row for an address without
-  // one; either takes a seat unless a live pending row for the address already holds it.
+  // one; either takes a seat unless a live invitation for the address already holds it (an
+  // admin's or the directory's: the address counts once).
   const joins = provision && account !== null && !memberRow;
   const pends = provision && account === null;
-  const takesSeat = (joins || pends) && !pendingRow;
+  const takesSeat = (joins || pends) && live.length === 0;
   const { limit, guard: planUnchanged } = await seatLimit(global, W, now);
-  let base = next.active
+  let base = provision
     ? sql`${tokenHolds(caller, now)} and ${domainHolds(W, next.userName)} and ${planUnchanged}`
     : tokenHolds(caller, now);
   if (takesSeat) base = sql`${base} and ${seatsUsedSql(W, now, true)} < ${limit}`;
@@ -771,9 +845,9 @@ async function writeUser(
       global
         .insert(su)
         // Columns in schema order: id, workspace, email, external ID, names, active, user,
-        // removed at, created, updated, write ID.
+        // removed at, removal, sessions pending, created, updated, write ID.
         .select(
-          sql`select ${id}, ${W}, ${next.userName}, ${next.externalId}, ${JSON.stringify(next.names)}, ${next.active ? 1 : 0}, ${account}, null, ${now}, ${now}, ${writeId} where ${base} and ${room}`,
+          sql`select ${id}, ${W}, ${next.userName}, ${next.externalId}, ${JSON.stringify(next.names)}, ${next.active ? 1 : 0}, ${account}, null, null, 0, ${now}, ${now}, ${writeId} where ${base} and ${room}`,
         )
         .onConflictDoNothing(),
     );
@@ -787,8 +861,9 @@ async function writeUser(
           names: next.names,
           active: next.active,
           // Deactivating links the member it removes, so a later reactivation finds them.
-          userId: account === null ? linkedAccountSql(W, id) : account,
+          userId: account === null ? linkedAccountSql(W, id, previous.email) : account,
           removedAt: explicit ? null : su.removedAt,
+          removal: explicit ? null : su.removal,
           updatedAt: now,
           writeId,
         })
@@ -831,16 +906,20 @@ async function writeUser(
         { role: "member", via: "directory" },
         adds,
       ),
+      // The person is told they were added (decision 0017): a job in this batch, on its own
+      // condition, sent by the jobs Worker.
+      directoryNoticeJob(global, W, account, adds, now),
       global
         .insert(m)
         // Columns in schema order: workspace, user, role, created at, updated at.
         .select(sql`select ${W}, ${account}, 'member', ${now}, ${now} where ${adds}`)
         .onConflictDoNothing(),
-      // A pending row for the address is consumed: its seat is the one taken.
+      // The directory's own pending row for the address is consumed; an admin's invitation stays
+      // for the person to accept, with its role.
       global
         .delete(inv)
         .where(
-          sql`${inv.workspaceId} = ${W} and ${inv.email} = ${next.userName} and exists (select 1 from ${m} where ${m.workspaceId} = ${W} and ${m.userId} = ${account}) and ${mine}`,
+          sql`${inv.workspaceId} = ${W} and ${inv.email} = ${next.userName} and ${inv.source} = 'directory' and exists (select 1 from ${m} where ${m.workspaceId} = ${W} and ${m.userId} = ${account}) and ${mine}`,
         ),
     );
   }
@@ -849,7 +928,7 @@ async function writeUser(
     const invitationId = newInvitationId();
     const token = newInvitationToken();
     const expiresAt = directoryPendingExpiry(now);
-    if (!pendingRow) {
+    if (!directoryRow) {
       invitation = { token, expiresAt };
       statements.push(
         auditEvent(
@@ -870,15 +949,15 @@ async function writeUser(
       global
         .insert(inv)
         // Columns in schema order: id, workspace, email, role, token hash, invited by, created,
-        // expires, source. A live row keeps its ID, role and token; the directory renews it and
-        // takes it over, so the person joins at sign-in without an accept step.
+        // expires, source. Only the directory's own row: an admin's invitation to the address is
+        // a different row (the unique index includes the source) and never changes here.
         .select(
           sql`select ${invitationId}, ${W}, ${next.userName}, 'member', ${await invitationTokenHash(token)}, null, ${now}, ${expiresAt}, 'directory' where ${mine}`,
         )
         .onConflictDoUpdate({
-          target: [inv.workspaceId, inv.email],
-          set: pendingRow
-            ? { expiresAt: sql`excluded.expires_at`, source: sql`excluded.source` }
+          target: [inv.workspaceId, inv.email, inv.source],
+          set: directoryRow
+            ? { expiresAt: sql`excluded.expires_at` }
             : {
                 id: sql`excluded.id`,
                 role: sql`excluded.role`,
@@ -886,7 +965,6 @@ async function writeUser(
                 invitedBy: sql`excluded.invited_by`,
                 createdAt: sql`excluded.created_at`,
                 expiresAt: sql`excluded.expires_at`,
-                source: sql`excluded.source`,
               },
         }),
     );
@@ -904,8 +982,15 @@ async function writeUser(
   }
   const [row] = await global.select().from(su).where(eq(su.id, id)).limit(1);
   if (!row || row.writeId !== writeId) {
-    return refusal(global, caller, { current, takesSeat, userName: next.userName }, now);
+    return refusal(
+      global,
+      caller,
+      { current, takesSeat, userName: next.userName, provisioning: provision },
+      now,
+    );
   }
+  const ended = await endPendingSessions(global, id, deps.endSessions);
+  if (!ended.ok) return ended;
   if (invitation) {
     await sendInvitation(
       global,
@@ -917,17 +1002,14 @@ async function writeUser(
       now,
     );
   }
-  return {
-    ok: true,
-    value: { user: record(row), endSessionsOf: next.active ? null : (row.userId ?? linked) },
-  };
+  return { ok: true, value: { user: record(row), ended: ended.value } };
 }
 
 /** Why a write's batch changed nothing: the token, the seats, the domain or a concurrent write. */
 async function refusal(
   global: GlobalDb,
   caller: ScimCaller,
-  why: { current: Current; takesSeat: boolean; userName: string },
+  why: { current: Current; takesSeat: boolean; userName: string; provisioning: boolean },
   now: number,
 ): Promise<ScimResult<never>> {
   const [token] = await global
@@ -948,12 +1030,12 @@ async function refusal(
       );
     }
   }
-  if (!scimDomainAllowed(why.userName, await verifiedDomainsOf(global, caller.workspaceId))) {
-    return scimFail(
-      400,
-      "userName must be an address in one of the workspace's verified email domains.",
-      "invalidValue",
-    );
+  // Only a provisioning depends on the domain; anything else that changed nothing lost a race.
+  if (
+    why.provisioning &&
+    !scimDomainAllowed(why.userName, await verifiedDomainsOf(global, caller.workspaceId))
+  ) {
+    return scimFail(400, OUTSIDE_DOMAINS, "invalidValue");
   }
   if (why.current.row === null) {
     const [taken] = await global
@@ -1074,9 +1156,11 @@ export async function patchScimUser(
 }
 
 /**
- * `DELETE /Users/:id`: the person leaves the workspace as on a deactivation, `endSessions` ends
- * their sessions, and only then is the directory's copy of them deleted with a `scim_user`
- * tombstone, so a failure to end sessions leaves a row the directory's retry finds again.
+ * `DELETE /Users/:id`: the person leaves the workspace as on a deactivation, their sessions end if
+ * this (or an earlier, failed) removal took them out, and only then is the directory's copy of
+ * them deleted with a `scim_user` tombstone, so a failure to end sessions leaves a row the
+ * directory's retry finds again. Accounts are reached only through the row's link or an address
+ * at a verified domain, so a lapsed domain deletes the row without touching anyone unlinked.
  * Deleting again answers 404.
  */
 export async function deleteScimUser(
@@ -1091,12 +1175,11 @@ export async function deleteScimUser(
   const W = caller.workspaceId;
   const writeId = randomHex(16);
   const mine = claimed(id, writeId);
-  const linked = row.userId ?? (await memberByEmail(global, W, row.email));
   const statements: BatchItem<"sqlite">[] = [
     // The claim, which also links the member it removes so the statements below find them.
     global
       .update(su)
-      .set({ userId: linkedAccountSql(W, id), active: false, updatedAt: now, writeId })
+      .set({ userId: linkedAccountSql(W, id, row.email), active: false, updatedAt: now, writeId })
       .where(and(eq(su.id, id), eq(su.workspaceId, W), tokenHolds(caller, now))),
     ...memberRemoval(global, caller, id, mine, now),
     ...pendingRemoval(global, caller, row.email, mine, now),
@@ -1110,7 +1193,7 @@ export async function deleteScimUser(
     throw error;
   }
   const [after] = await global
-    .select({ writeId: su.writeId, userId: su.userId })
+    .select({ writeId: su.writeId })
     .from(su)
     .where(eq(su.id, id))
     .limit(1);
@@ -1119,20 +1202,12 @@ export async function deleteScimUser(
     return refusal(
       global,
       caller,
-      { current: { row }, takesSeat: false, userName: row.email },
+      { current: { row }, takesSeat: false, userName: row.email, provisioning: false },
       now,
     );
   }
-  const account = after.userId ?? linked;
-  if (account !== null) {
-    try {
-      await endSessions(account);
-    } catch {
-      // Only the event: never the account.
-      console.log(JSON.stringify({ event: "scim_sessions_not_ended" }));
-      return scimFail(503, "The person's sessions could not be ended. Retry.");
-    }
-  }
+  const ended = await endPendingSessions(global, id, endSessions);
+  if (!ended.ok) return ended;
   await global.batch([
     global
       .insert(schema.tombstones)
@@ -1140,7 +1215,7 @@ export async function deleteScimUser(
       .onConflictDoNothing(),
     global.delete(su).where(and(eq(su.id, id), eq(su.writeId, writeId))),
   ]);
-  return { ok: true, value: { ended: account } };
+  return { ok: true, value: { ended: ended.value } };
 }
 
 // Signing in --------------------------------------------------------------------------------
@@ -1148,10 +1223,12 @@ export async function deleteScimUser(
 /**
  * Turns the directory's pending memberships for a signed-in account's address into memberships
  * (decision 0017), at sign-in, after the terms hook let the session through. Only while the
- * directory still has the person active, no removal stands, the account is not being deleted and
- * the workspace has a seat for members (the pending row already held one). Recorded as
- * `member.joined` with `via: "directory"`, by the person. At most a handful of rows: one per
- * workspace. Idempotent.
+ * directory still has the person active and not held by a removal, the address's domain is still
+ * one the workspace verified, no removal block stands, the account is not being deleted and the
+ * workspace has a seat for members (the pending row already held one). Always `member`: an
+ * admin's invitation beside it still needs the person's acceptance to give its role. Recorded as
+ * `member.joined` with `via: "directory"`, by the person. At most one row per workspace, 10 read.
+ * Idempotent.
  */
 export async function claimDirectoryMemberships(
   global: GlobalDb,
@@ -1165,7 +1242,7 @@ export async function claimDirectoryMemberships(
   if (!account?.verified) return 0;
   const email = normalizeEmail(account.email);
   const rows = await global
-    .select({ id: inv.id, workspaceId: inv.workspaceId, role: inv.role })
+    .select({ id: inv.id, workspaceId: inv.workspaceId })
     .from(inv)
     .where(and(eq(inv.email, email), eq(inv.source, "directory"), gt(inv.expiresAt, input.now)))
     .limit(10);
@@ -1178,7 +1255,7 @@ export async function claimDirectoryMemberships(
     const member = sql`exists (select 1 from ${m} where ${m.workspaceId} = ${W} and ${m.userId} = ${input.userId})`;
     const notRemoved = sql`not exists (select 1 from ${schema.workspaceRemovals} where ${schema.workspaceRemovals.workspaceId} = ${W} and ${schema.workspaceRemovals.userId} = ${input.userId})`;
     const activeAccount = sql`not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${input.userId})`;
-    const joins = sql`${pending} and ${directory} and ${notRemoved} and ${activeAccount} and not ${member} and ${seatsUsedSql(W, input.now, false)} < ${limit} and ${guard}`;
+    const joins = sql`${pending} and ${directory} and ${domainHolds(W, email)} and ${notRemoved} and ${activeAccount} and not ${member} and ${seatsUsedSql(W, input.now, false)} < ${limit} and ${guard}`;
     const [, inserted] = (await global.batch([
       memberEvent(
         global,
@@ -1189,21 +1266,23 @@ export async function claimDirectoryMemberships(
           actor: { type: "user", id: input.userId },
         },
         "member.joined",
-        { role: row.role, via: "directory" },
+        { role: "member", via: "directory" },
         joins,
       ),
       global
         .insert(m)
         // Columns in schema order: workspace, user, role, created at, updated at.
         .select(
-          sql`select ${W}, ${input.userId}, ${row.role}, ${input.now}, ${input.now} where ${joins}`,
+          sql`select ${W}, ${input.userId}, 'member', ${input.now}, ${input.now} where ${joins}`,
         )
         .onConflictDoNothing()
         .returning({ userId: m.userId }),
       global
         .update(su)
         .set({ userId: input.userId })
-        .where(and(eq(su.workspaceId, W), eq(su.email, email), member) as SQL),
+        .where(
+          and(eq(su.workspaceId, W), eq(su.email, email), member, domainHolds(W, email)) as SQL,
+        ),
       global.delete(inv).where(and(eq(inv.id, row.id), member) as SQL),
     ])) as [unknown, unknown[], unknown, unknown];
     if (inserted.length > 0) joined += 1;

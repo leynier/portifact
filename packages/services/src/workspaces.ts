@@ -217,11 +217,15 @@ export async function workspaceSeats(
   };
 }
 
-/** SQL for the seats in use, to condition a write that takes one. */
+/**
+ * SQL for the seats in use, to condition a write that takes one. Pending invitations count once
+ * per address, and not at all for a member's address: an admin's invitation and a directory's
+ * pending membership for the same person hold one seat (decision 0017).
+ */
 export function seatsUsedSql(workspaceId: string, now: number, countInvitations: boolean): SQL {
   const members = sql`(select count(*) from ${m} where ${m.workspaceId} = ${workspaceId})`;
   if (!countInvitations) return members;
-  return sql`(${members} + (select count(*) from ${inv} where ${inv.workspaceId} = ${workspaceId} and ${inv.expiresAt} > ${now}))`;
+  return sql`(${members} + (select count(distinct ${inv.email}) from ${inv} where ${inv.workspaceId} = ${workspaceId} and ${inv.expiresAt} > ${now} and ${inv.email} not in (select lower(${schema.users.email}) from ${m} as "seated" inner join ${schema.users} on ${schema.users.id} = "seated"."user_id" where "seated"."workspace_id" = ${workspaceId})))`;
 }
 
 async function members(global: GlobalDb, workspaceId: string): Promise<MemberRow[]> {
@@ -465,7 +469,7 @@ async function dropMember(
           // does not bring back someone removed by hand or who left.
           global
             .update(schema.scimUsers)
-            .set({ removedAt: by.now })
+            .set({ removedAt: by.now, removal: self ? "self" : "admin" })
             .where(
               sql`${schema.scimUsers.workspaceId} = ${workspaceId} and (${schema.scimUsers.userId} = ${memberId} or ${schema.scimUsers.email} = (select lower(${schema.users.email}) from ${schema.users} where ${schema.users.id} = ${memberId})) and exists (select 1 from ${m} where ${where})`,
             ),

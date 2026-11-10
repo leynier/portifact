@@ -21,6 +21,8 @@ CREATE TABLE `scim_users` (
 	`active` integer NOT NULL,
 	`user_id` text,
 	`removed_at` integer,
+	`removal` text,
+	`sessions_pending` integer DEFAULT false NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	`write_id` text NOT NULL,
@@ -39,4 +41,6 @@ CREATE TABLE `workspace_scim` (
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-ALTER TABLE `workspace_invitations` ADD `source` text DEFAULT 'admin' NOT NULL;
+DROP INDEX `workspace_invitations_workspace_email_idx`;--> statement-breakpoint
+ALTER TABLE `workspace_invitations` ADD `source` text DEFAULT 'admin' NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX `workspace_invitations_workspace_email_idx` ON `workspace_invitations` (`workspace_id`,`email`,`source`);

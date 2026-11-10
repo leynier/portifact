@@ -33,6 +33,7 @@ import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.t
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 import {
   commentNotifierFromEnv,
+  directoryNotifierFromEnv,
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
   type NoticeEnv,
@@ -221,6 +222,7 @@ export async function runQueue(
   const commentNotifier = commentNotifierFromEnv(env);
   const reviewNotifier = reviewNotifierFromEnv(env);
   const domainNotifier = domainNotifierFromEnv(env);
+  const directoryNotifier = directoryNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const run = async (message: Message<unknown>) => {
     const parsed = JobMessage.safeParse(message.body);
@@ -239,6 +241,7 @@ export async function runQueue(
         domains,
         domainNotifier,
         reviewNotifier,
+        directoryNotifier,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });
