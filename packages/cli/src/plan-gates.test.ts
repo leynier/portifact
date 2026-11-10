@@ -90,6 +90,12 @@ const GATED: GatedCommand[] = [
     path: /^\/api\/v1\/audit$/,
   },
   {
+    feature: "auditExport",
+    args: () => ["audit", "export", "--format", "csv"],
+    method: "GET",
+    path: /^\/api\/v1\/audit\/export$/,
+  },
+  {
     feature: "workspaces",
     args: (id) => ["access", "set", id, "workspace"],
     method: "PATCH",

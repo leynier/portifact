@@ -52,6 +52,30 @@ export function callApi<T>(session: Session, request: ApiRequest<T>): Promise<T>
   });
 }
 
+/**
+ * A GET download read as text, with the response headers a caller needs (an audit export part
+ * and the cursor of the next one).
+ */
+export function downloadApi(
+  session: Session,
+  path: string,
+): Promise<{ text: string; headers: Headers }> {
+  const { runtime, server } = session;
+  return withAccessToken(session, async (token) => {
+    const response = await send(runtime, server, `${server.apiResource}${path}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${token}`, accept: "*/*" },
+    });
+    if (response.status === 401) {
+      if (serviceTokenOf(runtime)) throw await apiError(session, response);
+      await response.body?.cancel();
+      return { kind: "unauthorized" };
+    }
+    if (!response.ok) throw await apiError(session, response);
+    return { kind: "ok", value: { text: await response.text(), headers: response.headers } };
+  });
+}
+
 async function apiError(session: Session, response: Response): Promise<CliError> {
   const body = await readJson(response);
   const parsed = ApiError.safeParse(body);

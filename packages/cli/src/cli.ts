@@ -21,7 +21,7 @@ import {
   parseArtifactId,
   showAccess,
 } from "./artifacts.ts";
-import { audit } from "./audit.ts";
+import { audit, auditExport } from "./audit.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { diff } from "./diff.ts";
 import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "./domains.ts";
@@ -686,9 +686,11 @@ export async function run(
       ),
     );
 
-  program
+  const auditCommand = program
     .command("audit")
     .description("Show who changed what in your space or a workspace (admins, Team plan and above)")
+    // Options after `export` belong to it.
+    .enablePositionalOptions()
     .option("--workspace <slug>", "this workspace's audit log, or personal")
     .option("--kind <kind...>", "only these event kinds (repeat or separate with commas)")
     .option("--actor <id>", "only events by this account ID")
@@ -713,6 +715,39 @@ export async function run(
             json?: boolean;
           },
         ) => audit(io, runtime, { ...options, json: options.json === true }),
+      ),
+    );
+  auditCommand
+    .command("export")
+    .description(
+      "Export the audit log as CSV or JSON Lines, every page of it (admins, Enterprise plan)",
+    )
+    .requiredOption("--format <format>", "csv or jsonl")
+    .option("--out <file>", "write to this new file instead of standard output")
+    .option("--workspace <slug>", "this workspace's audit log, or personal")
+    .option("--kind <kind...>", "only these event kinds (repeat or separate with commas)")
+    .option("--actor <id>", "only events by this account ID")
+    .option("--target <id>", "only events about this artifact, member, link or webhook ID")
+    .option("--since <time>", "only events since a duration ago (30m, 12h, 7d) or an ISO date")
+    .option("--until <time>", "only events before a duration ago or an ISO date")
+    .option("--json", "Print a summary as JSON (with --out)")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: {
+            format?: string;
+            out?: string;
+            workspace?: string;
+            kind?: string[];
+            actor?: string;
+            target?: string;
+            since?: string;
+            until?: string;
+            json?: boolean;
+          },
+        ) => auditExport(io, runtime, { ...options, json: options.json === true }),
       ),
     );
 

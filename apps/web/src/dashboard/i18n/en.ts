@@ -1677,6 +1677,17 @@ export const en = {
   "audit.kind.tokenCreated":
     "Created a service token that expires in {days, plural, one {# day} other {# days}}",
   "audit.kind.tokenRevoked": "Revoked a service token",
+  "audit.export.label": "Export the audit log",
+  "audit.export.csv": "Export as CSV",
+  "audit.export.jsonl": "Export as JSON Lines",
+  "audit.export.hint":
+    "Downloads every change kept that matches the filters, newest first. Members are named, never by address.",
+  "audit.export.doneCsv": "The audit log was exported as CSV.",
+  "audit.export.doneJsonl": "The audit log was exported as JSON Lines.",
+  "audit.export.failed": "The audit log could not be exported",
+  "audit.export.planRequired": "Exporting the audit log is part of the {plan} plan.",
+  "audit.kind.exported":
+    "{format, select, csv {Exported the audit log as CSV} other {Exported the audit log as JSON Lines}}",
   "audit.kind.emailDomainVerified": "Verified the email domain {domain}",
   "audit.kind.emailDomainRemoved":
     "{reason, select, removed {Removed the email domain {domain}} claimed {The email domain {domain} was removed because another workspace proved it} other {The email domain {domain} was removed because its DNS record is missing}}",

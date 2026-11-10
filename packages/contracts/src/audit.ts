@@ -29,6 +29,43 @@ export const AUDIT_LIMITS = {
   pruneRounds: 50,
 } as const;
 
+/**
+ * Bounds of one export request (premium plan E3, feature `auditExport`). A request reads at most
+ * `rowsPerDatabase` events from each of the owner's two databases (so at most twice that in one
+ * body), in pages of `pageSize` per database, and holds at most two pages and one presented
+ * chunk in memory. Larger exports resume with the cursor the response names in
+ * `AUDIT_EXPORT_CURSOR_HEADER`. Starting an export (a request without a cursor) is limited per
+ * owner and per person.
+ */
+export const AUDIT_EXPORT = {
+  rowsPerDatabase: 5_000,
+  pageSize: 500,
+  perOwner: { max: 30, windowSeconds: 3_600 },
+  perActor: { max: 10, windowSeconds: 3_600 },
+} as const;
+
+/** The response header that carries the cursor of the next part of an export, when there is one. */
+export const AUDIT_EXPORT_CURSOR_HEADER = "Portifact-Next-Cursor";
+
+export const AUDIT_EXPORT_FORMATS = ["csv", "jsonl"] as const;
+export const AuditExportFormat = z.enum(AUDIT_EXPORT_FORMATS);
+export type AuditExportFormat = z.infer<typeof AuditExportFormat>;
+
+/** The fixed columns of the CSV export, in order. */
+export const AUDIT_CSV_COLUMNS = [
+  "id",
+  "at",
+  "kind",
+  "actor_type",
+  "actor_id",
+  "actor_name",
+  "target_type",
+  "target_id",
+  "artifact_id",
+  "artifact_name",
+  "detail",
+] as const;
+
 export const EMAIL_DOMAIN_REMOVAL_REASONS = ["removed", "record_missing", "claimed"] as const;
 export type EmailDomainRemovalReason = (typeof EMAIL_DOMAIN_REMOVAL_REASONS)[number];
 
@@ -137,6 +174,17 @@ export const AUDIT_DETAILS = {
     domain: DnsName,
     reason: z.enum(EMAIL_DOMAIN_REMOVAL_REASONS),
   }),
+  /**
+   * An export of the audit log was started (E3): its format, how many kinds it filtered on (0 for
+   * every kind) and its date range as ISO dates. Recorded once per export, when it starts, so
+   * the number of rows is not known and not stored.
+   */
+  "audit.exported": z.strictObject({
+    format: AuditExportFormat,
+    kinds: z.number().int().min(0).max(AUDIT_LIMITS.kindsPerQuery),
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+  }),
 } as const;
 
 export type AuditKind = keyof typeof AUDIT_DETAILS;
@@ -154,6 +202,7 @@ export const AUDIT_TARGET_TYPES = [
   "plan",
   "service_token",
   "email_domain",
+  "audit_log",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -192,6 +241,7 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "service_token.revoked": "service_token",
   "email_domain.verified": "email_domain",
   "email_domain.removed": "email_domain",
+  "audit.exported": "audit_log",
 };
 
 /**
@@ -238,7 +288,10 @@ export const AuditLogView = z.object({
   /** Newest first. */
   events: z.array(AuditEventView),
   nextCursor: z.string().nullable(),
+  /** How many days events are kept: the owner's plan's `auditRetentionDays`. */
   retentionDays: z.number().int().min(0),
+  /** Whether the owner's plan includes exporting the log (`auditExport`). */
+  exportable: z.boolean(),
 });
 export type AuditLogView = z.infer<typeof AuditLogView>;
 
@@ -276,6 +329,15 @@ export const AuditQuery = z.object({
   limit: z.coerce.number().pipe(limit).default(50),
 });
 export type AuditQuery = z.infer<typeof AuditQuery>;
+
+/**
+ * Query of `GET /api/v1/audit/export`: the reader's filters, the format and, to resume a large
+ * export, the cursor the previous part named.
+ */
+export const AuditExportQuery = AuditQuery.omit({ limit: true }).extend({
+  format: AuditExportFormat,
+});
+export type AuditExportQuery = z.infer<typeof AuditExportQuery>;
 
 /** Input of the MCP tool get_audit_log. */
 export const GetAuditLogInput = z.object({

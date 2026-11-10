@@ -1693,6 +1693,17 @@ export const ja = {
   "audit.kind.tokenCreated":
     "{days, plural, one {#日} other {#日}}後に期限切れになるサービストークンを作成しました",
   "audit.kind.tokenRevoked": "サービストークンを取り消しました",
+  "audit.export.label": "監査ログをエクスポート",
+  "audit.export.csv": "CSV でエクスポート",
+  "audit.export.jsonl": "JSON Lines でエクスポート",
+  "audit.export.hint":
+    "フィルターに一致する保存済みの変更をすべて新しい順にダウンロードします。メンバーは名前で示され、アドレスは含まれません。",
+  "audit.export.doneCsv": "監査ログを CSV でエクスポートしました。",
+  "audit.export.doneJsonl": "監査ログを JSON Lines でエクスポートしました。",
+  "audit.export.failed": "監査ログをエクスポートできませんでした",
+  "audit.export.planRequired": "監査ログのエクスポートは {plan} プランに含まれます。",
+  "audit.kind.exported":
+    "{format, select, csv {監査ログを CSV でエクスポートしました} other {監査ログを JSON Lines でエクスポートしました}}",
   "audit.kind.emailDomainVerified": "メールドメイン {domain} を確認しました",
   "audit.kind.emailDomainRemoved":
     "{reason, select, removed {メールドメイン {domain} を削除しました} claimed {別のworkspaceが証明したため、メールドメイン {domain} は削除されました} other {DNSレコードが見つからないため、メールドメイン {domain} は削除されました}}",

@@ -17,29 +17,41 @@
 // plan's `auditRetentionDays`. Events are written for every owner, so a plan that lapses keeps
 // its history and an upgrade shows the last 90 days.
 import {
+  AUDIT_EXPORT,
   AUDIT_KINDS,
   AUDIT_LIMITS,
   AUDIT_TARGETS,
   type AuditDetail,
   type AuditEventView,
+  type AuditExportFormat,
   type AuditFilters,
   type AuditKind,
   type AuditLogView,
   isServiceTokenId,
   isWorkspaceId,
 } from "@portifact/contracts";
-import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import { type Db, type GlobalDb, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
+  type AuditPosition,
   auditActorView,
   auditCutoff,
   auditDetail,
+  auditExportContentType,
+  auditExportDetail,
+  auditExportFileName,
+  auditExportLine,
+  auditExportPreamble,
+  auditExportStop,
   auditWindow,
   authorize,
   decodeAuditCursor,
   encodeAuditCursor,
   entitlements,
+  fail,
+  hasFeature,
   newAuditEventId,
+  newerFirst,
   ok,
   type Result,
   requireFeature,
@@ -163,21 +175,20 @@ const ids = (values: readonly string[]) =>
 
 type AuditRow = typeof ae.$inferSelect;
 
-/** One database's page of an owner's events matching the filters, newest first. */
-async function page(
-  db: Db,
-  input: {
-    ownerId: string;
-    kinds: readonly AuditKind[];
-    filters: AuditFilters;
-    from: number;
-    to: number;
-    after: { at: number; id: string } | null;
-    limit: number;
-  },
-): Promise<AuditRow[]> {
-  if (input.kinds.length === 0) return [];
-  const conditions: (SQL | undefined)[] = [
+interface PageQuery {
+  ownerId: string;
+  kinds: readonly AuditKind[];
+  filters: AuditFilters;
+  from: number;
+  to: number;
+  after: { at: number; id: string } | null;
+  /** For an export part: the oldest position it includes. */
+  until?: AuditPosition | null;
+}
+
+/** Where an owner's events match the filters, between the cursor and an export part's stop. */
+function matching(input: PageQuery): SQL | undefined {
+  return and(
     eq(ae.ownerId, input.ownerId),
     gte(ae.at, input.from),
     lt(ae.at, input.to),
@@ -189,11 +200,19 @@ async function page(
     input.after === null
       ? undefined
       : or(lt(ae.at, input.after.at), and(eq(ae.at, input.after.at), lt(ae.id, input.after.id))),
-  ];
+    input.until === null || input.until === undefined
+      ? undefined
+      : or(gt(ae.at, input.until.at), and(eq(ae.at, input.until.at), gte(ae.id, input.until.id))),
+  );
+}
+
+/** One database's page of an owner's events matching the filters, newest first. */
+async function page(db: Db, input: PageQuery & { limit: number }): Promise<AuditRow[]> {
+  if (input.kinds.length === 0) return [];
   return db
     .select()
     .from(ae)
-    .where(and(...conditions))
+    .where(matching(input))
     .orderBy(desc(ae.at), desc(ae.id))
     .limit(input.limit);
 }
@@ -364,7 +383,200 @@ export async function getAuditLog(
     nextCursor:
       rows.length > limit && last ? encodeAuditCursor({ at: last.at, id: last.id }) : null,
     retentionDays,
+    exportable: hasFeature(gate.value, "auditExport"),
   });
+}
+
+export interface AuditExportInput {
+  /** From `resolveOwnerScope`: the caller's role on the owner they named. */
+  actor: Actor;
+  format: AuditExportFormat;
+  filters: AuditFilters;
+  /** The cursor a previous part named; none starts a new export. */
+  cursor?: string | undefined;
+  now: number;
+  /** Tests make the parts small; the Worker uses `AUDIT_EXPORT`. */
+  bounds?: { rowsPerDatabase: number; pageSize: number } | undefined;
+}
+
+export interface AuditExport {
+  format: AuditExportFormat;
+  fileName: string;
+  contentType: string;
+  /** The cursor of the next part, or null when this part ends the export. */
+  nextCursor: string | null;
+  /** The part's bytes as text, in order: the CSV header on a first part, then a page at a time. */
+  lines(): AsyncGenerator<string>;
+}
+
+/**
+ * One part of an export of the owner's audit log (premium plan E3), for its admins when the
+ * owner's plan includes `audit` and `auditExport`: the same events, filters, order, presentation
+ * and retention window as reading it, as CSV or JSON Lines. The part reads at most
+ * `rowsPerDatabase` events from each database (`auditExportStop`) and streams them in pages, so
+ * neither the rows nor the file are ever held whole; `nextCursor` resumes after it.
+ *
+ * Starting an export (no cursor) is rate limited per owner and per person and records
+ * `audit.exported` in the owner's regional database before anything is read. That insert is the
+ * one event written outside the batch of its change: an export is a read with no batch, and the
+ * event records that it was asked for, so it is written unconditionally once the request passed
+ * authorization, the plan gate, validation and the rate limit. The part ends just before `now`,
+ * so it never lists its own event. A resumed part records nothing and is not limited again: it
+ * reads only what reading the log page by page would.
+ */
+export async function exportAuditLog(
+  db: RegionalDb,
+  input: AuditExportInput,
+): Promise<Result<AuditExport>> {
+  const allowed = authorize(input.actor, "audit");
+  if (!allowed.ok) return allowed;
+  const ownerId = input.actor.ownerId;
+  const owner = await ownerEntitlements(db.global, ownerId, input.now);
+  // The export's own feature first, so an owner without either hears about the export.
+  const gate = requireFeature(owner, "auditExport");
+  if (!gate.ok) return gate;
+  const reading = requireFeature(owner, "audit");
+  if (!reading.ok) return reading;
+  const window = auditWindow(input.filters, owner.limits.auditRetentionDays, input.now);
+  if (!window.ok) return window;
+  let after: AuditPosition | null = null;
+  if (input.cursor !== undefined) {
+    const decoded = decodeAuditCursor(input.cursor);
+    if (!decoded.ok) return decoded;
+    after = decoded.value;
+  } else {
+    const limited = await exportRateLimited(db.global, ownerId, input.actor.userId, input.now);
+    if (limited) return fail("rate_limited", "Too many audit log exports. Try again later.");
+    await auditEvent(
+      db,
+      {
+        ownerId,
+        kind: "audit.exported",
+        actor: { type: "user", id: input.actor.userId },
+        targetId: null,
+        detail: auditExportDetail(input.format, input.filters),
+        now: input.now,
+      },
+      sql`1 = 1`,
+    );
+  }
+  const bounds = input.bounds ?? AUDIT_EXPORT;
+  const wanted = input.filters.kinds ?? AUDIT_KINDS;
+  const query = {
+    ownerId,
+    filters: input.filters,
+    from: window.value.from,
+    to: Math.min(window.value.to, input.now),
+    after,
+  };
+  const sources = [
+    { handle: db as Db, kinds: REGIONAL_AUDIT_KINDS.filter((k) => wanted.includes(k)) },
+    { handle: db.global as Db, kinds: GLOBAL_AUDIT_KINDS.filter((k) => wanted.includes(k)) },
+  ];
+  const boundaries = await Promise.all(
+    sources.map(({ handle, kinds }) =>
+      boundary(handle, { ...query, kinds }, bounds.rowsPerDatabase),
+    ),
+  );
+  const stop = auditExportStop(boundaries);
+  const format = input.format;
+  return ok({
+    format,
+    fileName: auditExportFileName(format),
+    contentType: auditExportContentType(format),
+    nextCursor: stop === null ? null : encodeAuditCursor(stop),
+    async *lines() {
+      if (after === null) {
+        const preamble = auditExportPreamble(format);
+        if (preamble) yield preamble;
+      }
+      for await (const rows of merged(sources, { ...query, until: stop }, bounds.pageSize)) {
+        const events = await present(db, ownerId, rows);
+        yield events.map((event) => auditExportLine(format, event)).join("");
+      }
+    },
+  });
+}
+
+/** Counts one export start per owner and per person; true when either is over its limit. */
+async function exportRateLimited(
+  global: GlobalDb,
+  ownerId: string,
+  userId: string,
+  now: number,
+): Promise<boolean> {
+  let limited = false;
+  for (const [key, rule] of [
+    [`audit-export:owner:${ownerId}`, AUDIT_EXPORT.perOwner],
+    [`audit-export:actor:${userId}`, AUDIT_EXPORT.perActor],
+  ] as const) {
+    const hit = await hitRateLimit(global.$client, key, rule.windowSeconds * 1000, now);
+    if (hit.count > rule.max) limited = true;
+  }
+  return limited;
+}
+
+type PartQuery = Omit<PageQuery, "kinds" | "until">;
+
+/**
+ * The position of one database's `count`-th matching row after the cursor, or null when it has
+ * fewer: one indexed query that returns one position, never the rows.
+ */
+async function boundary(db: Db, query: PageQuery, count: number): Promise<AuditPosition | null> {
+  if (query.kinds.length === 0) return null;
+  const [row] = await db
+    .select({ at: ae.at, id: ae.id })
+    .from(ae)
+    .where(matching(query))
+    .orderBy(desc(ae.at), desc(ae.id))
+    .limit(1)
+    .offset(count - 1);
+  return row ? { at: row.at, id: row.id } : null;
+}
+
+/**
+ * The rows of both databases in one order, newest first, a page at a time: each database is
+ * read `pageSize` rows at a time and only refilled when its rows are used up, so at most two
+ * pages are held.
+ */
+async function* merged(
+  sources: readonly { handle: Db; kinds: readonly AuditKind[] }[],
+  query: PartQuery & { until: AuditPosition | null },
+  pageSize: number,
+): AsyncGenerator<AuditRow[]> {
+  const state = sources.map((source) => ({
+    ...source,
+    buffer: [] as AuditRow[],
+    after: query.after,
+    done: source.kinds.length === 0,
+  }));
+  let out: AuditRow[] = [];
+  for (;;) {
+    for (const one of state) {
+      if (one.buffer.length > 0 || one.done) continue;
+      one.buffer = await page(one.handle, {
+        ...query,
+        kinds: one.kinds,
+        after: one.after,
+        limit: pageSize,
+      });
+      one.done = one.buffer.length < pageSize;
+      const last = one.buffer.at(-1);
+      if (last) one.after = { at: last.at, id: last.id };
+    }
+    let next: (typeof state)[number] | undefined;
+    for (const one of state) {
+      const head = one.buffer[0];
+      if (head && (!next || newerFirst(head, next.buffer[0] as AuditRow) < 0)) next = one;
+    }
+    if (!next) break;
+    out.push(next.buffer.shift() as AuditRow);
+    if (out.length === pageSize) {
+      yield out;
+      out = [];
+    }
+  }
+  if (out.length > 0) yield out;
 }
 
 /**

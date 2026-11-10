@@ -261,7 +261,21 @@ Retention follows the plan. `set-plan`, `remove-plan` and `apply-plans` write an
 
 ## Audit log
 
-Every owner's changes are recorded in `audit_events` (see "Audit log" in [security.md](security.md)): in the owner's region, and for members, invitations, plans and custom domains in the global database. The 15-minute maintenance run deletes events past the owner's `auditRetentionDays` (90 days on every plan; an Enterprise override keeps longer) at most 1,000 rows per statement and 50 statements per pass (50,000 rows per database and run), first for owners on the default retention and then for each owner whose plan keeps another number of days; a plan row changed after the scan read it is left for the next run. Plan grants and removals made with `set-plan`, `remove-plan` and `apply-plans` are themselves recorded, with the operator as actor and without the operator's name or note; a grant that changes nothing records nothing. A D1 Time Travel restore rewinds the audit log like everything else: events after the restore point are lost, and `apply-tombstones` erases the events of deleted accounts and workspaces that the restore brought back.
+Every owner's changes are recorded in `audit_events` (see "Audit log" in [security.md](security.md)): in the owner's region, and for members, invitations, plans and custom domains in the global database. The 15-minute maintenance run deletes events past the owner's `auditRetentionDays` (90 days on every plan; an Enterprise contract sets another value, see below) at most 1,000 rows per statement and 50 statements per pass (50,000 rows per database and run), first for owners on the default retention and then for each owner whose plan keeps another number of days; a plan row changed after the scan read it is left for the next run. Plan grants and removals made with `set-plan`, `remove-plan` and `apply-plans` are themselves recorded, with the operator as actor and without the operator's name or note; a grant that changes nothing records nothing. A D1 Time Travel restore rewinds the audit log like everything else: events after the restore point are lost, and `apply-tombstones` erases the events of deleted accounts and workspaces that the restore brought back.
+
+### Audit retention and exports
+
+An Enterprise contract sets how long an owner's audit events are kept, from 30 days to seven years (2,557 days, `AUDIT_RETENTION_BOUNDS`), with the operator tool only; there is no self-service setting:
+
+```bash
+bun run --cwd apps/jobs operator set-plan workspace:acme enterprise --seats 25 --overrides '{"limits":{"auditRetentionDays":730}}'
+```
+
+`set-plan` refuses a value outside the bounds, and `plan` shows the effective value (`audit log   kept 730 days`), as do the usage body (`plan.limits.auditRetentionDays`) and the Audit page. Raising it keeps events longer from then on; it cannot bring back events the scan already deleted. Lowering it is destructive: reads and exports stop listing older events at once, and the next 15-minute scan deletes them for good (in bounded statements, so a very large backlog can take a few runs). The same happens when the plan ends or is removed, since the owner falls back to the 90 days of every plan. Confirm a lowering with the customer in writing before running it, and export first if they want a copy. A D1 Time Travel restore rewinds the plan row with everything else; `export-plans` and `apply-plans` carry the override across like any other.
+
+Exports are rate limited per owner (30 starts an hour) and per person (10 an hour) through `rate_limits`; a customer who hits the limit waits for the hour to pass, and each start appears in the log as `audit.exported`.
+
+Next for E3: delivering audit events to a SIEM by webhook, and retention policies for artifacts and comments (a maximum artifact life, automatic archive and comment retention). Neither is built.
 
 ## Storage reconciliation
 

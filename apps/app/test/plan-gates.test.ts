@@ -244,6 +244,17 @@ const GATED: GatedOperation[] = [
     },
   },
   {
+    feature: "auditExport",
+    name: "export the audit log",
+    scope: "owner",
+    // No MCP tool returns an export: it is too large for a tool result.
+    run: async (who) => {
+      const response = await who.apiCall("/api/v1/audit/export?format=csv");
+      const body = response.ok ? await response.text() : await response.json<unknown>();
+      return { api: { status: response.status, body } };
+    },
+  },
+  {
     feature: "serviceTokens",
     name: "use a service token",
     scope: "owner",

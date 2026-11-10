@@ -1742,6 +1742,17 @@ export const fr = {
   "audit.kind.tokenCreated":
     "A créé un jeton de service qui expire dans {days, plural, one {# jour} other {# jours}}",
   "audit.kind.tokenRevoked": "A révoqué un jeton de service",
+  "audit.export.label": "Exporter le journal d'audit",
+  "audit.export.csv": "Exporter en CSV",
+  "audit.export.jsonl": "Exporter en JSON Lines",
+  "audit.export.hint":
+    "Télécharge tous les changements conservés qui correspondent aux filtres, du plus récent au plus ancien. Les membres sont nommés, jamais par leur adresse.",
+  "audit.export.doneCsv": "Le journal d'audit a été exporté en CSV.",
+  "audit.export.doneJsonl": "Le journal d'audit a été exporté en JSON Lines.",
+  "audit.export.failed": "Le journal d'audit n'a pas pu être exporté",
+  "audit.export.planRequired": "L'export du journal d'audit fait partie de l'offre {plan}.",
+  "audit.kind.exported":
+    "{format, select, csv {A exporté le journal d'audit en CSV} other {A exporté le journal d'audit en JSON Lines}}",
   "audit.kind.emailDomainVerified": "A vérifié le domaine e-mail {domain}",
   "audit.kind.emailDomainRemoved":
     "{reason, select, removed {A retiré le domaine e-mail {domain}} claimed {Le domaine e-mail {domain} a été retiré, car un autre workspace l'a prouvé} other {Le domaine e-mail {domain} a été retiré, car son enregistrement DNS est absent}}",

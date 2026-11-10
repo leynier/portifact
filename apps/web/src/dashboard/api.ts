@@ -23,6 +23,8 @@ import {
   type ArtifactListFilters,
   ArtifactStatsView,
   ArtifactSummary,
+  AUDIT_EXPORT_CURSOR_HEADER,
+  type AuditExportFormat,
   type AuditKind,
   AuditLogView,
   BrandSettings,
@@ -234,6 +236,15 @@ export interface DashboardApi {
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
   /** A page of the space's audit log (`GET /api/v1/audit`), newest first. */
   audit(workspace: string | undefined, query: AuditPageQuery): Promise<AuditLogView>;
+  /**
+   * One part of an export of the space's audit log (`GET /api/v1/audit/export`) as text, and the
+   * cursor of the next part (`Portifact-Next-Cursor`), null after the last.
+   */
+  auditExport(
+    workspace: string | undefined,
+    format: AuditExportFormat,
+    query: AuditPageQuery,
+  ): Promise<{ text: string; nextCursor: string | null }>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
   /**
@@ -698,6 +709,35 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     removeDomain(hostname) {
       return call(`/api/v1/domains/${encodeURIComponent(hostname)}`, CustomDomainRemoved, "DELETE");
+    },
+    async auditExport(workspace, format, query) {
+      const params = new URLSearchParams({ format });
+      for (const kind of query.kinds ?? []) params.append("kind", kind);
+      if (query.actor) params.set("actor", query.actor);
+      if (query.from) params.set("from", query.from);
+      if (query.cursor) params.set("cursor", query.cursor);
+      let response: Response;
+      try {
+        response = await fetch(inSpace(`/api/v1/audit/export?${params}`, workspace), {
+          method: "GET",
+          credentials: "same-origin",
+          headers: { accept: "*/*" },
+        });
+      } catch {
+        throw new ApiFailure("network", 0);
+      }
+      if (response.ok) {
+        return {
+          text: await response.text(),
+          nextCursor: response.headers.get(AUDIT_EXPORT_CURSOR_HEADER),
+        };
+      }
+      if (response.status === 401) {
+        onUnauthenticated();
+        throw new ApiFailure("unauthenticated", 401);
+      }
+      const error = ApiError.safeParse(await response.json().catch(() => null));
+      throw new ApiFailure(error.success ? error.data.error.code : "unexpected", response.status);
     },
     audit(workspace, query) {
       const params = new URLSearchParams();
