@@ -7,6 +7,13 @@ export { Callout, type CalloutProps } from "./components/callout.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog.tsx";
 export { CopyField, type CopyFieldProps } from "./components/copy-field.tsx";
 export { type DetailItem, DetailList, type DetailListProps } from "./components/detail-list.tsx";
+export {
+  DiffView,
+  type DiffViewHunk,
+  type DiffViewLabels,
+  type DiffViewLine,
+  type DiffViewProps,
+} from "./components/diff-view.tsx";
 export { Disclosure, type DisclosureProps } from "./components/disclosure.tsx";
 export { Drawer, type DrawerProps } from "./components/drawer.tsx";
 export {

@@ -291,13 +291,19 @@ export const versions = sqliteTable(
     /** `RENDERER_VERSION` of the stored rendering of a document; null for sites. */
     rendererVersion: text("renderer_version"),
     committedAt: timestamp("committed_at"),
-    /** Previous versions expire seven days after they stop being current. */
-    expiresAt: timestamp("expires_at"),
+    /**
+     * When the version stopped being current (a publish or rollback replaced it); null while it
+     * is current or never committed. How long a previous version is kept is decided from this
+     * and the owner's plan when it is read or pruned (`previousVersionRetained` in
+     * packages/domain), so a plan change applies to versions already replaced.
+     */
+    supersededAt: timestamp("superseded_at"),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex("versions_artifact_number_idx").on(t.artifactId, t.number),
-    index("versions_state_expires_idx").on(t.state, t.expiresAt),
+    // Previous versions only, for the pruning scan.
+    index("versions_superseded_idx").on(t.supersededAt).where(sql`${t.supersededAt} is not null`),
     // An artifact's committed versions, counted for every row of the artifact list; without it
     // the planner may walk every committed version through `versions_state_expires_idx`.
     index("versions_artifact_state_idx").on(t.artifactId, t.state),

@@ -1,6 +1,9 @@
 // User-facing text of the CLI, kept in one place so it can move to the i18n layer. Sentences
 // end with a period; no em dashes. Never interpolate a token, cookie or code other than the
 // device user code, which the user must see to approve the login.
+import { VERSION_DIFF } from "@portifact/contracts";
+
+const VERSION_DIFF_FILE_BYTES = VERSION_DIFF.fileBytes;
 
 export const messages = {
   notice: [
@@ -116,6 +119,32 @@ export const messages = {
 
   // Versions.
   versionsEmpty: (id: string) => `${id} has no published versions.`,
+  versionsRetention: (previous: number, days: number) =>
+    `The owner's plan keeps ${previous} previous ${plural(previous, "version", "versions")} for ${days} ${plural(days, "day", "days")} after each is replaced.`,
+  diffSummary: (
+    id: string,
+    from: number,
+    to: number,
+    counts: { added: number; removed: number; changed: number; unchanged: number },
+  ) =>
+    `Version ${from} to ${to} of ${id}: ${counts.added} added, ${counts.removed} removed, ${counts.changed} changed and ${counts.unchanged} unchanged ${plural(counts.unchanged, "file", "files")}.`,
+  diffNoText: (
+    path: string,
+    change: string,
+    status: string,
+    before: number | null,
+    after: number | null,
+  ) => {
+    const reason = {
+      identical: "is identical in both versions",
+      binary: "is not text, so there is no line diff",
+      too_large: `is larger than ${formatBytes(VERSION_DIFF_FILE_BYTES)} in a version, so there is no line diff`,
+      too_many_lines: "has too many lines for a line diff",
+      too_many_changes: "changed too much for a line diff",
+    }[status];
+    const size = (bytes: number | null) => (bytes === null ? "none" : formatBytes(bytes));
+    return `${path} (${change}) ${reason}. Size before: ${size(before)}, after: ${size(after)}.`;
+  },
 
   // Access logs.
   logsEmpty: (id: string, days: number) =>

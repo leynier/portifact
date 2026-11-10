@@ -2,7 +2,15 @@
 // artifact looks exactly like a missing one.
 import type { ArtifactListFilters } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { type Actor, authorize, fail, ok, type Result } from "@portifact/domain";
+import {
+  type Actor,
+  authorize,
+  fail,
+  ok,
+  type Result,
+  type VersionRetention,
+  versionRetention,
+} from "@portifact/domain";
 import {
   and,
   type Column,
@@ -16,6 +24,8 @@ import {
   sql,
 } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
+import { ownerEntitlements } from "./plans.ts";
+import { retainedVersionSql } from "./retention.ts";
 
 export type ArtifactRow = typeof schema.artifacts.$inferSelect;
 
@@ -98,7 +108,7 @@ function filterConditions(filters: ArtifactListFilters = {}) {
  * for open threads and `annotation_threads_artifact_change_idx` for the last change (the thread
  * changed last has the highest `change_seq`). They run only for the rows of the page.
  */
-function activityColumns(now: number) {
+function activityColumns(retention: VersionRetention, now: number) {
   // Drizzle leaves columns unqualified in select fields, where they would bind to the
   // subquery's own table, so every column here names its table.
   const col = (column: Column) =>
@@ -109,7 +119,7 @@ function activityColumns(now: number) {
   const id = col(t.id);
   const current = col(t.currentVersionId);
   return {
-    activityVersions: sql<number>`(select count(*) from ${v} where ${col(v.artifactId)} = ${id} and ${col(v.state)} = 'committed' and (${col(v.id)} = ${current} or ${col(v.expiresAt)} is null or ${col(v.expiresAt)} > ${now}))`,
+    activityVersions: sql<number>`(select count(*) from ${v} where ${col(v.artifactId)} = ${id} and ${retainedVersionSql(current, retention, now)})`,
     activityCurrentBytes: sql<
       number | null
     >`(select ${col(v.publishedBytes)} + ${col(v.sourceBytes)} from ${v} where ${col(v.id)} = ${current})`,
@@ -130,8 +140,12 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
   if (input.cursor !== undefined && !after) return fail("invalid_input", "Invalid cursor.");
   const t = schema.artifacts;
+  // Every listed artifact has the actor's owner, so one plan decides their retention.
+  const retention = versionRetention(
+    (await ownerEntitlements(db, input.actor.ownerId, input.now)).limits,
+  );
   const rows = await db
-    .select({ ...getTableColumns(t), ...activityColumns(input.now) })
+    .select({ ...getTableColumns(t), ...activityColumns(retention, input.now) })
     .from(t)
     .where(
       and(

@@ -134,6 +134,20 @@ const GATED: GatedOperation[] = [
     "pin_artifact",
     (id) => ({ artifactId: id }),
   ),
+  route(
+    "versionDiff",
+    "compare two versions",
+    (id) => [`/api/v1/artifacts/${id}/versions/current/diff/current`],
+    "diff_versions",
+    (id) => ({ artifactId: id, fromVersionId: "current" }),
+  ),
+  route(
+    "versionDiff",
+    "diff a file between two versions",
+    (id) => [`/api/v1/artifacts/${id}/versions/current/diff/current/file?path=index.md`],
+    "diff_version_file",
+    (id) => ({ artifactId: id, fromVersionId: "current", path: "index.md" }),
+  ),
   probe("workspaces"),
   probe("sso"),
 ];
@@ -193,6 +207,10 @@ async function onPlan(ownerId: string, plan: PlanName) {
     .onConflictDoUpdate({ target: schema.ownerPlans.ownerId, set: { plan } });
 }
 
+/** One address per line of GATED: a feature may gate several operations. */
+const slug = (op: GatedOperation) =>
+  `${op.feature}-${op.name}`.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-");
+
 function expectRefused(answers: Answers, feature: PlanFeature, label: string) {
   const body = { error: { code: "plan_required", message: planRequiredMessage(feature) } };
   expect(answers.api, label).toEqual({ status: 403, body });
@@ -207,7 +225,7 @@ function expectNotRefused(answers: Answers, label: string) {
 
 describe.each(GATED)("$feature: $name", (op) => {
   it("is refused on free with plan_required, the same in the API and MCP", async () => {
-    const owner = await client(`gate-free-${op.feature}@example.test`);
+    const owner = await client(`gate-free-${slug(op)}@example.test`);
     const id = await publishIn(owner.userId, owner.userId);
     expectRefused(await op.run(owner, id), op.feature, "free");
 
@@ -216,7 +234,7 @@ describe.each(GATED)("$feature: $name", (op) => {
   });
 
   it("follows the artifact owner's plan, not the caller's", async () => {
-    const editor = await client(`gate-editor-${op.feature}@example.test`);
+    const editor = await client(`gate-editor-${slug(op)}@example.test`);
     const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
     await db()
       .insert(schema.workspaces)

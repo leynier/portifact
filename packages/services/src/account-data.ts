@@ -11,8 +11,10 @@ import {
   commentScope,
   fail,
   ok,
+  previousVersionExpiry,
   type Result,
   threadInScope,
+  versionRetention,
 } from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEventsJob } from "./access-log.ts";
@@ -73,6 +75,8 @@ export async function exportAccount(
     )
     .orderBy(asc(schema.artifacts.createdAt), asc(schema.artifacts.id));
   const artifactIds = artifacts.map((artifact) => artifact.id);
+  const owner = await ownerEntitlements(db, input.userId, input.now);
+  const retention = versionRetention(owner.limits);
 
   const readers = new Map<string, string[]>();
   const versionsByArtifact = new Map<string, (typeof schema.versions.$inferSelect)[]>();
@@ -200,7 +204,7 @@ export async function exportAccount(
         connectedAt: method.createdAt.toISOString(),
       })),
       settings: await loadSettings(db, input.userId),
-      plan: planView(await ownerEntitlements(db, input.userId, input.now)),
+      plan: planView(owner),
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
     },
     artifacts: artifacts.map((artifact) => ({
@@ -227,7 +231,11 @@ export async function exportAccount(
         current: version.id === artifact.currentVersionId,
         entrypoint: version.entrypoint,
         committedAt: isoOrNull(version.committedAt),
-        expiresAt: isoOrNull(version.expiresAt),
+        // Committed versions not pruned yet; a previous one ends by the plan's days.
+        expiresAt:
+          version.id === artifact.currentVersionId || version.supersededAt === null
+            ? null
+            : iso(previousVersionExpiry(version.supersededAt, retention)),
         download: `/api/v1/artifacts/${artifact.id}/versions/${version.id}/download`,
         files: (files.get(version.id) ?? []).map((file) => ({
           kind: file.kind as "published" | "source",

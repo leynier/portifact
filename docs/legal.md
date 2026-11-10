@@ -53,6 +53,8 @@ The Privacy Policy lists the two preference cookies (`__Secure-pf_theme`, `__Sec
 
 The Terms and the Privacy Policy describe a fixed lifecycle: an artifact expires 30 days after its last publish or renewal and is kept archived for 6 months before it is deleted. Since pins and archive length by plan (premium plan P2), both depend on the owner's plan: a paid plan can pin an artifact so it does not expire, and an archive is kept for the plan's `archiveMonths` when it is archived (12 on paid plans). The free plan, and every account without a plan, still behaves exactly as the pages say, so the texts were left unchanged and `TERMS_VERSION` was not bumped; change them in one go with the other plan-dependent terms when paid plans are offered.
 
+The Privacy Policy's retention table says previous versions of an artifact are kept "up to two, for 7 days after a newer one is published". Since version retention by plan (premium plan P3) that is the free plan's value: Pro keeps up to 50 for 90 days and Team up to 100 for a year (`PLANS`), and a lower plan prunes down to its own values. Until then the count of two was not enforced (only the seven days were); it is now, so the free plan matches the page exactly. The page and `TERMS_VERSION` are unchanged; describe the plan-dependent retention with the other paid-plan terms.
+
 `terms_version` and `terms_accepted_at` are Better Auth `additionalFields` with `input: false`, so no request body can set them; `get-session` returns them to the login page.
 
 Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.

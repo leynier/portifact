@@ -18,6 +18,7 @@ import {
   showAccess,
 } from "./artifacts.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
+import { diff } from "./diff.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
 import { pullHistory } from "./history.ts";
 import { logs } from "./logs.ts";
@@ -441,6 +442,35 @@ export async function run(
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string, version: string) =>
         rollback(io, runtime, id, version, { json: options.json === true }),
+      ),
+    );
+
+  program
+    .command("diff")
+    .description(
+      "Compare two versions of an artifact: the files that changed, or one file line by line (paid plans)",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("<from>", "earlier version: ID or number (3 or v3), from `portifact versions`")
+    .argument("<to>", "later version: ID, number or current")
+    .option("--file <path>", "Show a unified diff of this file instead of the file summary")
+    .option("--source", "With --file, the file is a private source rather than a published file")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { json?: boolean; file?: string; source?: boolean },
+          id: string,
+          from: string,
+          to: string,
+        ) =>
+          diff(io, runtime, id, from, to, {
+            json: options.json === true,
+            file: options.file,
+            source: options.source === true,
+          }),
       ),
     );
 

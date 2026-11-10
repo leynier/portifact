@@ -41,6 +41,18 @@ const GATED: GatedCommand[] = [
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/pin$/,
   },
+  {
+    feature: "versionDiff",
+    args: (id) => ["diff", id, "current", "current"],
+    method: "GET",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current$/,
+  },
+  {
+    feature: "versionDiff",
+    args: (id) => ["diff", id, "current", "current", "--file", "index.html"],
+    method: "GET",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current\/file$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {

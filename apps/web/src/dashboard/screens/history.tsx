@@ -43,6 +43,7 @@ import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { artifactQuery } from "./artifact-detail.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
+import { CompareVersions } from "./compare-versions.tsx";
 import { EarlierConversations } from "./earlier-conversations.tsx";
 
 export const versionsQuery = (artifactId: string) => ["versions", artifactId] as const;
@@ -266,6 +267,10 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
     );
   }
   const items = versions.data.pages.flatMap((page) => page.items);
+  const { retention, versionDiff } = versions.data.pages[0] ?? {
+    retention: { previousVersions: 0, days: 0 },
+    versionDiff: false,
+  };
   if (items.length === 0) {
     return (
       <EmptyState title={t("history.empty.title")} icon={<History className="size-8" />}>
@@ -295,6 +300,9 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
           {errorMessage(t, rollback.error)}
         </Callout>
       ) : null}
+      <p className="text-sm text-text-muted">
+        {t("history.retention", { count: retention.previousVersions, days: retention.days })}
+      </p>
       {canRollBack ? null : (
         <p className="text-sm text-text-muted">{t("history.rollbackUnavailable")}</p>
       )}
@@ -419,6 +427,7 @@ function Versions({ artifact }: { artifact: ArtifactSummary }) {
       >
         {t("history.confirmRollback.body")}
       </ConfirmDialog>
+      <CompareVersions artifactId={artifact.id} versions={items} versionDiff={versionDiff} />
       <EarlierConversations artifactId={artifact.id} versions={items} />
     </div>
   );

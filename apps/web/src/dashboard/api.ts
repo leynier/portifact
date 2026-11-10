@@ -33,6 +33,7 @@ import {
   type DownloadKind,
   type EditMessageRequest,
   type ErrorCode,
+  FileDiff,
   LifecycleResult,
   PreparedPublish,
   type PublishRequest,
@@ -42,6 +43,7 @@ import {
   RolledBack,
   SignOutOthersResult,
   type UploadedPart,
+  VersionComparison,
   VersionDownload,
   VersionList,
   VersionManifest,
@@ -129,6 +131,19 @@ export interface DashboardApi {
     request: RollbackRequest,
     idempotencyKey: string,
   ): Promise<RolledBack>;
+  compareVersions(
+    artifactId: string,
+    fromVersionId: string,
+    toVersionId: string,
+    cursor?: string,
+  ): Promise<VersionComparison>;
+  fileDiff(
+    artifactId: string,
+    fromVersionId: string,
+    toVersionId: string,
+    file: { kind: DownloadKind; path: string },
+    cursor?: number,
+  ): Promise<FileDiff>;
   previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
   /**
    * What the viewer's bar shows about the artifact and who is looking; works without a session
@@ -403,6 +418,20 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         "POST",
         request,
         { "idempotency-key": idempotencyKey },
+      );
+    },
+    compareVersions(artifactId, fromVersionId, toVersionId, cursor) {
+      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(fromVersionId)}/diff/${encodeURIComponent(toVersionId)}${query}`,
+        VersionComparison,
+      );
+    },
+    fileDiff(artifactId, fromVersionId, toVersionId, file, cursor = 0) {
+      const query = new URLSearchParams({ ...file, cursor: String(cursor) });
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(fromVersionId)}/diff/${encodeURIComponent(toVersionId)}/file?${query}`,
+        FileDiff,
       );
     },
     previewDocument(request) {

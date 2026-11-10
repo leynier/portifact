@@ -62,10 +62,10 @@ export async function versions(
 ): Promise<void> {
   const artifactId = parseArtifactId(id);
   const session = await openSession(io, runtime);
-  const items = await listAllVersions(session, artifactId);
+  const { items, retention } = await listAllVersionsWithRetention(session, artifactId);
 
   if (options.json) {
-    writeJson(io, { artifactId, items });
+    writeJson(io, { artifactId, items, retention });
     return;
   }
   if (items.length === 0) {
@@ -87,6 +87,7 @@ export async function versions(
       ]),
     ]),
   );
+  io.stdout(`${messages.versionsRetention(retention.previousVersions, retention.days)}\n`);
 }
 
 /** Every retained version of the artifact, newest first, following the cursor to the last page. */
@@ -94,7 +95,16 @@ export async function listAllVersions(
   session: Session,
   artifactId: string,
 ): Promise<VersionSummary[]> {
+  return (await listAllVersionsWithRetention(session, artifactId)).items;
+}
+
+/** Every retained version and what the owner's plan keeps. */
+async function listAllVersionsWithRetention(
+  session: Session,
+  artifactId: string,
+): Promise<{ items: VersionSummary[]; retention: VersionList["retention"] }> {
   const items: VersionSummary[] = [];
+  let retention: VersionList["retention"] | undefined;
   let cursor: string | null = null;
   do {
     const query = new URLSearchParams({ limit: String(PAGE_SIZE) });
@@ -105,9 +115,10 @@ export async function listAllVersions(
       schema: VersionList,
     });
     items.push(...page.items);
+    retention ??= page.retention;
     cursor = page.nextCursor;
   } while (cursor !== null);
-  return items;
+  return { items, retention: retention as VersionList["retention"] };
 }
 
 export async function rollback(
