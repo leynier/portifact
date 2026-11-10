@@ -107,6 +107,11 @@ describe("CI scope", () => {
     });
   });
 
+  it("checks the documented GitHub workflows when their page changes", () => {
+    expect(scopeOf(["docs/github-actions.md"]).quality).toBe(true);
+    expect(scopeOf(["action/preview.sh"])).toMatchObject({ quality: true, cli: false });
+  });
+
   it("rescans the whole history only when the secret scan's rules or workflow change", () => {
     expect(scopeOf([".gitleaks.toml"])).toEqual({
       quality: false,
