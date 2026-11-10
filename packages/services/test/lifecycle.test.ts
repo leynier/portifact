@@ -376,7 +376,7 @@ describe("pruning versions and uploads", () => {
     const a = await publish({ "index.html": "<h1>v1</h1>" });
     await db()
       .update(schema.versions)
-      .set({ expiresAt: T0 })
+      .set({ supersededAt: T0 - 8 * DAY })
       .where(eq(schema.versions.id, a.versionId));
     expect(await pruneVersions(db(), env.ARTIFACTS, T0 + DAY)).toEqual({ processed: 0 });
   });

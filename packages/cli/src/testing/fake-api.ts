@@ -34,7 +34,9 @@ import {
   type ShareLinkView,
   type SourceOrigin,
   UploadedPart,
+  VERSION_DIFF,
 } from "@portifact/contracts";
+import { decodeUtf8, diffText, pageHunks, textDiffEligibility } from "@portifact/domain";
 
 export interface Reply {
   status: number;
@@ -492,7 +494,130 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const items = all.slice(0, limit).map((v) => versionSummary(artifact, v));
     const last = items.at(-1);
     const nextCursor = all.length > limit && last ? String(last.number) : null;
-    return { status: 200, body: { artifactId: artifact.id, items, nextCursor } };
+    const paid = state.usage.plan.features.includes("versionDiff");
+    return {
+      status: 200,
+      body: {
+        artifactId: artifact.id,
+        items,
+        nextCursor,
+        retention: {
+          previousVersions: state.usage.plan.limits.retainedPreviousVersions,
+          days: state.usage.plan.limits.previousVersionRetentionDays,
+        },
+        versionDiff: paid,
+      },
+    };
+  }
+
+  /** Both versions' files joined by kind and path, sorted, as the server compares them. */
+  function joinedFiles(before: FakeVersion, after: FakeVersion) {
+    const key = (file: FakeVersionFile) => `${file.kind}\u0000${file.path}`;
+    const a = new Map(before.files.map((file) => [key(file), file]));
+    const b = new Map(after.files.map((file) => [key(file), file]));
+    const side = (file: FakeVersionFile | undefined) =>
+      file ? { sha256: file.sha256, size: file.size, contentType: file.contentType } : null;
+    return [...new Set([...a.keys(), ...b.keys()])].sort().map((k) => {
+      const from = a.get(k);
+      const to = b.get(k);
+      const any = (from ?? to) as FakeVersionFile;
+      const change = !from
+        ? "added"
+        : !to
+          ? "removed"
+          : from.sha256 === to.sha256
+            ? "unchanged"
+            : "changed";
+      return { kind: any.kind, path: any.path, change, before: side(from), after: side(to) };
+    });
+  }
+
+  function compared(artifact: FakeArtifact, fromRef: string, toRef: string) {
+    if (!state.usage.plan.features.includes("versionDiff"))
+      return { reply: planRequired("versionDiff") };
+    const from = retainedVersion(artifact, fromRef);
+    const to = retainedVersion(artifact, toRef);
+    if (!from || !to) return { reply: missingVersion() };
+    return { from, to };
+  }
+
+  function compareVersions(
+    artifact: FakeArtifact,
+    fromRef: string,
+    toRef: string,
+    url: URL,
+  ): Reply {
+    const found = compared(artifact, fromRef, toRef);
+    if ("reply" in found) return found.reply;
+    const { from, to } = found;
+    const limit = Number(url.searchParams.get("limit") ?? VERSION_DIFF.filesDefault);
+    const cursor = url.searchParams.get("cursor");
+    const start = cursor === null ? 0 : Number(cursor.replace(/^f/, ""));
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > VERSION_DIFF.filesMax ||
+      Number.isNaN(start)
+    ) {
+      return error("invalid_input", "Invalid cursor or limit.");
+    }
+    const files = joinedFiles(from, to);
+    const counts = { added: 0, removed: 0, changed: 0, unchanged: 0 };
+    for (const file of files) counts[file.change as keyof typeof counts] += 1;
+    const differing = files.filter((file) => file.change !== "unchanged");
+    const page = differing.slice(start, start + limit);
+    return {
+      status: 200,
+      body: {
+        artifactId: artifact.id,
+        from: { id: from.id, number: from.number },
+        to: { id: to.id, number: to.number },
+        counts,
+        files: page,
+        nextCursor: start + limit < differing.length ? `f${start + limit}` : null,
+      },
+    };
+  }
+
+  function diffFile(artifact: FakeArtifact, fromRef: string, toRef: string, url: URL): Reply {
+    const found = compared(artifact, fromRef, toRef);
+    if ("reply" in found) return found.reply;
+    const { from, to } = found;
+    const kind = url.searchParams.get("kind") ?? "published";
+    const path = url.searchParams.get("path");
+    const cursor = Number(url.searchParams.get("cursor") ?? "0");
+    if (path === null || (kind !== "published" && kind !== "source")) {
+      return error(
+        "invalid_input",
+        "Send path, kind published or source and cursor a hunk number.",
+      );
+    }
+    const file = joinedFiles(from, to).find((f) => f.kind === kind && f.path === path);
+    if (!file) return error("not_found", "Neither version has this file.");
+    const body = (diff: unknown): Reply => ({
+      status: 200,
+      body: {
+        artifactId: artifact.id,
+        from: { id: from.id, number: from.number },
+        to: { id: to.id, number: to.number },
+        ...file,
+        diff,
+      },
+    });
+    if (file.change === "unchanged") return body({ status: "identical" });
+    const eligibility = [textDiffEligibility(file.before), textDiffEligibility(file.after)];
+    if (eligibility.includes("binary")) return body({ status: "binary" });
+    if (eligibility.includes("too_large")) return body({ status: "too_large" });
+    const text = (side: { sha256: string } | null) =>
+      side === null
+        ? ""
+        : decodeUtf8(new Uint8Array(state.stored.get(side.sha256) ?? Buffer.alloc(0)));
+    const [a, b] = [text(file.before), text(file.after)];
+    if (a === null || b === null) return body({ status: "binary" });
+    const diff = diffText(a, b);
+    if (diff.status !== "text") return body({ status: diff.status });
+    const page = pageHunks(diff.hunks, cursor);
+    return body({ status: "text", added: diff.added, removed: diff.removed, ...page });
   }
 
   function versionManifest(artifact: FakeArtifact, ref: string): Reply {
@@ -602,6 +727,19 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     key: string | undefined,
     raw: string,
   ) {
+    const diff = /^\/artifacts\/([^/]+)\/versions\/([^/]+)\/diff\/([^/]+)(\/file)?$/.exec(path);
+    if (diff && method === "GET") {
+      const artifact = state.artifacts.get(diff[1] as string);
+      if (!artifact || artifact.state === "deleted")
+        return error("not_found", "Artifact not found.");
+      const [fromRef, toRef] = [
+        decodeURIComponent(diff[2] as string),
+        decodeURIComponent(diff[3] as string),
+      ];
+      return diff[4]
+        ? diffFile(artifact, fromRef, toRef, url)
+        : compareVersions(artifact, fromRef, toRef, url);
+    }
     const match = /^\/artifacts\/([^/]+)\/(versions|rollback)(?:\/([^/]+)(\/download)?)?$/.exec(
       path,
     );
@@ -1146,6 +1284,7 @@ function newArtifactId(): string {
 function contentTypeOf(path: string): string {
   if (path.endsWith(".md")) return "text/markdown; charset=utf-8";
   if (path.endsWith(".html")) return "text/html; charset=utf-8";
+  if (path.endsWith(".png")) return "image/png";
   return "text/plain; charset=utf-8";
 }
 

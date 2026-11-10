@@ -21,6 +21,8 @@ import {
 const TOOLS = [
   "archive_artifact",
   "delete_artifact",
+  "diff_version_file",
+  "diff_versions",
   "get_access_logs",
   "get_artifact",
   "get_artifact_stats",
@@ -113,6 +115,11 @@ describe("the MCP endpoint", () => {
       "baseVersionId",
     ]);
     expect(TOOL_SCOPES.get("rollback_artifact")).toBe("artifacts:write");
+    expect(TOOL_SCOPES.get("diff_versions")).toBe("artifacts:read");
+    expect(TOOL_SCOPES.get("diff_version_file")).toBe("artifacts:read");
+    for (const name of ["diff_versions", "diff_version_file"]) {
+      expect(byName.get(name)?.annotations).toMatchObject({ readOnlyHint: true });
+    }
     for (const name of ["set_access", "add_reader", "remove_reader"]) {
       expect(TOOL_SCOPES.get(name), name).toBe("artifacts:share");
       expect(byName.get(name)?.annotations?.destructiveHint, name).toBe(false);

@@ -35,5 +35,18 @@ export * from "./review-access.ts";
 export * from "./share-links.ts";
 export * from "./traffic.ts";
 export * from "./usage.ts";
-export * from "./versions.ts";
+export * from "./version-diff.ts";
+export {
+  type DownloadPlan,
+  getVersionDownload,
+  getVersionManifest,
+  listVersions,
+  type RollbackInput,
+  type RollbackOutcome,
+  rollbackArtifact,
+  type VersionFileEntry,
+  type VersionInfo,
+  type VersionManifestResult,
+  type VersionPage,
+} from "./versions.ts";
 export * from "./viewer.ts";

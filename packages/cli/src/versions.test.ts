@@ -67,7 +67,10 @@ describe("portifact versions", () => {
     expect(lines[0]).toMatch(
       /^VERSION\s+ID\s+CURRENT\s+FILES\s+SOURCES\s+SIZE\s+COMMITTED\s+RETAINED UNTIL$/,
     );
-    expect(lines).toHaveLength(103);
+    expect(lines).toHaveLength(104);
+    expect(lines.at(-1)).toBe(
+      "The owner's plan keeps 2 previous versions for 7 days after each is replaced.",
+    );
     expect(lines[1]).toMatch(
       /^102\s+ver_\w+\s+yes\s+1\s+0\s+5 B\s+2026-11-08 12:00 UTC\s+current$/,
     );

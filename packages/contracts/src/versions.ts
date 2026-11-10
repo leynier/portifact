@@ -41,6 +41,21 @@ export const VersionList = z.object({
   items: z.array(VersionSummary),
   /** Pass as `cursor` to get older versions; `null` on the last page. */
   nextCursor: z.string().nullable(),
+  /**
+   * What the artifact owner's plan keeps (a workspace's plan for a workspace artifact): at most
+   * `previousVersions` previous versions, each for `days` after it was replaced.
+   */
+  retention: z
+    .object({
+      previousVersions: z.number().int().min(0),
+      days: z.number().int().min(0),
+    })
+    .default({
+      previousVersions: LIMITS.retainedPreviousVersions,
+      days: LIMITS.previousVersionRetentionDays,
+    }),
+  /** Whether the owner's plan includes comparing versions (`versionDiff`). */
+  versionDiff: z.boolean().default(false),
 });
 export type VersionList = z.infer<typeof VersionList>;
 
@@ -216,3 +231,182 @@ export const ReadArtifactInput = z.object({
     ),
 });
 export type ReadArtifactInput = z.infer<typeof ReadArtifactInput>;
+
+/**
+ * Bounds of a version comparison (premium plan P3, feature `versionDiff`). Safety caps, not plan
+ * values: each side of a text diff is at most `fileBytes` (the inline read limit) and `lines`
+ * lines, and the diff stops once more than `changedLines` lines would be added or removed, so
+ * its time and memory stay bounded. Pages hold at most `pageLines` lines of hunks and the file
+ * list at most `filesMax` files.
+ */
+export const VERSION_DIFF = {
+  fileBytes: LIMITS.inlineMcpBytes,
+  lines: 10_000,
+  changedLines: 1_000,
+  contextLines: 3,
+  pageLines: 2_000,
+  filesDefault: 100,
+  filesMax: 500,
+} as const;
+
+/** What happened to a file between two versions, decided by its SHA-256. */
+export const FileChange = z.enum(["added", "removed", "changed", "unchanged"]);
+export type FileChange = z.infer<typeof FileChange>;
+
+/** One side of a compared file; `null` on the side where it does not exist. */
+export const ComparedFile = z.object({
+  sha256: Sha256Hex,
+  size: z.number().int().min(0),
+  contentType: z.string(),
+});
+export type ComparedFile = z.infer<typeof ComparedFile>;
+
+const ComparedVersion = z.object({
+  id: z.string(),
+  number: z.number().int().min(1),
+});
+
+export const VersionComparisonQuery = z.object({
+  cursor: z.string().min(1).max(2_200).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(VERSION_DIFF.filesMax)
+    .default(VERSION_DIFF.filesDefault),
+});
+export type VersionComparisonQuery = z.infer<typeof VersionComparisonQuery>;
+
+/**
+ * The files that differ between two versions of an artifact (`GET .../versions/:from/diff/:to`,
+ * MCP `diff_versions`), from the manifests alone: a path whose content moved is one file removed
+ * and one added. Published files and private sources are compared; a Markdown or text document's
+ * source is its published file, never the rendered page.
+ */
+export const VersionComparison = z.object({
+  artifactId: ArtifactId,
+  from: ComparedVersion,
+  to: ComparedVersion,
+  counts: z.object({
+    added: z.number().int().min(0),
+    removed: z.number().int().min(0),
+    changed: z.number().int().min(0),
+    unchanged: z.number().int().min(0),
+  }),
+  /** Added, removed and changed files, by kind and path; unchanged files are only counted. */
+  files: z.array(
+    z.object({
+      kind: DownloadKind,
+      path: z.string(),
+      change: FileChange.exclude(["unchanged"]),
+      before: ComparedFile.nullable(),
+      after: ComparedFile.nullable(),
+    }),
+  ),
+  /** Pass as `cursor` for the next files; `null` on the last page. */
+  nextCursor: z.string().nullable(),
+});
+export type VersionComparison = z.infer<typeof VersionComparison>;
+
+export const FileDiffQuery = z.object({
+  kind: DownloadKind.default("published"),
+  path: z.string().min(1).max(1_024),
+  cursor: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(VERSION_DIFF.lines * 2)
+    .default(0),
+});
+export type FileDiffQuery = z.infer<typeof FileDiffQuery>;
+
+export const DiffLine = z.object({
+  type: z.enum(["context", "added", "removed"]),
+  text: z.string(),
+  before: z.number().int().min(1).nullable(),
+  after: z.number().int().min(1).nullable(),
+  noNewline: z.boolean(),
+});
+export type DiffLine = z.infer<typeof DiffLine>;
+
+export const DiffHunk = z.object({
+  beforeStart: z.number().int().min(0),
+  beforeLines: z.number().int().min(0),
+  afterStart: z.number().int().min(0),
+  afterLines: z.number().int().min(0),
+  lines: z.array(DiffLine),
+});
+export type DiffHunk = z.infer<typeof DiffHunk>;
+
+/**
+ * The text diff of one file between two versions (`GET .../versions/:from/diff/:to/file`, MCP
+ * `diff_version_file`). `diff.status` is `text` with the hunks, or why there is none: `identical`,
+ * `binary` (not a text type or not valid UTF-8), `too_large` (a side over `fileBytes`),
+ * `too_many_lines` or `too_many_changes`; then only the sizes tell what changed.
+ */
+export const FileDiff = z.object({
+  artifactId: ArtifactId,
+  from: ComparedVersion,
+  to: ComparedVersion,
+  kind: DownloadKind,
+  path: z.string(),
+  change: FileChange,
+  before: ComparedFile.nullable(),
+  after: ComparedFile.nullable(),
+  diff: z.discriminatedUnion("status", [
+    z.object({
+      status: z.literal("text"),
+      added: z.number().int().min(0),
+      removed: z.number().int().min(0),
+      hunks: z.array(DiffHunk),
+      /** Pass as `cursor` for the next hunks; `null` after the last. */
+      nextCursor: z.number().int().min(0).nullable(),
+    }),
+    z.object({
+      status: z.enum(["identical", "binary", "too_large", "too_many_lines", "too_many_changes"]),
+    }),
+  ]),
+});
+export type FileDiff = z.infer<typeof FileDiff>;
+
+const comparedRef = (side: string) =>
+  VersionRef.describe(
+    `The ${side} version: an ID from list_versions, or "${CURRENT_VERSION}" for the version visitors see now.`,
+  );
+
+export const DiffVersionsInput = z.object({
+  artifactId,
+  fromVersionId: comparedRef("earlier"),
+  toVersionId: comparedRef("later").default(CURRENT_VERSION),
+  cursor: z
+    .string()
+    .max(2_200)
+    .optional()
+    .describe("The nextCursor of the previous page. Omit it for the first page."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(VERSION_DIFF.filesMax)
+    .default(VERSION_DIFF.filesDefault)
+    .describe(`How many files to return, 1 to ${VERSION_DIFF.filesMax}.`),
+});
+export type DiffVersionsInput = z.infer<typeof DiffVersionsInput>;
+
+export const DiffVersionFileInput = z.object({
+  artifactId,
+  fromVersionId: comparedRef("earlier"),
+  toVersionId: comparedRef("later").default(CURRENT_VERSION),
+  kind: DownloadKind.default("published").describe(
+    "published for the files the artifact serves, source for its private sources.",
+  ),
+  path: z.string().min(1).max(1_024).describe("The file, as diff_versions names it."),
+  cursor: z
+    .number()
+    .int()
+    .min(0)
+    .max(VERSION_DIFF.lines * 2)
+    .default(0)
+    .describe("0 for the first hunks, then the nextCursor of the previous page."),
+});
+export type DiffVersionFileInput = z.infer<typeof DiffVersionFileInput>;
