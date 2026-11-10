@@ -20,10 +20,11 @@ import {
   type Actor,
   authorize,
   bitsToEvents,
+  checkReenable,
   checkWebhookUrl,
   classifyAttempt,
   dailyCapReached,
-  disablesAfter,
+  disableThreshold,
   type Entitlements,
   entitlements,
   eventsToBits,
@@ -36,14 +37,21 @@ import {
   requireFeature,
   utcDayStart,
 } from "@portifact/domain";
-import { and, desc, eq, gte, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
 import { closeJobs, type JobOutcome } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { deliveryJobs, markWebhookTest, noFreshJob, WEBHOOK_FEATURE } from "./webhook-activity.ts";
-import { newWebhookSecret, open, seal, signWebhook, type webhookKeys } from "./webhook-keys.ts";
+import {
+  newWebhookSecret,
+  open,
+  seal,
+  signWebhook,
+  WebhookKeyUnavailableError,
+  type webhookKeys,
+} from "./webhook-keys.ts";
 
 type Keys = Awaited<ReturnType<typeof webhookKeys>>;
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
@@ -74,6 +82,9 @@ export interface WebhookRecord {
   disabledAt: number | null;
   failures: number;
   createdAt: number;
+  createdVia: string;
+  createdBy: string | null;
+  probation: boolean;
   lastAttempt: WebhookAttemptRecord | null;
 }
 
@@ -99,6 +110,7 @@ function record(
   row: WebhookRow,
   available: boolean,
   last: WebhookAttemptRecord | null,
+  names: ReadonlyMap<string, string> = new Map(),
 ): WebhookRecord {
   return {
     id: row.id,
@@ -110,8 +122,61 @@ function record(
     disabledAt: row.disabledAt,
     failures: row.failures,
     createdAt: row.createdAt,
+    createdVia: row.createdVia,
+    createdBy: row.createdBy === null ? null : (names.get(row.createdBy) ?? null),
+    probation: row.probation,
     lastAttempt: last,
   };
+}
+
+/** Display names of the accounts that created webhooks, from the global users table. */
+async function creatorNames(db: RegionalDb, rows: readonly WebhookRow[]) {
+  const ids = [...new Set(rows.flatMap((row) => (row.createdBy ? [row.createdBy] : [])))];
+  if (ids.length === 0) return new Map<string, string>();
+  const users = await db.global
+    .select({ id: schema.users.id, name: schema.users.name })
+    .from(schema.users)
+    .where(inArray(schema.users.id, ids));
+  return new Map(users.map((user) => [user.id, user.name]));
+}
+
+/** Whether Portifact delivers webhooks at all (`WEBHOOKS_ENABLED`, decision 0009). */
+export interface WebhookService {
+  enabled: boolean;
+}
+
+export const WEBHOOKS_UNAVAILABLE = "Webhooks are not available yet.";
+
+const unavailable = () => fail<never>("capacity_unavailable", WEBHOOKS_UNAVAILABLE);
+
+/**
+ * Counts one action in a fixed window of the `rate_limits` counters (one upsert, so concurrent
+ * requests cannot both take the last slot) and returns the count, this one included. The counter
+ * is keyed by owner, so removing and creating webhooks never resets it.
+ */
+async function countAction(db: RegionalDb, key: string, windowMs: number, now: number) {
+  const [row] = await db.global.all<{ count: number }>(
+    sql`insert into rate_limits (key, window_start, count) values (${key}, ${now}, 1) on conflict (key) do update set count = case when window_start <= ${now} - ${windowMs} then 1 else count + 1 end, window_start = case when window_start <= ${now} - ${windowMs} then ${now} else window_start end returning count`,
+  );
+  return Number(row?.count ?? 0);
+}
+
+const HOUR_MS = 3_600_000;
+
+async function ownerLimit(
+  db: RegionalDb,
+  action: "create" | "test" | "enable",
+  ownerId: string,
+  now: number,
+): Promise<Result<true>> {
+  const [windowMs, max, what] =
+    action === "create"
+      ? [86_400_000, WEBHOOK_LIMITS.createsPerOwnerPerDay, "webhooks can be created a day"]
+      : action === "test"
+        ? [HOUR_MS, WEBHOOK_LIMITS.testsPerOwnerPerHour, "test events can be sent an hour"]
+        : [86_400_000, WEBHOOK_LIMITS.enablesPerOwnerPerDay, "webhooks can be enabled a day"];
+  const count = await countAction(db, `webhook:${action}:${ownerId}`, windowMs, now);
+  return count > max ? fail("rate_limited", `At most ${max} ${what}. Try again later.`) : ok(true);
 }
 
 async function lastAttempts(db: RegionalDb, ids: string[]) {
@@ -144,19 +209,21 @@ async function owned(db: RegionalDb, actor: Actor, webhookId: string) {
 
 async function present(db: RegionalDb, row: WebhookRow, owner: Entitlements) {
   const last = await lastAttempts(db, [row.id]);
-  return record(row, hasFeature(owner, WEBHOOK_FEATURE), last.get(row.id) ?? null);
+  const names = await creatorNames(db, [row]);
+  return record(row, hasFeature(owner, WEBHOOK_FEATURE), last.get(row.id) ?? null, names);
 }
 
 export interface WebhookListing {
   webhooks: WebhookRecord[];
   available: boolean;
+  serviceAvailable: boolean;
   limit: number;
 }
 
 /** The owner's webhooks, oldest first. Never gated: reading what exists is never behind a plan. */
 export async function listWebhooks(
   db: RegionalDb,
-  input: { actor: Actor; now: number },
+  input: { actor: Actor; service: WebhookService; now: number },
 ): Promise<Result<WebhookListing>> {
   const allowed = authorize(input.actor, "webhooks");
   if (!allowed.ok) return allowed;
@@ -171,9 +238,11 @@ export async function listWebhooks(
     db,
     rows.map((row) => row.id),
   );
+  const names = await creatorNames(db, rows);
   return ok({
-    webhooks: rows.map((row) => record(row, available, last.get(row.id) ?? null)),
+    webhooks: rows.map((row) => record(row, available, last.get(row.id) ?? null, names)),
     available,
+    serviceAvailable: input.service.enabled,
     limit: WEBHOOK_LIMITS.perOwner,
   });
 }
@@ -181,27 +250,39 @@ export async function listWebhooks(
 /** Creates a webhook; the secret (generic only) is returned here and never again. */
 export async function createWebhook(
   db: RegionalDb,
-  input: { actor: Actor; webhook: WebhookCreate; keys: Keys; now: number },
+  input: {
+    actor: Actor;
+    webhook: WebhookCreate;
+    keys: Keys;
+    service: WebhookService;
+    /** `dashboard`, or the OAuth client making the request. */
+    via: string;
+    now: number;
+  },
 ): Promise<Result<{ webhook: WebhookRecord; secret: string | null }>> {
   const allowed = authorize(input.actor, "webhooks");
   if (!allowed.ok) return allowed;
+  if (!input.service.enabled) return unavailable();
   const ownerId = input.actor.ownerId;
   const owner = requireFeature(await ownerEntitlements(db, ownerId, input.now), WEBHOOK_FEATURE);
   if (!owner.ok) return owner;
   const checked = checkWebhookUrl(input.webhook.url, input.webhook.format);
   if (!checked.ok) return checked;
   const [key] = input.keys;
-  if (!key) return fail("capacity_unavailable", "Webhooks are not available right now.");
+  if (!key) return unavailable();
+  const limited = await ownerLimit(db, "create", ownerId, input.now);
+  if (!limited.ok) return limited;
   const id = hexId("wh_");
   const secret = input.webhook.format === "generic" ? newWebhookSecret() : null;
   const urlBox = await seal(key, id, "url", checked.value.url);
   const secretBox = secret === null ? null : await seal(key, id, "secret", secret);
   // Columns in schema order: id, owner, host, format, events, key, url, secret, created,
-  // disabled, reason, failures. The count keeps concurrent creates under the cap.
+  // disabled, reason, failures, probation, re-enables, re-enable day, created by, created via.
+  // The count keeps concurrent creates under the cap.
   const inserted = await db
     .insert(w)
     .select(
-      sql`select ${id}, ${ownerId}, ${checked.value.host}, ${input.webhook.format}, ${eventsToBits(input.webhook.events)}, ${key.id}, ${urlBox}, ${secretBox}, ${input.now}, null, null, 0 where (select count(*) from ${w} where ${w.ownerId} = ${ownerId}) < ${WEBHOOK_LIMITS.perOwner}`,
+      sql`select ${id}, ${ownerId}, ${checked.value.host}, ${input.webhook.format}, ${eventsToBits(input.webhook.events)}, ${key.id}, ${urlBox}, ${secretBox}, ${input.now}, null, null, 0, 0, 0, null, ${input.actor.userId}, ${input.via} where (select count(*) from ${w} where ${w.ownerId} = ${ownerId}) < ${WEBHOOK_LIMITS.perOwner}`,
     )
     .returning();
   const [row] = inserted;
@@ -211,7 +292,8 @@ export async function createWebhook(
       `An owner can have at most ${WEBHOOK_LIMITS.perOwner} webhooks. Remove one to add another.`,
     );
   }
-  return ok({ webhook: record(row, true, null), secret });
+  const names = await creatorNames(db, [row]);
+  return ok({ webhook: record(row, true, null, names), secret });
 }
 
 /**
@@ -220,7 +302,13 @@ export async function createWebhook(
  */
 export async function updateWebhook(
   db: RegionalDb,
-  input: { actor: Actor; webhookId: string; update: WebhookUpdate; now: number },
+  input: {
+    actor: Actor;
+    webhookId: string;
+    update: WebhookUpdate;
+    service: WebhookService;
+    now: number;
+  },
 ): Promise<Result<WebhookRecord>> {
   const allowed = authorize(input.actor, "webhooks");
   if (!allowed.ok) return allowed;
@@ -229,22 +317,49 @@ export async function updateWebhook(
   const enabled = input.update.enabled ?? row.disabledAt === null;
   const owner = await ownerEntitlements(db, input.actor.ownerId, input.now);
   if (enabled) {
+    if (!input.service.enabled) return unavailable();
     const gate = requireFeature(owner, WEBHOOK_FEATURE);
     if (!gate.ok) return gate;
   }
   const change: Partial<typeof w.$inferInsert> = {};
   if (input.update.events) change.events = eventsToBits(input.update.events);
-  if (input.update.enabled === true && row.disabledAt !== null) {
-    Object.assign(change, { disabledAt: null, disabledReason: null, failures: 0 });
+  const reenabling = input.update.enabled === true && row.disabledAt !== null;
+  if (reenabling) {
+    const day = utcDayStart(input.now);
+    const allowedAgain = checkReenable({
+      disabledReason: row.disabledReason,
+      disabledAt: row.disabledAt,
+      reenablesToday: row.reenableDay === day ? row.reenables : 0,
+      now: input.now,
+    });
+    if (!allowedAgain.ok) return allowedAgain;
+    const limited = await ownerLimit(db, "enable", input.actor.ownerId, input.now);
+    if (!limited.ok) return limited;
+    // On probation until its next success: a few failures disable it again.
+    Object.assign(change, {
+      disabledAt: null,
+      disabledReason: null,
+      failures: 0,
+      probation: true,
+      reenables: row.reenableDay === day ? row.reenables + 1 : 1,
+      reenableDay: day,
+    });
   }
   if (input.update.enabled === false && row.disabledAt === null) {
     Object.assign(change, { disabledAt: input.now, disabledReason: "manual" });
   }
   if (Object.keys(change).length === 0) return ok(await present(db, row, owner));
+  // Conditioned on the state read, so two enables at once count once.
   const [updated] = await db
     .update(w)
     .set(change)
-    .where(and(eq(w.id, row.id), eq(w.ownerId, input.actor.ownerId)))
+    .where(
+      and(
+        eq(w.id, row.id),
+        eq(w.ownerId, input.actor.ownerId),
+        reenabling ? sql`${w.disabledAt} is not null` : undefined,
+      ),
+    )
     .returning();
   if (!updated) return missing();
   return ok(await present(db, updated, owner));
@@ -279,12 +394,13 @@ export async function removeWebhook(
 /** Queues a test event for an enabled webhook; it goes with the next delivery, without waiting. */
 export async function sendTestEvent(
   db: RegionalDb,
-  input: { actor: Actor; webhookId: string; now: number },
+  input: { actor: Actor; webhookId: string; service: WebhookService; now: number },
 ): Promise<Result<{ webhookId: string }>> {
   const allowed = authorize(input.actor, "webhooks");
   if (!allowed.ok) return allowed;
   const row = await owned(db, input.actor, input.webhookId);
   if (!row) return missing();
+  if (!input.service.enabled) return unavailable();
   const gate = requireFeature(
     await ownerEntitlements(db, input.actor.ownerId, input.now),
     WEBHOOK_FEATURE,
@@ -293,6 +409,8 @@ export async function sendTestEvent(
   if (row.disabledAt !== null) {
     return fail("invalid_input", "This webhook is disabled. Enable it before sending a test.");
   }
+  const limited = await ownerLimit(db, "test", input.actor.ownerId, input.now);
+  if (!limited.ok) return limited;
   const [first, ...rest] = markWebhookTest(db, {
     webhookId: row.id,
     ownerId: input.actor.ownerId,
@@ -334,6 +452,7 @@ export async function exportWebhooks(db: RegionalDb, ownerId: string) {
     disabled: row.disabledAt !== null,
     disabledReason: row.disabledReason,
     createdAt: new Date(row.createdAt).toISOString(),
+    createdVia: row.createdVia,
   }));
 }
 
@@ -345,6 +464,8 @@ export interface WebhookDeps {
   fetch: (url: string, init: RequestInit) => Promise<Response>;
   appOrigin: string;
   contentDomain: string;
+  /** `WEBHOOKS_ENABLED`: without it nothing is delivered (decision 0009, "Switched off"). */
+  enabled: boolean;
   /** The emergency stop (`WEBHOOKS_PAUSED` on the jobs Worker). */
   paused?: boolean | undefined;
   /** Defaults to `WEBHOOK_LIMITS.timeoutMs`. */
@@ -388,12 +509,18 @@ export async function deliverWebhook(
     .where(eq(w.id, webhookId))
     .limit(1);
   if (!hook) return "done";
+  // A duplicate message before the job's time (a retry not due yet) does nothing.
+  if (row.availableAt > now) return "kept";
   const webhook = hook.webhook;
   const parsed = WebhookJobPayload.safeParse(row.payload);
   const job: Delivery | null =
     parsed.success && "delivery" in parsed.data ? (parsed.data as Delivery) : null;
-  // A stopped webhook, or a plan without the feature, sends nothing and keeps nothing pending.
-  if (webhook.disabledAt !== null || !hasFeature(entitlements(hook.plan, now), WEBHOOK_FEATURE)) {
+  // Switched off, a stopped webhook or a plan without the feature: nothing is sent or kept.
+  if (
+    !deps.enabled ||
+    webhook.disabledAt !== null ||
+    !hasFeature(entitlements(hook.plan, now), WEBHOOK_FEATURE)
+  ) {
     if (!job) await db.delete(we).where(eq(we.webhookId, webhook.id));
     return "stale";
   }
@@ -402,27 +529,38 @@ export async function deliverWebhook(
     await reschedule(db, row, now + WEBHOOK_LIMITS.pausedRetryMs);
     return "kept";
   }
+  const claimed = job
+    ? await claimAttempt(db, row, job, now)
+    : await claimEvents(db, row, webhook, now, deps);
+  if (claimed === "done" || claimed === "kept") return claimed;
+  // The daily cap: one atomic count per owner and UTC day, taken before the send and kept when a
+  // webhook is removed, so concurrent consumers and recreated webhooks cannot pass it.
   const day = utcDayStart(now);
-  const [today] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(wd)
-    .where(and(eq(wd.ownerId, webhook.ownerId), gte(wd.at, day), ne(wd.outcome, "skipped")));
-  if (dailyCapReached(Number(today?.count ?? 0))) {
+  const attempts = await countAction(
+    db,
+    `webhook:attempts:${webhook.ownerId}:${day}`,
+    2 * DAY_MS,
+    now,
+  );
+  if (dailyCapReached(attempts - 1)) {
     const noted = sql`exists (select 1 from ${wd} where ${wd.webhookId} = ${webhook.id} and ${wd.at} >= ${day} and ${wd.error} = 'daily_cap')`;
     await db.batch([
       db
         .insert(wd)
         .select(
-          sql`select null, ${webhook.id}, ${webhook.ownerId}, ${job?.delivery.id ?? ""}, ${job?.attempt ?? 0}, ${now}, 'skipped', null, 'daily_cap' where not ${noted}`,
+          sql`select null, ${webhook.id}, ${webhook.ownerId}, ${claimed.delivery.id}, ${claimed.attempt}, ${now}, 'skipped', null, 'daily_cap' where not ${noted}`,
         ),
-      reschedule(db, row, day + DAY_MS),
+      db
+        .update(o)
+        .set({
+          payload: { ...claimed, startedAt: null },
+          availableAt: day + DAY_MS,
+          dispatchedAt: null,
+        })
+        .where(eq(o.id, row.id)),
     ]);
     return "kept";
   }
-  const claimed = job
-    ? await claimAttempt(db, row, job, now)
-    : await claimEvents(db, row, webhook, now, deps);
-  if (claimed === "done" || claimed === "kept") return claimed;
   return attempt(db, row, webhook, claimed, now, deps);
 }
 
@@ -440,6 +578,8 @@ async function claimAttempt(
       and(
         eq(o.id, row.id),
         sql`json_extract(${o.payload}, '$.attempt') = ${job.attempt}`,
+        // Only once the attempt is due: a retry waits for its backoff whatever delivers it.
+        lte(o.availableAt, now),
         sql`coalesce(json_extract(${o.payload}, '$.startedAt'), 0) < ${now - WEBHOOK_LIMITS.attemptStaleMs}`,
       ),
     )
@@ -486,7 +626,7 @@ async function claimEvents(
     db
       .update(o)
       .set({ payload: events.length > 0 ? job : { discarded: deliveryId } })
-      .where(and(eq(o.id, row.id), sql`${o.payload} = '{}'`))
+      .where(and(eq(o.id, row.id), sql`${o.payload} = '{}'`, lte(o.availableAt, now)))
       .returning({ id: o.id }),
     ...pending.map((event) =>
       db
@@ -629,25 +769,37 @@ async function attempt(
       status,
       error,
     });
-  const url = await open(deps.keys, webhook.keyId, webhook.id, "url", webhook.urlBox);
-  const checked = checkWebhookUrl(url, webhook.format);
-  if (!checked.ok) {
+  const stop = async (reason: "invalid_url" | "key_unavailable") => {
     await db.batch([
-      log("failed", null, "invalid_url"),
+      log("failed", null, reason),
       db
         .update(w)
-        .set({ disabledAt: now, disabledReason: "invalid_url" })
+        .set({ disabledAt: now, disabledReason: reason })
         .where(and(eq(w.id, webhook.id), sql`${w.disabledAt} is null`)),
     ]);
-    return "done";
+    return "done" as const;
+  };
+  let url: string;
+  let secret: string | null = null;
+  try {
+    url = await open(deps.keys, webhook.keyId, webhook.id, "url", webhook.urlBox);
+    if (webhook.format === "generic" && webhook.secretBox !== null) {
+      secret = await open(deps.keys, webhook.keyId, webhook.id, "secret", webhook.secretBox);
+    }
+  } catch (error) {
+    // Sealed with a key this Worker no longer holds (a restore after a rotation): it can never
+    // send, so it stops with a reason the owner sees instead of failing forever.
+    if (error instanceof WebhookKeyUnavailableError) return stop("key_unavailable");
+    throw error;
   }
+  const checked = checkWebhookUrl(url, webhook.format);
+  if (!checked.ok) return stop("invalid_url");
   const body = renderDelivery(webhook.format, job.delivery);
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "user-agent": "Portifact-Webhooks/1 (+https://portifact.com)",
   };
-  if (webhook.format === "generic" && webhook.secretBox !== null) {
-    const secret = await open(deps.keys, webhook.keyId, webhook.id, "secret", webhook.secretBox);
+  if (secret !== null) {
     const timestamp = Math.floor(now / 1000);
     headers["webhook-id"] = job.delivery.id;
     headers["webhook-timestamp"] = String(timestamp);
@@ -672,38 +824,37 @@ async function attempt(
   if (verdict.outcome === "delivered") {
     await db.batch([
       log("delivered", verdict.status, null),
-      db.update(w).set({ failures: 0 }).where(eq(w.id, webhook.id)),
+      db.update(w).set({ failures: 0, probation: false }).where(eq(w.id, webhook.id)),
       db.delete(o).where(eq(o.id, row.id)),
     ]);
     return "done";
   }
-  const failures = webhook.failures + 1;
-  const disable: WebhookDisabledReason | null = verdict.gone
-    ? "gone"
-    : disablesAfter(failures)
-      ? "failures"
-      : null;
-  const next = verdict.retryable && disable === null ? nextAttemptAt(job.attempt, now) : null;
-  await db.batch([
-    log("failed", verdict.status, verdict.error),
+  // Disabled or not is decided by the failure's own update, from the count it writes, so
+  // concurrent failures cannot step past the threshold.
+  const [counted] = (await db.batch([
     db
       .update(w)
       .set({
         failures: sql`${w.failures} + 1`,
-        ...(disable === null ? {} : { disabledAt: now, disabledReason: disable }),
+        disabledAt: sql`case when ${w.disabledAt} is not null then ${w.disabledAt} when ${verdict.gone} or ${w.failures} + 1 >= (case when ${w.probation} then ${disableThreshold(true)} else ${disableThreshold(false)} end) then ${now} else null end`,
+        disabledReason: sql`case when ${w.disabledAt} is not null then ${w.disabledReason} when ${verdict.gone} then 'gone' when ${w.failures} + 1 >= (case when ${w.probation} then ${disableThreshold(true)} else ${disableThreshold(false)} end) then 'failures' else null end`,
       })
-      .where(and(eq(w.id, webhook.id), sql`${w.disabledAt} is null`)),
-    next === null
-      ? db.delete(o).where(eq(o.id, row.id))
-      : db
-          .update(o)
-          .set({
-            payload: { ...job, attempt: job.attempt + 1, startedAt: null },
-            availableAt: next,
-            dispatchedAt: null,
-          })
-          .where(eq(o.id, row.id)),
-  ]);
+      .where(eq(w.id, webhook.id))
+      .returning({ disabledAt: w.disabledAt }),
+    log("failed", verdict.status, verdict.error),
+  ])) as unknown as [{ disabledAt: number | null }[]];
+  const stopped = counted[0]?.disabledAt != null;
+  const next = verdict.retryable && !stopped ? nextAttemptAt(job.attempt, now) : null;
+  await (next === null
+    ? db.delete(o).where(eq(o.id, row.id))
+    : db
+        .update(o)
+        .set({
+          payload: { ...job, attempt: job.attempt + 1, startedAt: null },
+          availableAt: next,
+          dispatchedAt: null,
+        })
+        .where(eq(o.id, row.id)));
   return next === null ? "done" : "kept";
 }
 
@@ -740,6 +891,25 @@ export async function maintainWebhooks(
     now,
   ).returning({ id: o.id });
   return { prunedDeliveries: pruned.length, requeued: requeued.length };
+}
+
+/**
+ * While deliveries are switched off (`WEBHOOKS_ENABLED` unset), stops every enabled webhook with
+ * the reason `unavailable`, up to `limit` a run, so writes record no events for them. Admins
+ * enable them again once the service is on. Returns how many it stopped.
+ */
+export async function stopWebhooksWhileOff(db: RegionalDb, now: number, limit = 500) {
+  const stopped = await db
+    .update(w)
+    .set({ disabledAt: now, disabledReason: "unavailable" })
+    .where(
+      inArray(
+        w.id,
+        db.select({ id: w.id }).from(w).where(sql`${w.disabledAt} is null`).limit(limit),
+      ),
+    )
+    .returning({ id: w.id });
+  return stopped.length;
 }
 
 /**

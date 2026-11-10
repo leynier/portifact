@@ -43,6 +43,11 @@ CREATE TABLE `webhooks` (
 	`disabled_at` integer,
 	`disabled_reason` text,
 	`failures` integer DEFAULT 0 NOT NULL,
+	`probation` integer DEFAULT false NOT NULL,
+	`reenables` integer DEFAULT 0 NOT NULL,
+	`reenable_day` integer,
+	`created_by` text,
+	`created_via` text NOT NULL,
 	CONSTRAINT "webhooks_events" CHECK("webhooks"."events" between 1 and 31),
 	CONSTRAINT "webhooks_failures" CHECK("webhooks"."failures" >= 0)
 );

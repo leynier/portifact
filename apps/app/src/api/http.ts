@@ -13,6 +13,11 @@ import { defaultDb } from "../regions.ts";
 
 export type ApiContext = Context<{ Bindings: Env }>;
 
+/** Runs a handler for the dashboard session or a `credentials:manage` CLI token. */
+export type AccountGuarded = (
+  handler: (c: ApiContext, caller: { userId: string; via: string }) => Promise<Response>,
+) => (c: ApiContext) => Promise<Response>;
+
 /** Runs a handler for the calling user once the token or session allows `scope`. */
 export type Guarded = (
   scope: OAuthScope,

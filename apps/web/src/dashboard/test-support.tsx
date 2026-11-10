@@ -350,7 +350,13 @@ export interface FakeServer {
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** The account's webhooks and whether its plan includes them, as /api/v1/webhooks keeps them. */
-  webhooks: { list: WebhookView[]; available: boolean; attempts: Record<string, WebhookAttempt[]> };
+  webhooks: {
+    list: WebhookView[];
+    available: boolean;
+    attempts: Record<string, WebhookAttempt[]>;
+    /** Whether the deployment offers webhooks (`WEBHOOKS_ENABLED`). */
+    offered?: boolean;
+  };
   /** Webhooks a test event was queued for. */
   webhookTests: string[];
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
@@ -953,7 +959,12 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
         { status: 403 },
       );
     if (path === "/api/v1/webhooks" && method === "GET") {
-      return Response.json({ webhooks: hooks.list, available: hooks.available, limit: 10 });
+      return Response.json({
+        webhooks: hooks.list,
+        available: hooks.available,
+        serviceAvailable: hooks.offered ?? true,
+        limit: 10,
+      });
     }
     if (path === "/api/v1/webhooks" && method === "POST") {
       if (!hooks.available) return refused();
@@ -983,6 +994,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
         disabledAt: null,
         failures: 0,
         createdAt: "2026-11-10T09:00:00.000Z",
+        createdVia: "dashboard",
+        createdBy: "Ada",
+        probation: false,
         lastAttempt: null,
       };
       hooks.list = [...hooks.list, webhook];

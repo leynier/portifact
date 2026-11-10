@@ -1,6 +1,6 @@
 // Shapes of webhooks (premium plan P6, decision 0009): the owner's HTTPS destinations for events
-// about their artifacts, managed through /api/v1/webhooks, the MCP webhook tools, `portifact
-// webhooks` and the dashboard's Webhooks page, and the jobs that deliver them.
+// about their artifacts, managed through /api/v1/webhooks by the dashboard and `portifact
+// webhooks` (MCP only reads them), and the jobs that deliver them.
 import { z } from "zod";
 import { AccessMode, ArtifactId } from "./core.ts";
 
@@ -13,13 +13,26 @@ export const WEBHOOK_LIMITS = {
   coalesceMs: 60_000,
   /** Pending rows one delivery carries at most; the rest go in the next. */
   eventsPerDelivery: 50,
-  timeoutMs: 10_000,
+  /** Short, so a slow receiver holds its own job only (decision 0009, "Delivering"). */
+  timeoutMs: 5_000,
   /** Bytes of a response read before it is cancelled; nothing of it is kept. */
   responseReadBytes: 4_096,
   /** Delays before the 2nd to 6th attempts of a delivery. */
   retryDelaysMs: [60_000, 300_000, 1_800_000, 7_200_000, 21_600_000],
   /** Failed attempts in a row that disable a webhook. */
   disableAfterFailures: 15,
+  /** Failed attempts in a row that disable a webhook enabled again, until it has one success. */
+  probationFailures: 3,
+  /** How long after an automatic disable (failures, gone) a webhook cannot be enabled again. */
+  reenableCooldownMs: 60 * 60_000,
+  /** Times one webhook can be enabled again per UTC day. */
+  reenablesPerDay: 3,
+  /** Webhooks an owner can create per day. */
+  createsPerOwnerPerDay: 20,
+  /** Test events an owner can send per hour. */
+  testsPerOwnerPerHour: 20,
+  /** Times an owner can enable webhooks per day, across all of them. */
+  enablesPerOwnerPerDay: 20,
   /** Delivery attempts per owner and UTC day. */
   attemptsPerOwnerPerDay: 1_000,
   /** How long a deferred delivery waits while deliveries are paused. */
@@ -51,7 +64,18 @@ export type WebhookFormat = z.infer<typeof WebhookFormat>;
 export const WebhookState = z.enum(["active", "disabled", "paused"]);
 export type WebhookState = z.infer<typeof WebhookState>;
 
-export const WebhookDisabledReason = z.enum(["manual", "failures", "gone", "invalid_url"]);
+/**
+ * `key_unavailable`: the URL or secret was sealed with a key the Worker no longer holds (a restore
+ * after a rotation); `unavailable`: deliveries were turned off for the whole platform.
+ */
+export const WebhookDisabledReason = z.enum([
+  "manual",
+  "failures",
+  "gone",
+  "invalid_url",
+  "key_unavailable",
+  "unavailable",
+]);
 export type WebhookDisabledReason = z.infer<typeof WebhookDisabledReason>;
 
 export const WebhookId = z.string().regex(/^wh_[0-9a-f]{32}$/, "Invalid webhook id");
@@ -97,7 +121,10 @@ export const WebhookAttempt = z.object({
   outcome: z.enum(["delivered", "failed", "skipped"]),
   /** The receiver's HTTP status, when it answered. */
   status: z.number().int().nullable(),
-  /** Why it failed or was skipped without a status: timeout, network, redirect, invalid_url or daily_cap. */
+  /**
+   * Why it failed or was skipped without a status: timeout, network, redirect, invalid_url,
+   * key_unavailable or daily_cap.
+   */
   error: z.string().nullable(),
 });
 export type WebhookAttempt = z.infer<typeof WebhookAttempt>;
@@ -115,6 +142,12 @@ export const WebhookView = z.object({
   /** Failed attempts in a row. */
   failures: z.number().int().nonnegative(),
   createdAt: z.iso.datetime(),
+  /** Where it was created: `dashboard` or the OAuth client (the Portifact CLI). */
+  createdVia: z.string(),
+  /** Display name of who created it, while that account exists. */
+  createdBy: z.string().nullable(),
+  /** Enabled again after failures, it is disabled after a few more until it has a success. */
+  probation: z.boolean(),
   lastAttempt: WebhookAttempt.nullable(),
 });
 export type WebhookView = z.infer<typeof WebhookView>;
@@ -123,6 +156,8 @@ export const WebhookList = z.object({
   webhooks: z.array(WebhookView),
   /** Whether the owner's plan includes webhooks. */
   available: z.boolean(),
+  /** Whether Portifact delivers webhooks at all yet (decision 0009, "Switched off"). */
+  serviceAvailable: z.boolean(),
   limit: z.number().int().positive(),
 });
 export type WebhookList = z.infer<typeof WebhookList>;
@@ -154,18 +189,12 @@ export const WebhookRemoved = z.object({
 });
 export type WebhookRemoved = z.infer<typeof WebhookRemoved>;
 
-/** Inputs of the MCP webhook tools; the owner comes from the token. */
+/** Inputs of the MCP webhook tools, which only read; the owner comes from the token. */
 export const ListWebhooksInput = z.object({});
 export const WebhookRef = z.object({
   webhookId: WebhookId.describe("The webhook ID, as list_webhooks returns it."),
 });
 export type WebhookRef = z.infer<typeof WebhookRef>;
-export const UpdateWebhookInput = z.object({
-  webhookId: WebhookId.describe("The webhook ID, as list_webhooks returns it."),
-  enabled: z.boolean().optional().describe("true to enable it again, false to stop it."),
-  events: events.optional().describe("The event types to send from now on."),
-});
-export type UpdateWebhookInput = z.infer<typeof UpdateWebhookInput>;
 
 /** The artifact an event is about, in the generic body. */
 export const WebhookArtifactRef = z.strictObject({

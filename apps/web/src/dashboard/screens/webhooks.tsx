@@ -69,12 +69,21 @@ export function WebhooksScreen() {
   });
   const [created, setCreated] = useState<WebhookCreated | null>(null);
   const available = list.data?.available ?? true;
+  const offered = list.data?.serviceAvailable ?? true;
   const full = (list.data?.webhooks.length ?? 0) >= (list.data?.limit ?? Number.POSITIVE_INFINITY);
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title={t("webhooks.title")} description={t("webhooks.description")} />
-      {list.data && !available ? (
+      {list.data && !offered ? (
+        <Callout
+          tone="info"
+          title={t("webhooks.notOfferedTitle")}
+          icon={<Info className="size-5" />}
+        >
+          {t("webhooks.notOffered")}
+        </Callout>
+      ) : list.data && !available ? (
         <Callout tone="info" title={t("webhooks.planTitle")} icon={<Info className="size-5" />}>
           {t("webhooks.planRequired", { plan: PLAN_LABELS[lowestPlanWith("webhooks")] })}
         </Callout>
@@ -99,7 +108,11 @@ export function WebhooksScreen() {
                 ) : (
                   <ul className="flex flex-col gap-4">
                     {data.webhooks.map((webhook) => (
-                      <WebhookCard key={webhook.id} webhook={webhook} available={data.available} />
+                      <WebhookCard
+                        key={webhook.id}
+                        webhook={webhook}
+                        available={data.available && data.serviceAvailable}
+                      />
                     ))}
                   </ul>
                 )
@@ -108,7 +121,7 @@ export function WebhooksScreen() {
           </Section>
         </div>
         <AddWebhook
-          disabled={!list.data || !available || full}
+          disabled={!list.data || !available || !offered || full}
           full={full}
           limit={list.data?.limit ?? 0}
           onCreated={setCreated}
@@ -368,7 +381,20 @@ function WebhookCard({ webhook, available }: { webhook: WebhookView; available: 
       </div>
       <ul className="flex flex-col gap-1 text-sm text-text-muted">
         <li>{webhook.events.map((type) => t(`webhooks.event.${type}`)).join(", ")}</li>
+        <li>
+          {t(
+            webhook.createdVia === "dashboard"
+              ? "webhooks.via.dashboard"
+              : webhook.createdVia === "portifact-cli"
+                ? "webhooks.via.cli"
+                : "webhooks.via.other",
+          )}
+          {webhook.createdBy ? ` ${t("webhooks.via.by", { name: webhook.createdBy })}` : ""}
+        </li>
         {webhook.disabledReason ? <li>{t(`webhooks.reason.${webhook.disabledReason}`)}</li> : null}
+        {webhook.probation && webhook.state === "active" ? (
+          <li>{t("webhooks.probation")}</li>
+        ) : null}
         {webhook.failures > 0 ? (
           <li>{t("webhooks.failures", { count: webhook.failures })}</li>
         ) : null}

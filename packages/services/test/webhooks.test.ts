@@ -39,6 +39,7 @@ import {
   removeWebhook,
   rewrapWebhookKeys,
   sendTestEvent,
+  stopWebhooksWhileOff,
   updateWebhook,
   type WebhookDeps,
 } from "../src/webhooks.ts";
@@ -60,6 +61,8 @@ const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 const AFTER = NOW + WEBHOOK_LIMITS.coalesceMs;
 
 const keys = () => webhookKeys({ current: KEY_TEXT });
+/** Deliveries switched on, as the tests of the delivery itself need. */
+const ON = { enabled: true };
 
 function artifactId(): string {
   let id = "";
@@ -172,6 +175,8 @@ async function addHook(
 ) {
   return value(
     await createWebhook(db(), {
+      service: ON,
+      via: "dashboard",
       actor,
       webhook: {
         url: options.url ?? "https://hooks.example.com/in?token=abc",
@@ -216,6 +221,7 @@ async function deps(fetch: WebhookDeps["fetch"], extra: Partial<WebhookDeps> = {
     fetch,
     appOrigin: "https://app.portifact.test",
     contentDomain: "portifact.test",
+    enabled: true,
     ...extra,
   } satisfies WebhookDeps;
 }
@@ -252,6 +258,13 @@ async function log(webhookId: string) {
     .from(schema.webhookDeliveries)
     .where(eq(schema.webhookDeliveries.webhookId, webhookId))
     .orderBy(schema.webhookDeliveries.id);
+}
+
+/** Sets a `rate_limits` counter as if `count` actions were already counted in the window. */
+async function seedCounter(key: string, count: number, windowStart: number) {
+  await db().run(
+    sql`insert into rate_limits (key, window_start, count) values (${key}, ${windowStart}, ${count}) on conflict (key) do update set count = ${count}, window_start = ${windowStart}`,
+  );
 }
 
 async function hookRow(webhookId: string) {
@@ -294,6 +307,8 @@ describe("managing webhooks", () => {
   it("is refused on free with plan_required and allowed on pro", async () => {
     const owner = await person();
     const refused = await createWebhook(db(), {
+      service: ON,
+      via: "dashboard",
       actor: personalActor(owner.id),
       webhook: generic(),
       keys: await keys(),
@@ -317,6 +332,9 @@ describe("managing webhooks", () => {
       disabledAt: null,
       failures: 0,
       createdAt: NOW,
+      createdVia: "dashboard",
+      createdBy: owner.name,
+      probation: false,
       lastAttempt: null,
     });
   });
@@ -357,19 +375,29 @@ describe("managing webhooks", () => {
   it("refuses an invalid URL and keeps nothing", async () => {
     const owner = await proOwner();
     const result = await createWebhook(db(), {
+      service: ON,
+      via: "dashboard",
       actor: personalActor(owner.id),
       webhook: generic("https://169.254.169.254/latest"),
       keys: await keys(),
       now: NOW,
     });
     expect(result).toMatchObject({ ok: false, code: "invalid_input" });
-    const list = value(await listWebhooks(db(), { actor: personalActor(owner.id), now: NOW }));
+    const list = value(
+      await listWebhooks(db(), {
+        service: ON,
+        actor: personalActor(owner.id),
+        now: NOW,
+      }),
+    );
     expect(list.webhooks).toEqual([]);
   });
 
   it("answers capacity_unavailable without a usable sealing key", async () => {
     const owner = await proOwner();
     const result = await createWebhook(db(), {
+      service: ON,
+      via: "dashboard",
       actor: personalActor(owner.id),
       webhook: generic(),
       keys: await webhookKeys({ current: "too short" }),
@@ -378,7 +406,7 @@ describe("managing webhooks", () => {
     expect(result).toEqual({
       ok: false,
       code: "capacity_unavailable",
-      message: "Webhooks are not available right now.",
+      message: "Webhooks are not available yet.",
     });
     expect(await webhookKeys({ current: undefined, previous: KEY_TEXT })).toEqual([]);
     expect(await webhookKeys({ current: KEY_TEXT, previous: "short" })).toHaveLength(1);
@@ -388,13 +416,21 @@ describe("managing webhooks", () => {
     const owner = await proOwner();
     for (let i = 0; i < WEBHOOK_LIMITS.perOwner; i += 1) await addHook(personalActor(owner.id));
     const result = await createWebhook(db(), {
+      service: ON,
+      via: "dashboard",
       actor: personalActor(owner.id),
       webhook: generic(),
       keys: await keys(),
       now: NOW,
     });
     expect(result).toMatchObject({ ok: false, code: "quota_exceeded" });
-    const list = value(await listWebhooks(db(), { actor: personalActor(owner.id), now: NOW }));
+    const list = value(
+      await listWebhooks(db(), {
+        service: ON,
+        actor: personalActor(owner.id),
+        now: NOW,
+      }),
+    );
     expect(list.webhooks).toHaveLength(10);
     expect(list.limit).toBe(10);
     expect(list.available).toBe(true);
@@ -419,15 +455,41 @@ describe("managing webhooks", () => {
     for (const userId of [editor.id, member.id]) {
       const actor = await actorIn(userId, ws);
       const webhookId = webhook.id;
-      expect(await listWebhooks(db(), { actor, now: NOW })).toEqual(forbidden);
       expect(
-        await createWebhook(db(), { actor, webhook: generic(), keys: await keys(), now: NOW }),
+        await listWebhooks(db(), {
+          service: ON,
+          actor,
+          now: NOW,
+        }),
+      ).toEqual(forbidden);
+      expect(
+        await createWebhook(db(), {
+          service: ON,
+          via: "dashboard",
+          actor,
+          webhook: generic(),
+          keys: await keys(),
+          now: NOW,
+        }),
       ).toEqual(forbidden);
       expect(await removeWebhook(db(), { actor, webhookId, now: NOW })).toEqual(forbidden);
-      expect(await sendTestEvent(db(), { actor, webhookId, now: NOW })).toEqual(forbidden);
+      expect(
+        await sendTestEvent(db(), {
+          service: ON,
+          actor,
+          webhookId,
+          now: NOW,
+        }),
+      ).toEqual(forbidden);
       expect(await listWebhookDeliveries(db(), { actor, webhookId, now: NOW })).toEqual(forbidden);
       expect(
-        await updateWebhook(db(), { actor, webhookId, update: { enabled: false }, now: NOW }),
+        await updateWebhook(db(), {
+          service: ON,
+          actor,
+          webhookId,
+          update: { enabled: false },
+          now: NOW,
+        }),
       ).toEqual(forbidden);
     }
     expect(await hookRow(webhook.id)).toMatchObject({ disabledAt: null });
@@ -441,13 +503,34 @@ describe("managing webhooks", () => {
     const actor = personalActor(stranger.id);
     for (const webhookId of [webhook.id, `wh_${"0".repeat(32)}`]) {
       expect(await removeWebhook(db(), { actor, webhookId, now: NOW })).toEqual(missing);
-      expect(await sendTestEvent(db(), { actor, webhookId, now: NOW })).toEqual(missing);
+      expect(
+        await sendTestEvent(db(), {
+          service: ON,
+          actor,
+          webhookId,
+          now: NOW,
+        }),
+      ).toEqual(missing);
       expect(await listWebhookDeliveries(db(), { actor, webhookId, now: NOW })).toEqual(missing);
       expect(
-        await updateWebhook(db(), { actor, webhookId, update: { enabled: false }, now: NOW }),
+        await updateWebhook(db(), {
+          service: ON,
+          actor,
+          webhookId,
+          update: { enabled: false },
+          now: NOW,
+        }),
       ).toEqual(missing);
     }
-    expect(value(await listWebhooks(db(), { actor, now: NOW })).webhooks).toEqual([]);
+    expect(
+      value(
+        await listWebhooks(db(), {
+          service: ON,
+          actor,
+          now: NOW,
+        }),
+      ).webhooks,
+    ).toEqual([]);
     expect(await hookRow(webhook.id)).toMatchObject({ disabledAt: null });
     expect(await exportTombstones(db())).not.toContainEqual(
       expect.objectContaining({ id: webhook.id }),
@@ -464,11 +547,23 @@ describe("managing webhooks", () => {
       .set({ failures: 3 })
       .where(eq(schema.webhooks.id, webhookId));
     await grantPlan(owner.id, "free");
-    const listed = value(await listWebhooks(db(), { actor, now: NOW }));
+    const listed = value(
+      await listWebhooks(db(), {
+        service: ON,
+        actor,
+        now: NOW,
+      }),
+    );
     expect(listed.available).toBe(false);
     expect(listed.webhooks[0]?.state).toBe("paused");
     const disabled = value(
-      await updateWebhook(db(), { actor, webhookId, update: { enabled: false }, now: NOW }),
+      await updateWebhook(db(), {
+        service: ON,
+        actor,
+        webhookId,
+        update: { enabled: false },
+        now: NOW,
+      }),
     );
     expect(disabled).toMatchObject({
       state: "disabled",
@@ -477,6 +572,7 @@ describe("managing webhooks", () => {
     });
     // Changing the events of a disabled webhook is not gated either.
     const narrowed = await updateWebhook(db(), {
+      service: ON,
       actor,
       webhookId,
       update: { events: ["artifact.published"] },
@@ -484,11 +580,23 @@ describe("managing webhooks", () => {
     });
     expect(value(narrowed).events).toEqual(["artifact.published"]);
     expect(
-      await updateWebhook(db(), { actor, webhookId, update: { enabled: true }, now: NOW }),
+      await updateWebhook(db(), {
+        service: ON,
+        actor,
+        webhookId,
+        update: { enabled: true },
+        now: NOW,
+      }),
     ).toEqual({ ok: false, code: "plan_required", message: planRequiredMessage("webhooks") });
     await grantPlan(owner.id, "pro");
     const enabled = value(
-      await updateWebhook(db(), { actor, webhookId, update: { enabled: true }, now: NOW }),
+      await updateWebhook(db(), {
+        service: ON,
+        actor,
+        webhookId,
+        update: { enabled: true },
+        now: NOW,
+      }),
     );
     expect(enabled).toMatchObject({
       state: "active",
@@ -498,7 +606,15 @@ describe("managing webhooks", () => {
     });
     // Nothing to change answers the webhook as it is.
     expect(
-      value(await updateWebhook(db(), { actor, webhookId, update: { enabled: true }, now: NOW })),
+      value(
+        await updateWebhook(db(), {
+          service: ON,
+          actor,
+          webhookId,
+          update: { enabled: true },
+          now: NOW,
+        }),
+      ),
     ).toEqual(enabled);
   });
 
@@ -506,7 +622,14 @@ describe("managing webhooks", () => {
     const owner = await proOwner();
     const actor = personalActor(owner.id);
     const { webhook } = await addHook(actor);
-    value(await sendTestEvent(db(), { actor, webhookId: webhook.id, now: NOW }));
+    value(
+      await sendTestEvent(db(), {
+        service: ON,
+        actor,
+        webhookId: webhook.id,
+        now: NOW,
+      }),
+    );
     expect(await jobsOf(webhook.id)).toHaveLength(1);
     expect(await removeWebhook(db(), { actor, webhookId: webhook.id, now: NOW })).toEqual({
       ok: true,
@@ -527,13 +650,35 @@ describe("managing webhooks", () => {
     const actor = personalActor(owner.id);
     const { webhook } = await addHook(actor);
     const webhookId = webhook.id;
-    value(await updateWebhook(db(), { actor, webhookId, update: { enabled: false }, now: NOW }));
-    expect(await sendTestEvent(db(), { actor, webhookId, now: NOW })).toMatchObject({
+    value(
+      await updateWebhook(db(), {
+        service: ON,
+        actor,
+        webhookId,
+        update: { enabled: false },
+        now: NOW,
+      }),
+    );
+    expect(
+      await sendTestEvent(db(), {
+        service: ON,
+        actor,
+        webhookId,
+        now: NOW,
+      }),
+    ).toMatchObject({
       ok: false,
       code: "invalid_input",
     });
     await grantPlan(owner.id, "free");
-    expect(await sendTestEvent(db(), { actor, webhookId, now: NOW })).toEqual({
+    expect(
+      await sendTestEvent(db(), {
+        service: ON,
+        actor,
+        webhookId,
+        now: NOW,
+      }),
+    ).toEqual({
       ok: false,
       code: "plan_required",
       message: planRequiredMessage("webhooks"),
@@ -828,6 +973,7 @@ describe("recording events", () => {
     const stopped = await addHook(wsActor);
     value(
       await updateWebhook(db(), {
+        service: ON,
         actor: wsActor,
         webhookId: stopped.webhook.id,
         update: { enabled: false },
@@ -909,7 +1055,13 @@ describe("delivering", () => {
         error: null,
       },
     ]);
-    const list = value(await listWebhooks(db(), { actor, now: AFTER }));
+    const list = value(
+      await listWebhooks(db(), {
+        service: ON,
+        actor,
+        now: AFTER,
+      }),
+    );
     expect(list.webhooks[0]?.lastAttempt).toEqual(entries[0]);
     // The log keeps 7 days.
     expect(
@@ -1051,7 +1203,7 @@ describe("delivering", () => {
     expect(net.sent[0]?.headers["webhook-id"]).toBe(dying.sent[0]?.headers["webhook-id"]);
   });
 
-  it("disables after repeated failures, keeps the reason, and enabling resets it", async () => {
+  it("disables after repeated failures, keeps the reason, and enabling after the cooldown resets it", async () => {
     const { webhook, owner } = await ready();
     await db()
       .update(schema.webhooks)
@@ -1067,15 +1219,86 @@ describe("delivering", () => {
     // Writes record nothing while it is disabled.
     await comment(await artifact(owner.id), owner.id, AFTER + 1);
     expect(await pending(webhook.id)).toEqual([]);
-    const enabled = value(
-      await updateWebhook(db(), {
+    const enable = (now: number) =>
+      updateWebhook(db(), {
+        service: ON,
         actor: personalActor(owner.id),
         webhookId: webhook.id,
         update: { enabled: true },
-        now: AFTER + 2,
-      }),
-    );
-    expect(enabled).toMatchObject({ state: "active", failures: 0, disabledReason: null });
+        now,
+      });
+    // Not right away: an automatic disable holds for the cooldown.
+    expect(await enable(AFTER + 2)).toMatchObject({ ok: false, code: "rate_limited" });
+    const enabled = value(await enable(AFTER + WEBHOOK_LIMITS.reenableCooldownMs));
+    expect(enabled).toMatchObject({
+      state: "active",
+      failures: 0,
+      disabledReason: null,
+      probation: true,
+    });
+  });
+
+  it("disables a re-enabled webhook again after a few failures, until it has a success", async () => {
+    const { webhook, owner, a } = await ready();
+    const actor = personalActor(owner.id);
+    const update = (enabled: boolean, now: number) =>
+      updateWebhook(db(), { service: ON, actor, webhookId: webhook.id, update: { enabled }, now });
+    value(await update(false, NOW));
+    value(await update(true, NOW + 1));
+    let at = AFTER;
+    for (let i = 1; i <= WEBHOOK_LIMITS.probationFailures; i += 1) {
+      await comment(a, owner.id, at - WEBHOOK_LIMITS.coalesceMs);
+      await runDue(webhook.id, at, await deps(network(new Response("no", { status: 400 })).fetch));
+      at += DAY;
+    }
+    expect(await hookRow(webhook.id)).toMatchObject({
+      disabledReason: "failures",
+      failures: WEBHOOK_LIMITS.probationFailures,
+      probation: true,
+    });
+    // A success ends the probation.
+    const day = at + WEBHOOK_LIMITS.reenableCooldownMs;
+    value(await update(true, day));
+    await comment(a, owner.id, day);
+    await runDue(webhook.id, day + WEBHOOK_LIMITS.coalesceMs, await deps(network().fetch));
+    expect(await hookRow(webhook.id)).toMatchObject({ probation: false, failures: 0 });
+  });
+
+  it("caps re-enables of one webhook a day", async () => {
+    const { webhook, owner } = await ready();
+    const actor = personalActor(owner.id);
+    const update = (enabled: boolean, now: number) =>
+      updateWebhook(db(), { service: ON, actor, webhookId: webhook.id, update: { enabled }, now });
+    for (let i = 0; i < WEBHOOK_LIMITS.reenablesPerDay; i += 1) {
+      value(await update(false, NOW + i * 10));
+      value(await update(true, NOW + i * 10 + 1));
+    }
+    value(await update(false, NOW + 100));
+    expect(await update(true, NOW + 101)).toMatchObject({ ok: false, code: "rate_limited" });
+    expect(await hookRow(webhook.id)).toMatchObject({ disabledReason: "manual" });
+    value(await update(true, NOW + DAY));
+  });
+
+  it("decides the disable from the count its own update writes, not the one read before", async () => {
+    const { webhook } = await ready();
+    await db()
+      .update(schema.webhooks)
+      .set({ failures: WEBHOOK_LIMITS.disableAfterFailures - 2 })
+      .where(eq(schema.webhooks.id, webhook.id));
+    // While this attempt waits, another failure of the same webhook is recorded.
+    const net = network(async () => {
+      await db()
+        .update(schema.webhooks)
+        .set({ failures: WEBHOOK_LIMITS.disableAfterFailures - 1 })
+        .where(eq(schema.webhooks.id, webhook.id));
+      return new Response("down", { status: 503 });
+    });
+    expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual(["done"]);
+    expect(await hookRow(webhook.id)).toMatchObject({
+      failures: WEBHOOK_LIMITS.disableAfterFailures,
+      disabledReason: "failures",
+    });
+    expect(await jobsOf(webhook.id)).toEqual([]);
   });
 
   it("disables at once on 410 Gone", async () => {
@@ -1148,30 +1371,96 @@ describe("delivering", () => {
     const { webhook, owner } = await ready();
     const actor = personalActor(owner.id);
     const day = utcDayStart(AFTER);
-    // Attempts already made today, written in one statement (D1 caps bound parameters).
-    await db().run(
-      sql`with recursive n(i) as (select 0 union all select i + 1 from n where i + 1 < ${WEBHOOK_LIMITS.attemptsPerOwnerPerDay - 1}) insert into webhook_deliveries (webhook_id, owner_id, delivery_id, attempt, at, outcome, status, error) select ${webhook.id}, ${owner.id}, 'whd_seed', 1, ${day} + i, 'delivered', 200, null from n`,
+    await seedCounter(
+      `webhook:attempts:${owner.id}:${day}`,
+      WEBHOOK_LIMITS.attemptsPerOwnerPerDay - 1,
+      AFTER,
     );
-    // One below the cap still sends.
+    // The last attempt of the day still goes.
     const net = network();
     expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual(["done"]);
     expect(net.sent).toHaveLength(1);
-    value(await sendTestEvent(db(), { actor, webhookId: webhook.id, now: AFTER }));
-    expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual(["kept"]);
-    expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual([]);
-    const [job] = await jobsOf(webhook.id);
-    expect(job?.availableAt).toBe(day + DAY);
-    await db()
-      .update(schema.outbox)
-      .set({ availableAt: AFTER })
-      .where(eq(schema.outbox.id, job?.id ?? 0));
+    value(await sendTestEvent(db(), { service: ON, actor, webhookId: webhook.id, now: AFTER }));
     expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual(["kept"]);
     expect(net.sent).toHaveLength(1);
+    const [job] = await jobsOf(webhook.id);
+    expect(job).toMatchObject({ availableAt: day + DAY, dispatchedAt: null });
+    expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual([]);
     const notes = (await log(webhook.id)).filter((row) => row.outcome === "skipped");
     expect(notes.map((row) => row.error)).toEqual(["daily_cap"]);
     expect(await runDue(webhook.id, day + DAY, await deps(net.fetch))).toEqual(["done"]);
     expect(net.sent).toHaveLength(2);
     expect(JSON.parse(net.sent[1]?.body ?? "{}")).toMatchObject({ test: true });
+  });
+
+  it("keeps counting the day's attempts when a webhook is removed and created again", async () => {
+    const { webhook, owner } = await ready();
+    const actor = personalActor(owner.id);
+    const day = utcDayStart(AFTER);
+    await seedCounter(
+      `webhook:attempts:${owner.id}:${day}`,
+      WEBHOOK_LIMITS.attemptsPerOwnerPerDay,
+      AFTER,
+    );
+    const net = network();
+    expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual(["kept"]);
+    value(await removeWebhook(db(), { actor, webhookId: webhook.id, now: AFTER }));
+    const fresh = await addHook(actor);
+    value(
+      await sendTestEvent(db(), { service: ON, actor, webhookId: fresh.webhook.id, now: AFTER }),
+    );
+    expect(await runDue(fresh.webhook.id, AFTER, await deps(net.fetch))).toEqual(["kept"]);
+    expect(net.sent).toHaveLength(0);
+  });
+
+  it("limits creates, tests and enables per owner, whatever the webhooks", async () => {
+    const owner = await proOwner();
+    const actor = personalActor(owner.id);
+    const { webhook } = await addHook(actor);
+    await seedCounter(`webhook:test:${owner.id}`, WEBHOOK_LIMITS.testsPerOwnerPerHour, NOW);
+    expect(
+      await sendTestEvent(db(), { service: ON, actor, webhookId: webhook.id, now: NOW }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+    await seedCounter(`webhook:create:${owner.id}`, WEBHOOK_LIMITS.createsPerOwnerPerDay, NOW);
+    expect(
+      await createWebhook(db(), {
+        service: ON,
+        via: "dashboard",
+        actor,
+        webhook: generic(),
+        keys: await keys(),
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+    value(
+      await updateWebhook(db(), {
+        service: ON,
+        actor,
+        webhookId: webhook.id,
+        update: { enabled: false },
+        now: NOW,
+      }),
+    );
+    await seedCounter(`webhook:enable:${owner.id}`, WEBHOOK_LIMITS.enablesPerOwnerPerDay, NOW);
+    expect(
+      await updateWebhook(db(), {
+        service: ON,
+        actor,
+        webhookId: webhook.id,
+        update: { enabled: true },
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+    // Once the window ends, it counts again from one.
+    value(
+      await updateWebhook(db(), {
+        service: ON,
+        actor,
+        webhookId: webhook.id,
+        update: { enabled: true },
+        now: NOW + DAY,
+      }),
+    );
   });
 
   it("sends a test event with no artifact, unsigned in a chat format", async () => {
@@ -1182,6 +1471,7 @@ describe("delivering", () => {
     });
     value(
       await sendTestEvent(db(), {
+        service: ON,
         actor: personalActor(owner.id),
         webhookId: webhook.id,
         now: NOW,
@@ -1263,6 +1553,7 @@ describe("maintenance, keys and erasure", () => {
       .values([entry("old", NOW - 8 * DAY), entry("new", NOW - DAY)]);
     value(
       await sendTestEvent(db(), {
+        service: ON,
         actor: personalActor(owner.id),
         webhookId: webhook.id,
         now: NOW,
@@ -1321,6 +1612,7 @@ describe("maintenance, keys and erasure", () => {
         disabled: false,
         disabledReason: null,
         createdAt: new Date(NOW).toISOString(),
+        createdVia: "dashboard",
       },
     ]);
     const sessionId = await session(owner.id);
@@ -1355,5 +1647,145 @@ describe("maintenance, keys and erasure", () => {
     const applied = await applyTombstones(db(), markers, NOW + DAY);
     expect(applied.webhooks).toBeGreaterThanOrEqual(1);
     expect(await hookRow(webhook.id)).toBeUndefined();
+  });
+});
+
+describe("review fixes", () => {
+  async function ready() {
+    const owner = await proOwner();
+    const reader = await person();
+    const a = await artifact(owner.id, [reader.email]);
+    const created = await addHook(personalActor(owner.id));
+    await comment(a, reader.id);
+    return { owner, a, webhook: created.webhook };
+  }
+
+  it("does not send a retry early when the same message is delivered again", async () => {
+    const { webhook } = await ready();
+    const net = network(new Response("down", { status: 503 }), new Response("ok"));
+    const [job] = await jobsOf(webhook.id);
+    const message: JobMessage = { id: job?.id ?? 0, topic: "webhook_delivery" };
+    const webhooks = await deps(net.fetch);
+    expect(await runJob(db(), env.ARTIFACTS, message, AFTER, { webhooks })).toBe("kept");
+    // A duplicate of the message one second later: the retry is not due for a minute.
+    expect(await runJob(db(), env.ARTIFACTS, message, AFTER + 1_000, { webhooks })).toBe("kept");
+    expect(net.sent).toHaveLength(1);
+    const due = AFTER + (WEBHOOK_LIMITS.retryDelaysMs[0] ?? 0);
+    expect(await runJob(db(), env.ARTIFACTS, message, due, { webhooks })).toBe("done");
+    expect(net.sent).toHaveLength(2);
+  });
+
+  it("stops a webhook sealed with a key the Worker no longer holds, instead of failing forever", async () => {
+    const { webhook, owner } = await ready();
+    await db()
+      .update(schema.webhooks)
+      .set({ keyId: "f".repeat(16) })
+      .where(eq(schema.webhooks.id, webhook.id));
+    const net = network();
+    expect(await runDue(webhook.id, AFTER, await deps(net.fetch))).toEqual(["done"]);
+    expect(net.sent).toHaveLength(0);
+    expect(await jobsOf(webhook.id)).toEqual([]);
+    expect(await hookRow(webhook.id)).toMatchObject({ disabledReason: "key_unavailable" });
+    expect((await log(webhook.id)).map((row) => row.error)).toEqual(["key_unavailable"]);
+    const list = value(
+      await listWebhooks(db(), { service: ON, actor: personalActor(owner.id), now: AFTER }),
+    );
+    expect(list.webhooks[0]).toMatchObject({
+      state: "disabled",
+      disabledReason: "key_unavailable",
+    });
+  });
+
+  it("refuses create, enable and test and sends nothing while deliveries are switched off", async () => {
+    const OFF = { enabled: false };
+    const owner = await proOwner();
+    const actor = personalActor(owner.id);
+    const refused = {
+      ok: false,
+      code: "capacity_unavailable",
+      message: "Webhooks are not available yet.",
+    };
+    expect(
+      await createWebhook(db(), {
+        service: OFF,
+        via: "dashboard",
+        actor,
+        webhook: generic(),
+        keys: await keys(),
+        now: NOW,
+      }),
+    ).toEqual(refused);
+    const { webhook } = await addHook(actor);
+    expect(
+      await sendTestEvent(db(), { service: OFF, actor, webhookId: webhook.id, now: NOW }),
+    ).toEqual(refused);
+    value(
+      await updateWebhook(db(), {
+        service: OFF,
+        actor,
+        webhookId: webhook.id,
+        update: { enabled: false },
+        now: NOW,
+      }),
+    );
+    expect(
+      await updateWebhook(db(), {
+        service: OFF,
+        actor,
+        webhookId: webhook.id,
+        update: { enabled: true },
+        now: NOW,
+      }),
+    ).toEqual(refused);
+    const listed = value(await listWebhooks(db(), { service: OFF, actor, now: NOW }));
+    expect(listed.serviceAvailable).toBe(false);
+  });
+
+  it("drops what is pending without sending while switched off, and stops webhooks so writes record nothing", async () => {
+    const { webhook, owner, a } = await ready();
+    const net = network();
+    expect(await runDue(webhook.id, AFTER, await deps(net.fetch, { enabled: false }))).toEqual([
+      "stale",
+    ]);
+    expect(net.sent).toHaveLength(0);
+    expect(await pending(webhook.id)).toEqual([]);
+    expect(await stopWebhooksWhileOff(db(), AFTER)).toBeGreaterThanOrEqual(1);
+    expect(await hookRow(webhook.id)).toMatchObject({ disabledReason: "unavailable" });
+    await comment(a, owner.id, AFTER + 1);
+    expect(await pending(webhook.id)).toEqual([]);
+    expect(await jobsOf(webhook.id)).toEqual([]);
+  });
+
+  it("records who created a webhook and clears it with their account", async () => {
+    const admin = await proOwner("Ada Admin");
+    const ws = await workspace([[admin.id, "admin"]]);
+    await grantPlan(ws, "team");
+    const wsActor = await actorIn(admin.id, ws);
+    const created = value(
+      await createWebhook(db(), {
+        service: ON,
+        via: "portifact-cli",
+        actor: wsActor,
+        webhook: generic(),
+        keys: await keys(),
+        now: NOW,
+      }),
+    );
+    expect(created.webhook).toMatchObject({ createdVia: "portifact-cli", createdBy: "Ada Admin" });
+    expect(await hookRow(created.webhook.id)).toMatchObject({ createdBy: admin.id });
+    await db().delete(schema.workspaceMembers).where(eq(schema.workspaceMembers.userId, admin.id));
+    const sessionId = await session(admin.id);
+    value(
+      await requestAccountDeletion(db(), {
+        userId: admin.id,
+        sessionId,
+        confirmEmail: admin.email,
+        now: NOW,
+      }),
+    );
+    expect(await hookRow(created.webhook.id)).toMatchObject({
+      createdBy: null,
+      createdVia: "portifact-cli",
+    });
   });
 });

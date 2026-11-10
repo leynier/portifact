@@ -1253,4 +1253,16 @@ export const es = {
   "webhooks.error.invalid_url": "URL no permitida",
   "webhooks.error.daily_cap": "límite diario alcanzado",
   "webhooks.actionFailed": "No funcionó",
+  "webhooks.notOfferedTitle": "Los webhooks todavía no están disponibles",
+  "webhooks.notOffered": "Portifact todavía no envía webhooks. Aparecerán aquí cuando se ofrezcan.",
+  "webhooks.reason.key_unavailable":
+    "Desactivado: la clave que lo protege ya no está disponible. Quítalo y agrégalo de nuevo.",
+  "webhooks.reason.unavailable": "Desactivado: Portifact apagó los webhooks por ahora",
+  "webhooks.error.key_unavailable": "clave no disponible",
+  "webhooks.via.dashboard": "Agregado en el panel",
+  "webhooks.via.cli": "Agregado con la CLI de Portifact",
+  "webhooks.via.other": "Agregado desde otra app",
+  "webhooks.via.by": "por {name}",
+  "webhooks.probation":
+    "Activado de nuevo tras fallos: unos pocos fallos más lo desactivan hasta que una entrega funcione.",
 } satisfies Catalog;

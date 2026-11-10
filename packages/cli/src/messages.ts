@@ -191,6 +191,7 @@ export const messages = {
   // Tokens.
   webhooksEmpty:
     "You have no webhooks. Add one with `portifact webhooks add <url> --events <list>`.",
+  webhooksNotOffered: "This Portifact server does not offer webhooks yet.",
   webhooksUnavailable:
     "Your plan does not include webhooks: they are kept but send nothing until it does again.",
   webhookSecret: (secret: string) =>

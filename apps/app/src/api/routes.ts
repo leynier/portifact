@@ -40,11 +40,19 @@ import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { artifactListItem } from "../mcp/present.ts";
 import { artifactDb, defaultDb, personalScope } from "../regions.ts";
-import { authorizeApiRequest, type SessionLookup } from "./access.ts";
+import { authorizeAccountRequest, authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { documentRoutes } from "./documents.ts";
-import { type ApiContext, error, type Guarded, idempotent, iso, readJson } from "./http.ts";
+import {
+  type AccountGuarded,
+  type ApiContext,
+  error,
+  type Guarded,
+  idempotent,
+  iso,
+  readJson,
+} from "./http.ts";
 import type { Presigner } from "./presign.ts";
 import { shareLinkRoutes } from "./share-links.ts";
 import { statsRoutes } from "./stats.ts";
@@ -90,6 +98,21 @@ export function apiRoutes(deps: ApiDeps) {
       scope,
     );
     return decision.ok ? handler(c, decision.userId) : decision.response;
+  };
+
+  /** The dashboard session or the Portifact CLI's `credentials:manage` token, nothing else. */
+  const accountGuarded: AccountGuarded = (handler) => async (c: ApiContext) => {
+    const decision = await authorizeAccountRequest(
+      {
+        introspect: deps.introspect(c.env),
+        resource: deps.resource(c.env),
+        session: deps.session(c.env),
+      },
+      c.req.raw,
+    );
+    if (!decision.ok) return decision.response;
+    c.header("Cache-Control", "no-store");
+    return handler(c, { userId: decision.userId, via: decision.via });
   };
 
   api.post(
@@ -313,7 +336,7 @@ export function apiRoutes(deps: ApiDeps) {
   accessLogRoutes(api, guarded, deps.now);
   shareLinkRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
-  webhookRoutes(api, guarded, deps.now);
+  webhookRoutes(api, guarded, accountGuarded, deps.now);
 
   return api;
 }

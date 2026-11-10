@@ -199,6 +199,8 @@ export interface FakeApiState {
   webhookAttempts: Map<string, WebhookAttempt[]>;
   /** Test events queued per webhook. */
   webhookTests: string[];
+  /** Whether the server offers webhooks at all (`WEBHOOKS_ENABLED`). */
+  webhooksOffered: boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -253,6 +255,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     webhooks: new Map(),
     webhookAttempts: new Map(),
     webhookTests: [],
+    webhooksOffered: true,
     urlTtlMs: 15 * 60 * 1000,
     usage: {
       plan: {
@@ -1194,7 +1197,12 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     if (path === "/webhooks" && method === "GET") {
       return {
         status: 200,
-        body: { webhooks: [...state.webhooks.values()], available, limit: 10 },
+        body: {
+          webhooks: [...state.webhooks.values()],
+          available,
+          serviceAvailable: state.webhooksOffered,
+          limit: 10,
+        },
       };
     }
     if (path === "/webhooks" && method === "POST") {
@@ -1215,6 +1223,9 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         disabledAt: null,
         failures: 0,
         createdAt: new Date(clock()).toISOString(),
+        createdVia: "portifact-cli",
+        createdBy: "Ada",
+        probation: false,
         lastAttempt: null,
       };
       state.webhooks.set(id, webhook);

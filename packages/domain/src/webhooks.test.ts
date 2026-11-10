@@ -5,12 +5,15 @@ import {
   type WebhookFormat,
 } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
+import { CLOUDFLARE_HOSTS, isCloudflareHost } from "./cloudflare-hosts.ts";
 import {
   bitsToEvents,
+  checkReenable,
   checkWebhookUrl,
   classifyAttempt,
   dailyCapReached,
   disablesAfter,
+  disableThreshold,
   discordEscape,
   eventBit,
   eventsToBits,
@@ -129,6 +132,16 @@ describe("checkWebhookUrl", () => {
     ["https://api.cloudflare.com/client/v4", "Portifact or Cloudflare"],
     ["https://bucket.r2.dev/", "Portifact or Cloudflare"],
     ["https://acct.r2.cloudflarestorage.com/", "Portifact or Cloudflare"],
+    ["https://www.example.com.cdn.cloudflare.net/", "Portifact or Cloudflare"],
+    ["https://cloudflare.net/", "Portifact or Cloudflare"],
+    ["https://6ff42ae2-765d-4adf-8112-31c55c1551ef.cfargotunnel.com/", "Portifact or Cloudflare"],
+    ["https://x.fed-cfargotunnel.com/", "Portifact or Cloudflare"],
+    ["https://quiet-river.trycloudflare.com/", "Portifact or Cloudflare"],
+    ["https://cloudflare-dns.com/dns-query", "Portifact or Cloudflare"],
+    ["https://acct.cloudflare-gateway.com/", "Portifact or Cloudflare"],
+    ["https://team.cloudflareaccess.com/", "Portifact or Cloudflare"],
+    ["https://one.one.one.one/", "Portifact or Cloudflare"],
+    ["https://customer-x.cloudflarestream.com/", "Portifact or Cloudflare"],
     // Malformed and long hosts.
     ["https://-bad.example.com/", "public DNS name"],
     ["https://bad-.example.com/", "public DNS name"],
@@ -233,6 +246,62 @@ describe("retries and caps", () => {
       now + 21_600_000,
       null,
     ]);
+  });
+
+  it("disables on probation after fewer failures", () => {
+    expect(disableThreshold(false)).toBe(WEBHOOK_LIMITS.disableAfterFailures);
+    expect(disableThreshold(true)).toBe(WEBHOOK_LIMITS.probationFailures);
+    expect(disablesAfter(WEBHOOK_LIMITS.probationFailures, true)).toBe(true);
+    expect(disablesAfter(WEBHOOK_LIMITS.probationFailures - 1, true)).toBe(false);
+    expect(disablesAfter(WEBHOOK_LIMITS.probationFailures, false)).toBe(false);
+  });
+
+  it("keeps an automatically disabled webhook off for a cooldown, and caps re-enables a day", () => {
+    const at = 1_000_000;
+    const cooldown = WEBHOOK_LIMITS.reenableCooldownMs;
+    for (const reason of ["failures", "gone"]) {
+      const early = checkReenable({
+        disabledReason: reason,
+        disabledAt: at,
+        reenablesToday: 0,
+        now: at + cooldown - 1,
+      });
+      expect(early).toMatchObject({ ok: false, code: "rate_limited" });
+      expect(!early.ok && early.message).toContain(new Date(at + cooldown).toISOString());
+      expect(
+        checkReenable({
+          disabledReason: reason,
+          disabledAt: at,
+          reenablesToday: 0,
+          now: at + cooldown,
+        }),
+      ).toEqual({ ok: true, value: true });
+    }
+    for (const reason of ["manual", "invalid_url", "key_unavailable", "unavailable", null]) {
+      expect(
+        checkReenable({ disabledReason: reason, disabledAt: at, reenablesToday: 0, now: at }).ok,
+      ).toBe(true);
+    }
+    expect(
+      checkReenable({
+        disabledReason: "manual",
+        disabledAt: at,
+        reenablesToday: WEBHOOK_LIMITS.reenablesPerDay - 1,
+        now: at,
+      }).ok,
+    ).toBe(true);
+    expect(
+      checkReenable({
+        disabledReason: "manual",
+        disabledAt: at,
+        reenablesToday: WEBHOOK_LIMITS.reenablesPerDay,
+        now: at,
+      }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+    expect(
+      checkReenable({ disabledReason: "failures", disabledAt: null, reenablesToday: 0, now: at })
+        .ok,
+    ).toBe(true);
   });
 
   it("disables at the limit of failures in a row, not before", () => {
@@ -410,5 +479,17 @@ describe("escaping", () => {
     expect(discordEscape("[a](http://x) **b** @here <#1> `c` ~d~ |e| > -f #g :h: !i")).toBe(
       "\\[a\\]\\(http\\://x\\) \\*\\*b\\*\\* \\@here \\<\\#1\\> \\`c\\` \\~d\\~ \\|e\\| \\> \\-f \\#g \\:h\\: \\!i",
     );
+  });
+});
+
+describe("Cloudflare hosts", () => {
+  it("refuses each listed domain and its subdomains, and nothing that only ends like one", () => {
+    for (const { domain, source } of CLOUDFLARE_HOSTS) {
+      expect(isCloudflareHost(domain), domain).toBe(true);
+      expect(isCloudflareHost(`a.b.${domain}`), domain).toBe(true);
+      expect(isCloudflareHost(`not${domain}`), domain).toBe(false);
+      expect(source.startsWith("developers.cloudflare.com/"), domain).toBe(true);
+    }
+    expect(isCloudflareHost("hooks.example.com")).toBe(false);
   });
 });

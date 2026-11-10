@@ -1229,4 +1229,17 @@ export const ja = {
   "webhooks.error.invalid_url": "許可されていないURL",
   "webhooks.error.daily_cap": "1日の上限に到達",
   "webhooks.actionFailed": "うまくいきませんでした",
+  "webhooks.notOfferedTitle": "Webhookはまだ利用できません",
+  "webhooks.notOffered":
+    "PortifactはまだWebhookを送信していません。提供が始まるとここに表示されます。",
+  "webhooks.reason.key_unavailable":
+    "無効: 保護に使う鍵が利用できなくなりました。削除して追加し直してください。",
+  "webhooks.reason.unavailable": "無効: Portifactが現在Webhookを停止しています",
+  "webhooks.error.key_unavailable": "鍵が利用不可",
+  "webhooks.via.dashboard": "ダッシュボードで追加",
+  "webhooks.via.cli": "Portifact CLIで追加",
+  "webhooks.via.other": "別のアプリから追加",
+  "webhooks.via.by": "作成者: {name}",
+  "webhooks.probation":
+    "失敗の後に再び有効化: 配信が成功するまで、あと数回の失敗で無効になります。",
 } satisfies Catalog;

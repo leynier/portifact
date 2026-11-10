@@ -10,6 +10,7 @@ import {
   type WebhookEventType,
   type WebhookFormat,
 } from "@portifact/contracts";
+import { isCloudflareHost } from "./cloudflare-hosts.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 /** The bit of each event type in `webhooks.events`. */
@@ -45,19 +46,8 @@ const RESERVED_SUFFIXES = [
   "example",
 ];
 
-/** Portifact's own hosts and Cloudflare's service hosts, with every subdomain. */
-const BLOCKED_DOMAINS = [
-  "portifact.com",
-  "portifact.dev",
-  "portifact.test",
-  "workers.dev",
-  "pages.dev",
-  "cloudflare.com",
-  "cloudflareaccess.com",
-  "cloudflarestorage.com",
-  "cloudflareclient.com",
-  "r2.dev",
-];
+/** Portifact's own hosts, with every subdomain. Cloudflare's are in cloudflare-hosts.ts. */
+const PORTIFACT_DOMAINS = ["portifact.com", "portifact.dev", "portifact.test"];
 
 const LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
 
@@ -107,7 +97,7 @@ export function checkWebhookUrl(
   if (RESERVED_SUFFIXES.some((suffix) => under(host, suffix))) {
     return refuse("The host must be a public DNS name, not a local or reserved one.");
   }
-  if (BLOCKED_DOMAINS.some((domain) => under(host, domain))) {
+  if (PORTIFACT_DOMAINS.some((domain) => under(host, domain)) || isCloudflareHost(host)) {
     return refuse("Webhooks cannot point at Portifact or Cloudflare service hosts.");
   }
   if (
@@ -165,9 +155,52 @@ export function nextAttemptAt(attempt: number, now: number): number | null {
   return delay === undefined ? null : now + delay;
 }
 
+/**
+ * Failed attempts in a row that disable a webhook: fewer while it is on probation (enabled again
+ * after a disable, without a success since).
+ */
+export function disableThreshold(probation: boolean): number {
+  return probation ? WEBHOOK_LIMITS.probationFailures : WEBHOOK_LIMITS.disableAfterFailures;
+}
+
 /** Whether `failures` failed attempts in a row disable the webhook. */
-export function disablesAfter(failures: number): boolean {
-  return failures >= WEBHOOK_LIMITS.disableAfterFailures;
+export function disablesAfter(failures: number, probation = false): boolean {
+  return failures >= disableThreshold(probation);
+}
+
+/** Reasons the platform disabled a webhook on its own, which keep it off for a cooldown. */
+const AUTOMATIC_DISABLES = new Set(["failures", "gone"]);
+
+/**
+ * Whether a disabled webhook may be enabled again now: not within `reenableCooldownMs` of an
+ * automatic disable, and at most `reenablesPerDay` times a UTC day. `reenablesToday` is the
+ * count already used today.
+ */
+export function checkReenable(input: {
+  disabledReason: string | null;
+  disabledAt: number | null;
+  reenablesToday: number;
+  now: number;
+}): Result<true> {
+  if (
+    input.disabledReason !== null &&
+    AUTOMATIC_DISABLES.has(input.disabledReason) &&
+    input.disabledAt !== null &&
+    input.now < input.disabledAt + WEBHOOK_LIMITS.reenableCooldownMs
+  ) {
+    const at = new Date(input.disabledAt + WEBHOOK_LIMITS.reenableCooldownMs).toISOString();
+    return fail(
+      "rate_limited",
+      `This webhook was disabled after failing; it can be enabled again from ${at}. Fix the receiver first.`,
+    );
+  }
+  if (input.reenablesToday >= WEBHOOK_LIMITS.reenablesPerDay) {
+    return fail(
+      "rate_limited",
+      `A webhook can be enabled again at most ${WEBHOOK_LIMITS.reenablesPerDay} times a day.`,
+    );
+  }
+  return ok(true);
 }
 
 const DAY_MS = 86_400_000;

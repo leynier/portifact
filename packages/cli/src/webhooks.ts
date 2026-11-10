@@ -67,7 +67,7 @@ export async function listWebhooks(io: Io, runtime: Runtime, options: OutputOpti
   } else {
     io.stdout(
       table([
-        ["ID", "HOST", "FORMAT", "STATE", "FAILURES", "EVENTS", "LAST ATTEMPT"],
+        ["ID", "HOST", "FORMAT", "STATE", "FAILURES", "EVENTS", "VIA", "LAST ATTEMPT"],
         ...list.webhooks.map((webhook) => [
           webhook.id,
           plain(webhook.host),
@@ -75,12 +75,14 @@ export async function listWebhooks(io: Io, runtime: Runtime, options: OutputOpti
           state(webhook),
           String(webhook.failures),
           webhook.events.join(","),
+          plain(webhook.createdVia),
           attempt(webhook.lastAttempt),
         ]),
       ]),
     );
   }
-  if (!list.available) io.stdout(`${messages.webhooksUnavailable}\n`);
+  if (!list.serviceAvailable) io.stdout(`${messages.webhooksNotOffered}\n`);
+  else if (!list.available) io.stdout(`${messages.webhooksUnavailable}\n`);
 }
 
 export interface AddWebhookOptions extends OutputOptions {

@@ -79,7 +79,10 @@ describe("portifact webhooks", () => {
     const table = await h.invoke("webhooks", "list");
     expect(table.code).toBe(0);
     const lines = table.stdout.trimEnd().split("\n");
-    expect(lines[0]).toMatch(/^ID\s+HOST\s+FORMAT\s+STATE\s+FAILURES\s+EVENTS\s+LAST ATTEMPT$/);
+    expect(lines[0]).toMatch(
+      /^ID\s+HOST\s+FORMAT\s+STATE\s+FAILURES\s+EVENTS\s+VIA\s+LAST ATTEMPT$/,
+    );
+    expect(lines[1]).toContain("portifact-cli");
     expect(lines[1]).toMatch(
       new RegExp(`^${id}\\s+hooks\\.example\\.com\\s+generic\\s+active\\s+0\\s+`),
     );
@@ -89,6 +92,9 @@ describe("portifact webhooks", () => {
     expect(JSON.parse(listed.stdout)).toMatchObject({ available: false, limit: 10 });
     const paused = await h.invoke("webhooks", "list");
     expect(paused.stdout).toContain("Your plan does not include webhooks");
+    server.api.webhooksOffered = false;
+    const off = await h.invoke("webhooks", "list");
+    expect(off.stdout).toContain("does not offer webhooks yet");
   });
 
   it("says when there are none", async () => {

@@ -23,6 +23,9 @@ function hook(overrides: Partial<WebhookView> = {}): WebhookView {
     disabledAt: null,
     failures: 0,
     createdAt: "2026-11-09T09:00:00.000Z",
+    createdVia: "portifact-cli",
+    createdBy: "Ada Lovelace",
+    probation: false,
     lastAttempt: null,
     ...overrides,
   };
@@ -171,5 +174,45 @@ describe("webhooks page", () => {
     fireEvent.click(within(again).getByRole("button", { name: "Remove" }));
     expect(await within(main).findByText("No webhooks yet")).toBeTruthy();
     expect(server.webhooks.list).toEqual([]);
+  });
+});
+
+describe("webhooks page, review fixes", () => {
+  it("says webhooks are not available yet and offers nothing while the deployment does not offer them", async () => {
+    server.webhooks = { list: [], available: true, attempts: {}, offered: false };
+    renderDashboard("/webhooks", server);
+    const main = await page();
+    expect(within(main).getByText("Webhooks are not available yet")).toBeTruthy();
+    expect(within(main).getByRole("button", { name: "Add webhook" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+    expect(await axeViolations(document.body)).toEqual([]);
+  });
+
+  it("shows where each webhook was created, by whom, its probation and a reason the key is gone", async () => {
+    server.webhooks = {
+      list: [
+        hook({ probation: true }),
+        hook({
+          id: `wh_${"c".repeat(32)}`,
+          host: "other.example.com",
+          createdVia: "dashboard",
+          createdBy: null,
+          state: "disabled",
+          disabledReason: "key_unavailable",
+          disabledAt: "2026-11-10T09:00:00.000Z",
+        }),
+        hook({ id: `wh_${"d".repeat(32)}`, host: "third.example.com", createdVia: "some-client" }),
+      ],
+      available: true,
+      attempts: {},
+    };
+    renderDashboard("/webhooks", server);
+    const main = await page();
+    expect(within(main).getByText("Added with the Portifact CLI by Ada Lovelace")).toBeTruthy();
+    expect(within(main).getByText("Added in the dashboard")).toBeTruthy();
+    expect(within(main).getByText("Added through another app by Ada Lovelace")).toBeTruthy();
+    expect(within(main).getByText(/Enabled again after failures/)).toBeTruthy();
+    expect(within(main).getByText(/the key that protects it is no longer available/)).toBeTruthy();
   });
 });

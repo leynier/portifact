@@ -1245,4 +1245,17 @@ export const ru = {
   "webhooks.error.invalid_url": "URL не разрешён",
   "webhooks.error.daily_cap": "достигнут дневной лимит",
   "webhooks.actionFailed": "Не получилось",
+  "webhooks.notOfferedTitle": "Вебхуки пока недоступны",
+  "webhooks.notOffered":
+    "Portifact пока не отправляет вебхуки. Они появятся здесь, когда станут доступны.",
+  "webhooks.reason.key_unavailable":
+    "Отключён: ключ, который его защищает, больше недоступен. Удалите и добавьте его заново.",
+  "webhooks.reason.unavailable": "Отключён: Portifact временно выключил вебхуки",
+  "webhooks.error.key_unavailable": "ключ недоступен",
+  "webhooks.via.dashboard": "Добавлен в панели",
+  "webhooks.via.cli": "Добавлен через CLI Portifact",
+  "webhooks.via.other": "Добавлен через другое приложение",
+  "webhooks.via.by": "автор: {name}",
+  "webhooks.probation":
+    "Снова включён после сбоев: ещё несколько сбоев отключат его, пока доставка не пройдёт успешно.",
 } satisfies Catalog;

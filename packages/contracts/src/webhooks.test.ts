@@ -3,7 +3,6 @@ import { z } from "zod";
 import { TombstoneMarker } from "./jobs.ts";
 import {
   ListWebhooksInput,
-  UpdateWebhookInput,
   WEBHOOK_EVENTS,
   WEBHOOK_FORMAT_NAMES,
   WEBHOOK_LIMITS,
@@ -148,6 +147,9 @@ describe("webhook views and tool inputs", () => {
     disabledAt: at,
     failures: 3,
     createdAt: at,
+    createdVia: "portifact-cli",
+    createdBy: null,
+    probation: true,
     lastAttempt: attempt,
   };
 
@@ -162,11 +164,24 @@ describe("webhook views and tool inputs", () => {
     ]);
     expect(WEBHOOK_FORMAT_NAMES).toEqual(["generic", "slack", "discord"]);
     expect(WebhookState.options).toEqual(["active", "disabled", "paused"]);
-    expect(WebhookDisabledReason.options).toEqual(["manual", "failures", "gone", "invalid_url"]);
+    expect(WebhookDisabledReason.options).toEqual([
+      "manual",
+      "failures",
+      "gone",
+      "invalid_url",
+      "key_unavailable",
+      "unavailable",
+    ]);
     expect(WEBHOOK_LIMITS).toMatchObject({
       perOwner: 10,
       eventsPerDelivery: 50,
-      timeoutMs: 10_000,
+      timeoutMs: 5_000,
+      probationFailures: 3,
+      reenableCooldownMs: 3_600_000,
+      reenablesPerDay: 3,
+      createsPerOwnerPerDay: 20,
+      testsPerOwnerPerHour: 20,
+      enablesPerOwnerPerDay: 20,
       responseReadBytes: 4_096,
       disableAfterFailures: 15,
       attemptsPerOwnerPerDay: 1_000,
@@ -193,12 +208,18 @@ describe("webhook views and tool inputs", () => {
     ]) {
       expect(WebhookView.safeParse(bad).success).toBe(false);
     }
-    expect(WebhookList.parse({ webhooks: [view], available: false, limit: 10 })).toEqual({
-      webhooks: [view],
-      available: false,
-      limit: 10,
-    });
-    expect(WebhookList.safeParse({ webhooks: [], available: true, limit: 0 }).success).toBe(false);
+    expect(
+      WebhookList.parse({ webhooks: [view], available: false, serviceAvailable: false, limit: 10 }),
+    ).toEqual({ webhooks: [view], available: false, serviceAvailable: false, limit: 10 });
+    expect(
+      WebhookList.safeParse({ webhooks: [], available: true, serviceAvailable: true, limit: 0 })
+        .success,
+    ).toBe(false);
+    expect(WebhookList.safeParse({ webhooks: [], available: true, limit: 1 }).success).toBe(false);
+    for (const missing of ["createdVia", "createdBy", "probation"]) {
+      const { [missing]: _, ...rest } = view as Record<string, unknown>;
+      expect(WebhookView.safeParse(rest).success, missing).toBe(false);
+    }
     expect(WebhookCreated.parse({ webhook: view, secret: null })).toEqual({
       webhook: view,
       secret: null,
@@ -231,19 +252,11 @@ describe("webhook views and tool inputs", () => {
     expect(schema(WebhookRef).properties?.webhookId?.description).toBe(
       "The webhook ID, as list_webhooks returns it.",
     );
-    const update = schema(UpdateWebhookInput).properties;
-    expect(update?.webhookId?.description).toBe("The webhook ID, as list_webhooks returns it.");
-    expect(update?.enabled?.description).toBe("true to enable it again, false to stop it.");
-    expect(update?.events?.description).toBe("The event types to send from now on.");
     const create = schema(WebhookCreate).properties;
     expect(create?.url?.description).toBe("The HTTPS URL that receives the events.");
     expect(create?.format?.description).toContain("generic (signed JSON)");
     expect(create?.events?.description).toBe("The event types to send.");
     expect(WebhookRef.safeParse({ webhookId: "nope" }).success).toBe(false);
-    expect(UpdateWebhookInput.parse({ webhookId: ID, enabled: true })).toEqual({
-      webhookId: ID,
-      enabled: true,
-    });
   });
 
   it("refuses a delivery event with an unknown type or a bad count", () => {

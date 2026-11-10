@@ -5,6 +5,7 @@ export * from "./actor.ts";
 export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./budget.ts";
+export * from "./cloudflare-hosts.ts";
 export * from "./comment-notices.ts";
 export * from "./documents.ts";
 export * from "./email.ts";

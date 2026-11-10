@@ -112,7 +112,18 @@ export async function seal(
   return toBase64(out);
 }
 
-/** Opens a sealed value with the key it names; throws when no key held matches or it was altered. */
+/** No key this Worker holds sealed the value: it was sealed with a retired key. */
+export class WebhookKeyUnavailableError extends Error {
+  constructor() {
+    super("No webhook key matches the sealed value");
+    this.name = "WebhookKeyUnavailableError";
+  }
+}
+
+/**
+ * Opens a sealed value with the key it names. Throws `WebhookKeyUnavailableError` when no key held
+ * matches, and a WebCrypto error when the value was altered.
+ */
 export async function open(
   keys: readonly DerivedKey[],
   keyId: string,
@@ -121,7 +132,7 @@ export async function open(
   box: string,
 ): Promise<string> {
   const key = keys.find((candidate) => candidate.id === keyId);
-  if (!key) throw new Error("No webhook key matches the sealed value");
+  if (!key) throw new WebhookKeyUnavailableError();
   const bytes = fromBase64(box);
   const plain = await crypto.subtle.decrypt(
     {

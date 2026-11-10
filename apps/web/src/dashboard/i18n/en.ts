@@ -1212,6 +1212,19 @@ export const en = {
   "webhooks.error.invalid_url": "URL not allowed",
   "webhooks.error.daily_cap": "daily limit reached",
   "webhooks.actionFailed": "That did not work",
+  "webhooks.notOfferedTitle": "Webhooks are not available yet",
+  "webhooks.notOffered":
+    "Portifact does not send webhooks yet. They will appear here once they are offered.",
+  "webhooks.reason.key_unavailable":
+    "Disabled: the key that protects it is no longer available. Remove it and add it again.",
+  "webhooks.reason.unavailable": "Disabled: Portifact turned webhooks off for now",
+  "webhooks.error.key_unavailable": "key unavailable",
+  "webhooks.via.dashboard": "Added in the dashboard",
+  "webhooks.via.cli": "Added with the Portifact CLI",
+  "webhooks.via.other": "Added through another app",
+  "webhooks.via.by": "by {name}",
+  "webhooks.probation":
+    "Enabled again after failures: a few more failures disable it until a delivery succeeds.",
 } as const;
 
 export type MessageId = keyof typeof en;

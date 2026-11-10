@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e9be1d56-34a4-444a-8765-81deb88a6c42",
+  "id": "84f0ef7e-134b-4cfc-a8d3-817a4887a35e",
   "prevId": "49e7c5e0-d02b-4010-bc3e-b1f3dcf2f799",
   "tables": {
     "abuse_reports": {
@@ -3787,6 +3787,43 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
+        },
+        "probation": {
+          "name": "probation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "reenables": {
+          "name": "reenables",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "reenable_day": {
+          "name": "reenable_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_via": {
+          "name": "created_via",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {

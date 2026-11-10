@@ -18,12 +18,13 @@ import {
   rewrapWebhookKeys,
   runJob,
   runMaintenance,
+  stopWebhooksWhileOff,
   webhookKeys,
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
-import { type Fetch, type WebhookEnv, webhookDepsFromEnv } from "./webhooks.ts";
+import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
 
 export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, WebhookEnv {
   DB: D1Database;
@@ -68,6 +69,8 @@ export async function runScheduled(env: Env, now: number, options: { relay?: boo
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
   const relayed = options.relay === false ? "scheduled" : await runRelay(env, now);
   // Webhooks sealed with `WEBHOOK_KEY_PREVIOUS` move to the current key (docs/releasing.md).
+  // Switched off: no webhook stays enabled, so writes record no events (decision 0009).
+  const webhooksStopped = webhooksEnabled(env) ? 0 : await stopWebhooksWhileOff(db, now);
   const webhookKeyRotation = await rewrapWebhookKeys(
     db,
     await webhookKeys({ current: env.WEBHOOK_KEY, previous: env.WEBHOOK_KEY_PREVIOUS }),
@@ -88,6 +91,7 @@ export async function runScheduled(env: Env, now: number, options: { relay?: boo
     prunedAccessEvents,
     webhookKeysRewrapped: webhookKeyRotation.rewrapped,
     webhookKeysLeft: webhookKeyRotation.left,
+    webhooksStopped,
   };
   console.log(JSON.stringify({ event: "maintenance", ...result }));
   return result;
@@ -158,13 +162,13 @@ export async function runQueue(
   const notifier = expiryNotifierFromEnv(env);
   const commentNotifier = commentNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
-  for (const message of batch.messages) {
+  const run = async (message: Message<unknown>) => {
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {
       // Never retried: no delivery can make a malformed message valid.
       console.error(JSON.stringify({ event: "job_malformed", messageId: message.id }));
       message.ack();
-      continue;
+      return;
     }
     try {
       const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, {
@@ -185,7 +189,15 @@ export async function runQueue(
       );
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }
-  }
+  };
+  // Webhook deliveries wait on receivers outside Portifact: they run concurrently with each
+  // other and alongside the rest of the batch, so a slow receiver never delays a purge, a
+  // deletion or a notice in the same batch. The other jobs keep running one after another.
+  const isDelivery = (message: Message<unknown>) =>
+    JobMessage.safeParse(message.body).data?.topic === "webhook_delivery";
+  const deliveries = Promise.all(batch.messages.filter(isDelivery).map(run));
+  for (const message of batch.messages.filter((m) => !isDelivery(m))) await run(message);
+  await deliveries;
 }
 
 export default {

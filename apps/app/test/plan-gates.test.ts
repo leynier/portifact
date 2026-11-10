@@ -48,13 +48,16 @@ afterEach(() => {
 interface Client {
   userId: string;
   apiCall: (path: string, init?: RequestInit) => Promise<Response>;
+  /** The API with the Portifact CLI's `credentials:manage` token, which manages webhooks. */
+  manageCall: (path: string, init?: RequestInit) => Promise<Response>;
   tool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
 /** One operation's answer through the API (status and body) and through MCP (error flag and body). */
 interface Answers {
   api: { status: number; body: unknown };
-  mcp: { ok: boolean; body: unknown };
+  /** Absent for operations no MCP tool offers (managing webhooks, decision 0003's addendum). */
+  mcp?: { ok: boolean; body: unknown };
 }
 
 interface GatedOperation {
@@ -175,21 +178,17 @@ const GATED: GatedOperation[] = [
     (id) => ({ artifactId: id, fromVersionId: "current", path: "index.md" }),
   ),
   {
-    ...route(
-      "webhooks",
-      "create a webhook",
-      () => [
-        "/api/v1/webhooks",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(WEBHOOK),
-        },
-      ],
-      "create_webhook",
-      () => WEBHOOK,
-    ),
+    feature: "webhooks",
+    name: "create a webhook",
     scope: "owner",
+    run: async (who) => {
+      const response = await who.manageCall("/api/v1/webhooks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(WEBHOOK),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
   },
   {
     feature: "webhooks",
@@ -223,7 +222,7 @@ async function onWebhook(who: Client, operation: "enable" | "test"): Promise<Ans
     .from(schema.ownerPlans)
     .where(eq(schema.ownerPlans.ownerId, who.userId));
   await onPlan(who.userId, "pro");
-  const created = await who.apiCall("/api/v1/webhooks", {
+  const created = await who.manageCall("/api/v1/webhooks", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(WEBHOOK),
@@ -236,36 +235,16 @@ async function onWebhook(who: Client, operation: "enable" | "test"): Promise<Ans
       .where(eq(schema.webhooks.id, webhook.id));
   }
   await onPlan(who.userId, plan?.plan ?? "free");
-  const [path, method, body, tool, args] =
+  const [path, method, body] =
     operation === "enable"
-      ? [
-          `/api/v1/webhooks/${webhook.id}`,
-          "PATCH",
-          { enabled: true },
-          "update_webhook",
-          { webhookId: webhook.id, enabled: true },
-        ]
-      : [
-          `/api/v1/webhooks/${webhook.id}/test`,
-          "POST",
-          undefined,
-          "test_webhook",
-          { webhookId: webhook.id },
-        ];
-  const response = await who.apiCall(path, {
+      ? [`/api/v1/webhooks/${webhook.id}`, "PATCH", { enabled: true }]
+      : [`/api/v1/webhooks/${webhook.id}/test`, "POST", undefined];
+  const response = await who.manageCall(path, {
     method,
     headers: { "content-type": "application/json" },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const api = { status: response.status, body: await response.json<unknown>() };
-  if (operation === "enable") {
-    await db()
-      .update(schema.webhooks)
-      .set({ disabledAt: NOW, disabledReason: "manual" })
-      .where(eq(schema.webhooks.id, webhook.id));
-  }
-  const result = await who.tool(tool, args);
-  return { api, mcp: { ok: result.isError !== true, body: result.structuredContent } };
+  return { api: { status: response.status, body: await response.json<unknown>() } };
 }
 
 async function client(email: string): Promise<Client> {
@@ -273,8 +252,10 @@ async function client(email: string): Promise<Client> {
   const apiAccess = await apiToken(h, email, SCOPES);
   const mcp = await connect(h, await mcpToken(h, email, SCOPES));
   const apiCall = (path: string, init?: RequestInit) => api(h, apiAccess, path, init);
+  const manage = await apiToken(h, email, "artifacts:read credentials:manage");
+  const manageCall = (path: string, init?: RequestInit) => api(h, manage, path, init);
   const { userId } = await (await apiCall("/api/v1/me")).json<{ userId: string }>();
-  return { userId, apiCall, tool: (name, args) => callTool(mcp, name, args) };
+  return { userId, apiCall, manageCall, tool: (name, args) => callTool(mcp, name, args) };
 }
 
 async function sha256(text: string) {
@@ -330,11 +311,11 @@ const slug = (op: GatedOperation) =>
 function expectRefused(answers: Answers, feature: PlanFeature, label: string) {
   const body = { error: { code: "plan_required", message: planRequiredMessage(feature) } };
   expect(answers.api, label).toEqual({ status: 403, body });
-  expect(answers.mcp, label).toEqual({ ok: false, body });
+  if (answers.mcp) expect(answers.mcp, label).toEqual({ ok: false, body });
 }
 
 function expectNotRefused(answers: Answers, label: string) {
-  for (const body of [answers.api.body, answers.mcp.body]) {
+  for (const body of [answers.api.body, ...(answers.mcp ? [answers.mcp.body] : [])]) {
     expect((body as { error?: { code?: string } }).error?.code, label).not.toBe("plan_required");
   }
 }

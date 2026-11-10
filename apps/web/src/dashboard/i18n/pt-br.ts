@@ -1242,4 +1242,17 @@ export const ptBR = {
   "webhooks.error.invalid_url": "URL não permitida",
   "webhooks.error.daily_cap": "limite diário atingido",
   "webhooks.actionFailed": "Não deu certo",
+  "webhooks.notOfferedTitle": "Webhooks ainda não estão disponíveis",
+  "webhooks.notOffered":
+    "O Portifact ainda não envia webhooks. Eles aparecerão aqui quando forem oferecidos.",
+  "webhooks.reason.key_unavailable":
+    "Desativado: a chave que o protege não está mais disponível. Remova e adicione de novo.",
+  "webhooks.reason.unavailable": "Desativado: o Portifact desligou os webhooks por enquanto",
+  "webhooks.error.key_unavailable": "chave indisponível",
+  "webhooks.via.dashboard": "Adicionado no painel",
+  "webhooks.via.cli": "Adicionado com a CLI do Portifact",
+  "webhooks.via.other": "Adicionado por meio de outro app",
+  "webhooks.via.by": "por {name}",
+  "webhooks.probation":
+    "Ativado de novo após falhas: mais algumas falhas o desativam até uma entrega dar certo.",
 } satisfies Catalog;

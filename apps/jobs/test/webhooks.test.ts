@@ -16,7 +16,7 @@ const NOW = Date.UTC(2026, 10, 10, 9);
 const KEY = "test-only jobs webhook sealing key, long enough";
 const NEXT_KEY = "the next test-only jobs webhook sealing key";
 const db = () => regionsFromEnv(env).get("default").db;
-const keyed = { ...env, WEBHOOK_KEY: KEY };
+const keyed = { ...env, WEBHOOK_KEY: KEY, WEBHOOKS_ENABLED: "true" };
 
 async function hookWithTest() {
   const ownerId = `u_${crypto.randomUUID()}`;
@@ -41,11 +41,18 @@ async function hookWithTest() {
       events: ["artifact.published"],
     },
     keys: await webhookKeys({ current: KEY }),
+    service: { enabled: true },
+    via: "dashboard",
     now: NOW,
   });
   if (!created.ok) throw new Error(created.message);
   const webhookId = created.value.webhook.id;
-  const queued = await sendTestEvent(db(), { actor: personalActor(ownerId), webhookId, now: NOW });
+  const queued = await sendTestEvent(db(), {
+    service: { enabled: true },
+    actor: personalActor(ownerId),
+    webhookId,
+    now: NOW,
+  });
   if (!queued.ok) throw new Error(queued.message);
   const [job] = await db().select().from(schema.outbox).where(eq(schema.outbox.subject, webhookId));
   if (!job) throw new Error("no job");
@@ -130,7 +137,7 @@ describe("webhook deliveries in the jobs Worker", () => {
     const { webhookId } = await hookWithTest();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const result = await runScheduled(
-      { ...env, WEBHOOK_KEY: NEXT_KEY, WEBHOOK_KEY_PREVIOUS: KEY },
+      { ...keyed, WEBHOOK_KEY: NEXT_KEY, WEBHOOK_KEY_PREVIOUS: KEY },
       NOW,
       {
         relay: false,
@@ -140,11 +147,78 @@ describe("webhook deliveries in the jobs Worker", () => {
     expect(result.relayed).toBe("scheduled");
     expect(result.webhookKeysRewrapped).toBeGreaterThanOrEqual(1);
     expect(result.webhookKeysLeft).toBe(0);
+    expect(result.webhooksStopped).toBe(0);
     const [current] = await webhookKeys({ current: NEXT_KEY });
     const [row] = await db()
       .select()
       .from(schema.webhooks)
       .where(eq(schema.webhooks.id, webhookId));
     expect(row?.keyId).toBe(current?.id);
+  });
+});
+
+describe("webhooks switched off and the consumer batch", () => {
+  it("delivers nothing without WEBHOOKS_ENABLED, and the schedule stops every webhook", async () => {
+    const { webhookId, job } = await hookWithTest();
+    const fetcher = vi.fn(async () => new Response("ok"));
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    // The key alone is not enough: the switch must be exactly "true".
+    for (const value of [undefined, "1", "yes", "TRUE"]) {
+      expect((await webhookDepsFromEnv({ ...keyed, WEBHOOKS_ENABLED: value })).enabled).toBe(false);
+    }
+    expect((await webhookDepsFromEnv(keyed)).enabled).toBe(true);
+    await runQueue(batchOf(job), { ...env, WEBHOOK_KEY: KEY }, NOW, fetcher);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(await db().select().from(schema.outbox).where(eq(schema.outbox.id, job.id))).toEqual([]);
+    const result = await runScheduled({ ...env, WEBHOOK_KEY: KEY }, NOW, { relay: false });
+    log.mockRestore();
+    expect(result.webhooksStopped).toBeGreaterThanOrEqual(1);
+    const [row] = await db()
+      .select()
+      .from(schema.webhooks)
+      .where(eq(schema.webhooks.id, webhookId));
+    expect(row?.disabledReason).toBe("unavailable");
+  });
+
+  it("runs the batch's other jobs while a slow receiver holds its delivery", async () => {
+    const { job } = await hookWithTest();
+    // A purge job of an artifact already gone: it only deletes its row.
+    const [purge] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "purge_artifact",
+        payload: {},
+        availableAt: NOW,
+        subject: "gone234567",
+        generation: 1,
+      })
+      .returning();
+    let purgedFirst = false;
+    const slow = async () => {
+      // Waits up to two seconds for the purge to finish: with the jobs run one after another,
+      // behind this delivery, it never would.
+      for (let i = 0; i < 40 && !purgedFirst; i += 1) {
+        const left = await db()
+          .select()
+          .from(schema.outbox)
+          .where(eq(schema.outbox.id, purge?.id ?? 0));
+        purgedFirst = left.length === 0;
+        if (!purgedFirst) await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return new Response("ok");
+    };
+    const batch = createMessageBatch("portifact-jobs", [
+      { id: "m0", timestamp: NOW, attempts: 1, body: { id: job.id, topic: "webhook_delivery" } },
+      {
+        id: "m1",
+        timestamp: NOW,
+        attempts: 1,
+        body: { id: purge?.id ?? 0, topic: "purge_artifact" },
+      },
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await runQueue(batch, keyed, NOW, slow);
+    log.mockRestore();
+    expect(purgedFirst).toBe(true);
   });
 });

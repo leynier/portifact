@@ -38,6 +38,12 @@ export interface Env {
    * with the same secret. Without it creating a webhook answers 503.
    */
   WEBHOOK_KEY?: string | undefined;
+  /**
+   * Exactly `"true"` offers webhooks (decision 0009, "Switched off"): unset in the deployed
+   * configuration until the checks in docs/releasing.md pass. Without it, creating, enabling
+   * and testing a webhook answer 503.
+   */
+  WEBHOOKS_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

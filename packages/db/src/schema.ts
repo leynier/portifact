@@ -961,7 +961,14 @@ export const commentNotices = sqliteTable(
 /** Formats a webhook delivers in (decision 0009). */
 export const WEBHOOK_FORMATS = ["generic", "slack", "discord"] as const;
 /** Why a webhook stopped: an admin, repeated failures, a 410 from the receiver, or a URL that no longer passes. */
-export const WEBHOOK_DISABLED_REASONS = ["manual", "failures", "gone", "invalid_url"] as const;
+export const WEBHOOK_DISABLED_REASONS = [
+  "manual",
+  "failures",
+  "gone",
+  "invalid_url",
+  "key_unavailable",
+  "unavailable",
+] as const;
 
 /**
  * Webhooks of an owner (decision 0009, packages/services/src/webhooks.ts): HTTPS destinations
@@ -987,6 +994,15 @@ export const webhooks = sqliteTable(
     disabledReason: text("disabled_reason", { enum: WEBHOOK_DISABLED_REASONS }),
     /** Failed attempts in a row; reset by a success and by enabling the webhook again. */
     failures: integer("failures").notNull().default(0),
+    /** Enabled again after a disable: a few failures disable it again until one success. */
+    probation: integer("probation", { mode: "boolean" }).notNull().default(false),
+    /** Times it was enabled again on `reenable_day` (a UTC day start). */
+    reenables: integer("reenables").notNull().default(0),
+    reenableDay: timestamp("reenable_day"),
+    /** Who created it (no foreign key: cleared when the account is deleted). */
+    createdBy: text("created_by"),
+    /** `dashboard`, or the OAuth client that created it (the Portifact CLI). */
+    createdVia: text("created_via").notNull(),
   },
   (t) => [
     index("webhooks_owner_idx").on(t.ownerId),
