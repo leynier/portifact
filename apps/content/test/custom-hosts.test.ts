@@ -187,7 +187,7 @@ const FROM_APP = {
 
 interface Send {
   headers?: Record<string, string>;
-  cookie?: string;
+  cookie?: string | undefined;
   env?: Env;
   traffic?: TrafficCharge[];
   openings?: Opening[];

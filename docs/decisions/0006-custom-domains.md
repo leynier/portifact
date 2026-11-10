@@ -1,6 +1,6 @@
 # 0006 Custom domains
 
-- Status: accepted; first part of P7 implemented on 2026-11-10 (see "Implementation notes")
+- Status: accepted; implemented on 2026-11-10 in two parts (see "Implementation notes"), switched off until the maintainer's checklist
 - Date: 2026-11-09
 - Spike: [spikes/custom-domains](../../spikes/custom-domains)
 
@@ -206,3 +206,18 @@ The first part of P7 (2026-11-10) covers the data model, the proof, the operatio
 - **States in the API.** Views show `pending` for a claim and `removing` for `detaching`, and carry `problem` (`txt_missing`, `certificate_pending`, `cloudflare_unavailable`), stored on the row for proven domains.
 - **Extra surface.** `get_custom_domain` mirrors `GET /api/v1/domains/:hostname` and `portifact domains info`; `GET /api/v1/domains` and `list_custom_domains` take an optional `artifactId`, which the dashboard uses with the owner's plan.
 - **Not yet.** The operator block list of names (section 7) and an email when a daily check starts missing are not implemented.
+
+### Second part: serving on custom hosts (2026-11-10)
+
+Delivery in the content Worker, codes bound to their host, the viewer, the canonical redirect, `customHost` in the artifact views, the zone apex rule, the operator's block list and the downgrade email. Where it differs from or settles what the record above left open:
+
+- **The viewer frames the custom host** for a visitor who may read the artifact (the record's recommendation, now decided), and the `.dev` origin for everyone else. The cookie consequences are the same as on `.dev`: the review cookie is partitioned under the app's site whatever the frame's origin, so Chromium (third-party cookies blocked, CHIPS allowed) and Firefox with partitioned cookies keep review mode in the frame, and Firefox with third-party cookies blocked falls back to the review tab, which opens on the custom host (`e2e/tests/custom-host.spec.ts` checks the three projects that run locally; WebKit's project needs a system library this machine lacks). Framing `.dev` instead would make the artifact run on another origin in the viewer than on its own address (its storage, sign-ins and CORS allowlists would differ), which the record rejected.
+- **Share links open on the custom host** when one is active (the record did not say): the code is bound to that host, and since a link session lives on the origin it opened on, the canonical redirect never applies to it.
+- **The canonical redirect follows the owner's bar, not a browser's opt-out:** with the bar on and "Open without the Portifact bar" chosen on `.dev`, the visitor stays on `.dev`, because the custom host would show them the viewer again. It is charged as a request without bytes and is neither a view nor an opening.
+- **Codes carry a nullable `host`:** null is a code issued before the column existed and counts as the `.dev` host's, so the app and the content Worker can be deployed in either order.
+- **The content Worker reads the switch too:** `CUSTOM_DOMAINS_ENABLED` must be `"true"` on `portifact-content` for any custom host to be served or any `.dev` link redirected; it gets no token.
+- **Apex domains are refused through DNS, not the Public Suffix List:** Cloudflare's documentation (read 2026-11-10: "Getting started" says customers need "a CNAME record at their authoritative DNS that points to your CNAME target" and that an A record "is not a supported setup" without apex proxying; the apex proxying page says only certain customers have it and that "most DNS providers do not allow CNAME records at the zone's root") means a zone apex can never work. A name whose SOA query answers its own SOA is the apex of a zone, whatever its suffix, so `example.co.uk` is refused at adding and again before Cloudflare. The fewer-than-three-labels rule stays as a check that needs no network.
+- **Provisioning grace: 2 days** instead of 7. HTTP validation takes minutes once the CNAME is in place, and a pending hostname is billed.
+- **Downgrade email:** sent once per detach time to the owner (each admin of a workspace) while the grace still covers the domains, without an opt-out (it is about losing part of a paid plan), with suppression, the notice capacity and counting like the other notices.
+- **Block list:** `blocked_hostnames`, a name blocking itself and every name under it, checked at adding, verifying and the daily check; operator `block-domain`, `unblock-domain`, `blocked-domains`.
+- **Customer sibling subdomains:** nothing protects `docs.example.com` from cookies `www.example.com` sets for `example.com`; they grant nothing (authorization reads exact `__Host-` names only) but can fill the visitor's cookie jar. The injected-cookie cleanup stays on the content domain, as the record said; on a custom host it is the customer's own domain.

@@ -103,9 +103,10 @@ test("review mode runs in the viewer's frame on the custom host where the browse
       .poll(() => frameOf()?.url() ?? "", { timeout: 20_000 })
       .toBe(`https://${hostname}/`);
     const frame = frameOf();
+    if (!frame) throw new Error("the viewer never framed the custom host");
     // The bridge is in the page: the review code redeemed on the custom host it was issued for.
-    await expect(frame?.locator('script[src^="/__portifact/bridge.js"]') as never).toHaveCount(1);
-    await expect(frame?.locator("#where") as never).toHaveText(hostname);
+    await expect(frame.locator('script[src^="/__portifact/bridge.js"]')).toHaveCount(1);
+    await expect(frame.locator("#where")).toHaveText(hostname);
   } else {
     // Without partitioned cookies in frames the viewer falls back, as on `.dev`.
     await expect(page.getByRole("button", { name: /review tab/i }).first()).toBeVisible({
