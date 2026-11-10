@@ -4,8 +4,11 @@ import {
   AUDIT_KINDS,
   AUDIT_LIMITS,
   AUDIT_TARGETS,
+  AuditActorView,
   AuditEventView,
+  AuditLogView,
   AuditQuery,
+  DOMAIN_DETACH_REASONS,
   GetAuditLogInput,
 } from "./audit.ts";
 import { PLANS } from "./plans.ts";
@@ -91,5 +94,112 @@ describe("queries", () => {
         actor: { type: "removed_member", id: "u_1", name: "x" },
       }).data?.actor,
     ).toEqual({ type: "removed_member", id: "u_1" });
+  });
+});
+
+describe("the catalog's exact shapes", () => {
+  it("names each kind's target", () => {
+    expect(AUDIT_TARGETS).toEqual({
+      "artifact.published": "artifact",
+      "artifact.rolled_back": "artifact",
+      "artifact.renewed": "artifact",
+      "artifact.archived": "artifact",
+      "artifact.restored": "artifact",
+      "artifact.deleted": "artifact",
+      "artifact.pinned": "artifact",
+      "artifact.unpinned": "artifact",
+      "artifact.transferred_in": "artifact",
+      "artifact.transferred_out": "artifact",
+      "access.changed": "artifact",
+      "share_link.created": "share_link",
+      "share_link.revoked": "share_link",
+      "domain.attached": "artifact",
+      "domain.removed": "artifact",
+      "webhook.created": "webhook",
+      "webhook.changed": "webhook",
+      "webhook.removed": "webhook",
+      "brand.changed": "brand",
+      "brand.removed": "brand",
+      "member.invited": "invitation",
+      "member.invitation_revoked": "invitation",
+      "member.joined": "member",
+      "member.role_changed": "member",
+      "member.removed": "member",
+      "member.left": "member",
+      "plan.granted": "plan",
+      "plan.removed": "plan",
+    });
+  });
+
+  it("bounds counts, domains and identifiers", () => {
+    const access = AUDIT_DETAILS["access.changed"];
+    expect(access.safeParse({ readersAdded: 0 }).success).toBe(true);
+    expect(access.safeParse({ readersAdded: 500 }).success).toBe(true);
+    expect(access.safeParse({ readersAdded: 501 }).success).toBe(false);
+    expect(access.safeParse({ readersAdded: 1.5 }).success).toBe(false);
+    expect(access.safeParse({ readerDomains: ["corp.example"] }).success).toBe(true);
+    expect(access.safeParse({ readerDomains: [""] }).success).toBe(false);
+    const attached = AUDIT_DETAILS["domain.attached"];
+    expect(attached.safeParse({ hostname: "a" }).success).toBe(true);
+    expect(attached.safeParse({ hostname: "a".repeat(253) }).success).toBe(true);
+    expect(attached.safeParse({ hostname: "a".repeat(254) }).success).toBe(false);
+    expect(attached.safeParse({ hostname: "x.example extra" }).success).toBe(false);
+    expect(AUDIT_DETAILS["artifact.published"].safeParse({ version: 1, first: true }).success).toBe(
+      true,
+    );
+    expect(
+      AUDIT_DETAILS["domain.removed"].safeParse({ hostname: "a.example", reason: "removed" })
+        .success,
+    ).toBe(true);
+    expect(
+      AUDIT_DETAILS["plan.granted"].safeParse({ plan: "team", seats: 2, validUntil: null }).success,
+    ).toBe(true);
+    for (const value of ["a", "x".repeat(200)]) {
+      expect(AuditQuery.safeParse({ actor: value, target: value, cursor: value }).success).toBe(
+        true,
+      );
+      expect(GetAuditLogInput.safeParse({ actor: value, workspace: "w" }).success).toBe(true);
+    }
+    expect(AuditQuery.safeParse({ actor: "" }).success).toBe(false);
+    expect(AuditQuery.safeParse({ actor: "x".repeat(201) }).success).toBe(false);
+    expect(AuditQuery.safeParse({ cursor: "x".repeat(201) }).success).toBe(false);
+    expect(GetAuditLogInput.safeParse({ workspace: "w".repeat(40) }).success).toBe(true);
+    expect(GetAuditLogInput.safeParse({ workspace: "w".repeat(41) }).success).toBe(false);
+    expect(GetAuditLogInput.safeParse({ kinds: [] }).success).toBe(false);
+    expect(GetAuditLogInput.parse({ limit: 1 }).limit).toBe(1);
+  });
+
+  it("describes every MCP input for agents", () => {
+    for (const [name, field] of Object.entries(GetAuditLogInput.shape)) {
+      expect(field.description, name).toMatch(/\w{3,}/);
+    }
+  });
+
+  it("shows actors and the page with their fields", () => {
+    expect(
+      AuditLogView.parse({
+        owner: { kind: "personal" },
+        events: [],
+        nextCursor: null,
+        retentionDays: 90,
+      }),
+    ).toEqual({ owner: { kind: "personal" }, events: [], nextCursor: null, retentionDays: 90 });
+    expect(
+      AuditLogView.safeParse({
+        owner: { kind: "personal" },
+        events: [],
+        nextCursor: null,
+        retentionDays: -1,
+      }).success,
+    ).toBe(false);
+    expect(AuditActorView.parse({ type: "member", id: "u", name: "Ada" })).toEqual({
+      type: "member",
+      id: "u",
+      name: "Ada",
+    });
+    expect(AuditActorView.safeParse({ type: "member", id: "u" }).success).toBe(false);
+    expect(AuditActorView.parse({ type: "operator" })).toEqual({ type: "operator" });
+    expect(AuditActorView.parse({ type: "system" })).toEqual({ type: "system" });
+    expect(DOMAIN_DETACH_REASONS).toContain("plan_limit");
   });
 });

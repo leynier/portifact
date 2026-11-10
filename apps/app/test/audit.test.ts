@@ -168,4 +168,66 @@ describe("reading the audit log", () => {
     );
     expect((await api(h, writeOnly, "/api/v1/audit")).status).toBe(403);
   });
+
+  it("passes every filter through, and the tool's text names each kind of actor and target", async () => {
+    const t = await workspace("team");
+    const row = (id: string, at: number, extra: Record<string, unknown>) => ({
+      id,
+      ownerId: t.id,
+      at,
+      kind: "artifact.archived",
+      actorType: "user" as const,
+      actorId: t.admin.userId,
+      targetId: "abcdefghij",
+      artifactId: "abcdefghij",
+      detail: {},
+      ...extra,
+    });
+    await db()
+      .insert(schema.auditEvents)
+      .values([
+        row("ae_one", NOW - 500, {}),
+        row("ae_two", NOW - 400, {
+          actorType: "operator",
+          actorId: null,
+          kind: "plan.removed",
+          targetId: t.id,
+          artifactId: null,
+        }),
+        row("ae_three", NOW - 300, {
+          actorId: "u_gone",
+          kind: "webhook.removed",
+          targetId: "wh_1",
+          artifactId: null,
+        }),
+        row("ae_four", NOW - 200, {
+          actorType: "system",
+          actorId: null,
+          kind: "share_link.revoked",
+          targetId: null,
+          artifactId: null,
+        }),
+      ]);
+    const query = `?workspace=${t.slug}&actor=${t.admin.userId}&target=abcdefghij&from=${new Date(NOW - 600).toISOString()}&to=${new Date(NOW).toISOString()}`;
+    const filtered = await (await t.admin.apiCall(`/api/v1/audit${query}`)).json<{
+      events: { id: string }[];
+    }>();
+    expect(filtered.events.map((e) => e.id)).toEqual(["ae_one"]);
+
+    const tool = await t.admin.tool("get_audit_log", { workspace: t.slug, limit: 4 });
+    const text = (tool.content as { text: string }[])[0]?.text ?? "";
+    expect(text).toMatch(/artifact\.archived by .* abcdefghij/);
+    expect(text).toContain("plan.removed by operator plan");
+    expect(text).toContain("webhook.removed by a removed member webhook wh_1");
+    expect(text).toContain("share_link.revoked by system");
+    expect(text).toContain("More events: call again with cursor set to nextCursor.");
+
+    const none = await t.admin.tool("get_audit_log", {
+      workspace: t.slug,
+      kinds: ["brand.changed"],
+    });
+    expect((none.content as { text: string }[])[0]?.text).toContain(
+      "No audit events in the last 90 days match.",
+    );
+  });
 });

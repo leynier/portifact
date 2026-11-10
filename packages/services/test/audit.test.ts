@@ -21,7 +21,7 @@ import {
   processAccountDeletions,
   requestAccountDeletion,
 } from "../src/account-data.ts";
-import { getAuditLog, pruneAuditEvents } from "../src/audit.ts";
+import { GLOBAL_AUDIT_KINDS, getAuditLog, pruneAuditEvents } from "../src/audit.ts";
 import { applyTombstones } from "../src/backups.ts";
 import { deleteBrand, removeBrandLogo, setBrandLogo, updateBrand } from "../src/branding.ts";
 import { addCustomDomain, removeCustomDomain, verifyCustomDomain } from "../src/custom-domains.ts";
@@ -360,7 +360,7 @@ describe("share link events", () => {
         password: "correct horse",
       }),
     );
-    value(await revokeShareLink(db(), { ...at(owner.id, artifactId), linkId: link.id }));
+    value(await revokeShareLink(db(), { ...at(owner.id, artifactId, NOW + 1), linkId: link.id }));
     expect((await revokeShareLink(db(), { ...at(owner.id, artifactId), linkId: link.id })).ok).toBe(
       false,
     );
@@ -1088,5 +1088,113 @@ describe("what events never hold", () => {
     ]) {
       expect(everything).not.toContain(forbidden);
     }
+  });
+});
+
+describe("edges of reading and pruning", () => {
+  async function insert(
+    ownerId: string,
+    rows: { id: string; at: number; kind: AuditKind; actorId?: string; detail?: object }[],
+  ) {
+    for (let i = 0; i < rows.length; i += 10) {
+      await db()
+        .insert(schema.auditEvents)
+        .values(
+          rows.slice(i, i + 10).map((row) => ({
+            id: row.id,
+            ownerId,
+            at: row.at,
+            kind: row.kind,
+            actorType: "user" as const,
+            actorId: row.actorId ?? ownerId,
+            targetId: ownerId,
+            detail: row.detail ?? {},
+          })),
+        );
+    }
+  }
+
+  it("lists which kinds live in the global database", () => {
+    expect([...GLOBAL_AUDIT_KINDS].sort()).toEqual(
+      [
+        "domain.attached",
+        "domain.removed",
+        "member.invited",
+        "member.invitation_revoked",
+        "member.joined",
+        "member.role_changed",
+        "member.removed",
+        "member.left",
+        "plan.granted",
+        "plan.removed",
+      ].sort(),
+    );
+  });
+
+  it("orders events at the same moment by ID, newest first, across both databases and the export", async () => {
+    const owner = await teamPlan();
+    await insert(owner.id, [
+      { id: "ae_a", at: NOW, kind: "artifact.renewed" },
+      { id: "ae_c", at: NOW, kind: "plan.removed" },
+      { id: "ae_b", at: NOW, kind: "artifact.archived" },
+      { id: "ae_d", at: NOW - 1, kind: "plan.removed" },
+    ]);
+    const page = value(await read(personalActor(owner.id)));
+    expect(page.events.map((e) => e.id)).toEqual(["ae_c", "ae_b", "ae_a", "ae_d"]);
+    const exported = value(await exportAccount(db(), { userId: owner.id, now: NOW }));
+    expect(exported.account.auditEvents.map((e) => e.id)).toEqual(["ae_c", "ae_b", "ae_a", "ae_d"]);
+    const first = value(await read(personalActor(owner.id), {}, { limit: 2 }));
+    expect(first.events.map((e) => e.id)).toEqual(["ae_c", "ae_b"]);
+    const second = value(
+      await read(personalActor(owner.id), {}, { cursor: first.nextCursor ?? "", limit: 2 }),
+    );
+    expect(second.events.map((e) => e.id)).toEqual(["ae_a", "ae_d"]);
+    expect(second.nextCursor).toBeNull();
+    const exact = value(await read(personalActor(owner.id), {}, { limit: 4 }));
+    expect(exact.nextCursor).toBeNull();
+  });
+
+  it("clamps the page between one and the cap", async () => {
+    const owner = await teamPlan();
+    await insert(
+      owner.id,
+      Array.from({ length: 101 }, (_, i) => ({
+        id: `ae_${String(i).padStart(4, "0")}`,
+        at: NOW - i,
+        kind: "artifact.renewed" as const,
+      })),
+    );
+    expect(value(await read(personalActor(owner.id), {}, { limit: 0 })).events).toHaveLength(1);
+    const capped = value(await read(personalActor(owner.id), {}, { limit: 1000 }));
+    expect(capped.events).toHaveLength(100);
+    expect(capped.nextCursor).not.toBeNull();
+  });
+
+  it("shows another account in a personal space as a removed member", async () => {
+    const owner = await teamPlan();
+    const other = await user("Zed");
+    await insert(owner.id, [{ id: "ae_x", at: NOW, kind: "artifact.renewed", actorId: other.id }]);
+    expect(value(await read(personalActor(owner.id))).events[0]?.actor).toEqual({
+      type: "removed_member",
+      id: other.id,
+    });
+  });
+
+  it("prunes in bounded batches, a run at a time", async () => {
+    const owner = await user();
+    const old = NOW - 100 * DAY;
+    await insert(
+      owner.id,
+      Array.from({ length: 450 }, (_, i) => ({
+        id: `ae_old${String(i).padStart(4, "0")}`,
+        at: old - i,
+        kind: "artifact.renewed" as const,
+      })),
+    );
+    await insert(owner.id, [{ id: "ae_new", at: NOW, kind: "artifact.renewed" }]);
+    expect(await pruneAuditEvents(db(), global(), NOW, 1)).toBe(200);
+    expect(await events(owner.id)).toHaveLength(251);
+    expect(await pruneAuditEvents(db(), global(), NOW, 5)).toBe(250);
+    expect((await events(owner.id)).map((row) => row.id)).toEqual(["ae_new"]);
   });
 });
