@@ -267,6 +267,9 @@ reason(
 reason("an issue request is recorded once the job creates the issue (issue.created)", [
   "requestThreadIssue",
 ]);
+reason("restores re-apply removals already recorded (operator only)", [
+  "applyIntegrationTombstones",
+]);
 reason("scheduled jobs and their consequences of changes already recorded", [
   "requeueThreadIssues",
   "rewrapIntegrationKeys",

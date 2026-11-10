@@ -2482,6 +2482,13 @@ export const de = {
     "Kommentartext geht als reiner Text: Erwähnungen, Links und Bilder darin bewirken nichts. Er wird beim Erstellen des Issues neu gelesen, also wird eine spätere Änderung gesendet.",
   "issues.dialog.never":
     "Nie gesendet: E-Mail-Adressen der Lesenden, der Inhalt des Artifacts, andere Nachrichten des Threads oder Prüfnotizen.",
+  "issues.dialog.visible":
+    "Alle, die diesen Thread sehen, auch Lesende außerhalb Ihres Teams, sehen den Link des erstellten Issues und den Namen seines Repositorys oder Teams, auch bei einem privaten Repository.",
+  "issues.failure.target_removed":
+    "ein Admin hat dieses Repository oder Team aus der Verbindung entfernt.",
+  "issues.failure.artifact_moved": "das Artifact wurde in einen anderen Bereich verschoben.",
+  "issues.failure.requester_left": "Sie können für diesen Bereich keine Issues mehr erstellen.",
+  "issues.failure.thread_gone": "der Thread wurde gelöscht.",
   "issues.dialog.eu":
     "Dieser Bereich speichert seine Daten in der EU. Was Sie senden, geht an {service}, außerhalb der EU.",
   "issues.dialog.submit": "Issue erstellen",

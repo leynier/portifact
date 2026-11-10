@@ -2493,6 +2493,13 @@ export const fr = {
     "Le texte des commentaires part en texte brut : les mentions, liens et images qu'il contient ne font rien. Il est relu à la création du ticket, donc une modification ultérieure est ce qui part.",
   "issues.dialog.never":
     "Jamais envoyés : les adresses e-mail des lecteurs, le contenu de l'artifact, les autres messages du fil ou les notes de relecture.",
+  "issues.dialog.visible":
+    "Toute personne qui voit ce fil, y compris les lecteurs extérieurs à votre équipe, voit le lien du ticket créé et le nom de son dépôt ou de son équipe, même pour un dépôt privé.",
+  "issues.failure.target_removed":
+    "un administrateur a retiré ce dépôt ou cette équipe de la connexion.",
+  "issues.failure.artifact_moved": "l'artifact a été déplacé vers un autre espace.",
+  "issues.failure.requester_left": "vous ne pouvez plus créer de tickets pour cet espace.",
+  "issues.failure.thread_gone": "le fil a été supprimé.",
   "issues.dialog.eu":
     "Cet espace garde ses données dans l'UE. Ce que vous envoyez va chez {service}, hors de l'UE.",
   "issues.dialog.submit": "Créer le ticket",

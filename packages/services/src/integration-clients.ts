@@ -127,11 +127,26 @@ async function call(
       if (response.status >= 200 && response.status < 300) return { kind: "invalid_response" };
     }
   }
+  // GitHub's primary limit says so in its headers; its secondary limit answers 403 (or 429),
+  // sometimes without `Retry-After`, with a message that names the rate limit.
   const remaining = response.headers.get("x-ratelimit-remaining");
+  const message = record(json)?.message;
   const rateLimited =
     (response.status === 403 || response.status === 429) &&
-    (remaining === "0" || response.headers.has("retry-after"));
+    (remaining === "0" ||
+      response.headers.has("retry-after") ||
+      (typeof message === "string" && /rate limit/i.test(message)));
   return { kind: "answer", status: response.status, json, rateLimited };
+}
+
+/** `owner/repo` as a URL path, each part encoded. */
+function repoPath(target: string): string {
+  return target.split("/").map(encodeURIComponent).join("/");
+}
+
+/** The JSON of an answer the classification accepted (only a 2xx answer gets that far). */
+function okJson(answer: Answer): unknown {
+  return (answer as { json: unknown }).json;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -147,7 +162,7 @@ function graphqlError(json: unknown): IntegrationCallResult | null {
   const text = errors
     .map((error) => {
       const extensions = record(record(error)?.extensions);
-      return `${extensions?.code ?? ""} ${extensions?.type ?? ""}`;
+      return `${String(extensions?.code)} ${String(extensions?.type)}`;
     })
     .join(" ")
     .toLowerCase();
@@ -189,7 +204,7 @@ async function linear(
 }
 
 function linearData(answer: Answer): Record<string, unknown> | null {
-  return answer.kind === "answer" ? record(record(answer.json)?.data) : null;
+  return record(record(okJson(answer))?.data);
 }
 
 // Checking a credential
@@ -211,6 +226,13 @@ function problemOf(result: IntegrationCallResult): IntegrationCheckProblem {
       return "service_unavailable";
   }
 }
+
+/** Problems a repository check reports as they are; any other refusal means unreachable. */
+const KEPT_PROBLEMS: ReadonlySet<IntegrationCheckProblem> = new Set([
+  "credential_rejected",
+  "service_unavailable",
+  "rate_limited",
+]);
 
 const identityOf = (value: unknown) =>
   typeof value === "string" ? plainLine(value, INTEGRATION_LIMITS.identityMax) : null;
@@ -244,33 +266,28 @@ export async function checkCredential(
         target: null,
       };
     }
-    const identity = identityOf(record(user.kind === "answer" ? user.json : null)?.login);
+    const identity = identityOf(record(okJson(user))?.login);
     if (identity === null) return { ok: false, problem: "service_unavailable", target: null };
     const reached: IntegrationTarget[] = [];
     for (const target of targets) {
-      const [owner, name] = target.split("/");
       const repo = await call(
         service,
         credential,
-        `${INTEGRATION_API.github}/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}`,
+        `${INTEGRATION_API.github}/repos/${repoPath(target)}`,
         { method: "GET" },
         options,
       );
       const repoResult = resultOf(repo, service);
       if (classifyIntegrationCall(repoResult).outcome !== "ok") {
+        // A repository the token cannot see answers 403 or 404: unreachable, whatever else.
         const problem = problemOf(repoResult);
         return {
           ok: false,
-          problem:
-            problem === "credential_rejected"
-              ? problem
-              : problem === "service_unavailable" || problem === "rate_limited"
-                ? problem
-                : "target_unreachable",
+          problem: KEPT_PROBLEMS.has(problem) ? problem : "target_unreachable",
           target,
         };
       }
-      const body = record(repo.kind === "answer" ? repo.json : null);
+      const body = record(okJson(repo));
       if (body?.has_issues === false) return { ok: false, problem: "issues_disabled", target };
       const fullName = typeof body?.full_name === "string" ? body.full_name : target;
       // GitHub's own spelling, when it is the same repository in another case.
@@ -325,14 +342,14 @@ export type IssueCallOutcome =
   | { kind: "absent" }
   | { kind: "failed"; verdict: IntegrationVerdict };
 
-function failedOf(result: IntegrationCallResult): IssueCallOutcome {
+function failedOf(result: IntegrationCallResult): { kind: "failed"; verdict: IntegrationVerdict } {
   return { kind: "failed", verdict: classifyIntegrationCall(result) };
 }
 
-const invalid = (): IssueCallOutcome => failedOf({ kind: "invalid_response" });
+const invalid = () => failedOf({ kind: "invalid_response" });
 
 /** The created issue's key and URL from GitHub's answer, validated, or an invalid response. */
-function githubIssue(json: unknown, target: string): IssueCallOutcome {
+function githubIssue(json: unknown, target: string): Exclude<IssueCallOutcome, { kind: "absent" }> {
   const body = record(json);
   const key = checkIssueKey("github", body?.number);
   if (!key.ok) return invalid();
@@ -343,11 +360,13 @@ function githubIssue(json: unknown, target: string): IssueCallOutcome {
   return url.ok ? { kind: "created", key: key.value, url: url.value } : invalid();
 }
 
-function linearIssue(issue: unknown): IssueCallOutcome {
+function linearIssue(issue: unknown): Exclude<IssueCallOutcome, { kind: "absent" }> {
   const body = record(issue);
   const key = checkIssueKey("linear", body?.identifier);
-  const url = checkIssueUrl("linear", body?.url, { target: "" });
-  return key.ok && url.ok ? { kind: "created", key: key.value, url: url.value } : invalid();
+  if (!key.ok) return invalid();
+  // The link must be the issue Linear just named, not another one.
+  const url = checkIssueUrl("linear", body?.url, { target: "", key: key.value });
+  return url.ok ? { kind: "created", key: key.value, url: url.value } : invalid();
 }
 
 /** Creates the issue. */
@@ -356,19 +375,18 @@ export async function createIssue(
   credential: string,
   input: { target: string; title: string; body: string },
   options: CallOptions,
-): Promise<IssueCallOutcome> {
+): Promise<Exclude<IssueCallOutcome, { kind: "absent" }>> {
   if (service === "github") {
-    const [owner, name] = input.target.split("/");
     const answer = await call(
       service,
       credential,
-      `${INTEGRATION_API.github}/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}/issues`,
+      `${INTEGRATION_API.github}/repos/${repoPath(input.target)}/issues`,
       { method: "POST", body: JSON.stringify({ title: input.title, body: input.body }) },
       options,
     );
     const result = resultOf(answer, service);
     if (classifyIntegrationCall(result).outcome !== "ok") return failedOf(result);
-    return githubIssue(answer.kind === "answer" ? answer.json : null, input.target);
+    return githubIssue(okJson(answer), input.target);
   }
   const answer = await linear(
     credential,
@@ -393,29 +411,39 @@ export async function createIssue(
 export async function findIssue(
   service: IntegrationService,
   credential: string,
-  input: { target: string; reference: string },
+  /** `identity`: the account the connection's credential acts as, as the service reported it. */
+  input: { target: string; reference: string; identity: string },
   options: CallOptions,
 ): Promise<IssueCallOutcome> {
   const marker = `Reference: ${input.reference}`;
   if (service === "github") {
-    const [owner, name] = input.target.split("/");
     const answer = await call(
       service,
       credential,
-      `${INTEGRATION_API.github}/repos/${encodeURIComponent(owner ?? "")}/${encodeURIComponent(name ?? "")}/issues?state=all&sort=created&direction=desc&per_page=${INTEGRATION_LIMITS.recentIssuesChecked}`,
+      `${INTEGRATION_API.github}/repos/${repoPath(input.target)}/issues?state=all&sort=created&direction=desc&per_page=${INTEGRATION_LIMITS.recentIssuesChecked}`,
       { method: "GET" },
       // Recent issues carry their bodies: allow more than a single issue's answer.
       { ...options, readBytes: options.readBytes ?? 4 * INTEGRATION_LIMITS.responseReadBytes },
     );
     const result = resultOf(answer, service);
     if (classifyIntegrationCall(result).outcome !== "ok") return failedOf(result);
-    const list = answer.kind === "answer" ? answer.json : null;
+    const list = okJson(answer);
     if (!Array.isArray(list)) return invalid();
-    const match = list.find((item) => {
-      const body = record(item)?.body;
-      return typeof body === "string" && body.includes(marker);
+    // Only an issue (never a pull request) that the connection's own account opened, the oldest
+    // first: someone who copies the reference into their own issue cannot get it linked.
+    const matches = list.filter((item) => {
+      const issue = record(item);
+      const body = issue?.body;
+      return (
+        issue !== null &&
+        issue.pull_request === undefined &&
+        record(issue.user)?.login === input.identity &&
+        typeof body === "string" &&
+        body.includes(marker)
+      );
     });
-    return match ? githubIssue(match, input.target) : { kind: "absent" };
+    const oldest = matches.at(-1);
+    return oldest ? githubIssue(oldest, input.target) : { kind: "absent" };
   }
   const answer = await linear(
     credential,

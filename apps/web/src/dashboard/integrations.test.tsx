@@ -222,12 +222,29 @@ describe("the create issue dialog", () => {
       expect((within(sheet).getByLabelText("Issue title") as HTMLInputElement).value).toBe(
         "Launch plan",
       );
+      // The preview shows the title as it is sent: inert.
+      fireEvent.change(within(sheet).getByLabelText("Issue title"), {
+        target: { value: "Fix #12 for @octocat" },
+      });
+      expect(
+        (within(sheet).getByLabelText(/^Exactly what is sent/) as HTMLTextAreaElement).value.split(
+          "\n",
+        )[0],
+      ).toBe("Fix \uff0312 for \uff20octocat");
+      fireEvent.change(within(sheet).getByLabelText("Issue title"), {
+        target: { value: "Launch plan" },
+      });
       const preview = () =>
         (within(sheet).getByLabelText(/^Exactly what is sent/) as HTMLTextAreaElement).value;
       expect(preview()).toContain("Artifact: `Launch plan`");
       expect(preview()).toContain("/view/k7d2qm4xab?path=%2Fdocs%2Fplan.html&thread=t1");
       expect(preview()).not.toContain("octocat");
       expect(within(sheet).getByText(/Never sent: readers' email addresses/)).toBeTruthy();
+      expect(
+        within(sheet).getByText(
+          /readers outside your team included, sees the created issue's link/,
+        ),
+      ).toBeTruthy();
       expect(await axeViolations(document.body)).toEqual([]);
 
       fireEvent.click(message);

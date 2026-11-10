@@ -2445,6 +2445,13 @@ export const ptBR = {
     "O texto dos comentários vai como texto simples: menções, links e imagens nele não fazem nada. Ele é lido de novo quando a issue é criada, então uma edição posterior é o que vai.",
   "issues.dialog.never":
     "Nunca enviados: e-mails dos leitores, o conteúdo do artifact, outras mensagens da conversa ou notas de revisão.",
+  "issues.dialog.visible":
+    "Todos que podem ver esta conversa, incluindo leitores de fora da sua equipe, veem o link da issue criada e o nome do repositório ou da equipe, mesmo que o repositório seja privado.",
+  "issues.failure.target_removed":
+    "um administrador removeu esse repositório ou equipe da conexão.",
+  "issues.failure.artifact_moved": "o artifact foi movido para outro espaço.",
+  "issues.failure.requester_left": "você não pode mais criar issues para este espaço.",
+  "issues.failure.thread_gone": "a conversa foi excluída.",
   "issues.dialog.eu":
     "Este espaço guarda seus dados na UE. O que você enviar vai para o {service}, fora da UE.",
   "issues.dialog.submit": "Criar issue",

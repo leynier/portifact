@@ -2468,6 +2468,13 @@ export const es = {
     "El texto de los comentarios va como texto plano: las menciones, enlaces e imágenes que tenga no hacen nada. Se vuelve a leer al crear el issue, así que se envía la última edición.",
   "issues.dialog.never":
     "Nunca se envían: los correos de los lectores, el contenido del artifact, otros mensajes del hilo ni las notas de revisión.",
+  "issues.dialog.visible":
+    "Todos los que pueden ver este hilo, incluidos los lectores de fuera de tu equipo, ven el enlace del issue creado y el nombre de su repositorio o equipo, aunque el repositorio sea privado.",
+  "issues.failure.target_removed":
+    "un administrador quitó ese repositorio o equipo de la conexión.",
+  "issues.failure.artifact_moved": "el artifact se movió a otro espacio.",
+  "issues.failure.requester_left": "ya no puedes crear issues para este espacio.",
+  "issues.failure.thread_gone": "se eliminó el hilo.",
   "issues.dialog.eu":
     "Este espacio guarda sus datos en la UE. Lo que envíes va a {service}, fuera de la UE.",
   "issues.dialog.submit": "Crear issue",

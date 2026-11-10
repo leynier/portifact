@@ -88,7 +88,8 @@ export function checkIntegrationCall(service: IntegrationService, raw: string): 
 export function checkIssueUrl(
   service: IntegrationService,
   raw: unknown,
-  expect: { target: string; number?: number },
+  /** GitHub: the target repository and the number returned; Linear: the identifier returned. */
+  expect: { target: string; number?: number; key?: string },
 ): Result<string> {
   if (typeof raw !== "string" || raw.length > 2_048) return refuse("No issue URL.");
   let url: URL;
@@ -117,12 +118,14 @@ export function checkIssueUrl(
     ) {
       return refuse("The issue URL is not an issue of the chosen repository.");
     }
-  } else if (
-    !/^\/[A-Za-z0-9_-]{1,100}\/issue\/[A-Za-z0-9-]{1,40}(?:\/[A-Za-z0-9_-]{0,200})?$/.test(
-      url.pathname,
-    )
-  ) {
-    return refuse("The issue URL is not a Linear issue.");
+  } else {
+    const match =
+      /^\/[A-Za-z0-9_-]{1,100}\/issue\/([A-Za-z0-9-]{1,40})(?:\/[A-Za-z0-9_-]{0,200})?$/.exec(
+        url.pathname,
+      );
+    if (!match || (expect.key !== undefined && match[1] !== expect.key)) {
+      return refuse("The issue URL is not the Linear issue that was created.");
+    }
   }
   return ok(url.href);
 }
@@ -243,10 +246,23 @@ export function inertSpan(text: string): string {
   return `${ticks}${pad}${text}${pad}${ticks}`;
 }
 
-/** The title as sent: one plain line the person wrote. */
+/**
+ * The title as sent: one plain line the person wrote, made inert like the other untrusted
+ * fields. GitHub renders code spans and issue references in titles, so a backtick becomes a
+ * modifier grave accent (U+02CB), `#` before a digit a full-width number sign (U+FF03, which
+ * ends `#123` and `owner/repo#1`), `@` before a name character a full-width at sign (U+FF20) and
+ * the hyphen of `GH-123` a non-breaking hyphen (U+2011). Linear shows titles as text; the same
+ * title goes to both, and the dashboard previews exactly this.
+ */
 export function issueTitle(raw: string): Result<string> {
-  const title = plainLine(raw, INTEGRATION_LIMITS.titleMax);
-  return title === null ? refuse("Write a title.") : ok(title);
+  const line = plainLine(raw, INTEGRATION_LIMITS.titleMax);
+  if (line === null) return refuse("Write a title.");
+  const title = line
+    .replaceAll("`", String.fromCodePoint(0x02cb))
+    .replace(/#(?=\d)/g, String.fromCodePoint(0xff03))
+    .replace(/@(?=[A-Za-z0-9_-])/g, String.fromCodePoint(0xff20))
+    .replace(/\b(GH)-(?=\d)/gi, `$1${String.fromCodePoint(0x2011)}`);
+  return ok(title);
 }
 
 /**
@@ -389,4 +405,11 @@ export const ISSUE_FAILURE_MESSAGES: Readonly<Record<ThreadIssueFailure, string>
   plan_lapsed: "The plan no longer includes integrations.",
   service_unavailable: "The service did not answer after several attempts.",
   invalid_response: "The service answered in a way Portifact could not use.",
+  target_removed: "An admin removed that repository or team from the connection.",
+  artifact_moved: "The artifact moved to another space before the issue was created.",
+  requester_left: "The person who asked can no longer create issues for this space.",
+  thread_gone: "The thread was deleted before the issue was created.",
 };
+
+/** The most attempts one issue gets: the first and one after each retry delay. */
+export const MAX_ISSUE_ATTEMPTS = INTEGRATION_LIMITS.retryDelaysMs.length + 1;

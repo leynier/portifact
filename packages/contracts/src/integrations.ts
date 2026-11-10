@@ -44,7 +44,9 @@ export const INTEGRATION_LIMITS = {
   timeoutMs: 10_000,
   /** Bytes of a response read at most; a larger answer is a failure. */
   responseReadBytes: 256 * 1024,
-  /** Delays before the 2nd to 5th attempts of an issue. */
+  /** Credential checks one admin may run per hour, across every owner. */
+  checksPerAdminPerHour: 20,
+  /** Delays before the 2nd to 5th attempts of an issue; attempts never exceed one more. */
   retryDelaysMs: [60_000, 300_000, 1_800_000, 7_200_000],
   /** An attempt that started this long ago without a result is taken over. */
   attemptStaleMs: 5 * 60_000,
@@ -279,6 +281,14 @@ export const ThreadIssueFailure = z.enum([
   "plan_lapsed",
   "service_unavailable",
   "invalid_response",
+  /** An admin removed the repository or team from the connection before the issue was sent. */
+  "target_removed",
+  /** The artifact moved to another owner before the issue was sent. */
+  "artifact_moved",
+  /** The person who asked no longer acts for the owner (left, removed or account deleted). */
+  "requester_left",
+  /** The thread was deleted, or is no longer one the person who asked reads. */
+  "thread_gone",
 ]);
 export type ThreadIssueFailure = z.infer<typeof ThreadIssueFailure>;
 

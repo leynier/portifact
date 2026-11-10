@@ -2405,6 +2405,12 @@ export const en = {
     "Comment text goes as plain text: mentions, links and images in it do nothing. It is read again when the issue is created, so a later edit is what is sent.",
   "issues.dialog.never":
     "Never sent: readers' email addresses, the artifact's content, other messages of the thread or review notes.",
+  "issues.dialog.visible":
+    "Everyone who can see this thread, readers outside your team included, sees the created issue's link and its repository or team name, even for a private repository.",
+  "issues.failure.target_removed": "an admin removed that repository or team from the connection.",
+  "issues.failure.artifact_moved": "the artifact moved to another space.",
+  "issues.failure.requester_left": "you can no longer create issues for this space.",
+  "issues.failure.thread_gone": "the thread was deleted.",
   "issues.dialog.eu":
     "This space keeps its data in the EU. What you send goes to {service}, outside the EU.",
   "issues.dialog.submit": "Create issue",

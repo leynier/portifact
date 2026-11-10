@@ -2227,6 +2227,12 @@ export const zhCN = {
     "评论文字以纯文本发送：其中的提及、链接和图片都不起作用。创建 issue 时会重新读取，因此发送的是之后的编辑版本。",
   "issues.dialog.never":
     "绝不发送：读者的邮箱地址、artifact 的内容、讨论串中的其他消息或审阅备注。",
+  "issues.dialog.visible":
+    "所有能看到此讨论串的人（包括团队外的读者）都会看到已创建 issue 的链接及其仓库或团队名称，即使仓库是私有的。",
+  "issues.failure.target_removed": "管理员已从连接中移除该仓库或团队。",
+  "issues.failure.artifact_moved": "artifact 已移到其他空间。",
+  "issues.failure.requester_left": "你已不能再为此空间创建 issue。",
+  "issues.failure.thread_gone": "讨论串已被删除。",
   "issues.dialog.eu": "此空间的数据保存在欧盟。你发送的内容会发往欧盟以外的 {service}。",
   "issues.dialog.submit": "创建 issue",
   "issues.dialog.noConnections":

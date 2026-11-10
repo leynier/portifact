@@ -7,6 +7,7 @@
 import { INTEGRATION_LIMITS, type IssueParts, type ThreadIssueFailure } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  actsForOwner,
   allowedTarget,
   anchorQuote,
   entitlements,
@@ -15,6 +16,7 @@ import {
   ISSUE_FAILURE_MESSAGES,
   issueBody,
   issueTitle,
+  MAX_ISSUE_ATTEMPTS,
   nextIssueAttemptAt,
   ok,
   type Result,
@@ -23,6 +25,7 @@ import {
   utcDayStart,
 } from "@portifact/domain";
 import { and, asc, eq, type SQL, sql } from "drizzle-orm";
+import { actorOn } from "./actors.ts";
 import { readableThread } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 import {
@@ -108,10 +111,20 @@ export async function requestThreadIssue(
   }
   const title = issueTitle(input.request.title);
   if (!title.ok) return title;
-  const [count] = await db.global.all<{ count: number }>(
-    sql`insert into rate_limits (key, window_start, count) values (${`integration:issues:${ownerId}:${utcDayStart(input.now)}`}, ${input.now}, 1) on conflict (key) do update set count = case when window_start <= ${input.now} - ${2 * 86_400_000} then 1 else count + 1 end, window_start = case when window_start <= ${input.now} - ${2 * 86_400_000} then ${input.now} else window_start end returning count`,
+  // Counted before the regional batch (the counter is global), and given back when the batch
+  // inserts nothing: an idempotent retry of the same request or a lost race costs nothing.
+  const day = `integration:issues:${ownerId}:${utcDayStart(input.now)}`;
+  const [counted] = await db.global.all<{ count: number; window_start: number }>(
+    sql`insert into rate_limits (key, window_start, count) values (${day}, ${input.now}, 1) on conflict (key) do update set count = case when window_start <= ${input.now} - ${2 * 86_400_000} then 1 else count + 1 end, window_start = case when window_start <= ${input.now} - ${2 * 86_400_000} then ${input.now} else window_start end returning count, window_start`,
   );
-  if (Number(count?.count ?? 0) > INTEGRATION_LIMITS.issuesPerOwnerPerDay) {
+  // An upsert with RETURNING always answers its row.
+  const count = counted as { count: number; window_start: number };
+  const giveBack = () =>
+    db.global.run(
+      sql`update rate_limits set count = count - 1 where key = ${day} and window_start = ${Number(count.window_start)} and count > 0`,
+    );
+  if (Number(count.count) > INTEGRATION_LIMITS.issuesPerOwnerPerDay) {
+    await giveBack();
     return fail(
       "rate_limited",
       `At most ${INTEGRATION_LIMITS.issuesPerOwnerPerDay} issues can be created a day. Try again tomorrow.`,
@@ -142,6 +155,7 @@ export async function requestThreadIssue(
   ]);
   const [row] = inserted[0] as IssueRow[];
   if (row) return ok(threadIssueRecord(row, input.userId));
+  await giveBack();
   const [existing] = await db
     .select()
     .from(ti)
@@ -156,7 +170,7 @@ export async function requestThreadIssue(
     .select({ count: sql<number>`count(*)` })
     .from(ti)
     .where(and(eq(ti.threadId, thread.id), sql`${ti.state} <> 'failed'`));
-  if (Number(open?.count ?? 0) >= INTEGRATION_LIMITS.issuesPerThread) {
+  if (Number((open as { count: number }).count) >= INTEGRATION_LIMITS.issuesPerThread) {
     return fail(
       "quota_exceeded",
       `A thread can have at most ${INTEGRATION_LIMITS.issuesPerThread} issues.`,
@@ -212,7 +226,7 @@ export async function runThreadIssue(
     .select({ issue: ti, connection: c })
     .from(ti)
     .leftJoin(c, eq(c.id, ti.connectionId))
-    .where(eq(ti.id, job.subject ?? ""))
+    .where(eq(ti.id, String(job.subject)))
     .limit(1);
   if (found?.issue.state !== "pending") return "done";
   // A duplicate message before the retry is due does nothing.
@@ -228,6 +242,21 @@ export async function runThreadIssue(
   }
   if (connection.attention !== null) {
     await failRequest(db, issue.id, "credential_rejected", now);
+    return "done";
+  }
+  // The connection as it is now: a repository or team an admin removed is never written to.
+  if (!allowedTarget(storedTargets(connection.targets), issue.target)) {
+    await failRequest(db, issue.id, "target_removed", now);
+    return "done";
+  }
+  // A hard stop, whatever brought the job back (a lost row requeued, a duplicate message).
+  if (issue.attempts >= MAX_ISSUE_ATTEMPTS) {
+    await failRequest(db, issue.id, "service_unavailable", now);
+    return "done";
+  }
+  const standing = await requesterStanding(db, issue, now);
+  if (standing !== "ok") {
+    await failRequest(db, issue.id, standing, now);
     return "done";
   }
   // The plan is the owner's, read now: a lapsed plan stops issues and keeps every row.
@@ -248,6 +277,7 @@ export async function runThreadIssue(
       and(
         eq(ti.id, issue.id),
         eq(ti.state, "pending"),
+        sql`${ti.attempts} < ${MAX_ISSUE_ATTEMPTS}`,
         sql`coalesce(${ti.startedAt}, 0) < ${now - INTEGRATION_LIMITS.attemptStaleMs}`,
       ),
     )
@@ -258,7 +288,7 @@ export async function runThreadIssue(
   const [cap] = await db.global.all<{ count: number }>(
     sql`insert into rate_limits (key, window_start, count) values (${`integration:attempts:${issue.ownerId}:${day}`}, ${now}, 1) on conflict (key) do update set count = case when window_start <= ${now} - ${2 * 86_400_000} then 1 else count + 1 end, window_start = case when window_start <= ${now} - ${2 * 86_400_000} then ${now} else window_start end returning count`,
   );
-  if (Number(cap?.count ?? 0) > INTEGRATION_LIMITS.attemptsPerOwnerPerDay) {
+  if (Number((cap as { count: number }).count) > INTEGRATION_LIMITS.attemptsPerOwnerPerDay) {
     // Not an attempt: give it back and wait for the next UTC day.
     await db.batch([
       db
@@ -284,26 +314,31 @@ export async function runThreadIssue(
     return "done";
   }
   // An earlier attempt may have created the issue and lost the answer: look before creating.
-  let outcome: IssueCallOutcome | null = null;
+  let outcome: Exclude<IssueCallOutcome, { kind: "absent" }> | null = null;
   if (claimed.attempts > 1) {
     const found = await findIssue(
       issue.service,
       credential,
-      { target: issue.target, reference: issue.id },
+      { target: issue.target, reference: issue.id, identity: connection.identity },
       deps,
     );
     if (found.kind !== "absent") outcome = found;
   }
   if (outcome === null) {
     const source = await issueSource(db, issue, deps.appOrigin);
-    // The thread or the artifact is gone: nothing to send, and the row goes with them.
-    if (!source) return "done";
+    // The thread or the artifact went away, or moved, since the check: nothing is sent, and the
+    // request ends on this run's claim so it is never requeued.
+    if (!source) {
+      await failRequest(db, issue.id, "thread_gone", now, now);
+      return "done";
+    }
     outcome = await createIssue(
       issue.service,
       credential,
       {
         target: issue.target,
-        title: issue.title ?? "",
+        // A pending request always has its title; it is cleared once the request ends.
+        title: String(issue.title),
         body: issueBody(source, {
           link: issue.includeLink,
           artifactName: issue.includeName,
@@ -315,6 +350,35 @@ export async function runThreadIssue(
     );
   }
   return settle(db, job, issue, connection, outcome, claimed.attempts, now);
+}
+
+/**
+ * Whether the person who asked may still send this thread out, decided now as at request time:
+ * the artifact is still the request's owner's, the person still acts for that owner (an admin or
+ * editor; a deleted account never does) and reads the thread (`readableThread`). The owner side's
+ * comment scope is every thread, so reading it is the same check every read path makes.
+ */
+async function requesterStanding(
+  db: RegionalDb,
+  issue: IssueRow,
+  now: number,
+): Promise<"ok" | "artifact_moved" | "requester_left" | "thread_gone"> {
+  if (issue.requestedBy === null) return "requester_left";
+  // The row cascades from its artifact, so the artifact is there; its owner may have changed.
+  const owners = await db
+    .select({ ownerId: schema.artifacts.ownerId })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, issue.artifactId));
+  if (!owners.some((row) => row.ownerId === issue.ownerId)) return "artifact_moved";
+  const actor = await actorOn(db.global, issue.requestedBy, issue.ownerId);
+  if (!actsForOwner(actor, issue.ownerId)) return "requester_left";
+  const readable = await readableThread(db, {
+    userId: issue.requestedBy,
+    artifactId: issue.artifactId,
+    threadId: issue.threadId,
+    now,
+  });
+  return readable.ok && readable.value.standing.role === "owner" ? "ok" : "thread_gone";
 }
 
 /** What the body is built from, read when the job sends: never stored with the request. */
@@ -360,7 +424,7 @@ async function settle(
   job: OutboxRow,
   issue: IssueRow,
   connection: typeof c.$inferSelect,
-  outcome: IssueCallOutcome,
+  outcome: Exclude<IssueCallOutcome, { kind: "absent" }>,
   attempt: number,
   now: number,
 ): Promise<JobOutcome> {
@@ -373,7 +437,8 @@ async function settle(
         {
           ownerId: issue.ownerId,
           kind: "issue.created",
-          actor: issue.requestedBy ? { type: "user", id: issue.requestedBy } : { type: "system" },
+          // Checked before the attempt: the person who asked still acts for the owner.
+          actor: { type: "user", id: String(issue.requestedBy) },
           targetId: issue.artifactId,
           artifactId: issue.artifactId,
           detail: {
@@ -402,11 +467,7 @@ async function settle(
     ]);
     return "done";
   }
-  const verdict =
-    outcome.kind === "failed"
-      ? outcome.verdict
-      : // "absent" never reaches here: it is followed by a create.
-        { outcome: "failed" as const, retryable: false, failure: "invalid_response" as const };
+  const verdict = outcome.verdict;
   const failure = verdict.failure ?? "invalid_response";
   if (failure === "credential_rejected") {
     await markAttention(db, connection, "credential_rejected", { type: "system" }, now);

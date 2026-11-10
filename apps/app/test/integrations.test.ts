@@ -4,6 +4,7 @@
 // and without the switch nothing is offered. GitHub and Linear are FakeIssueTrackers.
 import { env } from "cloudflare:workers";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { newServiceTokenSecret } from "@portifact/services";
 import { FakeIssueTrackers } from "@portifact/services/testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -498,5 +499,67 @@ describe("refusals through every route and tool", () => {
     );
     const offList = await callTool(offTool, "list_integrations", {});
     expect(JSON.stringify(offList.content)).toContain("does not offer integrations yet");
+  });
+});
+
+describe("service tokens", () => {
+  it("never list connections, manage them or ask for an issue", async () => {
+    const h = createHarness({ integrationFetch: fakes().fetch });
+    const email = `int-token-${crypto.randomUUID()}@example.test`;
+    const adminToken = await apiToken(h, email, SCOPES);
+    const adminId = await userIdOf(h, adminToken);
+    const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+    const slug = workspaceId.slice(3, 23);
+    await db()
+      .global.insert(schema.workspaces)
+      .values({ id: workspaceId, slug, name: "Team", createdBy: adminId, updatedAt: NOW });
+    await db()
+      .global.insert(schema.workspaceMembers)
+      .values({ workspaceId, userId: adminId, role: "admin", updatedAt: NOW });
+    await onTeam(workspaceId);
+    const secret = newServiceTokenSecret();
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+    await db()
+      .global.insert(schema.serviceTokens)
+      .values({
+        id: `st_${crypto.randomUUID().replaceAll("-", "")}`,
+        workspaceId,
+        label: "CI",
+        role: "editor",
+        scopes: "artifacts:read artifacts:write artifacts:share",
+        tokenHash: [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join(""),
+        createdBy: adminId,
+        createdAt: NOW,
+        expiresAt: NOW + 86_400_000,
+      });
+    const asToken = (path: string, init: RequestInit = {}) =>
+      h.request(path, {
+        ...init,
+        headers: { authorization: `Bearer ${secret}`, ...(init.headers as Record<string, string>) },
+      });
+    const listed = await asToken(`/api/v1/integrations?workspace=${slug}`);
+    expect(listed.status).toBe(403);
+    expect(await listed.json()).toMatchObject({ error: { code: "forbidden" } });
+    const managed = await asToken(`/api/v1/integrations/connections?workspace=${slug}`);
+    expect(managed.status).toBe(403);
+    const { id, threadId } = await artifactWithThread(workspaceId);
+    const issue = await asToken(`/api/v1/artifacts/${id}/annotations/threads/${threadId}/issue`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify({
+        connectionId: `ic_${"0".repeat(32)}`,
+        target: "acme/site",
+        title: "x",
+      }),
+    });
+    // A token's scopes never include annotations: refused at the gate, before any thread is read
+    // (and the service would answer like a missing artifact: `issues` is not in TOKEN_ACTIONS).
+    expect(issue.status).toBe(403);
+    expect(await issue.json()).toEqual({
+      error: {
+        code: "forbidden",
+        message: "This service token does not have the annotations:moderate scope.",
+      },
+    });
   });
 });

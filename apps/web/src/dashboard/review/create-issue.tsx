@@ -12,7 +12,7 @@ import {
   type IntegrationChoiceList,
   type IssueParts,
 } from "@portifact/contracts";
-import { anchorQuote, issueBody, plainLine, threadLink } from "@portifact/domain";
+import { anchorQuote, issueBody, issueTitle, plainLine, threadLink } from "@portifact/domain";
 import { Button, Callout, Checkbox, Select, Sheet, TextArea, TextInput } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Globe, SquarePlus } from "lucide-react";
@@ -109,6 +109,9 @@ export function CreateIssueDialog({
     parts,
   );
 
+  // The title as it goes out: inert, the same function the request applies.
+  const checkedTitle = issueTitle(title);
+  const sentTitle = checkedTitle.ok ? checkedTitle.value : "";
   const create = useMutation({
     mutationFn: () =>
       api.createThreadIssue(
@@ -224,9 +227,10 @@ export function CreateIssueDialog({
             code
             readOnly
             rows={8}
-            value={`${title.trim()}\n\n${preview}`}
+            value={`${sentTitle}\n\n${preview}`}
           />
           <p className="text-sm text-text-muted">{t("issues.dialog.never")}</p>
+          <p className="text-sm text-text-muted">{t("issues.dialog.visible")}</p>
           {create.isError ? (
             <Callout
               tone="error"

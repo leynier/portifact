@@ -2423,6 +2423,12 @@ export const ja = {
     "コメントのテキストはプレーンテキストとして送られ、その中のメンション、リンク、画像は機能しません。issue の作成時に読み直されるため、後で編集した内容が送られます。",
   "issues.dialog.never":
     "送信されないもの: 閲覧者のメールアドレス、artifact の内容、スレッドの他のメッセージ、レビューのメモ。",
+  "issues.dialog.visible":
+    "このスレッドを見られる全員 (チーム外の閲覧者を含む) に、作成された issue のリンクとリポジトリまたはチームの名前が表示されます。非公開リポジトリでも同じです。",
+  "issues.failure.target_removed": "管理者がそのリポジトリまたはチームを接続から外しました。",
+  "issues.failure.artifact_moved": "artifact が別のスペースに移動しました。",
+  "issues.failure.requester_left": "このスペースの issue を作成できなくなりました。",
+  "issues.failure.thread_gone": "スレッドが削除されました。",
   "issues.dialog.eu":
     "このスペースはデータを EU 内に保存しています。送信する内容は EU 外の {service} に送られます。",
   "issues.dialog.submit": "issue を作成",

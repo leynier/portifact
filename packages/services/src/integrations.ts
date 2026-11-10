@@ -13,8 +13,9 @@ import {
   type IntegrationService,
   type IntegrationTarget,
   type IntegrationUpdate,
+  isWorkspaceId,
 } from "@portifact/contracts";
-import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -27,6 +28,7 @@ import {
   requireFeature,
 } from "@portifact/domain";
 import { and, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
+import { actorOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { type CallOptions, checkCredential } from "./integration-clients.ts";
 import { type IntegrationKey, openCredential, sealCredential } from "./integration-keys.ts";
@@ -135,21 +137,58 @@ async function ownerLimit(
   const [row] = await global.all<{ count: number }>(
     sql`insert into rate_limits (key, window_start, count) values (${key}, ${now}, 1) on conflict (key) do update set count = case when window_start <= ${now} - ${windowMs} then 1 else count + 1 end, window_start = case when window_start <= ${now} - ${windowMs} then ${now} else window_start end returning count`,
   );
-  return Number(row?.count ?? 0) > max ? fail("rate_limited", message) : ok(true);
+  // An upsert with RETURNING always answers its row.
+  return Number((row as { count: number }).count) > max ? fail("rate_limited", message) : ok(true);
 }
 
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
-function checkLimit(global: GlobalDb, ownerId: string, now: number) {
-  return ownerLimit(
+/** Credential checks per owner and, across every owner, per admin: both must have room. */
+async function checkLimit(global: GlobalDb, actor: Actor, now: number): Promise<Result<true>> {
+  const perOwner = await ownerLimit(
     global,
-    `integration:check:${ownerId}`,
+    `integration:check:${actor.ownerId}`,
     HOUR_MS,
     INTEGRATION_LIMITS.checksPerOwnerPerHour,
     `At most ${INTEGRATION_LIMITS.checksPerOwnerPerHour} connection checks an hour. Try again later.`,
     now,
   );
+  if (!perOwner.ok) return perOwner;
+  return ownerLimit(
+    global,
+    `integration:check:user:${actor.userId}`,
+    HOUR_MS,
+    INTEGRATION_LIMITS.checksPerAdminPerHour,
+    `At most ${INTEGRATION_LIMITS.checksPerAdminPerHour} connection checks an hour per person. Try again later.`,
+    now,
+  );
+}
+
+/**
+ * The caller is still an admin of the owner, decided again after the slow check against the
+ * service (up to eleven calls of ten seconds): an admin removed meanwhile stores nothing.
+ */
+async function stillManages(db: RegionalDb, actor: Actor): Promise<Result<true>> {
+  const again = authorize(await actorOn(db.global, actor.userId, actor.ownerId), "integrations");
+  return again.ok ? ok(true) : again;
+}
+
+/**
+ * The handle a connection write runs on, and the condition it adds: with one database the write
+ * holds only while the caller is still a workspace's admin (`stillAdmin`, inside the batch); with
+ * a separate regional database the re-check just before the batch is all there is, and a removal
+ * landing between that read and the batch is not seen (decision 0018, "Who manages connections").
+ */
+function writeScope(db: RegionalDb, actor: Actor): { w: Db; holds: SQL | undefined } {
+  const both = bothSides(db);
+  if (both && isWorkspaceId(actor.ownerId)) {
+    const m = schema.workspaceMembers;
+    // As `stillAdmin` in ./workspaces.ts (not imported: that module imports this one).
+    const holds = sql`exists (select 1 from ${m} as "caller" where "caller"."workspace_id" = ${actor.ownerId} and "caller"."user_id" = ${actor.userId} and "caller"."role" = 'admin')`;
+    return { w: both, holds };
+  }
+  return { w: db, holds: undefined };
 }
 
 const SERVICE_NAMES: Record<IntegrationService, string> = { github: "GitHub", linear: "Linear" };
@@ -315,7 +354,7 @@ export async function createIntegrationConnection(
     .select({ count: sql<number>`count(*)` })
     .from(c)
     .where(eq(c.ownerId, ownerId));
-  if (Number(existing?.count ?? 0) >= INTEGRATION_LIMITS.perOwner) return full();
+  if (Number((existing as { count: number }).count) >= INTEGRATION_LIMITS.perOwner) return full();
   const created = await ownerLimit(
     db.global,
     `integration:create:${ownerId}`,
@@ -325,28 +364,31 @@ export async function createIntegrationConnection(
     input.now,
   );
   if (!created.ok) return created;
-  const limited = await checkLimit(db.global, ownerId, input.now);
+  const limited = await checkLimit(db.global, input.actor, input.now);
   if (!limited.ok) return limited;
   const checked = await checkCredential(service, credential, targets.value, input.deps);
   if (!checked.ok) {
     return fail("invalid_input", checkProblemMessage(service, checked.problem, checked.target));
   }
+  const still = await stillManages(db, input.actor);
+  if (!still.ok) return still;
+  const { w, holds } = writeScope(db, input.actor);
   const id = hexId("ic_");
   const box = await sealCredential(key, id, credential);
   // Columns in schema order: id, owner, service, label, key, credential, hint, identity, targets,
   // attention, attention at, revision, created, updated, created by. The count keeps concurrent
   // creates under the cap.
-  const [inserted] = await db.batch([
-    db
+  const [inserted] = await w.batch([
+    w
       .insert(c)
       .select(
-        sql`select ${id}, ${ownerId}, ${service}, ${label}, ${key.id}, ${box}, ${credentialHint(credential)}, ${checked.identity}, ${JSON.stringify(checked.targets)}, null, null, 1, ${input.now}, ${input.now}, ${input.actor.userId} where (select count(*) from ${c} where ${c.ownerId} = ${ownerId}) < ${INTEGRATION_LIMITS.perOwner}`,
+        sql`select ${id}, ${ownerId}, ${service}, ${label}, ${key.id}, ${box}, ${credentialHint(credential)}, ${checked.identity}, ${JSON.stringify(checked.targets)}, null, null, 1, ${input.now}, ${input.now}, ${input.actor.userId} where (select count(*) from ${c} where ${c.ownerId} = ${ownerId}) < ${INTEGRATION_LIMITS.perOwner}${holds ? sql` and ${holds}` : sql``}`,
       )
       .returning(),
     // After the insert, on the row it created: the service and how many targets, never the
     // credential, the identity or the targets' names.
     connectionEvent(
-      db,
+      w,
       input.actor,
       id,
       "integration.connected",
@@ -356,7 +398,10 @@ export async function createIntegrationConnection(
     ),
   ]);
   const [row] = inserted;
-  if (!row) return full();
+  if (!row) {
+    const again = await stillManages(db, input.actor);
+    return again.ok ? full() : again;
+  }
   return ok(await present(db, row));
 }
 
@@ -420,7 +465,7 @@ export async function updateIntegrationConnection(
         "The stored credential can no longer be opened. Paste the credential again.",
       );
     }
-    const limited = await checkLimit(db.global, input.actor.ownerId, input.now);
+    const limited = await checkLimit(db.global, input.actor, input.now);
     if (!limited.ok) return limited;
     const checked = await checkCredential(row.service, credential, targetIds, input.deps);
     if (!checked.ok) {
@@ -445,27 +490,22 @@ export async function updateIntegrationConnection(
       detail.credential = true;
     }
   }
-  if (Object.keys(detail).length === 0) {
-    // Nothing that counts changed (the identity may have, after a check): no event.
-    if (change.identity !== undefined && change.identity !== row.identity) {
-      const [updated] = await db
-        .update(c)
-        .set({ identity: change.identity })
-        .where(and(eq(c.id, row.id), eq(c.revision, row.revision)))
-        .returning();
-      return ok(await present(db, updated ?? row));
-    }
-    return ok(await present(db, row));
-  }
+  // Nothing that counts changed (the same label and targets, no new credential): no check ran,
+  // nothing is written and nothing recorded.
+  if (Object.keys(detail).length === 0) return ok(await present(db, row));
+  const still = await stillManages(db, input.actor);
+  if (!still.ok) return still;
+  const { w, holds } = writeScope(db, input.actor);
   // Conditioned on the revision read, so two changes at once cannot interleave their checks.
   const where = and(
     eq(c.id, row.id),
     eq(c.ownerId, input.actor.ownerId),
     eq(c.revision, row.revision),
+    holds,
   ) as SQL;
-  const [, updated] = await db.batch([
+  const [, updated] = await w.batch([
     connectionEvent(
-      db,
+      w,
       input.actor,
       row.id,
       "integration.changed",
@@ -473,7 +513,7 @@ export async function updateIntegrationConnection(
       input.now,
       sql`exists (select 1 from ${c} where ${where})`,
     ),
-    db
+    w
       .update(c)
       .set({ ...change, revision: row.revision + 1, updatedAt: input.now })
       .where(where)
@@ -481,6 +521,8 @@ export async function updateIntegrationConnection(
   ]);
   const [saved] = updated;
   if (!saved) {
+    const again = await stillManages(db, input.actor);
+    if (!again.ok) return again;
     return fail("version_conflict", "The connection changed meanwhile. Reload and try again.");
   }
   return ok(await present(db, saved));
@@ -526,7 +568,7 @@ export async function testIntegrationConnection(
       message: "The stored credential can no longer be opened. Paste the credential again.",
     });
   }
-  const limited = await checkLimit(db.global, input.actor.ownerId, input.now);
+  const limited = await checkLimit(db.global, input.actor, input.now);
   if (!limited.ok) return limited;
   const checked = await checkCredential(
     row.service,
@@ -552,11 +594,12 @@ export async function testIntegrationConnection(
       message: checkProblemMessage(row.service, checked.problem, checked.target),
     });
   }
-  // It works: the identity as reported now, and no attention needed any more.
+  // It works: the identity as reported now, and no attention needed any more; only on the row
+  // as it was read, so a credential pasted meanwhile keeps its own identity and state.
   await db
     .update(c)
     .set({ identity: checked.identity, attention: null, attentionAt: null })
-    .where(and(eq(c.id, row.id), eq(c.keyId, row.keyId)));
+    .where(sameCredential(row));
   return ok({
     ok: true,
     identity: checked.identity,
@@ -566,6 +609,15 @@ export async function testIntegrationConnection(
   });
 }
 
+/** The connection still holds the credential that was read: its revision and sealed value. */
+function sameCredential(row: Pick<ConnectionRow, "id" | "revision" | "credentialBox">): SQL {
+  return and(
+    eq(c.id, row.id),
+    eq(c.revision, row.revision),
+    eq(c.credentialBox, row.credentialBox),
+  ) as SQL;
+}
+
 /**
  * Marks a connection as needing an admin (the service refused its credential, or no key opens
  * it), with one `integration.failing` event when it was not marked already. Issues stop going
@@ -573,12 +625,13 @@ export async function testIntegrationConnection(
  */
 export async function markAttention(
   db: RegionalDb,
-  row: Pick<ConnectionRow, "id" | "ownerId" | "service">,
+  row: Pick<ConnectionRow, "id" | "ownerId" | "service" | "revision" | "credentialBox">,
   reason: IntegrationAttention,
   actor: { type: "user"; id: string } | { type: "system" },
   now: number,
 ) {
-  const unmarked = and(eq(c.id, row.id), sql`${c.attention} is null`) as SQL;
+  // Only the credential that failed: one pasted meanwhile (a new revision) is left alone.
+  const unmarked = and(sameCredential(row), sql`${c.attention} is null`) as SQL;
   await db.batch([
     auditEvent(
       db,
@@ -615,10 +668,11 @@ export async function removeIntegrationConnection(
     .insert(schema.tombstones)
     .values({ kind: "integration_connection", id: row.id, deletedAt: input.now })
     .onConflictDoNothing();
-  const mine = and(eq(c.id, row.id), eq(c.ownerId, input.actor.ownerId)) as SQL;
-  const [, deleted] = await db.batch([
+  const { w, holds } = writeScope(db, input.actor);
+  const mine = and(eq(c.id, row.id), eq(c.ownerId, input.actor.ownerId), holds) as SQL;
+  const [, deleted] = await w.batch([
     connectionEvent(
-      db,
+      w,
       input.actor,
       row.id,
       "integration.removed",
@@ -626,9 +680,11 @@ export async function removeIntegrationConnection(
       input.now,
       sql`exists (select 1 from ${c} where ${mine})`,
     ),
-    db.delete(c).where(mine).returning({ id: c.id }),
+    w.delete(c).where(mine).returning({ id: c.id }),
   ]);
-  return deleted.length === 1 ? ok({ connectionId: row.id }) : missing();
+  if (deleted.length === 1) return ok({ connectionId: row.id });
+  const again = await stillManages(db, input.actor);
+  return again.ok ? missing() : again;
 }
 
 /** The owner's connections for the account export: never the credential. */
@@ -688,5 +744,5 @@ export async function rewrapIntegrationKeys(
     .select({ count: sql<number>`count(*)` })
     .from(c)
     .where(ne(c.keyId, current.id));
-  return { rewrapped, left: Number(left?.count ?? 0) };
+  return { rewrapped, left: Number((left as { count: number }).count) };
 }

@@ -272,8 +272,55 @@ export interface ApplyTombstonesResult {
   invitations: number;
   /** Memberships a directory ended before the restore, ended again. */
   members: number;
-  /** Issue connections removed before the restore, or of deleted owners, deleted again. */
-  integrations: number;
+}
+
+/** IDs read from the global database per page, and bound per statement (D1 allows 100). */
+const TOMBSTONE_PAGE = 90;
+
+/**
+ * Re-applies the tombstones of issue connections after a restore (decision 0018), per region:
+ * the IDs of removed connections and of deleted accounts and workspaces are read from the global
+ * database a page at a time, and each page deletes, in every region, the connections a restore
+ * brought back (and forgets deleted accounts as who connected one). Never one statement across
+ * the two databases, and never a list longer than a page. Run it after `applyTombstones`, which
+ * stores the markers. Returns how many connections it deleted.
+ */
+export async function applyIntegrationTombstones(regions: {
+  global: GlobalDb;
+  all(): readonly { db: RegionalDb }[];
+}): Promise<{ integrations: number }> {
+  const t = schema.tombstones;
+  const c = schema.integrationConnections;
+  let deleted = 0;
+  for (const kinds of [["integration_connection"], ["account", "workspace"]] as const) {
+    let after = "";
+    for (;;) {
+      const page = await regions.global
+        .select({ id: t.id, kind: t.kind })
+        .from(t)
+        .where(and(inArray(t.kind, [...kinds]), gt(t.id, after)))
+        .orderBy(asc(t.id))
+        .limit(TOMBSTONE_PAGE);
+      if (page.length === 0) break;
+      const ids = page.map((row) => row.id);
+      const accounts = page.filter((row) => row.kind === "account").map((row) => row.id);
+      for (const { db } of regions.all()) {
+        const gone = await db
+          .delete(c)
+          .where(
+            kinds[0] === "integration_connection" ? inArray(c.id, ids) : inArray(c.ownerId, ids),
+          )
+          .returning({ id: c.id });
+        deleted += gone.length;
+        if (accounts.length > 0) {
+          await db.update(c).set({ createdBy: null }).where(inArray(c.createdBy, accounts));
+        }
+      }
+      after = ids.at(-1) ?? after;
+      if (page.length < TOMBSTONE_PAGE) break;
+    }
+  }
+  return { integrations: deleted };
 }
 
 /**
@@ -344,8 +391,6 @@ export async function applyTombstones(
     invitations,
     ,
     members,
-    integrations,
-    ,
   ] = await db.batch([
     db
       .insert(schema.outbox)
@@ -497,18 +542,6 @@ export async function applyTombstones(
         sql`exists (select 1 from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} and ${schema.workspaceMembers.createdAt} <= ${t.deletedAt})`,
       )
       .returning({ userId: schema.workspaceMembers.userId }),
-    // Removed issue connections and those of deleted accounts and workspaces (decision 0018): a
-    // restored credential must never act again.
-    db
-      .delete(schema.integrationConnections)
-      .where(
-        sql`${schema.integrationConnections.id} in (select ${t.id} from ${t} where ${t.kind} = 'integration_connection') or ${schema.integrationConnections.ownerId} in (${tombstonedOwners})`,
-      )
-      .returning({ id: schema.integrationConnections.id }),
-    db
-      .update(schema.integrationConnections)
-      .set({ createdBy: null })
-      .where(sql`${schema.integrationConnections.createdBy} in (${tombstonedAccounts})`),
   ]);
   // Roles from directory groups, recomputed from what the restore and the tombstones left
   // (decision 0017): bounded per run (`recomputeDirectoryRoles`), run again while `more`.
@@ -523,7 +556,6 @@ export async function applyTombstones(
     workspaces: workspaces.length,
     shareLinks: shareLinks.length,
     webhooks: webhooks.length,
-    integrations: integrations.length,
     serviceTokens: serviceTokens.length,
     domains: domains.length,
     groups: groups.length,

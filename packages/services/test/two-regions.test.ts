@@ -16,7 +16,12 @@ import {
   getAnnotationThread,
   type HumanCheck,
 } from "../src/annotations.ts";
-import { exportTombstones, rebuildArtifactDirectory, reconcileStorage } from "../src/backups.ts";
+import {
+  applyIntegrationTombstones,
+  exportTombstones,
+  rebuildArtifactDirectory,
+  reconcileStorage,
+} from "../src/backups.ts";
 import { measurePlatformUsage } from "../src/budget.ts";
 import { integrationKeys } from "../src/integration-keys.ts";
 import {
@@ -429,6 +434,10 @@ describe("a workspace in the EU region", () => {
       now: NOW + 3,
     });
     expect(view.ok && view.value.issues?.[0]).toMatchObject({ state: "created", key: "#1" });
+    const [snapshot] = await eu()
+      .db.select()
+      .from(schema.integrationConnections)
+      .where(eq(schema.integrationConnections.id, connection.value.id));
     expect(
       await removeIntegrationConnection(eu().db, {
         actor,
@@ -441,6 +450,12 @@ describe("a workspace in the EU region", () => {
       .from(schema.tombstones)
       .where(eq(schema.tombstones.id, connection.value.id));
     expect(tombstone).toMatchObject({ kind: "integration_connection" });
+    expect(await rows(eu().db)).toHaveLength(0);
+    // A restore of the EU database brings the row back; re-applying the tombstones, per region,
+    // deletes it again, with the strict guard on (the global tombstone is never joined in).
+    if (!snapshot) throw new Error("setup");
+    await eu().db.insert(schema.integrationConnections).values(snapshot);
+    expect(await applyIntegrationTombstones(regions())).toEqual({ integrations: 1 });
     expect(await rows(eu().db)).toHaveLength(0);
   });
 

@@ -8,7 +8,7 @@ import { env } from "cloudflare:test";
 import { type AnnotationTarget, INTEGRATION_LIMITS, type JobMessage } from "@portifact/contracts";
 import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { type Actor, personalActor } from "@portifact/domain";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import { exportAccount, requestAccountDeletion } from "../src/account-data.ts";
@@ -18,22 +18,29 @@ import {
   getAnnotationThread,
   type HumanCheck,
 } from "../src/annotations.ts";
-import { applyTombstones, exportTombstones } from "../src/backups.ts";
+import { applyIntegrationTombstones, applyTombstones, exportTombstones } from "../src/backups.ts";
 import { integrationKeys, openCredential } from "../src/integration-keys.ts";
 import {
+  checkProblemMessage,
   createIntegrationConnection,
   type IntegrationDeps,
   listIntegrationChoices,
   listIntegrationConnections,
   removeIntegrationConnection,
   rewrapIntegrationKeys,
+  storedTargets,
   testIntegrationConnection,
   updateIntegrationConnection,
 } from "../src/integrations.ts";
 import { runMaintenance } from "../src/maintenance.ts";
 import { runJob } from "../src/outbox.ts";
 import { FakeIssueTrackers } from "../src/testing/fake-issue-trackers.ts";
-import { requestThreadIssue, type ThreadIssueDeps } from "../src/thread-issues.ts";
+import {
+  requestThreadIssue,
+  requeueThreadIssues,
+  type ThreadIssueDeps,
+} from "../src/thread-issues.ts";
+import { transferArtifact } from "../src/transfer.ts";
 import { advanceWorkspaceDeletion, deleteWorkspace } from "../src/workspaces.ts";
 import { DAY, db, grantPlan, NOW, session, value } from "./fixtures.ts";
 
@@ -200,7 +207,11 @@ async function jobDeps(trackers: FakeIssueTrackers, extra: Partial<ThreadIssueDe
 
 function trackers() {
   return new FakeIssueTrackers()
-    .github(TOKEN, "octo-bot", ["acme/site", { name: "acme/closed", hasIssues: false }])
+    .github(TOKEN, "octo-bot", [
+      "acme/site",
+      "acme/docs",
+      { name: "acme/closed", hasIssues: false },
+    ])
     .linear(LINEAR_KEY, "Lin Bot", [{ id: TEAM, name: "Engineering", key: "ENG" }]);
 }
 
@@ -285,11 +296,14 @@ async function connectionRow(id: string) {
 }
 
 async function auditOf(ownerId: string) {
-  return db()
-    .select()
-    .from(schema.auditEvents)
-    .where(eq(schema.auditEvents.ownerId, ownerId))
-    .orderBy(schema.auditEvents.at);
+  return (
+    db()
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.ownerId, ownerId))
+      // Events written at the same time keep the order they were inserted in.
+      .orderBy(schema.auditEvents.at, sql`rowid`)
+  );
 }
 
 describe("connections", () => {
@@ -716,7 +730,8 @@ describe("connections", () => {
     });
     // A restore brings the row back; re-applying the tombstones deletes it again.
     await db().insert(schema.integrationConnections).values(snapshot);
-    const applied = await applyTombstones(db(), markers, NOW + 1);
+    await applyTombstones(db(), markers, NOW + 1);
+    const applied = await applyIntegrationTombstones(regionsFromEnv(env));
     expect(applied.integrations).toBeGreaterThanOrEqual(1);
     expect(await connectionRow(connection.id)).toBeUndefined();
     expect((await auditOf(owner.id)).map((e) => [e.kind, e.detail]).at(-1)).toEqual([
@@ -1283,3 +1298,922 @@ function counting() {
   });
   return { database: regionalDb(d1, globalDb(d1)), calls };
 }
+
+/** A database whose every D1 batch first runs `before` (a write that races the request). */
+function racingBatch(before: () => Promise<unknown>) {
+  let armed = true;
+  const d1 = new Proxy(env.DB, {
+    get(target, property, receiver) {
+      const real = Reflect.get(target, property, receiver);
+      if (property === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          if (armed) {
+            armed = false;
+            await before();
+          }
+          return target.batch(statements);
+        };
+      }
+      return typeof real === "function" ? real.bind(target) : real;
+    },
+  });
+  return regionalDb(d1, globalDb(d1));
+}
+
+async function teamWorld() {
+  const admin = await person();
+  const editor = await person();
+  // A second admin, so the first can be removed (the last admin never can).
+  const other = await person();
+  const ws = await workspace([
+    [admin.id, "admin"],
+    [editor.id, "editor"],
+    [other.id, "admin"],
+  ]);
+  await grantPlan(ws, "team");
+  const fake = trackers();
+  const connection = await connectGitHub(await actorIn(admin.id, ws), fake);
+  const a = await artifact(ws);
+  const threadId = await thread(a, editor.id, "Words of the editor");
+  return { admin, editor, ws, fake, connection, a, threadId };
+}
+
+const removeMember = (ws: string, userId: string) =>
+  db()
+    .global.delete(schema.workspaceMembers)
+    .where(
+      and(eq(schema.workspaceMembers.workspaceId, ws), eq(schema.workspaceMembers.userId, userId)),
+    );
+
+describe("checked again when the job sends", () => {
+  it("never writes to a repository an admin removed from the connection after the request", async () => {
+    const w = await world();
+    const issue = value(
+      await ask(w, w.owner.id, {
+        include: { link: true, artifactName: true, quote: false, message: true },
+      }),
+    );
+    value(
+      await updateIntegrationConnection(db(), {
+        actor: personalActor(w.owner.id),
+        connectionId: w.connection.id,
+        update: { targets: ["acme/docs"] },
+        deps: await deps(w.fake),
+        now: NOW + 1,
+      }),
+    );
+    const before = w.fake.requests.length;
+    expect(await run(issue.id, NOW + 2, await jobDeps(w.fake))).toBe("done");
+    expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure: "target_removed" });
+    expect(w.fake.requests).toHaveLength(before);
+    expect(w.fake.issues).toHaveLength(0);
+  });
+
+  it("fails the artifact's pending requests in the transfer's batch, and never sends them", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const ws = await workspace([[owner.id, "admin"]]);
+    await grantPlan(ws, "team");
+    const fake = trackers();
+    const connection = await connectGitHub(personalActor(owner.id), fake);
+    const a = await artifact(owner.id);
+    const threadId = await thread(a, owner.id, "Words");
+    const issue = value(await ask({ a, threadId, connection }, owner.id));
+    const slug = ws.slice(3, 23);
+    value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: owner.id,
+        artifactId: a.id,
+        workspace: slug,
+        now: NOW + 1,
+      }),
+    );
+    expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure: "artifact_moved" });
+    expect(await run(issue.id, NOW + 2, await jobDeps(fake))).toBe("done");
+    expect(fake.issues).toHaveLength(0);
+  });
+
+  it("fails a request whose artifact changed owner without a transfer, before any call", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    const other = await person();
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: other.id })
+      .where(eq(schema.artifacts.id, w.a.id));
+    const before = w.fake.requests.length;
+    await run(issue.id, NOW, await jobDeps(w.fake));
+    expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure: "artifact_moved" });
+    expect(w.fake.requests).toHaveLength(before);
+  });
+
+  it("fails a request whose thread went away while a lost issue was looked for, on its claim", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    w.fake.next(new Response("busy", { status: 503 }));
+    expect(await run(issue.id, NOW, await jobDeps(w.fake))).toBe("kept");
+    // During the lookup of the second attempt the artifact goes to someone else.
+    const other = await person();
+    w.fake.next(async () => {
+      await db()
+        .update(schema.artifacts)
+        .set({ ownerId: other.id })
+        .where(eq(schema.artifacts.id, w.a.id));
+      return Response.json([]);
+    });
+    expect(
+      await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], await jobDeps(w.fake)),
+    ).toBe("done");
+    expect(await issueRow(issue.id)).toMatchObject({
+      state: "failed",
+      failure: "thread_gone",
+      startedAt: null,
+    });
+    expect(w.fake.issues).toHaveLength(0);
+    // Never requeued again.
+    expect(await requeueThreadIssues(db(), NOW + 2 * 86_400_000)).toBe(0);
+  });
+
+  it("fails a request whose artifact was deleted, without calling the service", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "deleted" })
+      .where(eq(schema.artifacts.id, w.a.id));
+    await run(issue.id, NOW, await jobDeps(w.fake));
+    expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure: "thread_gone" });
+    const gone = await world();
+    const lost = value(await ask(gone, gone.owner.id));
+    await db().delete(schema.artifacts).where(eq(schema.artifacts.id, gone.a.id));
+    // The row went with the artifact; the job finds nothing.
+    expect(await issueRow(lost.id)).toBeUndefined();
+  });
+
+  it("caps attempts in the claim, whatever brings the job back", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    await db()
+      .update(schema.threadIssues)
+      .set({ attempts: 5 })
+      .where(eq(schema.threadIssues.id, issue.id));
+    const before = w.fake.requests.length;
+    expect(await run(issue.id, NOW, await jobDeps(w.fake))).toBe("done");
+    expect(await issueRow(issue.id)).toMatchObject({
+      state: "failed",
+      failure: "service_unavailable",
+      attempts: 5,
+    });
+    expect(w.fake.requests).toHaveLength(before);
+  });
+
+  it("does not send for an editor who left the workspace, nor for a deleted account", async () => {
+    const t = await teamWorld();
+    const w = { a: t.a, threadId: t.threadId, connection: t.connection };
+    const issue = value(
+      await ask(w, t.editor.id, {
+        include: { link: true, artifactName: true, quote: false, message: true },
+      }),
+    );
+    await removeMember(t.ws, t.editor.id);
+    expect(await run(issue.id, NOW, await jobDeps(t.fake))).toBe("done");
+    expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure: "requester_left" });
+    expect(t.fake.issues).toHaveLength(0);
+    expect((await auditOf(t.ws)).some((e) => e.kind === "issue.created")).toBe(false);
+    const again = value(await ask(w, t.admin.id));
+    await db()
+      .update(schema.threadIssues)
+      .set({ requestedBy: null })
+      .where(eq(schema.threadIssues.id, again.id));
+    await run(again.id, NOW, await jobDeps(t.fake));
+    expect(await issueRow(again.id)).toMatchObject({ state: "failed", failure: "requester_left" });
+  });
+
+  it("sends for an editor who is still one, under their name", async () => {
+    const t = await teamWorld();
+    const issue = value(
+      await ask({ a: t.a, threadId: t.threadId, connection: t.connection }, t.editor.id),
+    );
+    await run(issue.id, NOW, await jobDeps(t.fake));
+    expect(await issueRow(issue.id)).toMatchObject({ state: "created" });
+    const [event] = (await auditOf(t.ws)).filter((e) => e.kind === "issue.created");
+    expect(event?.actorId).toBe(t.editor.id);
+  });
+});
+
+describe("connection writes and races", () => {
+  it("stores nothing when the admin is removed while the credential is checked", async () => {
+    const t = await teamWorld();
+    const fake = trackers();
+    fake.next(async () => {
+      await removeMember(t.ws, t.admin.id);
+      return Response.json({ login: "octo-bot" });
+    });
+    const actor = {
+      userId: t.admin.id,
+      ownerId: t.ws,
+      role: "admin" as const,
+      region: "default" as const,
+    };
+    const created = await createIntegrationConnection(db(), {
+      actor,
+      connection: { service: "github", label: "Late", credential: TOKEN, targets: ["acme/site"] },
+      deps: await deps(fake),
+      now: NOW,
+    });
+    expect(created).toMatchObject({ ok: false, code: "not_found" });
+    const rows = await db()
+      .select()
+      .from(schema.integrationConnections)
+      .where(
+        and(
+          eq(schema.integrationConnections.ownerId, t.ws),
+          eq(schema.integrationConnections.label, "Late"),
+        ),
+      );
+    expect(rows).toHaveLength(0);
+  });
+
+  it("refuses a change when the admin is removed while the new credential is checked", async () => {
+    const t = await teamWorld();
+    const fake = trackers();
+    const second = `${TOKEN.slice(0, -4)}QQQQ`;
+    fake.github(second, "other-bot", ["acme/site"]);
+    fake.next(async () => {
+      await removeMember(t.ws, t.admin.id);
+      return Response.json({ login: "other-bot" });
+    });
+    const actor = {
+      userId: t.admin.id,
+      ownerId: t.ws,
+      role: "admin" as const,
+      region: "default" as const,
+    };
+    expect(
+      await updateIntegrationConnection(db(), {
+        actor,
+        connectionId: t.connection.id,
+        update: { credential: second },
+        deps: await deps(fake),
+        now: NOW + 1,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect((await connectionRow(t.connection.id))?.credentialHint).toBe(`…${TOKEN.slice(-4)}`);
+  });
+
+  it("holds the admin inside the batch with one database: a removal racing the write changes nothing", async () => {
+    const t = await teamWorld();
+    const actor = {
+      userId: t.admin.id,
+      ownerId: t.ws,
+      role: "admin" as const,
+      region: "default" as const,
+    };
+    const racing = () => racingBatch(() => removeMember(t.ws, t.admin.id));
+    expect(
+      await createIntegrationConnection(racing(), {
+        actor,
+        connection: {
+          service: "github",
+          label: "Raced",
+          credential: TOKEN,
+          targets: ["acme/site"],
+        },
+        deps: await deps(trackers()),
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    await db()
+      .global.insert(schema.workspaceMembers)
+      .values({ workspaceId: t.ws, userId: t.admin.id, role: "admin", updatedAt: NOW });
+    expect(
+      await updateIntegrationConnection(racing(), {
+        actor,
+        connectionId: t.connection.id,
+        update: { label: "Raced" },
+        deps: await deps(trackers()),
+        now: NOW + 1,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    await db()
+      .global.insert(schema.workspaceMembers)
+      .values({ workspaceId: t.ws, userId: t.admin.id, role: "admin", updatedAt: NOW });
+    expect(
+      await removeIntegrationConnection(racing(), {
+        actor,
+        connectionId: t.connection.id,
+        now: NOW + 2,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(await connectionRow(t.connection.id)).toMatchObject({ label: "Product repo" });
+  });
+
+  it("answers a conflict when another change landed first, and the cap when it was full", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const actor = personalActor(owner.id);
+    const connection = await connectGitHub(actor);
+    const raced = racingBatch(() =>
+      db()
+        .update(schema.integrationConnections)
+        .set({ revision: 9 })
+        .where(eq(schema.integrationConnections.id, connection.id)),
+    );
+    expect(
+      await updateIntegrationConnection(raced, {
+        actor,
+        connectionId: connection.id,
+        update: { label: "Mine" },
+        deps: await deps(trackers()),
+        now: NOW + 1,
+      }),
+    ).toMatchObject({ ok: false, code: "version_conflict" });
+    for (let i = 1; i < INTEGRATION_LIMITS.perOwner - 1; i += 1) await connectGitHub(actor);
+    // The last slot is taken between the count and the insert.
+    const full = racingBatch(() => connectGitHub(actor));
+    expect(
+      await createIntegrationConnection(full, {
+        actor,
+        connection: {
+          service: "github",
+          label: "One more",
+          credential: TOKEN,
+          targets: ["acme/site"],
+        },
+        deps: await deps(trackers()),
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "quota_exceeded" });
+    // Removing one already gone answers like a missing one.
+    const gone = racingBatch(() =>
+      db()
+        .delete(schema.integrationConnections)
+        .where(eq(schema.integrationConnections.id, connection.id)),
+    );
+    expect(
+      await removeIntegrationConnection(gone, { actor, connectionId: connection.id, now: NOW }),
+    ).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+  });
+
+  it("never writes a Test's answer over a credential pasted meanwhile", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const actor = personalActor(owner.id);
+    const fake = trackers();
+    const connection = await connectGitHub(actor, fake);
+    const rotate = () =>
+      db()
+        .update(schema.integrationConnections)
+        .set({
+          revision: 2,
+          credentialBox: "new-sealed-value",
+          identity: "new-bot",
+          attention: null,
+        })
+        .where(eq(schema.integrationConnections.id, connection.id));
+    fake.next(async () => {
+      await rotate();
+      return Response.json({ login: "octo-bot" });
+    });
+    value(
+      await testIntegrationConnection(db(), {
+        actor,
+        connectionId: connection.id,
+        deps: await deps(fake),
+        now: NOW,
+      }),
+    );
+    expect(await connectionRow(connection.id)).toMatchObject({
+      identity: "new-bot",
+      credentialBox: "new-sealed-value",
+    });
+    // A refusal about the old credential does not mark the new one either.
+    const other = await connectGitHub(actor, fake);
+    fake.next(async () => {
+      await db()
+        .update(schema.integrationConnections)
+        .set({ revision: 2, credentialBox: "rotated" })
+        .where(eq(schema.integrationConnections.id, other.id));
+      return Response.json({ message: "Bad credentials" }, { status: 401 });
+    });
+    expect(
+      value(
+        await testIntegrationConnection(db(), {
+          actor,
+          connectionId: other.id,
+          deps: await deps(fake),
+          now: NOW,
+        }),
+      ),
+    ).toMatchObject({ ok: false, problem: "credential_rejected" });
+    expect((await connectionRow(other.id))?.attention).toBeNull();
+  });
+
+  it("does not mark a connection whose credential was replaced while the job's call was refused", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    w.fake.next(async () => {
+      await db()
+        .update(schema.integrationConnections)
+        .set({ revision: 2, credentialBox: "rotated" })
+        .where(eq(schema.integrationConnections.id, w.connection.id));
+      return Response.json({ message: "Bad credentials" }, { status: 401 });
+    });
+    await run(issue.id, NOW, await jobDeps(w.fake));
+    expect(await issueRow(issue.id)).toMatchObject({
+      state: "failed",
+      failure: "credential_rejected",
+    });
+    expect((await connectionRow(w.connection.id))?.attention).toBeNull();
+  });
+
+  it("marks a connection whose stored credential no longer opens, from a Test and from the job", async () => {
+    const w = await world();
+    await db()
+      .update(schema.integrationConnections)
+      .set({ keyId: "retired-key" })
+      .where(eq(schema.integrationConnections.id, w.connection.id));
+    const issue = value(await ask(w, w.owner.id));
+    await run(issue.id, NOW, await jobDeps(w.fake));
+    expect(await issueRow(issue.id)).toMatchObject({
+      state: "failed",
+      failure: "credential_rejected",
+    });
+    expect((await connectionRow(w.connection.id))?.attention).toBe("key_unavailable");
+    expect(
+      value(
+        await testIntegrationConnection(db(), {
+          actor: personalActor(w.owner.id),
+          connectionId: w.connection.id,
+          deps: await deps(w.fake),
+          now: NOW,
+        }),
+      ),
+    ).toMatchObject({ ok: false, problem: "credential_rejected" });
+    expect(
+      await updateIntegrationConnection(db(), {
+        actor: personalActor(w.owner.id),
+        connectionId: w.connection.id,
+        update: { targets: ["acme/docs"] },
+        deps: await deps(w.fake),
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+});
+
+describe("lookups, links and limits", () => {
+  it("links only an issue the connection's account opened, never a copied reference or a pull request", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    const copied = `Look: Reference: ${issue.id}`;
+    w.fake.next(new Response("busy", { status: 503 }));
+    await run(issue.id, NOW, await jobDeps(w.fake));
+    w.fake.plant("acme/site", { body: copied, author: "mallory" });
+    w.fake.plant("acme/site", { body: copied, author: "octo-bot", pullRequest: true });
+    await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], await jobDeps(w.fake));
+    const row = await issueRow(issue.id);
+    expect(row?.state).toBe("created");
+    const created = w.fake.issues.find((i) => i.author === "octo-bot" && !i.pullRequest);
+    expect(row?.issueUrl).toBe(created?.url);
+  });
+
+  it("links the oldest of the connection's own matches", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    w.fake.next("lose");
+    await run(issue.id, NOW, await jobDeps(w.fake));
+    const first = w.fake.issues[0];
+    w.fake.plant("acme/site", { body: `Reference: ${issue.id}`, author: "octo-bot" });
+    await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], await jobDeps(w.fake));
+    expect((await issueRow(issue.id))?.issueUrl).toBe(first?.url);
+  });
+
+  it("refuses a Linear answer that links another issue than the one it named", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const fake = trackers();
+    const connection = value(
+      await createIntegrationConnection(db(), {
+        actor: personalActor(owner.id),
+        connection: { service: "linear", label: "Linear", credential: LINEAR_KEY, targets: [TEAM] },
+        deps: await deps(fake),
+        now: NOW,
+      }),
+    );
+    const a = await artifact(owner.id);
+    const threadId = await thread(a, owner.id, "Words");
+    const issue = value(await ask({ a, threadId, connection }, owner.id, { target: TEAM }));
+    fake.next(
+      Response.json({
+        data: {
+          issueCreate: {
+            success: true,
+            issue: { identifier: "ENG-1", url: "https://linear.app/acme/issue/ENG-2/other" },
+          },
+        },
+      }),
+    );
+    await run(issue.id, NOW, await jobDeps(fake));
+    expect(await issueRow(issue.id)).toMatchObject({
+      state: "failed",
+      failure: "invalid_response",
+    });
+    // An answer that says it failed is refused as such.
+    const again = value(await ask({ a, threadId, connection }, owner.id, { target: TEAM }));
+    fake.next(Response.json({ data: { issueCreate: { success: false } } }));
+    await run(again.id, NOW, await jobDeps(fake));
+    expect(await issueRow(again.id)).toMatchObject({ state: "failed", failure: "rejected" });
+  });
+
+  it("retries GitHub's secondary rate limit instead of failing the target", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    w.fake.next(
+      Response.json({ message: "You have exceeded a secondary rate limit." }, { status: 403 }),
+    );
+    expect(await run(issue.id, NOW, await jobDeps(w.fake))).toBe("kept");
+    expect(await issueRow(issue.id)).toMatchObject({ state: "pending", failure: null });
+  });
+
+  it("limits credential checks per admin across owners", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    await db()
+      .global.insert(schema.rateLimits)
+      .values({
+        key: `integration:check:user:${owner.id}`,
+        windowStart: NOW,
+        count: INTEGRATION_LIMITS.checksPerAdminPerHour,
+      });
+    expect(
+      await createIntegrationConnection(db(), {
+        actor: personalActor(owner.id),
+        connection: { service: "github", label: "X", credential: TOKEN, targets: ["acme/site"] },
+        deps: await deps(trackers()),
+        now: NOW,
+      }),
+    ).toMatchObject({
+      ok: false,
+      code: "rate_limited",
+      message: expect.stringContaining("per person"),
+    });
+  });
+
+  it("gives the daily count back for a retried request and a refused one", async () => {
+    const w = await world();
+    const count = async () =>
+      Number(
+        (
+          await db()
+            .global.select({ count: schema.rateLimits.count })
+            .from(schema.rateLimits)
+            .where(
+              eq(
+                schema.rateLimits.key,
+                `integration:issues:${w.owner.id}:${Date.UTC(2026, 10, 8)}`,
+              ),
+            )
+        )[0]?.count ?? 0,
+      );
+    const key = crypto.randomUUID();
+    value(await ask(w, w.owner.id, { key }));
+    value(await ask(w, w.owner.id, { key }));
+    expect(await count()).toBe(1);
+    await db()
+      .update(schema.integrationConnections)
+      .set({ attention: "credential_rejected" })
+      .where(eq(schema.integrationConnections.id, w.connection.id));
+    // A connection marked between the read and the batch: nothing inserted, nothing counted.
+    const raced = racingBatch(async () => {});
+    await db()
+      .update(schema.integrationConnections)
+      .set({ attention: null })
+      .where(eq(schema.integrationConnections.id, w.connection.id));
+    const markLater = racingBatch(() =>
+      db()
+        .update(schema.integrationConnections)
+        .set({ attention: "credential_rejected" })
+        .where(eq(schema.integrationConnections.id, w.connection.id)),
+    );
+    expect(await ask(w, w.owner.id, { database: markLater })).toMatchObject({
+      ok: false,
+      code: "version_conflict",
+    });
+    expect(await count()).toBe(1);
+    void raced;
+  });
+
+  it("refuses the daily cap and keeps the count where it was", async () => {
+    const w = await world();
+    const key = `integration:issues:${w.owner.id}:${Date.UTC(2026, 10, 8)}`;
+    await db()
+      .global.insert(schema.rateLimits)
+      .values({ key, windowStart: NOW, count: INTEGRATION_LIMITS.issuesPerOwnerPerDay });
+    expect(await ask(w, w.owner.id)).toMatchObject({ code: "rate_limited" });
+    const [row] = await db()
+      .global.select()
+      .from(schema.rateLimits)
+      .where(eq(schema.rateLimits.key, key));
+    expect(row?.count).toBe(INTEGRATION_LIMITS.issuesPerOwnerPerDay);
+  });
+});
+
+describe("restores, per region", () => {
+  it("deletes connections a restore brought back, paging past D1's parameter limit", async () => {
+    const w = await world();
+    const snapshot = await connectionRow(w.connection.id);
+    if (!snapshot) throw new Error("setup");
+    value(
+      await removeIntegrationConnection(db(), {
+        actor: personalActor(w.owner.id),
+        connectionId: w.connection.id,
+        now: NOW,
+      }),
+    );
+    // More markers than one statement may bind, all sorting before the real one.
+    const markers = Array.from({ length: 95 }, (_, i) => ({
+      kind: "integration_connection" as const,
+      id: `ic_0${String(i).padStart(3, "0")}`,
+      deletedAt: NOW,
+    }));
+    for (let i = 0; i < markers.length; i += 30) {
+      await db()
+        .global.insert(schema.tombstones)
+        .values(markers.slice(i, i + 30));
+    }
+    await db().insert(schema.integrationConnections).values(snapshot);
+    const applied = await applyIntegrationTombstones(regionsFromEnv(env));
+    expect(applied.integrations).toBeGreaterThanOrEqual(1);
+    expect(await connectionRow(w.connection.id)).toBeUndefined();
+  });
+
+  it("deletes a deleted account's connections and forgets it as who connected a workspace's", async () => {
+    const t = await teamWorld();
+    await db()
+      .global.insert(schema.tombstones)
+      .values({ kind: "account", id: t.admin.id, deletedAt: NOW });
+    await applyIntegrationTombstones(regionsFromEnv(env));
+    expect((await connectionRow(t.connection.id))?.createdBy).toBeNull();
+  });
+});
+
+describe("every refusal of the connection paths", () => {
+  async function owner() {
+    const who = await person();
+    await grantPlan(who.id, "team");
+    return { who, actor: personalActor(who.id) };
+  }
+
+  it("reads stored targets that are not a list as none", () => {
+    expect(storedTargets("not json")).toEqual([]);
+    expect(storedTargets("{}")).toEqual([]);
+    expect(storedTargets('[{"id":1,"name":"x"},{"id":"a/b","name":"a/b"}]')).toEqual([
+      { id: "a/b", name: "a/b" },
+    ]);
+  });
+
+  it.each([
+    [
+      "github",
+      "credential_rejected",
+      null,
+      "GitHub refused the token: it is wrong, expired or revoked.",
+    ],
+    ["linear", "credential_rejected", null, "Linear refused the API key: it is wrong or revoked."],
+    [
+      "github",
+      "missing_permission",
+      null,
+      "GitHub accepted the credential but it cannot read its own account.",
+    ],
+    ["github", "target_unreachable", null, expect.stringContaining("cannot reach a repository")],
+    [
+      "linear",
+      "target_unreachable",
+      null,
+      "The API key cannot see the team. Check the team ID and that the key's account is in that team.",
+    ],
+    ["github", "issues_disabled", null, "Issues are turned off in the repository."],
+    [
+      "linear",
+      "rate_limited",
+      null,
+      "Linear is limiting requests from this credential. Try again later.",
+    ],
+    ["github", "service_unavailable", null, "GitHub did not answer. Try again later."],
+  ] as const)("words %s %s", (service, problem, target, message) => {
+    expect(checkProblemMessage(service, problem, target)).toEqual(message);
+  });
+
+  it("names nobody as who connected once that account is gone", async () => {
+    const { who, actor } = await owner();
+    const connection = await connectGitHub(actor);
+    await db()
+      .update(schema.integrationConnections)
+      .set({ createdBy: null })
+      .where(eq(schema.integrationConnections.id, connection.id));
+    const listed = value(await listIntegrationConnections(db(), { actor, service: ON, now: NOW }));
+    expect(listed.connections[0]?.createdBy).toBeNull();
+    void who;
+  });
+
+  it("refuses creating past the daily creates, and checking past the owner's hourly checks", async () => {
+    const { who, actor } = await owner();
+    await db()
+      .global.insert(schema.rateLimits)
+      .values({
+        key: `integration:create:${who.id}`,
+        windowStart: NOW,
+        count: INTEGRATION_LIMITS.createsPerOwnerPerDay,
+      });
+    const create = async () =>
+      createIntegrationConnection(db(), {
+        actor,
+        connection: { service: "github", label: "X", credential: TOKEN, targets: ["acme/site"] },
+        deps: await deps(trackers()),
+        now: NOW,
+      });
+    expect(await create()).toMatchObject({
+      code: "rate_limited",
+      message: expect.stringContaining("created a day"),
+    });
+    const other = await owner();
+    const connection = await connectGitHub(other.actor);
+    await db()
+      .global.insert(schema.rateLimits)
+      .values({
+        key: `integration:check:${other.who.id}`,
+        windowStart: NOW,
+        count: INTEGRATION_LIMITS.checksPerOwnerPerHour,
+      })
+      .onConflictDoUpdate({
+        target: schema.rateLimits.key,
+        set: { count: INTEGRATION_LIMITS.checksPerOwnerPerHour, windowStart: NOW },
+      });
+    expect(
+      await updateIntegrationConnection(db(), {
+        actor: other.actor,
+        connectionId: connection.id,
+        update: { targets: ["acme/docs"] },
+        deps: await deps(trackers()),
+        now: NOW,
+      }),
+    ).toMatchObject({ code: "rate_limited" });
+    expect(
+      await testIntegrationConnection(db(), {
+        actor: other.actor,
+        connectionId: connection.id,
+        deps: await deps(trackers()),
+        now: NOW,
+      }),
+    ).toMatchObject({ code: "rate_limited" });
+  });
+
+  it("refuses changing for an editor, while switched off, without a key, and with bad targets", async () => {
+    const t = await teamWorld();
+    const editor = await actorIn(t.editor.id, t.ws);
+    const update = async (
+      actor: Actor,
+      extra: Partial<IntegrationDeps> = {},
+      targets = ["acme/docs"],
+    ) =>
+      updateIntegrationConnection(db(), {
+        actor,
+        connectionId: t.connection.id,
+        update: { targets },
+        deps: await deps(trackers(), extra),
+        now: NOW,
+      });
+    expect(await update(editor)).toMatchObject({ code: "forbidden" });
+    const admin = await actorIn(t.admin.id, t.ws);
+    expect(await update(admin, { service: { enabled: false } })).toMatchObject({
+      code: "capacity_unavailable",
+    });
+    expect(await update(admin, { keys: [] })).toMatchObject({ code: "capacity_unavailable" });
+    expect(await update(admin, {}, ["not a repo"])).toMatchObject({ code: "invalid_input" });
+    expect(
+      await testIntegrationConnection(db(), {
+        actor: editor,
+        connectionId: t.connection.id,
+        deps: await deps(trackers()),
+        now: NOW,
+      }),
+    ).toMatchObject({ code: "forbidden" });
+    // The same label and targets change nothing and record nothing.
+    const same = value(
+      await updateIntegrationConnection(db(), {
+        actor: admin,
+        connectionId: t.connection.id,
+        update: { label: "Product repo", targets: ["acme/site"] },
+        deps: await deps(trackers()),
+        now: NOW,
+      }),
+    );
+    expect(same.label).toBe("Product repo");
+    expect((await auditOf(t.ws)).filter((e) => e.kind === "integration.changed")).toHaveLength(0);
+  });
+
+  it("keeps a connection's state when a Test finds a repository unreachable", async () => {
+    const { actor } = await owner();
+    const fake = trackers();
+    const connection = await connectGitHub(actor, fake);
+    fake.next(
+      Response.json({ login: "octo-bot" }),
+      Response.json({ message: "Not Found" }, { status: 404 }),
+    );
+    expect(
+      value(
+        await testIntegrationConnection(db(), {
+          actor,
+          connectionId: connection.id,
+          deps: await deps(fake),
+          now: NOW,
+        }),
+      ),
+    ).toMatchObject({ ok: false, problem: "target_unreachable", target: "acme/site" });
+    expect((await connectionRow(connection.id))?.attention).toBeNull();
+  });
+
+  it("re-seals nothing without a key, and skips a credential no key opens", async () => {
+    const { actor } = await owner();
+    const connection = await connectGitHub(actor);
+    expect(await rewrapIntegrationKeys(db(), [])).toEqual({ rewrapped: 0, left: 0 });
+    const keys = await integrationKeys({ current: OTHER_KEY_TEXT, previous: KEY_TEXT });
+    await db()
+      .update(schema.integrationConnections)
+      .set({ credentialBox: "AAAA" })
+      .where(eq(schema.integrationConnections.id, connection.id));
+    const result = await rewrapIntegrationKeys(db(), keys);
+    expect((await connectionRow(connection.id))?.credentialBox).toBe("AAAA");
+    expect(result.left).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("every refusal of the request and the job", () => {
+  it("refuses an empty title", async () => {
+    const w = await world();
+    expect(
+      await requestThreadIssue(db(), {
+        userId: w.owner.id,
+        artifactId: w.a.id,
+        threadId: w.threadId,
+        request: {
+          connectionId: w.connection.id,
+          target: "acme/site",
+          title: " \u200b ",
+          include: { link: true, artifactName: true, quote: false, message: false },
+        },
+        idempotencyKey: crypto.randomUUID(),
+        service: ON,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input", message: "Write a title." });
+  });
+
+  it("answers the per-thread cap when the last slot is taken in a race", async () => {
+    const w = await world();
+    for (let i = 1; i < INTEGRATION_LIMITS.issuesPerThread; i += 1) value(await ask(w, w.owner.id));
+    const raced = racingBatch(() => ask(w, w.owner.id));
+    expect(await ask(w, w.owner.id, { database: raced })).toMatchObject({ code: "quota_exceeded" });
+  });
+
+  it("fails a request whose connection needs attention by the time the job runs", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    await db()
+      .update(schema.integrationConnections)
+      .set({ attention: "credential_rejected" })
+      .where(eq(schema.integrationConnections.id, w.connection.id));
+    await run(issue.id, NOW, await jobDeps(w.fake));
+    expect(await issueRow(issue.id)).toMatchObject({
+      state: "failed",
+      failure: "credential_rejected",
+    });
+  });
+
+  it("leaves an attempt another run holds alone", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    await db()
+      .update(schema.threadIssues)
+      .set({ startedAt: NOW })
+      .where(eq(schema.threadIssues.id, issue.id));
+    expect(await run(issue.id, NOW + 1_000, await jobDeps(w.fake))).toBe("kept");
+    expect(await issueRow(issue.id)).toMatchObject({ state: "pending", attempts: 0 });
+  });
+
+  it("does nothing for a duplicate message before the retry is due", async () => {
+    const w = await world();
+    const issue = value(await ask(w, w.owner.id));
+    await db()
+      .update(schema.outbox)
+      .set({ availableAt: NOW + 60_000 })
+      .where(eq(schema.outbox.subject, issue.id));
+    expect(await run(issue.id, NOW, await jobDeps(w.fake))).toBe("kept");
+    expect(w.fake.issues).toHaveLength(0);
+  });
+});

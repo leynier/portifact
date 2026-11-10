@@ -13,6 +13,10 @@ export interface FakeIssue {
   body: string;
   key: string;
   url: string;
+  /** Who opened it: the credential's account, or someone else for an issue a test plants. */
+  author: string;
+  /** A pull request, which GitHub lists among issues. */
+  pullRequest?: boolean;
 }
 
 export interface FakeRequest {
@@ -22,7 +26,12 @@ export interface FakeRequest {
   body: string;
 }
 
-type Scripted = Response | "network" | "hang" | "lose" | ((url: string) => Response);
+type Scripted =
+  | Response
+  | "network"
+  | "hang"
+  | "lose"
+  | ((url: string, init: RequestInit) => Response | Promise<Response>);
 
 interface GitHubCredential {
   service: "github";
@@ -76,6 +85,25 @@ export class FakeIssueTrackers {
     return this;
   }
 
+  /**
+   * Plants an issue (or a pull request) in a GitHub repository as someone else wrote it, for
+   * example one that copies another issue's reference line.
+   */
+  plant(target: string, input: { body: string; author: string; pullRequest?: boolean }) {
+    this.counter += 1;
+    this.issues.push({
+      service: "github",
+      target,
+      title: "Planted",
+      body: input.body,
+      key: `#${this.counter}`,
+      url: `https://github.com/${target}/${input.pullRequest ? "pull" : "issues"}/${this.counter}`,
+      author: input.author,
+      ...(input.pullRequest ? { pullRequest: true } : {}),
+    });
+    return this;
+  }
+
   /** The service stops accepting the credential, as when its owner revokes it. */
   revoke(credential: string) {
     this.credentials.delete(credential);
@@ -106,7 +134,7 @@ export class FakeIssueTrackers {
       });
     }
     if (scripted instanceof Response) return scripted;
-    if (typeof scripted === "function") return scripted(url);
+    if (typeof scripted === "function") return scripted(url, init);
     const answer = this.answer(url, init.method ?? "GET", headers, body);
     if (scripted === "lose") throw new TypeError("connection reset");
     return answer;
@@ -151,6 +179,8 @@ export class FakeIssueTrackers {
           html_url: issue.url,
           body: issue.body,
           title: issue.title,
+          user: { login: issue.author },
+          ...(issue.pullRequest ? { pull_request: { url: issue.url } } : {}),
         }));
       return json(list);
     }
@@ -167,6 +197,7 @@ export class FakeIssueTrackers {
         body: input.body ?? "",
         key: `#${number}`,
         url: `https://github.com/${repo.fullName}/issues/${number}`,
+        author: credential.login,
       };
       this.issues.push(issue);
       return json({ number, html_url: issue.url }, 201);
@@ -219,6 +250,7 @@ export class FakeIssueTrackers {
         body: input.description,
         key,
         url: `https://linear.app/acme/issue/${key}/from-portifact`,
+        author: credential.name,
       };
       this.issues.push(issue);
       return json({

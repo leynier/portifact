@@ -124,6 +124,9 @@ describe("checkIssueUrl and checkIssueKey", () => {
     ["linear", "https://linear.app/acme/issue/ENG-1", { target: "" }, true],
     ["linear", "https://linear.app/acme/project/x", { target: "" }, false],
     ["linear", "https://evil.test/acme/issue/ENG-1", { target: "" }, false],
+    ["linear", "https://linear.app/acme/issue/ENG-1/a", { target: "", key: "ENG-1" }, true],
+    ["linear", "https://linear.app/acme/issue/ENG-2/a", { target: "", key: "ENG-1" }, false],
+    ["linear", "https://linear.app/acme/issue/ENG-1/a?x=1", { target: "", key: "ENG-1" }, false],
   ] as const)("%s %s is accepted: %s", (service, raw, expect_, accepted) => {
     expect(checkIssueUrl(service, raw, expect_).ok).toBe(accepted);
   });
@@ -371,5 +374,40 @@ describe("helpers", () => {
     });
     expect(issueTitle(`${ZWSP} `)).toMatchObject({ ok: false });
     expect(credentialHint("github_pat_abcdWXYZ")).toBe(`${cp(0x2026)}WXYZ`);
+  });
+});
+
+describe("issueTitle", () => {
+  const GRAVE = cp(0x02cb);
+  const HASH = cp(0xff03);
+  const AT = cp(0xff20);
+  const NBH = cp(0x2011);
+  it.each([
+    ["Fix the header", "Fix the header"],
+    ["Fix `code` span", `Fix ${GRAVE}code${GRAVE} span`],
+    ["Closes #123", `Closes ${HASH}123`],
+    ["See acme/site#1", `See acme/site${HASH}1`],
+    ["Ping @octocat now", `Ping ${AT}octocat now`],
+    ["Refs GH-42 and gh-7", `Refs GH${NBH}42 and gh${NBH}7`],
+    ["Email a@b and # alone and C#", `Email a${AT}b and # alone and C#`],
+    [`Two${LS}lines\nhere${RLO}`, "Two lines here"],
+  ])("makes %j inert as %j", (raw, sent) => {
+    expect(issueTitle(raw)).toEqual({ ok: true, value: sent });
+  });
+
+  it("never leaves a backtick, an issue reference or a mention (property)", () => {
+    fc.assert(
+      fc.property(
+        fc.string({ unit: fc.constantFrom("`", "#", "@", "1", "a", " ", "G", "H", "-") }),
+        (raw) => {
+          const result = issueTitle(raw);
+          if (!result.ok) return;
+          expect(result.value).not.toContain("`");
+          expect(result.value).not.toMatch(/#\d/);
+          expect(result.value).not.toMatch(/@[A-Za-z0-9_-]/);
+          expect(result.value).not.toMatch(/\bGH-\d/i);
+        },
+      ),
+    );
   });
 });
