@@ -25,7 +25,7 @@ import { pruneReviewSessions } from "./review-access.ts";
 import { pruneShareLinks } from "./share-links.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
-import { pruneArtifactGroups } from "./workspace-groups.ts";
+import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
 import { processWorkspaceDeletions } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;
@@ -557,6 +557,8 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     readSessions: (await pruneReadSessions(db, now)).processed,
     // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014).
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
+    // At most four statements of 500 rows (decision 0014, "Restores").
+    groupTombstones: (await pruneGroupTombstones(db.global, now)).deleted,
     shareLinks: (await pruneShareLinks(db, now)).processed,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
     workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,

@@ -577,3 +577,45 @@ export async function pruneArtifactGroups(
   }
   return { checked: rows.length, removed };
 }
+
+/**
+ * How long tombstones of deleted groups and removed group memberships are kept: the D1 Time
+ * Travel window. A restore cannot go further back, so a membership removed before then is
+ * already gone at every point a restore can reach, and its tombstone guards nothing.
+ */
+export const GROUP_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+const PRUNE_TOMBSTONES = { batch: 500, rounds: 4 } as const;
+
+/**
+ * The maintenance scan of group tombstones (decision 0014, "Restores"): deletes `workspace_group`
+ * and `workspace_group_member` tombstones older than `GROUP_TOMBSTONE_RETENTION_MS`, oldest
+ * first, `batch` rows per statement and at most `rounds` statements per run, each round after
+ * the last key the previous one deleted. No other kind of tombstone is ever pruned.
+ */
+export async function pruneGroupTombstones(
+  global: GlobalDb,
+  now: number,
+  limits: { batch: number; rounds: number } = PRUNE_TOMBSTONES,
+): Promise<{ deleted: number; queries: number }> {
+  const before = now - GROUP_TOMBSTONE_RETENTION_MS;
+  let cursor: { deletedAt: number; kind: string; id: string } | null = null;
+  let deleted = 0;
+  let queries = 0;
+  for (let round = 0; round < limits.rounds; round++) {
+    const after: SQL = cursor
+      ? sql`and (${t.deletedAt}, ${t.kind}, ${t.id}) > (${cursor.deletedAt}, ${cursor.kind}, ${cursor.id})`
+      : sql``;
+    const rows: { kind: string; id: string; deleted_at: number }[] = await global.all(
+      sql`delete from ${t} where (${t.kind}, ${t.id}) in (select ${t.kind}, ${t.id} from ${t} where ${t.kind} in ('workspace_group', 'workspace_group_member') and ${t.deletedAt} < ${before} ${after} order by ${t.deletedAt}, ${t.kind}, ${t.id} limit ${limits.batch}) returning ${t.kind}, ${t.id}, ${t.deletedAt}`,
+    );
+    queries++;
+    deleted += rows.length;
+    const key = (row: { kind: string; id: string; deleted_at: number }) =>
+      `${String(row.deleted_at).padStart(16, "0")}\u0000${row.kind}\u0000${row.id}`;
+    const last = rows.toSorted((x, y) => (key(x) < key(y) ? -1 : 1)).at(-1);
+    if (!last || rows.length < limits.batch) break;
+    cursor = { deletedAt: last.deleted_at, kind: last.kind, id: last.id };
+  }
+  return { deleted, queries };
+}

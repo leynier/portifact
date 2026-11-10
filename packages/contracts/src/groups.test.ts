@@ -129,3 +129,10 @@ describe("workspace groups", () => {
     }
   });
 });
+
+describe("group names that normalization lengthens", () => {
+  it("checks the length after normalizing", () => {
+    expect(WorkspaceGroupName.safeParse("क़".repeat(80)).success).toBe(false);
+    expect(WorkspaceGroupName.parse(` ${"क़".repeat(40)} `)).toHaveLength(80);
+  });
+});

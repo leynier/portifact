@@ -33,9 +33,11 @@ import {
   addGroupMember,
   createWorkspaceGroup,
   deleteWorkspaceGroup,
+  GROUP_TOMBSTONE_RETENTION_MS,
   getWorkspaceGroup,
   listWorkspaceGroups,
   pruneArtifactGroups,
+  pruneGroupTombstones,
   removeGroupMember,
   renameWorkspaceGroup,
 } from "../src/workspace-groups.ts";
@@ -231,6 +233,24 @@ describe("managing groups", () => {
       id: group.id,
       name: null,
     });
+  });
+
+  it("refuses a name that normalization lengthens past the limit, on create and rename", async () => {
+    const t = await team();
+    const long = "\u0958".repeat(80);
+    expect(await create(t, long)).toMatchObject({ ok: false, code: "invalid_input" });
+    const group = value(await create(t, "Design"));
+    expect(
+      await renameWorkspaceGroup(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        groupId: group.id,
+        name: long,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+    // Forty of them normalize to exactly eighty characters.
+    expect(value(await create(t, "\u0958".repeat(40))).name).toHaveLength(80);
   });
 
   it("refuses a name the workspace already has, whatever the case", async () => {
@@ -465,6 +485,31 @@ describe("groups on an artifact", () => {
         groupCommentVisibility: [{ group: own.id, commentVisibility: "all" }],
       }),
     ).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+
+  it("counts only groups that still exist toward the cap, and drops the stale rows", async () => {
+    const t = await team();
+    const artifactId = await publishIn(t.admin.id, t.id);
+    const ids: string[] = [];
+    for (let i = 0; i < 21; i++) ids.push(value(await create(t, `G${i}`)).id);
+    value(await change(t.admin.id, artifactId, { addGroups: ids.slice(0, 20) }));
+    for (const id of ids.slice(0, 5)) {
+      value(
+        await deleteWorkspaceGroup(db().global, {
+          userId: t.admin.id,
+          slug: t.slug,
+          groupId: id,
+          now: NOW,
+        }),
+      );
+    }
+    const view = value(await change(t.admin.id, artifactId, { addGroups: [ids[20] as string] }));
+    expect(view.groups).toHaveLength(16);
+    const rows = await db()
+      .select({ groupId: schema.artifactGroups.groupId })
+      .from(schema.artifactGroups)
+      .where(eq(schema.artifactGroups.artifactId, artifactId));
+    expect(rows).toHaveLength(16);
   });
 
   it("caps the groups an artifact lists", async () => {
@@ -781,6 +826,16 @@ describe("comment visibility by group agrees on every read path", () => {
     expect(one.ok).toBe(sees);
     expect(reply.ok).toBe(sees);
     expect(feedback.items.some((item) => item.thread.id === theirs.id)).toBe(sees);
+    // The account export shows the thread (its state and date) exactly when the scope does; the
+    // member wrote in it only when they could see it.
+    const exportedThread = value(
+      await exportAccount(db(), { userId: t.member.id, now: NOW }),
+    ).commentsElsewhere.find((thread) => thread.id === theirs.id);
+    if (sees) {
+      expect(exportedThread && "state" in exportedThread).toBe(true);
+    } else {
+      expect(exportedThread).toBeUndefined();
+    }
   });
 
   it("lists a restricted artifact's threads in the space's feedback only through a group that grants", async () => {
@@ -1041,5 +1096,35 @@ describe("the scan and a restore", () => {
     value(await join(t, second.id, t.other.id));
     await applyTombstones(db(), markers, NOW + 2);
     expect(await reads(artifactId, t.other.id)).toBe(true);
+  });
+});
+
+describe("pruning group tombstones", () => {
+  it("deletes only group tombstones older than the restore window, in bounded rounds", async () => {
+    const old = NOW - GROUP_TOMBSTONE_RETENTION_MS - DAY;
+    const recent = NOW - GROUP_TOMBSTONE_RETENTION_MS + DAY;
+    const tag = hex().slice(0, 8);
+    const rows = [
+      { kind: "workspace_group" as const, id: `wg_old_${tag}`, deletedAt: old },
+      { kind: "workspace_group_member" as const, id: `wgm_old_${tag}`, deletedAt: old },
+      { kind: "workspace_group_member" as const, id: `wgm_new_${tag}`, deletedAt: recent },
+      { kind: "workspace_domain" as const, id: `wd_old_${tag}`, deletedAt: old },
+      { kind: "account" as const, id: `u_old_${tag}`, deletedAt: old },
+    ];
+    await db().insert(schema.tombstones).values(rows);
+    // Small rounds: the cursor moves through every old row across rounds and runs.
+    for (let run = 0; run < 50; run++) {
+      const result = await pruneGroupTombstones(db().global, NOW, { batch: 1, rounds: 2 });
+      expect(result.queries).toBeLessThanOrEqual(2);
+      if (result.deleted === 0) break;
+    }
+    const left = new Set(
+      (await db().select({ id: schema.tombstones.id }).from(schema.tombstones)).map((r) => r.id),
+    );
+    expect(left.has(`wg_old_${tag}`)).toBe(false);
+    expect(left.has(`wgm_old_${tag}`)).toBe(false);
+    expect(left.has(`wgm_new_${tag}`)).toBe(true);
+    expect(left.has(`wd_old_${tag}`)).toBe(true);
+    expect(left.has(`u_old_${tag}`)).toBe(true);
   });
 });

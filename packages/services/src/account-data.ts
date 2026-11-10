@@ -4,7 +4,7 @@
 // and claims every artifact for purging in one transaction, so nothing is served or usable
 // after it returns; the maintenance job then purges the artifacts, erases the account's
 // comments on other people's artifacts in small batches and leaves an `account` tombstone.
-import { type AccountExport, FRESH_SESSION_MS } from "@portifact/contracts";
+import { type AccountExport, FRESH_SESSION_MS, isWorkspaceId } from "@portifact/contracts";
 import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
@@ -13,6 +13,7 @@ import {
   ok,
   previousVersionExpiry,
   type Result,
+  requireFeature,
   shareLinkStatus,
   threadInScope,
   versionRetention,
@@ -32,6 +33,7 @@ import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
 import { exportServiceTokens } from "./service-tokens.ts";
 import { exportWebhooks } from "./webhooks.ts";
+import { viewerGroupIds } from "./workspace-groups.ts";
 
 const IN_CHUNK = 80;
 
@@ -162,7 +164,7 @@ export async function exportAccount(
         .orderBy(asc(schema.annotationThreads.createdAt))),
     );
   }
-  const shown = await threadsInScope(db, user, elsewhere);
+  const shown = await threadsInScope(db, user, elsewhere, input.now);
 
   const messages = new Map<string, MessageRow[]>();
   for (const ids of chunks([...ownThreads, ...elsewhere].map((thread) => thread.id))) {
@@ -308,6 +310,7 @@ async function threadsInScope(
   db: RegionalDb,
   user: { id: string; email: string; emailVerified: boolean },
   threads: readonly ThreadRow[],
+  now: number,
 ): Promise<Set<string>> {
   const artifactIds = [...new Set(threads.map((thread) => thread.artifactId))];
   const artifacts = new Map<string, { ownerId: string; commentVisibility: "owner" | "everyone" }>();
@@ -340,14 +343,40 @@ async function threadsInScope(
       if (row.commentVisibility !== null) exceptions.set(row.artifactId, row.commentVisibility);
     }
   }
+  // The groups each artifact lists, with their exceptions (decision 0014).
+  const listedGroups = new Map<
+    string,
+    { groupId: string; commentVisibility: "all" | "own" | null }[]
+  >();
+  for (const ids of chunks(artifactIds)) {
+    for (const row of await db
+      .select({
+        artifactId: schema.artifactGroups.artifactId,
+        groupId: schema.artifactGroups.groupId,
+        commentVisibility: schema.artifactGroups.commentVisibility,
+      })
+      .from(schema.artifactGroups)
+      .where(inArray(schema.artifactGroups.artifactId, ids))) {
+      listedGroups.set(row.artifactId, [...(listedGroups.get(row.artifactId) ?? []), row]);
+    }
+  }
   // An admin or editor of a workspace sees all of its threads; everyone else is a participant,
-  // and "the owner's" threads are those of whoever acts for it.
-  const owners = new Map<string, { managed: boolean; side: readonly string[] }>();
+  // and "the owner's" threads are those of whoever acts for it. A member of the workspace may be
+  // in listed groups, which grant only while its plan includes `workspaces`.
+  const owners = new Map<
+    string,
+    { managed: boolean; side: readonly string[]; groups: ReadonlySet<string> }
+  >();
   for (const ownerId of new Set([...artifacts.values()].map((artifact) => artifact.ownerId))) {
-    owners.set(ownerId, {
-      managed: actsForOwner(await actorOn(db.global, user.id, ownerId), ownerId),
-      side: await ownerSide(db.global, ownerId),
-    });
+    const actor = await actorOn(db.global, user.id, ownerId);
+    const managed = actsForOwner(actor, ownerId);
+    const member =
+      !managed && actor !== null && actor.ownerId === ownerId && isWorkspaceId(ownerId);
+    const groups =
+      member && requireFeature(await ownerEntitlements(db, ownerId, now), "workspaces").ok
+        ? await viewerGroupIds(db.global, ownerId, user.id)
+        : new Set<string>();
+    owners.set(ownerId, { managed, side: await ownerSide(db.global, ownerId), groups });
   }
   const shown = new Set<string>();
   for (const thread of threads) {
@@ -358,6 +387,9 @@ async function threadsInScope(
       owner.managed ? "owner" : "participant",
       artifact.commentVisibility,
       exceptions.get(thread.artifactId) ?? null,
+      (listedGroups.get(thread.artifactId) ?? [])
+        .filter((row) => owner.groups.has(row.groupId))
+        .map((row) => row.commentVisibility),
     );
     if (threadInScope(scope, user.id, owner.side, thread.authorId)) shown.add(thread.id);
   }

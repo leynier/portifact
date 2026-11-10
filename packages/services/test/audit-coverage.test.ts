@@ -154,6 +154,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "rerenderDocuments",
   "runMaintenance",
   "pruneArtifactGroups",
+  "pruneGroupTombstones",
   "relayOutbox",
   "runJob",
   "maintainWebhooks",

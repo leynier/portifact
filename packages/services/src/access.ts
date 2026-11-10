@@ -251,14 +251,21 @@ async function checkGroupChange(
   artifact: { id: string; ownerId: string },
   change: AccessChange,
   owner: ReturnType<typeof entitlements>,
-): Promise<Result<{ add: string[]; remove: string[] }>> {
+): Promise<Result<{ add: string[]; remove: string[]; stale: string[] }>> {
   const add = [...new Set(change.addGroups ?? [])];
   const remove = [...new Set(change.removeGroups ?? [])].filter((id) => !add.includes(id));
   const exceptions = change.groupCommentVisibility ?? [];
   if (add.length === 0 && remove.length === 0 && exceptions.length === 0) {
-    return ok({ add, remove });
+    return ok({ add, remove, stale: [] });
   }
-  const current = (await artifactGroupRows(db, artifact.id)).map((row) => row.groupId);
+  // Rows whose group was deleted grant nothing and are not shown: they do not count toward the
+  // cap, and this change removes them (decision 0014, "Data and regions").
+  const listed = (await artifactGroupRows(db, artifact.id)).map((row) => row.groupId);
+  const alive = isWorkspaceId(artifact.ownerId)
+    ? await groupSummaries(db.global, artifact.ownerId, listed)
+    : new Map();
+  const current = listed.filter((id) => alive.has(id));
+  const stale = listed.filter((id) => !alive.has(id) && !add.includes(id));
   const adding = add.filter((id) => !current.includes(id));
   const after = new Set([...current.filter((id) => !remove.includes(id)), ...add]);
   const allowed = checkArtifactGroups({
@@ -282,7 +289,7 @@ async function checkGroupChange(
       `${unlisted.group} is not on the artifact. Add the group before choosing what it sees.`,
     );
   }
-  return ok({ add, remove });
+  return ok({ add, remove, stale });
 }
 
 /**
@@ -348,7 +355,7 @@ export async function updateAccess(
 
   const groupChange = await checkGroupChange(db, artifact, change, owner);
   if (!groupChange.ok) return groupChange;
-  const { add: addGroups, remove: removeGroups } = groupChange.value;
+  const { add: addGroups, remove: removeGroups, stale: staleGroups } = groupChange.value;
   const groupExceptions = change.groupCommentVisibility ?? [];
 
   // Reader writes run first, conditioned on the generation this request read, and the guarded
@@ -393,14 +400,14 @@ export async function updateAccess(
         ),
     ),
     // Groups (decision 0014), like readers: removals, inserts, then exceptions.
-    ...(removeGroups.length > 0
+    ...(removeGroups.length + staleGroups.length > 0
       ? [
           db
             .delete(schema.artifactGroups)
             .where(
               and(
                 eq(schema.artifactGroups.artifactId, artifact.id),
-                inArray(schema.artifactGroups.groupId, removeGroups),
+                inArray(schema.artifactGroups.groupId, [...removeGroups, ...staleGroups]),
                 unchanged,
               ),
             ),
