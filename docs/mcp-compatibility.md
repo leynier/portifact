@@ -47,6 +47,8 @@ Verified by the maintainer with a custom connector, "Sign in now" and "Use Claud
 
 ## Not covered yet
 
+- Single sign-on for workspaces ([decision 0016](decisions/0016-workspace-sso.md), switched off): a sign-in that an MCP client's authorization request started and that the person finishes through their workspace's identity provider lands on the dashboard instead of continuing to consent; connecting the client again finds the session. OAuth clients are otherwise unaffected (single sign-on adds no scope, token or client path).
+
 - Dynamic client registration with a real client (`codex mcp login --oauth-client-registration dcr`), to avoid leaving a registered client in production.
 - Claude Desktop and Claude.ai's get, versions and delete tools, error results and refresh.
 - Annotation tools with Claude.ai, Claude Desktop and Claude Code.

@@ -52,6 +52,10 @@ export default defineConfig(async () => {
             WEBHOOK_KEY: "test-only webhook sealing key for the app suite",
             // Offered in tests; the deployed configuration leaves it unset (decision 0009).
             WEBHOOKS_ENABLED: "true",
+            // Single sign-on is offered in tests; the deployed configuration leaves it unset
+            // (decision 0016). Identity providers are fakes (FakeIdentityProvider).
+            SSO_ENABLED: "true",
+            SSO_KEY: "test-only single sign-on sealing key for the app suite",
             TEST_MIGRATIONS: migrations,
             TEST_ACCESS_MIGRATIONS: accessMigrations,
           },

@@ -8,6 +8,12 @@
 // records it with /accept-terms before the method starts, and the Worker refuses to create an
 // account or a session without it.
 //
+// Single sign-on (decision 0016): when the email entered belongs to a domain a workspace signs in
+// with its own identity provider, the page offers "Continue with single sign-on" (or an email
+// code instead) and swaps the notice for the one that names it, so the same sign-in-wrap applies.
+// The lookup says only whether the domain uses single sign-on, never which workspace. While the
+// Worker has it switched off the lookup answers 404 and the page sends a code as before.
+//
 // Human check (docs/security.md, "Human check"): new accounts need a solved Turnstile challenge.
 // It runs invisibly from page load (human-gate.ts) and appears below the methods only when
 // Cloudflare needs an interaction; existing accounts sign in without it.
@@ -57,6 +63,9 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   const codeInput = byId<HTMLInputElement>(doc, "code");
   const codeError = byId(doc, "code-error");
   const resend = byId<HTMLButtonElement>(doc, "resend-code");
+  const ssoStep = byId(doc, "sso-step");
+  const notice = byId(doc, "terms-notice");
+  const ssoNotice = byId(doc, "terms-notice-sso");
 
   const providerError = new URLSearchParams(location.search).get("error");
   if (providerError) {
@@ -198,14 +207,78 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
       return;
     }
     email = value;
-    if (!(await sendCode(byId<HTMLButtonElement>(doc, "send-code")))) return;
+    const sendButton = byId<HTMLButtonElement>(doc, "send-code");
+    if (await exclusive(sendButton, () => usesSso(api, email))) {
+      showSso(true);
+      return;
+    }
+    await codeStep(sendButton);
+  });
+
+  /** Sends a code and shows the code step; false when the code was not sent. */
+  const codeStep = async (button: HTMLButtonElement) => {
+    if (!(await sendCode(button))) return false;
     byId(doc, "code-sent").textContent = messages.codeSent(email);
     methods.hidden = true;
+    ssoStep.hidden = true;
     codeForm.hidden = false;
     codeInput.value = "";
     setFieldError(codeInput, codeError, undefined);
     announce(status, messages.codeSentStatus);
     codeInput.focus();
+    return true;
+  };
+
+  /** Shows or hides the single sign-on step, with the notice that names it. */
+  const showSso = (shown: boolean) => {
+    ssoStep.hidden = !shown;
+    methods.hidden = shown;
+    notice.hidden = shown;
+    ssoNotice.hidden = !shown;
+    if (!shown) return;
+    byId(doc, "sso-for").textContent = messages.ssoFor(email);
+    announce(status, messages.ssoShown);
+    byId(doc, "sso-heading").focus();
+  };
+
+  byId<HTMLButtonElement>(doc, "sso-continue").addEventListener("click", async (event) => {
+    hideSummary(summary);
+    const response = await exclusive(event.currentTarget as HTMLButtonElement, async () => {
+      const accepted = await beforeSignIn();
+      if (accepted.status !== 200) return accepted;
+      return api.post("/sign-in/sso", {
+        email,
+        callbackURL: afterSignIn,
+        errorCallbackURL: "/login",
+      });
+    });
+    if (!response) return;
+    const url = field(response.body, "url");
+    if (response.status === 200 && url) {
+      announce(status, messages.redirecting);
+      location.assign(url);
+      return;
+    }
+    const refusal = field(response.body, "code");
+    if (refusal && messages.providerErrors[refusal]) {
+      showSummary(summary, messages.providerErrors[refusal]);
+    } else {
+      failed(response.status);
+    }
+  });
+
+  byId<HTMLButtonElement>(doc, "sso-code").addEventListener("click", async (event) => {
+    hideSummary(summary);
+    if (await codeStep(event.currentTarget as HTMLButtonElement)) {
+      notice.hidden = false;
+      ssoNotice.hidden = true;
+    }
+  });
+
+  byId<HTMLButtonElement>(doc, "sso-change-email").addEventListener("click", () => {
+    hideSummary(summary);
+    showSso(false);
+    emailInput.focus();
   });
 
   codeForm.addEventListener("submit", async (event) => {
@@ -248,7 +321,7 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   byId<HTMLButtonElement>(doc, "change-email").addEventListener("click", () => {
     hideSummary(summary);
     codeForm.hidden = true;
-    methods.hidden = false;
+    showSso(false);
     emailInput.focus();
   });
 
@@ -302,6 +375,15 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     return;
   }
   showSignIn();
+}
+
+/** Whether the address signs in through a workspace's identity provider; false on any failure. */
+async function usesSso(api: Api, email: string): Promise<boolean> {
+  const response = await api.post("/sso/lookup", { email });
+  if (response.status !== 200 || typeof response.body !== "object" || response.body === null) {
+    return false;
+  }
+  return (response.body as { sso?: unknown }).sso === true;
 }
 
 interface ReadEntry {

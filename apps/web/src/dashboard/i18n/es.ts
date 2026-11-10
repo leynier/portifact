@@ -2062,4 +2062,90 @@ export const es = {
   "audit.access.groupsRemoved": "{count, plural, one {quitó # grupo} other {quitó # grupos}}",
   "audit.access.groupExceptions":
     "{count, plural, one {cambió la visibilidad de comentarios de # grupo} other {cambió la visibilidad de comentarios de # grupos}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Inicio de sesión único",
+  "sso.description":
+    "Las personas con una dirección en los dominios de correo verificados del workspace pueden iniciar sesión con el proveedor de identidad de tu organización mediante OpenID Connect.",
+  "sso.loadFailed": "No se pudo cargar el inicio de sesión único",
+  "sso.stateLabel": "Estado",
+  "sso.state.off": "Sin configurar",
+  "sso.state.on": "Activo",
+  "sso.state.plan": "En pausa: no está en este plan",
+  "sso.state.domains": "En pausa: ningún dominio verificado",
+  "sso.planTitle": "No está en este plan",
+  "sso.plan":
+    "El inicio de sesión único es parte del plan {plan}. Un proveedor ya configurado se mantiene y aún puedes quitarlo.",
+  "sso.lapsedTitle": "Un dominio ya no está verificado",
+  "sso.lapsed":
+    "{domains} ya no está verificado, así que sus direcciones no pueden iniciar sesión así hasta que el dominio se verifique de nuevo.",
+  "sso.membership":
+    "Quienes inician sesión así se unen al workspace como miembros, o con el rol de una invitación pendiente, mientras haya un puesto libre. Los miembros actuales conservan su rol.",
+  "sso.redirectUri": "URI de redirección",
+  "sso.redirectPending":
+    "Guarda el proveedor para obtener la URI de redirección que debes registrar en tu proveedor de identidad. Se ve así: {pattern}.",
+  "sso.saveFailed": "El cambio no se guardó",
+  "sso.testOkTitle": "El descubrimiento funciona",
+  "sso.testOk":
+    "El inicio de sesión va a {authorization}, los tokens vienen de {token} y las claves de {keys}.",
+  "sso.testOkShort": "El descubrimiento funciona.",
+  "sso.testFailed": "El descubrimiento falló",
+  "sso.formLabel": "Proveedor de inicio de sesión único",
+  "sso.issuer": "URL del emisor",
+  "sso.issuerHint":
+    "El emisor de tu proveedor de identidad, por ejemplo https://login.example.com. Portifact lee su documento de descubrimiento. No se puede cambiar después de guardarlo.",
+  "sso.clientId": "ID de cliente",
+  "sso.clientSecret": "Secreto de cliente",
+  "sso.secretHint": "Se guarda cifrado y no se vuelve a mostrar.",
+  "sso.secretKeep": "Déjalo vacío para conservar el secreto guardado.",
+  "sso.domains": "Dominios que admite",
+  "sso.domainsHint":
+    "Solo los dominios de correo verificados del workspace. Una dirección de otro dominio no puede iniciar sesión así.",
+  "sso.noDomains": "Primero verifica un dominio de correo arriba.",
+  "sso.issuerRequired": "Escribe la URL del emisor.",
+  "sso.clientIdRequired": "Escribe el ID de cliente.",
+  "sso.secretRequired": "Escribe el secreto de cliente.",
+  "sso.domainsRequired": "Elige al menos un dominio.",
+  "sso.save": "Guardar",
+  "sso.saveChanges": "Guardar cambios",
+  "sso.test": "Comprobar el emisor",
+  "sso.remove": "Quitar el inicio de sesión único",
+  "sso.saved": "Inicio de sesión único guardado.",
+  "sso.removed": "Inicio de sesión único quitado.",
+  "sso.scim":
+    "Quitar a alguien en tu proveedor de identidad no lo quita aquí: quítalo de la lista de miembros.",
+  "sso.confirmRemove.title": "¿Quitar el inicio de sesión único?",
+  "sso.confirmRemove.body":
+    "Ya nadie podrá iniciar sesión con este proveedor. Los miembros siguen siéndolo y conservan sus cuentas; inician sesión con un código por correo, Google o GitHub. Un proveedor nuevo recibe una URI de redirección nueva.",
+  "sso.confirmRemove.action": "Quitar",
+  "sso.problem.invalid_issuer":
+    "El emisor debe ser una URL https pública sin consulta ni fragmento.",
+  "sso.problem.unreachable": "No se pudo conectar con el proveedor de identidad.",
+  "sso.problem.timeout": "El proveedor de identidad tardó demasiado en responder.",
+  "sso.problem.redirect":
+    "El proveedor de identidad respondió con una redirección, y Portifact no la sigue. Usa el emisor al que redirige.",
+  "sso.problem.http_error": "El proveedor de identidad respondió con un error.",
+  "sso.problem.too_large": "La respuesta del proveedor de identidad es demasiado grande.",
+  "sso.problem.not_json": "El documento de descubrimiento no es JSON válido.",
+  "sso.problem.issuer_mismatch":
+    "El documento de descubrimiento nombra otro emisor. Usa el emisor exactamente como lo indica el documento.",
+  "sso.problem.missing_endpoint":
+    "Al documento de descubrimiento le falta el endpoint de autorización, de tokens o de claves.",
+  "sso.problem.invalid_endpoint":
+    "Un endpoint del documento de descubrimiento no es una URL https pública.",
+  "sso.problem.no_code_flow":
+    "El proveedor de identidad no ofrece el flujo de código de autorización.",
+  "sso.problem.no_pkce": "El proveedor de identidad no admite PKCE con S256.",
+  "sso.problem.no_signing_algorithm":
+    "El proveedor de identidad firma los ID tokens con un algoritmo que Portifact no acepta (familias RS256, PS256, ES256 o EdDSA).",
+  "sso.error.invalid_input":
+    "Revisa el emisor, el cliente y los dominios. Comprobar el emisor muestra qué falló en el descubrimiento.",
+  "sso.error.capacity_unavailable": "El inicio de sesión único no está disponible en este momento.",
+  "sso.error.version_conflict":
+    "El inicio de sesión único cambió mientras tanto. Recarga e inténtalo de nuevo.",
+  "sso.error.not_found": "El inicio de sesión único no está configurado.",
+  "audit.kind.memberJoinedSso": "{member} se unió como {role} con inicio de sesión único",
+  "audit.kind.ssoCreated":
+    "Configuró el inicio de sesión único con {host} para {count, plural, one {# dominio} other {# dominios}}",
+  "audit.kind.ssoChanged": "Cambió el inicio de sesión único",
+  "audit.kind.ssoRemoved": "Quitó el inicio de sesión único",
 } satisfies Catalog;

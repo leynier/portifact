@@ -67,6 +67,9 @@ import {
   ShareLinkList,
   ShareLinkRevoked,
   SignOutOthersResult,
+  type SsoProviderInput,
+  SsoSettings,
+  SsoTestResult,
   type UploadedPart,
   VersionComparison,
   VersionDownload,
@@ -209,6 +212,13 @@ export interface DashboardApi {
   /** Looks the TXT record up and verifies the claim. */
   verifyWorkspaceDomain(slug: string, domainId: string): Promise<WorkspaceDomainView>;
   removeWorkspaceDomain(slug: string, domainId: string): Promise<void>;
+  /** A workspace's single sign-on settings, for its admins (decision 0016). */
+  sso(slug: string): Promise<SsoSettings>;
+  /** Creates or changes the provider; the secret may be omitted on a change. */
+  saveSso(slug: string, input: SsoProviderInput): Promise<SsoSettings>;
+  removeSso(slug: string): Promise<void>;
+  /** Runs discovery for an issuer and says what failed; stores nothing. */
+  testSso(slug: string, issuer: string): Promise<SsoTestResult>;
   /** The invitations addressed to the signed-in account. */
   incomingInvitations(): Promise<IncomingInvitationList>;
   /** Accepts (answering the workspace joined) or declines one of them. */
@@ -728,6 +738,18 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         z.object({ id: z.string(), removed: z.literal(true) }),
         "DELETE",
       );
+    },
+    sso(slug) {
+      return call(`${workspacePath(slug)}/sso`, SsoSettings);
+    },
+    saveSso(slug, input) {
+      return call(`${workspacePath(slug)}/sso`, SsoSettings, "PUT", input);
+    },
+    async removeSso(slug) {
+      await call(`${workspacePath(slug)}/sso`, z.object({ removed: z.literal(true) }), "DELETE");
+    },
+    testSso(slug, issuer) {
+      return call(`${workspacePath(slug)}/sso/test`, SsoTestResult, "POST", { issuer });
     },
     incomingInvitations() {
       return call("/api/v1/account/invitations", IncomingInvitationList);

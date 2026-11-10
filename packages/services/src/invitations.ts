@@ -119,7 +119,7 @@ export interface InviteInput {
  * the one read: a write that takes a seat is conditioned on it, so a plan lowered or removed
  * between the read and the batch makes it a no-op instead of applying the old limit.
  */
-async function seatLimit(global: GlobalDb, workspaceId: string, now: number) {
+export async function seatLimit(global: GlobalDb, workspaceId: string, now: number) {
   const p = schema.ownerPlans;
   const [row] = await global
     .select({

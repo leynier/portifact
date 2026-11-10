@@ -150,7 +150,7 @@ export function auditSummary(event: AuditEventView): string {
     case "member.invitation_revoked":
       return "Revoked an invitation";
     case "member.joined":
-      return `${member} joined as ${ROLE[d.role as keyof typeof ROLE]}`;
+      return `${member} joined as ${ROLE[d.role as keyof typeof ROLE]}${d.via === "sso" ? " through single sign-on" : ""}`;
     case "member.role_changed":
       return `Changed ${member} from ${d.from} to ${d.to}`;
     case "member.removed":
@@ -181,10 +181,22 @@ export function auditSummary(event: AuditEventView): string {
       return `Added ${member} to the group ${groupName(event)}`;
     case "group.member_removed":
       return `Removed ${member} from the group ${groupName(event)}`;
+    case "sso.created":
+      return `Set up single sign-on with ${d.issuerHost} for ${d.domains} domain${d.domains === 1 ? "" : "s"}`;
+    case "sso.changed":
+      return `Changed single sign-on (${(d.fields as string[]).map((field) => SSO_FIELD[field as keyof typeof SSO_FIELD]).join(", ")})`;
+    case "sso.removed":
+      return "Removed single sign-on";
     case "audit.exported":
       return `Exported the audit log as ${String(d.format).toUpperCase()}${d.from || d.to ? ` (${d.from ?? "start"} to ${d.to ?? "now"})` : ""}`;
   }
 }
+
+const SSO_FIELD = {
+  clientId: "client ID",
+  clientSecret: "client secret",
+  domains: "domains",
+} as const;
 
 /** A group by its current name, or as deleted: the event never stores the name. */
 function groupName(event: AuditEventView): string {

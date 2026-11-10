@@ -2081,4 +2081,89 @@ export const de = {
     "{count, plural, one {# Gruppe entfernt} other {# Gruppen entfernt}}",
   "audit.access.groupExceptions":
     "{count, plural, one {Kommentar-Sichtbarkeit von # Gruppe geändert} other {Kommentar-Sichtbarkeit von # Gruppen geändert}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Single Sign-on",
+  "sso.description":
+    "Personen mit einer Adresse in den bestätigten E-Mail-Domains des Workspace können sich über den Identitätsanbieter deiner Organisation mit OpenID Connect anmelden.",
+  "sso.loadFailed": "Single Sign-on konnte nicht geladen werden",
+  "sso.stateLabel": "Status",
+  "sso.state.off": "Nicht eingerichtet",
+  "sso.state.on": "Aktiv",
+  "sso.state.plan": "Pausiert: nicht in diesem Tarif",
+  "sso.state.domains": "Pausiert: keine bestätigte Domain",
+  "sso.planTitle": "Nicht in diesem Tarif",
+  "sso.plan":
+    "Single Sign-on gehört zum Tarif {plan}. Ein bereits eingerichteter Anbieter bleibt, und du kannst ihn weiterhin entfernen.",
+  "sso.lapsedTitle": "Eine Domain ist nicht mehr bestätigt",
+  "sso.lapsed":
+    "{domains} ist nicht mehr bestätigt, daher können sich Adressen dort so nicht anmelden, bis die Domain wieder bestätigt ist.",
+  "sso.membership":
+    "Wer sich so anmeldet, tritt dem Workspace als Mitglied bei, oder mit der Rolle einer offenen Einladung, solange ein Platz frei ist. Bestehende Mitglieder behalten ihre Rolle.",
+  "sso.redirectUri": "Weiterleitungs-URI",
+  "sso.redirectPending":
+    "Speichere den Anbieter, um die Weiterleitungs-URI zu erhalten, die du beim Identitätsanbieter einträgst. Sie sieht so aus: {pattern}.",
+  "sso.saveFailed": "Die Änderung wurde nicht gespeichert",
+  "sso.testOkTitle": "Discovery funktioniert",
+  "sso.testOk":
+    "Die Anmeldung läuft über {authorization}, Tokens kommen von {token} und Schlüssel von {keys}.",
+  "sso.testOkShort": "Discovery funktioniert.",
+  "sso.testFailed": "Discovery ist fehlgeschlagen",
+  "sso.formLabel": "Single-Sign-on-Anbieter",
+  "sso.issuer": "Issuer-URL",
+  "sso.issuerHint":
+    "Der Issuer deines Identitätsanbieters, zum Beispiel https://login.example.com. Portifact liest sein Discovery-Dokument. Nach dem Speichern lässt er sich nicht mehr ändern.",
+  "sso.clientId": "Client-ID",
+  "sso.clientSecret": "Client-Secret",
+  "sso.secretHint": "Wird verschlüsselt gespeichert und nie wieder angezeigt.",
+  "sso.secretKeep": "Leer lassen, um das gespeicherte Secret zu behalten.",
+  "sso.domains": "Domains für die Anmeldung",
+  "sso.domainsHint":
+    "Nur die bestätigten E-Mail-Domains des Workspace. Eine Adresse aus einer anderen Domain kann sich so nicht anmelden.",
+  "sso.noDomains": "Bestätige zuerst oben eine E-Mail-Domain.",
+  "sso.issuerRequired": "Gib die Issuer-URL ein.",
+  "sso.clientIdRequired": "Gib die Client-ID ein.",
+  "sso.secretRequired": "Gib das Client-Secret ein.",
+  "sso.domainsRequired": "Wähle mindestens eine Domain.",
+  "sso.save": "Speichern",
+  "sso.saveChanges": "Änderungen speichern",
+  "sso.test": "Issuer prüfen",
+  "sso.remove": "Single Sign-on entfernen",
+  "sso.saved": "Single Sign-on gespeichert.",
+  "sso.removed": "Single Sign-on entfernt.",
+  "sso.scim":
+    "Wer beim Identitätsanbieter entfernt wird, bleibt hier: entferne die Person in der Mitgliederliste.",
+  "sso.confirmRemove.title": "Single Sign-on entfernen?",
+  "sso.confirmRemove.body":
+    "Niemand kann sich mehr über diesen Anbieter anmelden. Mitglieder bleiben Mitglieder und behalten ihre Konten; sie melden sich mit einem Code per E-Mail, Google oder GitHub an. Ein neuer Anbieter bekommt eine neue Weiterleitungs-URI.",
+  "sso.confirmRemove.action": "Entfernen",
+  "sso.problem.invalid_issuer":
+    "Der Issuer muss eine öffentliche https-URL ohne Abfrage oder Fragment sein.",
+  "sso.problem.unreachable": "Der Identitätsanbieter war nicht erreichbar.",
+  "sso.problem.timeout": "Der Identitätsanbieter hat zu lange gebraucht.",
+  "sso.problem.redirect":
+    "Der Identitätsanbieter hat mit einer Weiterleitung geantwortet, der Portifact nicht folgt. Nutze den Issuer, auf den er weiterleitet.",
+  "sso.problem.http_error": "Der Identitätsanbieter hat mit einem Fehler geantwortet.",
+  "sso.problem.too_large": "Die Antwort des Identitätsanbieters ist zu groß.",
+  "sso.problem.not_json": "Das Discovery-Dokument ist kein gültiges JSON.",
+  "sso.problem.issuer_mismatch":
+    "Das Discovery-Dokument nennt einen anderen Issuer. Nutze den Issuer genau so, wie ihn das Dokument angibt.",
+  "sso.problem.missing_endpoint":
+    "Im Discovery-Dokument fehlt der Endpunkt für Autorisierung, Tokens oder Schlüssel.",
+  "sso.problem.invalid_endpoint":
+    "Ein Endpunkt im Discovery-Dokument ist keine öffentliche https-URL.",
+  "sso.problem.no_code_flow": "Der Identitätsanbieter bietet den Authorization-Code-Flow nicht an.",
+  "sso.problem.no_pkce": "Der Identitätsanbieter unterstützt PKCE mit S256 nicht.",
+  "sso.problem.no_signing_algorithm":
+    "Der Identitätsanbieter signiert ID-Tokens mit keinem Algorithmus, den Portifact akzeptiert (Familien RS256, PS256, ES256 oder EdDSA).",
+  "sso.error.invalid_input":
+    "Prüfe Issuer, Client und Domains. „Issuer prüfen“ zeigt, was bei der Discovery fehlgeschlagen ist.",
+  "sso.error.capacity_unavailable": "Single Sign-on ist gerade nicht verfügbar.",
+  "sso.error.version_conflict":
+    "Single Sign-on wurde inzwischen geändert. Lade neu und versuch es noch einmal.",
+  "sso.error.not_found": "Single Sign-on ist nicht eingerichtet.",
+  "audit.kind.memberJoinedSso": "{member} ist als {role} per Single Sign-on beigetreten",
+  "audit.kind.ssoCreated":
+    "Hat Single Sign-on mit {host} für {count, plural, one {# Domain} other {# Domains}} eingerichtet",
+  "audit.kind.ssoChanged": "Hat Single Sign-on geändert",
+  "audit.kind.ssoRemoved": "Hat Single Sign-on entfernt",
 } satisfies Catalog;

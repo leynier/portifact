@@ -22,6 +22,11 @@ import {
   ServiceTokenCreated,
   ServiceTokenId,
   ServiceTokenList,
+  SsoProviderInput,
+  SsoSettings,
+  SsoTestInput,
+  SsoTestResult,
+  ssoCallbackPath,
   WORKSPACE_DOMAINS,
   WORKSPACE_GROUPS,
   WorkspaceDomainCreate,
@@ -56,6 +61,7 @@ import {
   type GroupList,
   type GroupMemberRow,
   type GroupRow,
+  getSsoSettings,
   getWorkspaceGroup,
   type InvitationKey,
   type InvitationRow,
@@ -73,17 +79,25 @@ import {
   type MemberRow,
   removeGroupMember,
   removeMember,
+  removeSsoProvider,
   removeWorkspaceDomain,
   renameWorkspaceGroup,
   revokeInvitation,
   revokeServiceToken,
+  type SsoFetch,
+  type SsoProviderRow,
+  type SsoSettingsResult,
+  saveSsoProvider,
+  ssoKeys,
+  testSsoIssuer,
   type UserWorkspace,
   verifyWorkspaceDomain,
   type WorkspaceDomainRow,
 } from "@portifact/services";
 import { type Context, Hono } from "hono";
-import { authUrls } from "../auth/config.ts";
+import { AUTH_BASE_PATH, authUrls } from "../auth/config.ts";
 import type { EmailSender } from "../auth/email.ts";
+import { ssoEnabled } from "../auth/sso.ts";
 import type { Env } from "../env.ts";
 import { regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, type SessionLookup } from "./access.ts";
@@ -233,12 +247,49 @@ export function workspaceReadRoutes(
   );
 }
 
+/** The redirect URI to register at the identity provider for a provider. */
+export function ssoRedirectUri(appOrigin: string, providerId: string): string {
+  return `${authUrls(appOrigin).origin}${AUTH_BASE_PATH}${ssoCallbackPath(providerId)}`;
+}
+
+function ssoSettingsView(env: Env, result: SsoSettingsResult): SsoSettings {
+  const provider = result.provider;
+  return SsoSettings.parse({
+    state: result.state,
+    available: result.available,
+    verifiedDomains: result.verifiedDomains,
+    redirectUriPattern: ssoRedirectUri(env.APP_ORIGIN, "<id>"),
+    provider: provider
+      ? {
+          ...ssoProviderView(env, provider),
+          lapsedDomains: provider.lapsedDomains,
+        }
+      : null,
+  });
+}
+
+function ssoProviderView(env: Env, row: SsoProviderRow) {
+  return {
+    id: row.id,
+    issuer: row.issuer,
+    clientId: row.clientId,
+    domains: row.domains,
+    lapsedDomains: [] as string[],
+    hasClientSecret: true,
+    redirectUri: ssoRedirectUri(env.APP_ORIGIN, row.id),
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
+  };
+}
+
 export interface WorkspaceDeps {
   /** The dashboard session's user; a session without the current terms counts as none. */
   session(env: Env): SessionLookup;
   email(env: Env): EmailSender;
   /** DNS over HTTPS for email domain proofs; null answers `capacity_unavailable`. */
   dns(env: Env): EmailDomainDeps | null;
+  /** Calls identity providers for single sign-on discovery (decision 0016). */
+  ssoFetch(env: Env): SsoFetch;
   now(): number;
 }
 
@@ -574,6 +625,68 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json({ id: id.data, removed: true });
+    }),
+  );
+
+  // Single sign-on (decision 0016): admins only, through the dashboard's session only, like the
+  // members it adds. Switched off without SSO_ENABLED.
+  const ssoRoute = (
+    handler: (c: WorkspaceContext, userId: string, slug: string) => Promise<Response>,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      if (!ssoEnabled(c.env)) {
+        return error(c, "capacity_unavailable", "Single sign-on is not available yet.");
+      }
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      return handler(c, userId, slug);
+    }, "Single sign-on is managed from the dashboard.");
+  routes.get(
+    "/api/v1/workspaces/:slug/sso",
+    ssoRoute(async (c, userId, slug) => {
+      const result = await getSsoSettings(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ssoSettingsView(c.env, result.value));
+    }),
+  );
+  routes.put(
+    "/api/v1/workspaces/:slug/sso",
+    ssoRoute(async (c, userId, slug) => {
+      const body = await readJson(c, SsoProviderInput);
+      if (!body.ok) return body.response;
+      const keys = await ssoKeys({ current: c.env.SSO_KEY, previous: c.env.SSO_KEY_PREVIOUS });
+      const result = await saveSsoProvider(
+        global(c),
+        { keys, fetch: deps.ssoFetch(c.env) },
+        { userId, slug, ...body.value, now: deps.now() },
+      );
+      if (!result.ok) return error(c, result.code, result.message);
+      const settings = await getSsoSettings(global(c), { userId, slug, now: deps.now() });
+      if (!settings.ok) return error(c, settings.code, settings.message);
+      return c.json(ssoSettingsView(c.env, settings.value));
+    }),
+  );
+  routes.delete(
+    "/api/v1/workspaces/:slug/sso",
+    ssoRoute(async (c, userId, slug) => {
+      const result = await removeSsoProvider(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json({ removed: true });
+    }),
+  );
+  routes.post(
+    "/api/v1/workspaces/:slug/sso/test",
+    ssoRoute(async (c, userId, slug) => {
+      const body = await readJson(c, SsoTestInput);
+      if (!body.ok) return body.response;
+      const result = await testSsoIssuer(global(c), deps.ssoFetch(c.env), {
+        userId,
+        slug,
+        issuer: body.value.issuer,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(SsoTestResult.parse(result.value));
     }),
   );
 

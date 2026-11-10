@@ -86,6 +86,8 @@ export const ROLE_ACTIONS = [
   "audit",
   /** Service tokens of the workspace (decision 0011): creating, listing and revoking them. */
   "tokens",
+  /** The workspace's single sign-on provider (decision 0016): who can sign in as its people. */
+  "sso",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;

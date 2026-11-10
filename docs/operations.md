@@ -222,6 +222,15 @@ Admins verify email domains on the Members page (premium plan T2, [decision 0010
 - A workspace that proves a domain another workspace holds takes it over only when the holder's record is gone from the same answer; otherwise the claimant is told another workspace still proves it. A complaint that a domain was verified by the wrong workspace is answered by asking the domain's DNS operator to remove that workspace's `_portifact-email.<domain>` record: the next daily checks remove it, and the rightful workspace can then verify. In an emergency (an employer reports a former workspace keeping its domain) delete the row with `wrangler d1 execute` after verifying the request, insert a `workspace_domain` tombstone with its ID, and record why: readers who matched it stop within a minute.
 - Deleting a workspace removes its domains with it.
 
+### Workspace single sign-on
+
+Admins set up one OpenID Connect provider per Enterprise workspace on the Members page ([decision 0016](decisions/0016-workspace-sso.md)); there is no operator command and no CLI or MCP path. It ships switched off (`SSO_ENABLED`, [releasing.md](releasing.md), "SSO").
+
+- The row is `workspace_sso` (global): issuer, client ID, the sealed client secret and the verified domains it serves. Identities linked through it are Better Auth `accounts` rows with `provider_id = 'sso:<id>'`.
+- People who sign in through it join the workspace as members (or with a pending invitation's role) while it has a free seat; nobody is removed when they leave the identity provider. To cut someone off, remove them from the members list and, if needed, end their sessions.
+- A customer who lost their identity provider can still sign in with an email code: single sign-on is an extra method, not a replacement, until "required" exists.
+- Removing the provider writes a `workspace_sso` tombstone, so a restore cannot bring it back (`apply-tombstones` deletes it and its linked identities again). A provider whose secret was sealed with a retired `SSO_KEY` stops signing in until an admin enters the secret again.
+
 ## Traffic quota
 
 An account whose artifacts served its plan's traffic in the current UTC month (1 million requests or 25 GB on `free`, the plan of every account without an `owner_plans` row; `PLANS` in `packages/contracts/src/plans.ts`) gets 429 on all of them until the next month ( see "Access control" in [security.md](security.md)). Its counters are in `traffic_counters`, one row per account and month, for example `select owner_id, requests, bytes from traffic_counters where cycle_start = <month start in ms> order by bytes desc limit 20` to see the largest consumers during a budget review. There is no operator command to raise or reset a counter; a higher quota comes with a plan (see "Plans" below). Counters older than the previous month are pruned by the maintenance job.

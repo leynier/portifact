@@ -16,7 +16,9 @@
 // Service tokens (decision 0011) have one line: using a token of a workspace without the feature;
 // creating one is session-only and tested with the same body in service-tokens.test.ts.
 //
-// Owner-level gates served only to the dashboard session, with no MCP tool or CLI command, are
+// Single sign-on (decision 0016) is a line with the dashboard session only (no MCP tool).
+//
+// Other owner-level gates served only to the dashboard session, with no MCP tool or CLI command, are
 // not lines here: the brand (`branding`) is gated and tested in branding.test.ts with the same
 // body, and its owner-plan and role rules in packages/services/test/branding.test.ts.
 import { env } from "cloudflare:workers";
@@ -38,7 +40,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { failure as apiFailure } from "../src/api/http.ts";
 import { failure as toolFailure } from "../src/mcp/tools.ts";
-import { createHarness } from "./harness.ts";
+import { createHarness, ORIGIN } from "./harness.ts";
 import { api, apiToken, callTool, connect, mcpToken, type ToolResult } from "./mcp-helpers.ts";
 
 const NOW = Date.parse("2026-11-02T09:00:00Z");
@@ -58,6 +60,8 @@ interface Client {
   apiCall: (path: string, init?: RequestInit) => Promise<Response>;
   /** The API with the Portifact CLI's `credentials:manage` token, which manages webhooks. */
   manageCall: (path: string, init?: RequestInit) => Promise<Response>;
+  /** The API with the dashboard's session, for owner settings no token reaches. */
+  sessionCall: (path: string, init?: RequestInit) => Promise<Response>;
   tool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
@@ -388,7 +392,33 @@ const GATED: GatedOperation[] = [
       };
     },
   },
-  probe("sso"),
+  // Single sign-on (decision 0016) is set up only through the dashboard session, on a
+  // workspace; the editor case does not apply (only admins reach the plan check).
+  {
+    feature: "sso",
+    name: "set up single sign-on",
+    scope: "owner",
+    space: "workspace",
+    run: async (who, id) => {
+      const [row] = await db()
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.artifacts)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.artifacts.ownerId))
+        .where(eq(schema.artifacts.id, id));
+      if (!row) throw new Error("The SSO line needs a workspace's artifact");
+      const response = await who.sessionCall(`/api/v1/workspaces/${row.slug}/sso`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          issuer: "https://login.gate.example.com",
+          clientId: "gate",
+          clientSecret: "gate-secret",
+          domains: ["gate.example.com"],
+        }),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
 ];
 
 /**
@@ -485,7 +515,26 @@ async function client(email: string): Promise<Client> {
   const manage = await apiToken(h, email, "artifacts:read credentials:manage");
   const manageCall = (path: string, init?: RequestInit) => api(h, manage, path, init);
   const { userId } = await (await apiCall("/api/v1/me")).json<{ userId: string }>();
-  return { userId, apiCall, manageCall, tool: (name, args) => callTool(mcp, name, args) };
+  let cookie: string | null = null;
+  const sessionCall = async (path: string, init: RequestInit = {}) => {
+    cookie ??= await h.signIn(email);
+    return h.request(path, {
+      ...init,
+      headers: {
+        ...(init.headers as Record<string, string>),
+        cookie,
+        "sec-fetch-site": "same-origin",
+        origin: ORIGIN,
+      },
+    });
+  };
+  return {
+    userId,
+    apiCall,
+    manageCall,
+    sessionCall,
+    tool: (name, args) => callTool(mcp, name, args),
+  };
 }
 
 async function sha256(text: string) {

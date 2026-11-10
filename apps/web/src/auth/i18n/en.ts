@@ -26,6 +26,9 @@ export const en = {
   methodConnected: "Connected",
   methodNotUsed: "Not used yet",
   redirecting: "Signing you in.",
+  ssoFor: (email: string) => `${email} signs in through your organization's identity provider.`,
+  ssoShown:
+    "Your organization uses single sign-on. Continue with it, or get an email code instead.",
   termsUpdateFor: (email: string) => `Signed in as ${email}`,
   /** Why a sign-in came back with `?error=<code>`, by code; unknown codes get the fallback. */
   providerErrors: {
@@ -39,6 +42,14 @@ export const en = {
       "Your provider has not verified this email address. Verify it there, or sign in with an email code.",
     email_not_found: "Your provider did not share an email address. Sign in with an email code.",
     state_mismatch: "The sign-in took too long or was started in another tab. Try again.",
+    sso_unavailable:
+      "Single sign-on is not available for this address right now. Sign in another way, or ask your workspace's admin.",
+    sso_email_outside_domain:
+      "Your organization's identity provider signed you in with an address outside its verified domains, so Portifact cannot use it. Ask your workspace's admin.",
+    sso_failed:
+      "Single sign-on did not finish. Try again; if it keeps failing, sign in with an email code and tell your workspace's admin.",
+    sso_workspace_full:
+      "Your organization's workspace has no free seat, so you could not join it. Ask its admin for a seat, then sign in again.",
     artifact_unavailable:
       "This artifact does not exist, is no longer available or cannot be opened with this account. To use another account, sign out and open the link again.",
     read_rate_limited:

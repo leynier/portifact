@@ -178,7 +178,11 @@ export const AUDIT_DETAILS = {
   "brand.removed": z.strictObject({ fields: z.array(z.enum(["logo", "all"])).min(1) }),
   "member.invited": z.strictObject({ role: WorkspaceRole, emailDomain: DnsName }),
   "member.invitation_revoked": empty,
-  "member.joined": z.strictObject({ role: WorkspaceRole }),
+  /** `via` is how they joined: an invitation (absent on older events) or single sign-on. */
+  "member.joined": z.strictObject({
+    role: WorkspaceRole,
+    via: z.enum(["invitation", "sso"]).optional(),
+  }),
   "member.role_changed": z.strictObject({ from: WorkspaceRole, to: WorkspaceRole }),
   "member.removed": z.strictObject({ role: WorkspaceRole }),
   "member.left": z.strictObject({ role: WorkspaceRole }),
@@ -210,6 +214,15 @@ export const AUDIT_DETAILS = {
    * current name, never stored: a name is owner-chosen text. A member added to or removed from a
    * group is the target, and the detail names the group.
    */
+  /**
+   * The workspace's single sign-on provider (decision 0016): the issuer as a host only and how
+   * many domains it serves, never the client ID or secret. `changed` names what changed.
+   */
+  "sso.created": z.strictObject({ issuerHost: DnsName, domains: z.number().int().min(1).max(10) }),
+  "sso.changed": z.strictObject({
+    fields: z.array(z.enum(["clientId", "clientSecret", "domains"])).min(1),
+  }),
+  "sso.removed": empty,
   "group.created": empty,
   "group.renamed": empty,
   "group.deleted": empty,
@@ -246,6 +259,7 @@ export const AUDIT_TARGET_TYPES = [
   "email_domain",
   "group",
   "audit_log",
+  "sso",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -288,6 +302,9 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "service_token.revoked": "service_token",
   "email_domain.verified": "email_domain",
   "email_domain.removed": "email_domain",
+  "sso.created": "sso",
+  "sso.changed": "sso",
+  "sso.removed": "sso",
   "group.created": "group",
   "group.renamed": "group",
   "group.deleted": "group",

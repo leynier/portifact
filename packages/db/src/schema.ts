@@ -791,7 +791,8 @@ export const tombstones = sqliteTable(
      * (decision 0009) and `service_token` a revoked service token (decision 0011), so a restore
      * cannot revive them; `workspace` a deleted workspace; `workspace_domain` a removed or lapsed
      * verified email domain by its row ID (decision 0010); `workspace_group` a deleted group and
-     * `workspace_group_member` a removed group membership by its row ID (decision 0014).
+     * `workspace_group_member` a removed group membership by its row ID (decision 0014);
+     * `workspace_sso` a removed single sign-on provider by its row ID (decision 0016).
      */
     kind: text("kind", {
       enum: [
@@ -804,6 +805,7 @@ export const tombstones = sqliteTable(
         "workspace_domain",
         "workspace_group",
         "workspace_group_member",
+        "workspace_sso",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1679,6 +1681,36 @@ export const workspaceDomains = sqliteTable(
     index("workspace_domains_state_checked_idx").on(t.state, t.checkedAt),
     check("workspace_domains_state", sql`${t.state} in ('pending', 'verified')`),
   ],
+);
+
+/**
+ * A workspace's single sign-on provider with OpenID Connect (premium plan E1, decision 0016).
+ * Global, one per workspace, changed only by packages/services. The client secret is sealed with
+ * `SSO_KEY` (bound to the workspace and the column) and never returned; `domains` are the
+ * workspace's verified email domains it serves, space-separated and sorted, re-read against
+ * `workspace_domains` at every sign-in. The ID names the redirect URI and the identities linked
+ * through it (`accounts.provider_id` is `sso:<id>`), so it never changes: a new issuer is a new
+ * provider. `revision` moves on every change, and a sign-in started before one is refused.
+ * Removing it writes a `workspace_sso` tombstone; it goes with the workspace.
+ */
+export const workspaceSso = sqliteTable(
+  "workspace_sso",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    issuer: text("issuer").notNull(),
+    clientId: text("client_id").notNull(),
+    clientSecretSealed: text("client_secret_sealed").notNull(),
+    /** Which `SSO_KEY` sealed the secret. */
+    secretKeyId: text("secret_key_id").notNull(),
+    domains: text("domains").notNull(),
+    revision: integer("revision").notNull().default(1),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("workspace_sso_workspace_idx").on(t.workspaceId)],
 );
 
 /**

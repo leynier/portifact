@@ -2046,4 +2046,88 @@ export const ptBR = {
   "audit.access.groupsRemoved": "{count, plural, one {removeu # grupo} other {removeu # grupos}}",
   "audit.access.groupExceptions":
     "{count, plural, one {mudou a visibilidade de comentários de # grupo} other {mudou a visibilidade de comentários de # grupos}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Login único",
+  "sso.description":
+    "Pessoas com um endereço nos domínios de e-mail verificados do workspace podem entrar pelo provedor de identidade da sua organização com OpenID Connect.",
+  "sso.loadFailed": "Não foi possível carregar o login único",
+  "sso.stateLabel": "Estado",
+  "sso.state.off": "Não configurado",
+  "sso.state.on": "Ativo",
+  "sso.state.plan": "Pausado: fora deste plano",
+  "sso.state.domains": "Pausado: nenhum domínio verificado",
+  "sso.planTitle": "Fora deste plano",
+  "sso.plan":
+    "O login único faz parte do plano {plan}. Um provedor já configurado continua, e você ainda pode removê-lo.",
+  "sso.lapsedTitle": "Um domínio não está mais verificado",
+  "sso.lapsed":
+    "{domains} não está mais verificado, então seus endereços não podem entrar assim até o domínio ser verificado de novo.",
+  "sso.membership":
+    "Quem entra assim passa a fazer parte do workspace como membro, ou com o papel de um convite pendente, enquanto houver vaga. Membros atuais mantêm o papel.",
+  "sso.redirectUri": "URI de redirecionamento",
+  "sso.redirectPending":
+    "Salve o provedor para obter a URI de redirecionamento a registrar no seu provedor de identidade. Ela tem este formato: {pattern}.",
+  "sso.saveFailed": "A alteração não foi salva",
+  "sso.testOkTitle": "A descoberta funciona",
+  "sso.testOk": "O login vai para {authorization}, os tokens vêm de {token} e as chaves de {keys}.",
+  "sso.testOkShort": "A descoberta funciona.",
+  "sso.testFailed": "A descoberta falhou",
+  "sso.formLabel": "Provedor de login único",
+  "sso.issuer": "URL do emissor",
+  "sso.issuerHint":
+    "O emissor do seu provedor de identidade, por exemplo https://login.example.com. O Portifact lê o documento de descoberta dele. Não pode mudar depois de salvo.",
+  "sso.clientId": "ID do cliente",
+  "sso.clientSecret": "Segredo do cliente",
+  "sso.secretHint": "Guardado criptografado e nunca mostrado de novo.",
+  "sso.secretKeep": "Deixe em branco para manter o segredo guardado.",
+  "sso.domains": "Domínios atendidos",
+  "sso.domainsHint":
+    "Somente os domínios de e-mail verificados do workspace. Um endereço de outro domínio não pode entrar assim.",
+  "sso.noDomains": "Verifique um domínio de e-mail acima primeiro.",
+  "sso.issuerRequired": "Informe a URL do emissor.",
+  "sso.clientIdRequired": "Informe o ID do cliente.",
+  "sso.secretRequired": "Informe o segredo do cliente.",
+  "sso.domainsRequired": "Escolha pelo menos um domínio.",
+  "sso.save": "Salvar",
+  "sso.saveChanges": "Salvar alterações",
+  "sso.test": "Verificar o emissor",
+  "sso.remove": "Remover o login único",
+  "sso.saved": "Login único salvo.",
+  "sso.removed": "Login único removido.",
+  "sso.scim":
+    "Remover alguém no seu provedor de identidade não remove a pessoa aqui: remova-a da lista de membros.",
+  "sso.confirmRemove.title": "Remover o login único?",
+  "sso.confirmRemove.body":
+    "Ninguém mais poderá entrar por este provedor. Os membros continuam membros e mantêm as contas; entram com um código por e-mail, Google ou GitHub. Um novo provedor recebe uma nova URI de redirecionamento.",
+  "sso.confirmRemove.action": "Remover",
+  "sso.problem.invalid_issuer":
+    "O emissor precisa ser uma URL https pública sem consulta nem fragmento.",
+  "sso.problem.unreachable": "Não foi possível acessar o provedor de identidade.",
+  "sso.problem.timeout": "O provedor de identidade demorou demais para responder.",
+  "sso.problem.redirect":
+    "O provedor de identidade respondeu com um redirecionamento, que o Portifact não segue. Use o emissor para o qual ele redireciona.",
+  "sso.problem.http_error": "O provedor de identidade respondeu com um erro.",
+  "sso.problem.too_large": "A resposta do provedor de identidade é grande demais.",
+  "sso.problem.not_json": "O documento de descoberta não é um JSON válido.",
+  "sso.problem.issuer_mismatch":
+    "O documento de descoberta indica outro emissor. Use o emissor exatamente como o documento diz.",
+  "sso.problem.missing_endpoint":
+    "Falta no documento de descoberta o endpoint de autorização, de tokens ou de chaves.",
+  "sso.problem.invalid_endpoint":
+    "Um endpoint do documento de descoberta não é uma URL https pública.",
+  "sso.problem.no_code_flow":
+    "O provedor de identidade não oferece o fluxo de código de autorização.",
+  "sso.problem.no_pkce": "O provedor de identidade não aceita PKCE com S256.",
+  "sso.problem.no_signing_algorithm":
+    "O provedor de identidade assina os ID tokens com um algoritmo que o Portifact não aceita (famílias RS256, PS256, ES256 ou EdDSA).",
+  "sso.error.invalid_input":
+    "Confira o emissor, o cliente e os domínios. Verificar o emissor mostra o que falhou na descoberta.",
+  "sso.error.capacity_unavailable": "O login único não está disponível agora.",
+  "sso.error.version_conflict": "O login único mudou nesse meio-tempo. Recarregue e tente de novo.",
+  "sso.error.not_found": "O login único não está configurado.",
+  "audit.kind.memberJoinedSso": "{member} entrou como {role} pelo login único",
+  "audit.kind.ssoCreated":
+    "Configurou o login único com {host} para {count, plural, one {# domínio} other {# domínios}}",
+  "audit.kind.ssoChanged": "Alterou o login único",
+  "audit.kind.ssoRemoved": "Removeu o login único",
 } satisfies Catalog;

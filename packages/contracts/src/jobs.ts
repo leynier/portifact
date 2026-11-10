@@ -111,7 +111,8 @@ export type DomainNoticePayload = z.infer<typeof DomainNoticePayload>;
 /**
  * One purged or deleted artifact or account, a revoked share link, a removed webhook or a removed
  * or lapsed workspace email domain (by row ID), a deleted workspace group or a removed group
- * membership (by row ID, decision 0014), that a restored backup must not bring back.
+ * membership (by row ID, decision 0014) or a removed single sign-on provider (by row ID,
+ * decision 0016), that a restored backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
   kind: z.enum([
@@ -124,6 +125,7 @@ export const TombstoneMarker = z.strictObject({
     "workspace_domain",
     "workspace_group",
     "workspace_group_member",
+    "workspace_sso",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),

@@ -124,7 +124,7 @@ describe.each(languages)("the %s catalog", (_code, load) => {
 
   it("keeps the conditions of the sign-in notices", async () => {
     const { page } = await load();
-    for (const key of ["login.termsNotice", "login.termsUpdateNotice"]) {
+    for (const key of ["login.termsNotice", "login.termsNoticeSso", "login.termsUpdateNotice"]) {
       const notice = page[key] ?? "";
       expect(notice).toContain("18");
       expect(attributes(notice, "href")).toEqual([

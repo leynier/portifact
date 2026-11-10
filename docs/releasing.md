@@ -200,6 +200,21 @@ Webhooks ship switched off ([decision 0009](decisions/0009-webhooks.md), "Switch
 2. **Same-account reach.** Point webhooks at (a) a zone of the account with a WAF rule or Access policy that blocks outside clients, (b) a Worker custom domain of another project on the account, (c) that zone's `<host>.cdn.cloudflare.net` name if a partial setup exists, and (d) a tunnel's public hostname with Access in front. Required: each answers exactly as it does to a request from outside Cloudflare (the WAF or Access answers), never as an internal request that skips them. If any is reached around its protection: do not enable webhooks; add the pattern to `CLOUDFLARE_HOSTS` if it is a Cloudflare-owned name, or move the jobs Worker to a dedicated Cloudflare account with no other projects, and run the checks again.
 3. **The `CF-Worker` header.** Send a delivery to a receiver you control that logs request headers. Required: `CF-Worker` carries nothing that names the account's other projects. If it carries the account's `workers.dev` subdomain (shared by every Worker of the account): either accept it in decision 0009 as public information about Portifact's account, or move the jobs Worker to a dedicated account (or give it a zone of its own and confirm the header then names that zone), and run the check again.
 
+### SSO
+
+Single sign-on for workspaces ships switched off ([decision 0016](decisions/0016-workspace-sso.md)). Before setting `SSO_ENABLED="true"` on `portifact-app` (never in `wrangler.jsonc`), set the secret `SSO_KEY` (at least 32 random characters, `wrangler secret put SSO_KEY`; during a rotation the old one goes in `SSO_KEY_PREVIOUS` until every provider's secret is saved again) and run these checks on a staging deployment against real identity providers: **Okta**, **Microsoft Entra ID** (v2.0 issuer `https://login.microsoftonline.com/<tenant>/v2.0`) and **Google Workspace** (`https://accounts.google.com`).
+
+1. **Discovery.** "Check the issuer" passes for each, and the redirect URI the dashboard shows registers there unchanged.
+2. **PKCE and nonce.** A sign-in sends `code_challenge_method=S256` and a `nonce`; the ID token carries the nonce back. Entra does not list `code_challenge_methods_supported`; confirm it accepts PKCE anyway.
+3. **Claims.** The ID token carries `email` for each (Entra needs the `email` optional claim or the user's mail attribute; Google needs the `email` scope). A user whose `email` is outside the workspace's verified domains is refused with `sso_email_outside_domain`.
+4. **Key rotation.** Rotate the signing key at the provider (Okta lets you; for Entra and Google wait for or simulate a key roll): the next sign-in fetches the key set once and passes.
+5. **Clock skew.** Sign-ins pass with the Worker's clock; a token older than an hour or with `nbf` in the future is refused.
+6. **A user removed at the provider.** They can no longer sign in through it, but their Portifact membership and sessions stay until an admin removes them (no SCIM yet); confirm the dashboard's note says so and the customer accepts it.
+7. **Terms and human check.** A new person needs both; after a `TERMS_VERSION` bump an existing SSO user is sent back to accept.
+8. **No secrets in logs.** Tail the Worker during the flows: no code, token, ID token, client secret or claim appears.
+
+Then add `sso` to `AVAILABLE_PLAN_FEATURES` in the same change that turns it on.
+
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.

@@ -28,6 +28,8 @@ const messages = {
   methodConnected: "Подключено",
   methodNotUsed: "Ещё не использовался",
   redirecting: "Выполняется вход.",
+  ssoFor: (email: string) => `${email} входит через поставщика удостоверений вашей организации.`,
+  ssoShown: "Ваша организация использует единый вход. Продолжите с ним или получите код по почте.",
   termsUpdateFor: (email: string) => `Вы вошли как ${email}`,
   providerErrors: {
     human_verification_required:
@@ -45,6 +47,14 @@ const messages = {
       "Этот artifact не существует, больше недоступен или не может быть открыт с этим аккаунтом. Чтобы использовать другой аккаунт, выйдите и снова откройте ссылку.",
     read_rate_limited:
       "С этого аккаунта открыто слишком много artifacts за короткое время. Подождите несколько минут и снова откройте ссылку.",
+    sso_unavailable:
+      "Единый вход сейчас недоступен для этого адреса. Войдите другим способом или обратитесь к администратору вашего workspace.",
+    sso_email_outside_domain:
+      "Поставщик удостоверений вашей организации передал адрес вне её подтверждённых доменов, поэтому Portifact не может его использовать. Обратитесь к администратору вашего workspace.",
+    sso_failed:
+      "Единый вход не завершился. Попробуйте ещё раз; если ошибка повторяется, войдите с кодом по почте и сообщите администратору вашего workspace.",
+    sso_workspace_full:
+      "В workspace вашей организации нет свободного места, поэтому вы не смогли присоединиться. Попросите место у администратора и войдите снова.",
   },
   providerErrorFallback: "Вход не завершился. Попробуйте ещё раз.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -158,6 +168,10 @@ export const ru: AuthCatalog = {
     "login.termsUpdateNotice": `Выбирая «Принять и продолжить», ${termsConditions}`,
     "login.agreeAndContinue": "Принять и продолжить",
     "login.termsNotice": `Продолжая с Google, GitHub или кодом по почте, ${termsConditions}`,
+    "login.termsNoticeSso": `Продолжая с Google, GitHub, кодом по почте или единым входом, ${termsConditions}`,
+    "login.ssoHeading": "Ваша организация использует единый вход",
+    "login.ssoContinue": "Продолжить с единым входом",
+    "login.ssoUseCode": "Лучше код по почте",
     "login.google": "Продолжить с Google",
     "login.github": "Продолжить с GitHub",
     "login.orEmail": "или по электронной почте",

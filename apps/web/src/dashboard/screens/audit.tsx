@@ -90,6 +90,9 @@ export const AUDIT_GROUPS = {
     "plan.removed",
     "service_token.created",
     "service_token.revoked",
+    "sso.created",
+    "sso.changed",
+    "sso.removed",
   ],
   groups: [
     "group.created",
@@ -523,7 +526,18 @@ export function describeAuditEvent(
         role: role(t, d.role),
       });
     case "member.joined":
-      return t("audit.kind.memberJoined", { member, role: role(t, d.role) });
+      return d.via === "sso"
+        ? t("audit.kind.memberJoinedSso", { member, role: role(t, d.role) })
+        : t("audit.kind.memberJoined", { member, role: role(t, d.role) });
+    case "sso.created":
+      return t("audit.kind.ssoCreated", {
+        host: String(d.issuerHost),
+        count: Number(d.domains),
+      });
+    case "sso.changed":
+      return t("audit.kind.ssoChanged");
+    case "sso.removed":
+      return t("audit.kind.ssoRemoved");
     case "member.role_changed":
       return t("audit.kind.roleChanged", { member, from: role(t, d.from), to: role(t, d.to) });
     case "member.removed":

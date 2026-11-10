@@ -131,6 +131,11 @@ export function fakeDomains(input: {
   return control("/domains", input);
 }
 
+/** Who signs in at the stack's fake identity provider next (worker/sso.ts). */
+export function nextSsoIdentity(input: { sub: string; email: string; name?: string }) {
+  return control<{ ok: boolean }>("/sso-identity", input);
+}
+
 /** A share link of the artifact, created by its owner; the URL holds the token. */
 export function createShareLink(input: {
   ownerId: string;
