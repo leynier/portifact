@@ -3,6 +3,8 @@
 // cannot reach FTS5's syntax, and how a marked snippet becomes plain text with ranges. Pure: the
 // services read the bytes, apply these rules and write the rows.
 import { type PlanFeature, SEARCH_LIMITS, type SnippetRange } from "@portifact/contracts";
+import { htmlText } from "./html-text.ts";
+import { fail, ok, type Result } from "./result.ts";
 
 export const CONTENT_SEARCH_FEATURE: PlanFeature = "contentSearch";
 
@@ -54,26 +56,47 @@ export function ownerToken(ownerId: string): string {
 }
 
 /**
- * The MATCH expression for a query, or null when it has nothing to search for (or is longer than
- * the boundary allows, which it refuses anyway). Each run of letters, marks and digits becomes a
- * quoted phrase and every phrase must match, so quotes, operators, column filters, NEAR and
- * parentheses a user types are only separators: they can neither cause a syntax error nor widen
- * the search. A run with CJK characters becomes a phrase of single characters, which finds it
- * inside a longer run. Whole words only: no prefix search.
+ * The MATCH expression for a query: null when it has nothing to search for, `invalid_input` when
+ * it is longer than the boundary allows or holds more different words, or a longer Chinese or
+ * Japanese run, than `SEARCH_LIMITS` lets one query read (refused, never cut, so an accepted query
+ * never matches more than asked). Each run of letters, marks and digits becomes a quoted phrase
+ * and every phrase must match, so quotes, operators, column filters, NEAR and parentheses a user
+ * types are only separators: they can neither cause a syntax error nor widen the search. A word
+ * repeated, in any case, counts once. A run with CJK characters becomes a phrase of single
+ * characters, which finds it inside a longer run. Whole words only: no prefix search.
  */
-export function buildMatchExpression(query: string): string | null {
-  if (query.length > SEARCH_LIMITS.queryChars) return null;
-  const phrases: string[] = [];
+export function buildMatchExpression(query: string): Result<string | null> {
+  if (query.length > SEARCH_LIMITS.queryChars) {
+    return fail("invalid_input", `Search for 1 to ${SEARCH_LIMITS.queryChars} characters.`);
+  }
+  const phrases = new Map<string, string>();
   for (const [term] of query.normalize("NFC").matchAll(TERM)) {
     const tokens = segmentText(term).split(SEGMENT);
-    phrases.push(`"${tokens.join(" ")}"`);
+    if (tokens.length > SEARCH_LIMITS.queryPhraseTokens) {
+      return fail(
+        "invalid_input",
+        `Search for runs of at most ${SEARCH_LIMITS.queryPhraseTokens} Chinese or Japanese characters.`,
+      );
+    }
+    const phrase = tokens.join(" ");
+    const key = phrase.toLowerCase();
+    if (!phrases.has(key)) phrases.set(key, `"${phrase}"`);
+    if (phrases.size > SEARCH_LIMITS.queryTerms) {
+      return fail(
+        "invalid_input",
+        `Search for at most ${SEARCH_LIMITS.queryTerms} different words.`,
+      );
+    }
   }
-  return phrases.length === 0 ? null : phrases.join(" AND ");
+  return ok(phrases.size === 0 ? null : [...phrases.values()].join(" AND "));
 }
 
-/** The expression limited to one owner's rows: the owner column must hold its token. */
+/**
+ * The expression limited to one owner's rows and to the body: the owner column must hold the
+ * owner's token, and the user's words are matched only against the text, never the owner column.
+ */
 export function ownerMatch(ownerId: string, expression: string): string {
-  return `owner : ${ownerToken(ownerId)} AND (${expression})`;
+  return `owner : ${ownerToken(ownerId)} AND body : (${expression})`;
 }
 
 /**
@@ -159,50 +182,26 @@ export function utf8Length(text: string): number {
   return bytes;
 }
 
-export interface ExtractedFile {
-  path: string;
-  text: string;
-  /** The text was cut at a cap (the bytes read or the extracted text). */
-  truncated: boolean;
-}
-
-export interface IndexPlan {
-  files: { path: string; text: string; bytes: number }[];
-  bytes: number;
-  /** Something was left out: a file over a cap, files over the per-version count, or a budget. */
-  partial: boolean;
-}
-
 /**
- * Which text of a version goes into the index, in the order given (the entrypoint first): each
- * file up to the per-file cap, the version up to its cap and the owner's remaining budget, and
- * at most `filesPerVersion` files. Files with no text after extraction are left out.
+ * A file's text as the index keeps it: the visible text of an HTML page or the source as it is,
+ * cleaned, trimmed and cut to `maxBytes` of UTF-8. The extractor never builds more than
+ * `maxBytes` characters (a character is at least a byte), so what one file holds is bounded by
+ * the budget left, not by the file. `cut` says something was left out.
  */
-export function planIndex(
-  files: ExtractedFile[],
-  ownerRemainingBytes: number,
-  limits: {
-    fileTextBytes: number;
-    versionTextBytes: number;
-    filesPerVersion: number;
-  } = SEARCH_LIMITS,
-): IndexPlan {
-  let budget = Math.max(0, Math.min(limits.versionTextBytes, ownerRemainingBytes));
-  let partial = files.length > limits.filesPerVersion;
-  const planned: IndexPlan["files"] = [];
-  let total = 0;
-  for (const file of files.slice(0, limits.filesPerVersion)) {
-    if (file.truncated) partial = true;
-    const text = file.text.trim();
-    if (text.length === 0) continue;
-    const cap = Math.min(limits.fileTextBytes, budget);
-    const kept = truncateUtf8(text, cap);
-    if (kept.length < text.length) partial = true;
-    if (kept.length === 0) continue;
-    const bytes = utf8Length(kept);
-    planned.push({ path: file.path, text: kept, bytes });
-    budget -= bytes;
-    total += bytes;
-  }
-  return { files: planned, bytes: total, partial };
+export function indexText(
+  raw: string,
+  html: boolean,
+  maxBytes: number,
+): { text: string; bytes: number; cut: boolean } {
+  const budget = Math.max(0, maxBytes);
+  const extracted = html
+    ? htmlText(raw, budget)
+    : { text: raw.slice(0, budget), truncated: raw.length > budget };
+  const cleaned = cleanText(extracted.text).trim();
+  const text = truncateUtf8(cleaned, budget);
+  return {
+    text,
+    bytes: utf8Length(text),
+    cut: extracted.truncated || text.length < cleaned.length,
+  };
 }

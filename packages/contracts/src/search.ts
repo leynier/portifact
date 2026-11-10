@@ -11,6 +11,12 @@ const MIB = 1024 * KIB;
 export const SEARCH_LIMITS = {
   /** The longest query, in characters; longer input is refused at the boundary. */
   queryChars: 200,
+  /**
+   * Different words a query may hold, and characters a Chinese or Japanese run may hold (each is
+   * one token of a phrase): each costs a doclist read, so more is refused, never cut.
+   */
+  queryTerms: 8,
+  queryPhraseTokens: 16,
   /** Bytes read from R2 per file; a larger file is read up to here and marked partly indexed. */
   fileReadBytes: 2 * MIB,
   /** Text kept per file after extraction, in UTF-8 bytes. */
@@ -21,12 +27,26 @@ export const SEARCH_LIMITS = {
   versionTextBytes: 4 * MIB,
   /** Text kept per owner over all its artifacts, in UTF-8 bytes. */
   ownerTextBytes: 32 * MIB,
+  /**
+   * What one `search_index` job reads from R2 at most, in bytes and in files: past either, the job
+   * writes what it read and leaves the rest to a continuation job. The jobs Worker runs up to 10
+   * queue messages per invocation one after another, so one invocation reads at most 80 MiB and
+   * makes at most 400 R2 reads, under the 1,000 subrequests of an invocation.
+   */
+  jobReadBytes: 8 * MIB,
+  jobFiles: 40,
+  /** Jobs the scheduled scan writes per run (every 15 minutes). */
+  scanJobs: 200,
+  /** Indexed artifacts the lapsed-plan scan drops per run (their chunks go with them). */
+  dropArtifacts: 100,
   /** Results per page, at most. */
   pageMax: 50,
   /** Results per page when a request names none. */
   pageDefault: 20,
-  /** Searches per actor in one window, counted after authorization. */
+  /** Searches per actor in one window, counted after authorization and the plan gate. */
   perWindow: 60,
+  /** Searches per owner in one window, whoever acts: bounds the work one space puts on its region. */
+  perOwnerWindow: 300,
   windowSeconds: 60,
 } as const;
 
@@ -77,8 +97,10 @@ export const SearchResults = z.object({
 });
 export type SearchResults = z.infer<typeof SearchResults>;
 
-/** Payload of a `search_index` job: the version to index; the subject is the artifact. */
+/** Payload of a `search_index` job: the version to index and where to resume; the subject is the artifact. */
 export const SearchIndexPayload = z.strictObject({
   versionId: z.string().min(1).max(100),
+  /** The first file a continuation job reads; absent for the first job of a version. */
+  from: z.int().min(1).optional(),
 });
 export type SearchIndexPayload = z.infer<typeof SearchIndexPayload>;

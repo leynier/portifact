@@ -31,11 +31,15 @@ async function jobsFor(artifactId: string) {
     .where(and(eq(schema.outbox.topic, "search_index"), eq(schema.outbox.subject, artifactId)));
 }
 
-/** Runs every waiting search job of the artifact; returns their outcomes. */
+/** Runs the artifact's waiting search jobs, continuations included, until none is left. */
 async function index(artifactId: string, now = LATER) {
   const outcomes = [];
-  for (const job of await jobsFor(artifactId)) {
-    outcomes.push(await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "search_index" }, now));
+  for (let round = 0; round < 20; round++) {
+    const jobs = await jobsFor(artifactId);
+    if (jobs.length === 0) break;
+    for (const job of jobs) {
+      outcomes.push(await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "search_index" }, now));
+    }
   }
   return outcomes;
 }

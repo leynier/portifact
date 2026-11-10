@@ -1722,6 +1722,11 @@ export const searchArtifacts = sqliteTable(
     /** Some text was over a cap and is not searchable. */
     partial: integer("partial", { mode: "boolean" }).notNull(),
     indexedAt: timestamp("indexed_at").notNull(),
+    /**
+     * The index of the next file a continuation job reads, while one job's read budget did not
+     * cover the version; null once every file was read (`SEARCH_LIMITS.jobReadBytes`).
+     */
+    nextFile: integer("next_file"),
   },
   (t) => [index("search_artifacts_owner_idx").on(t.ownerId)],
 );

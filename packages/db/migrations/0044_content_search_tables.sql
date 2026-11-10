@@ -5,6 +5,7 @@ CREATE TABLE `search_artifacts` (
 	`text_bytes` integer NOT NULL,
 	`partial` integer NOT NULL,
 	`indexed_at` integer NOT NULL,
+	`next_file` integer,
 	FOREIGN KEY (`artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint

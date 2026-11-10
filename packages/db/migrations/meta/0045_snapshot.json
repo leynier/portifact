@@ -1,6 +1,6 @@
 {
-  "id": "9494461f-e473-40da-8064-70efa7528568",
-  "prevId": "b9f76d30-3728-4ce0-9abd-5c0e7c9b1de3",
+  "id": "ddd53f6f-dc4a-4bd7-a741-20b8b76d7228",
+  "prevId": "b0d590dc-5678-411f-9e80-db0ddf8d871e",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -3098,6 +3098,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "next_file": {
+          "name": "next_file",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },

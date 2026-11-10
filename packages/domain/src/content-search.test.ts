@@ -4,17 +4,24 @@ import { describe, expect, it } from "vitest";
 import {
   buildMatchExpression,
   cleanText,
+  indexText,
   MARK_CLOSE,
   MARK_OPEN,
   ownerMatch,
   ownerToken,
   parseSnippet,
-  planIndex,
   SEGMENT,
   segmentText,
   truncateUtf8,
   utf8Length,
 } from "./content-search.ts";
+
+/** The expression of a query the builder accepts; fails the test otherwise. */
+const match = (query: string) => {
+  const built = buildMatchExpression(query);
+  if (!built.ok) throw new Error(built.message);
+  return built.value;
+};
 
 describe("buildMatchExpression", () => {
   it.each([
@@ -38,36 +45,66 @@ describe("buildMatchExpression", () => {
     ["会議", `"会 議"`],
     ["東京の会議 notes", `"東 京 の 会 議" AND "notes"`],
     ["abc中文", `"abc中 文"`],
-    ["éte", '"éte"'],
+    ["e\u0301te", '"éte"'],
+    // A term repeated, in any case, counts once.
+    ["plan Plan PLAN roadmap plan", '"plan" AND "roadmap"'],
   ])("%j gives %j", (query, expected) => {
-    expect(buildMatchExpression(query)).toBe(expected);
+    expect(match(query)).toBe(expected);
   });
 
-  it("refuses a query longer than the boundary allows instead of cutting it", () => {
-    expect(buildMatchExpression("a".repeat(SEARCH_LIMITS.queryChars))).toBe(
-      `"${"a".repeat(SEARCH_LIMITS.queryChars)}"`,
-    );
-    expect(buildMatchExpression(`${"a ".repeat(SEARCH_LIMITS.queryChars)}`)).toBeNull();
+  it("refuses too many different words, too long a Chinese or Japanese run and too long a query, never cutting them", () => {
+    const words = Array.from({ length: SEARCH_LIMITS.queryTerms }, (_, i) => `w${i}`);
+    expect(String(match(words.join(" "))).split(" AND ")).toHaveLength(SEARCH_LIMITS.queryTerms);
+    expect(buildMatchExpression([...words, "extra"].join(" "))).toEqual({
+      ok: false,
+      code: "invalid_input",
+      message: `Search for at most ${SEARCH_LIMITS.queryTerms} different words.`,
+    });
+    // 100 repeated words are one word.
+    expect(match("x ".repeat(100))).toBe('"x"');
+    const run = "会".repeat(SEARCH_LIMITS.queryPhraseTokens);
+    expect(String(match(run)).split(" ")).toHaveLength(SEARCH_LIMITS.queryPhraseTokens);
+    expect(buildMatchExpression(`${run}議`)).toEqual({
+      ok: false,
+      code: "invalid_input",
+      message: `Search for runs of at most ${SEARCH_LIMITS.queryPhraseTokens} Chinese or Japanese characters.`,
+    });
+    expect(buildMatchExpression("a".repeat(SEARCH_LIMITS.queryChars + 1))).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    });
   });
 
-  it("only ever produces quoted phrases of letters, marks, digits and separators joined by AND", () => {
+  it("only ever produces at most the capped quoted phrases of letters, marks, digits and separators", () => {
     const phrase = `"[\\p{L}\\p{N}\\p{M} ${SEGMENT}]+"`;
     const shape = new RegExp(`^${phrase}( AND ${phrase})*$`, "u");
     fc.assert(
       fc.property(fc.string({ unit: "grapheme", maxLength: SEARCH_LIMITS.queryChars }), (query) => {
-        const expression = buildMatchExpression(query);
-        if (expression !== null) expect(expression).toMatch(shape);
+        const built = buildMatchExpression(query);
+        if (!built.ok) {
+          expect(built.code).toBe("invalid_input");
+          return;
+        }
+        if (built.value === null) return;
+        expect(built.value).toMatch(shape);
+        const phrases = built.value.split(" AND ");
+        expect(phrases.length).toBeLessThanOrEqual(SEARCH_LIMITS.queryTerms);
+        for (const quoted of phrases) {
+          expect(quoted.split(" ").length).toBeLessThanOrEqual(SEARCH_LIMITS.queryPhraseTokens);
+        }
       }),
     );
   });
 
-  it("keeps every term of the query, so a longer query never matches more", () => {
+  it("keeps every different term of an accepted query, so a longer query never matches more", () => {
     fc.assert(
       fc.property(
-        fc.array(fc.stringMatching(/^[a-z]{1,8}$/), { minLength: 1, maxLength: 20 }),
+        fc.uniqueArray(fc.stringMatching(/^[a-z]{1,8}$/), {
+          minLength: 1,
+          maxLength: SEARCH_LIMITS.queryTerms,
+        }),
         (words) => {
-          const expression = buildMatchExpression(words.join(" ")) ?? "";
-          expect(expression.split(" AND ")).toHaveLength(words.length);
+          expect(match(words.join(" "))?.split(" AND ")).toHaveLength(words.length);
         },
       ),
     );
@@ -78,7 +115,8 @@ describe("owner tokens", () => {
   it("are one token of letters and digits, distinct for distinct owners", () => {
     expect(ownerToken("ws_abc")).toBe("o77735f616263");
     expect(ownerToken("ws_abc")).not.toBe(ownerToken("ws_abcd"));
-    expect(ownerMatch("u", '"x"')).toBe('owner : o75 AND ("x")');
+    // The user's words only ever match the body column.
+    expect(ownerMatch("u", '"x"')).toBe('owner : o75 AND body : ("x")');
     fc.assert(
       fc.property(fc.string(), fc.string(), (a, b) => {
         expect(ownerToken(a)).toMatch(/^o[0-9a-f]*$/);
@@ -160,57 +198,33 @@ describe("UTF-8 sizes", () => {
   });
 });
 
-describe("planIndex", () => {
-  const limits = { fileTextBytes: 10, versionTextBytes: 25, filesPerVersion: 3 };
-  const file = (path: string, text: string, truncated = false) => ({ path, text, truncated });
-
-  it("keeps everything that fits", () => {
-    expect(planIndex([file("a", "one"), file("b", "two")], 1_000, limits)).toEqual({
-      files: [
-        { path: "a", text: "one", bytes: 3 },
-        { path: "b", text: "two", bytes: 3 },
-      ],
-      bytes: 6,
-      partial: false,
+describe("indexText", () => {
+  it("keeps a source as it is and the visible text of a page, cleaned and trimmed", () => {
+    expect(indexText("  # Plan\u0000 here  ", false, 100)).toEqual({
+      text: "# Plan  here",
+      bytes: 12,
+      cut: false,
+    });
+    expect(indexText("<p>Plan</p><script>x</script>", true, 100)).toEqual({
+      text: "Plan",
+      bytes: 4,
+      cut: false,
     });
   });
 
-  it("cuts a file at its cap, the version at its cap and stops at the owner's budget", () => {
-    const plan = planIndex(
-      [file("a", "x".repeat(12)), file("b", "y".repeat(10)), file("c", "z".repeat(10))],
-      1_000,
-      limits,
+  it("never holds more characters than the budget's bytes, and says it cut", () => {
+    expect(indexText("abcdef", false, 3)).toEqual({ text: "abc", bytes: 3, cut: true });
+    expect(indexText("<p>abcdef</p>", true, 3)).toEqual({ text: "abc", bytes: 3, cut: true });
+    expect(indexText("中文字", false, 4)).toEqual({ text: "中", bytes: 3, cut: true });
+    expect(indexText("abc", false, 0)).toEqual({ text: "", bytes: 0, cut: true });
+    expect(indexText("abc", false, -5)).toEqual({ text: "", bytes: 0, cut: true });
+    fc.assert(
+      fc.property(fc.string({ unit: "grapheme" }), fc.boolean(), fc.nat(200), (raw, html, max) => {
+        const kept = indexText(raw, html, max);
+        expect(kept.text.length).toBeLessThanOrEqual(max);
+        expect(kept.bytes).toBeLessThanOrEqual(max);
+        expect(kept.bytes).toBe(utf8Length(kept.text));
+      }),
     );
-    expect(plan.files.map((f) => f.bytes)).toEqual([10, 10, 5]);
-    expect(plan.partial).toBe(true);
-    const budget = planIndex([file("a", "abc"), file("b", "def")], 4, limits);
-    expect(budget.files).toEqual([
-      { path: "a", text: "abc", bytes: 3 },
-      { path: "b", text: "d", bytes: 1 },
-    ]);
-    expect(budget.partial).toBe(true);
-    expect(planIndex([file("a", "abc")], 0, limits)).toEqual({
-      files: [],
-      bytes: 0,
-      partial: true,
-    });
-    expect(planIndex([file("a", "abc")], -5, limits).files).toEqual([]);
-  });
-
-  it("counts files over the per-version count, truncated reads and skips empty files", () => {
-    expect(
-      planIndex([file("a", "1"), file("b", "2"), file("c", "3"), file("d", "4")], 100, limits)
-        .partial,
-    ).toBe(true);
-    expect(planIndex([file("a", "1", true)], 100, limits).partial).toBe(true);
-    expect(planIndex([file("a", "   "), file("b", "x")], 100, limits)).toEqual({
-      files: [{ path: "b", text: "x", bytes: 1 }],
-      bytes: 1,
-      partial: false,
-    });
-  });
-
-  it("uses the contract's caps by default", () => {
-    expect(planIndex([file("a", "x")], 10).files).toHaveLength(1);
   });
 });

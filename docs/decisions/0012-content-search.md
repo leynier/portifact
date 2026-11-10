@@ -74,6 +74,19 @@ At 1.3 bytes of database per byte of text, the per-owner cap is about 42 MiB of 
 
 ## Open risks
 
-- Time Travel's treatment of FTS5 shadow tables is inferred, not drilled: check it in the next backup drill (operations).
+- Time Travel's treatment of FTS5 shadow tables is inferred, not drilled. The D1 Time Travel drill with an indexed artifact has not been run and must be before the feature is offered to a customer (operations, "Content search").
+- The index shares the regional database with the artifacts. It moves to a search database of its own per region when it nears 1 to 2 GB in a region, well before the 10 GB limit.
 - A phrase across a chunk cut is not found; words are cut only where there is no white space in the last fifth of a chunk.
 - Rebuilding the `artifacts` table in a future migration drops the two triggers; that migration must recreate them (noted in the migration and AGENTS.md).
+
+## Changes after review
+
+An independent review of the first implementation found these, all fixed with tests:
+
+- **Query cost.** 100 repeated terms took 2 to 7 seconds on a shared database. Repeated words now count once, a query holds at most 8 different words and 16 characters per Chinese or Japanese run (`SEARCH_LIMITS.queryTerms`, `queryPhraseTokens`, refused with `invalid_input`, never cut), and an owner-level rate limit (`search-owner:<owner>`, 300 a minute) sits beside the per-actor one. The worst accepted query on an owner at its cap took about 20 ms locally (budget 1.5 s in the test).
+- **Restricted tokens.** A token limited to its own artifacts or a key prefix reads the full-text table only at the chunk IDs it reaches (`rowid in (...)` with the MATCH), so rows outside its reach cost nothing and timing reveals nothing about them; the test measures D1's rows read with ten times more matching rows outside the reach.
+- **Owner column.** The user's words match only the body (`owner : <token> AND body : (...)`).
+- **Job memory and limits.** The job reads with a running text budget and stops reading when it is spent; one job reads at most 8 MiB and 40 objects and leaves the rest to a continuation job (`next_file`). An object missing from R2 marks the artifact partial.
+- **Extractor.** `/>` is honored only in `svg` and `math`; scripts follow the tokenizer's escaped and double-escaped states; templates nest.
+- **Scans.** Both scans resume from a cursor in `maintenance_cursors` with four queries a run.
+- **CLI.** Snippets, names and paths go through `plain()`, so no bidi control or line separator reaches the terminal.

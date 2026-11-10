@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b9f76d30-3728-4ce0-9abd-5c0e7c9b1de3",
+  "id": "b0d590dc-5678-411f-9e80-db0ddf8d871e",
   "prevId": "b5d12b06-7032-46c2-9d52-99705f66aa4d",
   "tables": {
     "abuse_reports": {
@@ -3098,6 +3098,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "next_file": {
+          "name": "next_file",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },
