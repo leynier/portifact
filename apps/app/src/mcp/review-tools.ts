@@ -116,24 +116,22 @@ export function registerReviewTools(
       if (action === "request" && !rest.reviewers?.length) {
         return failure("invalid_input", "Name the reviewers by email in reviewers.");
       }
+      // The API's request bodies, in its schemas' key order: unset fields drop out of the hash
+      // like absent ones, so a key used at either answers the same.
       const request =
         action === "request"
           ? {
               artifactId,
               reviewers: rest.reviewers,
-              ...(rest.requiredApprovals !== undefined
-                ? { requiredApprovals: rest.requiredApprovals }
-                : {}),
-              ...(rest.showStatus !== undefined ? { showStatus: rest.showStatus } : {}),
+              requiredApprovals: rest.requiredApprovals,
+              showStatus: rest.showStatus,
             }
           : {
               artifactId,
-              ...(rest.add ? { add: rest.add } : {}),
-              ...(rest.remove ? { remove: rest.remove } : {}),
-              ...(rest.requiredApprovals !== undefined
-                ? { requiredApprovals: rest.requiredApprovals }
-                : {}),
-              ...(rest.showStatus !== undefined ? { showStatus: rest.showStatus } : {}),
+              add: rest.add,
+              remove: rest.remove,
+              requiredApprovals: rest.requiredApprovals,
+              showStatus: rest.showStatus,
             };
       const outcome = await once(
         db,
@@ -148,7 +146,7 @@ export function registerReviewTools(
                 await requestApprovalReview(target, {
                   userId: context.userId,
                   artifactId,
-                  reviewers: rest.reviewers ?? [],
+                  reviewers: rest.reviewers as string[],
                   requiredApprovals: rest.requiredApprovals,
                   showStatus: rest.showStatus,
                   now,

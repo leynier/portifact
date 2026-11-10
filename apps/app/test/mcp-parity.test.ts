@@ -3002,6 +3002,61 @@ describe("API and MCP parity for approval reviews", () => {
     );
   });
 
+  it("replays a request with the same key at both, refuses another body, and needs reviewers", async () => {
+    const { owner, viaMcp } = await setup();
+    const key = crypto.randomUUID();
+    const reviewers = ["parity-review-ana@example.test"];
+    const first = fromTool(
+      await owner.tool("request_review", { artifactId: viaMcp, reviewers, idempotencyKey: key }),
+    );
+    expect(first.ok).toBe(true);
+    // The API's operation and body hash: the same key there replays the same answer.
+    const replayed = await fromApi(
+      await owner.apiCall(`/api/v1/artifacts/${viaMcp}/review/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        body: JSON.stringify({ reviewers }),
+      }),
+    );
+    expect(replayed).toEqual(first);
+    expect(
+      fromTool(
+        await owner.tool("request_review", {
+          artifactId: viaMcp,
+          reviewers,
+          showStatus: true,
+          idempotencyKey: key,
+        }),
+      ).body,
+    ).toMatchObject({ error: { code: "invalid_input" } });
+    expect(fromTool(await owner.tool("request_review", { artifactId: viaMcp })).body).toMatchObject(
+      { error: { code: "invalid_input" } },
+    );
+    const changed = fromTool(
+      await owner.tool("request_review", {
+        artifactId: viaMcp,
+        action: "change",
+        add: ["parity-review-owner@example.test"],
+        requiredApprovals: 1,
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(changed.body).toMatchObject({ review: { reviewers: 2, required: 1 } });
+    expect(
+      fromTool(
+        await owner.tool("request_review", {
+          artifactId: viaMcp,
+          action: "change",
+          remove: ["parity-review-owner@example.test"],
+        }),
+      ).body,
+    ).toMatchObject({ review: { reviewers: 1 } });
+    expect(
+      fromTool(await owner.tool("request_review", { artifactId: "abcdefghij", action: "cancel" }))
+        .body,
+    ).toMatchObject({ error: { code: "not_found" } });
+  });
+
   it("answers a stranger like a missing artifact and refuses the same scopes", async () => {
     const { owner, viaApi, viaMcp } = await setup();
     const stranger = await both("parity-review-stranger@example.test", EVERY);
