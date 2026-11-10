@@ -19,10 +19,16 @@ import {
   AnnotationThreadView,
   type AnnotationVersionFilter,
   ApiError,
+  type ApprovalChangeInput,
+  type ApprovalRequestInput,
+  ApprovalReviewView,
+  type ApprovalVerdictInput,
   ArtifactList,
   type ArtifactListFilters,
   ArtifactStatsView,
   ArtifactSummary,
+  AUDIT_EXPORT_CURSOR_HEADER,
+  type AuditExportFormat,
   type AuditKind,
   AuditLogView,
   BrandSettings,
@@ -53,6 +59,7 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  SearchResults,
   type ServiceTokenCreate,
   ServiceTokenCreated,
   ServiceTokenList,
@@ -138,6 +145,8 @@ export interface DashboardApi {
     workspace?: string,
   ): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
+  /** Searches inside the text of a space's artifacts (premium plan T8). */
+  searchContent(query: string, cursor?: string, workspace?: string): Promise<SearchResults>;
   lifecycle(artifactId: string, action: LifecycleAction): Promise<LifecycleResult>;
   getAccess(artifactId: string): Promise<AccessPolicyView>;
   updateAccess(artifactId: string, change: AccessUpdate): Promise<AccessPolicyView>;
@@ -219,6 +228,25 @@ export interface DashboardApi {
     input: { label: string; expiresAt?: string; password?: string },
   ): Promise<ShareLinkCreated>;
   revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
+  /** The approval review as the caller may see it (decision 0013). */
+  getReview(artifactId: string): Promise<ApprovalReviewView>;
+  requestReview(
+    artifactId: string,
+    input: ApprovalRequestInput,
+    idempotencyKey: string,
+  ): Promise<ApprovalReviewView>;
+  changeReview(
+    artifactId: string,
+    input: ApprovalChangeInput,
+    idempotencyKey: string,
+  ): Promise<ApprovalReviewView>;
+  cancelReview(artifactId: string): Promise<ApprovalReviewView>;
+  /** A requested reviewer's verdict on the version they saw. */
+  submitVerdict(
+    artifactId: string,
+    input: ApprovalVerdictInput,
+    idempotencyKey: string,
+  ): Promise<ApprovalReviewView>;
   /** The artifact's custom domain and pending ones, with its owner's plan. */
   artifactDomains(artifactId: string): Promise<CustomDomainList>;
   /** Claims a hostname for the artifact; retrying with the same key answers the same claim. */
@@ -234,6 +262,15 @@ export interface DashboardApi {
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
   /** A page of the space's audit log (`GET /api/v1/audit`), newest first. */
   audit(workspace: string | undefined, query: AuditPageQuery): Promise<AuditLogView>;
+  /**
+   * One part of an export of the space's audit log (`GET /api/v1/audit/export`) as text, and the
+   * cursor of the next part (`Portifact-Next-Cursor`), null after the last.
+   */
+  auditExport(
+    workspace: string | undefined,
+    format: AuditExportFormat,
+    query: AuditPageQuery,
+  ): Promise<{ text: string; nextCursor: string | null }>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
   /**
@@ -453,6 +490,12 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     getArtifact(artifactId) {
       return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}`, ArtifactSummary);
+    },
+    searchContent(query, cursor, workspace) {
+      const params = new URLSearchParams({ q: query });
+      if (workspace) params.set("workspace", workspace);
+      if (cursor) params.set("cursor", cursor);
+      return call(`/api/v1/search?${params}`, SearchResults);
     },
     lifecycle(artifactId, action) {
       const base = `/api/v1/artifacts/${encodeURIComponent(artifactId)}`;
@@ -674,6 +717,46 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         "DELETE",
       );
     },
+    getReview(artifactId) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/status`,
+        ApprovalReviewView,
+      );
+    },
+    requestReview(artifactId, input, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/request`,
+        ApprovalReviewView,
+        "POST",
+        input,
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    changeReview(artifactId, input, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/request`,
+        ApprovalReviewView,
+        "PATCH",
+        input,
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    cancelReview(artifactId) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/request`,
+        ApprovalReviewView,
+        "DELETE",
+      );
+    },
+    submitVerdict(artifactId, input, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/verdict`,
+        ApprovalReviewView,
+        "POST",
+        input,
+        { "idempotency-key": idempotencyKey },
+      );
+    },
     artifactDomains(artifactId) {
       return call(
         `/api/v1/domains?${new URLSearchParams({ artifactId }).toString()}`,
@@ -698,6 +781,35 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     removeDomain(hostname) {
       return call(`/api/v1/domains/${encodeURIComponent(hostname)}`, CustomDomainRemoved, "DELETE");
+    },
+    async auditExport(workspace, format, query) {
+      const params = new URLSearchParams({ format });
+      for (const kind of query.kinds ?? []) params.append("kind", kind);
+      if (query.actor) params.set("actor", query.actor);
+      if (query.from) params.set("from", query.from);
+      if (query.cursor) params.set("cursor", query.cursor);
+      let response: Response;
+      try {
+        response = await fetch(inSpace(`/api/v1/audit/export?${params}`, workspace), {
+          method: "GET",
+          credentials: "same-origin",
+          headers: { accept: "*/*" },
+        });
+      } catch {
+        throw new ApiFailure("network", 0);
+      }
+      if (response.ok) {
+        return {
+          text: await response.text(),
+          nextCursor: response.headers.get(AUDIT_EXPORT_CURSOR_HEADER),
+        };
+      }
+      if (response.status === 401) {
+        onUnauthenticated();
+        throw new ApiFailure("unauthenticated", 401);
+      }
+      const error = ApiError.safeParse(await response.json().catch(() => null));
+      throw new ApiFailure(error.success ? error.data.error.code : "unexpected", response.status);
     },
     audit(workspace, query) {
       const params = new URLSearchParams();

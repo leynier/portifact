@@ -2,14 +2,18 @@
 // for its admins, with filters by kind of change, person and period. The API decides who may read
 // it and what each event holds; this only shows it in plain words. Without the feature in the
 // owner's plan it says which plan includes it; there is no checkout yet, so nothing else is offered.
+// When the plan includes exporting (Enterprise), admins can download what the filters keep as CSV
+// or JSON Lines, every part of it, through the same route as the CLI.
 import {
   type AuditEventView,
+  type AuditExportFormat,
   type AuditKind,
   lowestPlanWith,
   PLAN_LABELS,
   type PlanName,
   type WorkspaceRole,
 } from "@portifact/contracts";
+import { auditExportFileName } from "@portifact/domain";
 import {
   Button,
   Callout,
@@ -25,13 +29,14 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@portifact/ui";
-import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
-import { CircleAlert, Info, Lock, RefreshCw, ScrollText } from "lucide-react";
+import { keepPreviousData, useInfiniteQuery, useMutation } from "@tanstack/react-query";
+import { CircleAlert, Download, Info, Lock, RefreshCw, ScrollText } from "lucide-react";
 import { useMemo, useState } from "react";
-import { ApiFailure } from "../api.ts";
-import { useDashboard, useFormatDate, useT } from "../context.tsx";
+import { ApiFailure, type AuditPageQuery, type DashboardApi } from "../api.ts";
+import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import type { MessageId } from "../i18n/en.ts";
 import { useLocale } from "../locale.tsx";
+import type { SavedFile } from "../publish/download.ts";
 import { refreshOptions } from "../refresh.ts";
 import { ROLE_LABELS, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
@@ -46,6 +51,10 @@ export const AUDIT_GROUPS = {
     "access.changed",
     "share_link.created",
     "share_link.revoked",
+    "review.requested",
+    "review.changed",
+    "review.cancelled",
+    "review.verdict",
     "email_domain.verified",
     "email_domain.removed",
   ],
@@ -122,6 +131,7 @@ export function AuditScreen() {
 
   const events = useMemo(() => log.data?.pages.flatMap((page) => page.events) ?? [], [log.data]);
   const days = log.data?.pages[0]?.retentionDays ?? 90;
+  const exportable = log.data?.pages[0]?.exportable;
   const failure = log.error instanceof ApiFailure ? log.error.code : null;
 
   const header = (
@@ -168,6 +178,20 @@ export function AuditScreen() {
           setFrom(span === null ? undefined : new Date(Date.now() - span * DAY_MS).toISOString());
         }}
       />
+      {exportable === undefined ? null : exportable ? (
+        <AuditExport
+          slug={space.slug}
+          query={{
+            kinds: group === "all" ? undefined : AUDIT_GROUPS[group],
+            actor: actor || undefined,
+            from,
+          }}
+        />
+      ) : (
+        <p className="text-sm text-text-muted">
+          {t("audit.export.planRequired", { plan: PLAN_LABELS[lowestPlanWith("auditExport")] })}
+        </p>
+      )}
       {log.isPending ? (
         <LoadingState label={t("audit.loading")} />
       ) : log.isError && !log.data ? (
@@ -200,6 +224,70 @@ export function AuditScreen() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Every part of an export, joined in order into one file. */
+export async function exportAudit(
+  api: DashboardApi,
+  slug: string | undefined,
+  format: AuditExportFormat,
+  query: Omit<AuditPageQuery, "cursor">,
+): Promise<SavedFile> {
+  const parts: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const part = await api.auditExport(slug, format, { ...query, cursor });
+    parts.push(part.text);
+    cursor = part.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+  const type = format === "csv" ? "text/csv;charset=utf-8" : "application/jsonl;charset=utf-8";
+  return { fileName: auditExportFileName(format), blob: new Blob(parts, { type }) };
+}
+
+/** Downloads what the filters keep, as CSV or JSON Lines (Enterprise). */
+function AuditExport(props: { slug: string | undefined; query: Omit<AuditPageQuery, "cursor"> }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const { api, save } = useDashboard();
+  const exporter = useMutation({
+    mutationFn: (format: AuditExportFormat) => exportAudit(api, props.slug, format, props.query),
+    onSuccess: (file, format) => {
+      save(file);
+      announce(t(format === "csv" ? "audit.export.doneCsv" : "audit.export.doneJsonl"));
+    },
+  });
+  return (
+    <section aria-label={t("audit.export.label")} className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          icon={<Download className="size-4" />}
+          busy={exporter.isPending && exporter.variables === "csv"}
+          onClick={() => exporter.mutate("csv")}
+        >
+          {t("audit.export.csv")}
+        </Button>
+        <Button
+          size="sm"
+          icon={<Download className="size-4" />}
+          busy={exporter.isPending && exporter.variables === "jsonl"}
+          onClick={() => exporter.mutate("jsonl")}
+        >
+          {t("audit.export.jsonl")}
+        </Button>
+      </div>
+      <p className="text-sm text-text-muted">{t("audit.export.hint")}</p>
+      {exporter.isError ? (
+        <Callout
+          tone="error"
+          title={t("audit.export.failed")}
+          icon={<CircleAlert className="size-5" />}
+        >
+          {errorMessage(t, exporter.error)}
+        </Callout>
+      ) : null}
+    </section>
   );
 }
 
@@ -333,6 +421,7 @@ function targetName(t: T, event: AuditEventView): string {
     case "brand":
     case "plan":
     case "email_domain":
+    case "audit_log":
       return t("audit.target.space");
     default:
       return "";
@@ -359,6 +448,8 @@ export function describeAuditEvent(
     "artifact.pinned": "audit.kind.pinned",
     "artifact.unpinned": "audit.kind.unpinned",
     "share_link.revoked": "audit.kind.shareLinkRevoked",
+    "review.changed": "audit.kind.reviewChanged",
+    "review.cancelled": "audit.kind.reviewCancelled",
     "webhook.removed": "audit.kind.webhookRemoved",
     "member.invitation_revoked": "audit.kind.invitationRevoked",
     "plan.removed": "audit.kind.planRemoved",
@@ -383,6 +474,13 @@ export function describeAuditEvent(
       return t("audit.kind.shareLinkCreated", {
         password: flag(d.password),
         expires: flag(d.expires),
+      });
+    case "review.requested":
+      return t("audit.kind.reviewRequested", { reviewers: Number(d.reviewers) });
+    case "review.verdict":
+      return t("audit.kind.reviewVerdict", {
+        verdict: String(d.verdict),
+        version: Number(d.version),
       });
     case "domain.attached":
       return t("audit.kind.domainAttached", { hostname: String(d.hostname) });
@@ -429,6 +527,8 @@ export function describeAuditEvent(
         domain: String(d.domain),
         reason: String(d.reason),
       });
+    case "audit.exported":
+      return t("audit.kind.exported", { format: String(d.format) });
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"

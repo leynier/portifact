@@ -1,14 +1,23 @@
 // portifact audit: who changed what in your personal space or a workspace, as GET /api/v1/audit
 // reports it (premium plan T10). Only admins can read it, on plans that include the audit log;
 // the API answers forbidden or plan_required otherwise. This follows the cursor up to --limit.
-import { AUDIT_KINDS, type AuditEventView, AuditKind, AuditLogView } from "@portifact/contracts";
+import { open, rm, stat } from "node:fs/promises";
+import { resolve } from "node:path";
+import {
+  AUDIT_EXPORT_CURSOR_HEADER,
+  AUDIT_KINDS,
+  type AuditEventView,
+  AuditExportFormat,
+  AuditKind,
+  AuditLogView,
+} from "@portifact/contracts";
 import { plain } from "./annotations.ts";
-import { callApi } from "./api.ts";
+import { callApi, downloadApi, withRetries } from "./api.ts";
 import { table } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { parseSince } from "./logs.ts";
-import { formatDate } from "./messages.ts";
+import { formatDate, messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
 import { chosenWorkspace, workspaceQuery } from "./workspaces.ts";
 
@@ -101,6 +110,19 @@ export function auditSummary(event: AuditEventView): string {
       return `Created a share link${d.password ? " with a password" : ""}${d.expires ? " that expires" : ""}`;
     case "share_link.revoked":
       return "Revoked a share link";
+    case "review.requested":
+      return `Asked ${d.reviewers} ${d.reviewers === 1 ? "person" : "people"} to review${d.required === null ? "" : ` (${d.required} approval${d.required === 1 ? "" : "s"} required)`}`;
+    case "review.changed":
+      return `Changed a review request${[
+        d.added === undefined ? "" : `: ${d.added} added`,
+        d.removed === undefined ? "" : `${d.added === undefined ? ":" : ","} ${d.removed} removed`,
+      ].join("")}`;
+    case "review.cancelled":
+      return "Cancelled a review request";
+    case "review.verdict":
+      return d.verdict === "approve"
+        ? `Approved version ${d.version}`
+        : `Asked for changes to version ${d.version}`;
     case "domain.attached":
       return `Attached the domain ${d.hostname}`;
     case "domain.removed":
@@ -149,6 +171,8 @@ export function auditSummary(event: AuditEventView): string {
       return d.reason === "removed"
         ? `Removed the email domain ${d.domain}`
         : `The email domain ${d.domain} was removed (${d.reason === "claimed" ? "another workspace proved it" : "its DNS record is missing"})`;
+    case "audit.exported":
+      return `Exported the audit log as ${String(d.format).toUpperCase()}${d.from || d.to ? ` (${d.from ?? "start"} to ${d.to ?? "now"})` : ""}`;
   }
 }
 
@@ -229,4 +253,99 @@ export async function audit(io: Io, runtime: Runtime, options: AuditOptions): Pr
   io.stdout(
     `Kept ${page.retentionDays} days. Members are shown by name; removed members never by address.\n`,
   );
+}
+
+export interface AuditExportOptions extends OutputOptions {
+  format?: string | undefined;
+  out?: string | undefined;
+  workspace?: string | undefined;
+  kind?: string[] | undefined;
+  actor?: string | undefined;
+  target?: string | undefined;
+  since?: string | undefined;
+  until?: string | undefined;
+}
+
+/**
+ * portifact audit export: the whole audit log, or what the filters keep, as CSV or JSON Lines
+ * (premium plan E3, Enterprise). The API answers one part at a time and names the next part's
+ * cursor in a header; this follows it and appends each part, so the file is byte for byte what
+ * the parts hold. With --out it writes a new file (never overwriting one, removed again if the
+ * export fails); without it, standard output.
+ */
+export async function auditExport(
+  io: Io,
+  runtime: Runtime,
+  options: AuditExportOptions,
+): Promise<void> {
+  const format = AuditExportFormat.safeParse(options.format);
+  if (!format.success) throw new CliError("invalid_input", messages.auditExport.formatNeeded);
+  const kinds = parseKinds(options.kind ?? []);
+  const from = options.since === undefined ? undefined : parseSince(options.since, runtime.now());
+  const to = options.until === undefined ? undefined : parseSince(options.until, runtime.now());
+  const out = options.out === undefined ? undefined : resolve(options.out);
+  if (out !== undefined && (await exists(out))) {
+    throw new CliError("invalid_input", messages.auditExport.outExists(out));
+  }
+  const session = await openSession(io, runtime);
+  const workspace =
+    options.workspace === undefined ? undefined : await chosenWorkspace(session, options.workspace);
+  const query = new URLSearchParams({ format: format.data });
+  for (const kind of kinds) query.append("kind", kind);
+  if (options.actor) query.set("actor", options.actor);
+  if (options.target) query.set("target", options.target);
+  if (from) query.set("from", from);
+  if (to) query.set("to", to);
+
+  const file = out === undefined ? undefined : await createFile(out);
+  let bytes = 0;
+  try {
+    let cursor: string | null = null;
+    do {
+      const part = new URLSearchParams(query);
+      if (cursor !== null) part.set("cursor", cursor);
+      const path = `/audit/export${workspaceQuery(workspace, part)}`;
+      // Only a resumed part is safe to repeat: the first one starts the export and records it.
+      const answer: { text: string; headers: Headers } =
+        cursor === null
+          ? await downloadApi(session, path)
+          : await withRetries(session, () => downloadApi(session, path));
+      if (file) await file.write(answer.text);
+      else io.stdout(answer.text);
+      bytes += Buffer.byteLength(answer.text);
+      cursor = answer.headers.get(AUDIT_EXPORT_CURSOR_HEADER);
+    } while (cursor !== null);
+  } catch (error) {
+    if (file && out) {
+      await file.close();
+      await rm(out, { force: true });
+    }
+    throw error;
+  }
+  io.stderr(`${messages.auditExport.notice}\n`);
+  if (!file || !out) return;
+  await file.close();
+  if (options.json) {
+    writeJson(io, { format: format.data, out, bytes });
+    return;
+  }
+  io.stdout(`${messages.auditExport.exported(format.data, out, bytes)}\n`);
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function createFile(path: string) {
+  try {
+    // A new file only, so an export never overwrites anything.
+    return await open(path, "wx");
+  } catch {
+    throw new CliError("invalid_input", messages.auditExport.cannotWrite(path));
+  }
 }

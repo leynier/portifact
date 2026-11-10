@@ -476,7 +476,7 @@ function reply(response: ServerResponse, answer: Reply) {
     return response.end(answer.body);
   }
   if (typeof answer.body === "string") {
-    response.writeHead(answer.status, { "content-type": "application/xml" });
+    response.writeHead(answer.status, { "content-type": "application/xml", ...answer.headers });
     return response.end(answer.body);
   }
   return send(response, answer.status, answer.body);

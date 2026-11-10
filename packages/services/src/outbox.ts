@@ -17,6 +17,7 @@ import { advanceAccountDeletion } from "./account-data.ts";
 import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
+import { runSearchIndex } from "./content-search.ts";
 import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
 import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
@@ -212,6 +213,8 @@ async function runRow(
     case "domain_notice":
       if (!domainNotifier) throw new Error("domain_notice needs the domain notifier");
       return sendDomainNotice(db, row, now, domainNotifier);
+    case "search_index":
+      return runSearchIndex(db, bucket, row, now);
   }
 }
 

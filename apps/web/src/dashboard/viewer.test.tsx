@@ -1949,3 +1949,80 @@ describe("the owner's brand on the bar", () => {
     expect(screen.queryByText("Powered by Portifact")).toBeNull();
   });
 });
+
+describe("approval reviews in the viewer", () => {
+  const reviewerView = (verdict: "approve" | "changes" | null = null) => ({
+    artifactId: ID,
+    role: "reviewer" as const,
+    available: true,
+    review: {
+      status: verdict === "approve" ? ("approved" as const) : ("pending" as const),
+      reviewers: 1,
+      required: 1,
+      approvals: verdict === "approve" ? 1 : 0,
+      changesRequested: 0,
+    },
+    request: {
+      id: `ar_${"1".repeat(32)}`,
+      versionId: "v1",
+      requiredApprovals: null,
+      showStatus: false,
+      requestedAt: "2026-11-08T12:00:00.000Z",
+      updatedAt: "2026-11-08T12:00:00.000Z",
+      requestedBy: "Owner",
+      reviewers: [
+        {
+          id: `rvw_${"0".repeat(24)}`,
+          name: "Ada",
+          email: null,
+          active: true,
+          you: true,
+          verdict,
+          note: null,
+          decidedAt: verdict ? "2026-11-08T12:10:00.000Z" : null,
+        },
+      ],
+      history: [],
+    },
+  });
+
+  it("shows a requested reviewer the status and the two verdict actions, and sends the version", async () => {
+    server.approvals[ID] = reviewerView();
+    const { container } = await open();
+    const panel = await screen.findByRole("region", { name: "Your review" });
+    expect(within(screen.getByRole("banner")).getByText("Review pending")).toBeTruthy();
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Note (optional)" }), {
+      target: { value: "<b>Ship it</b>" },
+    });
+    server.approvalReply = reviewerView("approve");
+    fireEvent.click(within(panel).getByRole("button", { name: "Approve" }));
+    await screen.findByText("Verdict saved");
+    expect(server.bodies.at(-1)).toEqual({
+      verdict: "approve",
+      note: "<b>Ship it</b>",
+      versionId: "v1",
+    });
+    await within(panel).findByText(/Your verdict: Approved/);
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    for (const theme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = theme;
+      expect(await axeViolations(container)).toEqual([]);
+    }
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("says a newer version exists when the API refuses the verdict for it", async () => {
+    server.approvals[ID] = reviewerView();
+    await open();
+    const panel = await screen.findByRole("region", { name: "Your review" });
+    server.approvalReply = { error: "version_conflict", status: 409 };
+    fireEvent.click(within(panel).getByRole("button", { name: "Request changes" }));
+    await within(panel).findByText("There is a newer version. Reload the page to review it.");
+  });
+
+  it("shows other readers nothing when the review hides its status", async () => {
+    await open();
+    expect(screen.queryByRole("region", { name: "Your review" })).toBeNull();
+    expect(screen.queryByText("Review pending")).toBeNull();
+  });
+});

@@ -442,6 +442,7 @@ describe("purging archives", () => {
       prunedOperations: 0,
       readSessions: 0,
       shareLinks: 0,
+      approvalReviewers: 0,
       reviewSessions: 0,
       rerendered: 0,
       accountDeletions: 0,
@@ -452,6 +453,8 @@ describe("purging archives", () => {
       prunedEmailSuppressions: 0,
       alignedPlanLimits: 0,
       unpinned: 0,
+      droppedSearchIndexes: 0,
+      scheduledSearchIndexing: 0,
       webhooks: { prunedDeliveries: 0, requeued: 0 },
     });
   });
