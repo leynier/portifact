@@ -59,6 +59,12 @@ const messages = {
       "L’authentification unique n’a pas abouti. Réessayez ; si l’échec persiste, connectez-vous avec un code par e-mail et prévenez l’admin de votre workspace.",
     sso_workspace_full:
       "Le workspace de votre organisation n’a plus de place libre, vous n’avez donc pas pu le rejoindre. Demandez une place à son admin, puis reconnectez-vous.",
+    sso_email_unverified:
+      "Le fournisseur d’identité de votre organisation n’a pas vérifié cette adresse, donc Portifact ne peut pas l’utiliser. Contactez l’admin de votre workspace.",
+    sso_link_required:
+      "Cette adresse a déjà un compte Portifact. Connectez-vous une fois avec un code par e-mail ou comme d’habitude, puis choisissez Lier l’authentification unique sur cette page.",
+    sso_removed:
+      "Un admin du workspace vous a retiré, vous ne pouvez donc pas le rejoindre à nouveau par l’authentification unique. Demandez à un admin de vous inviter à nouveau.",
   },
   providerErrorFallback: "La connexion n’a pas abouti. Réessayez.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -181,6 +187,9 @@ export const fr: AuthCatalog = {
     "login.ssoHeading": "Votre organisation utilise l’authentification unique",
     "login.ssoContinue": "Continuer avec l’authentification unique",
     "login.ssoUseCode": "Recevoir plutôt un code par e-mail",
+    "login.ssoLinkHint":
+      "Votre organisation utilise l’authentification unique. Liez-la une fois à ce compte et utilisez-la la prochaine fois.",
+    "login.ssoLink": "Lier l’authentification unique",
     "login.google": "Continuer avec Google",
     "login.github": "Continuer avec GitHub",
     "login.orEmail": "ou utilisez votre e-mail",

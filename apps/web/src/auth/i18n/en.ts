@@ -54,6 +54,12 @@ export const en = {
       "This artifact does not exist, is no longer available or cannot be opened with this account. To use another account, sign out and open the link again.",
     read_rate_limited:
       "This account opened too many artifacts in a short time. Wait a few minutes and open the link again.",
+    sso_email_unverified:
+      "Your organization's identity provider has not verified this address, so Portifact cannot use it. Ask your workspace's admin.",
+    sso_link_required:
+      "This address already has a Portifact account. Sign in once with an email code or the way you usually do, then choose Link single sign-on on this page.",
+    sso_removed:
+      "An admin of the workspace removed you, so you cannot join it again through single sign-on. Ask an admin to invite you again.",
   } as Readonly<Record<string, string>>,
   providerErrorFallback: "Sign-in did not finish. Try again.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */

@@ -59,6 +59,12 @@ const messages = {
       "Single Sign-on wurde nicht abgeschlossen. Versuch es noch einmal; wenn es weiter scheitert, melde dich mit einem Code per E-Mail an und sag dem Admin deines Workspace Bescheid.",
     sso_workspace_full:
       "Der Workspace deiner Organisation hat keinen freien Platz, daher konntest du ihm nicht beitreten. Bitte den Admin um einen Platz und melde dich dann erneut an.",
+    sso_email_unverified:
+      "Der Identitätsanbieter deiner Organisation hat diese Adresse nicht bestätigt, daher kann Portifact sie nicht verwenden. Frag den Admin deines Workspace.",
+    sso_link_required:
+      "Diese Adresse hat bereits ein Portifact-Konto. Melde dich einmal mit einem Code per E-Mail oder wie gewohnt an und wähle dann auf dieser Seite Single Sign-on verknüpfen.",
+    sso_removed:
+      "Ein Admin des Workspace hat dich entfernt, daher kannst du ihm nicht per Single Sign-on wieder beitreten. Bitte einen Admin, dich erneut einzuladen.",
   },
   providerErrorFallback: "Die Anmeldung wurde nicht abgeschlossen. Versuch es noch einmal.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -182,6 +188,9 @@ export const de: AuthCatalog = {
     "login.ssoHeading": "Deine Organisation nutzt Single Sign-on",
     "login.ssoContinue": "Weiter mit Single Sign-on",
     "login.ssoUseCode": "Lieber einen Code per E-Mail",
+    "login.ssoLinkHint":
+      "Deine Organisation nutzt Single Sign-on. Verknüpfe es einmal mit diesem Konto und nutze es beim nächsten Mal.",
+    "login.ssoLink": "Single Sign-on verknüpfen",
     "login.google": "Weiter mit Google",
     "login.github": "Weiter mit GitHub",
     "login.orEmail": "oder nutze deine E-Mail-Adresse",

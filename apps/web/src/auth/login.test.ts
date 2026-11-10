@@ -1046,3 +1046,49 @@ describe("single sign-on", () => {
     }
   });
 });
+
+describe("linking single sign-on to a signed-in account (review finding 1)", () => {
+  it("offers it when the account's domain uses single sign-on and starts it for that address", async () => {
+    api.on("GET", "/get-session", session("ada@corp.example"));
+    api.on("POST", "/sso/lookup", { status: 200, body: { sso: true } });
+    api.on("POST", "/sign-in/sso", { status: 200, body: { url: "https://login.corp.example/a" } });
+    await open();
+    expect(element("sso-link-group").hidden).toBe(false);
+    element("sso-link").click();
+    await settle();
+    expect(api.calls.filter((call) => call.path === "/sign-in/sso")).toEqual([
+      {
+        method: "POST",
+        path: "/sign-in/sso",
+        body: { email: "ada@corp.example", callbackURL: "/", errorCallbackURL: "/login" },
+      },
+    ]);
+    expect(location.assigned).toEqual(["https://login.corp.example/a"]);
+  });
+
+  it("does not offer it otherwise, and explains a refused start", async () => {
+    api.on("GET", "/get-session", session("ada@corp.example"));
+    api.on("POST", "/sso/lookup", { status: 404, body: null });
+    await open();
+    expect(element("sso-link-group").hidden).toBe(true);
+
+    loadPage("login");
+    api = fakeApi();
+    api.on("GET", "/get-session", session("ada@corp.example"));
+    api.on("POST", "/sso/lookup", { status: 200, body: { sso: true } });
+    api.on("POST", "/sign-in/sso", { status: 404, body: { code: "sso_unavailable" } });
+    await open();
+    element("sso-link").click();
+    await settle();
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.sso_unavailable);
+  });
+
+  it("explains the new refusals", async () => {
+    for (const code of ["sso_email_unverified", "sso_link_required", "sso_removed"]) {
+      loadPage("login");
+      await open(`?error=${code}`);
+      expect(messages.providerErrors[code]).toBeDefined();
+      expect(element("error-summary").textContent).toBe(messages.providerErrors[code]);
+    }
+  });
+});

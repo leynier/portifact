@@ -211,7 +211,10 @@ Single sign-on for workspaces ships switched off ([decision 0016](decisions/0016
 5. **Clock skew.** Sign-ins pass with the Worker's clock; a token older than an hour or with `nbf` in the future is refused.
 6. **A user removed at the provider.** They can no longer sign in through it, but their Portifact membership and sessions stay until an admin removes them (no SCIM yet); confirm the dashboard's note says so and the customer accepts it.
 7. **Terms and human check.** A new person needs both; after a `TERMS_VERSION` bump an existing SSO user is sent back to accept.
-8. **No secrets in logs.** Tail the Worker during the flows: no code, token, ID token, client secret or claim appears.
+8. **Google.** With issuer `https://accounts.google.com` and the workspace's Google Workspace domain verified: a user of that Workspace signs in (the token carries `hd`); a personal Gmail account, and an account of another Workspace, are refused with `sso_email_outside_domain`; an unmanaged Google account whose address is at the domain (created with an email address, no Workspace) has no `hd` and is refused.
+9. **Microsoft Entra.** Register the app with the `email` and `xms_edov` optional claims; save the tenant-specific issuer (`common` and `organizations` are refused). A member with a mailbox at the verified domain signs in; a guest (B2B) user or a user whose `email` was edited to an address the tenant does not own gets no `xms_edov: true` and is refused with `sso_email_unverified`.
+10. **Unverified addresses.** In Okta (or Auth0) with self-registration on, register a user at the domain without verifying the address: if the token says `email_verified: false` it is refused; an existing Portifact account at that address is never linked without the claim (`sso_link_required`), and "Link single sign-on" from that account's session links it.
+11. **No secrets in logs.** Tail the Worker during the flows: no code, token, ID token, client secret or claim appears.
 
 Then add `sso` to `AVAILABLE_PLAN_FEATURES` in the same change that turns it on.
 

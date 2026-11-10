@@ -2080,6 +2080,8 @@ export const es = {
     "{domains} ya no está verificado, así que sus direcciones no pueden iniciar sesión así hasta que el dominio se verifique de nuevo.",
   "sso.membership":
     "Quienes inician sesión así se unen al workspace como miembros, o con el rol de una invitación pendiente, mientras haya un puesto libre. Los miembros actuales conservan su rol.",
+  "sso.removalNote":
+    "Quien un admin quita no puede volver a unirse con el inicio de sesión único hasta que un admin lo invite de nuevo. Quien se va por su cuenta sí puede.",
   "sso.redirectUri": "URI de redirección",
   "sso.redirectPending":
     "Guarda el proveedor para obtener la URI de redirección que debes registrar en tu proveedor de identidad. Se ve así: {pattern}.",

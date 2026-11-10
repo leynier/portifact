@@ -344,6 +344,13 @@
       "when": 1794330565385,
       "tag": "0048_workspace_sso",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1794333995575,
+      "tag": "0049_workspace_sso_removals",
+      "breakpoints": true
     }
   ]
 }

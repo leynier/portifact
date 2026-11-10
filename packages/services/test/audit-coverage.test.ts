@@ -78,6 +78,7 @@ reason(
     "ssoProviderForEmail",
     "ssoProviderForCallback",
     "checkSsoIdentity",
+    "unlinkSsoIdentity",
     "ssoKeys",
     "openSsoSecret",
   ],

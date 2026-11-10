@@ -58,6 +58,12 @@ const messages = {
       "シングルサインオンが完了しませんでした。もう一度お試しください。失敗が続く場合は、メールのコードでサインインし、ワークスペースの管理者に知らせてください。",
     sso_workspace_full:
       "組織のワークスペースに空きシートがないため、参加できませんでした。管理者にシートを依頼してから、もう一度サインインしてください。",
+    sso_email_unverified:
+      "組織の ID プロバイダーがこのアドレスを確認していないため、Portifact では使えません。ワークスペースの管理者に問い合わせてください。",
+    sso_link_required:
+      "このアドレスにはすでに Portifact のアカウントがあります。メールのコードかいつもの方法で一度サインインしてから、このページで「シングルサインオンをリンク」を選んでください。",
+    sso_removed:
+      "ワークスペースの管理者があなたを削除したため、シングルサインオンで再参加できません。管理者にもう一度招待を依頼してください。",
   },
   providerErrorFallback: "サインインが完了しませんでした。もう一度お試しください。",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -177,6 +183,9 @@ export const ja: AuthCatalog = {
     "login.ssoHeading": "あなたの組織はシングルサインオンを使っています",
     "login.ssoContinue": "シングルサインオンで続行",
     "login.ssoUseCode": "代わりにメールでコードを受け取る",
+    "login.ssoLinkHint":
+      "あなたの組織はシングルサインオンを使っています。一度このアカウントにリンクすると、次回から使えます。",
+    "login.ssoLink": "シングルサインオンをリンク",
     "login.google": "Googleで続行",
     "login.github": "GitHubで続行",
     "login.orEmail": "またはメールアドレスを使用",

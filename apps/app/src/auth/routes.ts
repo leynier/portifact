@@ -183,12 +183,14 @@ async function refuseRequest(
     );
   }
 
-  const limit =
-    path === SSO_LOOKUP_PATH || path === "/sign-in/sso"
-      ? { max: SSO_LIMITS.lookupsPerIpPerHour, windowSeconds: 3_600 }
-      : ENDPOINT_LIMITS[path];
+  // The lookup and starting single sign-on answer the same question: one budget for both.
+  const sso = path === SSO_LOOKUP_PATH || path === "/sign-in/sso";
+  const limit = sso
+    ? { max: SSO_LIMITS.lookupsPerIpPerHour, windowSeconds: 3_600 }
+    : ENDPOINT_LIMITS[path];
   if (limit) {
-    const decision = await checkLimits(env.DB, [{ key: `${path}:ip:${ip}`, limit }], now);
+    const key = sso ? `sso-lookup:ip:${ip}` : `${path}:ip:${ip}`;
+    const decision = await checkLimits(env.DB, [{ key, limit }], now);
     if (!decision.ok) return tooManyRequests(decision.retryAfterSeconds);
   }
   return undefined;

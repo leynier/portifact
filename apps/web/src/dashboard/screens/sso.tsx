@@ -195,6 +195,7 @@ function SsoBody({ space, settings }: { space: WorkspaceSpace; settings: SsoSett
         </Callout>
       ) : null}
       <p className="text-sm text-text-muted">{t("sso.membership")}</p>
+      <p className="text-sm text-text-muted">{t("sso.removalNote")}</p>
       {provider ? (
         <CopyField label={t("sso.redirectUri")} value={provider.redirectUri} {...copy} />
       ) : (

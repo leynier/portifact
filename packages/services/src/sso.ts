@@ -26,7 +26,9 @@ import {
   ok,
   type Result,
   requireFeature,
+  type SsoAccountPlan,
   type SsoEndpoints,
+  ssoAccountDecision,
   ssoServesEmail,
 } from "@portifact/domain";
 import { and, eq, gt, type SQL, sql } from "drizzle-orm";
@@ -168,7 +170,26 @@ export async function fetchSsoJson(
   }
 }
 
+/** Entries each isolate cache of the identity providers' answers keeps (discovery, key sets). */
+export const SSO_CACHE_ENTRIES = 64;
+
+/** Sets a cache entry, evicting the oldest beyond `SSO_CACHE_ENTRIES`. */
+export function boundedSet<V>(cache: Map<string, V>, key: string, value: V): void {
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > SSO_CACHE_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
 const discoveryCache = new Map<string, { at: number; endpoints: SsoEndpoints }>();
+
+/** How many issuers the isolate's discovery cache holds; tests check the bound. */
+export function ssoDiscoveryCacheSize(): number {
+  return discoveryCache.size;
+}
 
 /**
  * Fetches and checks the issuer's discovery document. Sign-ins reuse a checked document for
@@ -186,7 +207,7 @@ export async function discoverSso(
   const fetched = await fetchSsoJson(fetch, discoveryUrl(issuer));
   if (!fetched.ok) return { ok: false, problem: fetched.problem };
   const checked = checkDiscovery(fetched.value, issuer);
-  if (checked.ok) discoveryCache.set(issuer, { at: options.now, endpoints: checked.value });
+  if (checked.ok) boundedSet(discoveryCache, issuer, { at: options.now, endpoints: checked.value });
   return checked;
 }
 
@@ -564,18 +585,25 @@ export async function ssoProviderForCallback(
 }
 
 /**
- * Whether a verified identity may sign in: its address is in a live domain of the provider, and
- * an account already linked to the identity (same provider and subject) has its address in one
- * too, so a renamed or moved identity cannot carry an account outside the workspace's domains.
+ * Which account a verified identity signs in to, or why not (decision 0016, section 3): its
+ * address must be in a live domain of the provider, as must the address of an account already
+ * linked to it, and the account plan comes from `ssoAccountDecision`. Messages are the login
+ * page's codes (`sso_email_outside_domain`, `sso_link_required`).
  */
 export async function checkSsoIdentity(
   global: GlobalDb,
-  input: { provider: SsoSignInProvider; email: string; subject: string },
-): Promise<Result<true>> {
+  input: {
+    provider: SsoSignInProvider;
+    email: string;
+    subject: string;
+    emailVerified: true | undefined;
+    sessionUserId: string | null;
+  },
+): Promise<Result<SsoAccountPlan>> {
   const outside = () => fail<never>("forbidden", "sso_email_outside_domain");
   if (!ssoServesEmail(input.email, input.provider.liveDomains)) return outside();
   const [linked] = await global
-    .select({ email: schema.users.email })
+    .select({ userId: schema.users.id, email: schema.users.email })
     .from(schema.accounts)
     .innerJoin(schema.users, eq(schema.users.id, schema.accounts.userId))
     .where(
@@ -586,20 +614,55 @@ export async function checkSsoIdentity(
     )
     .limit(1);
   if (linked && !ssoServesEmail(linked.email, input.provider.liveDomains)) return outside();
-  return ok(true);
+  const [existing] = await global
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(sql`lower(${schema.users.email}) = ${normalizeEmail(input.email)}`)
+    .limit(1);
+  return ssoAccountDecision({
+    linkedUserId: linked?.userId ?? null,
+    existingUserId: existing?.id ?? null,
+    emailVerified: input.emailVerified,
+    sessionUserId: input.sessionUserId,
+  });
+}
+
+/** Removes an identity a sign-in linked to an account it did not plan for (a race). */
+export async function unlinkSsoIdentity(
+  global: GlobalDb,
+  input: { providerId: string; subject: string; userId: string },
+): Promise<void> {
+  await global
+    .delete(schema.accounts)
+    .where(
+      and(
+        eq(schema.accounts.providerId, ssoAccountProvider(input.providerId)),
+        eq(schema.accounts.accountId, input.subject),
+        eq(schema.accounts.userId, input.userId),
+      ),
+    );
 }
 
 /**
- * Makes the person a member of the provider's workspace if they are not one: with the role of a
- * pending invitation to their address (which is consumed) or `member`, only while a seat is free
- * (members and pending invitations, their own invitation's seat being the one they take) and the
- * plan row is the one read. An existing member keeps their role. Recorded as `member.joined`
- * with `via: "sso"`. Idempotent.
+ * Makes the person a member of the provider's workspace if they are not one (decision 0016,
+ * section 5): refused with `sso_removed` while an admin's removal stands; with the role of a
+ * pending invitation to their address, which is consumed in place of the accept step, only when
+ * `consumeInvitation` (the provider vouched for the address, or the account is new); otherwise a
+ * pending invitation is left for the accept step and nothing is joined. Without one, `member`. Only
+ * while a seat is free (members and pending invitations, their own invitation's seat being the one
+ * they take) and the plan row is the one read. An existing member keeps their role. Recorded as
+ * `member.joined` with `via: "sso"`. Idempotent.
  */
 export async function joinWorkspaceThroughSso(
   global: GlobalDb,
-  input: { workspaceId: string; userId: string; email: string; now: number },
-): Promise<Result<{ joined: boolean; role: WorkspaceRole }>> {
+  input: {
+    workspaceId: string;
+    userId: string;
+    email: string;
+    now: number;
+    consumeInvitation: boolean;
+  },
+): Promise<Result<{ joined: boolean; role: WorkspaceRole | null; pendingInvitation: boolean }>> {
   const current = async () => {
     const [row] = await global
       .select({ role: m.role })
@@ -609,7 +672,10 @@ export async function joinWorkspaceThroughSso(
     return row ?? null;
   };
   const already = await current();
-  if (already) return ok({ joined: false, role: already.role });
+  if (already) return ok({ joined: false, role: already.role, pendingInvitation: false });
+  const removed = sql`exists (select 1 from ${schema.workspaceRemovals} where ${schema.workspaceRemovals.workspaceId} = ${input.workspaceId} and ${schema.workspaceRemovals.userId} = ${input.userId})`;
+  const [blocked] = await global.all<{ blocked: number }>(sql`select ${removed} as blocked`);
+  if (Number(blocked?.blocked ?? 0) === 1) return fail("forbidden", "sso_removed");
 
   const email = normalizeEmail(input.email);
   const [invitation] = await global
@@ -623,6 +689,9 @@ export async function joinWorkspaceThroughSso(
       ),
     )
     .limit(1);
+  if (invitation && !input.consumeInvitation) {
+    return ok({ joined: false, role: null, pendingInvitation: true });
+  }
   const role: WorkspaceRole = invitation?.role ?? "member";
   const { limit, guard } = await seatLimit(global, input.workspaceId, input.now);
   const member = sql`exists (select 1 from ${m} where ${m.workspaceId} = ${input.workspaceId} and ${m.userId} = ${input.userId})`;
@@ -631,7 +700,7 @@ export async function joinWorkspaceThroughSso(
     ? sql`exists (select 1 from ${inv} where ${inv.id} = ${invitation.id} and ${inv.expiresAt} > ${input.now})`
     : sql`1`;
   const own = invitation ? 1 : 0;
-  const joins = sql`not ${member} and ${active} and ${invited} and ${seatsUsedSql(input.workspaceId, input.now, true)} - ${own} < ${limit} and ${guard}`;
+  const joins = sql`not ${member} and not ${removed} and ${active} and ${invited} and ${seatsUsedSql(input.workspaceId, input.now, true)} - ${own} < ${limit} and ${guard}`;
   const statements = [
     memberEvent(
       global,
@@ -660,8 +729,8 @@ export async function joinWorkspaceThroughSso(
         global.delete(inv).where(and(eq(inv.id, invitation.id), member) as SQL),
       ])
     : await global.batch(statements);
-  if (inserted.length > 0) return ok({ joined: true, role });
+  if (inserted.length > 0) return ok({ joined: true, role, pendingInvitation: false });
   const now = await current();
-  if (now) return ok({ joined: false, role: now.role });
+  if (now) return ok({ joined: false, role: now.role, pendingInvitation: false });
   return fail("seats_exhausted", "The workspace has no free seat.");
 }

@@ -50,6 +50,11 @@ const messages = {
     sso_failed: "单点登录未完成。请重试；如果仍然失败，请用邮箱验证码登录并告知你的工作区管理员。",
     sso_workspace_full:
       "你所在组织的工作区没有空余席位，因此你无法加入。请向管理员申请席位，然后重新登录。",
+    sso_email_unverified:
+      "你所在组织的身份提供方未验证此地址，因此 Portifact 无法使用。请联系你的工作区管理员。",
+    sso_link_required:
+      "此地址已有 Portifact 账户。请先用邮箱验证码或常用方式登录一次，然后在此页面选择“关联单点登录”。",
+    sso_removed: "工作区管理员已将你移除，因此你无法通过单点登录重新加入。请让管理员再次邀请你。",
   },
   providerErrorFallback: "登录未完成。请重试。",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -158,6 +163,8 @@ export const zhCN: AuthCatalog = {
     "login.ssoHeading": "你所在的组织使用单点登录",
     "login.ssoContinue": "使用单点登录继续",
     "login.ssoUseCode": "改为获取邮箱验证码",
+    "login.ssoLinkHint": "你所在的组织使用单点登录。将其与此账户关联一次，下次即可使用。",
+    "login.ssoLink": "关联单点登录",
     "login.google": "使用 Google 继续",
     "login.github": "使用 GitHub 继续",
     "login.orEmail": "或使用邮箱",

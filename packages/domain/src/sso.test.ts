@@ -5,6 +5,10 @@ import {
   checkSsoIssuer,
   discoveryUrl,
   liveSsoDomains,
+  SHARED_SSO_ISSUERS,
+  ssoAccountDecision,
+  ssoClaimsVerdict,
+  ssoIssuerKind,
   ssoServesEmail,
 } from "./sso.ts";
 import { checkPublicHttpsUrl, checkWebhookUrl } from "./webhooks.ts";
@@ -141,5 +145,169 @@ describe("checkPublicHttpsUrl", () => {
       expect(own.message).toBe("Webhooks cannot point at Portifact or Cloudflare service hosts.");
     const sso = checkPublicHttpsUrl("https://portifact.com/x", 100);
     if (!sso.ok) expect(sso.message).toContain("cannot point at Portifact");
+  });
+});
+
+describe("shared issuers (review finding 1)", () => {
+  it.each([
+    "https://login.microsoftonline.com/common/v2.0",
+    "https://login.microsoftonline.com/organizations/v2.0",
+    "https://login.microsoftonline.com/consumers/v2.0",
+    "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0",
+    "https://login.microsoftonline.com/contoso.com/v2.0",
+    "https://login.live.com",
+    "https://appleid.apple.com",
+    "https://gitlab.com",
+  ])("refuses %s", (issuer) => {
+    expect(checkSsoIssuer(issuer).ok).toBe(false);
+  });
+
+  it("accepts a tenant-specific Entra issuer and Google, and names their kind", () => {
+    const tenant = "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0";
+    expect(checkSsoIssuer(tenant).ok).toBe(true);
+    expect(ssoIssuerKind(tenant)).toBe("entra");
+    expect(checkSsoIssuer("https://accounts.google.com").ok).toBe(true);
+    expect(ssoIssuerKind("https://accounts.google.com")).toBe("google");
+    expect(ssoIssuerKind("https://login.acme.com")).toBe("generic");
+    expect(SHARED_SSO_ISSUERS.map((entry) => entry.host)).toContain("accounts.google.com");
+  });
+});
+
+describe("ssoClaimsVerdict", () => {
+  const live = ["acme.com"];
+  const email = "ada@acme.com";
+  it("refuses email_verified false always, and keeps true or absent", () => {
+    expect(ssoClaimsVerdict("generic", { email_verified: false }, email, live)).toEqual({
+      ok: false,
+      code: "sso_email_unverified",
+    });
+    expect(ssoClaimsVerdict("generic", { email_verified: true }, email, live)).toEqual({
+      ok: true,
+      emailVerified: true,
+    });
+    expect(ssoClaimsVerdict("generic", {}, email, live)).toEqual({
+      ok: true,
+      emailVerified: undefined,
+    });
+    expect(ssoClaimsVerdict("generic", { email_verified: "true" }, email, live)).toEqual({
+      ok: true,
+      emailVerified: undefined,
+    });
+  });
+
+  it("checks Google's hd against the address's verified domain on every sign-in", () => {
+    const ok = { email_verified: true, hd: "acme.com" };
+    expect(ssoClaimsVerdict("google", ok, email, live)).toEqual({ ok: true, emailVerified: true });
+    for (const claims of [{ email_verified: true }, { email_verified: true, hd: "other.com" }]) {
+      expect(ssoClaimsVerdict("google", claims, email, live)).toEqual({
+        ok: false,
+        code: "sso_email_outside_domain",
+      });
+    }
+    expect(
+      ssoClaimsVerdict("google", { hd: "acme.com", email_verified: false }, email, live),
+    ).toEqual({ ok: false, code: "sso_email_unverified" });
+  });
+
+  it("takes Entra's address only when xms_edov says the domain owner verified it", () => {
+    expect(ssoClaimsVerdict("entra", { xms_edov: true }, email, live)).toEqual({
+      ok: true,
+      emailVerified: true,
+    });
+    for (const claims of [{}, { xms_edov: false }, { email_verified: true }]) {
+      expect(ssoClaimsVerdict("entra", claims, email, live)).toEqual({
+        ok: false,
+        code: "sso_email_unverified",
+      });
+    }
+  });
+});
+
+describe("ssoAccountDecision", () => {
+  it("signs in through an identity already linked, consuming invitations only on a verified claim", () => {
+    expect(
+      ssoAccountDecision({
+        linkedUserId: "u1",
+        existingUserId: "u1",
+        emailVerified: undefined,
+        sessionUserId: null,
+      }),
+    ).toEqual({ ok: true, value: { mode: "existing", userId: "u1", consumeInvitation: false } });
+    expect(
+      ssoAccountDecision({
+        linkedUserId: "u1",
+        existingUserId: null,
+        emailVerified: true,
+        sessionUserId: null,
+      }),
+    ).toEqual({ ok: true, value: { mode: "existing", userId: "u1", consumeInvitation: true } });
+  });
+
+  it("creates a new account without the claim", () => {
+    expect(
+      ssoAccountDecision({
+        linkedUserId: null,
+        existingUserId: null,
+        emailVerified: undefined,
+        sessionUserId: null,
+      }),
+    ).toEqual({ ok: true, value: { mode: "create", userId: null, consumeInvitation: true } });
+  });
+
+  it("links an existing account only on a verified claim or from that account's own session", () => {
+    expect(
+      ssoAccountDecision({
+        linkedUserId: null,
+        existingUserId: "u1",
+        emailVerified: true,
+        sessionUserId: null,
+      }),
+    ).toEqual({ ok: true, value: { mode: "link", userId: "u1", consumeInvitation: true } });
+    expect(
+      ssoAccountDecision({
+        linkedUserId: null,
+        existingUserId: "u1",
+        emailVerified: undefined,
+        sessionUserId: null,
+      }),
+    ).toEqual({ ok: false, code: "forbidden", message: "sso_link_required" });
+    expect(
+      ssoAccountDecision({
+        linkedUserId: null,
+        existingUserId: "u1",
+        emailVerified: undefined,
+        sessionUserId: "u2",
+      }),
+    ).toEqual({ ok: false, code: "forbidden", message: "sso_link_required" });
+    expect(
+      ssoAccountDecision({
+        linkedUserId: null,
+        existingUserId: "u1",
+        emailVerified: undefined,
+        sessionUserId: "u1",
+      }),
+    ).toEqual({ ok: true, value: { mode: "session", userId: "u1", consumeInvitation: false } });
+  });
+
+  it("refuses a session-started flow that asserts another address", () => {
+    expect(
+      ssoAccountDecision({
+        linkedUserId: null,
+        existingUserId: null,
+        emailVerified: true,
+        sessionUserId: "u1",
+      }),
+    ).toEqual({ ok: false, code: "forbidden", message: "sso_link_required" });
+  });
+
+  it("never links an identity of another account to the session's", () => {
+    expect(
+      ssoAccountDecision({
+        linkedUserId: "u9",
+        existingUserId: "u1",
+        emailVerified: true,
+        sessionUserId: "u1",
+      }),
+    ).toEqual({ ok: false, code: "forbidden", message: "sso_link_required" });
   });
 });

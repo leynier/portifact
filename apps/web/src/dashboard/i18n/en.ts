@@ -2027,6 +2027,8 @@ export const en = {
     "{domains} is no longer verified, so its addresses cannot sign in this way until the domain is verified again.",
   "sso.membership":
     "People who sign in this way join the workspace as members, or with the role of a pending invitation, while it has a free seat. Existing members keep their role.",
+  "sso.removalNote":
+    "Someone an admin removes cannot rejoin through single sign-on until an admin invites them again. Someone who leaves by themselves can.",
   "sso.redirectUri": "Redirect URI",
   "sso.redirectPending":
     "Save the provider to get its redirect URI to register at your identity provider. It looks like {pattern}.",

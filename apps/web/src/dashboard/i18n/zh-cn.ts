@@ -1894,6 +1894,8 @@ export const zhCN = {
   "sso.lapsed": "{domains} 不再处于已验证状态，在重新验证该域名之前，其地址无法以此方式登录。",
   "sso.membership":
     "以此方式登录的人会以成员身份加入工作区（如有待处理的邀请，则使用邀请中的角色），前提是还有空余席位。现有成员保留原角色。",
+  "sso.removalNote":
+    "被管理员移除的人在管理员再次邀请之前，无法通过单点登录重新加入。自行离开的人可以重新加入。",
   "sso.redirectUri": "重定向 URI",
   "sso.redirectPending":
     "保存提供方后即可获得需要在身份提供方处登记的重定向 URI，格式如 {pattern}。",

@@ -12,8 +12,14 @@
 // `SSO_ENABLED="true"` (routes.ts).
 import { SSO_LIMITS, ssoCallbackPath } from "@portifact/contracts";
 import { regionsFromEnv } from "@portifact/db";
-import { SSO_ID_TOKEN_ALGORITHMS } from "@portifact/domain";
 import {
+  normalizeEmail,
+  SSO_ID_TOKEN_ALGORITHMS,
+  ssoClaimsVerdict,
+  ssoIssuerKind,
+} from "@portifact/domain";
+import {
+  boundedSet,
   checkSsoIdentity,
   discoverSso,
   fetchSsoJson,
@@ -23,9 +29,10 @@ import {
   ssoKeys,
   ssoProviderForCallback,
   ssoProviderForEmail,
+  unlinkSsoIdentity,
 } from "@portifact/services";
 import type { BetterAuthPlugin } from "better-auth";
-import { APIError, createAuthEndpoint } from "better-auth/api";
+import { APIError, createAuthEndpoint, getSessionFromCtx } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import {
   createAuthorizationURL,
@@ -49,6 +56,8 @@ export const SSO_ERRORS = {
   outside: "sso_email_outside_domain",
   failed: "sso_failed",
   full: "sso_workspace_full",
+  removed: "sso_removed",
+  linkRequired: "sso_link_required",
 } as const;
 
 /** Whether the app Worker offers single sign-on: exactly `"true"`, set only after the checks. */
@@ -57,10 +66,20 @@ export function ssoEnabled(env: Pick<Env, "SSO_ENABLED">): boolean {
 }
 
 const jwksCache = new Map<string, { at: number; keys: JSONWebKeySet }>();
+/** When an unknown key last made each key set be fetched again. */
+const refetchedAt = new Map<string, number>();
+/** An unknown key fetches its key set again at most this often, per URL and isolate. */
+export const SSO_KEY_REFETCH_MS = 60_000;
 
 /** Drops cached key sets; tests use it between cases. */
 export function clearSsoKeyCache(): void {
   jwksCache.clear();
+  refetchedAt.clear();
+}
+
+/** How many key sets the isolate holds; tests check the bound. */
+export function ssoKeyCacheSize(): number {
+  return jwksCache.size;
 }
 
 async function keySet(fetch: SsoFetch, url: string, now: number, fresh: boolean) {
@@ -70,7 +89,7 @@ async function keySet(fetch: SsoFetch, url: string, now: number, fresh: boolean)
   if (!fetched.ok) return null;
   const keys = fetched.value as JSONWebKeySet;
   if (typeof keys !== "object" || keys === null || !Array.isArray(keys.keys)) return null;
-  jwksCache.set(url, { at: now, keys });
+  boundedSet(jwksCache, url, { at: now, keys });
   return keys;
 }
 
@@ -115,6 +134,11 @@ export async function verifyIdToken(
     payload = await attempt(false);
   } catch (error) {
     if (!(error instanceof joseErrors.JWKSNoMatchingKey)) return null;
+    // A token naming a key the set lacks may follow a rotation, or be made up: fetch the set
+    // again, but at most once a minute, so made-up keys cannot make every callback fetch it.
+    const last = refetchedAt.get(check.jwksUrl);
+    if (last !== undefined && check.now - last < SSO_KEY_REFETCH_MS) return null;
+    boundedSet(refetchedAt, check.jwksUrl, check.now);
     try {
       payload = await attempt(true);
     } catch {
@@ -185,8 +209,19 @@ export function workspaceSso(deps: SsoPluginDeps) {
             });
           }
           const nonce = randomToken();
+          // Started by the account with this very address, signed in: the callback may link the
+          // identity to that account only (decision 0016, section 3).
+          const session = await getSessionFromCtx(ctx);
+          const linkUser =
+            session && normalizeEmail(session.user.email) === normalizeEmail(ctx.body.email)
+              ? session.user.id
+              : null;
           const state = await generateState(ctx, {
-            additionalData: { ssoProvider: provider.id, ssoRevision: provider.revision },
+            additionalData: {
+              ssoProvider: provider.id,
+              ssoRevision: provider.revision,
+              ssoLinkUser: linkUser,
+            },
             idTokenNonce: nonce,
           });
           const url = await createAuthorizationURL({
@@ -271,14 +306,33 @@ export function workspaceSso(deps: SsoPluginDeps) {
           const email = typeof claims?.email === "string" ? claims.email.trim().toLowerCase() : "";
           const subject = claims?.sub;
           if (!claims || !subject || email === "") return back(SSO_ERRORS.failed);
-          // The provider's `email_verified` is never read: the workspace's domain proof is what
-          // vouches for the address, and only for its own domains.
-          const allowed = await checkSsoIdentity(global(), { provider, email, subject });
-          if (!allowed.ok) return back(SSO_ERRORS.outside);
+          const verdict = ssoClaimsVerdict(
+            ssoIssuerKind(provider.issuer),
+            claims,
+            email,
+            provider.liveDomains,
+          );
+          if (!verdict.ok) return back(verdict.code);
+          let sessionUserId: string | null = null;
+          if (typeof state.ssoLinkUser === "string") {
+            const current = await getSessionFromCtx(ctx);
+            if (current?.user.id !== state.ssoLinkUser) return back(SSO_ERRORS.linkRequired);
+            sessionUserId = state.ssoLinkUser;
+          }
+          const plan = await checkSsoIdentity(global(), {
+            provider,
+            email,
+            subject,
+            emailVerified: verdict.emailVerified,
+            sessionUserId,
+          });
+          if (!plan.ok) return back(plan.message);
 
           let linked: Awaited<ReturnType<typeof handleOAuthUserInfo>>;
           try {
             linked = await handleOAuthUserInfo(ctx, {
+              // Verified as far as Portifact is concerned: the address is in a domain the workspace
+              // proved and the plan above allowed this account.
               userInfo: {
                 id: subject,
                 email,
@@ -292,6 +346,9 @@ export function workspaceSso(deps: SsoPluginDeps) {
               source: { method: "sso-oidc", sso: { providerId: provider.id } },
               isTrustedProvider: true,
               trustProviderByName: false,
+              ...(plan.value.mode === "session" && plan.value.userId
+                ? { selectedUser: { userId: plan.value.userId, profile: "preserve" as const } }
+                : {}),
             });
           } catch (error) {
             if (error instanceof APIError && typeof error.body?.code === "string") {
@@ -301,18 +358,32 @@ export function workspaceSso(deps: SsoPluginDeps) {
           }
           if (!linked.data) return back(SSO_ERRORS.failed);
           const { session, user } = linked.data;
+          // Another account than the plan's (a race between the checks and the write): undo it.
+          const expected =
+            plan.value.mode === "create"
+              ? linked.isRegister === true
+              : user.id === plan.value.userId;
+          if (!expected) {
+            await ctx.context.internalAdapter.deleteSession(session.token);
+            await unlinkSsoIdentity(global(), {
+              providerId: provider.id,
+              subject,
+              userId: user.id,
+            });
+            return back(SSO_ERRORS.failed);
+          }
           const joined = await joinWorkspaceThroughSso(global(), {
             workspaceId: provider.workspaceId,
             userId: user.id,
             email,
             now,
+            consumeInvitation: plan.value.consumeInvitation,
           });
           if (!joined.ok) {
             // The account stays (it accepted the terms), but no session is handed over: the
             // person sees why instead of landing outside the workspace without a word.
             await ctx.context.internalAdapter.deleteSession(session.token);
-            // Joining fails only for a lack of seats.
-            return back(SSO_ERRORS.full);
+            return back(joined.message === "sso_removed" ? SSO_ERRORS.removed : SSO_ERRORS.full);
           }
           await setSessionCookie(ctx, { session, user });
           const to = linked.isRegister

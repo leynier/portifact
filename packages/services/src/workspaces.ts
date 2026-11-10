@@ -447,9 +447,20 @@ async function dropMember(
             sql`exists (select 1 from ${m} where ${where})`,
             by.now,
           ),
+          // An admin's removal holds against single sign-on until they invite them again
+          // (decision 0016); leaving by oneself records none.
+          global
+            .insert(schema.workspaceRemovals)
+            .select(
+              sql`select ${workspaceId}, ${memberId}, ${by.now} where ${self ? sql`0` : sql`1`} and exists (select 1 from ${m} where ${where})`,
+            )
+            .onConflictDoUpdate({
+              target: [schema.workspaceRemovals.workspaceId, schema.workspaceRemovals.userId],
+              set: { removedAt: by.now },
+            }),
           global.delete(m).where(where).returning({ userId: m.userId }),
         ])
-      )[2],
+      )[3],
     () => checkRemoval("admin", 1, leaving) as Result<never>,
   );
   if (!removed.ok) return removed;
@@ -661,6 +672,13 @@ export async function deleteWorkspace(
     // Its webhooks stop at once, as an account's do: no foreign key ties them to their owner,
     // and their pending events and delivery log cascade from them.
     db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, input.workspaceId), exists)),
+    // The identities linked through its single sign-on: no foreign key ties them to the provider,
+    // which the workspace row takes with it below (decision 0016).
+    db
+      .delete(schema.accounts)
+      .where(
+        sql`${schema.accounts.providerId} in (select 'sso:' || ${schema.workspaceSso.id} from ${schema.workspaceSso} where ${schema.workspaceSso.workspaceId} = ${input.workspaceId})`,
+      ),
     db.delete(w).where(eq(w.id, input.workspaceId)).returning({ id: w.id }),
   ])) as unknown[];
   const deleted = (results.at(-1) as unknown[]).length === 1;
@@ -671,6 +689,18 @@ export async function deleteWorkspace(
     .where(eq(schema.workspaceDeletions.workspaceId, input.workspaceId))
     .limit(1);
   return pending ? ok({ deleted: false }) : missingWorkspace();
+}
+
+/**
+ * Deletes identities linked through a single sign-on provider that no longer exists
+ * (`accounts.provider_id` is `sso:<id>`, with no foreign key to the provider).
+ */
+export function deleteOrphanSsoIdentities(db: Db) {
+  return db
+    .delete(schema.accounts)
+    .where(
+      sql`${schema.accounts.providerId} like 'sso:%' and substr(${schema.accounts.providerId}, 5) not in (select ${schema.workspaceSso.id} from ${schema.workspaceSso})`,
+    );
 }
 
 /** Advances pending workspace deletions, oldest first. */
@@ -753,6 +783,8 @@ export async function advanceWorkspaceDeletion(
     eraseOwnerAuditEvents(db, workspaceId, nothingLeft),
     // Any webhook a restore or a race brought back since the deletion was requested.
     db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
+    // Single sign-on identities a restore or a race left without their provider.
+    deleteOrphanSsoIdentities(db),
     db
       .delete(schema.accountUsage)
       .where(

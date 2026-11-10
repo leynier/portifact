@@ -58,6 +58,12 @@ const messages = {
       "El inicio de sesión único no terminó. Inténtalo de nuevo; si sigue fallando, inicia sesión con un código por correo y avisa al admin de tu workspace.",
     sso_workspace_full:
       "El workspace de tu organización no tiene un puesto libre, así que no pudiste unirte. Pide un puesto a su admin y vuelve a iniciar sesión.",
+    sso_email_unverified:
+      "El proveedor de identidad de tu organización no verificó esta dirección, así que Portifact no puede usarla. Consulta al admin de tu workspace.",
+    sso_link_required:
+      "Esta dirección ya tiene una cuenta de Portifact. Inicia sesión una vez con un código por correo o como lo haces siempre, y luego elige Vincular el inicio de sesión único en esta página.",
+    sso_removed:
+      "Un admin del workspace te quitó, así que no puedes volver a unirte con el inicio de sesión único. Pide a un admin que te invite de nuevo.",
   },
   providerErrorFallback: "El inicio de sesión no terminó. Inténtalo de nuevo.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -177,6 +183,9 @@ export const es: AuthCatalog = {
     "login.ssoHeading": "Tu organización usa inicio de sesión único",
     "login.ssoContinue": "Continuar con inicio de sesión único",
     "login.ssoUseCode": "Prefiero un código por correo",
+    "login.ssoLinkHint":
+      "Tu organización usa inicio de sesión único. Vincúlalo a esta cuenta una vez y úsalo la próxima vez.",
+    "login.ssoLink": "Vincular el inicio de sesión único",
     "login.google": "Continuar con Google",
     "login.github": "Continuar con GitHub",
     "login.orEmail": "o usa tu correo",

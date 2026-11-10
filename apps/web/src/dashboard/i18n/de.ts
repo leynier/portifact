@@ -2099,6 +2099,8 @@ export const de = {
     "{domains} ist nicht mehr bestätigt, daher können sich Adressen dort so nicht anmelden, bis die Domain wieder bestätigt ist.",
   "sso.membership":
     "Wer sich so anmeldet, tritt dem Workspace als Mitglied bei, oder mit der Rolle einer offenen Einladung, solange ein Platz frei ist. Bestehende Mitglieder behalten ihre Rolle.",
+  "sso.removalNote":
+    "Wer von einem Admin entfernt wurde, kann nicht per Single Sign-on zurückkehren, bis ein Admin die Person erneut einlädt. Wer selbst gegangen ist, kann es.",
   "sso.redirectUri": "Weiterleitungs-URI",
   "sso.redirectPending":
     "Speichere den Anbieter, um die Weiterleitungs-URI zu erhalten, die du beim Identitätsanbieter einträgst. Sie sieht so aus: {pattern}.",

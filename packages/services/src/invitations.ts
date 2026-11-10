@@ -228,6 +228,12 @@ export async function inviteMember(
         },
       })
       .returning({ id: inv.id }),
+    // Inviting someone again lifts an earlier removal for single sign-on (decision 0016).
+    global
+      .delete(schema.workspaceRemovals)
+      .where(
+        sql`${schema.workspaceRemovals.workspaceId} = ${workspace.id} and ${schema.workspaceRemovals.userId} in (select ${schema.users.id} from ${schema.users} where lower(${schema.users.email}) = ${email}) and exists (select 1 from ${inv} where ${inv.id} = ${id})`,
+      ),
     // After the upsert, on the invitation it wrote (its ID is new to this request): the role and
     // the address's domain, never the address.
     auditEvent(

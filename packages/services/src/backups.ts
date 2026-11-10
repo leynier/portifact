@@ -10,6 +10,7 @@ import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { eraseAuditEventsOf } from "./audit.ts";
 import { purgeJobs } from "./outbox.ts";
 import { revokedShareLinks } from "./share-links.ts";
+import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
 const OBJECT_PREFIX = "objects/";
@@ -422,6 +423,8 @@ export async function applyTombstones(
         sql`${schema.workspaceSso.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_sso')`,
       )
       .returning({ id: schema.workspaceSso.id }),
+    // Identities of providers that went above, removed or with a deleted workspace.
+    deleteOrphanSsoIdentities(db),
   ]);
   return {
     inserted,

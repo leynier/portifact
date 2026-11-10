@@ -47,6 +47,10 @@
             <p id="signed-in-email" class="font-medium break-words"></p>
             <p class="mt-1 text-sm text-text-muted" data-i18n="login.signedInHint">You can open your dashboard, close this page, or sign out on this browser.</p>
             <a href="/" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85 motion-reduce:transition-none" data-i18n="login.openDashboard">Open your dashboard</a>
+            <div id="sso-link-group" class="mt-4" hidden>
+              <p id="sso-link-hint" class="text-sm text-text-muted" data-i18n="login.ssoLinkHint">Your organization signs in with single sign-on. Link it to this account once, and use it next time.</p>
+              <button id="sso-link" type="button" aria-describedby="sso-link-hint" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.ssoLink">Link single sign-on</button>
+            </div>
             <h2 id="methods-heading" class="mt-8 text-sm font-semibold" data-i18n="login.methodsHeading">Sign-in methods</h2>
             <p class="mt-1 text-sm text-text-muted" data-i18n="login.methodsHint">A Google or GitHub account with this verified email joins this account the first time you use it.</p>
             <ul class="mt-3 divide-y divide-border rounded-md border border-border" aria-labelledby="methods-heading">

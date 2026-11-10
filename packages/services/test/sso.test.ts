@@ -1,25 +1,36 @@
 // Single sign-on for a workspace (premium plan E1, decision 0016): managing the provider, the
 // lookups a sign-in makes, what an identity may assert, joining the workspace, sealing, the
 // identity provider's answers and what a removal and a restore do.
+import { env } from "cloudflare:test";
 import { schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
+import { inviteMember } from "../src/invitations.ts";
 import {
   checkSsoIdentity,
   clearSsoDiscoveryCache,
+  discoverSso,
   fetchSsoJson,
   getSsoSettings,
   joinWorkspaceThroughSso,
   removeSsoProvider,
+  SSO_CACHE_ENTRIES,
   type SsoFetch,
   saveSsoProvider,
   ssoAccountProvider,
+  ssoDiscoveryCacheSize,
   ssoProviderForCallback,
   ssoProviderForEmail,
   testSsoIssuer,
 } from "../src/sso.ts";
 import { openSsoSecret, sealSsoSecret, ssoKeys } from "../src/sso-keys.ts";
+import {
+  advanceWorkspaceDeletion,
+  deleteWorkspace,
+  leaveWorkspace,
+  removeMember,
+} from "../src/workspaces.ts";
 import { db, grantPlan, NOW, value } from "./fixtures.ts";
 
 const hex = () => crypto.randomUUID().replaceAll("-", "");
@@ -555,14 +566,22 @@ describe("what an identity may assert", () => {
     await setUp(t);
     const provider = await ssoProviderForEmail(global(), `a@${t.domain}`, NOW);
     if (!provider) throw new Error("no provider");
+    const facts = { emailVerified: undefined, sessionUserId: null };
     expect(
-      await checkSsoIdentity(global(), { provider, email: `someone@${t.domain}`, subject: "s1" }),
-    ).toEqual({
-      ok: true,
-      value: true,
-    });
+      await checkSsoIdentity(global(), {
+        provider,
+        email: `someone@${t.domain}`,
+        subject: "s1",
+        ...facts,
+      }),
+    ).toEqual({ ok: true, value: { mode: "create", userId: null, consumeInvitation: true } });
     expect(
-      await checkSsoIdentity(global(), { provider, email: "victim@gmail.com", subject: "s1" }),
+      await checkSsoIdentity(global(), {
+        provider,
+        email: "victim@gmail.com",
+        subject: "s1",
+        ...facts,
+      }),
     ).toMatchObject({
       ok: false,
       message: "sso_email_outside_domain",
@@ -590,6 +609,8 @@ describe("what an identity may assert", () => {
         provider,
         email: `moved@${t.domain}`,
         subject: "subject-moved",
+        emailVerified: true,
+        sessionUserId: null,
       }),
     ).toMatchObject({ ok: false, message: "sso_email_outside_domain" });
   });
@@ -599,18 +620,27 @@ describe("joining through single sign-on", () => {
   it("adds a member once, records how, and keeps an existing member's role", async () => {
     const t = await team();
     const ada = await person(`ada@${t.domain}`);
-    const input = { workspaceId: t.id, userId: ada, email: `ada@${t.domain}`, now: NOW };
+    const input = {
+      workspaceId: t.id,
+      userId: ada,
+      email: `ada@${t.domain}`,
+      now: NOW,
+      consumeInvitation: true,
+    };
     expect(value(await joinWorkspaceThroughSso(global(), input))).toEqual({
       joined: true,
       role: "member",
+      pendingInvitation: false,
     });
     expect(value(await joinWorkspaceThroughSso(global(), input))).toEqual({
       joined: false,
       role: "member",
+      pendingInvitation: false,
     });
     expect(value(await joinWorkspaceThroughSso(global(), { ...input, userId: t.editor }))).toEqual({
       joined: false,
       role: "editor",
+      pendingInvitation: false,
     });
     const joined = (await kinds(t)).filter(([kind]) => kind === "member.joined");
     expect(joined).toEqual([["member.joined", { role: "member", via: "sso" }]]);
@@ -639,9 +669,10 @@ describe("joining through single sign-on", () => {
           userId: ada,
           email: `Ada@${t.domain}`,
           now: NOW,
+          consumeInvitation: true,
         }),
       ),
-    ).toEqual({ joined: true, role: "editor" });
+    ).toEqual({ joined: true, role: "editor", pendingInvitation: false });
     expect(
       await global()
         .select()
@@ -671,6 +702,7 @@ describe("joining through single sign-on", () => {
         userId: ada,
         email: `ada@${t.domain}`,
         now: NOW,
+        consumeInvitation: true,
       }),
     ).toMatchObject({ ok: false, code: "seats_exhausted" });
     expect(
@@ -761,5 +793,205 @@ describe("the identity provider's answers", () => {
     expect(await openSsoSecret(KEYS, key.id, "ws_a", `${box.slice(0, -4)}AAAA`)).toBeNull();
     expect(await ssoKeys({ current: "short" })).toEqual([]);
     expect(await ssoKeys({ current: undefined })).toEqual([]);
+  });
+});
+
+async function addAccount(userId: string, providerId: string, accountId: string) {
+  await global()
+    .insert(schema.accounts)
+    .values({
+      id: `acc_${hex()}`,
+      accountId,
+      providerId,
+      userId,
+      createdAt: new Date(NOW),
+      updatedAt: new Date(NOW),
+    });
+}
+
+async function ssoAccounts(providerId: string) {
+  return global()
+    .select({ id: schema.accounts.id })
+    .from(schema.accounts)
+    .where(eq(schema.accounts.providerId, ssoAccountProvider(providerId)));
+}
+
+describe("which account an identity signs in to (review finding 1)", () => {
+  it("links an existing account only on a verified claim or from its own session", async () => {
+    const t = await team();
+    await setUp(t);
+    const provider = await ssoProviderForEmail(global(), `a@${t.domain}`, NOW);
+    if (!provider) throw new Error("no provider");
+    const base = { provider, email: `admin@${t.domain}`, subject: "new-subject" };
+    expect(
+      await checkSsoIdentity(global(), { ...base, emailVerified: undefined, sessionUserId: null }),
+    ).toMatchObject({ ok: false, message: "sso_link_required" });
+    expect(
+      value(
+        await checkSsoIdentity(global(), { ...base, emailVerified: true, sessionUserId: null }),
+      ),
+    ).toEqual({ mode: "link", userId: t.admin, consumeInvitation: true });
+    expect(
+      value(
+        await checkSsoIdentity(global(), {
+          ...base,
+          emailVerified: undefined,
+          sessionUserId: t.admin,
+        }),
+      ),
+    ).toEqual({ mode: "session", userId: t.admin, consumeInvitation: false });
+    expect(
+      await checkSsoIdentity(global(), {
+        ...base,
+        emailVerified: undefined,
+        sessionUserId: t.editor,
+      }),
+    ).toMatchObject({ ok: false, message: "sso_link_required" });
+  });
+});
+
+describe("a removal holds against single sign-on (review finding 2)", () => {
+  const join = (t: Team, userId: string, email: string, now = NOW) =>
+    joinWorkspaceThroughSso(global(), {
+      workspaceId: t.id,
+      userId,
+      email,
+      now,
+      consumeInvitation: true,
+    });
+
+  it("refuses the join of someone an admin removed until an admin invites them again", async () => {
+    const t = await team();
+    value(
+      await removeMember(global(), { userId: t.admin, slug: t.slug, memberId: t.editor, now: NOW }),
+    );
+    expect(await join(t, t.editor, `editor@${t.domain}`)).toMatchObject({
+      ok: false,
+      code: "forbidden",
+      message: "sso_removed",
+    });
+    value(
+      await inviteMember(
+        global(),
+        {
+          userId: t.admin,
+          slug: t.slug,
+          email: `editor@${t.domain}`,
+          role: "member",
+          now: NOW + 1,
+        },
+        { send: async () => {} },
+      ),
+    );
+    expect(value(await join(t, t.editor, `editor@${t.domain}`, NOW + 2))).toEqual({
+      joined: true,
+      role: "member",
+      pendingInvitation: false,
+    });
+  });
+
+  it("lets someone who left by themselves rejoin", async () => {
+    const t = await team();
+    value(await leaveWorkspace(global(), { userId: t.editor, slug: t.slug, now: NOW }));
+    expect(value(await join(t, t.editor, `editor@${t.domain}`)).joined).toBe(true);
+  });
+
+  it("goes with the workspace and with the account", async () => {
+    const t = await team();
+    value(
+      await removeMember(global(), { userId: t.admin, slug: t.slug, memberId: t.editor, now: NOW }),
+    );
+    const removals = () =>
+      global()
+        .select()
+        .from(schema.workspaceRemovals)
+        .where(eq(schema.workspaceRemovals.workspaceId, t.id));
+    expect(await removals()).toHaveLength(1);
+    await global().delete(schema.users).where(eq(schema.users.id, t.editor));
+    expect(await removals()).toEqual([]);
+
+    const u = await team();
+    value(
+      await removeMember(global(), { userId: u.admin, slug: u.slug, memberId: u.editor, now: NOW }),
+    );
+    value(await deleteWorkspace(db(), { workspaceId: u.id, now: NOW }));
+    expect(
+      await global()
+        .select()
+        .from(schema.workspaceRemovals)
+        .where(eq(schema.workspaceRemovals.workspaceId, u.id)),
+    ).toEqual([]);
+  });
+});
+
+describe("pending invitations and single sign-on (review finding 3)", () => {
+  it("leaves an invitation for the accept step when the address is not vouched for", async () => {
+    const t = await team();
+    const ada = await person(`ada@${t.domain}`);
+    await global()
+      .insert(schema.workspaceInvitations)
+      .values({
+        id: `inv_${hex()}`,
+        workspaceId: t.id,
+        email: `ada@${t.domain}`,
+        role: "admin",
+        tokenHash: hex(),
+        invitedBy: t.admin,
+        createdAt: NOW,
+        expiresAt: NOW + 86_400_000,
+      });
+    expect(
+      value(
+        await joinWorkspaceThroughSso(global(), {
+          workspaceId: t.id,
+          userId: ada,
+          email: `ada@${t.domain}`,
+          now: NOW,
+          consumeInvitation: false,
+        }),
+      ),
+    ).toEqual({ joined: false, role: null, pendingInvitation: true });
+    expect(
+      await global()
+        .select()
+        .from(schema.workspaceInvitations)
+        .where(eq(schema.workspaceInvitations.workspaceId, t.id)),
+    ).toHaveLength(1);
+  });
+});
+
+describe("a deleted workspace's identities (review finding 5)", () => {
+  it("are deleted with the workspace", async () => {
+    const t = await team();
+    const provider = await setUp(t);
+    await addAccount(t.editor, ssoAccountProvider(provider.id), "sub-e");
+    value(await deleteWorkspace(db(), { workspaceId: t.id, now: NOW }));
+    expect(await ssoAccounts(provider.id)).toEqual([]);
+  });
+
+  it("are deleted again when a race or a restore brings them back during the deletion", async () => {
+    const t = await team();
+    const provider = await setUp(t);
+    value(await deleteWorkspace(db(), { workspaceId: t.id, now: NOW }));
+    await addAccount(t.editor, ssoAccountProvider(provider.id), "sub-e");
+    await advanceWorkspaceDeletion(db(), env.ARTIFACTS, t.id, NOW);
+    expect(await ssoAccounts(provider.id)).toEqual([]);
+  });
+
+  it("are deleted by applyTombstones for a deleted workspace", async () => {
+    const t = await team();
+    const provider = await setUp(t);
+    await addAccount(t.editor, ssoAccountProvider(provider.id), "sub-e");
+    await applyTombstones(global(), [{ kind: "workspace", id: t.id, deletedAt: NOW }], NOW);
+    expect(await ssoAccounts(provider.id)).toEqual([]);
+  });
+});
+
+describe("the isolate's discovery cache (review finding 4)", () => {
+  it("keeps at most SSO_CACHE_ENTRIES issuers", async () => {
+    for (let i = 0; i < SSO_CACHE_ENTRIES + 10; i += 1) {
+      await discoverSso(idp(), `https://login${i}.cache.example.com`, { now: NOW });
+    }
+    expect(ssoDiscoveryCacheSize()).toBe(SSO_CACHE_ENTRIES);
   });
 });

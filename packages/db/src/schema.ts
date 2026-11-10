@@ -1684,6 +1684,27 @@ export const workspaceDomains = sqliteTable(
 );
 
 /**
+ * People an admin removed from a workspace (decision 0016, section 5): while a row stands, signing
+ * in through the workspace's single sign-on does not make them a member again. Written in the
+ * removal's own global batch, deleted when an admin invites them again; leaving by oneself writes
+ * none. Global next to the memberships, so a D1 Time Travel restore rewinds both together. Goes
+ * with the workspace and with the account.
+ */
+export const workspaceRemovals = sqliteTable(
+  "workspace_removals",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    removedAt: timestamp("removed_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] })],
+);
+
+/**
  * A workspace's single sign-on provider with OpenID Connect (premium plan E1, decision 0016).
  * Global, one per workspace, changed only by packages/services. The client secret is sealed with
  * `SSO_KEY` (bound to the workspace and the column) and never returned; `domains` are the

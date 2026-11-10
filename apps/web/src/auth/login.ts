@@ -372,9 +372,46 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     byId(doc, "signed-in-email").textContent = messages.signedInAs(sessionEmail);
     signedIn.hidden = false;
     await showMethods(doc, api);
+    await offerSsoLink(doc, env, { email: sessionEmail, summary, failed });
     return;
   }
   showSignIn();
+}
+
+/**
+ * A signed-in account whose address uses single sign-on links it here once (decision 0016,
+ * section 3): the flow starts from this session, and the callback links the identity to this
+ * account only. The account already accepted the current terms, or this page would review them.
+ */
+async function offerSsoLink(
+  doc: Document,
+  env: PageEnv,
+  link: { email: string; summary: HTMLElement; failed: (status: number) => void },
+): Promise<void> {
+  if (!(await usesSso(env.api, link.email))) return;
+  byId(doc, "sso-link-group").hidden = false;
+  const button = byId<HTMLButtonElement>(doc, "sso-link");
+  button.addEventListener("click", async () => {
+    hideSummary(link.summary);
+    const response = await whileBusy(button, () =>
+      env.api.post("/sign-in/sso", {
+        email: link.email,
+        callbackURL: "/",
+        errorCallbackURL: "/login",
+      }),
+    );
+    const url = field(response.body, "url");
+    if (response.status === 200 && url) {
+      env.location.assign(url);
+      return;
+    }
+    const refusal = field(response.body, "code");
+    if (refusal && messages.providerErrors[refusal]) {
+      showSummary(link.summary, messages.providerErrors[refusal]);
+    } else {
+      link.failed(response.status);
+    }
+  });
 }
 
 /** Whether the address signs in through a workspace's identity provider; false on any failure. */

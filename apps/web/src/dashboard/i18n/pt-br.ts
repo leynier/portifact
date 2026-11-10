@@ -2064,6 +2064,8 @@ export const ptBR = {
     "{domains} não está mais verificado, então seus endereços não podem entrar assim até o domínio ser verificado de novo.",
   "sso.membership":
     "Quem entra assim passa a fazer parte do workspace como membro, ou com o papel de um convite pendente, enquanto houver vaga. Membros atuais mantêm o papel.",
+  "sso.removalNote":
+    "Quem um admin remove não pode voltar pelo login único até um admin convidar de novo. Quem sai por conta própria pode.",
   "sso.redirectUri": "URI de redirecionamento",
   "sso.redirectPending":
     "Salve o provedor para obter a URI de redirecionamento a registrar no seu provedor de identidade. Ela tem este formato: {pattern}.",

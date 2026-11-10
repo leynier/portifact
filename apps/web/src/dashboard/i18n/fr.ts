@@ -2100,6 +2100,8 @@ export const fr = {
     "{domains} n’est plus vérifié, donc ses adresses ne peuvent plus se connecter ainsi tant que le domaine n’est pas vérifié à nouveau.",
   "sso.membership":
     "Les personnes qui se connectent ainsi rejoignent le workspace comme membres, ou avec le rôle d’une invitation en attente, tant qu’il reste une place. Les membres actuels gardent leur rôle.",
+  "sso.removalNote":
+    "Une personne retirée par un admin ne peut pas revenir par l’authentification unique tant qu’un admin ne l’invite pas à nouveau. Une personne partie d’elle-même le peut.",
   "sso.redirectUri": "URI de redirection",
   "sso.redirectPending":
     "Enregistrez le fournisseur pour obtenir l’URI de redirection à déclarer chez votre fournisseur d’identité. Elle ressemble à {pattern}.",

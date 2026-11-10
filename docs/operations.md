@@ -228,6 +228,7 @@ Admins set up one OpenID Connect provider per Enterprise workspace on the Member
 
 - The row is `workspace_sso` (global): issuer, client ID, the sealed client secret and the verified domains it serves. Identities linked through it are Better Auth `accounts` rows with `provider_id = 'sso:<id>'`.
 - People who sign in through it join the workspace as members (or with a pending invitation's role) while it has a free seat; nobody is removed when they leave the identity provider. To cut someone off, remove them from the members list and, if needed, end their sessions.
+- Removing a member writes a `workspace_removals` row, so their next single sign-on does not bring them back (`sso_removed`); inviting them again lifts it. A person whose existing account the provider cannot vouch for (`sso_link_required`) signs in once with an email code and uses "Link single sign-on" on the login page.
 - A customer who lost their identity provider can still sign in with an email code: single sign-on is an extra method, not a replacement, until "required" exists.
 - Removing the provider writes a `workspace_sso` tombstone, so a restore cannot bring it back (`apply-tombstones` deletes it and its linked identities again). A provider whose secret was sealed with a retired `SSO_KEY` stops signing in until an admin enters the secret again.
 

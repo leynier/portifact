@@ -55,6 +55,12 @@ const messages = {
       "O login único não terminou. Tente de novo; se continuar falhando, entre com um código por e-mail e avise o admin do seu workspace.",
     sso_workspace_full:
       "O workspace da sua organização não tem vaga livre, então você não pôde entrar nele. Peça uma vaga ao admin e entre de novo.",
+    sso_email_unverified:
+      "O provedor de identidade da sua organização não verificou este endereço, então o Portifact não pode usá-lo. Fale com o admin do seu workspace.",
+    sso_link_required:
+      "Este endereço já tem uma conta no Portifact. Entre uma vez com um código por e-mail ou do jeito de sempre e depois escolha Vincular o login único nesta página.",
+    sso_removed:
+      "Um admin do workspace removeu você, então você não pode voltar a entrar nele pelo login único. Peça a um admin para convidar você de novo.",
   },
   providerErrorFallback: "O login não foi concluído. Tente de novo.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -176,6 +182,9 @@ export const ptBR: AuthCatalog = {
     "login.ssoHeading": "Sua organização usa login único",
     "login.ssoContinue": "Continuar com login único",
     "login.ssoUseCode": "Prefiro um código por e-mail",
+    "login.ssoLinkHint":
+      "Sua organização usa login único. Vincule-o a esta conta uma vez e use-o da próxima vez.",
+    "login.ssoLink": "Vincular o login único",
     "login.google": "Continuar com Google",
     "login.github": "Continuar com GitHub",
     "login.orEmail": "ou use seu e-mail",

@@ -46,6 +46,9 @@ describe("the Single sign-on section", () => {
       const { container } = renderDashboard("/members?workspace=acme", server);
       const panel = await region();
       expect(within(panel).getByText("Not set up")).toBeTruthy();
+      expect(panel.textContent).toContain(
+        "Someone an admin removes cannot rejoin through single sign-on until an admin invites them again",
+      );
       expect(panel.textContent).toContain("https://app.portifact.com/api/auth/sso/callback/<id>");
       expect(await axeViolations(container)).toEqual([]);
 

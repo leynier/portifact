@@ -6,12 +6,12 @@
 import { env } from "cloudflare:workers";
 import { TERMS_VERSION } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
-import { clearSsoDiscoveryCache, createWorkspace } from "@portifact/services";
+import { clearSsoDiscoveryCache, createWorkspace, SSO_CACHE_ENTRIES } from "@portifact/services";
 import { FakeIdentityProvider } from "@portifact/services/testing";
 import { and, eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { authEndpoint } from "../src/auth/routes.ts";
-import { clearSsoKeyCache, verifyIdToken } from "../src/auth/sso.ts";
+import { clearSsoKeyCache, ssoKeyCacheSize, verifyIdToken } from "../src/auth/sso.ts";
 import {
   cookieHeader,
   createHarness,
@@ -76,9 +76,11 @@ async function onPlan(ownerId: string, plan: "enterprise" | "team", seats = 10) 
 }
 
 /** A workspace on Enterprise with a verified domain and a provider set up through the route. */
-async function setUp(options: { seats?: number; env?: Partial<Cloudflare.Env> } = {}) {
+async function setUp(
+  options: { seats?: number; env?: Partial<Cloudflare.Env>; issuer?: string } = {},
+) {
   const domain = `corp${hex().slice(0, 10)}.com`;
-  const idp = new FakeIdentityProvider(`https://login.${domain}`);
+  const idp = new FakeIdentityProvider(options.issuer ?? `https://login.${domain}`);
   const h = createHarness({ ssoFetch: idp.fetch, ...(options.env ? { env: options.env } : {}) });
   const adminCookie = await h.signIn(`admin@${domain}`);
   const admin = await userByEmail(`admin@${domain}`);
@@ -873,5 +875,216 @@ describe("edges of the flow", () => {
         now: Date.now(),
       }),
     ).toBeNull();
+  });
+});
+
+async function accountsOf(userId: string | undefined, providerId: string) {
+  return global()
+    .select({ accountId: schema.accounts.accountId })
+    .from(schema.accounts)
+    .where(
+      and(
+        eq(schema.accounts.userId, userId ?? ""),
+        eq(schema.accounts.providerId, `sso:${providerId}`),
+      ),
+    );
+}
+
+describe("an address the provider has not verified (review finding 1)", () => {
+  it("is refused when the token says email_verified is false, even for a new account", async () => {
+    const s = await setUp();
+    const admin = await userByEmail(`admin@${s.domain}`);
+    const takeover = await signIn(
+      s,
+      `admin@${s.domain}`,
+      "",
+      { email_verified: false },
+      "attacker",
+    );
+    expect(takeover.error).toBe("sso_email_unverified");
+    expect(takeover.session).toBe("");
+    expect(await accountsOf(admin?.id, s.providerId)).toEqual([]);
+    const fresh = await signIn(s, `new@${s.domain}`, await s.h.beforeSignIn(), {
+      email_verified: false,
+    });
+    expect(fresh.error).toBe("sso_email_unverified");
+    expect(await userByEmail(`new@${s.domain}`)).toBeNull();
+  });
+
+  it("does not link an existing account without the claim, but creates a new one", async () => {
+    const s = await setUp();
+    const admin = await userByEmail(`admin@${s.domain}`);
+    const refused = await signIn(
+      s,
+      `admin@${s.domain}`,
+      "",
+      { email_verified: undefined },
+      "new-sub",
+    );
+    expect(refused.error).toBe("sso_link_required");
+    expect(refused.session).toBe("");
+    expect(await accountsOf(admin?.id, s.providerId)).toEqual([]);
+    const created = await signIn(s, `fresh@${s.domain}`, await s.h.beforeSignIn(), {
+      email_verified: undefined,
+    });
+    expect(created.session).not.toBe("");
+  });
+
+  it("links once from the account's own session, never to another account", async () => {
+    const s = await setUp();
+    const admin = await userByEmail(`admin@${s.domain}`);
+    const started = await start(s, `admin@${s.domain}`, s.adminCookie);
+    const back = s.idp.authorize(
+      started.url,
+      { sub: "admin-sub", email: `admin@${s.domain}` },
+      { email_verified: undefined },
+    );
+    const linked = await finish(s, back, started.cookies);
+    expect(linked.session).not.toBe("");
+    expect(await accountsOf(admin?.id, s.providerId)).toEqual([{ accountId: "admin-sub" }]);
+    // The next sign-in uses the linked identity, without any session.
+    const again = await signIn(
+      s,
+      `admin@${s.domain}`,
+      "",
+      { email_verified: undefined },
+      "admin-sub",
+    );
+    expect(again.session).not.toBe("");
+
+    // Another account's session cannot link this address, nor can a session the flow lost.
+    const editorCookie = await s.h.signIn(`editor@${s.domain}`);
+    const other = await start(s, `admin@${s.domain}`, editorCookie);
+    const otherBack = s.idp.authorize(
+      other.url,
+      { sub: "second-sub", email: `admin@${s.domain}` },
+      { email_verified: undefined },
+    );
+    expect((await finish(s, otherBack, other.cookies)).error).toBe("sso_link_required");
+    const lost = await start(s, `admin@${s.domain}`, s.adminCookie);
+    const lostBack = s.idp.authorize(
+      lost.url,
+      { sub: "third-sub", email: `admin@${s.domain}` },
+      { email_verified: undefined },
+    );
+    const withoutSession = lost.cookies
+      .split("; ")
+      .filter((cookie) => !cookie.startsWith(`${SESSION_COOKIE}=`))
+      .join("; ");
+    expect((await finish(s, lostBack, withoutSession)).error).toBe("sso_link_required");
+    expect(await accountsOf(admin?.id, s.providerId)).toEqual([{ accountId: "admin-sub" }]);
+  });
+
+  it("refuses an issuer that signs in the public", async () => {
+    const s = await setUp();
+    for (const issuer of [
+      "https://login.microsoftonline.com/common/v2.0",
+      "https://login.microsoftonline.com/organizations/v2.0",
+      "https://appleid.apple.com",
+    ]) {
+      const response = await s.h.request(
+        `/api/v1/workspaces/${s.slug}/sso`,
+        dashboard(s.adminCookie, "PUT", {
+          issuer,
+          clientId: "c",
+          clientSecret: "s",
+          domains: [s.domain],
+        }),
+      );
+      expect(response.status, issuer).toBe(400);
+    }
+  });
+
+  it("checks Google's hd against the verified domain on every sign-in", async () => {
+    const s = await setUp({ issuer: "https://accounts.google.com" });
+    const ok = await signIn(s, `g@${s.domain}`, await s.h.beforeSignIn(), { hd: s.domain });
+    expect(ok.session).not.toBe("");
+    for (const claims of [{}, { hd: "gmail.com" }]) {
+      const refused = await signIn(s, `h@${s.domain}`, await s.h.beforeSignIn(), claims);
+      expect(refused.error).toBe("sso_email_outside_domain");
+    }
+  });
+
+  it("takes Entra's address only with xms_edov", async () => {
+    const s = await setUp({
+      issuer: "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0",
+    });
+    expect(
+      (await signIn(s, `e@${s.domain}`, await s.h.beforeSignIn(), { xms_edov: true })).session,
+    ).not.toBe("");
+    expect((await signIn(s, `f@${s.domain}`, await s.h.beforeSignIn())).error).toBe(
+      "sso_email_unverified",
+    );
+  });
+});
+
+describe("a removal holds (review finding 2)", () => {
+  it("refuses to bring back someone an admin removed, with no session", async () => {
+    const s = await setUp();
+    const email = `back@${s.domain}`;
+    await signIn(s, email, await s.h.beforeSignIn());
+    const user = await userByEmail(email);
+    const removed = await s.h.request(
+      `/api/v1/workspaces/${s.slug}/members/${user?.id}`,
+      dashboard(s.adminCookie, "DELETE"),
+    );
+    expect(removed.status).toBeLessThan(300);
+    const again = await signIn(s, email);
+    expect(again.error).toBe("sso_removed");
+    expect(again.session).toBe("");
+    expect(await roleOf(s.workspaceId, user?.id)).toBeNull();
+  });
+});
+
+describe("the key set refetch (review finding 4)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("fetches a key set again for an unknown key at most once a minute", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now());
+    const s = await setUp();
+    s.idp.signing = "unknown";
+    const keys = () => s.idp.calls.filter((call) => call.path === "/keys").length;
+    await signIn(s, `k1@${s.domain}`, await s.h.beforeSignIn());
+    expect(keys()).toBe(2);
+    await signIn(s, `k2@${s.domain}`, await s.h.beforeSignIn());
+    await signIn(s, `k3@${s.domain}`, await s.h.beforeSignIn());
+    expect(keys()).toBe(2);
+    vi.setSystemTime(Date.now() + 61_000);
+    await signIn(s, `k4@${s.domain}`, await s.h.beforeSignIn());
+    expect(keys()).toBe(3);
+  });
+
+  it("keeps at most SSO_CACHE_ENTRIES key sets", async () => {
+    for (let i = 0; i < SSO_CACHE_ENTRIES + 10; i += 1) {
+      await verifyIdToken(async () => Response.json({ keys: [] }), "a.b.c", {
+        issuer: "https://login.example.com",
+        clientId: "c",
+        nonce: "n",
+        jwksUrl: `https://login${i}.example.com/keys`,
+        algorithms: ["RS256"],
+        now: Date.now(),
+      });
+    }
+    expect(ssoKeyCacheSize()).toBe(SSO_CACHE_ENTRIES);
+  });
+});
+
+describe("the lookup budget (review finding 6)", () => {
+  it("is one bucket per IP for the lookup and the start", async () => {
+    const s = await setUp();
+    const ip = { "cf-connecting-ip": "203.0.113.77" };
+    for (let i = 0; i < 60; i += 1) {
+      const answer = await s.h.request(
+        "/api/auth/sso/lookup",
+        json({ email: `a@${s.domain}` }, ip),
+      );
+      expect(answer.status).toBe(200);
+    }
+    const started = await s.h.request(
+      "/api/auth/sign-in/sso",
+      json({ email: `a@${s.domain}`, callbackURL: `${ORIGIN}/` }, ip),
+    );
+    expect(started.status).toBe(429);
   });
 });
