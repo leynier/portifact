@@ -67,4 +67,5 @@ export * from "./webhook-keys.ts";
 export * from "./webhooks.ts";
 export * from "./workspace-domains.ts";
 export * from "./workspace-groups.ts";
+export * from "./workspace-policies.ts";
 export * from "./workspaces.ts";

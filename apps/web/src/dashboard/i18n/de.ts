@@ -2081,4 +2081,105 @@ export const de = {
     "{count, plural, one {# Gruppe entfernt} other {# Gruppen entfernt}}",
   "audit.access.groupExceptions":
     "{count, plural, one {Kommentar-Sichtbarkeit von # Gruppe geändert} other {Kommentar-Sichtbarkeit von # Gruppen geändert}}",
+  "shell.policiesLink": "Richtlinien",
+  "policies.title": "Richtlinien",
+  "policies.description":
+    "Regeln für alle Artefakte von {workspace}. Sie gelten für alle, die mit seinen Artefakten arbeiten, auch für Admins und Service-Tokens.",
+  "policies.personal.title": "Richtlinien gibt es für Workspaces",
+  "policies.personal.body":
+    "Ein persönlicher Bereich hat keine Richtlinien. Wechsle zu einem Workspace, um seine zu sehen.",
+  "policies.loading": "Richtlinien werden geladen",
+  "policies.loadFailed": "Die Richtlinien konnten nicht geladen werden",
+  "policies.planTitle": "Richtlinien festlegen ist Teil des Tarifs {plan}",
+  "policies.planRequired":
+    "Der Tarif des Workspace enthält keine Richtlinien. Bereits gesetzte gelten weiter, und Admins können sie weiterhin lockern oder entfernen.",
+  "policies.readOnly.title": "Von den Admins festgelegt",
+  "policies.readOnly.body": "Nur Admins ändern die Richtlinien. Sie gelten auch für dich.",
+  "policies.adminsToo": "Diese Richtlinien gelten auch für Admins.",
+  "policies.public.legend": "Öffentlicher Zugriff",
+  "policies.public.allowed": "Erlaubt",
+  "policies.public.allowedHint":
+    "Admins und Bearbeiter können ein Artefakt öffentlich machen, dann kann es jeder mit dem Link öffnen.",
+  "policies.public.forbidden": "Verboten",
+  "policies.public.forbiddenHint":
+    "Kein Artefakt des Workspace kann öffentlich sein. Öffentliche Artefakte werden mit dem Workspace geteilt.",
+  "policies.default.legend": "Zugriff neuer Artefakte",
+  "policies.default.hint":
+    "Womit ein neues Artefakt des Workspace startet. Bestehende Artefakte behalten ihren Zugriff.",
+  "policies.default.restricted": "Nur die Eigentümerseite und hinzugefügte Leser können es öffnen.",
+  "policies.default.workspace": "Jedes Mitglied des Workspace kann es öffnen.",
+  "policies.default.domain":
+    "Mitglieder und alle, die mit einer bestätigten Adresse der E-Mail-Domains des Workspace angemeldet sind, können es öffnen.",
+  "policies.default.domainNone": "Bestätige zuerst eine E-Mail-Domain auf der Seite Mitglieder.",
+  "policies.readers.legend": "Leser-Domains",
+  "policies.readers.any": "Jede Adresse",
+  "policies.readers.anyHint": "Leser können mit jeder E-Mail-Adresse hinzugefügt werden.",
+  "policies.readers.only": "Nur diese Domains",
+  "policies.readers.onlyHint":
+    "Leser können nur mit Adressen dieser E-Mail-Domains hinzugefügt werden. Mitglieder und Gruppen sind nicht betroffen.",
+  "policies.readers.domains": "Erlaubte Domains",
+  "policies.readers.domainsHint": "Eine pro Zeile, etwa example.com, höchstens {max}.",
+  "policies.readers.domainsError": "Gib 1 bis {max} einfache Domains ein, etwa example.com.",
+  "policies.links.legend": "Freigabelinks",
+  "policies.links.allowed": "Erlaubt",
+  "policies.links.allowedHint":
+    "Admins und Bearbeiter können Freigabelinks erstellen, mit oder ohne Passwort.",
+  "policies.links.password_required": "Passwort erforderlich",
+  "policies.links.password_requiredHint":
+    "Jeder Freigabelink braucht ein Passwort. Links ohne Passwort öffnen sich nicht mehr.",
+  "policies.links.disabled": "Deaktiviert",
+  "policies.links.disabledHint": "Keine Freigabelinks. Bestehende werden widerrufen.",
+  "policies.lifetime.label": "Längste Lebensdauer eines Freigabelinks in Tagen",
+  "policies.lifetime.hint": "Leer lassen für kein Limit. Ältere Links öffnen sich nicht mehr.",
+  "policies.lifetime.error":
+    "Gib eine ganze Zahl von 1 bis {max} Tagen ein oder lass das Feld leer.",
+  "policies.save": "Richtlinien speichern",
+  "policies.saved": "Die Richtlinien wurden gespeichert.",
+  "policies.saveFailed": "Die Richtlinien wurden nicht gespeichert",
+  "policies.conflict":
+    "Jemand hat die Richtlinien inzwischen geändert. Sie wurden neu geladen: prüfe sie und speichere.",
+  "policies.impact.title": "Diese Richtlinien auf bestehende Artefakte anwenden?",
+  "policies.impact.body": "Speichern ändert, was es in {workspace} schon gibt:",
+  "policies.impact.public":
+    "{count, plural, one {# öffentliches Artefakt wird mit dem Workspace geteilt} other {# öffentliche Artefakte werden mit dem Workspace geteilt}}",
+  "policies.impact.readers":
+    "{count, plural, one {# Leser außerhalb der erlaubten Domains wird entfernt} other {# Leser außerhalb der erlaubten Domains werden entfernt}}",
+  "policies.impact.revoked":
+    "{count, plural, one {# Freigabelink wird widerrufen} other {# Freigabelinks werden widerrufen}}",
+  "policies.impact.password":
+    "{count, plural, one {# Freigabelink ohne Passwort öffnet sich nicht mehr} other {# Freigabelinks ohne Passwort öffnen sich nicht mehr}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# Freigabelink über der Lebensdauer öffnet sich nicht mehr} other {# Freigabelinks über der Lebensdauer öffnen sich nicht mehr}}",
+  "policies.impact.note":
+    "Das geschieht im Hintergrund in kleinen Schritten und wird im Audit-Log festgehalten.",
+  "policies.impact.confirm": "Anwenden und speichern",
+  "policies.impact.cancel": "Weiter bearbeiten",
+  "policies.note.publicForbidden": "Die Richtlinie des Workspace verbietet öffentlichen Zugriff.",
+  "policies.note.readerDomains": "Die Richtlinie des Workspace erlaubt nur Leser von {domains}.",
+  "policies.note.linksDisabled": "Die Richtlinie des Workspace erlaubt keine Freigabelinks.",
+  "policies.note.linksPassword":
+    "Die Richtlinie des Workspace verlangt für jeden Freigabelink ein Passwort.",
+  "policies.note.linksLifetime":
+    "Die Richtlinie des Workspace begrenzt Freigabelinks auf {days, plural, one {# Tag} other {# Tage}}.",
+  "error.policy_refused": "Eine Richtlinie des Workspace erlaubt das nicht.",
+  "audit.group.policies": "Richtlinien",
+  "audit.kind.policyChanged": "Richtlinien des Workspace geändert: {changes}",
+  "audit.kind.policyEnforced": "Richtlinien des Workspace angewendet: {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {öffentlicher Zugriff verboten} other {öffentlicher Zugriff erlaubt}}",
+  "audit.policy.default":
+    "{mode, select, workspace {neue Artefakte mit dem Workspace geteilt} domain {neue Artefakte mit den E-Mail-Domains geteilt} other {neue Artefakte eingeschränkt}}",
+  "audit.policy.readers": "Leser nur von {domains}",
+  "audit.policy.readersAny": "Leser jeder Domain",
+  "audit.policy.links":
+    "{value, select, disabled {Freigabelinks deaktiviert} password_required {Freigabelinks mit Passwort} other {Freigabelinks erlaubt}}",
+  "audit.policy.lifetime": "Freigabelinks höchstens {days, plural, one {# Tag} other {# Tage}}",
+  "audit.policy.lifetimeNone": "keine Lebensdauergrenze für Freigabelinks",
+  "audit.policy.narrowed":
+    "{count, plural, one {# Artefakt auf den Workspace beschränkt} other {# Artefakte auf den Workspace beschränkt}}",
+  "audit.policy.readersRemoved": "{count, plural, one {# Leser entfernt} other {# Leser entfernt}}",
+  "audit.policy.linksRevoked":
+    "{count, plural, one {# Freigabelink widerrufen} other {# Freigabelinks widerrufen}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {# Link-Sitzung beendet} other {# Link-Sitzungen beendet}}",
 } satisfies Catalog;

@@ -2046,4 +2046,106 @@ export const ptBR = {
   "audit.access.groupsRemoved": "{count, plural, one {removeu # grupo} other {removeu # grupos}}",
   "audit.access.groupExceptions":
     "{count, plural, one {mudou a visibilidade de comentários de # grupo} other {mudou a visibilidade de comentários de # grupos}}",
+  "shell.policiesLink": "Políticas",
+  "policies.title": "Políticas",
+  "policies.description":
+    "Regras para todos os artefatos de {workspace}. Valem para todos que atuam sobre os artefatos, incluindo administradores e tokens de serviço.",
+  "policies.personal.title": "Políticas são dos espaços de trabalho",
+  "policies.personal.body":
+    "Um espaço pessoal não tem políticas. Troque para um espaço de trabalho para ver as dele.",
+  "policies.loading": "Carregando as políticas",
+  "policies.loadFailed": "Não foi possível carregar as políticas",
+  "policies.planTitle": "Definir políticas faz parte do plano {plan}",
+  "policies.planRequired":
+    "O plano do espaço de trabalho não inclui políticas. As já definidas continuam valendo, e os administradores ainda podem afrouxá-las ou removê-las.",
+  "policies.readOnly.title": "Definidas pelos administradores",
+  "policies.readOnly.body": "Só administradores mudam as políticas. Elas também valem para você.",
+  "policies.adminsToo": "Estas políticas também valem para administradores.",
+  "policies.public.legend": "Acesso público",
+  "policies.public.allowed": "Permitido",
+  "policies.public.allowedHint":
+    "Administradores e editores podem tornar um artefato público, então qualquer pessoa com o link pode abri-lo.",
+  "policies.public.forbidden": "Proibido",
+  "policies.public.forbiddenHint":
+    "Nenhum artefato do espaço de trabalho pode ser público. Artefatos públicos passam a ser compartilhados com o espaço de trabalho.",
+  "policies.default.legend": "Acesso de artefatos novos",
+  "policies.default.hint":
+    "Com o que um artefato novo do espaço de trabalho começa. Os existentes mantêm o seu.",
+  "policies.default.restricted": "Só o lado dono e os leitores adicionados podem abri-lo.",
+  "policies.default.workspace": "Qualquer membro do espaço de trabalho pode abri-lo.",
+  "policies.default.domain":
+    "Membros e qualquer pessoa conectada com um endereço verificado dos domínios de e-mail do espaço de trabalho podem abri-lo.",
+  "policies.default.domainNone": "Verifique primeiro um domínio de e-mail na página Membros.",
+  "policies.readers.legend": "Domínios de leitores",
+  "policies.readers.any": "Qualquer endereço",
+  "policies.readers.anyHint": "Leitores podem ser adicionados com qualquer endereço de e-mail.",
+  "policies.readers.only": "Só estes domínios",
+  "policies.readers.onlyHint":
+    "Leitores só podem ser adicionados destes domínios de e-mail. Membros e grupos não são afetados.",
+  "policies.readers.domains": "Domínios permitidos",
+  "policies.readers.domainsHint": "Um por linha, como example.com, no máximo {max}.",
+  "policies.readers.domainsError": "Escreva entre 1 e {max} domínios simples, como example.com.",
+  "policies.links.legend": "Links de compartilhamento",
+  "policies.links.allowed": "Permitidos",
+  "policies.links.allowedHint":
+    "Administradores e editores podem criar links de compartilhamento, com ou sem senha.",
+  "policies.links.password_required": "Senha obrigatória",
+  "policies.links.password_requiredHint":
+    "Todo link precisa de senha. Os que não têm deixam de abrir.",
+  "policies.links.disabled": "Desativados",
+  "policies.links.disabledHint": "Sem links de compartilhamento. Os existentes são revogados.",
+  "policies.lifetime.label": "Vida máxima de um link, em dias",
+  "policies.lifetime.hint": "Deixe vazio para não limitar. Links mais antigos deixam de abrir.",
+  "policies.lifetime.error": "Escreva um número inteiro de dias de 1 a {max}, ou deixe vazio.",
+  "policies.save": "Salvar políticas",
+  "policies.saved": "As políticas foram salvas.",
+  "policies.saveFailed": "As políticas não foram salvas",
+  "policies.conflict":
+    "Alguém mudou as políticas nesse meio-tempo. Elas foram carregadas de novo: revise e salve.",
+  "policies.impact.title": "Aplicar estas políticas aos artefatos existentes?",
+  "policies.impact.body": "Salvar muda o que já existe em {workspace}:",
+  "policies.impact.public":
+    "{count, plural, one {# artefato público passa a ser compartilhado com o espaço de trabalho} other {# artefatos públicos passam a ser compartilhados com o espaço de trabalho}}",
+  "policies.impact.readers":
+    "{count, plural, one {# leitor fora dos domínios permitidos é removido} other {# leitores fora dos domínios permitidos são removidos}}",
+  "policies.impact.revoked":
+    "{count, plural, one {# link é revogado} other {# links são revogados}}",
+  "policies.impact.password":
+    "{count, plural, one {# link sem senha deixa de abrir} other {# links sem senha deixam de abrir}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# link além da vida máxima deixa de abrir} other {# links além da vida máxima deixam de abrir}}",
+  "policies.impact.note":
+    "Isso acontece em segundo plano, em lotes pequenos, e fica registrado no log de auditoria.",
+  "policies.impact.confirm": "Aplicar e salvar",
+  "policies.impact.cancel": "Continuar editando",
+  "policies.note.publicForbidden": "A política do espaço de trabalho proíbe acesso público.",
+  "policies.note.readerDomains":
+    "A política do espaço de trabalho só permite leitores de {domains}.",
+  "policies.note.linksDisabled":
+    "A política do espaço de trabalho não permite links de compartilhamento.",
+  "policies.note.linksPassword":
+    "A política do espaço de trabalho exige senha em todo link de compartilhamento.",
+  "policies.note.linksLifetime":
+    "A política do espaço de trabalho limita os links a {days, plural, one {# dia} other {# dias}}.",
+  "error.policy_refused": "Uma política do espaço de trabalho não permite isso.",
+  "audit.group.policies": "Políticas",
+  "audit.kind.policyChanged": "Mudou as políticas do espaço de trabalho: {changes}",
+  "audit.kind.policyEnforced": "Aplicou as políticas do espaço de trabalho: {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {acesso público proibido} other {acesso público permitido}}",
+  "audit.policy.default":
+    "{mode, select, workspace {artefatos novos compartilhados com o espaço de trabalho} domain {artefatos novos compartilhados com os domínios de e-mail} other {artefatos novos restritos}}",
+  "audit.policy.readers": "leitores só de {domains}",
+  "audit.policy.readersAny": "leitores de qualquer domínio",
+  "audit.policy.links":
+    "{value, select, disabled {links desativados} password_required {links com senha obrigatória} other {links permitidos}}",
+  "audit.policy.lifetime": "links de no máximo {days, plural, one {# dia} other {# dias}}",
+  "audit.policy.lifetimeNone": "sem limite de vida para os links",
+  "audit.policy.narrowed":
+    "{count, plural, one {restringiu # artefato ao espaço de trabalho} other {restringiu # artefatos ao espaço de trabalho}}",
+  "audit.policy.readersRemoved":
+    "{count, plural, one {removeu # leitor} other {removeu # leitores}}",
+  "audit.policy.linksRevoked": "{count, plural, one {revogou # link} other {revogou # links}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {encerrou # sessão de link} other {encerrou # sessões de link}}",
 } satisfies Catalog;

@@ -83,6 +83,8 @@ export const ErrorCode = z.enum([
   "sole_workspace_admin",
   "seats_exhausted",
   "plan_required",
+  /** A workspace policy (decision 0015) does not allow the operation; the message names it. */
+  "policy_refused",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 

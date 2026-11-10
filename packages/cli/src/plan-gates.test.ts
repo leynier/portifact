@@ -33,7 +33,10 @@ interface GatedCommand {
   path: RegExp;
 }
 
-/** One line per command that reaches a paid feature. */
+/**
+ * One line per command that reaches a paid feature. `policies` has none: workspace policies are
+ * changed only from the dashboard (decision 0015); their refusals are in policies.test.ts.
+ */
 const GATED: GatedCommand[] = [
   {
     feature: "pin",

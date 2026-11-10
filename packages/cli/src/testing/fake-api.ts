@@ -31,6 +31,7 @@ import {
   type CommentVisibility,
   CustomDomainAdd,
   type CustomDomainView,
+  DEFAULT_POLICY,
   ERROR_STATUS,
   type ErrorCode,
   type FeedbackItem,
@@ -54,6 +55,7 @@ import {
   WebhookUpdate,
   type WebhookView,
   type WorkspaceGroupView,
+  type WorkspacePolicy,
 } from "@portifact/contracts";
 import {
   auditExportContentType,
@@ -112,6 +114,8 @@ export interface FakeWorkspace {
   slug: string;
   name: string;
   role: "admin" | "editor" | "member";
+  /** Its policies (decision 0015); the defaults when absent. */
+  policy?: WorkspacePolicy;
 }
 
 export interface FakeVersionFile {
@@ -1620,6 +1624,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
             ...workspace,
             region: "default",
             createdAt: "2026-11-01T00:00:00.000Z",
+            policy: workspace.policy ?? DEFAULT_POLICY,
           })),
         },
       };

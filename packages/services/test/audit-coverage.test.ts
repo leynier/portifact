@@ -57,6 +57,14 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   deleteWorkspaceGroup: ["group.deleted"],
   addGroupMember: ["group.member_added"],
   removeGroupMember: ["group.member_removed"],
+  // Workspace policies (decision 0015): a change records which fields and values, and each step
+  // that applies one to existing artifacts records its counts, as the system.
+  setWorkspacePolicy: ["policy.changed"],
+  // After a restore, with the operator as actor.
+  applyWorkspacePolicies: ["policy.changed"],
+  enforceWorkspacePolicy: ["policy.enforced"],
+  runWorkspacePolicyJob: ["policy.enforced"],
+  enforceWorkspacePolicies: ["policy.enforced"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
 };
@@ -235,6 +243,8 @@ const READ_NAMES = new Set([
   "viewerGroupIds",
   "groupMembershipsOf",
   "groupSummaries",
+  // What saving a policy would change (decision 0015): counts only.
+  "policyImpact",
   "scoped",
   "checkReadAccess",
   "checkSignInEmail",

@@ -2,7 +2,11 @@
 // how a secret authenticates, what a token's actor reaches, what records it as the actor, what
 // refuses it, and keyed publishes.
 import { env } from "cloudflare:test";
-import type { AnnotationTarget, ServiceTokenCreate } from "@portifact/contracts";
+import {
+  type AnnotationTarget,
+  DEFAULT_POLICY,
+  type ServiceTokenCreate,
+} from "@portifact/contracts";
 import { type AccessDb, regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -369,6 +373,7 @@ describe("the token's actor", () => {
       ownerId: t.id,
       role: "editor",
       region: "default",
+      policy: DEFAULT_POLICY,
       token: {
         restriction: { kind: "none" },
         scopes: ["artifacts:read", "artifacts:write"],

@@ -19,6 +19,8 @@ import {
   checkAccessChange,
   checkArtifactGroups,
   checkCommentVisibilityChange,
+  checkPolicyAccess,
+  checkPolicyReaders,
   emailDomains,
   entitlements,
   fail,
@@ -317,6 +319,10 @@ export async function updateAccess(
   // Widening the audience is checked against the age of the account making the change (the
   // owner's, in a personal space); narrowing it never is.
   if (change.mode && change.mode !== artifact.accessMode) {
+    // The workspace's policy (decision 0015), read with the actor, first: it binds admins and
+    // tokens too, and refusing here costs no read.
+    const policy = checkPolicyAccess(actor.policy, change.mode);
+    if (!policy.ok) return policy;
     // A service token has no account: its own age counts (decision 0011).
     const [actingUser] = actor.token
       ? [{ createdAt: new Date(actor.token.createdAt) }]
@@ -337,6 +343,8 @@ export async function updateAccess(
   const add = [...new Set(change.addReaders ?? [])];
   const remove = [...new Set(change.removeReaders ?? [])].filter((email) => !add.includes(email));
   const exceptions = change.readerCommentVisibility ?? [];
+  const readerPolicy = checkPolicyReaders(actor.policy, add);
+  if (!readerPolicy.ok) return readerPolicy;
   if (add.length > 0 || exceptions.length > 0) {
     const current = await readers(db, artifact.id);
     const after = new Set([...current.filter((email) => !remove.includes(email)), ...add]);

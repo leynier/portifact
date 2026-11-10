@@ -256,6 +256,19 @@ Premium plan T3, [decision 0014](decisions/0014-workspace-groups.md): named sets
 7. **Approval reviews.** `participation` admits a group's members as reviewers like readers. Removing a group from the artifact drops them in the access change's batch; removing someone from a group (a global change) is applied by `recheckApprovalReviewers`, like losing workspace membership. Reviewers' entries are shown by the same scope, group exceptions included. Content search is owner-side only and ignores groups.
 8. **Audit.** `group.created`, `group.renamed`, `group.deleted`, `group.member_added`, `group.member_removed` in the global database, with the group's ID only (its name is shown at display time); artifact changes as counts in `access.changed`.
 
+### Workspace policies
+
+Premium plan E4, [decision 0015](decisions/0015-workspace-policies.md): rules a workspace's admins set for every artifact of the workspace. Rules in `packages/domain/src/workspace-policies.ts`, use cases in `packages/services/src/workspace-policies.ts`, stored as `workspaces.policy` (validated JSON, null for the defaults) with `policy_revision`.
+
+1. **They bind everyone.** Admins, editors and service tokens alike: `updateAccess` refuses `public` under `publicAccess: forbidden` (before the account-age rule) and readers outside `readerDomains`; `createShareLink` checks `shareLinks` and `shareLinkMaxDays`; `preparePublish` gives new workspace artifacts `defaultAccess` (never `public`); `transferArtifact` refuses an artifact that breaks the target's policies. The refusal is `policy_refused` (403) with a message that names the policy. A personal space has no policies.
+2. **No new read.** The policy comes with the actor, in the membership's own query (`actorOn`); the share link entry reads the plan and the policy in one batch. The content Worker's request path is unchanged.
+3. **Who sets them.** Admins only (role action `policies`, never in `TOKEN_ACTIONS`), only through the dashboard session (`/api/v1/workspaces/:slug/policies`, refused to bearer tokens with 403 "Workspace policies are managed from the dashboard."). Every member reads them; the workspace list carries the policy in effect for the API, MCP and the CLI. Writes are conditioned on `stillAdmin` and the revision read, in one global batch with the audit event and the job.
+4. **Existing artifacts, never silently.** A save that would narrow public artifacts, remove readers, revoke links or stop links from opening is refused with the counts until the admin confirms it. Then the `workspace_policy` job applies it in steps of 50 rows per kind, each statement conditioned on the row still breaking the policy. Links without a required password or past the maximum lifetime stop opening at once (`policyLinkOpens` in `openShareLink`), their open sessions end when the job runs.
+5. **Races.** No batch spans the global policy and the regional artifacts, so the tightened policy wins after the fact: the job written with every restrictive save, and the maintenance scan `enforceWorkspacePolicies`, bring back in line anything a request that read the old policy wrote. A share link created that way never opens.
+6. **Plan.** Setting or tightening needs `policies`; loosening never does. A lapsed plan keeps the policies applying, since lifting a restriction silently would widen access.
+7. **Restores.** A D1 Time Travel restore rewinds the policies; `export-policies` before and `apply-policies` after put them back ([operations.md](operations.md)).
+8. **Audit.** `policy.changed` (global) with the fields, their new values and whether the admin confirmed; `policy.enforced` (regional, by the system) with counts.
+
 ### Comment visibility
 
 Who sees which threads (plan section 8, decision of 2026-11-08 on comment visibility) is part of the access policy and is decided only by `commentScope` and `threadInScope` in `packages/domain/src/annotations.ts`, applied in `packages/services/src/annotations.ts`.

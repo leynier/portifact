@@ -27,6 +27,7 @@ import {
   type ConnectedApp,
   type CustomDomainList,
   type CustomDomainView,
+  DEFAULT_POLICY,
   DocumentPreviewRequest,
   type ErrorCode,
   type FileChange,
@@ -38,6 +39,7 @@ import {
   NO_APPROVAL_REVIEW,
   type OwnerView,
   PLANS,
+  type PolicyImpact,
   type PreparedPublish,
   PublishRequest,
   planRequiredMessage,
@@ -60,6 +62,7 @@ import {
   WorkspaceGroupCreate,
   type WorkspaceGroupView,
   type WorkspaceMemberView,
+  type WorkspacePolicy,
   type WorkspaceView,
 } from "@portifact/contracts";
 import {
@@ -361,16 +364,32 @@ export interface FakeWorkspace {
   domainsAvailable: boolean;
   /** Its groups (decision 0014), with their members' user IDs. */
   groups: (WorkspaceGroupView & { memberIds: string[] })[];
+  /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
+  policyRevision: number;
+  policiesAvailable: boolean;
+  /** What the fake preview answers; a save needs `confirm` while any count is above zero. */
+  policyImpact: PolicyImpact;
 }
+
+export const NO_IMPACT: PolicyImpact = {
+  publicArtifacts: 0,
+  readersOutside: 0,
+  linksRevoked: 0,
+  linksWithoutPassword: 0,
+  linksOverLifetime: 0,
+};
 
 export function workspace(
   slug: string,
   role: WorkspaceView["role"],
-  overrides: Partial<Omit<FakeWorkspace, "view">> & { name?: string } = {},
+  overrides: Partial<Omit<FakeWorkspace, "view">> & {
+    name?: string;
+    policy?: WorkspacePolicy;
+  } = {},
 ): FakeWorkspace {
-  const { name = `Team ${slug}`, ...rest } = overrides;
+  const { name = `Team ${slug}`, policy = DEFAULT_POLICY, ...rest } = overrides;
   return {
-    view: { slug, name, role, region: "default", createdAt: NOW },
+    view: { slug, name, role, region: "default", createdAt: NOW, policy },
     members: [
       {
         userId: "u_ada",
@@ -403,6 +422,9 @@ export function workspace(
     dns: {},
     domainsAvailable: true,
     groups: [],
+    policyRevision: 0,
+    policiesAvailable: true,
+    policyImpact: NO_IMPACT,
     ...rest,
   };
 }
@@ -1007,6 +1029,7 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       role: invitation.role,
       region: "default",
       createdAt: NOW,
+      policy: DEFAULT_POLICY,
     };
     server.workspaces[view.slug] = workspace(view.slug, view.role, { name: view.name });
     return json(view);
@@ -1028,6 +1051,8 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
   const groups =
     /^\/api\/v1\/workspaces\/([^/]+)\/groups(?:\/([^/]+))?(?:\/members(?:\/([^/]+))?)?$/.exec(path);
   if (groups) return groupRoute(server, groups, path, method, body);
+  const policies = /^\/api\/v1\/workspaces\/([^/]+)\/policies(\/preview)?$/.exec(path);
+  if (policies) return policyRoute(server, policies, method, body);
   const tokens = /^\/api\/v1\/workspaces\/([^/]+)\/service-tokens(?:\/([^/]+))?$/.exec(path);
   if (tokens) return serviceTokenRoute(server, tokens, method, body);
   const scoped = /^\/api\/v1\/workspaces\/([^/]+)\/(members|invitations|leave)(?:\/([^/]+))?$/.exec(
@@ -2235,6 +2260,37 @@ function serviceTokenRoute(
     w.serviceTokens = w.serviceTokens.filter((token) => token.id !== id);
     if (w.serviceTokens.length === before) return apiError("not_found", 404);
     return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
+}
+
+/** The fake policies routes (decision 0015): every member reads, admins preview and save. */
+function policyRoute(
+  server: FakeServer,
+  match: RegExpExecArray,
+  method: string,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  const admin = w.view.role === "admin";
+  const state = () => ({
+    policy: w.view.policy,
+    revision: w.policyRevision,
+    enabled: w.policiesAvailable,
+    editable: admin,
+    domainVerified: w.domains.some((domain) => domain.state === "verified"),
+  });
+  if (!match[2] && method === "GET") return json(state());
+  if (!admin) return apiError("forbidden", 403);
+  if (match[2] && method === "POST") return json(w.policyImpact);
+  if (!match[2] && method === "PUT") {
+    if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
+    const impact = Object.values(w.policyImpact).reduce((sum, count) => sum + count, 0);
+    if (impact > 0 && body?.confirm !== true) return apiError("policy_refused", 403);
+    w.view = { ...w.view, policy: body?.policy as WorkspacePolicy };
+    w.policyRevision += 1;
+    return json(state());
   }
   return apiError("not_found", 404);
 }

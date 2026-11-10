@@ -712,6 +712,7 @@ export const OUTBOX_TOPICS = [
   "access_history_move",
   "domain_notice",
   "search_index",
+  "workspace_policy",
 ] as const;
 
 /**
@@ -1548,6 +1549,13 @@ export const workspaces = sqliteTable(
     createdBy: text("created_by").notNull(),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull(),
+    /**
+     * The workspace's policies (decision 0015), validated JSON (contracts: WorkspacePolicy); null
+     * is the defaults. Read with the membership, so applying them costs no read.
+     */
+    policy: text("policy", { mode: "json" }),
+    /** Moves with every policy change; a change is conditioned on the revision it read. */
+    policyRevision: integer("policy_revision").notNull().default(0),
   },
   (t) => [uniqueIndex("workspaces_slug_idx").on(t.slug)],
 );

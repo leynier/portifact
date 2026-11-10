@@ -34,6 +34,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { threadsQuery } from "../review/use-threads.ts";
+import { useOwnerPolicy } from "../space.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { CommentNoticeToggle } from "./comment-notices.tsx";
 import { CustomDomainPanel } from "./custom-domain.tsx";
@@ -276,6 +277,10 @@ function AccessModePanel({ artifact, policy, disabled }: GroupProps) {
   // Narrowing is always allowed; only opening to the public waits for the account's age.
   const publicLocked =
     policy.mode !== "public" && publicFrom !== null && publicFrom.getTime() > Date.now();
+  // The workspace's policy (decision 0015) can forbid public access: the option stays visible,
+  // disabled, with a note naming the policy.
+  const workspacePolicy = useOwnerPolicy(artifact.owner);
+  const publicForbidden = workspacePolicy?.publicAccess === "forbidden" && policy.mode !== "public";
 
   const audience = policy.audience;
   const plan = PLAN_LABELS[lowestPlanWith("workspaces")];
@@ -286,6 +291,16 @@ function AccessModePanel({ artifact, policy, disabled }: GroupProps) {
     audience !== null &&
     (!audience.featureAvailable || (mode === "domain" && audience.domains.length === 0));
   const describe = (mode: AccessMode): ReactNode => {
+    if (mode === "public" && publicForbidden) {
+      return (
+        <>
+          <span className="block">{t("accessSettings.mode.public")}</span>
+          <span className="mt-1 block font-medium text-text">
+            {t("policies.note.publicForbidden")}
+          </span>
+        </>
+      );
+    }
     if (mode === "public" && publicLocked && publicFrom) {
       return (
         <>
@@ -327,7 +342,7 @@ function AccessModePanel({ artifact, policy, disabled }: GroupProps) {
     value: mode,
     label: t(`access.${mode}`),
     description: describe(mode),
-    disabled: (mode === "public" && publicLocked) || workspaceModeLocked(mode),
+    disabled: (mode === "public" && (publicLocked || publicForbidden)) || workspaceModeLocked(mode),
   }));
   const lapsed = policy.mode === "domain" && audience !== null && !audience.featureAvailable;
 
@@ -682,6 +697,7 @@ function ReadersPanel({ artifact, policy, disabled }: GroupProps) {
   const pending = readers.isPending ? readers.variables : undefined;
   const max = LIMITS.readersPerArtifact;
   const full = policy.readers.length >= max;
+  const readerDomains = useOwnerPolicy(artifact.owner)?.readerDomains ?? null;
   const onChange: ReadersChange["onChange"] = (update, done) =>
     readers.mutateAsync(update).then(
       () => {
@@ -699,6 +715,11 @@ function ReadersPanel({ artifact, policy, disabled }: GroupProps) {
         <>
           <span className="block">{t("readers.hint")}</span>
           <span className="mt-1 block">{t("readers.comments.hint")}</span>
+          {readerDomains ? (
+            <span className="mt-1 block font-medium text-text">
+              {t("policies.note.readerDomains", { domains: readerDomains.join(", ") })}
+            </span>
+          ) : null}
         </>
       }
       actions={

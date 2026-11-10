@@ -53,6 +53,7 @@ import {
   InvitationLookup,
   InvitationView,
   LifecycleResult,
+  PolicyImpact,
   PreparedPublish,
   type PublishRequest,
   ReviewStart,
@@ -89,6 +90,8 @@ import {
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
+  type WorkspacePolicy,
+  WorkspacePolicyView,
   type WorkspaceRole,
   WorkspaceView,
 } from "@portifact/contracts";
@@ -194,6 +197,14 @@ export interface DashboardApi {
   deleteGroup(slug: string, groupId: string): Promise<void>;
   addGroupMember(slug: string, groupId: string, userId: string): Promise<WorkspaceGroupDetail>;
   removeGroupMember(slug: string, groupId: string, userId: string): Promise<void>;
+  /** A workspace's policies (decision 0015): every member reads them, only admins change them. */
+  policies(slug: string): Promise<WorkspacePolicyView>;
+  /** What saving a policy would change on the existing artifacts. */
+  previewPolicies(slug: string, policy: WorkspacePolicy): Promise<PolicyImpact>;
+  savePolicies(
+    slug: string,
+    update: { policy: WorkspacePolicy; revision: number; confirm?: boolean },
+  ): Promise<WorkspacePolicyView>;
   changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
   removeMember(slug: string, userId: string): Promise<void>;
   leaveWorkspace(slug: string): Promise<void>;
@@ -628,6 +639,15 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     createServiceToken(slug, body) {
       return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenCreated, "POST", body);
+    },
+    policies(slug) {
+      return call(`${workspacePath(slug)}/policies`, WorkspacePolicyView);
+    },
+    previewPolicies(slug, policy) {
+      return call(`${workspacePath(slug)}/policies/preview`, PolicyImpact, "POST", { policy });
+    },
+    savePolicies(slug, update) {
+      return call(`${workspacePath(slug)}/policies`, WorkspacePolicyView, "PUT", update);
     },
     groups(slug) {
       return call(`${workspacePath(slug)}/groups`, WorkspaceGroupList);

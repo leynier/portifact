@@ -1277,6 +1277,7 @@ describe("edges of reading and pruning", () => {
         "group.deleted",
         "group.member_added",
         "group.member_removed",
+        "policy.changed",
         "service_token.created",
         "service_token.revoked",
         "domain.attached",

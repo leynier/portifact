@@ -23,6 +23,7 @@ import { InvitationFrame, InvitationScreen } from "./screens/invitations.tsx";
 import { MembersScreen } from "./screens/members.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
 import { PlanScreen } from "./screens/plan.tsx";
+import { PoliciesScreen } from "./screens/policies.tsx";
 import { ProfileScreen } from "./screens/profile.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
 import { ServiceTokensScreen } from "./screens/service-tokens.tsx";
@@ -154,6 +155,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/groups",
     component: GroupsScreen,
   });
+  const policies = createRoute({
+    getParentRoute: () => root,
+    path: "/policies",
+    component: PoliciesScreen,
+  });
   const serviceTokens = createRoute({
     getParentRoute: () => root,
     path: "/service-tokens",
@@ -195,6 +201,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       settings,
       members,
       groups,
+      policies,
       audit,
       serviceTokens,
       invitations,

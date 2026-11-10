@@ -2009,6 +2009,106 @@ export const en = {
   "audit.access.groupsRemoved": "{count, plural, one {removed # group} other {removed # groups}}",
   "audit.access.groupExceptions":
     "{count, plural, one {changed # group's comment visibility} other {changed # groups' comment visibility}}",
+  "shell.policiesLink": "Policies",
+  "policies.title": "Policies",
+  "policies.description":
+    "Rules for every artifact of {workspace}. They bind everyone who acts on its artifacts, admins and service tokens included.",
+  "policies.personal.title": "Policies are for workspaces",
+  "policies.personal.body":
+    "A personal space has no policies. Switch to a workspace to see its policies.",
+  "policies.loading": "Loading the policies",
+  "policies.loadFailed": "The policies did not load",
+  "policies.planTitle": "Setting policies is part of the {plan} plan",
+  "policies.planRequired":
+    "The workspace's plan does not include policies. Policies already set keep applying, and admins can still loosen or remove them.",
+  "policies.readOnly.title": "Set by the workspace's admins",
+  "policies.readOnly.body": "Only admins change the policies. They apply to you too.",
+  "policies.adminsToo": "These policies apply to admins too.",
+  "policies.public.legend": "Public access",
+  "policies.public.allowed": "Allowed",
+  "policies.public.allowedHint":
+    "Admins and editors can make an artifact public, so anyone with its link can open it.",
+  "policies.public.forbidden": "Forbidden",
+  "policies.public.forbiddenHint":
+    "No artifact of the workspace can be public. Public artifacts become shared with the workspace.",
+  "policies.default.legend": "Access of new artifacts",
+  "policies.default.hint":
+    "What a new artifact of the workspace starts with. Existing artifacts keep theirs.",
+  "policies.default.restricted": "Only its owner side and the readers added to it can open it.",
+  "policies.default.workspace": "Every member of the workspace can open it.",
+  "policies.default.domain":
+    "Members and anyone signed in with a verified address at the workspace's email domains can open it.",
+  "policies.default.domainNone": "Verify an email domain on the Members page first.",
+  "policies.readers.legend": "Reader domains",
+  "policies.readers.any": "Any address",
+  "policies.readers.anyHint": "Readers can be added at any email address.",
+  "policies.readers.only": "Only these domains",
+  "policies.readers.onlyHint":
+    "Readers can be added only at these email domains. Members and groups are not affected.",
+  "policies.readers.domains": "Allowed domains",
+  "policies.readers.domainsHint": "One per line, like example.com, at most {max}.",
+  "policies.readers.domainsError": "Write between 1 and {max} plain domains, like example.com.",
+  "policies.links.legend": "Share links",
+  "policies.links.allowed": "Allowed",
+  "policies.links.allowedHint":
+    "Admins and editors can create share links, with or without a password.",
+  "policies.links.password_required": "Password required",
+  "policies.links.password_requiredHint":
+    "Every share link needs a password. Links without one stop opening.",
+  "policies.links.disabled": "Disabled",
+  "policies.links.disabledHint": "No share links. Existing ones are revoked.",
+  "policies.lifetime.label": "Longest share link lifetime, in days",
+  "policies.lifetime.hint": "Leave it empty for no limit. Links older than this stop opening.",
+  "policies.lifetime.error": "Write a whole number of days from 1 to {max}, or leave it empty.",
+  "policies.save": "Save policies",
+  "policies.saved": "The policies were saved.",
+  "policies.saveFailed": "The policies were not saved",
+  "policies.conflict":
+    "Someone changed the policies meanwhile. They were loaded again: review them and save.",
+  "policies.impact.title": "Apply these policies to existing artifacts?",
+  "policies.impact.body": "Saving changes what already exists in {workspace}:",
+  "policies.impact.public":
+    "{count, plural, one {# public artifact becomes shared with the workspace} other {# public artifacts become shared with the workspace}}",
+  "policies.impact.readers":
+    "{count, plural, one {# reader outside the allowed domains is removed} other {# readers outside the allowed domains are removed}}",
+  "policies.impact.revoked":
+    "{count, plural, one {# share link is revoked} other {# share links are revoked}}",
+  "policies.impact.password":
+    "{count, plural, one {# share link without a password stops opening} other {# share links without a password stop opening}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# share link past the lifetime stops opening} other {# share links past the lifetime stop opening}}",
+  "policies.impact.note":
+    "This happens in the background, in small batches, and is recorded in the audit log.",
+  "policies.impact.confirm": "Apply and save",
+  "policies.impact.cancel": "Keep editing",
+  "policies.note.publicForbidden": "The workspace's policy forbids public access.",
+  "policies.note.readerDomains": "The workspace's policy allows readers only at {domains}.",
+  "policies.note.linksDisabled": "The workspace's policy does not allow share links.",
+  "policies.note.linksPassword": "The workspace's policy requires a password on every share link.",
+  "policies.note.linksLifetime":
+    "The workspace's policy limits share links to {days, plural, one {# day} other {# days}}.",
+  "error.policy_refused": "A workspace policy does not allow this.",
+  "audit.group.policies": "Policies",
+  "audit.kind.policyChanged": "Changed the workspace's policies: {changes}",
+  "audit.kind.policyEnforced": "Applied the workspace's policies: {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {public access forbidden} other {public access allowed}}",
+  "audit.policy.default":
+    "{mode, select, workspace {new artifacts shared with the workspace} domain {new artifacts shared with the email domains} other {new artifacts restricted}}",
+  "audit.policy.readers": "readers only at {domains}",
+  "audit.policy.readersAny": "readers at any domain",
+  "audit.policy.links":
+    "{value, select, disabled {share links disabled} password_required {share links need a password} other {share links allowed}}",
+  "audit.policy.lifetime": "share links last at most {days, plural, one {# day} other {# days}}",
+  "audit.policy.lifetimeNone": "no share link lifetime limit",
+  "audit.policy.narrowed":
+    "{count, plural, one {made # artifact workspace-only} other {made # artifacts workspace-only}}",
+  "audit.policy.readersRemoved":
+    "{count, plural, one {removed # reader} other {removed # readers}}",
+  "audit.policy.linksRevoked":
+    "{count, plural, one {revoked # share link} other {revoked # share links}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {ended # link session} other {ended # link sessions}}",
 } as const;
 
 export type MessageId = keyof typeof en;

@@ -5,11 +5,13 @@
 // triggers of the workspace_members_invitations migration refuse leaving a workspace without an admin even when a race slips past.
 import {
   type AuditDetail,
+  DEFAULT_POLICY,
   DEFAULT_REGION,
   isServiceTokenId,
   isWorkspaceId,
   type OwnerView,
   type Region,
+  type WorkspacePolicy,
   type WorkspaceRole,
 } from "@portifact/contracts";
 import { type Db, type GlobalDb, isRegion, type RegionalDb, schema } from "@portifact/db";
@@ -22,6 +24,7 @@ import {
   fail,
   ok,
   personalActor,
+  policyOf,
   type Result,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
@@ -47,6 +50,8 @@ export interface WorkspaceRow {
   name: string;
   region: Region;
   createdAt: number;
+  /** Its policies in effect (decision 0015). */
+  policy: WorkspacePolicy;
 }
 
 export function regionOf(row: { id: string; region: string }): Region {
@@ -60,11 +65,18 @@ export async function workspaceBySlug(
   slug: string,
 ): Promise<WorkspaceRow | null> {
   const [row] = await global
-    .select({ id: w.id, slug: w.slug, name: w.name, region: w.region, createdAt: w.createdAt })
+    .select({
+      id: w.id,
+      slug: w.slug,
+      name: w.name,
+      region: w.region,
+      createdAt: w.createdAt,
+      policy: w.policy,
+    })
     .from(w)
     .where(eq(w.slug, slug))
     .limit(1);
-  return row ? { ...row, region: regionOf(row) } : null;
+  return row ? { ...row, region: regionOf(row), policy: policyOf(row.policy) } : null;
 }
 
 /**
@@ -121,13 +133,14 @@ export async function listUserWorkspaces(
         name: w.name,
         region: w.region,
         createdAt: w.createdAt,
+        policy: w.policy,
         role: t.role,
       })
       .from(t)
       .innerJoin(w, eq(w.id, t.workspaceId))
       .where(eq(t.id, userId))
       .limit(1);
-    return rows.map((row) => ({ ...row, region: regionOf(row) }));
+    return rows.map((row) => ({ ...row, region: regionOf(row), policy: policyOf(row.policy) }));
   }
   const rows = await global
     .select({
@@ -136,13 +149,14 @@ export async function listUserWorkspaces(
       name: w.name,
       region: w.region,
       createdAt: w.createdAt,
+      policy: w.policy,
       role: m.role,
     })
     .from(m)
     .innerJoin(w, eq(w.id, m.workspaceId))
     .where(eq(m.userId, userId))
     .orderBy(asc(w.name), asc(w.slug));
-  return rows.map((row) => ({ ...row, region: regionOf(row) }));
+  return rows.map((row) => ({ ...row, region: regionOf(row), policy: policyOf(row.policy) }));
 }
 
 /**
@@ -537,9 +551,10 @@ export async function createWorkspace(
   const [created] = (await global.batch([
     global
       .insert(w)
-      // Columns in schema order: id, slug, name, region, created by, created at, updated at.
+      // Columns in schema order: id, slug, name, region, created by, created at, updated at,
+      // policy (the defaults), policy revision.
       .select(
-        sql`select ${id}, ${slug}, ${name}, ${DEFAULT_REGION}, ${input.adminUserId}, ${input.now}, ${input.now} where ${guard}`,
+        sql`select ${id}, ${slug}, ${name}, ${DEFAULT_REGION}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0 where ${guard}`,
       )
       .onConflictDoNothing()
       .returning({ id: w.id }),
@@ -564,7 +579,14 @@ export async function createWorkspace(
       ? fail("invalid_input", `The slug ${slug} is taken.`)
       : fail("not_found", "Account not found.");
   }
-  return ok({ id, slug, name, region: DEFAULT_REGION, createdAt: input.now });
+  return ok({
+    id,
+    slug,
+    name,
+    region: DEFAULT_REGION,
+    createdAt: input.now,
+    policy: DEFAULT_POLICY,
+  });
 }
 
 export interface WorkspaceDetail extends WorkspaceRow {
@@ -598,6 +620,7 @@ export async function getWorkspaceDetail(
     name: row.name,
     region: regionOf(row),
     createdAt: row.createdAt,
+    policy: policyOf(row.policy),
     createdBy: row.createdBy,
     members: await members(global, row.id),
     invitations: await global
@@ -621,11 +644,17 @@ export async function listAllWorkspaces(
       name: w.name,
       region: w.region,
       createdAt: w.createdAt,
+      policy: w.policy,
       members: sql<number>`(select count(*) from ${m} where ${m.workspaceId} = ${w.id})`,
     })
     .from(w)
     .orderBy(asc(w.slug));
-  return rows.map((row) => ({ ...row, region: regionOf(row), members: Number(row.members) }));
+  return rows.map((row) => ({
+    ...row,
+    region: regionOf(row),
+    policy: policyOf(row.policy),
+    members: Number(row.members),
+  }));
 }
 
 /** Inserts a `workspace_deletion` job for `workspaceId` when `condition` holds. */

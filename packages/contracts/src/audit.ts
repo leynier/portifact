@@ -9,6 +9,13 @@ import { AccessMode, CommentVisibility } from "./core.ts";
 import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { LIMITS } from "./limits.ts";
 import { PlanName } from "./plans.ts";
+import {
+  DefaultAccessPolicy,
+  POLICY_FIELDS,
+  PublicAccessPolicy,
+  ShareLinkPolicy,
+  WORKSPACE_POLICIES,
+} from "./policies.ts";
 import { SERVICE_TOKENS, ServiceTokenScope } from "./service-tokens.ts";
 import { WebhookEventType, WebhookFormat } from "./webhooks.ts";
 import { OwnerView, WorkspaceRole } from "./workspaces.ts";
@@ -85,6 +92,7 @@ const DnsName = z
   .regex(/^[a-z0-9.-]+$/, "Invalid domain");
 const empty = z.strictObject({});
 const groupCount = z.number().int().min(0).max(WORKSPACE_GROUPS.perArtifact);
+const enforceCount = z.number().int().min(0).max(10_000);
 const approvalCount = z.number().int().min(0).max(APPROVALS.reviewersPerRequest);
 
 /** Why a custom domain stopped serving (every path that detaches one names its reason). */
@@ -216,6 +224,36 @@ export const AUDIT_DETAILS = {
   "group.member_added": z.strictObject({ group: WorkspaceGroupId }),
   "group.member_removed": z.strictObject({ group: WorkspaceGroupId }),
   /**
+   * A workspace's policies changed (decision 0015): which fields and their new values. Reader
+   * domains are domains, never addresses.
+   */
+  "policy.changed": z.strictObject({
+    fields: z.array(z.enum(POLICY_FIELDS)).min(1).max(POLICY_FIELDS.length),
+    publicAccess: PublicAccessPolicy.optional(),
+    defaultAccess: DefaultAccessPolicy.optional(),
+    readerDomains: z.array(DnsName).max(WORKSPACE_POLICIES.readerDomains).nullable().optional(),
+    shareLinks: ShareLinkPolicy.optional(),
+    shareLinkMaxDays: z
+      .number()
+      .int()
+      .min(1)
+      .max(WORKSPACE_POLICIES.shareLinkMaxDays)
+      .nullable()
+      .optional(),
+    /** The save accepted changes to existing artifacts (the preview's counts). */
+    confirmed: z.boolean(),
+  }),
+  /**
+   * One step of applying a policy to existing artifacts (the `workspace_policy` job or the
+   * maintenance scan), by the system: what it changed, as counts.
+   */
+  "policy.enforced": z.strictObject({
+    artifactsNarrowed: enforceCount,
+    readersRemoved: enforceCount,
+    linksRevoked: enforceCount,
+    sessionsEnded: enforceCount,
+  }),
+  /**
    * An export of the audit log was started (E3): its format, how many kinds it filtered on (0 for
    * every kind) and its date range as ISO dates. Recorded once per export, when it starts, so
    * the number of rows is not known and not stored.
@@ -246,6 +284,7 @@ export const AUDIT_TARGET_TYPES = [
   "email_domain",
   "group",
   "audit_log",
+  "policy",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -294,6 +333,8 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "group.member_added": "member",
   "group.member_removed": "member",
   "audit.exported": "audit_log",
+  "policy.changed": "policy",
+  "policy.enforced": "policy",
 };
 
 /**

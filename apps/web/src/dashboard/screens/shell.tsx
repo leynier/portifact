@@ -25,6 +25,7 @@ import {
   Palette,
   ScrollText,
   Settings,
+  ShieldCheck,
   Upload,
   Users,
   UsersRound,
@@ -148,6 +149,7 @@ const SPACE_PAGES = new Set([
   "/branding",
   "/members",
   "/groups",
+  "/policies",
   "/audit",
   "/service-tokens",
 ]);
@@ -162,7 +164,10 @@ function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
   const target = SPACE_PAGES.has(pathname) ? pathname : "/";
   const to = (slug: string | undefined) =>
     (slug === undefined &&
-    (target === "/members" || target === "/groups" || target === "/service-tokens")
+    (target === "/members" ||
+      target === "/groups" ||
+      target === "/policies" ||
+      target === "/service-tokens")
       ? "/"
       : target) as "/";
   const personal = { name: t("space.personal"), detail: t("space.personalDetail") };
@@ -312,6 +317,13 @@ export function Shell() {
         icon: <UsersRound className="size-4" />,
         render: (props) => <Link to="/groups" {...props} />,
       },
+    // Every member sees the policies that bind them; only admins change them (decision 0015).
+    space?.kind === "workspace" && {
+      key: "policies",
+      label: t("shell.policiesLink"),
+      icon: <ShieldCheck className="size-4" />,
+      render: (props) => <Link to="/policies" {...props} />,
+    },
     allowed("audit") && {
       key: "audit",
       label: t("shell.auditLink"),

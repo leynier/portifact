@@ -6,6 +6,7 @@ import type {
   RoleAction,
   ServiceTokenRestriction,
   ServiceTokenScope,
+  WorkspacePolicy,
   WorkspaceRole,
 } from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
@@ -31,6 +32,11 @@ export interface Actor {
   role: WorkspaceRole;
   region: Region;
   token?: TokenReach;
+  /**
+   * The workspace's policies (decision 0015), read with the membership; absent for a personal
+   * space, which has none.
+   */
+  policy?: WorkspacePolicy;
 }
 
 const MEMBER: readonly RoleAction[] = ["read", "comment"];

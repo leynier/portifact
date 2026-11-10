@@ -207,6 +207,7 @@ export const AVAILABLE_PLAN_FEATURES = [
   "contentSearch",
   "audit",
   "auditExport",
+  "policies",
 ] as const satisfies readonly PlanFeature[];
 
 /** Whether a paid feature works in the product today (`AVAILABLE_PLAN_FEATURES`). */

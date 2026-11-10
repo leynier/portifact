@@ -24,6 +24,7 @@ import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
+import { runWorkspacePolicyJob } from "./workspace-policies.ts";
 import { advanceWorkspaceDeletion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
@@ -215,6 +216,9 @@ async function runRow(
       return sendDomainNotice(db, row, now, domainNotifier);
     case "search_index":
       return runSearchIndex(db, bucket, row, now);
+    case "workspace_policy":
+      // Written in the global batch that saved the policy (one database with one region).
+      return runWorkspacePolicyJob(db, row, now);
   }
 }
 
