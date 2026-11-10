@@ -2355,4 +2355,33 @@ export const fr = {
     "Désactivé par défaut : les fournisseurs d’identité annoncent généralement eux-mêmes les nouvelles applications. Dans tous les cas, la personne rejoint à sa première connexion avec cette adresse.",
   "scim.emailsSaved": "Enregistré.",
   "scim.actionFailed": "La modification n’a pas été enregistrée",
+  "audit.kind.scimRoleOn": "A donné le rôle {role} aux membres d’un groupe de l’annuaire",
+  "audit.kind.scimRoleOff": "A cessé de donner le rôle {role} par un groupe de l’annuaire",
+  "groups.directory": "Géré par votre annuaire",
+  "groups.directoryNote":
+    "L’annuaire de votre organisation gère ce groupe par SCIM : changez son nom et ses membres là-bas.",
+  "members.directoryRole": "Dans un groupe de l’annuaire avec un rôle",
+  "scim.roles.title": "Rôles à partir des groupes de l’annuaire",
+  "scim.roles.description":
+    "Les membres du groupe choisi reçoivent ce rôle quand il est supérieur au leur. L’annuaire ne reprend qu’un rôle qu’il a donné : il n’abaisse jamais un rôle défini à la main par un administrateur, et un rôle que vous changez à la main vous revient ensuite.",
+  "scim.roles.access":
+    "Un groupe indiqué sur un artifact permet à ses membres de le lire : votre annuaire décide désormais qui lit ces artifacts.",
+  "scim.roles.editor": "Groupe dont les membres sont éditeurs",
+  "scim.roles.admin": "Groupe dont les membres sont administrateurs",
+  "scim.roles.none": "Aucun groupe",
+  "scim.roles.option": "{name} ({count, plural, one {# membre} other {# membres}})",
+  "scim.roles.noGroups": "Votre annuaire n’a encore envoyé aucun groupe.",
+  "scim.roles.save": "Enregistrer les rôles",
+  "scim.roles.saved": "Rôles enregistrés.",
+  "scim.roles.confirm.title": "Faire des membres de {name} des administrateurs ?",
+  "scim.roles.confirm.body":
+    "{count, plural, one {# personne est} other {# personnes sont}} dans {name} actuellement, et {pending, plural, =0 {personne d’autre ne le sera} one {# de plus le sera} other {# de plus le seront}} à leur connexion. Qui contrôle votre annuaire décidera de qui administre cet espace de travail : ses membres, ses règles, ses jetons et ses réglages.",
+  "scim.roles.confirm.action": "En faire des administrateurs",
+  "groups.stopSync": "Arrêter la synchronisation",
+  "groups.stopSyncLabel": "Arrêter la synchronisation de {name}",
+  "groups.stopSync.title": "Arrêter de synchroniser {name} depuis votre annuaire ?",
+  "groups.stopSync.body":
+    "Votre annuaire ne gérera plus ce groupe : les administrateurs le modifient ici désormais. Son association de rôle est supprimée, et les personnes qu’il a faites éditeurs ou administrateurs gardent leur rôle. Si l’annuaire envoie plus tard un groupe du même nom, il est refusé.",
+  "groups.stopSync.done": "{name} n’est plus synchronisé depuis votre annuaire.",
+  "audit.kind.groupSyncStopped": "A arrêté de synchroniser le groupe {group} depuis l’annuaire",
 } satisfies Catalog;

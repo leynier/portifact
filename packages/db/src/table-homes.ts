@@ -35,6 +35,8 @@ export const TABLE_HOMES = {
   workspace_scim: "global",
   scim_tokens: "global",
   scim_users: "global",
+  scim_groups: "global",
+  scim_group_members: "global",
   workspace_groups: "global",
   workspace_group_members: "global",
   workspace_deletions: "global",

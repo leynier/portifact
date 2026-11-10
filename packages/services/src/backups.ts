@@ -9,6 +9,7 @@ import { type Db, type GlobalDb, type Region, type RegionalDb, schema } from "@p
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { eraseAuditEventsOf } from "./audit.ts";
 import { purgeJobs } from "./outbox.ts";
+import { recomputeDirectoryRoles } from "./scim-groups.ts";
 import { revokedShareLinks } from "./share-links.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
@@ -258,6 +259,11 @@ export interface ApplyTombstonesResult {
   /** Group memberships removed before the restore that it brought back. */
   groupMembers: number;
   ssoProviders: number;
+  /**
+   * Workspaces with a directory role mapping whose roles were recomputed from the current
+   * directory groups (decision 0017), so a role the directory took away does not come back.
+   */
+  directoryRoles?: number;
   /** SCIM tokens revoked before the restore, deleted again (decision 0017). */
   scimTokens: number;
   /** Directory users the directory deleted before the restore, deleted again. */
@@ -318,6 +324,7 @@ export async function applyTombstones(
     ,
     ,
     serviceTokens,
+    ,
     ,
     ,
     ,
@@ -396,6 +403,11 @@ export async function applyTombstones(
     db.delete(ws).where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
     db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
     db.update(st).set({ createdBy: null }).where(sql`${st.createdBy} in (${tombstonedAccounts})`),
+    // A role a directory gave goes with the account (decision 0017).
+    db
+      .update(schema.scimUsers)
+      .set({ mappedRole: null })
+      .where(sql`${schema.scimUsers.userId} in (${tombstonedAccounts})`),
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
     // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
@@ -482,6 +494,12 @@ export async function applyTombstones(
       )
       .returning({ userId: schema.workspaceMembers.userId }),
   ]);
+  // Roles from directory groups, recomputed from what the restore and the tombstones left
+  // (decision 0017): bounded per run (`recomputeDirectoryRoles`), run again while `more`.
+  // The mapping and the memberships are global rows: through the global handle when the caller
+  // gave a region's (the rest of this function is a known crossing, to split per database later).
+  const global = "global" in db ? (db as RegionalDb).global : (db as GlobalDb);
+  const roles = await recomputeDirectoryRoles(global, now);
   return {
     inserted,
     artifacts: artifacts.length,
@@ -498,6 +516,7 @@ export async function applyTombstones(
     scimUsers: scimUsers.length,
     invitations: invitations.length,
     members: members.length,
+    directoryRoles: roles.workspaces,
   };
 }
 

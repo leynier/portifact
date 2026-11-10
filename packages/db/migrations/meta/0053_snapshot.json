@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8405a849-8c23-4bc8-b975-2f3a2e1415ad",
+  "id": "4a0c5b51-1a9c-4721-9849-62b47fd05721",
   "prevId": "db8309ed-e47f-41c6-ab98-9dc1b08bcdd9",
   "tables": {
     "abuse_reports": {
@@ -2738,6 +2738,24 @@
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "read_handoffs_user_id_users_id_fk": {
+          "name": "read_handoffs_user_id_users_id_fk",
+          "tableFrom": "read_handoffs",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "read_handoffs_auth_session_id_sessions_id_fk": {
+          "name": "read_handoffs_auth_session_id_sessions_id_fk",
+          "tableFrom": "read_handoffs",
+          "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2819,6 +2837,24 @@
           "tableFrom": "read_sessions",
           "tableTo": "artifacts",
           "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "read_sessions_user_id_users_id_fk": {
+          "name": "read_sessions_user_id_users_id_fk",
+          "tableFrom": "read_sessions",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "read_sessions_auth_session_id_sessions_id_fk": {
+          "name": "read_sessions_auth_session_id_sessions_id_fk",
+          "tableFrom": "read_sessions",
+          "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -2945,6 +2981,24 @@
           "tableFrom": "review_handoffs",
           "tableTo": "versions",
           "columnsFrom": ["version_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "review_handoffs_user_id_users_id_fk": {
+          "name": "review_handoffs_user_id_users_id_fk",
+          "tableFrom": "review_handoffs",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "review_handoffs_auth_session_id_sessions_id_fk": {
+          "name": "review_handoffs_auth_session_id_sessions_id_fk",
+          "tableFrom": "review_handoffs",
+          "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -3333,6 +3387,24 @@
           "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "review_sessions_user_id_users_id_fk": {
+          "name": "review_sessions_user_id_users_id_fk",
+          "tableFrom": "review_sessions",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "review_sessions_auth_session_id_sessions_id_fk": {
+          "name": "review_sessions_auth_session_id_sessions_id_fk",
+          "tableFrom": "review_sessions",
+          "tableTo": "sessions",
+          "columnsFrom": ["auth_session_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -3439,6 +3511,151 @@
           "value": "\"review_verdicts\".\"note_bytes\" between 0 and 4096"
         }
       }
+    },
+    "scim_group_members": {
+      "name": "scim_group_members",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scim_user_id": {
+          "name": "scim_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "scim_group_members_user_idx": {
+          "name": "scim_group_members_user_idx",
+          "columns": ["scim_user_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "scim_group_members_group_id_scim_groups_group_id_fk": {
+          "name": "scim_group_members_group_id_scim_groups_group_id_fk",
+          "tableFrom": "scim_group_members",
+          "tableTo": "scim_groups",
+          "columnsFrom": ["group_id"],
+          "columnsTo": ["group_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "scim_group_members_scim_user_id_scim_users_id_fk": {
+          "name": "scim_group_members_scim_user_id_scim_users_id_fk",
+          "tableFrom": "scim_group_members",
+          "tableTo": "scim_users",
+          "columnsFrom": ["scim_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "scim_group_members_group_id_scim_user_id_pk": {
+          "columns": ["group_id", "scim_user_id"],
+          "name": "scim_group_members_group_id_scim_user_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "scim_groups": {
+      "name": "scim_groups",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "write_id": {
+          "name": "write_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "scim_groups_workspace_external_idx": {
+          "name": "scim_groups_workspace_external_idx",
+          "columns": ["workspace_id", "external_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "scim_groups_group_id_workspace_groups_id_fk": {
+          "name": "scim_groups_group_id_workspace_groups_id_fk",
+          "tableFrom": "scim_groups",
+          "tableTo": "workspace_groups",
+          "columnsFrom": ["group_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "scim_groups_workspace_id_workspaces_id_fk": {
+          "name": "scim_groups_workspace_id_workspaces_id_fk",
+          "tableFrom": "scim_groups",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "scim_tokens": {
       "name": "scim_tokens",
@@ -3600,6 +3817,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "mapped_role": {
+          "name": "mapped_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -5804,6 +6028,35 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "editor_group_id": {
+          "name": "editor_group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "admin_group_id": {
+          "name": "admin_group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mapping_revision": {
+          "name": "mapping_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "mapping_write_id": {
+          "name": "mapping_write_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",

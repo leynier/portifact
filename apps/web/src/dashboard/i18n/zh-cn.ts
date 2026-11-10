@@ -2105,4 +2105,32 @@ export const zhCN = {
     "默认关闭：身份提供商通常会自己通知新应用。无论如何，对方在首次用该地址登录时加入。",
   "scim.emailsSaved": "已保存。",
   "scim.actionFailed": "更改未保存",
+  "audit.kind.scimRoleOn": "已将 {role} 角色授予某个目录组的成员",
+  "audit.kind.scimRoleOff": "已停止通过目录组授予 {role} 角色",
+  "groups.directory": "由你的目录管理",
+  "groups.directoryNote": "你所在组织的目录通过 SCIM 管理此组:请在目录中更改其名称和成员。",
+  "members.directoryRole": "在有角色的目录组中",
+  "scim.roles.title": "来自目录组的角色",
+  "scim.roles.description":
+    "你选择的组的成员在该角色高于其当前角色时获得该角色。目录只收回它授予的角色:它从不降低管理员手动设置的角色,你手动更改的角色此后归你所有。",
+  "scim.roles.access":
+    "在 artifact 上列出的组,其成员可以阅读该 artifact,因此现在由你的目录决定谁能阅读这些 artifact。",
+  "scim.roles.editor": "成员为编辑者的组",
+  "scim.roles.admin": "成员为管理员的组",
+  "scim.roles.none": "不选择组",
+  "scim.roles.option": "{name}({count, plural, one {# 位成员} other {# 位成员}})",
+  "scim.roles.noGroups": "你的目录还没有推送任何组。",
+  "scim.roles.save": "保存角色",
+  "scim.roles.saved": "角色已保存。",
+  "scim.roles.confirm.title": "将 {name} 的成员设为管理员?",
+  "scim.roles.confirm.body":
+    "{name} 现在有 {count, plural, one {# 人} other {# 人}},登录后{pending, plural, =0 {不会再有其他人} one {还会有 # 人} other {还会有 # 人}}。控制你目录的人将决定谁管理此工作区:其成员、策略、令牌和设置。",
+  "scim.roles.confirm.action": "设为管理员",
+  "groups.stopSync": "停止同步",
+  "groups.stopSyncLabel": "停止同步 {name}",
+  "groups.stopSync.title": "停止从你的目录同步 {name}?",
+  "groups.stopSync.body":
+    "你的目录将不再管理此组:从现在起由管理员在这里编辑。其角色映射会被清除,由它成为编辑者或管理员的人保留其角色。如果目录之后推送同名的组,将被拒绝。",
+  "groups.stopSync.done": "{name} 不再从你的目录同步。",
+  "audit.kind.groupSyncStopped": "已停止从目录同步组 {group}",
 } satisfies Catalog;

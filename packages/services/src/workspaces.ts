@@ -45,6 +45,7 @@ import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { closeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { directoryRoleHolders } from "./scim-groups.ts";
 
 const w = schema.workspaces;
 const m = schema.workspaceMembers;
@@ -204,6 +205,8 @@ export interface MemberRow {
   email: string;
   role: WorkspaceRole;
   joinedAt: number;
+  /** In a directory group mapped to a role: the directory sets the role (decision 0017). */
+  directoryRole?: boolean;
 }
 
 export interface Seats {
@@ -282,9 +285,13 @@ export async function listMembers(
   const found = await scoped(global, input.userId, input.slug, "read");
   if (!found.ok) return found;
   const { workspace, actor } = found.value;
+  const holders = await directoryRoleHolders(global, workspace.id);
   return ok({
     workspace: { ...workspace, role: actor.role },
-    members: await members(global, workspace.id),
+    members: (await members(global, workspace.id)).map((row) => ({
+      ...row,
+      directoryRole: holders.has(row.userId),
+    })),
     seats: await workspaceSeats(global, workspace.id, input.now),
   });
 }
@@ -392,6 +399,17 @@ export async function changeMemberRole(
               .set({ role: input.role, updatedAt: input.now })
               .where(where)
               .returning({ userId: m.userId }),
+            // A hand change makes the role the admin's, not the directory's (decision 0017).
+            global
+              .update(schema.scimUsers)
+              .set({ mappedRole: null })
+              .where(
+                and(
+                  eq(schema.scimUsers.workspaceId, workspace.id),
+                  eq(schema.scimUsers.userId, input.memberId),
+                  stillAdmin(workspace.id, input.userId),
+                ) as SQL,
+              ),
           ])
         )[1],
       () => checkRoleChange("admin", input.role, 1) as Result<never>,
@@ -478,7 +496,8 @@ async function dropMember(
           // does not bring back someone removed by hand or who left.
           global
             .update(schema.scimUsers)
-            .set({ removedAt: by.now, removal: self ? "self" : "admin" })
+            // The role the directory gave them goes with the membership (decision 0017).
+            .set({ removedAt: by.now, removal: self ? "self" : "admin", mappedRole: null })
             .where(
               sql`${schema.scimUsers.workspaceId} = ${workspaceId} and (${schema.scimUsers.userId} = ${memberId} or ${schema.scimUsers.email} = (select lower(${schema.users.email}) from ${schema.users} where ${schema.users.id} = ${memberId})) and exists (select 1 from ${m} where ${where})`,
             ),

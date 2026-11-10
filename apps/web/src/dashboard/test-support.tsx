@@ -367,7 +367,7 @@ export interface FakeWorkspace {
   /** The plan includes workspace sharing. */
   domainsAvailable: boolean;
   /** Its groups (decision 0014), with their members' user IDs. */
-  groups: (WorkspaceGroupView & { memberIds: string[] })[];
+  groups: (WorkspaceGroupView & { memberIds: string[]; pendingIds?: string[] })[];
   /**
    * Single sign-on (decision 0016): switched on for the deployment, in the plan, and the provider.
    * Off by default, as deployed: the routes answer `capacity_unavailable`.
@@ -383,6 +383,9 @@ export interface FakeWorkspace {
     tokens: ScimTokenView[];
     invitationEmails: boolean;
     lastSyncAt: string | null;
+    /** The directory-managed groups mapped to editor and admin. */
+    editorGroup?: string | null;
+    adminGroup?: string | null;
   };
   /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
   policyRevision: number;
@@ -418,6 +421,7 @@ export function workspace(
         role,
         joinedAt: NOW,
         you: true,
+        directoryRole: false,
       },
       ...(role === "admin"
         ? []
@@ -429,6 +433,7 @@ export function workspace(
               role: "admin" as const,
               joinedAt: NOW,
               you: false,
+              directoryRole: false,
             },
           ]),
     ],
@@ -1077,7 +1082,9 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
     return json(server.workspaces[target.slug]?.view);
   }
   const groups =
-    /^\/api\/v1\/workspaces\/([^/]+)\/groups(?:\/([^/]+))?(?:\/members(?:\/([^/]+))?)?$/.exec(path);
+    /^\/api\/v1\/workspaces\/([^/]+)\/groups(?:\/([^/]+))?(?:\/members(?:\/([^/]+))?|\/stop-sync)?$/.exec(
+      path,
+    );
   if (groups) return groupRoute(server, groups, path, method, body);
   const policies = /^\/api\/v1\/workspaces\/([^/]+)\/policies(\/preview)?$/.exec(path);
   if (policies) return policyRoute(server, policies, method, body);
@@ -1178,6 +1185,14 @@ function ssoSettings(w: FakeWorkspace): SsoSettings {
 
 /** The Directory sync settings as the API answers them (decision 0017). */
 function scimOverview(w: FakeWorkspace): ScimOverview {
+  const choices = w.groups
+    .filter((g) => g.directory)
+    .map((g) => ({
+      id: g.id,
+      name: g.name,
+      members: g.memberIds.length,
+      pending: g.pendingIds?.length ?? 0,
+    }));
   return {
     baseUrl: "https://app.portifact.com/scim/v2",
     available: w.scim.available,
@@ -1186,6 +1201,11 @@ function scimOverview(w: FakeWorkspace): ScimOverview {
     invitationEmails: w.scim.invitationEmails,
     lastSyncAt: w.scim.lastSyncAt,
     pending: w.invitations.filter((i) => i.source === "directory").length,
+    groups: choices,
+    roleMapping: {
+      editor: choices.find((g) => g.id === w.scim.editorGroup) ?? null,
+      admin: choices.find((g) => g.id === w.scim.adminGroup) ?? null,
+    },
   };
 }
 
@@ -1201,7 +1221,19 @@ function scimRoute(
   if (!w.scim.enabled) return apiError("capacity_unavailable", 503);
   if (w.view.role !== "admin") return apiError("forbidden", 403);
   if (path.endsWith("/scim")) {
-    if (method === "PATCH") w.scim.invitationEmails = body?.invitationEmails === true;
+    if (method === "PATCH") {
+      if (body?.invitationEmails !== undefined) {
+        w.scim.invitationEmails = body.invitationEmails === true;
+      }
+      if (body?.editorGroup !== undefined) w.scim.editorGroup = body.editorGroup as string | null;
+      if (body?.adminGroup !== undefined) {
+        // Like the API: mapping a group to admin needs the confirmation naming it.
+        if (body.adminGroup !== null && body.confirmAdminGroup !== body.adminGroup) {
+          return apiError("invalid_input", 400);
+        }
+        w.scim.adminGroup = body.adminGroup as string | null;
+      }
+    }
     return json(scimOverview(w));
   }
   if (method === "POST") {
@@ -2328,6 +2360,7 @@ function groupRoute(
       name: parsed.data.name,
       members: 0,
       createdAt: NOW,
+      directory: false,
       memberIds: [],
     };
     w.groups.push(group);
@@ -2343,6 +2376,16 @@ function groupRoute(
     }),
     limit: 500,
   });
+  // Like the API: stopping the sync makes it an ordinary group, and clears its mapping.
+  if (path.endsWith("/stop-sync") && method === "POST") {
+    if (!group.directory) return apiError("not_found", 404);
+    group.directory = false;
+    if (w.scim.editorGroup === group.id) w.scim.editorGroup = null;
+    if (w.scim.adminGroup === group.id) w.scim.adminGroup = null;
+    return json({ stopped: true });
+  }
+  // Like the API: the directory manages its groups; the dashboard changes none of them.
+  if (group.directory && method !== "GET") return apiError("forbidden", 403);
   if (membersPath && method === "POST") {
     if (!w.domainsAvailable) return apiError("plan_required", 403);
     const userId = String(body?.userId ?? "");

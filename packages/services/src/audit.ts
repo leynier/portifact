@@ -87,6 +87,7 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   "group.created",
   "group.renamed",
   "group.deleted",
+  "group.sync_stopped",
   "group.member_added",
   "group.member_removed",
   // SCIM tokens and what a directory provisions are global rows too (decision 0017).

@@ -147,6 +147,11 @@ export const WorkspaceMemberView = z.object({
   joinedAt: z.iso.datetime(),
   /** The member is the caller. */
   you: z.boolean(),
+  /**
+   * The member is in a directory group mapped to a role (decision 0017): the directory sets
+   * their role again at the next change of their groups.
+   */
+  directoryRole: z.boolean(),
 });
 export type WorkspaceMemberView = z.infer<typeof WorkspaceMemberView>;
 

@@ -441,6 +441,28 @@ const GATED: GatedOperation[] = [
       return { api: { status: response.status, body: await response.json<unknown>() } };
     },
   },
+  // Mapping a directory group to a role (decision 0017) is set through the dashboard session;
+  // the plan is checked before the group is, so any group ID reaches the gate. Unmapping never is.
+  {
+    feature: "scim",
+    name: "map a directory group to a role",
+    scope: "owner",
+    space: "workspace",
+    run: async (who, id) => {
+      const [row] = await db()
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.artifacts)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.artifacts.ownerId))
+        .where(eq(schema.artifacts.id, id));
+      if (!row) throw new Error("The mapping line needs a workspace's artifact");
+      const response = await who.sessionCall(`/api/v1/workspaces/${row.slug}/scim`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ editorGroup: `wg_${"0".repeat(32)}` }),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
   // Setting or tightening workspace policies (decision 0015) is session-only, with no bearer
   // route, MCP tool or CLI command: the gate is `requireFeature` on the workspace's plan, and its
   // body is checked through the session in workspace-policies.test.ts.

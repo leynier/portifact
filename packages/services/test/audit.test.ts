@@ -1275,6 +1275,7 @@ describe("edges of reading and pruning", () => {
         "group.created",
         "group.renamed",
         "group.deleted",
+        "group.sync_stopped",
         "group.member_added",
         "group.member_removed",
         "sso.created",

@@ -226,6 +226,12 @@ describe("finding 1: only addresses at the workspace's verified domains", () => 
       }),
     );
     expect(await role(t, later)).toBe("member");
+    // Joining links the directory user now (decision 0017); unlink it to keep the case of an
+    // account the directory never linked.
+    await global()
+      .update(schema.scimUsers)
+      .set({ userId: null })
+      .where(eq(schema.scimUsers.id, pendingRow.user.id));
     await global()
       .delete(schema.workspaceDomains)
       .where(eq(schema.workspaceDomains.workspaceId, t.id));
