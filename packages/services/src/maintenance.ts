@@ -8,6 +8,7 @@ import { and, asc, eq, gt, inArray, lte, notExists, or, type SQL, sql } from "dr
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
+import { recheckApprovalReviewers } from "./approval-reviews.ts";
 import { pruneAuditEvents } from "./audit.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
@@ -555,6 +556,7 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
+    approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
     workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,
     expiredInvitations: await pruneExpiredInvitations(db.global, now),

@@ -1,6 +1,6 @@
 // Read use cases for an owner's artifacts: list with a cursor and look one up. Someone else's
 // artifact looks exactly like a missing one.
-import type { ArtifactListFilters } from "@portifact/contracts";
+import type { ApprovalSummary, ArtifactListFilters } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
@@ -25,6 +25,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
+import { approvalReviewColumn, approvalSummaryOf } from "./approval-reviews.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { retainedVersionSql } from "./retention.ts";
 
@@ -45,7 +46,10 @@ export interface ArtifactActivity {
   lastAnnotationAt: number | null;
 }
 
-export type ListedArtifact = ArtifactRow & { activity: ArtifactActivity };
+/** An artifact with its approval review block (status and counts, no names; decision 0012). */
+export type ReviewedArtifact = ArtifactRow & { review: ApprovalSummary };
+
+export type ListedArtifact = ReviewedArtifact & { activity: ArtifactActivity };
 
 export interface ListInput {
   /** The user acting on the owner whose artifacts are listed (from `resolveActor`). */
@@ -139,6 +143,7 @@ function activityColumns(retention: VersionRetention, now: number) {
     activityLastAnnotationAt: sql<
       number | null
     >`(select ${col(th.updatedAt)} from ${th} where ${col(th.artifactId)} = ${id} order by ${col(th.changeSeq)} desc limit 1)`,
+    approvalReview: approvalReviewColumn(id),
   };
 }
 
@@ -184,9 +189,11 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
         activityCurrentBytes,
         activityOpenThreads,
         activityLastAnnotationAt,
+        approvalReview,
         ...row
       }) => ({
         ...row,
+        review: approvalSummaryOf(approvalReview),
         activity: {
           versions: Number(activityVersions),
           currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
@@ -207,15 +214,22 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
 export async function getArtifact(
   db: RegionalDb,
   input: { userId: string; artifactId: string },
-): Promise<Result<ArtifactRow>> {
+): Promise<Result<ReviewedArtifact>> {
   const missing = () => fail<never>("not_found", "Artifact not found.");
-  const [row] = await db
-    .select()
-    .from(schema.artifacts)
-    .where(eq(schema.artifacts.id, input.artifactId))
+  const t = schema.artifacts;
+  const [found] = await db
+    .select({
+      ...getTableColumns(t),
+      approvalReview: approvalReviewColumn(
+        sql`${sql.identifier(getTableName(t))}.${sql.identifier(t.id.name)}`,
+      ),
+    })
+    .from(t)
+    .where(eq(t.id, input.artifactId))
     .limit(1);
-  if (!row || row.state === "deleted") return missing();
+  if (!found || found.state === "deleted") return missing();
+  const { approvalReview, ...row } = found;
   const actor = await authorizeOn(db, input.userId, row, "list", missing);
   if (!actor.ok) return actor;
-  return ok(row);
+  return ok({ ...row, review: approvalSummaryOf(approvalReview) });
 }

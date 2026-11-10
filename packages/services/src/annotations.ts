@@ -1569,3 +1569,73 @@ export async function annotationReader(
   const authorized = await authorize(db, input, "read");
   return authorized.ok ? ok({ entitlements: authorized.value.entitlements }) : authorized;
 }
+
+/**
+ * The caller's standing in the artifact's comments, as every annotation path decides it: the
+ * artifact, its effective state, the role (owner side, participant or nobody), the verified
+ * address, the comment scope, the owner side and the owner's entitlements. Approval reviews
+ * (./approval-reviews.ts) decide who sees what with it, so they never reimplement the rule.
+ * Undefined for an artifact that does not exist.
+ */
+export type CommentStanding = Loaded;
+
+export function commentStanding(
+  db: RegionalDb,
+  input: AnnotationActor,
+): Promise<CommentStanding | undefined> {
+  return load(db, input);
+}
+
+/**
+ * Whether the person with this address would take part in the artifact's comments: the account
+ * whose verified address it is, by exactly the rule that decides the caller's role (`roleOf`:
+ * the owner side, or admitted by the access policy), or, when no account has it verified yet,
+ * whether the policy admits a signed-in person with that verified address (public and
+ * `authenticated` artifacts, the reader list, a verified email domain). Never a new way in: it
+ * only asks the access rules about someone else.
+ */
+export async function addressTakesPart(
+  db: RegionalDb,
+  artifact: ArtifactRow,
+  email: string,
+  owner: Entitlements,
+): Promise<{ takesPart: boolean; userId: string | null }> {
+  const [user] = await db
+    .select({ id: schema.users.id, emailVerified: schema.users.emailVerified })
+    .from(schema.users)
+    .where(eq(schema.users.email, email))
+    .limit(1);
+  if (user?.emailVerified) {
+    const caller = await roleOf(db, artifact, user.id, owner);
+    return { takesPart: caller.role !== null, userId: user.id };
+  }
+  const r = schema.artifactReaders;
+  const readers =
+    artifact.accessMode === "restricted"
+      ? (
+          await db
+            .select({ email: r.email })
+            .from(r)
+            .where(and(eq(r.artifactId, artifact.id), eq(r.email, email)))
+        ).map((row) => row.email)
+      : [];
+  const verifiedEmails = [email];
+  const decision = canRead(
+    {
+      mode: artifact.accessMode,
+      ownerId: artifact.ownerId,
+      readers,
+      domains: await policyDomains(db.global, {
+        mode: artifact.accessMode,
+        ownerId: artifact.ownerId,
+        actor: null,
+        verifiedEmails,
+        entitlements: owner,
+      }),
+    },
+    // Nobody has this address verified: no account ID can match a membership or the owner side.
+    { userId: "", verifiedEmails },
+    null,
+  );
+  return { takesPart: decision.ok, userId: null };
+}

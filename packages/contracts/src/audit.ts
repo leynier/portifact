@@ -4,6 +4,7 @@
 // structured and strict: counts, enums, booleans, version numbers, hosts and email domains,
 // never free text, comment text, artifact content, tokens, secrets, URLs or full addresses.
 import { z } from "zod";
+import { APPROVALS } from "./approval-reviews.ts";
 import { AccessMode, CommentVisibility } from "./core.ts";
 import { LIMITS } from "./limits.ts";
 import { PlanName } from "./plans.ts";
@@ -40,6 +41,7 @@ const DnsName = z
   .max(253)
   .regex(/^[a-z0-9.-]+$/, "Invalid domain");
 const empty = z.strictObject({});
+const approvalCount = z.number().int().min(0).max(APPROVALS.reviewersPerRequest);
 
 /** Why a custom domain stopped serving (every path that detaches one names its reason). */
 export const DOMAIN_DETACH_REASONS = [
@@ -92,6 +94,24 @@ export const AUDIT_DETAILS = {
   }),
   "share_link.created": z.strictObject({ password: z.boolean(), expires: z.boolean() }),
   "share_link.revoked": empty,
+  /**
+   * Approval reviews (decision 0012): counts and settings, never reviewers' addresses or notes.
+   * `required` is null for "every reviewer".
+   */
+  "review.requested": z.strictObject({
+    reviewers: approvalCount,
+    required: approvalCount.nullable(),
+    showStatus: z.boolean(),
+  }),
+  "review.changed": z.strictObject({
+    added: approvalCount.optional(),
+    removed: approvalCount.optional(),
+    required: approvalCount.nullable().optional(),
+    showStatus: z.boolean().optional(),
+  }),
+  "review.cancelled": empty,
+  /** A reviewer's verdict on a version, by its number; never the note. */
+  "review.verdict": z.strictObject({ verdict: z.enum(["approve", "changes"]), version }),
   "domain.attached": z.strictObject({ hostname: DnsName }),
   "domain.removed": z.strictObject({ hostname: DnsName, reason: DomainDetachReason }),
   "webhook.created": z.strictObject({
@@ -147,6 +167,7 @@ export type AuditDetail<K extends AuditKind> = z.infer<(typeof AUDIT_DETAILS)[K]
 export const AUDIT_TARGET_TYPES = [
   "artifact",
   "share_link",
+  "review",
   "webhook",
   "brand",
   "member",
@@ -173,6 +194,10 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "access.changed": "artifact",
   "share_link.created": "share_link",
   "share_link.revoked": "share_link",
+  "review.requested": "review",
+  "review.changed": "review",
+  "review.cancelled": "review",
+  "review.verdict": "review",
   "domain.attached": "artifact",
   "domain.removed": "artifact",
   "webhook.created": "webhook",

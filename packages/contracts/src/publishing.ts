@@ -1,6 +1,7 @@
 // Shapes of the publishing and artifact API (`/api/v1`, plan sections 6 and 9). The CLI, the
 // dashboard and MCP send and read exactly these.
 import { z } from "zod";
+import { ApprovalSummary } from "./approval-reviews.ts";
 import {
   AccessMode,
   AnnotationsState,
@@ -178,6 +179,11 @@ export const ArtifactSummary = z.object({
    * then on it, the address people should use. The `.dev` address keeps working.
    */
   customHost: z.string().optional(),
+  /**
+   * The approval review on the current version (decision 0012): status and counts, no names.
+   * Present in the artifact list and the artifact view.
+   */
+  review: ApprovalSummary.optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
@@ -200,7 +206,10 @@ export const ArtifactActivity = z.object({
 export type ArtifactActivity = z.infer<typeof ArtifactActivity>;
 
 /** An artifact in the list: its summary and its activity. */
-export const ArtifactListItem = ArtifactSummary.extend({ activity: ArtifactActivity });
+export const ArtifactListItem = ArtifactSummary.extend({
+  activity: ArtifactActivity,
+  review: ApprovalSummary,
+});
 export type ArtifactListItem = z.infer<typeof ArtifactListItem>;
 
 export const ArtifactList = z.object({

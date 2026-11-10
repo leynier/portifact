@@ -22,6 +22,7 @@ import {
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { accessHistoryMoveJob } from "./analytics.ts";
+import { cancelApprovalReviewOnTransfer } from "./approval-reviews.ts";
 import type { ArtifactRow } from "./artifacts.ts";
 import { auditEvent } from "./audit.ts";
 import { releaseOrphans } from "./maintenance.ts";
@@ -220,6 +221,12 @@ export async function transferArtifact(
             sql`${schema.webhookEvents.artifactId} = ${artifact.id} and ${schema.webhookEvents.webhookId} in (select ${schema.webhooks.id} from ${schema.webhooks} where ${schema.webhooks.ownerId} = ${from})`,
           ),
         ),
+      // Reviewers were chosen under the old owner: the open approval review ends (decision 0012).
+      cancelApprovalReviewOnTransfer(db, {
+        artifactId: artifact.id,
+        condition: unchanged,
+        now: input.now,
+      }),
       // The access history follows the artifact (the job re-owns its openings and views).
       accessHistoryMoveJob(db, artifact.id, unchanged, input.now),
       db.insert(schema.lifecycleEvents).select(

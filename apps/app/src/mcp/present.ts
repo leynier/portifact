@@ -1,6 +1,7 @@
 // The `/api/v1` response shapes, built from service results. MCP returns exactly what the API
 // returns for the same operation; the parity tests in test/mcp-parity.test.ts hold both to it.
 import {
+  type ApprovalSummary,
   ArtifactListItem,
   ArtifactSummary,
   CommittedPublish,
@@ -17,7 +18,11 @@ import { customDomainsServing } from "@portifact/services";
 import type { Env } from "../env.ts";
 
 /** An artifact's summary, with where it lives (`ownerView` in the services). */
-export function artifactSummary(env: Env, row: ArtifactRow, owner: OwnerView): ArtifactSummary {
+export function artifactSummary(
+  env: Env,
+  row: ArtifactRow & { review?: ApprovalSummary },
+  owner: OwnerView,
+): ArtifactSummary {
   return ArtifactSummary.parse({
     id: row.id,
     name: row.name,
@@ -37,6 +42,8 @@ export function artifactSummary(env: Env, row: ArtifactRow, owner: OwnerView): A
       ? { suspension: { reason: row.suspensionReason } }
       : {}),
     ...(servedHost(env, row) ? { customHost: servedHost(env, row) } : {}),
+    // Built once here for the API and MCP (decision 0012): status and counts, never names.
+    ...(row.review ? { review: row.review } : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });

@@ -2855,3 +2855,183 @@ describe("API and MCP parity for webhooks", () => {
     }
   });
 });
+
+describe("API and MCP parity for approval reviews", () => {
+  const EVERY =
+    "artifacts:read artifacts:write artifacts:share artifacts:delete annotations:read annotations:write annotations:moderate offline_access";
+  const json = (method: string, body: unknown) => ({
+    method,
+    headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify(body),
+  });
+
+  /** Drops what names a different artifact, request, version or reviewer, keeping the shape. */
+  function normalized(answer: { ok: boolean; body: unknown }) {
+    const text = JSON.stringify(answer.body)
+      .replace(/"[a-z2-7]{10}"/g, '"<artifact>"')
+      .replace(/ar_[0-9a-f]{32}/g, "<request>")
+      .replace(/ver_[A-Za-z0-9_-]+/g, "<version>")
+      .replace(/rvw_[0-9a-f]{24}/g, "<reviewer>");
+    return { ok: answer.ok, body: JSON.parse(text) };
+  }
+
+  async function setup() {
+    const owner = await both("parity-review-owner@example.test", EVERY);
+    const reviewer = await both("parity-review-ana@example.test", EVERY);
+    await reviewer.apiCall("/api/v1/me");
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({
+        ownerId: await ownerId(owner),
+        plan: "team",
+        seats: 1,
+        grantedBy: "test",
+        updatedAt: NOW,
+      })
+      .onConflictDoNothing();
+    const publish = async (name: string) =>
+      (
+        fromTool(await owner.tool("publish_document", { type: "text", name, content: name }))
+          .body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const viaApi = await publish("api");
+    const viaMcp = await publish("mcp");
+    for (const id of [viaApi, viaMcp]) {
+      const shared = await owner.apiCall(`/api/v1/artifacts/${id}/access`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ addReaders: ["parity-review-ana@example.test"] }),
+      });
+      expect(shared.status, await shared.clone().text()).toBe(200);
+    }
+    return { owner, reviewer, viaApi, viaMcp };
+  }
+
+  it("requests, reads, gives verdicts, changes and cancels with the same bodies", async () => {
+    const { owner, reviewer, viaApi, viaMcp } = await setup();
+    const reviewers = ["parity-review-ana@example.test"];
+    const same = async (
+      apiAnswer: Promise<Response>,
+      toolAnswer: Promise<ToolResult>,
+      label: string,
+    ) => {
+      const a = normalized(await fromApi(await apiAnswer));
+      const m = normalized(fromTool(await toolAnswer));
+      expect(m, label).toEqual(a);
+      return a;
+    };
+
+    const asked = await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, json("POST", { reviewers })),
+      owner.tool("request_review", { artifactId: viaMcp, reviewers }),
+      "request",
+    );
+    expect(asked.body).toMatchObject({
+      role: "owner",
+      review: { status: "pending", reviewers: 1 },
+    });
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, json("POST", { reviewers })),
+      owner.tool("request_review", { artifactId: viaMcp, reviewers }),
+      "a second request",
+    );
+    await same(
+      reviewer.apiCall(`/api/v1/artifacts/${viaApi}/review`),
+      reviewer.tool("get_review_status", { artifactId: viaMcp }),
+      "the reviewer's view",
+    );
+    const approved = await same(
+      reviewer.apiCall(
+        `/api/v1/artifacts/${viaApi}/review/verdict`,
+        json("POST", { verdict: "approve", note: "Fine by me" }),
+      ),
+      reviewer.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        note: "Fine by me",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+      "verdict",
+    );
+    expect(approved.body).toMatchObject({ role: "reviewer", review: { status: "approved" } });
+    await same(
+      owner.apiCall(
+        `/api/v1/artifacts/${viaApi}/review/verdict`,
+        json("POST", { verdict: "approve" }),
+      ),
+      owner.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+      "a verdict by someone not listed",
+    );
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`),
+      owner.tool("get_review_status", { artifactId: viaMcp }),
+      "the owner's view",
+    );
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, json("PATCH", { showStatus: true })),
+      owner.tool("request_review", { artifactId: viaMcp, action: "change", showStatus: true }),
+      "change",
+    );
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, { method: "DELETE" }),
+      owner.tool("request_review", { artifactId: viaMcp, action: "cancel" }),
+      "cancel",
+    );
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review`, { method: "DELETE" }),
+      owner.tool("request_review", { artifactId: viaMcp, action: "cancel" }),
+      "cancel again",
+    );
+    // The list and the artifact carry the same block.
+    const listed = (await fromApi(await owner.apiCall("/api/v1/artifacts"))).body as {
+      items: { id: string; review: unknown }[];
+    };
+    const tool = fromTool(await owner.tool("list_artifacts", {})).body as typeof listed;
+    expect(tool.items.find((i) => i.id === viaMcp)?.review).toEqual(
+      listed.items.find((i) => i.id === viaApi)?.review,
+    );
+  });
+
+  it("answers a stranger like a missing artifact and refuses the same scopes", async () => {
+    const { owner, viaApi, viaMcp } = await setup();
+    const stranger = await both("parity-review-stranger@example.test", EVERY);
+    for (const id of [viaMcp, "abcdefghij"]) {
+      const apiAnswer = await fromApi(
+        await stranger.apiCall(`/api/v1/artifacts/${id === viaMcp ? viaApi : id}/review`),
+      );
+      expect(apiAnswer.body).toMatchObject({ error: { code: "not_found" } });
+      expect(fromTool(await stranger.tool("get_review_status", { artifactId: id }))).toEqual(
+        apiAnswer,
+      );
+    }
+    const reader = await mcpToken(owner.h, "parity-review-owner@example.test", "artifacts:read");
+    const asked = await rawCall(owner.h, reader, "request_review", {
+      artifactId: viaMcp,
+      reviewers: ["x@example.test"],
+    });
+    expect(asked.status).toBe(403);
+    expect(asked.headers.get("www-authenticate")).toContain('scope="artifacts:write"');
+    const verdict = await rawCall(owner.h, reader, "submit_review", {
+      artifactId: viaMcp,
+      verdict: "approve",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(verdict.status).toBe(403);
+    expect(verdict.headers.get("www-authenticate")).toContain('scope="annotations:write"');
+    const apiDenied = await api(
+      owner.h,
+      await apiToken(owner.h, "parity-review-owner@example.test", "artifacts:read"),
+      `/api/v1/artifacts/${viaApi}/review`,
+      json("POST", { reviewers: ["x@example.test"] }),
+    );
+    expect(apiDenied.status).toBe(403);
+    expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:write"');
+  });
+});

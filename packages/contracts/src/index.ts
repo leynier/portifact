@@ -6,6 +6,8 @@ export * from "./analytics.ts";
 export * from "./anchors.ts";
 export * from "./annotation-tools.ts";
 export * from "./annotations.ts";
+export * from "./approval-review-tools.ts";
+export * from "./approval-reviews.ts";
 export * from "./audit.ts";
 export * from "./branding.ts";
 export * from "./core.ts";
