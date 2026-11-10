@@ -1676,7 +1676,7 @@ export const ja = {
     "プランを {plan} ({seats, plural, one {# 席} other {# 席}}) にしました ({until} まで)",
   "audit.kind.planRemoved": "プランを削除しました。スペースは Free に戻りました",
   "audit.kind.tokenCreated":
-    "{days, plural, other {#日}}後に期限切れになるサービストークンを作成しました",
+    "{days, plural, one {#日} other {#日}}後に期限切れになるサービストークンを作成しました",
   "audit.kind.tokenRevoked": "サービストークンを取り消しました",
   "audit.kind.emailDomainVerified": "メールドメイン {domain} を確認しました",
   "audit.kind.emailDomainRemoved":

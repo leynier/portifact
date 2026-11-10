@@ -1552,7 +1552,7 @@ export const zhCN = {
   "audit.kind.planGrantedUntil":
     "将方案设为 {plan}，{seats, plural, one {# 个席位} other {# 个席位}}，有效期至 {until}",
   "audit.kind.planRemoved": "移除了方案，空间回到 Free",
-  "audit.kind.tokenCreated": "创建了一个 {days, plural, other {# 天}}后过期的服务令牌",
+  "audit.kind.tokenCreated": "创建了一个 {days, plural, one {# 天} other {# 天}}后过期的服务令牌",
   "audit.kind.tokenRevoked": "撤销了一个服务令牌",
   "audit.kind.emailDomainVerified": "验证了邮箱域名 {domain}",
   "audit.kind.emailDomainRemoved":
