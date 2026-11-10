@@ -1,5 +1,7 @@
 // portifact webhooks list | add | remove | test | deliveries | enable | disable | events: the
-// account's webhooks (premium plan P6, decision 0009) through /api/v1/webhooks. The CLI adds no
+// webhooks of the personal space, or of a workspace with --workspace (its admins only), through
+// /api/v1/webhooks (premium plan P6, decision 0009). Only the flag picks the workspace: the
+// device's default space covers publish, list and usage, not standing channels. The CLI adds no
 // rule of its own: the server validates URLs, checks the plan and the role, and its errors are
 // shown as they come (plan_required exits 7 like every limit).
 import {
@@ -22,6 +24,17 @@ import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { formatDate, messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import { flaggedWorkspace, workspaceQuery } from "./workspaces.ts";
+
+export interface WebhookOptions extends OutputOptions {
+  /** A workspace slug, or `personal`; the personal space without it. */
+  workspace?: string | undefined;
+}
+
+/** The API path in the space the flag names. */
+function inSpace(path: string, options: WebhookOptions): string {
+  return `${path}${workspaceQuery(flaggedWorkspace(options.workspace))}`;
+}
 
 export function parseWebhookId(value: string): string {
   const parsed = WebhookId.safeParse(value);
@@ -55,9 +68,10 @@ function attempt(entry: WebhookAttempt | null): string {
   return `${entry.outcome}${detail === "" ? "" : ` ${detail}`} ${formatDate(entry.at)}`;
 }
 
-export async function listWebhooks(io: Io, runtime: Runtime, options: OutputOptions) {
+export async function listWebhooks(io: Io, runtime: Runtime, options: WebhookOptions) {
+  const path = inSpace("/webhooks", options);
   const session = await openSession(io, runtime);
-  const list = await callApi(session, { method: "GET", path: "/webhooks", schema: WebhookList });
+  const list = await callApi(session, { method: "GET", path, schema: WebhookList });
   if (options.json) {
     writeJson(io, list);
     return;
@@ -85,7 +99,7 @@ export async function listWebhooks(io: Io, runtime: Runtime, options: OutputOpti
   else if (!list.available) io.stdout(`${messages.webhooksUnavailable}\n`);
 }
 
-export interface AddWebhookOptions extends OutputOptions {
+export interface AddWebhookOptions extends WebhookOptions {
   events: string;
   format?: WebhookFormat | undefined;
 }
@@ -97,10 +111,11 @@ export async function addWebhook(
   options: AddWebhookOptions,
 ) {
   const events = parseEvents(options.events);
+  const path = inSpace("/webhooks", options);
   const session = await openSession(io, runtime);
   const created = await callApi(session, {
     method: "POST",
-    path: "/webhooks",
+    path,
     body: { url, format: options.format ?? "generic", events },
     schema: WebhookCreated,
   });
@@ -112,7 +127,7 @@ export async function addWebhook(
   if (created.secret) io.stdout(`${messages.webhookSecret(created.secret)}\n`);
 }
 
-export interface RemoveWebhookOptions extends OutputOptions {
+export interface RemoveWebhookOptions extends WebhookOptions {
   yes?: boolean;
 }
 
@@ -123,20 +138,23 @@ export async function removeWebhook(
   options: RemoveWebhookOptions,
 ) {
   const webhookId = parseWebhookId(id);
+  const space = flaggedWorkspace(options.workspace);
+  const listPath = inSpace("/webhooks", options);
+  const path = inSpace(`/webhooks/${webhookId}`, options);
   if (!options.yes && !runtime.prompt) {
     throw new CliError(
       "invalid_input",
-      messages.errors.webhookRemoveConfirmationRequired(webhookId),
+      messages.errors.webhookRemoveConfirmationRequired(webhookId, space),
     );
   }
   const session = await openSession(io, runtime);
   if (!options.yes && runtime.prompt) {
-    const list = await callApi(session, { method: "GET", path: "/webhooks", schema: WebhookList });
+    const list = await callApi(session, { method: "GET", path: listPath, schema: WebhookList });
     const webhook = list.webhooks.find((item) => item.id === webhookId);
     // Nothing to confirm: the server answers a missing webhook with its own not_found.
     if (webhook) {
       const answer = await runtime.prompt(
-        messages.confirmWebhookRemove(webhookId, plain(webhook.host)),
+        messages.confirmWebhookRemove(webhookId, plain(webhook.host), space),
       );
       if (answer.trim().toLowerCase() !== "remove") {
         throw new CliError("cancelled", messages.errors.webhookRemoveCancelled);
@@ -145,19 +163,20 @@ export async function removeWebhook(
   }
   const removed = await callApi(session, {
     method: "DELETE",
-    path: `/webhooks/${webhookId}`,
+    path,
     schema: WebhookRemoved,
   });
   if (options.json) writeJson(io, removed);
   else io.stdout(`${messages.webhookRemoved(webhookId)}\n`);
 }
 
-export async function testWebhook(io: Io, runtime: Runtime, id: string, options: OutputOptions) {
+export async function testWebhook(io: Io, runtime: Runtime, id: string, options: WebhookOptions) {
   const webhookId = parseWebhookId(id);
+  const path = inSpace(`/webhooks/${webhookId}/test`, options);
   const session = await openSession(io, runtime);
   const queued = await callApi(session, {
     method: "POST",
-    path: `/webhooks/${webhookId}/test`,
+    path,
     schema: WebhookTestQueued,
   });
   if (options.json) writeJson(io, queued);
@@ -168,13 +187,14 @@ export async function webhookDeliveries(
   io: Io,
   runtime: Runtime,
   id: string,
-  options: OutputOptions,
+  options: WebhookOptions,
 ) {
   const webhookId = parseWebhookId(id);
+  const path = inSpace(`/webhooks/${webhookId}/deliveries`, options);
   const session = await openSession(io, runtime);
   const log = await callApi(session, {
     method: "GET",
-    path: `/webhooks/${webhookId}/deliveries`,
+    path,
     schema: WebhookDeliveries,
   });
   if (options.json) {
@@ -204,9 +224,10 @@ export async function updateWebhook(
   runtime: Runtime,
   id: string,
   change: { enabled?: boolean; events?: string },
-  options: OutputOptions,
+  options: WebhookOptions,
 ) {
   const webhookId = parseWebhookId(id);
+  const path = inSpace(`/webhooks/${webhookId}`, options);
   const body = {
     ...(change.enabled === undefined ? {} : { enabled: change.enabled }),
     ...(change.events === undefined ? {} : { events: parseEvents(change.events) }),
@@ -214,7 +235,7 @@ export async function updateWebhook(
   const session = await openSession(io, runtime);
   const webhook = await callApi(session, {
     method: "PATCH",
-    path: `/webhooks/${webhookId}`,
+    path,
     body,
     schema: WebhookView,
   });

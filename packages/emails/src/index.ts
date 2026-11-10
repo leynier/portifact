@@ -24,4 +24,10 @@ export {
 } from "./invitation.ts";
 export { type Block, type EmailLayout, escapeHtml, type Inline, renderEmail } from "./layout.ts";
 export type { EmailContent } from "./message.ts";
+export {
+  REVIEW_TEXT,
+  type ReviewNoticeInput,
+  type ReviewNoticeKind,
+  reviewNoticeEmail,
+} from "./review-notice.ts";
 export { SIGN_IN_SUBJECT, type SignInCodeInput, signInCodeEmail } from "./sign-in-code.ts";

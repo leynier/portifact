@@ -292,7 +292,7 @@ export function Shell() {
       icon: <BadgeCheck className="size-4" />,
       render: (props) => <Link to="/plan" {...props} />,
     },
-    space?.kind === "personal" && {
+    allowed("webhooks") && {
       key: "webhooks",
       label: t("shell.webhooksLink"),
       icon: <Webhook className="size-4" />,

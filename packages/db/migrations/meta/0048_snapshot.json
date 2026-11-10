@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2861fb2b-dd5b-4b59-a124-5a9c39399ede",
+  "id": "7c6e8119-830c-4c54-abc6-388884e6b14b",
   "prevId": "ce425306-e68e-44ce-8ce6-622521e10cf6",
   "tables": {
     "abuse_reports": {
@@ -4819,6 +4819,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "review": {
+          "name": "review",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -4988,7 +4995,7 @@
       "checkConstraints": {
         "webhooks_events": {
           "name": "webhooks_events",
-          "value": "\"webhooks\".\"events\" between 1 and 31"
+          "value": "\"webhooks\".\"events\" between 1 and 127"
         },
         "webhooks_failures": {
           "name": "webhooks_failures",
@@ -5533,21 +5540,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "policy": {
-          "name": "policy",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "policy_revision": {
-          "name": "policy_revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         }
       },
       "indexes": {

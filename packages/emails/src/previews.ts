@@ -7,6 +7,7 @@ import { domainNoticeEmail } from "./domain-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
 import { invitationEmail } from "./invitation.ts";
 import type { EmailContent } from "./message.ts";
+import { reviewNoticeEmail } from "./review-notice.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 
 export interface Preview {
@@ -47,6 +48,15 @@ const comments = {
   unsubscribeUrl: "https://app.portifact.com/unsubscribe?token=cn1.sample.1794200000000.signature",
   names: true,
   more: 0,
+};
+
+const review = {
+  name: "Q3 launch plan",
+  version: 4,
+  url: "https://app.portifact.com/view/k7d2qm4xab",
+  settingsUrl: "https://app.portifact.com/settings",
+  unsubscribeUrl: "https://app.portifact.com/unsubscribe?token=cn1.sample.1794200000000.signature",
+  names: true,
 };
 
 /** Every language besides English, each previewed in every user-facing email. */
@@ -190,6 +200,16 @@ export function previews(): Preview[] {
     ...TRANSLATED.map((locale) => ({
       name: `invitation-${locale.toLowerCase()}`,
       email: invitationEmail({ ...invitation, locale }),
+    })),
+    { name: "review-requested", email: reviewNoticeEmail({ ...review, kind: "requested" }) },
+    { name: "review-approved", email: reviewNoticeEmail({ ...review, kind: "approved" }) },
+    {
+      name: "review-changes-requested",
+      email: reviewNoticeEmail({ ...review, kind: "changes_requested" }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `review-requested-${locale.toLowerCase()}`,
+      email: reviewNoticeEmail({ ...review, kind: "requested", locale }),
     })),
   ];
 }

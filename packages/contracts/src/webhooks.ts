@@ -2,6 +2,7 @@
 // about their artifacts, managed through /api/v1/webhooks by the dashboard and `portifact
 // webhooks` (MCP only reads them), and the jobs that deliver them.
 import { z } from "zod";
+import { ApprovalSummary } from "./approval-reviews.ts";
 import { AccessMode, ArtifactId } from "./core.ts";
 
 /** Safety caps and timings of webhooks; not plan values (decision 0009). */
@@ -43,13 +44,19 @@ export const WEBHOOK_LIMITS = {
   logPageSize: 100,
 } as const;
 
-/** Event types a webhook can subscribe to, with their bit in `webhooks.events`. */
+/**
+ * Event types a webhook can subscribe to, with their bit in `webhooks.events` (the position here:
+ * `1 << index`). New types are only ever appended, so a stored subscription keeps its meaning;
+ * the column's CHECK allows every bit of this list (migration `webhook_review_events`).
+ */
 export const WEBHOOK_EVENTS = [
   "comment.created",
   "thread.resolved",
   "artifact.published",
   "artifact.expiring",
   "artifact.access_changed",
+  "review.requested",
+  "review.completed",
 ] as const;
 export const WebhookEventType = z.enum(WEBHOOK_EVENTS);
 export type WebhookEventType = z.infer<typeof WebhookEventType>;
@@ -189,10 +196,19 @@ export const WebhookRemoved = z.object({
 });
 export type WebhookRemoved = z.infer<typeof WebhookRemoved>;
 
-/** Inputs of the MCP webhook tools, which only read; the owner comes from the token. */
-export const ListWebhooksInput = z.object({});
+/** The space of the MCP webhook tools: a workspace slug, or the personal space without it. */
+const webhookSpace = z
+  .string()
+  .max(40)
+  .optional()
+  .describe("The workspace slug, as list_workspaces returns it. Omit it for your personal space.");
+
+/** Inputs of the MCP webhook tools, which only read; the user comes from the token. */
+export const ListWebhooksInput = z.object({ workspace: webhookSpace });
+export type ListWebhooksInput = z.infer<typeof ListWebhooksInput>;
 export const WebhookRef = z.object({
   webhookId: WebhookId.describe("The webhook ID, as list_webhooks returns it."),
+  workspace: webhookSpace,
 });
 export type WebhookRef = z.infer<typeof WebhookRef>;
 
@@ -216,6 +232,11 @@ export const WebhookEventBody = z.strictObject({
   version: z.number().int().positive().optional(),
   access: AccessMode.optional(),
   expiresAt: z.iso.datetime().optional(),
+  /**
+   * `review.requested` and `review.completed`: the review's status and counts on the version
+   * under review when it last happened. Never a reviewer's name or address, never a note.
+   */
+  review: ApprovalSummary.optional(),
 });
 export type WebhookEventBody = z.infer<typeof WebhookEventBody>;
 

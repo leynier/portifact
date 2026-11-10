@@ -18,6 +18,7 @@ export const OutboxTopic = z.enum([
   "access_history_move",
   "domain_notice",
   "search_index",
+  "review_notice",
   "workspace_policy",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
@@ -98,6 +99,42 @@ export const CommentNoticePayload = z.strictObject({
     .max(COMMENT_NOTICE_THREADS_MAX),
 });
 export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
+
+const reviewNoticeId = z.string().min(1).max(200);
+
+/**
+ * Payload of a `review_notice` job (approval reviews, decision 0013, "Emails"). The write's batch
+ * adds one `event` job (its subject is the request): who was asked (the reviewers added at
+ * `addedAt`) or which final status the version reached. The job fans it out into one `send` job
+ * per recipient account (its subject is the account), which sends one email. IDs, a time and a
+ * status only: never an address, a name or a note.
+ */
+export const ReviewNoticePayload = z.union([
+  z.strictObject({
+    stage: z.literal("event"),
+    kind: z.literal("requested"),
+    versionId: reviewNoticeId,
+    /** The reviewers asked are those added at this time. */
+    addedAt: z.number().int().nonnegative(),
+  }),
+  z.strictObject({
+    stage: z.literal("event"),
+    kind: z.literal("completed"),
+    versionId: reviewNoticeId,
+    status: z.enum(["approved", "changes_requested"]),
+    /** Whose verdict made it final, when one did: they are not told about their own act. */
+    actorId: reviewNoticeId.nullable(),
+  }),
+  z.strictObject({
+    stage: z.literal("send"),
+    kind: z.enum(["requested", "completed"]),
+    requestId: reviewNoticeId,
+    artifactId: reviewNoticeId,
+    versionId: reviewNoticeId,
+    status: z.enum(["approved", "changes_requested"]).nullable(),
+  }),
+]);
+export type ReviewNoticePayload = z.infer<typeof ReviewNoticePayload>;
 
 /**
  * Payload of a `domain_notice` job (its subject is the owner): the custom domains a plan that

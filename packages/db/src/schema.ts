@@ -712,6 +712,7 @@ export const OUTBOX_TOPICS = [
   "access_history_move",
   "domain_notice",
   "search_index",
+  "review_notice",
   "workspace_policy",
 ] as const;
 
@@ -1154,6 +1155,33 @@ export const reviewVerdicts = sqliteTable(
   ],
 );
 
+/**
+ * Review emails already sent (decision 0013, "Emails"): one row per artifact, version, recipient
+ * and kind (`requested` to a reviewer, `completed` to the owner side), claimed before the send
+ * and deleted again when the send fails, so each person gets at most one of each per version.
+ * Goes with the version and the artifact (foreign keys); `recipient_id` has no foreign key (users
+ * are global), so both account deletion batches delete the account's rows.
+ */
+export const reviewNotices = sqliteTable(
+  "review_notices",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id").notNull(),
+    kind: text("kind", { enum: ["requested", "completed"] }).notNull(),
+    sentAt: timestamp("sent_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.versionId, t.recipientId, t.kind] }),
+    index("review_notices_recipient_idx").on(t.recipientId),
+    index("review_notices_version_idx").on(t.versionId),
+  ],
+);
+
 /** Formats a webhook delivers in (decision 0009). */
 export const WEBHOOK_FORMATS = ["generic", "slack", "discord"] as const;
 /** Why a webhook stopped: an admin, repeated failures, a 410 from the receiver, or a URL that no longer passes. */
@@ -1202,7 +1230,8 @@ export const webhooks = sqliteTable(
   },
   (t) => [
     index("webhooks_owner_idx").on(t.ownerId),
-    check("webhooks_events", sql`${t.events} between 1 and 31`),
+    // Every bit of WEBHOOK_EVENTS (seven types; widened from 31 by `webhook_review_events`).
+    check("webhooks_events", sql`${t.events} between 1 and 127`),
     check("webhooks_failures", sql`${t.failures} >= 0`),
   ],
 );
@@ -1228,6 +1257,11 @@ export const webhookEvents = sqliteTable(
     version: integer("version"),
     access: text("access"),
     expiresAt: timestamp("expires_at"),
+    /**
+     * Review events: the status and counts (`ApprovalSummary`) when the event last happened, as
+     * JSON. Never a reviewer's name or address, never a note.
+     */
+    review: text("review"),
   },
   (t) => [
     primaryKey({ columns: [t.webhookId, t.artifactId, t.type] }),

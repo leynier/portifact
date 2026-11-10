@@ -36,6 +36,7 @@ import {
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
   type NoticeEnv,
+  reviewNotifierFromEnv,
 } from "./notices.ts";
 import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
 
@@ -218,6 +219,7 @@ export async function runQueue(
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   const notifier = expiryNotifierFromEnv(env);
   const commentNotifier = commentNotifierFromEnv(env);
+  const reviewNotifier = reviewNotifierFromEnv(env);
   const domainNotifier = domainNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const run = async (message: Message<unknown>) => {
@@ -236,6 +238,7 @@ export async function runQueue(
         webhooks,
         domains,
         domainNotifier,
+        reviewNotifier,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

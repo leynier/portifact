@@ -417,9 +417,9 @@ export const zhCN = {
   "settings.notices.saved": "邮件通知已保存。",
   "settings.notices.unchanged": "无需保存：你的邮件通知已经是这样设置的。",
   "settings.notices.failed": "你的邮件通知未保存",
-  "settings.notices.comments.label": "有新评论时给我发邮件",
+  "settings.notices.comments.label": "有新评论或审阅时给我发邮件",
   "settings.notices.comments.hint":
-    "最多每 10 分钟一封邮件，只列出每个 artifact 新增的讨论串、回复和已解决的数量，从不包含评论内容。仅适用于所有者的套餐包含评论通知的 artifact。",
+    "最多每 10 分钟一封邮件，只列出每个 artifact 新增的讨论串、回复和已解决的数量，从不包含评论内容。仅适用于所有者的套餐包含评论通知的 artifact。同一设置也适用于审阅邮件：有人请你审阅时，以及你管理的版本获批准或被要求修改时。",
   "commentNotices.label": "此 artifact 有新评论时给我发邮件",
   "commentNotices.hint": "最多每 10 分钟一封邮件，只包含数量。可以在设置中关闭所有评论邮件。",
   "commentNotices.muted": "已关闭此 artifact 的评论邮件。",
@@ -1170,6 +1170,8 @@ export const zhCN = {
   "webhooks.event.artifact.published": "新版本",
   "webhooks.event.artifact.expiring": "即将过期的 artifact",
   "webhooks.event.artifact.access_changed": "访问权限变更",
+  "webhooks.event.review.requested": "审阅请求",
+  "webhooks.event.review.completed": "审阅已批准或要求修改",
   "webhooks.add.submit": "添加 Webhook",
   "webhooks.add.noEvents": "请至少选择一个事件。",
   "webhooks.add.limit": "最多可以有 {limit} 个 Webhook。删除一个后才能再添加。",
@@ -1477,9 +1479,9 @@ export const zhCN = {
   "account.delete.soleAdmin.body":
     "workspace 必须保留一位管理员。请在这些 workspace 中分别让另一位成员成为管理员，或发邮件到 hello@portifact.com 请 Portifact 删除它们，然后再删除你的账号。",
   "account.delete.soleAdmin.members": "{workspace} 的成员",
-  "webhooks.personalOnly.title": "Webhook 在你的个人空间中设置",
-  "webhooks.personalOnly.body":
-    "目前，webhook 只发送你个人空间中 artifact 的事件。请切换到个人空间来管理它们。",
+  "webhooks.adminOnly.title": "只有管理员可以管理 webhook",
+  "webhooks.adminOnly.body":
+    "webhook 会把此工作区 artifact 的事件发送到其他系统，因此只有 {workspace} 的管理员可以查看和管理它们。如需 webhook，请联系其中一位管理员。",
   "shell.planLink": "方案",
   "plan.title": "方案",
   "plan.description": "你个人空间的方案、其限额和功能，以及其他方案。",

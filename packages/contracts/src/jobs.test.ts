@@ -9,6 +9,7 @@ import {
   JobMessage,
   LIMITS,
   OutboxTopic,
+  ReviewNoticePayload,
   TombstoneMarker,
 } from "./index.ts";
 
@@ -75,6 +76,7 @@ describe("job contracts", () => {
       "access_history_move",
       "domain_notice",
       "search_index",
+      "review_notice",
       "workspace_policy",
     ]);
     for (const kind of ["artifact", "account", "share_link", "workspace", "webhook"]) {
@@ -149,5 +151,37 @@ describe("DomainNoticePayload", () => {
       expect(DomainNoticePayload.safeParse({ ...ok, detachAt }).success).toBe(false);
     }
     expect(DomainNoticePayload.safeParse({ ...ok, detachAt: 0 }).success).toBe(true);
+  });
+});
+
+describe("ReviewNoticePayload", () => {
+  it("holds IDs, a time and a status, and nothing else", () => {
+    const event = { stage: "event", kind: "requested", versionId: "v1", addedAt: 1 };
+    expect(ReviewNoticePayload.parse(event)).toEqual(event);
+    const done = {
+      stage: "event",
+      kind: "completed",
+      versionId: "v1",
+      status: "approved",
+      actorId: null,
+    };
+    expect(ReviewNoticePayload.parse(done)).toEqual(done);
+    const send = {
+      stage: "send",
+      kind: "completed",
+      requestId: "ar_1",
+      artifactId: "a1",
+      versionId: "v1",
+      status: "changes_requested",
+    };
+    expect(ReviewNoticePayload.parse(send)).toEqual(send);
+    for (const bad of [
+      { ...event, email: "ada@example.com" },
+      { ...done, status: "pending" },
+      { ...send, note: "text" },
+      { stage: "other" },
+    ]) {
+      expect(ReviewNoticePayload.safeParse(bad).success).toBe(false);
+    }
   });
 });

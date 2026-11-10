@@ -1,5 +1,6 @@
 import { lowestPlanWith, PLANS } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
+import { reviewNoticesOn } from "./approval-reviews.ts";
 import {
   activityCounts,
   COMMENT_NOTICE,
@@ -15,9 +16,13 @@ import {
   COMMENT_NOTICE_EMAIL_RESERVE,
   COMMENT_NOTICE_EMAILS_PER_CYCLE,
   checkCommentNoticeCapacity,
+  checkReviewNoticeCapacity,
   NOTICE_EMAILS_PER_CYCLE,
+  REVIEW_NOTICE_EMAIL_RESERVE,
+  REVIEW_NOTICE_EMAILS_PER_CYCLE,
   SIGN_IN_EMAILS_PER_CYCLE,
 } from "./email.ts";
+import { entitlements } from "./plans.ts";
 
 const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
@@ -185,5 +190,35 @@ describe("checkCommentNoticeCapacity", () => {
       code: "capacity_unavailable",
       message: "Comment notices are paused until the next cycle.",
     });
+  });
+});
+
+describe("checkReviewNoticeCapacity", () => {
+  it("stops review notices first, 5,000 emails before comment notices", () => {
+    expect(REVIEW_NOTICE_EMAIL_RESERVE).toBe(5_000);
+    expect(REVIEW_NOTICE_EMAILS_PER_CYCLE).toBe(COMMENT_NOTICE_EMAILS_PER_CYCLE - 5_000);
+    expect(REVIEW_NOTICE_EMAILS_PER_CYCLE).toBe(4_900);
+    expect(SIGN_IN_EMAILS_PER_CYCLE - REVIEW_NOTICE_EMAILS_PER_CYCLE).toBe(15_000);
+    expect(checkReviewNoticeCapacity(REVIEW_NOTICE_EMAILS_PER_CYCLE - 1)).toEqual({
+      ok: true,
+      value: true,
+    });
+    expect(checkReviewNoticeCapacity(REVIEW_NOTICE_EMAILS_PER_CYCLE)).toEqual({
+      ok: false,
+      code: "capacity_unavailable",
+      message: "Review notices are paused until the next cycle.",
+    });
+  });
+});
+
+describe("reviewNoticesOn", () => {
+  it("needs both reviews and comment notices in the owner's plan", () => {
+    const now = Date.UTC(2026, 10, 10);
+    const plan = (name: string, overrides: unknown = null) =>
+      entitlements({ plan: name, seats: 1, validUntil: null, overrides }, now);
+    expect(reviewNoticesOn(plan("team"))).toBe(true);
+    expect(reviewNoticesOn(plan("pro"))).toBe(false);
+    expect(reviewNoticesOn(plan("team", { features: { commentNotices: false } }))).toBe(false);
+    expect(reviewNoticesOn(plan("free"))).toBe(false);
   });
 });

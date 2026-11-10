@@ -4,6 +4,7 @@
 // open the artifact and take part in its comments (`canRead` and the owner side), evaluated by
 // packages/services for each address.
 import {
+  type AccessMode,
   APPROVALS,
   type ApprovalStatus,
   type ApprovalSummary,
@@ -14,6 +15,7 @@ import {
   NO_APPROVAL_REVIEW,
 } from "@portifact/contracts";
 import { threadInScope } from "./annotations.ts";
+import { type Entitlements, hasFeature } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 export const APPROVAL_FEATURE = "reviews";
@@ -68,6 +70,45 @@ export function approvalSummary(
   if (changesRequested > 0) status = "changes_requested";
   else if (counting.length > 0 && approvals >= required) status = "approved";
   return { status, reviewers: counting.length, required, approvals, changesRequested };
+}
+
+/**
+ * Whether an owner's review emails are on (decision 0013, "Emails"): they need both approval
+ * reviews and comment notices in the artifact owner's plan. Without either nothing is written or
+ * sent.
+ */
+export function reviewNoticesOn(owner: Entitlements): boolean {
+  return hasFeature(owner, APPROVAL_FEATURE) && hasFeature(owner, "commentNotices");
+}
+
+/** What decides whether a reviewer is told by email that their review was asked. */
+export interface ReviewNoticeFacts {
+  /** The artifact's access mode now. */
+  mode: AccessMode;
+  /** Whether the access rules let the person open the artifact and take part now. */
+  takesPart: boolean;
+  /** The owner side, or a member of the owning workspace (any role); null for anyone else. */
+  side: "owner" | "member" | null;
+  /** Their verified address is on the artifact's reader list (whatever the mode). */
+  listedReader: boolean;
+  /** They are in a group the artifact lists (decision 0014). */
+  inListedGroup: boolean;
+  /** Their verified address is at a verified email domain of the owning workspace. */
+  atVerifiedDomain: boolean;
+}
+
+/**
+ * Whether a requested reviewer gets the "review requested" email (decision 0013, "Emails"): only
+ * someone who can open the artifact and has a standing relationship to it: the owner side or a
+ * member of the owning workspace, an address on the reader list, a member of a listed group, or an
+ * address at a verified domain of the workspace while the artifact is in `domain` mode. Someone
+ * admitted only because the artifact is `public` or `authenticated` can be named and sees the
+ * request in the viewer, but is not emailed, so a review cannot make Portifact email strangers.
+ */
+export function reviewNoticeRecipient(facts: ReviewNoticeFacts): boolean {
+  if (!facts.takesPart) return false;
+  if (facts.side !== null || facts.listedReader || facts.inListedGroup) return true;
+  return facts.mode === "domain" && facts.atVerifiedDomain;
 }
 
 /** Whether a status ends the review of the version: approved or changes requested. */

@@ -58,13 +58,14 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   addGroupMember: ["group.member_added"],
   removeGroupMember: ["group.member_removed"],
   // Workspace policies (decision 0015): a change records which fields and values, and each step
-  // that applies one to existing artifacts records its counts, as the system.
+  // that applies one to existing artifacts records its counts and each changed artifact's own
+  // access change, as the system.
   setWorkspacePolicy: ["policy.changed"],
   // After a restore, with the operator as actor.
   applyWorkspacePolicies: ["policy.changed"],
-  enforceWorkspacePolicy: ["policy.enforced"],
-  runWorkspacePolicyJob: ["policy.enforced"],
-  enforceWorkspacePolicies: ["policy.enforced"],
+  enforceWorkspacePolicy: ["policy.enforced", "access.changed"],
+  runWorkspacePolicyJob: ["policy.enforced", "access.changed"],
+  enforceWorkspacePolicies: ["policy.enforced", "access.changed"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
 };
@@ -186,6 +187,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "scheduleCommentNotices",
   "sendExpiryNotice",
   "sendCommentNotice",
+  // Review emails (decision 0013): sending a notice changes nothing an owner has.
+  "runReviewNotice",
   "scheduleDomainNotices",
   "sendDomainNotice",
   "alignPlanLimits",
