@@ -358,7 +358,9 @@ export async function updateWebhook(
     if (!gate.ok) return gate;
   }
   const change: Partial<typeof w.$inferInsert> = {};
-  if (input.update.events) change.events = eventsToBits(input.update.events);
+  // Only what differs is a change: the same events again write nothing and record nothing.
+  const events = input.update.events ? eventsToBits(input.update.events) : row.events;
+  if (events !== row.events) change.events = events;
   const reenabling = input.update.enabled === true && row.disabledAt !== null;
   if (reenabling) {
     const day = utcDayStart(input.now);
@@ -381,18 +383,18 @@ export async function updateWebhook(
       reenableDay: day,
     });
   }
-  if (input.update.enabled === false && row.disabledAt === null) {
-    Object.assign(change, { disabledAt: input.now, disabledReason: "manual" });
-  }
+  const disabling = input.update.enabled === false && row.disabledAt === null;
+  if (disabling) Object.assign(change, { disabledAt: input.now, disabledReason: "manual" });
   if (Object.keys(change).length === 0) return ok(await present(db, row, owner));
   // Conditioned on the state read, so two enables at once count once.
   const where = and(
     eq(w.id, row.id),
     eq(w.ownerId, input.actor.ownerId),
     reenabling ? sql`${w.disabledAt} is not null` : undefined,
+    // Two disables at once are one change and one event.
+    disabling ? sql`${w.disabledAt} is null` : undefined,
   ) as SQL;
-  const changedEvents =
-    input.update.events !== undefined && change.events !== row.events ? input.update.events : null;
+  const changedEvents = change.events !== undefined ? input.update.events : null;
   const [, [updated]] = await db.batch([
     webhookEvent(db, input.actor, row.id, "webhook.changed", {
       detail: {
@@ -404,8 +406,10 @@ export async function updateWebhook(
     }),
     db.update(w).set(change).where(where).returning(),
   ]);
-  if (!updated) return missing();
-  return ok(await present(db, updated, owner));
+  if (updated) return ok(await present(db, updated, owner));
+  // A concurrent request made the same change first: answer the webhook as it is now.
+  const current = await owned(db, input.actor, input.webhookId);
+  return current ? ok(await present(db, current, owner)) : missing();
 }
 
 /**

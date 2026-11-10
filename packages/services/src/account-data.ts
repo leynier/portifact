@@ -22,7 +22,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
-import { eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
+import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
@@ -487,6 +487,8 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
       .where(eq(schema.webhooks.createdBy, input.userId)),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
+    // Each workspace the account is in records that the member is gone, before the cascade.
+    accountLeftEvents(db, input.userId, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
     // and workspace memberships.
     db.delete(schema.users).where(eq(schema.users.id, input.userId)),
@@ -603,6 +605,9 @@ export async function advanceAccountDeletion(
     .where(eq(schema.artifacts.ownerId, userId));
   if (Number(left?.count ?? 0) > 0) return "pending";
 
+  // The account's events in the global database (its plan's) go before the batch that ends the
+  // deletion, so a crash in between leaves a step that runs again, never events nothing erases.
+  await db.global.batch([eraseOwnerAuditEvents(db.global, userId)]);
   // Objects only aborted uploads referenced; nothing references them any more.
   const objects = await db
     .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
@@ -675,8 +680,5 @@ export async function advanceAccountDeletion(
       .where(and(eq(schema.accountDeletions.userId, userId), nothingLeft, tombstoned))
       .returning({ userId: schema.accountDeletions.userId }),
   ])) as unknown[];
-  const finished = (results.at(-1) as unknown[]).length === 1;
-  // The account's events in the global database (its plan's), once nothing else is left.
-  if (finished) await db.global.batch([eraseOwnerAuditEvents(db.global, userId)]);
-  return finished ? "finished" : "pending";
+  return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
 }

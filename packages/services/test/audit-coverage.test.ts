@@ -40,6 +40,8 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   setOwnerPlan: ["plan.granted"],
   applyOwnerPlans: ["plan.granted"],
   removeOwnerPlan: ["plan.removed"],
+  // The workspaces the account was in each record that the member is gone.
+  requestAccountDeletion: ["member.left"],
 };
 
 /** Changes that record no event, and why. */
@@ -72,6 +74,8 @@ reason("readers, visitors and reviewers, not the owner side: the access log cove
   "recordTraffic",
   "submitAbuseReport",
   "declineInvitation",
+  "issueReadHandoff",
+  "issueReviewHandoff",
 ]);
 reason("comments are not in the audit log's scope (T10); their text never is", [
   "createAnnotationThread",
@@ -81,8 +85,10 @@ reason("comments are not in the audit log's scope (T10); their text never is", [
   "deleteAnnotationThread",
   "moderateAnnotationMessage",
   "setAnnotationThreadState",
-  "setAnnotationMode",
   "eraseAuthorFromThread",
+]);
+reason("whether an artifact takes comments is outside the T10 catalog for now", [
+  "setAnnotationMode",
 ]);
 reason("the account's own preferences and sign-ins, not an owner's shared state", [
   "updateAccountSettings",
@@ -91,7 +97,6 @@ reason("the account's own preferences and sign-ins, not an owner's shared state"
   "disconnectApp",
 ]);
 reason("the owner is erased with its events", [
-  "requestAccountDeletion",
   "advanceAccountDeletion",
   "processAccountDeletions",
   "deleteWorkspace",
@@ -116,6 +121,7 @@ reason("operator moderation and platform controls, kept by the operator tool's o
   // Detaching the domains a block covers records `domain.removed` (reason `blocked`).
   "blockHostname",
   "unblockHostname",
+  "resolveAbuseReport",
 ]);
 reason("reads that find a custom host or the operator's block list", [
   "activeCustomHost",
@@ -154,6 +160,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "runDeleteHostname",
   "enforceDomainLimits",
   "reconcileCustomDomains",
+  // Detaching a domain that stopped pointing records `domain.removed` through `detachDomain`.
+  "checkCustomDomains",
   "releaseArtifactDomains",
   "releaseOwnerDomains",
   "reconcileStorage",
@@ -176,9 +184,26 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "runIdempotent",
 ]);
 
-/** Names that only read or compute, by their verb. */
+/**
+ * Names that only read or compute: by their verb, which must be followed by a capital letter so
+ * `is` never swallows `issue…`, or listed here when the verb also names changes (`check`,
+ * `resolve`, `open`, `sign`).
+ */
+const READ_NAMES = new Set([
+  "checkReadAccess",
+  "checkSignInEmail",
+  "emailsSentInCycle",
+  "exportedBrand",
+  "isEmailSuppressed",
+  "open",
+  "openUnsubscribeToken",
+  "resolveActor",
+  "resolveOwnerScope",
+  "signUnsubscribeToken",
+  "signWebhook",
+]);
 const READS =
-  /^(get|list|read|find|load|check|export|show|resolve|is|count|view|preview|lookup|stats|current|personal|require|owner|actor|artifact|workspace|usage|account|managed|compare|diff|hash|sha|seal|open|sign|verify(Share)?Password|email|invitation|annotation|noticeView|newArtifactDefaults|platformProtection|pendingBudgetAlerts|multipartStates|openMultipartUploads|revokedShareLinks|shareLinkLabels|soleAdminOf|windowSum|webhookKeys|authorizeOn|reviewSessionTag)/;
+  /^(get|list|read|find|load|export|show|count|view|preview|lookup|stats|current|personal|require|owner|actor|artifact|workspace|usage|account|managed|compare|diff|hash|sha|seal|verify(Share)?Password|email|invitation|annotation|noticeView|newArtifactDefaults|platformProtection|pendingBudgetAlerts|multipartStates|openMultipartUploads|revokedShareLinks|shareLinkLabels|soleAdminOf|windowSum|webhookKeys|authorizeOn|reviewSessionTag)(?=[A-Z]|$)/;
 
 const asyncUseCases = Object.entries(services)
   .filter(([, value]) => typeof value === "function" && value.constructor.name === "AsyncFunction")
@@ -188,13 +213,17 @@ const asyncUseCases = Object.entries(services)
 describe("every exported use case is classified for the audit log", () => {
   it("places each async export as a read, a recorded change or a change with a reason", () => {
     const unclassified = asyncUseCases.filter(
-      (name) => !(name in RECORDED) && !(name in NOT_RECORDED) && !READS.test(name),
+      (name) =>
+        !(name in RECORDED) &&
+        !(name in NOT_RECORDED) &&
+        !READ_NAMES.has(name) &&
+        !READS.test(name),
     );
     expect(unclassified).toEqual([]);
   });
 
   it("names only use cases that exist, and records every kind of the catalog somewhere", () => {
-    for (const name of [...Object.keys(RECORDED), ...Object.keys(NOT_RECORDED)]) {
+    for (const name of [...Object.keys(RECORDED), ...Object.keys(NOT_RECORDED), ...READ_NAMES]) {
       expect(asyncUseCases, name).toContain(name);
     }
     const written = new Set(Object.values(RECORDED).flat());

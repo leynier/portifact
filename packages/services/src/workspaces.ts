@@ -655,6 +655,9 @@ export async function advanceWorkspaceDeletion(
     .from(schema.artifacts)
     .where(eq(schema.artifacts.ownerId, workspaceId));
   if (Number(left?.count ?? 0) > 0) return "pending";
+  // Its member and plan events in the global database go before the batch that ends the
+  // deletion, so a crash in between leaves a step that runs again, never events nothing erases.
+  await db.global.batch([eraseOwnerAuditEvents(db.global, workspaceId)]);
 
   const objects = await db
     .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
@@ -704,8 +707,5 @@ export async function advanceWorkspaceDeletion(
       .where(and(eq(schema.workspaceDeletions.workspaceId, workspaceId), nothingLeft, tombstoned))
       .returning({ id: schema.workspaceDeletions.workspaceId }),
   ])) as unknown[];
-  const finished = (results.at(-1) as unknown[]).length === 1;
-  // Its member and plan events in the global database, once nothing else is left.
-  if (finished) await db.global.batch([eraseOwnerAuditEvents(db.global, workspaceId)]);
-  return finished ? "finished" : "pending";
+  return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
 }

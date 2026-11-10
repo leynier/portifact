@@ -4,6 +4,7 @@
 // kept 90 days, go with their owner and never hold addresses, tokens or comment text.
 import { env } from "cloudflare:test";
 import {
+  AUDIT_LIMITS,
   type AuditKind,
   planRequiredMessage,
   txtRecordName,
@@ -63,6 +64,7 @@ import { raceBeforeFirstWrite, raceGlobalBeforeFirstWrite } from "./race.ts";
 
 const global = () => db().global;
 const SECRET = "Secret comment words that never leave";
+const BATCH = AUDIT_LIMITS.pruneBatch;
 const CONTENT = "portifact.dev";
 const KEYS = () => webhookKeys({ current: "test-only webhook sealing key, long enough to use" });
 type User = { id: string; email: string };
@@ -442,6 +444,19 @@ describe("webhook events", () => {
         now: NOW + 1,
       }),
     );
+    // The events it already has, and a second disable, change nothing and record nothing.
+    for (const update of [{ events: ["artifact.published" as const] }, { enabled: false }]) {
+      const same = value(
+        await updateWebhook(db(), {
+          actor,
+          webhookId: webhook.id,
+          update,
+          service: { enabled: true },
+          now: NOW + 1,
+        }),
+      );
+      expect(same.id).toBe(webhook.id);
+    }
     value(await removeWebhook(db(), { actor, webhookId: webhook.id, now: NOW + 2 }));
     expect((await removeWebhook(db(), { actor, webhookId: webhook.id, now: NOW + 3 })).ok).toBe(
       false,
@@ -458,6 +473,53 @@ describe("webhook events", () => {
     ]);
     expect(JSON.stringify(rows)).not.toContain("token=abc");
     expect(JSON.stringify(rows)).not.toContain(String(secret));
+  });
+});
+
+describe("webhook races", () => {
+  async function hook(owner: User) {
+    return value(
+      await createWebhook(db(), {
+        actor: personalActor(owner.id),
+        service: { enabled: true },
+        via: "dashboard",
+        webhook: {
+          url: "https://hooks.example.com/in",
+          format: "generic",
+          events: ["artifact.published"],
+        },
+        keys: await KEYS(),
+        now: NOW,
+      }),
+    ).webhook;
+  }
+  const disable = (handle: ReturnType<typeof db>, owner: User, webhookId: string) =>
+    updateWebhook(handle, {
+      actor: personalActor(owner.id),
+      webhookId,
+      update: { enabled: false },
+      service: { enabled: true },
+      now: NOW + 1,
+    });
+
+  it("records two disables at once as one change, and both answer the webhook", async () => {
+    const owner = await teamPlan();
+    const webhook = await hook(owner);
+    const raced = raceBeforeFirstWrite(async () => {
+      value(await disable(db(), owner, webhook.id));
+    });
+    expect(value(await disable(raced, owner, webhook.id)).id).toBe(webhook.id);
+    expect(await kinds(owner.id)).toEqual(["webhook.created", "webhook.changed"]);
+  });
+
+  it("answers like a missing webhook when it was removed meanwhile, and records nothing", async () => {
+    const owner = await teamPlan();
+    const webhook = await hook(owner);
+    const raced = raceBeforeFirstWrite(async () => {
+      await db().delete(schema.webhooks).where(eq(schema.webhooks.id, webhook.id));
+    });
+    expect(await disable(raced, owner, webhook.id)).toMatchObject({ ok: false, code: "not_found" });
+    expect(await kinds(owner.id)).toEqual(["webhook.created"]);
   });
 });
 
@@ -513,6 +575,42 @@ describe("transfer events", () => {
     expect((await kinds(t.id)).filter((kind) => kind.startsWith("artifact."))).toEqual([
       "artifact.transferred_in",
     ]);
+  });
+
+  it("stops showing the old owner the artifact's name once it moved", async () => {
+    const t = await team();
+    await grantPlan(t.admin.id, "team");
+    const { artifactId } = await publishSite(t.admin.id);
+    const named = async () =>
+      value(await read(personalActor(t.admin.id))).events.map((event) => [
+        event.kind,
+        event.artifact,
+      ]);
+    const [[, before]] = await named();
+    expect(before).toMatchObject({ id: artifactId });
+    expect((before as { name: string | null }).name).not.toBeNull();
+    value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: t.admin.id,
+        artifactId,
+        workspace: t.slug,
+        now: NOW + 1,
+      }),
+    );
+    // What the workspace calls it from now on is not the old owner's to see.
+    await db()
+      .update(schema.artifacts)
+      .set({ name: "Workspace codename" })
+      .where(eq(schema.artifacts.id, artifactId));
+    expect(await named()).toEqual([
+      ["artifact.transferred_out", { id: artifactId, name: null }],
+      ["artifact.published", { id: artifactId, name: null }],
+    ]);
+    const inWorkspace = value(await read(workspaceActor(t, t.admin, "admin")));
+    expect(inWorkspace.events.find((e) => e.kind === "artifact.transferred_in")?.artifact).toEqual({
+      id: artifactId,
+      name: "Workspace codename",
+    });
   });
 });
 
@@ -1091,6 +1189,61 @@ describe("what events never hold", () => {
   });
 });
 
+describe("a member who deletes their account", () => {
+  it("leaves each workspace with a member.left by the system, and no name or address", async () => {
+    const [t, other] = [await team(), await team()];
+    await db()
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: other.id, userId: t.editor.id, role: "member", updatedAt: NOW });
+    const sessionId = await session(t.editor.id);
+    value(
+      await requestAccountDeletion(db(), {
+        userId: t.editor.id,
+        sessionId,
+        confirmEmail: t.editor.email,
+        now: NOW + 5,
+      }),
+    );
+    for (const [workspace, role] of [
+      [t, "editor"],
+      [other, "member"],
+    ] as const) {
+      expect(await only(workspace.id, "member.left")).toMatchObject({
+        at: NOW + 5,
+        actorType: "system",
+        actorId: null,
+        targetId: t.editor.id,
+        artifactId: null,
+        detail: { role },
+      });
+    }
+    const [first, second] = [await only(t.id, "member.left"), await only(other.id, "member.left")];
+    expect(first.id).toMatch(/^ae_[0-9a-f]{24}$/);
+    expect(first.id).not.toBe(second.id);
+    const page = value(await read(workspaceActor(t, t.admin, "admin")));
+    const left = page.events.find((event) => event.kind === "member.left");
+    expect(left).toMatchObject({
+      actor: { type: "system" },
+      target: { type: "member", member: { type: "removed_member", id: t.editor.id } },
+    });
+    expect(JSON.stringify(page)).not.toContain(t.editor.email);
+  });
+
+  it("records nothing when the deletion is refused", async () => {
+    const t = await team();
+    const sessionId = await session(t.admin.id);
+    expect(
+      await requestAccountDeletion(db(), {
+        userId: t.admin.id,
+        sessionId,
+        confirmEmail: t.admin.email,
+        now: NOW + 5,
+      }),
+    ).toMatchObject({ ok: false, code: "sole_workspace_admin" });
+    expect(await kinds(t.id)).not.toContain("member.left");
+  });
+});
+
 describe("edges of reading and pruning", () => {
   async function insert(
     ownerId: string,
@@ -1185,16 +1338,16 @@ describe("edges of reading and pruning", () => {
     const old = NOW - 100 * DAY;
     await insert(
       owner.id,
-      Array.from({ length: 450 }, (_, i) => ({
+      Array.from({ length: 2 * BATCH + 50 }, (_, i) => ({
         id: `ae_old${String(i).padStart(4, "0")}`,
         at: old - i,
         kind: "artifact.renewed" as const,
       })),
     );
     await insert(owner.id, [{ id: "ae_new", at: NOW, kind: "artifact.renewed" }]);
-    expect(await pruneAuditEvents(db(), global(), NOW, 1)).toBe(200);
-    expect(await events(owner.id)).toHaveLength(251);
-    expect(await pruneAuditEvents(db(), global(), NOW, 5)).toBe(250);
+    expect(await pruneAuditEvents(db(), global(), NOW, 1)).toBe(BATCH);
+    expect(await events(owner.id)).toHaveLength(BATCH + 51);
+    expect(await pruneAuditEvents(db(), global(), NOW)).toBe(BATCH + 50);
     expect((await events(owner.id)).map((row) => row.id)).toEqual(["ae_new"]);
   });
 });

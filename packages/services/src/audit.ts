@@ -110,6 +110,21 @@ export function auditEvent<K extends AuditKind>(
     );
 }
 
+/**
+ * One `member.left` in every workspace `userId` is a member of, for the batch that deletes the
+ * account before the cascade takes the memberships. The actor is the system: the person is gone,
+ * and the event keeps only the opaque ID the workspace's earlier events already hold.
+ */
+export function accountLeftEvents(db: Db, userId: string, now: number): BatchItem<"sqlite"> {
+  const m = schema.workspaceMembers;
+  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
+  return db
+    .insert(ae)
+    .select(
+      sql`select 'ae_' || lower(hex(randomblob(12))), ${m.workspaceId}, ${now}, 'member.left', 'system', null, ${m.userId}, null, json_object('role', ${m.role}) from ${m} where ${m.userId} = ${userId}`,
+    );
+}
+
 /** Takes back an event whose change was undone in a later step (an invitation whose send failed). */
 export function withdrawAuditEvent(db: Db, id: string): BatchItem<"sqlite"> {
   return db.delete(ae).where(eq(ae.id, id));
@@ -196,15 +211,24 @@ async function memberNames(
   return names;
 }
 
-/** Current names of the artifacts events name; gone (purged or deleted) ones have none. */
-async function artifactNames(db: RegionalDb, artifactIds: readonly string[]) {
+/**
+ * Current names of the owner's artifacts that events name. One that is gone (purged or deleted)
+ * or that moved to another owner has none: what its new owner calls it is not this owner's to see.
+ */
+async function artifactNames(db: RegionalDb, ownerId: string, artifactIds: readonly string[]) {
   const names = new Map<string, string>();
   if (artifactIds.length === 0) return names;
   const a = schema.artifacts;
   const rows = await db
     .select({ id: a.id, name: a.name })
     .from(a)
-    .where(and(sql`${a.id} in ${ids(artifactIds)}`, sql`${a.state} not in ('purging', 'deleted')`));
+    .where(
+      and(
+        eq(a.ownerId, ownerId),
+        sql`${a.id} in ${ids(artifactIds)}`,
+        sql`${a.state} not in ('purging', 'deleted')`,
+      ),
+    );
   for (const row of rows) names.set(row.id, row.name);
   return names;
 }
@@ -219,7 +243,7 @@ async function present(db: RegionalDb, ownerId: string, rows: readonly AuditRow[
   });
   const names = await memberNames(db.global, ownerId, userIds);
   const artifactIds = rows.flatMap((row) => (row.artifactId ? [row.artifactId] : []));
-  const artifacts = await artifactNames(db, artifactIds);
+  const artifacts = await artifactNames(db, ownerId, artifactIds);
   return rows.map((row): AuditEventView => {
     const kind = row.kind as AuditKind;
     const targetType = AUDIT_TARGETS[kind];
@@ -334,7 +358,8 @@ const PLAN_PAGE = 100;
 
 /**
  * Deletes events past their owner's retention, at most `rounds` statements of
- * `AUDIT_LIMITS.pruneBatch` rows per kind of owner and run; the next run goes on. Owners whose
+ * `AUDIT_LIMITS.pruneBatch` rows per kind of owner and run (`AUDIT_LIMITS.pruneRounds` by
+ * default, far more than owners can write between runs); the next run goes on. Owners whose
  * plan keeps events for another number of days (an Enterprise override) are pruned on their own
  * and left out of the default pass; a plan row changed after it was read keeps its owner's events
  * until the next run. Run on every control database, the global one included.
@@ -343,7 +368,7 @@ export async function pruneAuditEvents(
   db: Db,
   global: GlobalDb,
   now: number,
-  rounds = 5,
+  rounds: number = AUDIT_LIMITS.pruneRounds,
 ): Promise<number> {
   const p = schema.ownerPlans;
   const defaultDays = entitlements(null, now).limits.auditRetentionDays;

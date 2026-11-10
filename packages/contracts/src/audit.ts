@@ -19,7 +19,13 @@ export const AUDIT_LIMITS = {
   /** Kinds one query can filter on at once. */
   kindsPerQuery: 10,
   /** Rows the retention scan deletes per statement. */
-  pruneBatch: 200,
+  pruneBatch: 1000,
+  /**
+   * Statements one run spends on each kind of owner: 50,000 rows per database every 15 minutes,
+   * so the scan keeps up with an owner writing an event several times a second for the whole
+   * retention.
+   */
+  pruneRounds: 50,
 } as const;
 
 const count = z.number().int().min(0).max(LIMITS.readersPerArtifact);
