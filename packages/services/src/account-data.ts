@@ -5,11 +5,19 @@
 // after it returns; the maintenance job then purges the artifacts, erases the account's
 // comments on other people's artifacts in small batches and leaves an `account` tombstone.
 import { type AccountExport, FRESH_SESSION_MS } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
-import { commentScope, fail, ok, type Result, threadInScope } from "@portifact/domain";
+import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import {
+  actsForOwner,
+  commentScope,
+  fail,
+  ok,
+  type Result,
+  threadInScope,
+} from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
+import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
@@ -38,7 +46,7 @@ type MessageRow = typeof schema.annotationMessages.$inferSelect;
  * people appear only by name, never by email.
  */
 export async function exportAccount(
-  db: Db,
+  db: RegionalDb,
   input: { userId: string; now: number },
 ): Promise<Result<AccountExport>> {
   const [user] = await db
@@ -243,7 +251,7 @@ export async function exportAccount(
  * the annotation services apply (`commentScope` in the domain): its own, the owner's, or all.
  */
 async function threadsInScope(
-  db: Db,
+  db: RegionalDb,
   user: { id: string; email: string; emailVerified: boolean },
   threads: readonly ThreadRow[],
 ): Promise<Set<string>> {
@@ -278,16 +286,26 @@ async function threadsInScope(
       if (row.commentVisibility !== null) exceptions.set(row.artifactId, row.commentVisibility);
     }
   }
+  // An admin or editor of a workspace sees all of its threads; everyone else is a participant,
+  // and "the owner's" threads are those of whoever acts for it.
+  const owners = new Map<string, { managed: boolean; side: readonly string[] }>();
+  for (const ownerId of new Set([...artifacts.values()].map((artifact) => artifact.ownerId))) {
+    owners.set(ownerId, {
+      managed: actsForOwner(await actorOn(db.global, user.id, ownerId), ownerId),
+      side: await ownerSide(db.global, ownerId),
+    });
+  }
   const shown = new Set<string>();
   for (const thread of threads) {
     const artifact = artifacts.get(thread.artifactId);
-    if (!artifact) continue;
+    const owner = artifact && owners.get(artifact.ownerId);
+    if (!artifact || !owner) continue;
     const scope = commentScope(
-      "participant",
+      owner.managed ? "owner" : "participant",
       artifact.commentVisibility,
       exceptions.get(thread.artifactId) ?? null,
     );
-    if (threadInScope(scope, user.id, artifact.ownerId, thread.authorId)) shown.add(thread.id);
+    if (threadInScope(scope, user.id, owner.side, thread.authorId)) shown.add(thread.id);
   }
   return shown;
 }
@@ -305,11 +323,12 @@ export interface DeletionRequest {
  * most `FRESH_SESSION_MS` ago. In one transaction it records the deletion, claims every artifact
  * for purging (they stop being served at once), erases the address from abuse reports and
  * deletes the user, which removes its sessions, sign-in identities, OAuth tokens and consents,
- * read sessions and handoffs through the foreign keys. A retry, or a concurrent request, finds
+ * read sessions, handoffs and workspace memberships through the foreign keys. The only admin of
+ * a workspace cannot delete their account (`sole_workspace_admin`). A retry, or a concurrent request, finds
  * nothing left to change.
  */
 export async function requestAccountDeletion(
-  db: Db,
+  db: RegionalDb,
   input: DeletionRequest,
 ): Promise<Result<{ deleted: true }>> {
   const [found] = await db
@@ -334,8 +353,51 @@ export async function requestAccountDeletion(
       "Sign in again to delete your account; your session is too old.",
     );
   }
+  // A workspace never loses its last admin with an account (premium plan F3). A trigger on
+  // `users` (0029_workspaces.sql) refuses the delete as well, so a race fails the whole batch.
+  if (await soleAdminOf(db.global, input.userId)) return soleAdmin();
   const email = found.email.toLowerCase();
   const userExists = sql`exists (select 1 from ${schema.users} where ${schema.users.id} = ${input.userId})`;
+  try {
+    await deletionBatch(db, input, email, userExists);
+  } catch (error) {
+    if (causeIncludes(error, "sole_workspace_admin")) return soleAdmin();
+    throw error;
+  }
+  return ok({ deleted: true });
+}
+
+const soleAdmin = () =>
+  fail<never>(
+    "sole_workspace_admin",
+    "You are the only admin of a workspace. Make another member an admin or delete the workspace before deleting your account.",
+  );
+
+function causeIncludes(error: unknown, text: string): boolean {
+  for (let e: unknown = error; e instanceof Error; e = e.cause) {
+    if (e.message.includes(text)) return true;
+  }
+  return false;
+}
+
+/** A workspace whose only admin is the user, if there is one. */
+export async function soleAdminOf(global: GlobalDb, userId: string): Promise<string | null> {
+  const m = schema.workspaceMembers;
+  const [row] = await global
+    .select({ workspaceId: m.workspaceId })
+    .from(m)
+    .where(
+      and(
+        eq(m.userId, userId),
+        eq(m.role, "admin"),
+        sql`not exists (select 1 from ${m} as "other" where "other"."workspace_id" = ${m.workspaceId} and "other"."role" = 'admin' and "other"."user_id" <> ${userId})`,
+      ),
+    )
+    .limit(1);
+  return row?.workspaceId ?? null;
+}
+
+async function deletionBatch(db: Db, input: DeletionRequest, email: string, userExists: SQL) {
   await db.batch([
     // A concurrent request that already deleted the user writes no second job.
     accountDeletionJob(db, input.userId, userExists, input.now),
@@ -351,10 +413,10 @@ export async function requestAccountDeletion(
     db.delete(schema.deviceCodes).where(eq(schema.deviceCodes.userId, input.userId)),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
-    // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs.
+    // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
+    // and workspace memberships.
     db.delete(schema.users).where(eq(schema.users.id, input.userId)),
   ]);
-  return ok({ deleted: true });
 }
 
 /**
@@ -406,7 +468,7 @@ async function threadsToErase(db: Db, userId: string, limit: number): Promise<st
  * Advances pending account deletions, oldest first. See `advanceAccountDeletion`.
  */
 export async function processAccountDeletions(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   now: number,
   limit = 5,
@@ -434,7 +496,7 @@ export async function processAccountDeletions(
  * safe to run concurrently. Returns `absent` when no deletion is pending for the account.
  */
 export async function advanceAccountDeletion(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   userId: string,
   now: number,

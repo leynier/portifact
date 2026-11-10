@@ -205,12 +205,20 @@ describe("comment visibility", () => {
   });
 
   it("limits `own` to the caller's threads and the owner's, with every reply", () => {
-    expect(threadInScope("own", "ana", "olga", "ana")).toBe(true);
-    expect(threadInScope("own", "ana", "olga", "olga")).toBe(true);
-    expect(threadInScope("own", "ana", "olga", "bea")).toBe(false);
-    expect(threadInScope("all", "ana", "olga", "bea")).toBe(true);
+    expect(threadInScope("own", "ana", ["olga"], "ana")).toBe(true);
+    expect(threadInScope("own", "ana", ["olga"], "olga")).toBe(true);
+    expect(threadInScope("own", "ana", ["olga"], "bea")).toBe(false);
+    expect(threadInScope("all", "ana", ["olga"], "bea")).toBe(true);
     // The owner's scope is always all, so the owner sees a reader's thread.
-    expect(threadInScope(commentScope("owner", "owner", null), "olga", "olga", "bea")).toBe(true);
+    expect(threadInScope(commentScope("owner", "owner", null), "olga", ["olga"], "bea")).toBe(true);
+  });
+
+  it("counts every admin and editor of a workspace as the owner in `own`", () => {
+    const side = ["olga", "eda"];
+    expect(threadInScope("own", "ana", side, "eda")).toBe(true);
+    expect(threadInScope("own", "ana", side, "olga")).toBe(true);
+    expect(threadInScope("own", "ana", side, "mia")).toBe(false);
+    expect(threadInScope("own", "ana", [], "olga")).toBe(false);
   });
 });
 

@@ -2,13 +2,17 @@
 // the 24-hour windows and the blocks the domain derives from them. Read-only; every query is
 // keyed by the account from the session or token.
 import { LIMITS } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  type Actor,
+  authorize,
   type Block,
   type Entitlements,
   nextMonthStart,
+  ok,
   protectionBlock,
   publicAccessFrom,
+  type Result,
   trafficCycle,
   USAGE_WINDOW_MS,
   usageBlocks,
@@ -72,34 +76,41 @@ async function windowEvents(db: Db, ownerId: string, since: number) {
   return events;
 }
 
-/** The account's quotas, current counters, 24-hour windows and what blocks it now. */
+/**
+ * The owner's quotas, current counters, 24-hour windows and what blocks it now, for an admin or
+ * editor of the owner. Quotas, traffic and the plan are the owner's (a workspace's, or the
+ * user's own); the wait before making anything public is the acting user's account's.
+ */
 export async function getAccountUsage(
-  db: Db,
-  input: { ownerId: string; now: number },
-): Promise<AccountUsageReport> {
+  db: RegionalDb,
+  input: { actor: Actor; now: number },
+): Promise<Result<AccountUsageReport>> {
+  const allowed = authorize(input.actor, "usage");
+  if (!allowed.ok) return allowed;
+  const ownerId = input.actor.ownerId;
   const [usage] = await db
     .select()
     .from(schema.accountUsage)
-    .where(eq(schema.accountUsage.ownerId, input.ownerId))
+    .where(eq(schema.accountUsage.ownerId, ownerId))
     .limit(1);
-  const [user] = await db
+  const [user] = await db.global
     .select({ createdAt: schema.users.createdAt })
     .from(schema.users)
-    .where(eq(schema.users.id, input.ownerId))
+    .where(eq(schema.users.id, input.actor.userId))
     .limit(1);
   const [uploads] = await db
     .select({ first: sql<number | null>`min(${schema.uploadSessions.expiresAt})` })
     .from(schema.uploadSessions)
     .where(
       and(
-        eq(schema.uploadSessions.ownerId, input.ownerId),
+        eq(schema.uploadSessions.ownerId, ownerId),
         // An expired upload still holds its slot until the maintenance job releases it.
         inArray(schema.uploadSessions.state, OPEN_UPLOAD_STATES),
       ),
     );
-  const events = await windowEvents(db, input.ownerId, input.now - USAGE_WINDOW_MS);
-  const traffic = await getTraffic(db, input.ownerId, input.now);
-  const owner = await ownerEntitlements(db, input.ownerId, input.now);
+  const events = await windowEvents(db, ownerId, input.now - USAGE_WINDOW_MS);
+  const traffic = await getTraffic(db, ownerId, input.now);
+  const owner = await ownerEntitlements(db, ownerId, input.now);
   const { limits } = owner;
   const capacity = protectionBlock((await platformProtection(db, input.now)).actions);
 
@@ -122,7 +133,7 @@ export async function getAccountUsage(
     traffic,
   };
 
-  return {
+  return ok({
     plan: owner,
     activeArtifacts: { used: snapshot.activeArtifacts, limit: limits.activeArtifacts },
     storage: {
@@ -152,5 +163,5 @@ export async function getAccountUsage(
     publicAccessFrom: publicAccessFrom(snapshot.accountCreatedAt),
     // The platform's budget protection comes first: it is why the dashboard shows its notice.
     blocks: capacity ? [capacity, ...usageBlocks(snapshot, limits)] : usageBlocks(snapshot, limits),
-  };
+  });
 }

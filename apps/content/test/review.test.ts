@@ -4,7 +4,7 @@
 import { env } from "cloudflare:test";
 import { BRIDGE_VERSION } from "@portifact/bridge/bundle";
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { DIAGRAM_VERSION } from "@portifact/render/diagrams-version";
 import { DIAGRAM_LOADER_HASH } from "@portifact/render/policy";
@@ -32,7 +32,7 @@ const SESSION_MS = REVIEW_SESSION.sessionTtlSeconds * 1000;
 const PAGE =
   "<!doctype html><html><head><title>Plan</title></head><body><h1>Plan</h1></body></html>";
 const SCRIPT = "console.log('app')";
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const OWNER = "rv_owner";
 const READER = "rv_reader";
@@ -558,7 +558,7 @@ describe("review of rendered documents", () => {
     const source = "# Notes\n\nFirst paragraph.";
     const hash = await sha256(source);
     const prepared = await preparePublish(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       type: "markdown",
       name: "Notes",
       entrypoint: "notes.md",
@@ -577,7 +577,7 @@ describe("review of rendered documents", () => {
     if (!prepared.ok) throw new Error(prepared.message);
     await env.ARTIFACTS.put(`objects/${OWNER}/${hash}`, source, { sha256: hash });
     const committed = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: prepared.value.sessionId,
       now: NOW,
     });

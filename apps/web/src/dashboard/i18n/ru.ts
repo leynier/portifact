@@ -997,6 +997,8 @@ export const ru = {
   "error.artifact_archived": "Artifact в архиве. Сначала восстановите его.",
   "error.account_too_new_for_public": "Новые аккаунты пока не могут делать artifacts публичными.",
   "error.capacity_unavailable": "Сейчас Portifact перегружен. Попробуйте позже.",
+  "error.sole_workspace_admin":
+    "Вы единственный администратор рабочего пространства. Назначьте администратором другого участника или удалите рабочее пространство, прежде чем удалять аккаунт.",
   "error.rate_limited": "Слишком много запросов. Подождите немного и попробуйте ещё раз.",
   "error.reauthentication_required": "Для этого войдите снова.",
   "error.human_verification_required":

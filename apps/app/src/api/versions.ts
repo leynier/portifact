@@ -15,7 +15,7 @@ import {
   VersionRef,
   VersionSummary,
 } from "@portifact/contracts";
-import { createDb, type Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import {
   type DownloadPlan,
   type FilePage,
@@ -34,6 +34,7 @@ import {
 } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
+import { artifactDb } from "../regions.ts";
 import { type ApiContext, error, failure, type Guarded as Guard, iso, readJson } from "./http.ts";
 import type { Presigner } from "./presign.ts";
 import { type ApiDeps, contentUrl } from "./routes.ts";
@@ -118,12 +119,12 @@ export function rolledBack(env: Env, outcome: RollbackOutcome): RolledBack {
 
 /** A rollback as a stored response, so an idempotent retry replays it exactly. */
 export async function rollbackResponse(
-  db: Db,
+  db: RegionalDb,
   env: Env,
-  input: { ownerId: string; artifactId: string; request: RollbackRequest; now: number },
+  input: { userId: string; artifactId: string; request: RollbackRequest; now: number },
 ): Promise<StoredResponse> {
   const result = await rollbackArtifact(db, {
-    ownerId: input.ownerId,
+    userId: input.userId,
     artifactId: input.artifactId,
     versionId: input.request.versionId,
     baseVersionId: input.request.baseVersionId,
@@ -145,8 +146,8 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       });
       if (!query.success) return error(c, "invalid_input", "Invalid cursor or limit.");
       const artifactId = c.req.param("artifactId") as string;
-      const result = await listVersions(createDb(c.env.DB), {
-        ownerId: userId,
+      const result = await listVersions(await artifactDb(c.env, artifactId), {
+        userId,
         artifactId,
         now: deps.now(),
         cursor: query.data.cursor,
@@ -162,9 +163,10 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
     guarded("artifacts:read", async (c, userId) => {
       const versionId = versionRef(c);
       if (!versionId.success) return error(c, "invalid_input", "Invalid version id.");
-      const result = await getVersionManifest(createDb(c.env.DB), {
-        ownerId: userId,
-        artifactId: c.req.param("artifactId") as string,
+      const artifactId = c.req.param("artifactId") as string;
+      const result = await getVersionManifest(await artifactDb(c.env, artifactId), {
+        userId,
+        artifactId,
         versionId: versionId.data,
         now: deps.now(),
       });
@@ -185,14 +187,17 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       if (!versionId.success) return error(c, "invalid_input", "Invalid version id.");
       if (!query.success) return error(c, "invalid_input", "kind must be published or source.");
       const now = deps.now();
-      const result = await getVersionDownload(createDb(c.env.DB), {
-        userId,
-        artifactId: c.req.param("artifactId") as string,
-        versionId: versionId.data,
-        kind: query.data.kind,
-        path: query.data.path,
-        now,
-      });
+      const result = await getVersionDownload(
+        await artifactDb(c.env, c.req.param("artifactId") as string),
+        {
+          userId,
+          artifactId: c.req.param("artifactId") as string,
+          versionId: versionId.data,
+          kind: query.data.kind,
+          path: query.data.path,
+          now,
+        },
+      );
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(await versionDownload(deps.presigner(c.env), result.value, now));
     }),
@@ -212,13 +217,17 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       if (!query.success) {
         return error(c, "invalid_input", "kind must be published or source, offset a byte offset.");
       }
-      const result = await readVersionFile(createDb(c.env.DB), c.env.ARTIFACTS, {
-        userId,
-        artifactId: c.req.param("artifactId") as string,
-        versionId: versionId.data,
-        ...query.data,
-        now: deps.now(),
-      });
+      const result = await readVersionFile(
+        await artifactDb(c.env, c.req.param("artifactId") as string),
+        c.env.ARTIFACTS,
+        {
+          userId,
+          artifactId: c.req.param("artifactId") as string,
+          versionId: versionId.data,
+          ...query.data,
+          now: deps.now(),
+        },
+      );
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(artifactContent(result.value));
     }),
@@ -234,7 +243,7 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       const body = await readJson(c, RollbackRequest);
       if (!body.ok) return body.response;
       const artifactId = c.req.param("artifactId") as string;
-      const db = createDb(c.env.DB);
+      const db = await artifactDb(c.env, artifactId);
       const now = deps.now();
       const outcome = await runIdempotent(
         db,
@@ -245,8 +254,7 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
           requestHash: await hashRequest({ artifactId, ...body.value }),
           now,
         },
-        () =>
-          rollbackResponse(db, c.env, { ownerId: userId, artifactId, request: body.value, now }),
+        () => rollbackResponse(db, c.env, { userId, artifactId, request: body.value, now }),
       );
       if (outcome.kind === "mismatch") {
         return error(c, "invalid_input", "This Idempotency-Key was used for a different request.");

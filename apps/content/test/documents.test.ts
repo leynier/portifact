@@ -2,7 +2,7 @@
 // services, so the document is rendered inside workerd exactly as a commit renders it.
 import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { regionsFromEnv } from "@portifact/db";
 import { DIAGRAM_BROTLI } from "@portifact/render/diagrams-bundle";
 import { DIAGRAM_VERSION } from "@portifact/render/diagrams-version";
 import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH } from "@portifact/render/policy";
@@ -13,7 +13,7 @@ import { attachment, handle } from "../src/index.ts";
 
 const OWNER = "u_owner";
 const NOW = Date.UTC(2026, 10, 8, 12);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const encode = (text: string) => new TextEncoder().encode(text);
 
 const NAVIGATE = {
@@ -45,7 +45,7 @@ async function publish({ type, files, accessMode = "public" }: Doc): Promise<str
     })),
   );
   const prepared = await preparePublish(db(), {
-    ownerId: OWNER,
+    userId: OWNER,
     type,
     name: "Release notes",
     entrypoint: Object.keys(files)[0] ?? "",
@@ -59,7 +59,7 @@ async function publish({ type, files, accessMode = "public" }: Doc): Promise<str
     await env.ARTIFACTS.put(`objects/${OWNER}/${hash}`, body, { sha256: hash });
   }
   const committed = await commitPublish(db(), env.ARTIFACTS, {
-    ownerId: OWNER,
+    userId: OWNER,
     sessionId: prepared.value.sessionId,
     now: NOW,
   });

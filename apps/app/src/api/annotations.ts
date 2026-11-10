@@ -19,7 +19,6 @@ import {
   ModerateMessageRequest,
   ReplyRequest,
 } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
 import {
   annotationsToMarkdown,
   createAnnotationThread,
@@ -37,6 +36,7 @@ import {
 import { Hono } from "hono";
 import type { FetchLike } from "../auth/deps.ts";
 import type { Env } from "../env.ts";
+import { artifactDb } from "../regions.ts";
 import { humanCheck } from "../turnstile.ts";
 import { type ApiContext, error, failure, type Guarded, idempotent, readJson } from "./http.ts";
 
@@ -57,7 +57,7 @@ export function annotationRoutes(
     guarded("annotations:moderate", async (c, userId) => {
       const body = await readJson(c, AnnotationModeUpdate);
       if (!body.ok) return body.response;
-      const result = await setAnnotationMode(createDb(c.env.DB), {
+      const result = await setAnnotationMode(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         mode: body.value.mode,
@@ -74,7 +74,7 @@ export function annotationRoutes(
       const query = AnnotationListQuery.safeParse(c.req.query());
       if (!query.success)
         return error(c, "invalid_input", "Invalid cursor, limit, version or state.");
-      const result = await listAnnotations(createDb(c.env.DB), {
+      const result = await listAnnotations(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         ...query.data,
@@ -90,7 +90,7 @@ export function annotationRoutes(
     guarded("annotations:read", async (c, userId) => {
       const query = AnnotationExportQuery.safeParse(c.req.query());
       if (!query.success) return error(c, "invalid_input", "Invalid format, version or state.");
-      const result = await exportAnnotations(createDb(c.env.DB), {
+      const result = await exportAnnotations(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         version: query.data.version,
@@ -123,7 +123,7 @@ export function annotationRoutes(
         // same key replays the first answer whatever token it carries.
         { userId, operation: "annotations.thread.create", request: [id, thread], now: at },
         async () => {
-          const result = await createAnnotationThread(createDb(c.env.DB), {
+          const result = await createAnnotationThread(await artifactDb(c.env, artifactId(c)), {
             userId,
             artifactId: id,
             ...thread,
@@ -140,7 +140,7 @@ export function annotationRoutes(
   api.get(
     `${BASE}/threads/:threadId`,
     guarded("annotations:read", async (c, userId) => {
-      const result = await getAnnotationThread(createDb(c.env.DB), {
+      const result = await getAnnotationThread(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         threadId: param(c, "threadId"),
@@ -169,7 +169,7 @@ export function annotationRoutes(
           now: at,
         },
         async () => {
-          const result = await replyToAnnotationThread(createDb(c.env.DB), {
+          const result = await replyToAnnotationThread(await artifactDb(c.env, artifactId(c)), {
             userId,
             artifactId: id,
             threadId,
@@ -191,7 +191,7 @@ export function annotationRoutes(
     api.post(
       `${BASE}/threads/:threadId/${action}`,
       guarded("annotations:write", async (c, userId) => {
-        const result = await setAnnotationThreadState(createDb(c.env.DB), {
+        const result = await setAnnotationThreadState(await artifactDb(c.env, artifactId(c)), {
           userId,
           artifactId: artifactId(c),
           threadId: param(c, "threadId"),
@@ -207,7 +207,7 @@ export function annotationRoutes(
   api.delete(
     `${BASE}/threads/:threadId`,
     guarded("annotations:moderate", async (c, userId) => {
-      const result = await deleteAnnotationThread(createDb(c.env.DB), {
+      const result = await deleteAnnotationThread(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         threadId: param(c, "threadId"),
@@ -223,7 +223,7 @@ export function annotationRoutes(
     guarded("annotations:write", async (c, userId) => {
       const body = await readJson(c, EditMessageRequest, ANNOTATION_LIMITS.createPayloadMaxBytes);
       if (!body.ok) return body.response;
-      const result = await editAnnotationMessage(createDb(c.env.DB), {
+      const result = await editAnnotationMessage(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         messageId: param(c, "messageId"),
@@ -238,7 +238,7 @@ export function annotationRoutes(
   api.delete(
     `${BASE}/messages/:messageId`,
     guarded("annotations:write", async (c, userId) => {
-      const result = await deleteOwnAnnotationMessage(createDb(c.env.DB), {
+      const result = await deleteOwnAnnotationMessage(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         messageId: param(c, "messageId"),
@@ -254,7 +254,7 @@ export function annotationRoutes(
     guarded("annotations:moderate", async (c, userId) => {
       const body = await readJson(c, ModerateMessageRequest);
       if (!body.ok) return body.response;
-      const result = await moderateAnnotationMessage(createDb(c.env.DB), {
+      const result = await moderateAnnotationMessage(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         messageId: param(c, "messageId"),

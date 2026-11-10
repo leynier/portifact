@@ -912,6 +912,8 @@ export const zhCN = {
   "error.artifact_archived": "该 artifact 已归档。请先恢复。",
   "error.account_too_new_for_public": "新账号暂时无法将 artifact 设为公开。",
   "error.capacity_unavailable": "Portifact 当前已达容量上限。请稍后重试。",
+  "error.sole_workspace_admin":
+    "你是某个工作区唯一的管理员。删除账号前，请先将另一位成员设为管理员，或删除该工作区。",
   "error.rate_limited": "请求过多。请稍等片刻后重试。",
   "error.reauthentication_required": "请重新登录后再执行此操作。",
   "error.human_verification_required":

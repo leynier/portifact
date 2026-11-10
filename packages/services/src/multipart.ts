@@ -9,7 +9,7 @@
 // wrong assembly at the shared key could overwrite bytes another publish already verified. The
 // commit rehashes the staged object as a stream, copies it to the object's key with the SHA-256
 // R2 checks again, and only then deletes the staging copy.
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   fail,
   isPlannedPart,
@@ -20,6 +20,7 @@ import {
   type Result,
 } from "@portifact/domain";
 import { and, eq, type SQL, sql } from "drizzle-orm";
+import { authorizeOn } from "./actors.ts";
 import { hex } from "./objects.ts";
 
 /** Where a session assembles the parts of one object before the commit verifies it. */
@@ -300,7 +301,8 @@ async function forgetParts(db: Db, sessionId: string, sha256: string): Promise<v
 }
 
 export interface ReportPartInput {
-  ownerId: string;
+  /** The signed-in user; an admin or editor of the upload's owner may report its parts. */
+  userId: string;
   sessionId: string;
   sha256: string;
   partNumber: number;
@@ -320,7 +322,10 @@ export function bareEtag(etag: string): string {
   return etag.replace(/^W\//, "").replace(/^"(.*)"$/, "$1");
 }
 
-export async function reportUploadedPart(db: Db, input: ReportPartInput): Promise<Result<true>> {
+export async function reportUploadedPart(
+  db: RegionalDb,
+  input: ReportPartInput,
+): Promise<Result<true>> {
   const [session] = await db
     .select({
       ownerId: schema.uploadSessions.ownerId,
@@ -330,7 +335,10 @@ export async function reportUploadedPart(db: Db, input: ReportPartInput): Promis
     .from(schema.uploadSessions)
     .where(eq(schema.uploadSessions.id, input.sessionId))
     .limit(1);
-  if (!session || session.ownerId !== input.ownerId) return fail("not_found", "Upload not found.");
+  const missing = () => fail<never>("not_found", "Upload not found.");
+  if (!session) return missing();
+  const allowed = await authorizeOn(db, input.userId, session.ownerId, "publish", missing);
+  if (!allowed.ok) return allowed;
   if (
     (session.state !== "uploading" && session.state !== "ready") ||
     input.now >= session.expiresAt

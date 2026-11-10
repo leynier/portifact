@@ -77,7 +77,8 @@ describe("migration 0027: account limits as columns", () => {
     triggersBefore = await triggers();
     indexesBefore = [await indexCount("account_usage"), await indexCount("annotation_usage")];
 
-    await applyD1Migrations(env.MIGRATION_DB, all);
+    // Up to 0027 only: later migrations add triggers of their own (0029 on workspaces).
+    await applyD1Migrations(env.MIGRATION_DB, all.slice(0, at + 1));
   });
 
   it("keeps every existing value and gives the rows the free plan's limits", async () => {

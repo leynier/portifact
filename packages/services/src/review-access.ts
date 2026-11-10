@@ -4,7 +4,7 @@
 // version. Renewing the session's claims applies the same access check as read sessions, so a
 // revocation or signing out of the app ends review within the claims' lifetime.
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { checkReadAccess, hashSecret, liveAppSession, randomToken } from "./read-access.ts";
@@ -71,7 +71,7 @@ export function reviewSessionTtlMs(kind: ReviewKind): number {
  * review tab). Returns the code, which is shown once and stored only as a hash.
  */
 export async function issueReviewHandoff(
-  db: Db,
+  db: RegionalDb,
   input: {
     artifactId: string;
     userId: string;
@@ -181,7 +181,7 @@ export async function redeemReviewHandoff(
  * artifact's current access policy.
  */
 export async function refreshReviewSession(
-  db: Db,
+  db: RegionalDb,
   input: { sessionId: string; artifactId: string; now: number },
 ): Promise<Result<ReviewGrant>> {
   const sessions = schema.reviewSessions;

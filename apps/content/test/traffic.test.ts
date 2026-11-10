@@ -3,7 +3,7 @@
 // quota starts again with the next month.
 import { env } from "cloudflare:test";
 import { PLANS, TRAFFIC_LIMITS } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { recordTraffic, type TrafficDelta } from "@portifact/services";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handle } from "../src/index.ts";
@@ -16,7 +16,7 @@ const NOVEMBER = Date.UTC(2026, 10, 1);
 const DECEMBER = Date.UTC(2026, 11, 1);
 const BODY = "<h1>Plan</h1>";
 const HASH = "a".repeat(64);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 async function seed() {
   for (const table of [

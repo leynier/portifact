@@ -21,3 +21,4 @@ export * from "./read.ts";
 export * from "./review.ts";
 export * from "./usage.ts";
 export * from "./versions.ts";
+export * from "./workspaces.ts";

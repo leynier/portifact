@@ -3,7 +3,7 @@
 // artifact origin's part.
 import { env } from "cloudflare:workers";
 import { REVIEW_SESSION, ReviewStart, ReviewTabStart, ViewerInfo } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { hashSecret, redeemReviewHandoff, reviewSessionTag } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ import { REVIEW_START_LIMIT, VIEWER_LOOKUP_LIMIT } from "../src/auth/limits.ts";
 import { publishSite, type TokenClient, tokenClient } from "./api-client.ts";
 import { createHarness, type Harness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 function start(
   h: Harness,

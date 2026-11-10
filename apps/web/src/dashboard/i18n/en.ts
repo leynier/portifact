@@ -968,6 +968,8 @@ export const en = {
   "error.artifact_archived": "The artifact is archived. Restore it first.",
   "error.account_too_new_for_public": "New accounts cannot make artifacts public yet.",
   "error.capacity_unavailable": "Portifact is at capacity right now. Try again later.",
+  "error.sole_workspace_admin":
+    "You are the only admin of a workspace. Make another member an admin or delete the workspace before deleting your account.",
   "error.rate_limited": "Too many requests. Wait a moment and try again.",
   "error.reauthentication_required": "Sign in again to do that.",
   "error.human_verification_required":

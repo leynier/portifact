@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { OTP_LIMITS } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { regionsFromEnv } from "@portifact/db";
 import { SIGN_IN_EMAILS_PER_CYCLE } from "@portifact/domain";
 import { emailsSentInCycle, isEmailSuppressed, suppressEmail } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -308,7 +308,7 @@ describe("limits on sending codes", () => {
 });
 
 describe("email quota and suppression", () => {
-  const db = () => createDb(env.DB);
+  const db = () => regionsFromEnv(env).get("default").db;
 
   it("counts every code it sends for the budget", async () => {
     const h = createHarness();

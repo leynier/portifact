@@ -1,5 +1,5 @@
 import { createExecutionContext, createMessageBatch, env, getQueueResult } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { RecipientSuppressedError } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -8,7 +8,7 @@ import { expiryNotifierFromEnv, NOTICE_SENDER, noticeEmail } from "../src/notice
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 12, 9);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 type Sent = Parameters<SendEmail["send"]>[0];
 

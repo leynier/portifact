@@ -5,6 +5,7 @@
 import { env } from "cloudflare:test";
 import { LIMITS, PLANS } from "@portifact/contracts";
 import { schema } from "@portifact/db";
+import { personalActor } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -25,7 +26,7 @@ import {
 } from "../src/plans.ts";
 import { type ManifestEntry, type PrepareInput, preparePublish } from "../src/publish.ts";
 import { listVersions, rollbackArtifact } from "../src/versions.ts";
-import { DAY, db, NOW, publishSite, racing, sha256, user } from "./fixtures.ts";
+import { DAY, db, NOW, publishSite, racing, sha256, user, value } from "./fixtures.ts";
 
 function grant(ownerId: string, overrides: Partial<SetOwnerPlanInput> = {}) {
   return setOwnerPlan(db(), {
@@ -92,7 +93,7 @@ async function site(body: string): Promise<ManifestEntry[]> {
 }
 
 const prepareInput = (ownerId: string, files: ManifestEntry[]): PrepareInput => ({
-  ownerId,
+  userId: ownerId,
   type: "site",
   name: "Race",
   entrypoint: "index.html",
@@ -147,7 +148,7 @@ describe("granting a plan", () => {
     expect(state.row).toMatchObject({ plan: "pro", validUntil: NOW + DAY, note: "downgraded" });
     expect(state.account).toMatchObject({ activeArtifacts: 1, activeLimit: 500 });
     expect(
-      (await getArtifact(db(), { ownerId: owner.id, artifactId: published.artifactId }))?.id,
+      value(await getArtifact(db(), { userId: owner.id, artifactId: published.artifactId })).id,
     ).toBe(published.artifactId);
   });
 
@@ -275,13 +276,16 @@ describe("a lower plan", () => {
       message: "You already have 1 active artifacts.",
     });
     // Reads, listing and the export.
-    expect(await getArtifact(db(), { ownerId: owner.id, artifactId: one.artifactId })).toBeTruthy();
+    expect((await getArtifact(db(), { userId: owner.id, artifactId: one.artifactId })).ok).toBe(
+      true,
+    );
     expect(
-      (await listArtifacts(db(), { ownerId: owner.id, limit: 10, now: NOW }))?.items,
+      value(await listArtifacts(db(), { actor: personalActor(owner.id), limit: 10, now: NOW }))
+        .items,
     ).toHaveLength(3);
     expect(
       await listVersions(db(), {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: two.artifactId,
         now: NOW,
         limit: 10,
@@ -291,11 +295,11 @@ describe("a lower plan", () => {
     expect(exported.ok && exported.value.artifacts).toHaveLength(3);
     // Renewal, rollback and access reduction.
     expect(
-      await renewArtifact(db(), { ownerId: owner.id, artifactId: one.artifactId, now: NOW + DAY }),
+      await renewArtifact(db(), { userId: owner.id, artifactId: one.artifactId, now: NOW + DAY }),
     ).toMatchObject({ ok: true });
     expect(
       await rollbackArtifact(db(), {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: two.artifactId,
         versionId: two.versionId,
         baseVersionId: v2.versionId,
@@ -304,7 +308,7 @@ describe("a lower plan", () => {
     ).toMatchObject({ ok: true });
     expect(
       await updateAccess(db(), {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: one.artifactId,
         change: { mode: "restricted" },
         now: NOW + DAY,
@@ -313,14 +317,14 @@ describe("a lower plan", () => {
     // Archiving frees a slot, but restoring needs one under the new limit.
     expect(
       await archiveArtifact(db(), {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: one.artifactId,
         now: NOW + DAY,
       }),
     ).toMatchObject({ ok: true });
     expect(
       await restoreArtifact(db(), {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: one.artifactId,
         now: NOW + DAY,
       }),
@@ -332,7 +336,7 @@ describe("a lower plan", () => {
     // Deletion.
     expect(
       await deleteArtifact(db(), env.ARTIFACTS, {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: one.artifactId,
         now: NOW + DAY,
       }),
@@ -359,7 +363,7 @@ describe("a lower plan", () => {
     });
     expect(
       await rollbackArtifact(db(), {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: v1.artifactId,
         versionId: v1.versionId,
         baseVersionId: v2.versionId,

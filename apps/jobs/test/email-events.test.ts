@@ -1,13 +1,13 @@
 // The consumer of the `portifact-email-events` queue: Cloudflare Email Service publishes bounces
 // and complaints there, and the consumer records them in the suppression list.
 import { createExecutionContext, createMessageBatch, env, getQueueResult } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { isEmailSuppressed } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker, { EMAIL_EVENTS_QUEUE } from "../src/index.ts";
 
 const NOW = Date.UTC(2026, 10, 8);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 function event(type: string, recipient: string, bounce?: string) {
   return {

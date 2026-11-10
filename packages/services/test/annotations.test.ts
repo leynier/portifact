@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { ANNOTATION_LIMITS, type AnnotationTarget } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -23,7 +23,7 @@ import {
 import { setOwnerPlan } from "../src/plans.ts";
 import { grantPlan } from "./fixtures.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const NOW = Date.UTC(2026, 10, 8, 12);
 const MINUTE = 60_000;
 const DAY = 86_400_000;
@@ -943,7 +943,7 @@ describe("moderation and resolution", () => {
     const thread = await started(w, w.reader);
     const [reader] = await db().select().from(schema.users).where(eq(schema.users.id, w.reader));
     await updateAccess(db(), {
-      ownerId: w.owner,
+      userId: w.owner,
       artifactId: w.id,
       change: { removeReaders: [reader?.email ?? ""] },
       now: NOW,
@@ -1494,7 +1494,7 @@ describe("concurrency", () => {
     const [reader] = await db().select().from(schema.users).where(eq(schema.users.id, w.reader));
     const revoke = () =>
       updateAccess(db(), {
-        ownerId: w.owner,
+        userId: w.owner,
         artifactId: w.id,
         change: { removeReaders: [reader?.email ?? ""] },
         now: NOW,
@@ -1520,7 +1520,7 @@ describe("concurrency", () => {
     const thread = await started(w, w.reader);
     const toggle = () =>
       updateAccess(db(), {
-        ownerId: w.owner,
+        userId: w.owner,
         artifactId: w.id,
         change: { indexable: false },
         now: NOW,
@@ -1879,7 +1879,7 @@ describe("comment visibility", () => {
     return other.id;
   }
   const setVisibility = (w: World, change: Parameters<typeof updateAccess>[1]["change"]) =>
-    updateAccess(db(), { ownerId: w.owner, artifactId: w.id, change, now: NOW });
+    updateAccess(db(), { userId: w.owner, artifactId: w.id, change, now: NOW });
   const ids = async (w: World, userId: string) => {
     const page = await list(w, userId);
     if (!page.ok) throw new Error(page.code);
@@ -2079,7 +2079,7 @@ describe("comment visibility", () => {
     });
     const page = await list(w, w.reader, { cursor: encodeAnnotationCursor(0) });
     expect(page.ok).toBe(true);
-    await listAnnotations(createDb(recording), {
+    await listAnnotations(regionalDb(recording, globalDb(recording)), {
       userId: w.reader,
       artifactId: w.id,
       limit: 25,

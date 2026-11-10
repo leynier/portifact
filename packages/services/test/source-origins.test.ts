@@ -1,7 +1,7 @@
 // The declared git origin of a version's sources: stored at prepare, owner-only through the
 // version reads, copied by a rollback and deleted with its version.
 import { env } from "cloudflare:test";
-import { createDb } from "@portifact/db";
+import { regionsFromEnv } from "@portifact/db";
 import type { SourceOriginInput } from "@portifact/domain";
 import { beforeEach, describe, expect, it } from "vitest";
 import { pruneVersions } from "../src/maintenance.ts";
@@ -12,7 +12,7 @@ const OWNER = "u_owner";
 const NOW = Date.UTC(2026, 10, 8, 12);
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const ORIGIN = {
   commit: "0123456789abcdef0123456789abcdef01234567",
@@ -48,7 +48,7 @@ async function publish(options: {
   const files = [await entry("index.html", "published", options.page)];
   if (options.source !== undefined) files.push(await entry("src/app.ts", "source", options.source));
   const prepared = await preparePublish(db(), {
-    ownerId: OWNER,
+    userId: OWNER,
     ...(options.artifactId ? { artifactId: options.artifactId } : {}),
     type: "site",
     name: "Site",
@@ -65,7 +65,7 @@ async function publish(options: {
     await env.ARTIFACTS.put(`objects/${OWNER}/${hash}`, body, { sha256: hash });
   }
   const committed = await commitPublish(db(), env.ARTIFACTS, {
-    ownerId: OWNER,
+    userId: OWNER,
     sessionId: prepared.value.sessionId,
     now,
   });
@@ -100,7 +100,7 @@ describe("source origin", () => {
   it("is stored with the version and returned in its listing and manifest", async () => {
     const published = await publish({ page: "<p>1</p>", source: "let a = 1;", origin: ORIGIN });
     const page = await listVersions(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: published.artifactId,
       now: NOW,
       limit: 10,
@@ -108,7 +108,7 @@ describe("source origin", () => {
     if (!page.ok) throw new Error(page.message);
     expect(page.value.items[0]?.sourceOrigin).toEqual(ORIGIN);
     const manifest = await getVersionManifest(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: published.artifactId,
       versionId: "current",
       now: NOW,
@@ -128,7 +128,7 @@ describe("source origin", () => {
       now: NOW + HOUR,
     });
     const page = await listVersions(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: first.artifactId,
       now: NOW + HOUR,
       limit: 10,
@@ -143,7 +143,7 @@ describe("source origin", () => {
   it("is refused without source files, or with credentials in the remote, before anything is stored", async () => {
     const files = [await entry("index.html", "published", "<p>1</p>")];
     const base = {
-      ownerId: OWNER,
+      userId: OWNER,
       type: "site" as const,
       name: "Site",
       entrypoint: "index.html",
@@ -176,7 +176,7 @@ describe("source origin", () => {
       now: NOW + HOUR,
     });
     const rolled = await rollbackArtifact(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: v1.artifactId,
       versionId: v1.versionId,
       baseVersionId: v2.versionId,
@@ -184,7 +184,7 @@ describe("source origin", () => {
     });
     if (!rolled.ok) throw new Error(rolled.message);
     const manifest = await getVersionManifest(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: v1.artifactId,
       versionId: rolled.value.versionId,
       now: NOW + 2 * HOUR,
@@ -195,7 +195,7 @@ describe("source origin", () => {
 
     // A rollback that conflicts copies nothing.
     const stale = await rollbackArtifact(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       artifactId: v1.artifactId,
       versionId: v1.versionId,
       baseVersionId: v2.versionId,

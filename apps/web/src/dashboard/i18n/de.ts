@@ -1008,6 +1008,8 @@ export const de = {
   "error.artifact_archived": "Das Artifact ist archiviert. Stell es zuerst wieder her.",
   "error.account_too_new_for_public": "Neue Konten können Artifacts noch nicht öffentlich machen.",
   "error.capacity_unavailable": "Portifact ist gerade ausgelastet. Versuch es später noch einmal.",
+  "error.sole_workspace_admin":
+    "Du bist die einzige Person mit Adminrechten in einem Workspace. Mach ein anderes Mitglied zum Admin oder lösche den Workspace, bevor du dein Konto löschst.",
   "error.rate_limited": "Zu viele Anfragen. Warte einen Moment und versuch es noch einmal.",
   "error.reauthentication_required": "Melde dich erneut an, um das zu tun.",
   "error.human_verification_required":

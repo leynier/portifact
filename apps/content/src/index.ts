@@ -4,14 +4,15 @@
 // visitors in the owner's access log. See docs/security.md for the invariants enforced here.
 import { ERROR_STATUS, REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import {
-  createAccessDb,
-  createDb,
-  type Db,
+  type AccessDb,
   type DeliveryArtifact,
   type DeliveryFile,
   findDeliveryArtifact,
   findPublishedFile,
   findRenderedPage,
+  type RegionalDb,
+  type RegionHandles,
+  regionsFromEnv,
 } from "@portifact/db";
 import {
   chargedBytes,
@@ -25,7 +26,12 @@ import {
   trafficExhausted,
 } from "@portifact/domain";
 import { documentPolicy } from "@portifact/render/policy";
-import { recordOpenings, recordTraffic } from "@portifact/services";
+import {
+  artifactHandles,
+  personalHandles,
+  recordOpenings,
+  recordTraffic,
+} from "@portifact/services";
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
@@ -133,7 +139,8 @@ let meter: TrafficMeter | undefined;
 
 /** The isolate's meter, writing to the D1 binding of the request that creates it. */
 export function isolateMeter(env: Env): TrafficMeter {
-  meter ??= new TrafficMeter((deltas) => recordTraffic(createDb(env.DB), deltas, Date.now()));
+  // One region for now; with a second (E5) the meter keeps one pending batch per region.
+  meter ??= new TrafficMeter((deltas) => recordTraffic(defaultRegion(env).db, deltas, Date.now()));
   return meter;
 }
 
@@ -143,7 +150,7 @@ let openings: OpeningLog | undefined;
 /** The isolate's access log buffer, writing through the bindings of the request that creates it. */
 export function isolateOpenings(env: Env): OpeningLog {
   openings ??= new OpeningLog((batch) =>
-    recordOpenings(createDb(env.DB), createAccessDb(env.ACCESS_DB), batch),
+    recordOpenings(defaultRegion(env).db, accessDbOf(defaultRegion(env)), batch),
   );
   return openings;
 }
@@ -229,7 +236,9 @@ async function route(
     });
   }
 
-  const db = createDb(env.DB);
+  // The region that holds the artifact, from the global directory (decision 0005).
+  const regions = regionsFromEnv(env);
+  const db = ((await artifactHandles(regions, id)) ?? personalHandles(regions)).db;
   if (url.pathname === CALLBACK_PATH) {
     return decisionResponse(await handleCallback(request, env, db, id, now));
   }
@@ -285,7 +294,7 @@ async function route(
 interface Delivery {
   request: Request;
   env: Env;
-  db: Db;
+  db: RegionalDb;
   url: URL;
   now: number;
   cycle: TrafficCycle;
@@ -515,7 +524,7 @@ function opensInViewer(
  * its original is a download at its own path, and Markdown assets are files like a site's.
  */
 async function resolveFile(
-  db: Db,
+  db: RegionalDb,
   artifact: ServableArtifact,
   versionId: string,
   pathname: string,
@@ -691,4 +700,15 @@ function message(
       ...(options.allow ? { Allow: options.allow } : {}),
     },
   });
+}
+
+/** The default region's handles: the only region until E5. */
+function defaultRegion(env: Env): RegionHandles {
+  return personalHandles(regionsFromEnv(env));
+}
+
+/** The region's access log database; the content Worker is always bound to it. */
+function accessDbOf(handles: RegionHandles): AccessDb {
+  if (!handles.accessDb) throw new Error(`Region ${handles.region} has no access log binding`);
+  return handles.accessDb;
 }

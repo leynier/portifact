@@ -1009,6 +1009,8 @@ export const fr = {
     "Les nouveaux comptes ne peuvent pas encore rendre des artifacts publics.",
   "error.capacity_unavailable":
     "Portifact a atteint sa capacité pour le moment. Réessayez plus tard.",
+  "error.sole_workspace_admin":
+    "Vous êtes la seule personne à administrer un workspace. Nommez un autre membre administrateur ou supprimez le workspace avant de supprimer votre compte.",
   "error.rate_limited": "Trop de requêtes. Patientez un instant et réessayez.",
   "error.reauthentication_required": "Reconnectez-vous pour faire cela.",
   "error.human_verification_required":

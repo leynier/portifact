@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { MULTIPART } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import type { MultipartConfig } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -22,7 +22,7 @@ const DAY = 86_400_000;
 /** Small enough to test quickly; R2 (and its local emulation) needs parts of at least 5 MiB. */
 const CONFIG: MultipartConfig = { thresholdBytes: 6 * MiB, partBytes: 5 * MiB };
 const SIZE = 12 * MiB;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 function bytes(size: number, seed: number): Uint8Array {
   const out = new Uint8Array(size);
@@ -41,7 +41,7 @@ function owner(): string {
 
 async function input(ownerId: string, data: Uint8Array, extra: Partial<PrepareInput> = {}) {
   return {
-    ownerId,
+    userId: ownerId,
     type: "site" as const,
     name: "Large",
     entrypoint: "index.html",
@@ -102,7 +102,7 @@ async function sendPart(
   );
   if (report) {
     const reported = await reportUploadedPart(db(), {
-      ownerId,
+      userId: ownerId,
       sessionId,
       sha256: large.sha256,
       partNumber,
@@ -115,7 +115,7 @@ async function sendPart(
 }
 
 async function currentState(ownerId: string, sessionId: string, sha: string) {
-  const progress = await uploadProgress(db(), { ownerId, sessionId, now: NOW });
+  const progress = await uploadProgress(db(), { userId: ownerId, sessionId, now: NOW });
   if (!progress.ok) throw new Error(progress.message);
   const state = progress.value.uploads.find((upload) => upload.sha256 === sha)?.multipart;
   if (!state) throw new Error("no multipart state");
@@ -156,7 +156,7 @@ describe("the multipart threshold", () => {
     const prepared = await preparePublish(
       db(),
       {
-        ownerId: id,
+        userId: id,
         type: "site",
         name: "Boundary",
         entrypoint: `f${MULTIPART.thresholdBytes}.bin`,
@@ -178,7 +178,7 @@ describe("the multipart threshold", () => {
       doneParts: [],
       key: stagingKey(id, prepared.value.sessionId, "b".repeat(64)),
     });
-    await abortPublish(db(), { ownerId: id, sessionId: prepared.value.sessionId, now: NOW });
+    await abortPublish(db(), { userId: id, sessionId: prepared.value.sessionId, now: NOW });
     await runJobs(prepared.value.sessionId);
   });
 
@@ -213,7 +213,7 @@ describe("a multipart upload", () => {
     await sendPart(id, prepared.sessionId, large, data, 3);
 
     const committed = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -247,7 +247,7 @@ describe("a multipart upload", () => {
       await sendPart(id, prepared.sessionId, large, data, part, true, true);
 
     const committed = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -262,7 +262,7 @@ describe("a multipart upload", () => {
     const { prepared, large } = await prepareLarge(id, data);
     await sendPart(id, prepared.sessionId, large, data, 1);
     const early = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -271,7 +271,7 @@ describe("a multipart upload", () => {
     await sendPart(id, prepared.sessionId, large, data, 2);
     await sendPart(id, prepared.sessionId, large, data, 3);
     const late = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -285,7 +285,7 @@ describe("a multipart upload", () => {
     await sendPart(id, prepared.sessionId, large, data, 1);
     await sendPart(id, prepared.sessionId, large, data, 2, false);
     await reportUploadedPart(db(), {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       sha256: large.sha256,
       partNumber: 2,
@@ -294,7 +294,7 @@ describe("a multipart upload", () => {
     });
     await sendPart(id, prepared.sessionId, large, data, 3);
     const refused = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -304,7 +304,7 @@ describe("a multipart upload", () => {
 
     for (const part of [1, 2, 3]) await sendPart(id, prepared.sessionId, large, data, part);
     const committed = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -319,7 +319,7 @@ describe("a multipart upload", () => {
     corrupted[6 * MiB] = (corrupted[6 * MiB] ?? 0) ^ 1;
     for (const part of [1, 2, 3]) await sendPart(id, prepared.sessionId, large, corrupted, part);
     const refused = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -334,7 +334,7 @@ describe("a multipart upload", () => {
 
     for (const part of [1, 2, 3]) await sendPart(id, prepared.sessionId, large, data, part);
     const committed = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -349,7 +349,7 @@ describe("a multipart upload", () => {
     await sendPart(id, prepared.sessionId, large, data, 2);
     await sendPart(id, prepared.sessionId, large, data.slice(0, 11 * MiB), 3);
     const refused = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -375,7 +375,7 @@ describe("a multipart upload", () => {
     await env.ARTIFACTS.delete(large.multipart.key);
 
     const committed = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -388,7 +388,7 @@ describe("a multipart upload", () => {
     const { prepared, large } = await prepareLarge(id, data);
     await env.ARTIFACTS.put(large.r2Key, data, { sha256: large.sha256 });
     const committed = await commitPublish(db(), env.ARTIFACTS, {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       now: NOW,
     });
@@ -412,12 +412,12 @@ describe("closing a multipart upload", () => {
     await env.ARTIFACTS.put(large.multipart.key, "partial staging copy");
 
     expect(
-      await abortPublish(db(), { ownerId: id, sessionId: prepared.sessionId, now: NOW }),
+      await abortPublish(db(), { userId: id, sessionId: prepared.sessionId, now: NOW }),
     ).toEqual({ ok: true, value: true });
     expect(await usage(id)).toMatchObject({ reservedBytes: 0, openUploads: 0 });
     expect(await jobsOf(prepared.sessionId)).toHaveLength(1);
     // Aborting again writes no second job.
-    await abortPublish(db(), { ownerId: id, sessionId: prepared.sessionId, now: NOW });
+    await abortPublish(db(), { userId: id, sessionId: prepared.sessionId, now: NOW });
     expect(await jobsOf(prepared.sessionId)).toHaveLength(1);
 
     await runJobs(prepared.sessionId);
@@ -435,7 +435,7 @@ describe("closing a multipart upload", () => {
     expect(parts).toEqual([]);
     // A late report finds the upload closed.
     const late = await reportUploadedPart(db(), {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       sha256: large.sha256,
       partNumber: 2,
@@ -496,7 +496,7 @@ describe("closing a multipart upload", () => {
     await db()
       .insert(schema.accountUsage)
       .values({ ownerId: id, storedBytes: 2_500_000_000 - SIZE - 1_000, monthStartedAt: NOW });
-    const racer = createDb(env.DB);
+    const racer = regionsFromEnv(env).get("default").db;
     const failing = new Proxy(db(), {
       get(target, property, receiver) {
         if (property !== "batch") return Reflect.get(target, property, receiver);
@@ -531,14 +531,14 @@ describe("reporting a part", () => {
     const data = bytes(SIZE, 13);
     const { prepared, large } = await prepareLarge(id, data);
     const base = {
-      ownerId: id,
+      userId: id,
       sessionId: prepared.sessionId,
       sha256: large.sha256,
       partNumber: 1,
       etag: "e",
       now: NOW,
     };
-    expect(await reportUploadedPart(db(), { ...base, ownerId: owner() })).toMatchObject({
+    expect(await reportUploadedPart(db(), { ...base, userId: owner() })).toMatchObject({
       code: "not_found",
     });
     expect(await reportUploadedPart(db(), { ...base, sessionId: "upl_missing" })).toMatchObject({
@@ -553,7 +553,7 @@ describe("reporting a part", () => {
     expect(await reportUploadedPart(db(), { ...base, now: NOW + 2 * DAY })).toMatchObject({
       code: "upload_incomplete",
     });
-    await abortPublish(db(), { ownerId: id, sessionId: prepared.sessionId, now: NOW });
+    await abortPublish(db(), { userId: id, sessionId: prepared.sessionId, now: NOW });
     expect(await reportUploadedPart(db(), base)).toMatchObject({ code: "upload_incomplete" });
   });
 });

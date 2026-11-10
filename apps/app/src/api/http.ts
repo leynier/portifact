@@ -5,11 +5,11 @@ import {
   IdempotencyKey,
   type OAuthScope,
 } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
 import { hashRequest, runIdempotent, type StoredResponse } from "@portifact/services";
 import type { Context } from "hono";
 import type { z } from "zod";
 import type { Env } from "../env.ts";
+import { defaultDb } from "../regions.ts";
 
 export type ApiContext = Context<{ Bindings: Env }>;
 
@@ -82,7 +82,7 @@ export async function idempotent(
     return error(c, "invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
   }
   const outcome = await runIdempotent(
-    createDb(c.env.DB),
+    defaultDb(c.env),
     {
       actorId: input.userId,
       key: key.data,

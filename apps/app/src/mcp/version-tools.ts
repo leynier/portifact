@@ -15,7 +15,7 @@ import {
   VersionList,
   VersionManifest,
 } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import {
   getVersionDownload,
   getVersionManifest,
@@ -32,6 +32,7 @@ import {
   versionList,
   versionManifest,
 } from "../api/versions.ts";
+import { artifactDb } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 /** The scope of each version tool: the scope of the API route for the same operation. */
@@ -45,7 +46,11 @@ export const VERSION_TOOL_SCOPES: [string, OAuthScope][] = [
 
 const READ_ONLY = { readOnlyHint: true, openWorldHint: false };
 
-export function registerVersionTools(register: RegisterTool, context: ToolContext, db: Db): void {
+export function registerVersionTools(
+  register: RegisterTool,
+  context: ToolContext,
+  db: RegionalDb,
+): void {
   register(
     "read_artifact",
     {
@@ -57,15 +62,19 @@ export function registerVersionTools(register: RegisterTool, context: ToolContex
       annotations: READ_ONLY,
     },
     async (args: ReadArtifactInput) => {
-      const result = await readVersionFile(db, context.env.ARTIFACTS, {
-        userId: context.userId,
-        artifactId: args.artifactId,
-        versionId: args.versionId,
-        kind: args.kind,
-        path: args.path,
-        offset: args.offset,
-        now: context.now(),
-      });
+      const result = await readVersionFile(
+        await artifactDb(context.env, args.artifactId),
+        context.env.ARTIFACTS,
+        {
+          userId: context.userId,
+          artifactId: args.artifactId,
+          versionId: args.versionId,
+          kind: args.kind,
+          path: args.path,
+          offset: args.offset,
+          now: context.now(),
+        },
+      );
       if (!result.ok) return failure(result.code, result.message);
       const body = artifactContent(result.value);
       const end = body.offset + body.length;
@@ -98,8 +107,8 @@ export function registerVersionTools(register: RegisterTool, context: ToolContex
       annotations: READ_ONLY,
     },
     async (args: ListVersionsInput) => {
-      const result = await listVersions(db, {
-        ownerId: context.userId,
+      const result = await listVersions(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
         artifactId: args.artifactId,
         now: context.now(),
         cursor: args.cursor,
@@ -129,8 +138,8 @@ export function registerVersionTools(register: RegisterTool, context: ToolContex
       annotations: READ_ONLY,
     },
     async (args: GetVersionInput) => {
-      const result = await getVersionManifest(db, {
-        ownerId: context.userId,
+      const result = await getVersionManifest(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
         artifactId: args.artifactId,
         versionId: args.versionId,
         now: context.now(),
@@ -156,7 +165,7 @@ export function registerVersionTools(register: RegisterTool, context: ToolContex
     },
     async (args: GetDownloadInput) => {
       const now = context.now();
-      const result = await getVersionDownload(db, {
+      const result = await getVersionDownload(await artifactDb(context.env, args.artifactId), {
         userId: context.userId,
         artifactId: args.artifactId,
         versionId: args.versionId,
@@ -190,9 +199,9 @@ export function registerVersionTools(register: RegisterTool, context: ToolContex
     },
     async (args: RollbackArtifactInput) => {
       const { idempotencyKey, artifactId, versionId, baseVersionId } = args;
-      const run = () =>
-        rollbackResponse(db, context.env, {
-          ownerId: context.userId,
+      const run = async () =>
+        rollbackResponse(await artifactDb(context.env, artifactId), context.env, {
+          userId: context.userId,
           artifactId,
           request: { versionId, baseVersionId },
           now: context.now(),

@@ -62,6 +62,7 @@ export const ErrorCode = z.enum([
   "rate_limited",
   "reauthentication_required",
   "human_verification_required",
+  "sole_workspace_admin",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 

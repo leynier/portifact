@@ -18,7 +18,7 @@
 // SameSite=Lax) for a short session, the pages show a banner instead of the bridge, and
 // /__portifact/review/end ends the session and clears the cookie.
 import { OpaqueToken, REVIEW_SESSION, ReviewClaims, type ReviewKind } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import { endReviewSession, redeemReviewHandoff, refreshReviewSession } from "@portifact/services";
 import { cookieValue, seal, setCookie, unseal, usableSecret } from "./cookies.ts";
 import type { ServableArtifact } from "./read-session.ts";
@@ -228,7 +228,7 @@ const ended = (channel: Channel): ReviewDecision => ({
 export async function authorizeReview(
   request: Request,
   env: ReviewEnv,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,
@@ -257,7 +257,7 @@ async function authorizeChannel(
   channel: Channel,
   request: Request,
   secret: string,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,
@@ -347,7 +347,7 @@ function refererOrigin(request: Request): string | null {
 export async function handleReviewExchange(
   request: Request,
   env: ReviewEnv,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   now: number,
   kind: ReviewKind = "frame",
@@ -421,7 +421,7 @@ export async function handleReviewCheck(
 export async function handleReviewEnd(
   request: Request,
   env: ReviewEnv,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
 ): Promise<ReviewStep> {
   const secret = env.READ_SESSION_SECRET;

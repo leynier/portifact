@@ -4,10 +4,11 @@
 // window. Only the owner lists them, for 30 days. Purges and account deletions erase rows through
 // `erase_access_events` outbox jobs, because no D1 batch spans both databases.
 import { ACCESS_LOG, type EraseAccessEventsPayload } from "@portifact/contracts";
-import { type AccessDb, accessSchema, type Db, schema } from "@portifact/db";
+import { type AccessDb, accessSchema, type Db, type RegionalDb, schema } from "@portifact/db";
 import { accessLogCutoff, accessWindow, fail, ok, type Result } from "@portifact/domain";
 import { and, asc, desc, eq, gt, gte, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { authorizeOn, ownerSide } from "./actors.ts";
 
 const IN_CHUNK = 80;
 /** Rows one erase or prune statement deletes, so no statement runs long. */
@@ -29,7 +30,7 @@ export interface Opening {
  * retried one, keep one row with the earliest opening. Returns how many rows it wrote.
  */
 export async function recordOpenings(
-  db: Db,
+  db: RegionalDb,
   access: AccessDb,
   openings: readonly Opening[],
 ): Promise<number> {
@@ -43,12 +44,18 @@ export async function recordOpenings(
   if (earliest.size === 0) return 0;
   const rows = [...earliest.values()];
   const owners = await activeOwners(db, [...new Set(rows.map((row) => row.artifactId))]);
-  const emails = await accountEmails(db, [...new Set(rows.map((row) => row.userId))]);
+  const emails = await accountEmails(db.global, [...new Set(rows.map((row) => row.userId))]);
+  // Visits of whoever acts for the owner (its admins and editors) are the owner's own visits.
+  const sides = new Map<string, readonly string[]>();
+  for (const ownerId of new Set(owners.values())) {
+    sides.set(ownerId, await ownerSide(db.global, ownerId));
+  }
   const e = accessSchema.accessEvents;
   const statements = rows.flatMap((row) => {
     const ownerId = owners.get(row.artifactId);
     const email = emails.get(row.userId);
-    if (ownerId === undefined || email === undefined || ownerId === row.userId) return [];
+    if (ownerId === undefined || email === undefined) return [];
+    if (sides.get(ownerId)?.includes(row.userId)) return [];
     return [
       access
         .insert(e)
@@ -102,7 +109,8 @@ async function accountEmails(db: Db, ids: readonly string[]): Promise<Map<string
 }
 
 export interface AccessLogInput {
-  ownerId: string;
+  /** The signed-in user; an admin or editor of the artifact's owner reads its access log. */
+  userId: string;
   artifactId: string;
   cursor?: string | undefined;
   limit: number;
@@ -145,7 +153,7 @@ function decodeCursor(cursor: string): { windowStart: number; userId: string } |
  * not reached yet are never returned.
  */
 export async function getAccessLog(
-  db: Db,
+  db: RegionalDb,
   access: AccessDb,
   input: AccessLogInput,
 ): Promise<Result<AccessLogPage>> {
@@ -154,14 +162,10 @@ export async function getAccessLog(
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (
-    !artifact ||
-    artifact.ownerId !== input.ownerId ||
-    artifact.state === "purging" ||
-    artifact.state === "deleted"
-  ) {
-    return fail("not_found", "Artifact not found.");
-  }
+  const missing = () => fail<never>("not_found", "Artifact not found.");
+  if (!artifact || artifact.state === "purging" || artifact.state === "deleted") return missing();
+  const allowed = await authorizeOn(db, input.userId, artifact.ownerId, "access_log", missing);
+  if (!allowed.ok) return allowed;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
   if (input.cursor !== undefined && !after) return fail("invalid_input", "Invalid cursor.");
 
@@ -169,7 +173,7 @@ export async function getAccessLog(
   const from = Math.max(accessLogCutoff(input.now), input.since ?? 0);
   const conditions: SQL[] = [
     eq(e.artifactId, input.artifactId),
-    eq(e.ownerId, input.ownerId),
+    eq(e.ownerId, artifact.ownerId),
     gte(e.openedAt, from),
   ];
   if (after) {

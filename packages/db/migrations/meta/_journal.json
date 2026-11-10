@@ -204,6 +204,13 @@
       "when": 1794281322489,
       "tag": "0028_owner_plans",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1794282306022,
+      "tag": "0029_workspaces",
+      "breakpoints": true
     }
   ]
 }

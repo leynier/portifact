@@ -20,3 +20,4 @@ export type AccessDb = ReturnType<typeof createAccessDb>;
 
 export * from "./delivery.ts";
 export * from "./rate-limits.ts";
+export * from "./regions.ts";

@@ -9,7 +9,7 @@
 // notice, which is safer than a second copy and costs nothing but the reminder.
 import { ExpiryNoticePayload } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   checkNoticeCapacity,
   EXPIRY_NOTICE,
@@ -19,6 +19,7 @@ import {
 } from "@portifact/domain";
 import { and, eq, gt, inArray, isNull, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
+import { ownerRecipients } from "./actors.ts";
 import {
   emailsSentInCycle,
   isEmailSuppressed,
@@ -61,7 +62,10 @@ function dueCondition(now: number): SQL {
   ) as SQL;
 }
 
-/** The owner did not turn notices off (no settings row means on). */
+/**
+ * The owner did not turn notices off (no settings row means on). A workspace has no settings
+ * row of its own: each admin's opt-out is checked when the notice is sent.
+ */
 const optedIn = sql`not exists (select 1 from "account_settings" where "account_settings"."user_id" = "artifacts"."owner_id" and "account_settings"."expiry_notices" = 0)`;
 
 /** The owner got no notice within the cooldown (`ownerInCooldown`). */
@@ -133,13 +137,35 @@ function skipped(reason: Skip, artifacts: number): JobOutcome {
   return "stale";
 }
 
+/** Who gets an owner's notice: the user of a personal space, or each admin of a workspace. */
+async function noticeRecipients(db: RegionalDb, ownerId: string) {
+  const recipients: { email: string; locale: LocaleCode | null; optedOut: boolean }[] = [];
+  for (const userId of await ownerRecipients(db.global, ownerId)) {
+    const [user] = await db.global
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    if (!user) continue;
+    const settings = await loadSettings(db.global, userId);
+    recipients.push({
+      email: user.email,
+      locale: settings.locale,
+      optedOut: !settings.expiryNotices,
+    });
+  }
+  return recipients;
+}
+
 /**
  * Runs an `expiry_notice` job: claims it, rechecks what changed since it was scheduled (the
- * account, the opt-out, renewals, the suppression list and the cycle's email capacity) and sends
- * one email listing the artifacts still about to expire.
+ * accounts, the opt-outs, renewals, the suppression list and the cycle's email capacity) and
+ * sends one email listing the artifacts still about to expire to the owner, or to each admin of
+ * a workspace. A failed send puts the job back only when nobody got the notice yet, so nobody
+ * gets it twice.
  */
 export async function sendExpiryNotice(
-  db: Db,
+  db: RegionalDb,
   row: typeof schema.outbox.$inferSelect,
   now: number,
   notifier: ExpiryNotifier,
@@ -156,16 +182,10 @@ export async function sendExpiryNotice(
   if (!payload.success) return skipped("nothing_due", 0);
   const scheduled = payload.data.artifacts;
 
-  const [owner] = await db
-    .select({ email: schema.users.email })
-    .from(schema.users)
-    .where(eq(schema.users.id, ownerId))
-    .limit(1);
-  if (!owner) return skipped("no_account", scheduled.length);
-  const settings = await loadSettings(db, ownerId);
-  if (!settings.expiryNotices) {
-    return skipped("opted_out", scheduled.length);
-  }
+  const recipients = await noticeRecipients(db, ownerId);
+  if (recipients.length === 0) return skipped("no_account", scheduled.length);
+  const opted = recipients.filter((recipient) => !recipient.optedOut);
+  if (opted.length === 0) return skipped("opted_out", scheduled.length);
 
   const current = new Map(
     (
@@ -196,32 +216,44 @@ export async function sendExpiryNotice(
     .sort((x, y) => x.expiresAt - y.expiresAt || (x.id < y.id ? -1 : 1));
   if (artifacts.length === 0) return skipped("nothing_due", scheduled.length);
 
-  if (await isEmailSuppressed(db, owner.email, now)) {
-    return skipped("suppressed", artifacts.length);
-  }
-  if (!checkNoticeCapacity(await emailsSentInCycle(db, now)).ok) {
-    return skipped("capacity", artifacts.length);
-  }
-
-  try {
-    await notifier.send({ to: owner.email, artifacts, locale: settings.locale });
-  } catch (error) {
-    if (error instanceof RecipientSuppressedError) {
-      await suppressEmail(db, { email: owner.email, reason: "provider", now });
-      return skipped("suppressed", artifacts.length);
+  let sent = 0;
+  let skip: Skip = "suppressed";
+  for (const recipient of opted) {
+    if (await isEmailSuppressed(db, recipient.email, now)) {
+      skip = "suppressed";
+      continue;
     }
-    // Back in the outbox for the next run, as it was scheduled; the artifacts' marks stay, so
-    // no new notice is scheduled for them meanwhile.
-    await db.insert(schema.outbox).values({
-      topic: "expiry_notice",
-      payload: payload.data,
-      availableAt: now,
-      createdAt: row.createdAt,
-      subject: ownerId,
-      attempts: row.attempts,
-    });
-    throw error;
+    if (!checkNoticeCapacity(await emailsSentInCycle(db, now)).ok) {
+      skip = "capacity";
+      break;
+    }
+    try {
+      await notifier.send({ to: recipient.email, artifacts, locale: recipient.locale });
+    } catch (error) {
+      if (error instanceof RecipientSuppressedError) {
+        await suppressEmail(db, { email: recipient.email, reason: "provider", now });
+        skip = "suppressed";
+        continue;
+      }
+      if (sent > 0) {
+        // Others already got it: a retry would send them a second copy, so this one is lost.
+        console.log(JSON.stringify({ event: "expiry_notice_failed", artifacts: artifacts.length }));
+        continue;
+      }
+      // Back in the outbox for the next run, as it was scheduled; the artifacts' marks stay, so
+      // no new notice is scheduled for them meanwhile.
+      await db.insert(schema.outbox).values({
+        topic: "expiry_notice",
+        payload: payload.data,
+        availableAt: now,
+        createdAt: row.createdAt,
+        subject: ownerId,
+        attempts: row.attempts,
+      });
+      throw error;
+    }
+    await recordEmailsSent(db, now);
+    sent += 1;
   }
-  await recordEmailsSent(db, now);
-  return "done";
+  return sent > 0 ? "done" : skipped(skip, artifacts.length);
 }

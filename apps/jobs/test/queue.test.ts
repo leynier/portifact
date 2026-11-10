@@ -1,6 +1,6 @@
 import { createExecutionContext, createMessageBatch, env, getQueueResult } from "cloudflare:test";
 import type { JobMessage } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import worker, { FAILED_RETRY_SECONDS, PENDING_RETRY_SECONDS, runScheduled } from "../src/index.ts";
@@ -12,7 +12,7 @@ function must<T>(value: T | null | undefined): T {
 }
 
 const NOW = Date.UTC(2026, 10, 8);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 
 function artifactId(): string {

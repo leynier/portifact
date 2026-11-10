@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { schema } from "@portifact/db";
-import { type PlatformMetrics, PROTECTION_ACTIONS } from "@portifact/domain";
+import { type PlatformMetrics, PROTECTION_ACTIONS, personalActor } from "@portifact/domain";
 import { beforeEach, describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import {
@@ -32,7 +32,7 @@ import {
 import { preparePublish } from "../src/publish.ts";
 import { getAccountUsage } from "../src/usage.ts";
 import { getVersionDownload, rollbackArtifact } from "../src/versions.ts";
-import { DAY, db, NOW, publishSite, sha256, user } from "./fixtures.ts";
+import { DAY, db, NOW, publishSite, sha256, user, value } from "./fixtures.ts";
 
 const GB = 1_000_000_000;
 // November has 30 days: the 16th at 00:00 is half the cycle, so counters project to double.
@@ -282,7 +282,7 @@ describe("enforcement", () => {
     const site = await publishSite(owner.id);
     await protect("slow75");
     const created = await preparePublish(db(), {
-      ownerId: owner.id,
+      userId: owner.id,
       type: "site",
       name: "New",
       entrypoint: "index.html",
@@ -303,7 +303,7 @@ describe("enforcement", () => {
     await protect("protect100", 1);
 
     const update = await preparePublish(db(), {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: v1.artifactId,
       type: "site",
       name: "Plan",
@@ -314,7 +314,7 @@ describe("enforcement", () => {
     });
     expect(update).toMatchObject({ ok: false, code: "capacity_unavailable" });
 
-    const input = { ownerId: owner.id, artifactId: v1.artifactId, now: NOW };
+    const input = { userId: owner.id, artifactId: v1.artifactId, now: NOW };
     expect((await renewArtifact(db(), input)).ok).toBe(true);
     const download = await getVersionDownload(db(), {
       userId: owner.id,
@@ -345,7 +345,7 @@ describe("enforcement", () => {
     const actor = { userId: owner.id, artifactId: site.artifactId, now: NOW };
     expect((await setAnnotationMode(db(), { ...actor, mode: "open" })).ok).toBe(true);
     const shared = await updateAccess(db(), {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: site.artifactId,
       change: { mode: "restricted", addReaders: [reader.email] },
       now: NOW,
@@ -411,9 +411,13 @@ describe("enforcement", () => {
 
   it("shows accounts a capacity block while protection limits publishing", async () => {
     const owner = await user();
-    expect((await getAccountUsage(db(), { ownerId: owner.id, now: NOW })).blocks).toEqual([]);
+    expect(
+      value(await getAccountUsage(db(), { actor: personalActor(owner.id), now: NOW })).blocks,
+    ).toEqual([]);
     await protect("protect100", 2);
-    const [block] = (await getAccountUsage(db(), { ownerId: owner.id, now: NOW })).blocks;
+    const [block] = value(
+      await getAccountUsage(db(), { actor: personalActor(owner.id), now: NOW }),
+    ).blocks;
     expect(block).toMatchObject({ reason: "capacity", stops: "publishing", until: null });
     expect(block?.message).toMatch(/^New uploads and comments are paused/);
   });
@@ -430,7 +434,9 @@ describe("enforcement", () => {
         updatedAt: NOW,
       });
     await protect("slow75");
-    const { blocks } = await getAccountUsage(db(), { ownerId: owner.id, now: NOW });
+    const { blocks } = value(
+      await getAccountUsage(db(), { actor: personalActor(owner.id), now: NOW }),
+    );
     expect(blocks.map((b) => [b.reason, b.stops])).toEqual([
       ["capacity", "new_artifacts"],
       ["traffic", "serving"],

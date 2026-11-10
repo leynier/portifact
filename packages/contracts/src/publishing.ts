@@ -307,4 +307,5 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   reauthentication_required: 403,
   human_verification_required: 403,
   capacity_unavailable: 503,
+  sole_workspace_admin: 409,
 };

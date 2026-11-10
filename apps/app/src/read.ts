@@ -7,13 +7,13 @@
 // also bound to the dashboard session, so signing out of the app ends the read sessions it
 // opened.
 import { ArtifactId, OpaqueToken } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { issueReadHandoff } from "@portifact/services";
 import { Hono } from "hono";
 import type { Auth } from "./auth/auth.ts";
 import { checkLimits, READ_ENTRY_LIMIT } from "./auth/limits.ts";
 import type { Env } from "./env.ts";
+import { artifactDb } from "./regions.ts";
 
 /** Where the login page explains that the artifact cannot be opened with this account. */
 export const UNAVAILABLE_URL = "/login?error=artifact_unavailable";
@@ -51,7 +51,7 @@ export function readRoutes(authFor: (env: Env) => Auth) {
       return response;
     }
 
-    const issued = await issueReadHandoff(createDb(c.env.DB), {
+    const issued = await issueReadHandoff(await artifactDb(c.env, id), {
       artifactId: id,
       userId: session.user.id,
       authSessionId: session.session.id,

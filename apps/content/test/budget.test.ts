@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { PROTECTION_TRAFFIC_LIMITS } from "@portifact/domain";
 import { setBudgetOverride } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,7 +19,7 @@ const NOW = Date.UTC(2026, 10, 8, 12);
 const DAY = 86_400_000;
 const HASH = "e".repeat(64);
 const PERIOD = PROTECTION_TRAFFIC_LIMITS.periodMs;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 type Limiters = DurableObjectNamespace<TrafficLimiter>;
 

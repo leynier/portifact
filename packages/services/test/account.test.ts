@@ -1,10 +1,10 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { disconnectApp, listBrowserSessions, listConnectedApps } from "../src/account.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const NOW = Date.UTC(2026, 10, 8, 12);
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;

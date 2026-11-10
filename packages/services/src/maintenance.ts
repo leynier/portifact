@@ -1,7 +1,7 @@
 // Maintenance jobs (plan section 10). Each job takes a small batch, is idempotent and safe to
 // run concurrently: state changes are conditional on the lifecycle generation, and storage is
 // released only by the statement that actually deletes the object rows.
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import { purgeDate } from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
 import { and, eq, inArray, isNotNull, lte, ne, notExists, or, type SQL, sql } from "drizzle-orm";
@@ -14,7 +14,7 @@ import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { alignPlanLimits } from "./plans.ts";
-import { abortPublish } from "./publish.ts";
+import { closeUploadSession } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
@@ -94,7 +94,11 @@ export async function expireUploads(
     )
     .limit(limit);
   for (const session of stale) {
-    await abortPublish(db, { ownerId: session.ownerId, sessionId: session.id, now }, "expired");
+    await closeUploadSession(
+      db,
+      { ownerId: session.ownerId, sessionId: session.id, now },
+      "expired",
+    );
   }
   return { processed: stale.length };
 }
@@ -456,7 +460,7 @@ export async function rerenderDocuments(
 }
 
 /** Runs every job once. Called from the scheduled handler. */
-export async function runMaintenance(db: Db, bucket: R2Bucket, now: number) {
+export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: number) {
   return {
     archived: (await archiveExpired(db, now)).processed,
     expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
