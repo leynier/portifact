@@ -25,6 +25,7 @@ import {
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import { claimArtifacts } from "./account-data.ts";
 import { actorOn } from "./actors.ts";
+import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { closeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -577,6 +578,9 @@ export async function advanceWorkspaceDeletion(
     .from(schema.workspaceDeletions)
     .where(eq(schema.workspaceDeletions.workspaceId, workspaceId));
   if (!deletion) return "absent";
+  // Its custom domains and claims go first, as an account's do: they are global, and its
+  // artifacts are being purged (each purge also releases its own).
+  await releaseOwnerDomains(domainDbsOf(db), workspaceId, "operator", now);
   await db.batch([...claimArtifacts(db, workspaceId, now)]);
   const [left] = await db
     .select({ count: sql<number>`count(*)` })

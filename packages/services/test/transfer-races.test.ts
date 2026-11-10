@@ -168,4 +168,28 @@ describe("a transfer racing a write authorized on the old owner", () => {
     expect(after?.lifecycleGeneration).toBe((before?.lifecycleGeneration ?? 0) + 1);
     expect(after?.policyGeneration).toBe((before?.policyGeneration ?? 0) + 1);
   });
+
+  it("does not move an artifact that got a custom domain claim meanwhile", async () => {
+    const t = await setup();
+    const raced = raceBeforeFirstWrite(async () => {
+      await db()
+        .insert(schema.domainClaims)
+        .values({
+          hostname: `x-${crypto.randomUUID().slice(0, 6)}.example.test`,
+          ownerId: t.w1.id,
+          artifactId: t.artifactId,
+          region: "default",
+          token: "t",
+          expiresAt: NOW + 86_400_000,
+        });
+    });
+    const result = await transferArtifact(raced, env.ARTIFACTS, {
+      userId: t.zed.id,
+      artifactId: t.artifactId,
+      workspace: t.w2.slug,
+      now: NOW,
+    });
+    expect(result.ok).toBe(false);
+    expect(await artifact(t.artifactId)).toMatchObject({ ownerId: t.w1.id });
+  });
 });

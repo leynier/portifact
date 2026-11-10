@@ -111,6 +111,17 @@ export async function transferArtifact(
     );
   }
 
+  // A custom domain belongs to its owner's quota and verification: the artifact moves only
+  // without one, attached, being set up or being removed.
+  const domains = sql`(exists (select 1 from ${schema.customDomains} where ${schema.customDomains.artifactId} = ${artifact.id}) or exists (select 1 from ${schema.domainClaims} where ${schema.domainClaims.artifactId} = ${artifact.id}))`;
+  const [domain] = await db.all<{ found: number }>(sql`select ${domains} as found`);
+  if (Number(domain?.found ?? 0) === 1) {
+    return fail(
+      "invalid_input",
+      "This artifact has a custom domain or a pending one. Remove it before moving the artifact.",
+    );
+  }
+
   const o = schema.objects;
   const vf = schema.versionFiles;
   const v = schema.versions;
@@ -154,7 +165,7 @@ export async function transferArtifact(
 
   // Every write holds only while the artifact is where and as the request read it; the move of
   // the artifact row itself runs last, so a concurrent change makes the whole batch a no-op.
-  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying'))`;
+  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying')) and not ${domains}`;
   const guarded = (condition: SQL) => and(condition, unchanged) as SQL;
   let results: unknown[];
   try {
@@ -208,14 +219,8 @@ export async function transferArtifact(
           lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
           policyGeneration: sql`${a.policyGeneration} + 1`,
         })
-        .where(
-          and(
-            eq(a.id, artifact.id),
-            eq(a.ownerId, from),
-            eq(a.lifecycleGeneration, artifact.lifecycleGeneration),
-            eq(a.state, artifact.state),
-          ),
-        )
+        // The same conditions as every other statement, so the row never moves without them.
+        .where(and(eq(a.id, artifact.id), unchanged))
         .returning({ id: a.id }),
     ])) as unknown[];
   } catch (error) {

@@ -523,4 +523,42 @@ describe("transferring an artifact", () => {
     // Running it again changes nothing.
     expect(await run()).toBe("done");
   });
+
+  it("waits for an artifact's custom domain or pending claim to be removed", async () => {
+    const alice = await user();
+    const ws = await workspace(alice);
+    const id = await publish(alice.id, alice.id, { "index.html": "<p>branded</p>" });
+    const hostname = `docs-${crypto.randomUUID().slice(0, 6)}.example.test`;
+    await db()
+      .insert(schema.domainClaims)
+      .values({
+        hostname,
+        ownerId: alice.id,
+        artifactId: id,
+        region: "default",
+        token: "claim-token",
+        expiresAt: NOW + DAY,
+      });
+    const refused = {
+      ok: false,
+      code: "invalid_input",
+      message:
+        "This artifact has a custom domain or a pending one. Remove it before moving the artifact.",
+    };
+    expect(await move(alice.id, id, ws.slug)).toEqual(refused);
+    await db().delete(schema.domainClaims).where(eq(schema.domainClaims.hostname, hostname));
+    await db().insert(schema.customDomains).values({
+      hostname,
+      ownerId: alice.id,
+      artifactId: id,
+      region: "default",
+      state: "active",
+      token: "domain-token",
+      verifiedAt: NOW,
+      checkedAt: NOW,
+    });
+    expect(await move(alice.id, id, ws.slug)).toEqual(refused);
+    await db().delete(schema.customDomains).where(eq(schema.customDomains.hostname, hostname));
+    expect(value(await move(alice.id, id, ws.slug)).ownerId).toBe(ws.id);
+  });
 });

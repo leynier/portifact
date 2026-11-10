@@ -256,4 +256,40 @@ describe("deleting a workspace", () => {
     // Running it again changes nothing.
     expect(await applyTombstones(db(), [], NOW + 4)).toMatchObject({ workspaces: 0, artifacts: 0 });
   });
+
+  it("releases the workspace's custom domains and claims", async () => {
+    const { ws, admin } = await newWorkspace();
+    const { artifactId } = await publishInto(admin.id, ws.id);
+    const hostname = `ws-${crypto.randomUUID().slice(0, 6)}.example.test`;
+    await db().insert(schema.customDomains).values({
+      hostname,
+      ownerId: ws.id,
+      artifactId,
+      region: "default",
+      state: "active",
+      token: "domain-token",
+      verifiedAt: NOW,
+      checkedAt: NOW,
+    });
+    await db()
+      .insert(schema.domainClaims)
+      .values({
+        hostname: `claim-${hostname}`,
+        ownerId: ws.id,
+        artifactId,
+        region: "default",
+        token: "claim-token",
+        expiresAt: NOW + DAY,
+      });
+    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1);
+    const [domain] = await db()
+      .select({ state: schema.customDomains.state })
+      .from(schema.customDomains)
+      .where(eq(schema.customDomains.hostname, hostname));
+    expect(domain?.state ?? "gone").not.toBe("active");
+    expect(
+      await db().select().from(schema.domainClaims).where(eq(schema.domainClaims.ownerId, ws.id)),
+    ).toEqual([]);
+  });
 });
