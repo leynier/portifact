@@ -111,7 +111,17 @@ describe("the space menu", () => {
     const cases: [string, string[]][] = [
       [
         "/",
-        ["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Branding", "Audit log", "Settings"],
+        [
+          "Artifacts",
+          "Publish",
+          "Apps",
+          "Usage",
+          "Plan",
+          "Webhooks",
+          "Branding",
+          "Audit log",
+          "Settings",
+        ],
       ],
       [
         "/?workspace=a",
@@ -120,6 +130,7 @@ describe("the space menu", () => {
           "Publish",
           "Apps",
           "Usage",
+          "Plan",
           "Branding",
           "Members",
           "Audit log",
@@ -127,8 +138,9 @@ describe("the space menu", () => {
           "Settings",
         ],
       ],
-      ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Members", "Settings"]],
-      ["/?workspace=m", ["Artifacts", "Apps", "Members", "Settings"]],
+      ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Members", "Settings"]],
+      // Every role compares the plans; the page decides what it shows and offers.
+      ["/?workspace=m", ["Artifacts", "Apps", "Plan", "Members", "Settings"]],
     ];
     for (const [path, expected] of cases) {
       renderDashboard(path, server);

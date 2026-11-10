@@ -229,6 +229,7 @@ test.describe("at 320 px with wider text than any font gives", () => {
         "/",
         "/settings",
         "/usage",
+        "/plan",
         "/apps",
         "/profile",
         "/publish",
@@ -282,7 +283,7 @@ test("the dashboard switches to Japanese, then German, without overflowing", asy
     .toBe("de");
   expect(await axeViolations(page)).toEqual([]);
 
-  for (const path of ["/settings", "/", "/usage", "/apps", "/profile"]) {
+  for (const path of ["/settings", "/", "/usage", "/plan", "/apps", "/profile"]) {
     await page.goto(`${APP_ORIGIN}${path}`);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     expect(await sidewaysOverflow(page), path).toEqual([]);

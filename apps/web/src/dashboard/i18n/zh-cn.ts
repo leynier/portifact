@@ -1,8 +1,10 @@
 // Simplified Chinese messages of the dashboard (mainland China, "你"), with the same keys as en.ts.
 // Titles and buttons have no trailing full stop; no em dashes.
+import { planTextZhCN } from "../../plans/i18n/zh-cn.ts";
 import type { Catalog } from "./en.ts";
 
 export const zhCN = {
+  ...planTextZhCN,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "跳到内容",
@@ -1464,6 +1466,19 @@ export const zhCN = {
   "webhooks.personalOnly.title": "Webhook 在你的个人空间中设置",
   "webhooks.personalOnly.body":
     "目前，webhook 只发送你个人空间中 artifact 的事件。请切换到个人空间来管理它们。",
+  "shell.planLink": "方案",
+  "plan.title": "方案",
+  "plan.description": "你个人空间的方案、其限额和功能，以及其他方案。",
+  "plan.descriptionWorkspace": "{workspace} 的方案、其限额和功能，以及其他方案。",
+  "plan.current.hint": "此空间当前拥有的内容。用量页面显示已使用多少。",
+  "plan.current.limits": "当前方案的限额",
+  "plan.current.usageLink": "查看用量",
+  "plan.loading": "正在加载方案",
+  "plan.error": "无法加载方案。",
+  "plan.compare.section": "所有方案",
+  "plan.requestNote": "只有 {workspace} 的管理员可以申请其他方案。",
+  "plan.hidden": "{workspace} 的方案仅向其编辑者和管理员显示。",
+  "usage.plan.compare": "比较方案",
   "shell.auditLink": "审计日志",
   "audit.title": "审计日志",
   "audit.description": "谁在此空间中更改了什么。更改保留 {days} 天。",

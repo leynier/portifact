@@ -2,15 +2,22 @@ import { describe, expect, it } from "vitest";
 import { ErrorCode } from "./core.ts";
 import { ACCESS_LOG, ANNOTATION_LIMITS, LIMITS, TRAFFIC_LIMITS } from "./limits.ts";
 import {
+  AVAILABLE_PLAN_FEATURES,
   lowestPlanWith,
   PLAN_FEATURE_LABELS,
   PLAN_FEATURES,
   PLAN_LABELS,
   PLAN_NAMES,
+  PLAN_PRICES,
+  PLAN_REQUEST_EMAIL,
   PLANS,
+  type PlanFeature,
   PlanLimits,
   PlanOverrides,
   PlanView,
+  planFeatureAvailable,
+  planFeatureStatus,
+  planRequestHref,
   planRequiredMessage,
 } from "./plans.ts";
 import { ERROR_STATUS } from "./publishing.ts";
@@ -144,5 +151,61 @@ describe("plan_required", () => {
       policies: "Setting workspace policies is part of the Enterprise plan.",
       euResidency: "Keeping data in the EU is part of the Enterprise plan.",
     });
+  });
+});
+
+describe("plan offers", () => {
+  it("lists the features available today, in PLAN_FEATURES order", () => {
+    expect([...AVAILABLE_PLAN_FEATURES]).toEqual([
+      "pin",
+      "versionDiff",
+      "shareLinks",
+      "commentNotices",
+      "analytics",
+      "branding",
+      "workspaces",
+      "serviceTokens",
+      "audit",
+    ]);
+    expect([...AVAILABLE_PLAN_FEATURES]).toEqual(
+      PLAN_FEATURES.filter((feature) => planFeatureAvailable(feature)),
+    );
+  });
+
+  it("keeps webhooks, custom domains and every later feature coming soon", () => {
+    for (const feature of ["webhooks", "customDomains", "reviews", "sso", "euResidency"]) {
+      expect(planFeatureAvailable(feature as PlanFeature), feature).toBe(false);
+    }
+  });
+
+  it("splits each plan's features into available and coming soon", () => {
+    expect(planFeatureStatus("free")).toEqual({ available: [], comingSoon: [] });
+    expect(planFeatureStatus("pro")).toEqual({
+      available: ["pin", "versionDiff", "shareLinks", "commentNotices", "analytics", "branding"],
+      comingSoon: ["webhooks", "customDomains"],
+    });
+    expect(planFeatureStatus("team").available).toContain("workspaces");
+    for (const plan of PLAN_NAMES) {
+      const { available, comingSoon } = planFeatureStatus(plan);
+      expect([...available, ...comingSoon].sort()).toEqual([...PLANS[plan].features].sort());
+    }
+  });
+
+  it("prices each plan in US dollars, Team per seat and Enterprise by contract", () => {
+    expect(PLAN_PRICES).toEqual({
+      free: { usdPerMonth: 0, perSeat: false },
+      pro: { usdPerMonth: 2, perSeat: false },
+      team: { usdPerMonth: 5, perSeat: true },
+      enterprise: { usdPerMonth: null, perSeat: false },
+    });
+    expect(Object.keys(PLAN_PRICES)).toEqual([...PLAN_NAMES]);
+  });
+
+  it("requests a plan by email with a subject naming it", () => {
+    expect(planRequestHref("pro")).toBe(
+      "mailto:hello@portifact.com?subject=Portifact%20Pro%20plan%20request",
+    );
+    expect(planRequestHref("enterprise")).toContain("Enterprise");
+    expect(PLAN_REQUEST_EMAIL).toBe("hello@portifact.com");
   });
 });
