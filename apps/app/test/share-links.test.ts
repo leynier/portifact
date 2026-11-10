@@ -602,6 +602,32 @@ describe("opening a link", () => {
     expect([401, 403]).toContain(review.status);
   });
 
+  it("records the day a link was used, also for a request that names no IP", async () => {
+    const b = await both("share-used@example.test");
+    await onPlan(b.userId, "pro");
+    const id = await publish(b, "used");
+    const { token, id: linkId } = await linkFor(b, id, {
+      expiresAt: new Date(NOW + 86_400_000).toISOString(),
+    });
+    const response = await b.h.request("/api/v1/share/open", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: ORIGIN,
+        "sec-fetch-site": "same-origin",
+      },
+      body: JSON.stringify({ token }),
+    });
+    expect(response.status).toBe(200);
+    const list = await (await b.apiCall(`/api/v1/artifacts/${id}/share-links`)).json<{
+      links: { id: string; lastUsedOn: string | null }[];
+    }>();
+    expect(list.links.find((link) => link.id === linkId)?.lastUsedOn).toBe("2026-11-02");
+    const text = (await b.tool("list_share_links", { artifactId: id })).content[0]?.text ?? "";
+    expect(text).toContain(`${linkId} active expires 2026-11-03T09:00:00.000Z: Link`);
+    expect(text).not.toContain("with password");
+  });
+
   it("keeps the body small", async () => {
     const h = createHarness();
     const response = await open(h, {
