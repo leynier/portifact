@@ -1,7 +1,10 @@
 import { QueryClient } from "@tanstack/react-query";
 import { ApiFailure } from "./api.ts";
 
-/** Retries once, except answers that cannot change by retrying: missing, refused or signed out. */
+/**
+ * Retries once, except answers that cannot change by retrying: missing, refused, signed out or
+ * not on the owner's plan.
+ */
 export function createQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
@@ -14,4 +17,10 @@ export function createQueryClient(): QueryClient {
   });
 }
 
-const FINAL = new Set(["not_found", "forbidden", "unauthenticated", "invalid_input"]);
+const FINAL = new Set([
+  "not_found",
+  "forbidden",
+  "unauthenticated",
+  "invalid_input",
+  "plan_required",
+]);

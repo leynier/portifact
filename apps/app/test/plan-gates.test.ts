@@ -148,6 +148,13 @@ const GATED: GatedOperation[] = [
     "create_share_link",
     (id) => ({ artifactId: id, label: "Gate" }),
   ),
+  route(
+    "analytics",
+    "read an artifact's analytics",
+    (id) => [`/api/v1/artifacts/${id}/stats`],
+    "get_artifact_stats",
+    (id) => ({ artifactId: id }),
+  ),
   probe("workspaces"),
   probe("sso"),
 ];

@@ -4,6 +4,7 @@ export * from "./account.ts";
 export * from "./account-data.ts";
 export * from "./account-settings.ts";
 export * from "./actors.ts";
+export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";

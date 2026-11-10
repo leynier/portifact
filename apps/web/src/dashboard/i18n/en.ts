@@ -454,21 +454,54 @@ export const en = {
   "account.actionFailed.title": "The action did not finish",
   "accessLog.title": "Who opened it",
   "accessLog.hint":
-    "Signed-in visitors who opened this artifact in the last 30 days, newest first, one entry per visitor every 30 minutes. Only you see this list. Only artifacts restricted to the people you list record openings, your own visits are not recorded, and some openings may be missing.",
+    "Signed-in visitors who opened this artifact in the last {days, plural, one {# day} other {# days}}, newest first, one entry per visitor every 30 minutes. Only you see this list. Only artifacts restricted to the people you list record openings, your own visits are not recorded, and some openings may be missing.",
   "accessLog.loading": "Loading who opened the artifact",
   "accessLog.error.title": "The access log could not be loaded",
   "accessLog.empty.title": "No visitors yet",
-  "accessLog.empty.body": "Nobody signed in has opened this artifact in the last 30 days.",
+  "accessLog.empty.body":
+    "Nobody signed in has opened this artifact in the last {days, plural, one {# day} other {# days}}.",
   "accessLog.caption": "Openings of this artifact by signed-in visitors",
   "accessLog.column.opened": "Opened",
   "accessLog.column.visitor": "Visitor",
   "accessLog.loadMore": "Show more",
-  "accessLog.export.hint": "Exports hold every entry of the last 30 days, not only the ones shown.",
+  "accessLog.export.hint":
+    "Exports hold every entry of the last {days, plural, one {# day} other {# days}}, not only the ones shown.",
   "accessLog.export.csv": "Export as CSV",
   "accessLog.export.json": "Export as JSON",
   "accessLog.export.doneCsv": "The access log was exported as CSV.",
   "accessLog.export.doneJson": "The access log was exported as JSON.",
   "accessLog.export.failed": "The access log could not be exported",
+
+  "analytics.title": "Analytics",
+  "analytics.hint":
+    "Page views per day (UTC) and, for artifacts restricted to the people you list, how many of them opened it. Counts only: nobody is identified here.",
+  "analytics.loading": "Loading the artifact's analytics",
+  "analytics.error.title": "The analytics could not be loaded",
+  "analytics.planRequired":
+    "Analytics per artifact and a one-year access log are part of the {plan} plan.",
+  "analytics.range.label": "Period",
+  "analytics.range.days": "Last {count, plural, one {# day} other {# days}}",
+  "analytics.total.views": "Views",
+  "analytics.total.signedIn": "Views by signed-in visitors",
+  "analytics.total.visitors": "Distinct signed-in visitors",
+  "analytics.visitors.notKept": "Only counted for artifacts restricted to the people you list",
+  "analytics.chart.label": "Views per day",
+  "analytics.chart.summary":
+    "Views: {views} over {days, plural, one {# day} other {# days}}. Busiest day: {busiest}, with {most}.",
+  "analytics.chart.summaryEmpty":
+    "No views in the last {days, plural, one {# day} other {# days}}.",
+  "analytics.chart.day": "{day}. Views: {views}. Signed in: {signedIn}.",
+  "analytics.chart.dayWithVisitors":
+    "{day}. Views: {views}. Signed in: {signedIn}. Distinct visitors: {visitors}.",
+  "analytics.chart.keyboard": "Focus the chart and use the arrow keys to read each day.",
+  "analytics.table.show": "Show the numbers as a table",
+  "analytics.table.caption": "Views per day of this artifact",
+  "analytics.column.day": "Day",
+  "analytics.column.views": "Views",
+  "analytics.column.signedIn": "Signed in",
+  "analytics.column.visitors": "Distinct visitors",
+  "analytics.note":
+    "Kept {days, plural, one {# day} other {# days}}. Your own visits and link previews are not counted, but automated browsers can be, so these numbers are an indicator, not an audit.",
 
   "usage.title": "Usage",
   "usage.description":

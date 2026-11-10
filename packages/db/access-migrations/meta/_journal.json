@@ -15,6 +15,13 @@
       "when": 1794289002419,
       "tag": "0001_share_link_openings",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794295834895,
+      "tag": "0002_analytics",
+      "breakpoints": true
     }
   ]
 }

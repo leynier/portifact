@@ -1,6 +1,7 @@
 // The access log section of the artifact page (plan sections 6 "Uso y registros", 11 and 13):
-// the signed-in visitors who opened the artifact in the last 30 days, newest first. Only the
-// owner sees it; the API decides what is recorded and for how long, and this explains it.
+// the signed-in visitors who opened the artifact within the owner plan's retention (30 days on
+// free, a year on paid plans), newest first. Only the owner side sees it; the API decides what is
+// recorded and for how long, and this explains it.
 import type { ArtifactSummary } from "@portifact/contracts";
 import {
   Button,
@@ -38,6 +39,8 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
     ...refreshOptions,
   });
 
+  // The owner's retention, from the API; the free plan's 30 days until the first page arrives.
+  const days = log.data?.pages[0]?.retentionDays ?? 30;
   let body: ReactNode;
   if (log.isPending) {
     body = <LoadingState label={t("accessLog.loading")} />;
@@ -65,11 +68,11 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
           icon={<Eye className="size-6" />}
           headingLevel={3}
         >
-          {t("accessLog.empty.body")}
+          {t("accessLog.empty.body", { days })}
         </EmptyState>
       ) : (
         <div className="flex flex-col gap-2">
-          <AccessLogExport artifactId={artifact.id} />
+          <AccessLogExport artifactId={artifact.id} days={days} />
           <Table caption={t("accessLog.caption")} variant="flush" stacked>
             <TableHead>
               <TableRow>
@@ -115,7 +118,7 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
       id="access-log"
       headingLevel={3}
       title={t("accessLog.title")}
-      description={t("accessLog.hint")}
+      description={t("accessLog.hint", { days })}
       flush={listed}
     >
       {body}
@@ -124,7 +127,7 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
 }
 
 /** Downloads the whole log, every page of it, as CSV or JSON. */
-function AccessLogExport({ artifactId }: { artifactId: string }) {
+function AccessLogExport({ artifactId, days }: { artifactId: string; days: number }) {
   const t = useT();
   const announce = useAnnounce();
   const { api, save } = useDashboard();
@@ -155,7 +158,7 @@ function AccessLogExport({ artifactId }: { artifactId: string }) {
           {t("accessLog.export.json")}
         </Button>
       </div>
-      <p className="text-sm text-text-muted">{t("accessLog.export.hint")}</p>
+      <p className="text-sm text-text-muted">{t("accessLog.export.hint", { days })}</p>
       {exporter.isError ? (
         <Callout
           tone="error"

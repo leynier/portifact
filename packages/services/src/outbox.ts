@@ -14,6 +14,7 @@ import { type AccessDb, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
+import { applyOwnerRetention } from "./analytics.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
@@ -119,7 +120,7 @@ export type JobOutcome = "done" | "stale" | "pending";
 
 /** What some jobs need besides D1 and R2; the jobs Worker always passes both. */
 export interface JobDeps {
-  /** The access log database, for `erase_access_events` jobs. */
+  /** The access log database, for `erase_access_events` and `owner_retention` jobs. */
   access?: AccessDb | undefined;
   /** Sends `expiry_notice` emails. */
   notifier?: ExpiryNotifier | undefined;
@@ -170,6 +171,9 @@ async function runRow(
       const { kind } = EraseAccessEventsPayload.parse(row.payload);
       return eraseAccessEvents(access, kind, row.subject ?? "");
     }
+    case "owner_retention":
+      if (!access) throw new Error("owner_retention needs the access log database");
+      return applyOwnerRetention(db, access, row.subject ?? "", now);
     case "expiry_notice":
       if (!notifier) throw new Error("expiry_notice needs the notifier");
       return sendExpiryNotice(db, row, now, notifier);
