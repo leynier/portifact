@@ -233,6 +233,7 @@ const READ_NAMES = new Set([
   "policyDomains",
   "viewerGroups",
   "viewerGroupIds",
+  "groupMembershipsOf",
   "groupSummaries",
   "scoped",
   "checkReadAccess",

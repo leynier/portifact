@@ -28,6 +28,9 @@ export function isWorkspaceGroupId(value: string): boolean {
   return WorkspaceGroupId.safeParse(value).success;
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point
+const UNSAFE_NAME = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/;
+
 /** A group's name: one line, unique in its workspace without regard to case. */
 export const WorkspaceGroupName = z
   .string()
@@ -40,12 +43,7 @@ export const WorkspaceGroupName = z
       .trim()
       .min(1)
       .max(WORKSPACE_GROUPS.nameMaxLength)
-      .refine(
-        // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point
-        (value) =>
-          !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/.test(value),
-        "No control characters or direction overrides",
-      ),
+      .refine((value) => !UNSAFE_NAME.test(value), "No control characters or direction overrides"),
   );
 
 export const WorkspaceGroupCreate = z.strictObject({ name: WorkspaceGroupName });
