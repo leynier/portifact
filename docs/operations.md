@@ -150,7 +150,7 @@ The database backup is D1 Time Travel (30 days on Workers Paid). R2 is not rewou
 5. The jobs Worker purges the claimed artifacts and finishes the deletions within the next runs; an account deletion stays pending until its artifacts are purged, so it finishes one run after them. Check with `select count(*) from artifacts where state = 'purging'` and `select * from account_deletions`.
 6. Run `storage-report` after a full reconciliation pass and handle `missing` and `orphan` findings as described above.
 
-If the live database cannot be read for step 2, restore to the latest point that can, export from it, then restore to the point you need and apply. Migrations applied after the restore point are rewound too: apply them again with `wrangler d1 migrations apply portifact-control --remote` before step 4.
+If the live database cannot be read for step 2, restore to the latest point that can, export from it, then restore to the point you need and apply. Migrations applied after the restore point are rewound too: apply them again with `wrangler d1 migrations apply portifact-control --remote` before step 4. A restore to before migration 0027 also rewinds the per-row limit columns of `account_usage` and `annotation_usage`; reapplying it gives every row the free plan's defaults again, so check any limits written after the restore point.
 
 ### Backup drill
 

@@ -211,6 +211,7 @@
       "devDependencies": {
         "@cloudflare/vitest-plugin": "^1.6.0",
         "@cloudflare/workers-types": "^5.0.0",
+        "@portifact/contracts": "workspace:*",
         "@vitest/coverage-istanbul": "catalog:",
         "drizzle-kit": "^0.31.0",
         "typescript": "catalog:",
@@ -345,6 +346,17 @@
         "typescript": "catalog:",
         "vitest": "catalog:",
         "wrangler": "^4.0.0",
+      },
+    },
+    "spikes/regions": {
+      "name": "@portifact/spike-regions",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "^1.6.0",
+        "@cloudflare/workers-types": "^5.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "spikes/review-cookies": {
@@ -828,6 +840,8 @@
     "@portifact/services": ["@portifact/services@workspace:packages/services"],
 
     "@portifact/spike-oauth-server": ["@portifact/spike-oauth-server@workspace:spikes/oauth-server"],
+
+    "@portifact/spike-regions": ["@portifact/spike-regions@workspace:spikes/regions"],
 
     "@portifact/spike-review-cookies": ["@portifact/spike-review-cookies@workspace:spikes/review-cookies"],
 

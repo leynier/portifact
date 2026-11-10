@@ -11,7 +11,7 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ["text", "json-summary"],
-      include: ["ci-scope.ts", "load/options.ts", "load/measure.ts", "notices.ts"],
+      include: ["ci-scope.ts", "cla.ts", "load/options.ts", "load/measure.ts", "notices.ts"],
       thresholds: { lines: 90, branches: 85, functions: 90, statements: 90 },
     },
   },
