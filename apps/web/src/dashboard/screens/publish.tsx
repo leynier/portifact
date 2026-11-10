@@ -475,10 +475,12 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
             icon={<CircleCheck className="size-5" />}
           >
             <p>
-              {t("publish.done.body", {
-                url: committed.url,
-                date: formatDate(committed.expiresAt),
-              })}
+              {committed.expiresAt === null
+                ? t("publish.done.pinned", { url: committed.url })
+                : t("publish.done.body", {
+                    url: committed.url,
+                    date: formatDate(committed.expiresAt),
+                  })}
             </p>
           </Callout>
           <CopyField

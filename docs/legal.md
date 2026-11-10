@@ -51,6 +51,8 @@ New accounts also need a solved human check (Cloudflare Turnstile, `__Host-pf_hu
 
 The Privacy Policy lists the two preference cookies (`__Secure-pf_theme`, `__Secure-pf_lang`) that `portifact.com` and `app.portifact.com` share, and says they never reach `portifact.dev`; keep it in sync with "Cookies and sessions" in [security.md](security.md). They were added on the version of 2026-11-08 without a new `TERMS_VERSION`: they are strictly functional, hold only the theme or language the visitor chose and no identifier, are set only when the visitor chooses, and change no one's rights.
 
+The Terms and the Privacy Policy describe a fixed lifecycle: an artifact expires 30 days after its last publish or renewal and is kept archived for 6 months before it is deleted. Since pins and archive length by plan (premium plan P2), both depend on the owner's plan: a paid plan can pin an artifact so it does not expire, and an archive is kept for the plan's `archiveMonths` when it is archived (12 on paid plans). The free plan, and every account without a plan, still behaves exactly as the pages say, so the texts were left unchanged and `TERMS_VERSION` was not bumped; change them in one go with the other plan-dependent terms when paid plans are offered.
+
 `terms_version` and `terms_accepted_at` are Better Auth `additionalFields` with `input: false`, so no request body can set them; `get-session` returns them to the login page.
 
 Bearer tokens issued to the CLI and MCP clients before an account accepted are not revoked; the account is asked at its next browser sign-in or dashboard visit.

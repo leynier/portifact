@@ -153,6 +153,7 @@ export const ExportArtifact = z.object({
   indexable: z.boolean(),
   embeddable: z.boolean(),
   bar: z.boolean(),
+  pinned: z.boolean(),
   suspension: SuspensionView.nullable(),
   createdAt: Iso,
   updatedAt: Iso,

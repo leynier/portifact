@@ -1,4 +1,4 @@
-import type { ArtifactSummary } from "@portifact/contracts";
+import { type ArtifactSummary, lowestPlanWith, PLAN_LABELS } from "@portifact/contracts";
 import {
   Button,
   backLinkClasses,
@@ -25,6 +25,8 @@ import {
   FilePen,
   History,
   MessageSquareText,
+  Pin,
+  PinOff,
   RefreshCw,
   Trash2,
   Upload,
@@ -32,13 +34,15 @@ import {
 import { type ReactNode, useState } from "react";
 import { ApiFailure, type LifecycleAction } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
-import { AccessBadge, offeredActions, StateBadge } from "../presentation.tsx";
+import type { MessageId } from "../i18n/en.ts";
+import { AccessBadge, offeredActions, PinnedBadge, StateBadge } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { AccessLog } from "./access-log.tsx";
 import { CommentSettings, SharingSettings } from "./access-settings.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
+import { useUsage } from "./usage.tsx";
 
 export const artifactQuery = (artifactId: string) => ["artifact", artifactId] as const;
 
@@ -47,6 +51,15 @@ const ACTION_ICONS: Record<LifecycleAction, ReactNode> = {
   archive: <Archive className="size-4" />,
   restore: <ArchiveRestore className="size-4" />,
   delete: <Trash2 className="size-4" />,
+  pin: <Pin className="size-4" />,
+  unpin: <PinOff className="size-4" />,
+};
+
+const DONE: Record<Exclude<LifecycleAction, "delete" | "archive">, MessageId> = {
+  renew: "detail.renewed",
+  restore: "detail.restored",
+  pin: "detail.pinnedDone",
+  unpin: "detail.unpinnedDone",
 };
 
 export function ArtifactDetailScreen() {
@@ -128,6 +141,10 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Pinning is part of the owner's plan; the API decides, this only explains it ahead of time.
+  const usage = useUsage();
+  const pinOffered = usage.isError || (usage.data?.plan.features.includes("pin") ?? false);
+  const pinUnavailable = usage.data !== undefined && !usage.data.plan.features.includes("pin");
 
   const action = useMutation({
     mutationFn: (kind: LifecycleAction) => api.lifecycle(artifact.id, kind),
@@ -145,9 +162,7 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
       announce(
         kind === "archive"
           ? t("detail.archivedDone", { date: result.purgeAt ? formatDate(result.purgeAt) : "" })
-          : t(kind === "renew" ? "detail.renewed" : "detail.restored", {
-              date: result.expiresAt ? formatDate(result.expiresAt) : "",
-            }),
+          : t(DONE[kind], { date: result.expiresAt ? formatDate(result.expiresAt) : "" }),
       );
     },
     // The error callout is an alert, so it is announced without a separate message.
@@ -157,7 +172,20 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   const optional = (iso: string | null) => (iso ? formatDate(iso, true) : t("detail.notSet"));
   const actions = offeredActions(artifact.state);
   // Keeping it online sits with its dates; what takes it offline or away is the danger zone.
-  const keep = actions.filter((kind) => kind === "renew" || kind === "restore");
+  const active = artifact.state === "active";
+  const keep: LifecycleAction[] = artifact.pinned
+    ? active
+      ? ["unpin"]
+      : []
+    : [
+        ...actions.filter((kind) => kind === "renew" || kind === "restore"),
+        ...(active && pinOffered ? (["pin"] as const) : []),
+      ];
+  const keepBody = artifact.pinned
+    ? "detail.pinned.body"
+    : keep.includes("restore")
+      ? "detail.restore.body"
+      : "detail.keepOnline.body";
   const remove = actions.filter((kind) => kind === "archive" || kind === "delete");
   const failed = action.isError ? (
     <Callout
@@ -277,15 +305,16 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
             <Panel
               headingLevel={3}
               title={t("detail.facts")}
-              description={
-                keep.length > 0
-                  ? t(keep.includes("restore") ? "detail.restore.body" : "detail.keepOnline.body")
-                  : undefined
-              }
+              description={keep.length > 0 ? t(keepBody) : undefined}
               actions={keep.length > 0 ? keep.map(actionButton) : undefined}
             >
               <div className="flex flex-col gap-4">
                 {failedHere(keep)}
+                {active && !artifact.pinned && pinUnavailable ? (
+                  <p className="text-sm text-text-muted">
+                    {t("detail.pin.paid", { plan: PLAN_LABELS[lowestPlanWith("pin")] })}
+                  </p>
+                ) : null}
                 <DetailList
                   layout="stacked"
                   framed={false}
@@ -295,7 +324,17 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
                     { term: t("detail.access"), detail: t(`access.${artifact.accessMode}`) },
                     { term: t("detail.created"), detail: formatDate(artifact.createdAt, true) },
                     { term: t("detail.updated"), detail: formatDate(artifact.updatedAt, true) },
-                    { term: t("detail.expires"), detail: optional(artifact.expiresAt) },
+                    {
+                      term: t("detail.expires"),
+                      detail: artifact.pinned ? (
+                        <span className="inline-flex flex-wrap items-center gap-2">
+                          <PinnedBadge />
+                          {t("detail.expiresNever")}
+                        </span>
+                      ) : (
+                        optional(artifact.expiresAt)
+                      ),
+                    },
                     ...(artifact.archivedAt
                       ? [
                           {

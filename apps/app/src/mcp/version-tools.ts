@@ -187,7 +187,7 @@ export function registerVersionTools(
     {
       title: "Roll back an artifact",
       description:
-        "Make a retained version current again: it is published as a new version with the same files, for another 30 days. Access settings do not change, so readers removed since that version stay removed. Pass the currentVersionId you read as baseVersionId; if anything was published since, the call fails with version_conflict. Ask the user before rolling back.",
+        "Make a retained version current again: it is published as a new version with the same files, for another 30 days (a pinned artifact stays pinned). Access settings do not change, so readers removed since that version stay removed. Pass the currentVersionId you read as baseVersionId; if anything was published since, the call fails with version_conflict. Ask the user before rolling back.",
       inputSchema: RollbackArtifactInput,
       outputSchema: RolledBack,
       annotations: {
