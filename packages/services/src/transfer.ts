@@ -180,7 +180,14 @@ export async function transferArtifact(
       // The triggers of the workspace_members_invitations migration move the active slot and the annotation usage with these updates.
       db
         .update(a)
-        .set({ ownerId: to, updatedAt: input.now })
+        // A move ends read, review and link sessions and refuses writes authorized on the old
+        // owner: both generations move with it.
+        .set({
+          ownerId: to,
+          updatedAt: input.now,
+          lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
+          policyGeneration: sql`${a.policyGeneration} + 1`,
+        })
         .where(
           and(
             eq(a.id, artifact.id),
