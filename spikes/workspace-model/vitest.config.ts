@@ -68,7 +68,11 @@ export default defineConfig(async () => {
   // the plugins against today's schema and triggers rather than a fresh one.
   const dbSource = dirname(createRequire(import.meta.url).resolve("@portifact/db"));
   const migrations = [
-    ...(await readD1Migrations(join(dbSource, "..", "migrations"))),
+    // The spike was recorded against the migrations before F3; 0030 creates the real
+    // `workspaces` tables, which the spike's own migration defines in its own shape.
+    ...(await readD1Migrations(join(dbSource, "..", "migrations"))).filter(
+      (migration) => migration.name < "0030",
+    ),
     ...(await readD1Migrations(new URL("./migrations", import.meta.url).pathname)),
   ];
   const idp = testIdentityProvider();

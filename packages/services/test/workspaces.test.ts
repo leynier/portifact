@@ -25,6 +25,7 @@ import {
   artifactHandles,
   ownerRecipients,
   ownerSide,
+  personalHandles,
   resolveActor,
 } from "../src/actors.ts";
 import {
@@ -37,7 +38,7 @@ import {
 } from "../src/annotations.ts";
 import { getArtifact, listArtifacts } from "../src/artifacts.ts";
 import { rebuildArtifactDirectory } from "../src/backups.ts";
-import { claimArtifactId, claimNewArtifactId } from "../src/directory.ts";
+import { CLAIM_ATTEMPTS, claimArtifactId, claimNewArtifactId } from "../src/directory.ts";
 import { type ExpiryNotifier, scheduleExpiryNotices } from "../src/expiry-notices.ts";
 import {
   archiveArtifact,
@@ -250,6 +251,13 @@ describe("regions", () => {
     expect((await artifactHandles(regions, artifactId))?.region).toBe("default");
     expect(await artifactHandles(regions, MISSING)).toBeNull();
     expect(actorHandles(regions, personalActor(ada.id)).region).toBe("default");
+  });
+
+  it("needs no directory read with one region, and finds the personal space there", async () => {
+    const single = regionsFromEnv(env);
+    // Unknown to the directory, yet the only region is the answer: nothing to look up.
+    expect((await artifactHandles(single, MISSING))?.region).toBe("default");
+    expect(personalHandles(single)).toBe(single.get("default"));
   });
 });
 
@@ -802,7 +810,13 @@ describe("the artifact directory", () => {
     expect(
       await claimNewArtifactId(db().global, "default", NOW, () => draws.shift() as string),
     ).toBe("freshidaa2");
-    expect(await claimNewArtifactId(db().global, "default", NOW, () => "takenidaa2")).toBeNull();
+    let draws2 = 0;
+    const taken = () => {
+      draws2 += 1;
+      return "takenidaa2";
+    };
+    expect(await claimNewArtifactId(db().global, "default", NOW, taken)).toBeNull();
+    expect(draws2).toBe(CLAIM_ATTEMPTS);
   });
 
   it("claims a new artifact's ID before writing it, and answers a lost claim with a conflict", async () => {

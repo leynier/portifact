@@ -178,6 +178,8 @@ Only what would otherwise make E5 touch every service again:
 
 Everything else (fences, dropping the session keys, scoped messages, jobs per region, the EU bindings) waits for E5.
 
+Implemented in F3 with decision 0004's names: `workspaces.region` and `workspace_members` instead of `organizations` and `org_members`. One deviation from item 4: a `RegionalDb` carries its deployment's global database as `.global`, so services that work on regional data and resolve a role or claim an ID take one `RegionalDb` instead of `{ global, regional }`; the brands still keep a `GlobalDb` from being passed as a `RegionalDb` and the reverse. With a second region, each region's handle points at the same `GlobalDb`.
+
 ## Cost and effort
 
 Cloudflare: the EU databases and bucket have no fixed fee and are billed by use like the others (from the plan, not re-checked). Delivery adds one D1 read per artifact per cold isolate, at about US$0.001 per million rows read: negligible. A second R2 API token may be needed; nothing else is known.
