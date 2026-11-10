@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "234c3f8c-2ee4-4b5d-8861-a1f973e32f0f",
+  "id": "c17fc318-8cae-4804-992e-765c1f706181",
   "prevId": "26578cea-dc68-4b03-b2a8-0d7c529053d2",
   "tables": {
     "abuse_reports": {
@@ -156,21 +156,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": true
-        },
-        "comment_notices": {
-          "name": "comment_notices",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "comment_notices_changed_at": {
-          "name": "comment_notices_changed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         },
         "locale": {
           "name": "locale",
@@ -1034,6 +1019,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'owner'"
+        },
+        "pinned": {
+          "name": "pinned",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {
@@ -1041,6 +1034,12 @@
           "name": "artifacts_owner_state_idx",
           "columns": ["owner_id", "state"],
           "isUnique": false
+        },
+        "artifacts_pinned_owner_idx": {
+          "name": "artifacts_pinned_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false,
+          "where": "\"artifacts\".\"pinned\" = 1"
         },
         "artifacts_state_expires_idx": {
           "name": "artifacts_state_expires_idx",
@@ -1131,161 +1130,6 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
-    },
-    "comment_notice_mutes": {
-      "name": "comment_notice_mutes",
-      "columns": {
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        }
-      },
-      "indexes": {
-        "comment_notice_mutes_user_idx": {
-          "name": "comment_notice_mutes_user_idx",
-          "columns": ["user_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "comment_notice_mutes_artifact_id_artifacts_id_fk": {
-          "name": "comment_notice_mutes_artifact_id_artifacts_id_fk",
-          "tableFrom": "comment_notice_mutes",
-          "tableTo": "artifacts",
-          "columnsFrom": ["artifact_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "comment_notice_mutes_artifact_id_user_id_pk": {
-          "columns": ["artifact_id", "user_id"],
-          "name": "comment_notice_mutes_artifact_id_user_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "comment_notices": {
-      "name": "comment_notices",
-      "columns": {
-        "recipient_id": {
-          "name": "recipient_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "thread_id": {
-          "name": "thread_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created": {
-          "name": "created",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "replies": {
-          "name": "replies",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "resolved": {
-          "name": "resolved",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "first_at": {
-          "name": "first_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "comment_notices_recipient_first_idx": {
-          "name": "comment_notices_recipient_first_idx",
-          "columns": ["recipient_id", "first_at"],
-          "isUnique": false
-        },
-        "comment_notices_first_idx": {
-          "name": "comment_notices_first_idx",
-          "columns": ["first_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "comment_notices_thread_id_annotation_threads_id_fk": {
-          "name": "comment_notices_thread_id_annotation_threads_id_fk",
-          "tableFrom": "comment_notices",
-          "tableTo": "annotation_threads",
-          "columnsFrom": ["thread_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "comment_notices_artifact_id_artifacts_id_fk": {
-          "name": "comment_notices_artifact_id_artifacts_id_fk",
-          "tableFrom": "comment_notices",
-          "tableTo": "artifacts",
-          "columnsFrom": ["artifact_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "comment_notices_recipient_id_thread_id_pk": {
-          "columns": ["recipient_id", "thread_id"],
-          "name": "comment_notices_recipient_id_thread_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "comment_notices_counts": {
-          "name": "comment_notices_counts",
-          "value": "\"comment_notices\".\"created\" in (0, 1) and \"comment_notices\".\"resolved\" in (0, 1) and \"comment_notices\".\"replies\" between 0 and 200"
-        }
-      }
     },
     "email_counters": {
       "name": "email_counters",

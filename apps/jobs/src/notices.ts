@@ -38,6 +38,7 @@ export function noticeEmail(
   env: Pick<NoticeEnv, "APP_ORIGIN" | "CONTENT_DOMAIN">,
   artifacts: ExpiringArtifact[],
   locale: LocaleCode | null = null,
+  archiveMonths: number = LIMITS.archiveMonths,
 ) {
   return expiryNoticeEmail({
     artifacts: artifacts.map((artifact) => ({
@@ -48,16 +49,20 @@ export function noticeEmail(
     })),
     settingsUrl: `${env.APP_ORIGIN}/settings`,
     activeDays: LIMITS.activeDays,
-    archiveMonths: LIMITS.archiveMonths,
+    archiveMonths,
     locale: locale ?? undefined,
   });
 }
 
 export function expiryNotifierFromEnv(env: NoticeEnv): ExpiryNotifier {
   return {
-    async send({ to, artifacts, locale }) {
+    async send({ to, artifacts, locale, archiveMonths }) {
       try {
-        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...noticeEmail(env, artifacts, locale) });
+        await env.EMAIL.send({
+          from: NOTICE_SENDER,
+          to,
+          ...noticeEmail(env, artifacts, locale, archiveMonths),
+        });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

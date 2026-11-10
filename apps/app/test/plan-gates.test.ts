@@ -126,7 +126,17 @@ function probe(feature: PlanFeature): GatedOperation {
 }
 
 /** Every operation that reaches a paid feature: one line each (see the top of this file). */
-const GATED: GatedOperation[] = [probe("pin"), probe("workspaces"), probe("sso")];
+const GATED: GatedOperation[] = [
+  route(
+    "pin",
+    "pin an artifact",
+    (id) => [`/api/v1/artifacts/${id}/pin`, { method: "POST" }],
+    "pin_artifact",
+    (id) => ({ artifactId: id }),
+  ),
+  probe("workspaces"),
+  probe("sso"),
+];
 
 async function client(email: string): Promise<Client> {
   const h = createHarness();

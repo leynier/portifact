@@ -292,8 +292,10 @@ export async function run(
 
   const lifecycleCommands: [LifecycleAction, string][] = [
     ["renew", "Keep an artifact published for another 30 days"],
-    ["archive", "Stop serving an artifact; its owner can restore it for six months"],
+    ["archive", "Stop serving an artifact; its owner can restore it for the plan's archive months"],
     ["restore", "Publish an archived artifact again"],
+    ["pin", "Keep an artifact published with no expiry until unpinned (paid plans)"],
+    ["unpin", "Stop pinning an artifact; it gets 30 days from now"],
   ];
   for (const [action, description] of lifecycleCommands) {
     program

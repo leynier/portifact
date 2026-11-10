@@ -90,9 +90,17 @@ export const artifacts = sqliteTable(
     commentVisibility: text("comment_visibility", { enum: ["owner", "everyone"] })
       .notNull()
       .default("owner"),
+    /**
+     * Pinned (premium plan P2, feature `pin`): the artifact stays active with no `expires_at`
+     * until it is unpinned. Only an active or suspended artifact is pinned; archiving clears it.
+     * Kept last because `ALTER TABLE ADD COLUMN` appends it.
+     */
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
+    // The scan that unpins the artifacts of owners whose plan no longer includes `pin`.
+    index("artifacts_pinned_owner_idx").on(t.ownerId).where(sql`${t.pinned} = 1`),
     index("artifacts_state_expires_idx").on(t.state, t.expiresAt),
     index("artifacts_state_purge_idx").on(t.state, t.purgeAt),
     check("artifacts_id_format", sql`length(${t.id}) = 10`),

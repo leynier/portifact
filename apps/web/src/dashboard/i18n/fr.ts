@@ -81,6 +81,7 @@ export const fr = {
   "list.refreshFailed.body":
     "Elle affiche ce qui a été chargé en dernier. Portifact réessaie dans un instant.",
   "list.never": "Jamais",
+  "list.pinned": "Épinglé",
   "list.column.access": "Accès",
   "list.captionFiltered": "Vos artifacts correspondant à la recherche et aux filtres",
   "list.countFiltered":
@@ -177,6 +178,15 @@ export const fr = {
   "detail.restore.body": "Restaurez-le avant sa suppression définitive pour le remettre en ligne.",
   "detail.noActions": "Aucune action n’est disponible dans cet état.",
   "detail.renew": "Renouveler pour 30 jours",
+  "detail.pin": "Épingler",
+  "detail.unpin": "Désépingler",
+  "detail.pinned.body":
+    "Épinglé : il reste en ligne sans expiration jusqu’à ce que vous le désépingliez.",
+  "detail.pin.paid":
+    "Épingler garde un artifact en ligne sans expiration. Cela fait partie de l’offre {plan}.",
+  "detail.expiresNever": "Jamais, il est épinglé",
+  "detail.pinnedDone": "Artifact épinglé. Il reste en ligne sans expiration.",
+  "detail.unpinnedDone": "Artifact désépinglé. Il expire maintenant le {date}.",
   "detail.archive": "Archiver",
   "detail.restore": "Restaurer",
   "detail.delete": "Supprimer",
@@ -651,6 +661,7 @@ export const fr = {
   "publish.startOver": "Recommencer",
   "publish.done.title": "Version {number} publiée",
   "publish.done.body": "Elle est en ligne à {url} et expire le {date}.",
+  "publish.done.pinned": "Elle est en ligne à {url}. Elle est épinglée, donc elle n’expire pas.",
   "publish.done.open": "Ouvrir la page de l’artifact",
   "publish.done.another": "Publier autre chose",
   "publish.announce.done": "Version {number} de {name} publiée.",

@@ -65,7 +65,7 @@ export class ApiFailure extends Error {
   }
 }
 
-export type LifecycleAction = "renew" | "archive" | "restore" | "delete";
+export type LifecycleAction = "renew" | "archive" | "restore" | "delete" | "pin" | "unpin";
 
 export interface Account {
   email: string;

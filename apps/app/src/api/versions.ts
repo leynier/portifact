@@ -111,7 +111,7 @@ export function rolledBack(env: Env, outcome: RollbackOutcome): RolledBack {
     versionId: outcome.versionId,
     versionNumber: outcome.versionNumber,
     url: contentUrl(env, outcome.artifactId),
-    expiresAt: iso(outcome.expiresAt),
+    expiresAt: outcome.expiresAt === null ? null : iso(outcome.expiresAt),
     fromVersionId: outcome.fromVersionId,
     fromVersionNumber: outcome.fromVersionNumber,
   });

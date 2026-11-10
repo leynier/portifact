@@ -80,6 +80,7 @@ export const de = {
   "list.refreshFailed.body":
     "Sie zeigt den zuletzt geladenen Stand. Portifact versucht es gleich noch einmal.",
   "list.never": "Nie",
+  "list.pinned": "Angeheftet",
   "list.column.access": "Zugriff",
   "list.captionFiltered": "Deine Artifacts, die zur Suche und zu den Filtern passen",
   "list.countFiltered":
@@ -177,6 +178,14 @@ export const de = {
     "Stell es wieder her, bevor es endgültig gelöscht wird, um es wieder online zu bringen.",
   "detail.noActions": "In diesem Status sind keine Aktionen verfügbar.",
   "detail.renew": "Um 30 Tage verlängern",
+  "detail.pin": "Anheften",
+  "detail.unpin": "Lösen",
+  "detail.pinned.body": "Angeheftet: Es bleibt ohne Ablaufdatum online, bis du es löst.",
+  "detail.pin.paid":
+    "Anheften hält ein Artifact ohne Ablaufdatum online. Es ist Teil des Plans {plan}.",
+  "detail.expiresNever": "Nie, es ist angeheftet",
+  "detail.pinnedDone": "Artifact angeheftet. Es bleibt ohne Ablaufdatum online.",
+  "detail.unpinnedDone": "Artifact gelöst. Es läuft jetzt am {date} ab.",
   "detail.archive": "Archivieren",
   "detail.restore": "Wiederherstellen",
   "detail.delete": "Löschen",
@@ -650,6 +659,7 @@ export const de = {
   "publish.startOver": "Neu beginnen",
   "publish.done.title": "Version {number} veröffentlicht",
   "publish.done.body": "Es ist unter {url} online und läuft am {date} ab.",
+  "publish.done.pinned": "Es ist unter {url} online. Es ist angeheftet und läuft daher nicht ab.",
   "publish.done.open": "Seite des Artifacts öffnen",
   "publish.done.another": "Etwas anderes veröffentlichen",
   "publish.announce.done": "Version {number} von {name} veröffentlicht.",
