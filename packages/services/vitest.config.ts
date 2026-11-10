@@ -15,7 +15,8 @@ export default defineConfig(async () => {
         miniflare: {
           compatibilityDate: "2026-08-01",
           compatibilityFlags: ["nodejs_compat"],
-          d1Databases: ["DB", "ACCESS_DB"],
+          // SECOND_DB stands in for a second region (decision 0005) where a test needs one.
+          d1Databases: ["DB", "ACCESS_DB", "SECOND_DB"],
           r2Buckets: ["ARTIFACTS"],
           bindings: { TEST_MIGRATIONS: migrations, TEST_ACCESS_MIGRATIONS: accessMigrations },
         },

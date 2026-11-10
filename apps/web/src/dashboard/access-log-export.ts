@@ -35,7 +35,14 @@ export function csvField(value: string): string {
 
 /** The log as RFC 4180 CSV with a header row, in the API's order (newest first). */
 export function accessLogCsv(entries: readonly AccessLogEntry[]): string {
-  const rows = [["openedAt", "email"], ...entries.map((entry) => [entry.openedAt, entry.email])];
+  const rows = [
+    ["openedAt", "email", "shareLink"],
+    ...entries.map((entry) => [
+      entry.openedAt,
+      entry.email,
+      entry.shareLink ? (entry.shareLink.label ?? entry.shareLink.id) : "",
+    ]),
+  ];
   return rows.map((row) => `${row.map(csvField).join(",")}\r\n`).join("");
 }
 

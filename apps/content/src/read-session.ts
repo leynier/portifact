@@ -41,12 +41,27 @@ export interface ReadEnv {
 /** An artifact the Worker can serve: active, unexpired and with a current version. */
 export type ServableArtifact = DeliveryArtifact & { currentVersionId: string };
 
-export type Page = "signIn" | "unavailable" | "notFound" | "browserRequired" | "linkExpired";
+export type Page =
+  | "signIn"
+  | "unavailable"
+  | "notFound"
+  | "browserRequired"
+  | "linkExpired"
+  | "shareEnded";
 
 /** What the content Worker does with a request for a protected (or unknown) artifact. */
 export type ReadDecision =
-  /** `userId` is the signed-in visitor the read session names, for the access log. */
-  | { kind: "allow"; artifact: ServableArtifact; userId: string; setCookies: string[] }
+  /**
+   * `userId` is the signed-in visitor the read session names, for the access log; a link session
+   * (`share-session.ts`) names no one and carries its `linkId` instead.
+   */
+  | {
+      kind: "allow";
+      artifact: ServableArtifact;
+      userId: string | null;
+      linkId?: string;
+      setCookies: string[];
+    }
   | { kind: "redirect"; location: string; setCookies: string[] }
   | { kind: "page"; status: number; page: Page; setCookies: string[] };
 
@@ -107,6 +122,11 @@ export async function authorizeRead(
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,
+  /**
+   * Tried when the read cookie does not allow the request, before sign-in starts: a link session
+   * (decision 0008). A read session that works always wins over it.
+   */
+  linkSession?: () => Promise<ReadDecision | null>,
 ): Promise<ReadDecision> {
   if (!request.headers.has("Sec-Fetch-Site")) {
     // Fail closed without fetch metadata, and without a redirect a client could loop on.
@@ -151,6 +171,9 @@ export async function authorizeRead(
     // Access is gone: drop the session and let the app decide again, for this or another account.
     setCookies.push(clearCookie(READ_COOKIE));
   }
+
+  const linked = linkSession ? await linkSession() : null;
+  if (linked) return { ...linked, setCookies: [...setCookies, ...linked.setCookies] };
 
   if (!isNavigation(request)) return { kind: "page", status: 401, page: "signIn", setCookies };
   return startSignIn(request, env, secret, artifactId, now, setCookies);

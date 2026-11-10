@@ -19,6 +19,7 @@ export * from "./plans.ts";
 export * from "./publishing.ts";
 export * from "./read.ts";
 export * from "./review.ts";
+export * from "./share-links.ts";
 export * from "./usage.ts";
 export * from "./versions.ts";
 export * from "./workspaces.ts";

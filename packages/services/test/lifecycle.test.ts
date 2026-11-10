@@ -440,6 +440,7 @@ describe("purging archives", () => {
       orphanObjects: 0,
       prunedOperations: 0,
       readSessions: 0,
+      shareLinks: 0,
       reviewSessions: 0,
       rerendered: 0,
       accountDeletions: 0,

@@ -134,6 +134,20 @@ const GATED: GatedOperation[] = [
     "pin_artifact",
     (id) => ({ artifactId: id }),
   ),
+  route(
+    "shareLinks",
+    "create a share link",
+    (id) => [
+      `/api/v1/artifacts/${id}/share-links`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "Gate" }),
+      },
+    ],
+    "create_share_link",
+    (id) => ({ artifactId: id, label: "Gate" }),
+  ),
   probe("workspaces"),
   probe("sso"),
 ];
@@ -207,7 +221,7 @@ function expectNotRefused(answers: Answers, label: string) {
 
 describe.each(GATED)("$feature: $name", (op) => {
   it("is refused on free with plan_required, the same in the API and MCP", async () => {
-    const owner = await client(`gate-free-${op.feature}@example.test`);
+    const owner = await client(`gate-free-${op.feature.toLowerCase()}@example.test`);
     const id = await publishIn(owner.userId, owner.userId);
     expectRefused(await op.run(owner, id), op.feature, "free");
 
@@ -216,7 +230,7 @@ describe.each(GATED)("$feature: $name", (op) => {
   });
 
   it("follows the artifact owner's plan, not the caller's", async () => {
-    const editor = await client(`gate-editor-${op.feature}@example.test`);
+    const editor = await client(`gate-editor-${op.feature.toLowerCase()}@example.test`);
     const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
     await db()
       .insert(schema.workspaces)

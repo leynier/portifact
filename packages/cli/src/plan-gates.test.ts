@@ -41,6 +41,12 @@ const GATED: GatedCommand[] = [
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/pin$/,
   },
+  {
+    feature: "shareLinks",
+    args: (id) => ["share", "create", id, "--label", "Gate"],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/share-links$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {

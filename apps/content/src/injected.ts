@@ -6,6 +6,7 @@
 // docs/security.md, "Injected cookies".
 import { READ_COOKIE, TRANSACTION_COOKIE_PREFIX } from "./cookies.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "./review.ts";
+import { SHARE_COOKIE } from "./share-session.ts";
 import { NO_BAR_COOKIE } from "./viewer.ts";
 
 /**
@@ -23,16 +24,22 @@ export const CLEANUP_BUDGET = 16 * 1024;
 /** Cookie paths tried per request: `/` and the prefixes of the requested path. */
 export const MAX_CLEANUP_PATHS = 8;
 
-const OWN_NAMES = new Set([READ_COOKIE, REVIEW_COOKIE, REVIEW_TAB_COOKIE, NO_BAR_COOKIE]);
+const OWN_NAMES = new Set([
+  READ_COOKIE,
+  REVIEW_COOKIE,
+  REVIEW_TAB_COOKIE,
+  NO_BAR_COOKIE,
+  SHARE_COOKIE,
+]);
 
 /** One of Portifact's cookies on artifact origins, by exact, case-sensitive name. */
 export function isPortifactCookie(name: string): boolean {
   return OWN_NAMES.has(name) || name.startsWith(TRANSACTION_COOKIE_PREFIX);
 }
 
-/** A foreign name that imitates ours (`__host-pf_read`, `pf_review`): cleared at any size. */
+/** A foreign name that imitates ours (`__host-pf_read`, `pf_review`, `pf_link`): cleared at any size. */
 function imitatesPortifact(name: string): boolean {
-  return /pf_(read|review)/i.test(name);
+  return /pf_(read|review)|pf_link$/i.test(name);
 }
 
 /** Names that can be written back in a `Set-Cookie` header unchanged. */

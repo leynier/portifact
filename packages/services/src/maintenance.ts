@@ -18,6 +18,7 @@ import { alignPlanLimits, ownerEntitlements, unpinLapsedPlans } from "./plans.ts
 import { closeUploadSession } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
 import { pruneReviewSessions } from "./review-access.ts";
+import { pruneShareLinks } from "./share-links.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 
 const DEFAULT_BATCH = 50;
@@ -484,6 +485,7 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    shareLinks: (await pruneShareLinks(db, now)).processed,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),

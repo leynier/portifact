@@ -34,6 +34,25 @@ export async function hitRateLimit(
   return { count: row.count, resetAt: row.window_start + windowMs };
 }
 
+/**
+ * Gives back one request counted by `hitRateLimit` in the window that ends at `resetAt`, for an
+ * attempt whose outcome should not count (a right password, or a refusal before the check). A
+ * window that started again since is left alone, and the count never goes below zero.
+ */
+export async function releaseRateLimit(
+  d1: D1Database,
+  key: string,
+  windowMs: number,
+  resetAt: number,
+): Promise<void> {
+  await d1
+    .prepare(
+      "update rate_limits set count = count - 1 where key = ?1 and window_start = ?2 and count > 0",
+    )
+    .bind(key, resetAt - windowMs)
+    .run();
+}
+
 /** Deletes counters whose window started before `before`. Safe to run at any time. */
 export async function pruneRateLimits(d1: D1Database, before: number): Promise<number> {
   const result = await d1
