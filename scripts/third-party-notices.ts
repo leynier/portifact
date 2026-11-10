@@ -1,7 +1,8 @@
 // Regenerates the third-party notices from the installed packages: `third-party-notices.md` at
 // the repository root (served at portifact.com/third-party-notices) and the CLI's embedded copy.
 // `--check` fails when either is stale or a shipped package has a license that is not known to be
-// compatible with AGPL-3.0; `bun run check` runs it.
+// compatible with AGPL-3.0, or not permissive enough for the commercial license without a reviewed
+// exception (COMMERCIAL_EXCEPTIONS); `bun run check` runs it.
 import {
   existsSync,
   readdirSync,

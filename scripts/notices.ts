@@ -30,6 +30,8 @@ export interface CollectedPackage {
   license: string;
   repository: string | null;
   author: string | null;
+  /** The installed versions, sorted, so a reviewed exception can name the exact one. */
+  versions: string[];
   /** Distinct license and notice texts across installed versions, in file name order. */
   texts: { file: string; text: string }[];
   components: string[];
@@ -164,11 +166,13 @@ export function collectPackages(
           license: declaredLicense(m),
           repository: repositoryUrl(m),
           author: authorOf(m),
+          versions: [],
           texts: [],
           components: [],
         } satisfies CollectedPackage);
       byName.set(name, entry);
       if (!entry.components.includes(component.id)) entry.components.push(component.id);
+      if (m.version && !entry.versions.includes(m.version)) entry.versions.push(m.version);
       const files = fs
         .list(dir)
         .filter((file) => LICENSE_FILE.test(file))
@@ -193,6 +197,7 @@ export function collectPackages(
     .map((p) => ({
       ...p,
       components: [...p.components].sort((a, b) => order.indexOf(a) - order.indexOf(b)),
+      versions: [...p.versions].sort(),
     }))
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
@@ -239,29 +244,99 @@ export const AGPL_COMPATIBLE = new Set([
 ]);
 
 /**
- * Whether an SPDX expression can be used under AGPL-3.0: an OR needs one compatible side, an AND
- * needs both. Unknown identifiers are not compatible, so a new license is reviewed by hand.
+ * Licenses that also let the maintainer ship Portifact under a commercial license without the
+ * AGPL's obligations (docs/licensing.md): permissive licenses only, which ask for notices and
+ * nothing about the rest of the program. Strong copyleft (GPL, AGPL) is never here. Weak
+ * copyleft is left out on purpose too: LGPL-2.1 and LGPL-3.0 ask that users can relink a
+ * modified library, MPL-2.0 and EPL-2.0 keep their files under their own terms with source
+ * available. Each can be compatible with a commercial license, but only after a review of how
+ * that package is shipped, so it goes in COMMERCIAL_EXCEPTIONS for an exact version instead.
+ * Adding an identifier here is a license review: say why in the change.
  */
-export function agplCompatible(expression: string): boolean {
+export const COMMERCIAL_COMPATIBLE = new Set([
+  "0BSD",
+  "Apache-2.0",
+  "BlueOak-1.0.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "CC0-1.0",
+  "CC-BY-4.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  // The Python Software Foundation License: permissive, with a notice requirement.
+  "PSF-2.0",
+  "Python-2.0",
+  "Unlicense",
+  "Zlib",
+]);
+
+/**
+ * Shipped packages whose license is AGPL compatible but not in COMMERCIAL_COMPATIBLE, accepted
+ * for the commercial license for an exact version with the reason. An update of the package
+ * needs the review again. Every entry is pending a lawyer's review (docs/licensing.md).
+ */
+export const COMMERCIAL_EXCEPTIONS: Record<string, string> = {
+  // Mermaid's ELK layout engine, bundled unmodified in the diagram script that the content
+  // Worker serves to browsers. EPL-2.0 is weak copyleft at the file level: section 3.2 allows
+  // distributing the object code under other terms when its source is offered, which the
+  // notices do by linking the package's repository. It never covers the rest of Portifact.
+  "elkjs@0.12.1": "EPL-2.0, weak copyleft per file, shipped unmodified with its source linked",
+};
+
+/** Splits an SPDX expression into its OR groups of AND-ed identifiers (the common forms). */
+function licenseGroups(expression: string): string[][] {
   const tokens = expression.replace(/[()]/g, " ").trim().split(/\s+/);
-  // Without nesting rules beyond the common forms: OR of AND groups.
   const groups: string[][] = [[]];
   for (const token of tokens) {
     if (token === "OR") groups.push([]);
     else if (token !== "AND") (groups.at(-1) as string[]).push(token);
   }
-  return groups.some(
-    (group) => group.length > 0 && group.every((id) => AGPL_COMPATIBLE.has(id.replace(/\+$/, ""))),
+  return groups;
+}
+
+/** Whether one side of an OR has every identifier in the allowed set. */
+function satisfies(expression: string, allowed: ReadonlySet<string>): boolean {
+  return licenseGroups(expression).some(
+    (group) => group.length > 0 && group.every((id) => allowed.has(id.replace(/\+$/, ""))),
   );
 }
 
+/**
+ * Whether an SPDX expression can be used under AGPL-3.0: an OR needs one compatible side, an AND
+ * needs both. Unknown identifiers are not compatible, so a new license is reviewed by hand.
+ */
+export function agplCompatible(expression: string): boolean {
+  return satisfies(expression, AGPL_COMPATIBLE);
+}
+
+/** Whether an SPDX expression also allows shipping Portifact under a commercial license. */
+export function commercialCompatible(expression: string): boolean {
+  return satisfies(expression, COMMERCIAL_COMPATIBLE);
+}
+
+/** Whether every installed version of a package has a reviewed commercial exception. */
+function commercialException(
+  p: CollectedPackage,
+  exceptions: Readonly<Record<string, string>>,
+): boolean {
+  return p.versions.length > 0 && p.versions.every((v) => `${p.name}@${v}` in exceptions);
+}
+
 /** Packages whose license is not compatible or not known, for the check to refuse. */
-export function licenseProblems(packages: readonly CollectedPackage[]): string[] {
+export function licenseProblems(
+  packages: readonly CollectedPackage[],
+  exceptions: Readonly<Record<string, string>> = COMMERCIAL_EXCEPTIONS,
+): string[] {
   const problems: string[] = [];
   for (const p of packages) {
     if (!agplCompatible(p.license)) {
       problems.push(
         `${p.name}: license "${p.license}" is not known to be compatible with AGPL-3.0`,
+      );
+    } else if (!commercialCompatible(p.license) && !commercialException(p, exceptions)) {
+      problems.push(
+        `${p.name}@${p.versions.join(", ")}: license "${p.license}" is not permissive, so Portifact could not be shipped under a commercial license with it (see docs/licensing.md)`,
       );
     }
   }
