@@ -50,6 +50,7 @@ function withDesign(role: "admin" | "editor" = "admin", available = true) {
         name: "Design",
         members: 1,
         createdAt: "2026-11-01T12:00:00.000Z",
+        directory: false,
         memberIds: ["u_ada"],
       },
     ],
@@ -77,6 +78,55 @@ describe("the Groups page", () => {
     renderDashboard("/groups", server);
     expect(await screen.findByText("Groups belong to a workspace")).toBeTruthy();
     expect(requested()).toEqual([]);
+  });
+
+  it("shows a directory group as the directory's, without the controls that change it", async () => {
+    withDesign("admin");
+    const acme = server.workspaces.acme;
+    if (!acme) throw new Error("no workspace");
+    acme.groups = acme.groups.map((group) => ({ ...group, directory: true }));
+    acme.members = acme.members.map((member) => ({ ...member, directoryRole: true }));
+    const { container } = renderDashboard("/groups?workspace=acme", server);
+    const card = (await screen.findByRole("heading", { name: /Design/ })).closest(
+      "li",
+    ) as HTMLElement;
+    expect(within(card).getByText("Managed by your directory")).toBeTruthy();
+    expect(card.textContent).toContain("change its name and members there");
+    expect(within(card).queryByRole("button", { name: "Rename Design" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Delete Design" })).toBeNull();
+    fireEvent.click(within(card).getByRole("button", { name: "Members" }));
+    await within(card).findByText("Ada");
+    expect(within(card).queryByRole("button", { name: /^Remove/ })).toBeNull();
+    expect(within(card).queryByRole("combobox")).toBeNull();
+    await themes(container);
+    cleanup();
+    renderDashboard("/members?workspace=acme", server);
+    expect(await screen.findByText("In a directory group with a role")).toBeTruthy();
+  });
+
+  it("stops syncing a directory group after a confirmation, making it an ordinary group", async () => {
+    withDesign("admin");
+    const acme = server.workspaces.acme;
+    if (!acme) throw new Error("no workspace");
+    acme.groups = acme.groups.map((group) => ({ ...group, directory: true }));
+    acme.scim.editorGroup = DESIGN;
+    const { container } = renderDashboard("/groups?workspace=acme", server);
+    const card = (await screen.findByRole("heading", { name: /Design/ })).closest(
+      "li",
+    ) as HTMLElement;
+    fireEvent.click(within(card).getByRole("button", { name: "Stop syncing Design" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Stop syncing Design from your directory?",
+    });
+    expect(dialog.textContent).toContain(
+      "If the directory pushes a group with the same name later, it is refused.",
+    );
+    await themes(container);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stop syncing" }));
+    expect(await within(card).findByRole("button", { name: "Rename Design" })).toBeTruthy();
+    expect(within(card).queryByText("Managed by your directory")).toBeNull();
+    expect(acme.scim.editorGroup).toBeNull();
+    expect(requested()).toContain(`POST /api/v1/workspaces/acme/groups/${DESIGN}/stop-sync`);
   });
 
   it("creates a group, adds and removes a member, renames and deletes it", async () => {

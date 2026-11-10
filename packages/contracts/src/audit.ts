@@ -247,12 +247,17 @@ export const AUDIT_DETAILS = {
   "scim_token.revoked": empty,
   "member.provisioned": z.strictObject({ role: WorkspaceRole, emailDomain: DnsName }),
   "scim.changed": z.strictObject({
-    fields: z.array(z.enum(["invitationEmails"])).min(1),
+    fields: z.array(z.enum(["invitationEmails", "editorGroup", "adminGroup"])).min(1),
     invitationEmails: z.boolean().optional(),
+    /** The group mapped to the role, by ID only (a name is owner-chosen text); null when cleared. */
+    editorGroup: WorkspaceGroupId.nullable().optional(),
+    adminGroup: WorkspaceGroupId.nullable().optional(),
   }),
   "group.created": empty,
   "group.renamed": empty,
   "group.deleted": empty,
+  /** An admin stopped syncing a directory-managed group: it is an ordinary group now (0017). */
+  "group.sync_stopped": empty,
   "group.member_added": z.strictObject({ group: WorkspaceGroupId }),
   "group.member_removed": z.strictObject({ group: WorkspaceGroupId }),
   /**
@@ -372,6 +377,7 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "group.created": "group",
   "group.renamed": "group",
   "group.deleted": "group",
+  "group.sync_stopped": "group",
   "group.member_added": "member",
   "group.member_removed": "member",
   "audit.exported": "audit_log",

@@ -143,6 +143,7 @@ function ScimBody({ space, overview }: { space: WorkspaceSpace; overview: ScimOv
         full={overview.tokens.length >= overview.limit}
         onCreated={setCreated}
       />
+      <RoleMapping space={space} overview={overview} />
       <Checkbox
         label={t("scim.emails")}
         description={t("scim.emailsHint")}
@@ -160,6 +161,106 @@ function ScimBody({ space, overview }: { space: WorkspaceSpace; overview: ScimOv
         </Callout>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Which directory group gives `editor` and which gives `admin` (decision 0017, "Groups and
+ * roles"). Mapping a group to admin hands workspace administration to whoever controls the
+ * directory, so it asks for a confirmation that names the group and how many people it holds.
+ */
+function RoleMapping({ space, overview }: { space: WorkspaceSpace; overview: ScimOverview }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const queryClient = useQueryClient();
+  const { api } = useDashboard();
+  const [editor, setEditor] = useState(overview.roleMapping.editor?.id ?? "");
+  const [admin, setAdmin] = useState(overview.roleMapping.admin?.id ?? "");
+  const [confirming, setConfirming] = useState(false);
+  const save = useMutation({
+    mutationFn: (confirmAdminGroup: string | undefined) =>
+      api.saveScim(space.slug, {
+        editorGroup: editor === "" ? null : editor,
+        adminGroup: admin === "" ? null : admin,
+        ...(confirmAdminGroup ? { confirmAdminGroup } : {}),
+      }),
+    onSuccess: (next) => {
+      setConfirming(false);
+      queryClient.setQueryData(scimQuery(space.slug), next);
+      announce(t("scim.roles.saved"));
+    },
+    onError: () => setConfirming(false),
+  });
+  const adminGroup = overview.groups.find((group) => group.id === admin);
+  const adminChanges = admin !== (overview.roleMapping.admin?.id ?? "") && admin !== "";
+  const options = [
+    { value: "", label: t("scim.roles.none") },
+    ...overview.groups.map((group) => ({
+      value: group.id,
+      label: t("scim.roles.option", { name: group.name, count: group.members }),
+    })),
+  ];
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (adminChanges) setConfirming(true);
+    else save.mutate(undefined);
+  };
+  return (
+    <section aria-labelledby="scim-roles" className="flex flex-col gap-3">
+      <h3 id="scim-roles" className="text-sm font-medium">
+        {t("scim.roles.title")}
+      </h3>
+      <p className="text-sm text-text-muted">{t("scim.roles.description")}</p>
+      <p className="text-sm text-text-muted">{t("scim.roles.access")}</p>
+      {overview.groups.length === 0 ? (
+        <p className="text-sm text-text-muted">{t("scim.roles.noGroups")}</p>
+      ) : (
+        <form className="flex max-w-3xl flex-col gap-4" onSubmit={submit} noValidate>
+          <Select
+            label={t("scim.roles.editor")}
+            value={editor}
+            options={options}
+            onChange={setEditor}
+          />
+          <Select
+            label={t("scim.roles.admin")}
+            value={admin}
+            options={options}
+            onChange={setAdmin}
+          />
+          {save.isError ? (
+            <Callout
+              tone="error"
+              title={t("scim.actionFailed")}
+              icon={<CircleAlert className="size-5" />}
+            >
+              {errorMessage(t, save.error)}
+            </Callout>
+          ) : null}
+          <div>
+            <Button type="submit" intent="primary" busy={save.isPending}>
+              {t("scim.roles.save")}
+            </Button>
+          </div>
+        </form>
+      )}
+      <ConfirmDialog
+        open={confirming}
+        title={t("scim.roles.confirm.title", { name: adminGroup?.name ?? "" })}
+        confirmLabel={t("scim.roles.confirm.action")}
+        cancelLabel={t("account.cancel")}
+        tone="danger"
+        busy={save.isPending}
+        onConfirm={() => save.mutate(admin)}
+        onCancel={() => setConfirming(false)}
+      >
+        {t("scim.roles.confirm.body", {
+          name: adminGroup?.name ?? "",
+          count: adminGroup?.members ?? 0,
+          pending: adminGroup?.pending ?? 0,
+        })}
+      </ConfirmDialog>
+    </section>
   );
 }
 

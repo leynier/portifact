@@ -103,6 +103,7 @@ export const AUDIT_GROUPS = {
     "group.created",
     "group.renamed",
     "group.deleted",
+    "group.sync_stopped",
     "group.member_added",
     "group.member_removed",
   ],
@@ -455,6 +456,25 @@ function targetName(t: T, event: AuditEventView): string {
   }
 }
 
+/** What a directory settings change did, one phrase per field. */
+function scimChanges(t: T, d: Record<string, unknown>): string[] {
+  const fields = (d.fields as string[] | undefined) ?? ["invitationEmails"];
+  const parts: string[] = [];
+  if (fields.includes("invitationEmails")) {
+    parts.push(t(d.invitationEmails ? "audit.kind.scimEmailsOn" : "audit.kind.scimEmailsOff"));
+  }
+  for (const mapped of ["editor", "admin"] as const) {
+    if (!fields.includes(`${mapped}Group`)) continue;
+    const label = t(ROLE_LABELS[mapped]);
+    parts.push(
+      d[`${mapped}Group`] === null
+        ? t("audit.kind.scimRoleOff", { role: label })
+        : t("audit.kind.scimRoleOn", { role: label }),
+    );
+  }
+  return parts;
+}
+
 const role = (t: T, value: unknown) => t(ROLE_LABELS[value as WorkspaceRole]);
 /** A group by its current name; events never store it (decision 0014). */
 const groupName = (t: T, event: AuditEventView) => event.group?.name ?? t("audit.target.groupGone");
@@ -554,7 +574,7 @@ export function describeAuditEvent(
     case "scim_token.created":
       return t("audit.kind.scimTokenCreated", { days: Number(d.days) });
     case "scim.changed":
-      return t(d.invitationEmails ? "audit.kind.scimEmailsOn" : "audit.kind.scimEmailsOff");
+      return scimChanges(t, d).join("; ");
     case "sso.created":
       return t("audit.kind.ssoCreated", {
         host: String(d.issuerHost),
@@ -583,6 +603,8 @@ export function describeAuditEvent(
       return t("audit.kind.groupCreated", { group: groupName(t, event) });
     case "group.renamed":
       return t("audit.kind.groupRenamed", { group: groupName(t, event) });
+    case "group.sync_stopped":
+      return t("audit.kind.groupSyncStopped", { group: groupName(t, event) });
     case "group.deleted":
       return t("audit.kind.groupDeleted", { group: groupName(t, event) });
     case "group.member_added":

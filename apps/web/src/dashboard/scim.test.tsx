@@ -129,6 +129,89 @@ describe("the Directory sync section", () => {
     expect(await within(panel).findByText("The change was not saved")).toBeTruthy();
   });
 
+  it.each(["light", "dark"])(
+    "maps directory groups to roles, confirming admin by name and size (%s theme)",
+    async (theme) => {
+      document.documentElement.dataset.theme = theme;
+      const acme = server.workspaces.acme;
+      if (!acme) throw new Error("no workspace");
+      const ENG = `wg_${"e".repeat(32)}`;
+      const OPS = `wg_${"f".repeat(32)}`;
+      acme.groups = [
+        {
+          id: ENG,
+          name: "Engineering",
+          members: 2,
+          createdAt: "2026-11-10T12:00:00.000Z",
+          directory: true,
+          memberIds: ["u_ada", "u_grace"],
+          pendingIds: ["su_1", "su_2", "su_3"],
+        },
+        {
+          id: OPS,
+          name: "Ops",
+          members: 1,
+          createdAt: "2026-11-10T12:00:00.000Z",
+          directory: true,
+          memberIds: ["u_ada"],
+        },
+        {
+          id: `wg_${"d".repeat(32)}`,
+          name: "Mine",
+          members: 0,
+          createdAt: "2026-11-10T12:00:00.000Z",
+          directory: false,
+          memberIds: [],
+        },
+      ];
+      const { container } = renderDashboard("/members?workspace=acme", server);
+      const panel = await region();
+      const roles = within(panel).getByRole("region", { name: "Roles from directory groups" });
+      expect(roles.textContent).toContain("your directory now decides who reads those artifacts");
+      expect(await axeViolations(container)).toEqual([]);
+      const pick = async (label: string, option: string) => {
+        fireEvent.click(within(roles).getByRole("combobox", { name: label }));
+        fireEvent.click(await screen.findByRole("option", { name: option }));
+      };
+      // Only the directory's groups are offered.
+      fireEvent.click(
+        within(roles).getByRole("combobox", { name: "Group whose members are editors" }),
+      );
+      expect(screen.queryByRole("option", { name: /^Mine/ })).toBeNull();
+      fireEvent.click(await screen.findByRole("option", { name: "Ops (1 member)" }));
+      await pick("Group whose members are admins", "Engineering (2 members)");
+      fireEvent.click(within(roles).getByRole("button", { name: "Save roles" }));
+      const dialog = await screen.findByRole("dialog", {
+        name: "Make the members of Engineering admins?",
+      });
+      expect(dialog.textContent).toContain(
+        "2 people are in Engineering now, and 3 more will be when they sign in",
+      );
+      expect(await axeViolations(container)).toEqual([]);
+      fireEvent.click(within(dialog).getByRole("button", { name: "Make them admins" }));
+      await waitFor(() =>
+        expect(server.bodies.at(-1)).toEqual({
+          editorGroup: OPS,
+          adminGroup: ENG,
+          confirmAdminGroup: ENG,
+        }),
+      );
+      await waitFor(() => expect(acme.scim.adminGroup).toBe(ENG));
+      // Editor only: no confirmation.
+      await pick("Group whose members are admins", "No group");
+      fireEvent.click(within(roles).getByRole("button", { name: "Save roles" }));
+      await waitFor(() =>
+        expect(server.bodies.at(-1)).toEqual({ editorGroup: OPS, adminGroup: null }),
+      );
+    },
+  );
+
+  it("says when the directory has pushed no group", async () => {
+    renderDashboard("/members?workspace=acme", server);
+    const panel = await region();
+    expect(panel.textContent).toContain("Your directory has not pushed a group yet.");
+  });
+
   it("is hidden while switched off, and from editors", async () => {
     const acme = server.workspaces.acme;
     if (acme) acme.scim.enabled = false;

@@ -61,6 +61,11 @@ export const WorkspaceGroupView = z.object({
   name: z.string(),
   members: z.number().int().min(0),
   createdAt: z.iso.datetime(),
+  /**
+   * The workspace's directory manages it through SCIM (decision 0017): the dashboard does not
+   * rename, delete or change its members.
+   */
+  directory: z.boolean(),
 });
 export type WorkspaceGroupView = z.infer<typeof WorkspaceGroupView>;
 

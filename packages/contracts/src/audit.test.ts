@@ -151,6 +151,7 @@ describe("the catalog's exact shapes", () => {
       "group.created": "group",
       "group.renamed": "group",
       "group.deleted": "group",
+      "group.sync_stopped": "group",
       "group.member_added": "member",
       "group.member_removed": "member",
       "audit.exported": "audit_log",

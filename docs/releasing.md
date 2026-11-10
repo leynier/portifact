@@ -230,6 +230,9 @@ SCIM provisioning ships switched off ([decision 0017](decisions/0017-workspace-s
 6. **Rate of sync.** A full sync of the largest tenant you have against the limits (300 a minute per token, 600 per workspace): no `429` in a normal cycle; if there are, record the directory's retry behavior and raise the limits in `SCIM` before turning it on.
 7. **Deactivation ends sessions.** A person signed in on the dashboard and through the CLI is signed out of both after the directory deactivates them, and cannot sign in through the workspace's single sign-on until reactivated.
 8. **Seats and the last admin.** Provisioning past the seats shows the directory's error with the detail; deactivating the last admin is refused with its detail, and the directory surfaces it.
+9. **Group push.** Okta (Push Groups, by name and by rule) and Entra (groups assigned to the app, "Provision Microsoft Entra ID Groups" on): a pushed group appears on the Groups page as managed by the directory, with the members who are workspace members. Membership adds and removes arrive as PATCH (Okta `add` and filtered `remove`, Entra `Add` and `Remove` with value lists) and are applied. A rename arrives as `replace` of `displayName`. Unlinking or deleting the group in the directory deletes it. Check how each directory handles a `409` for a name a dashboard group already has, record it, and what it shows the directory's admin.
+10. **Group size and sync rate.** Push a group at 500 members and replace it, then push 50 groups. No request is refused for size, none takes more than a few seconds, and a full sync stays under the rate limits.
+11. **Role mapping.** Map a pushed group to editor and another to admin (the confirmation names the group and its size). Adding and removing people in the directory moves their roles at the next push. Removing the last admin's group in the directory is refused with the detail the directory then shows.
 
 ## Platforms
 

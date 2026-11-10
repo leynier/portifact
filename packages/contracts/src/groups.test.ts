@@ -65,7 +65,13 @@ describe("workspace groups", () => {
   });
 
   it("shows names and counts in lists, members only in a group's detail", () => {
-    const group = { id: ID, name: "Design", members: 3, createdAt: "2026-11-10T00:00:00.000Z" };
+    const group = {
+      id: ID,
+      name: "Design",
+      members: 3,
+      createdAt: "2026-11-10T00:00:00.000Z",
+      directory: false,
+    };
     expect(WorkspaceGroupList.parse({ items: [group], available: true, limit: 50 })).toEqual({
       items: [group],
       available: true,

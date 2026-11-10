@@ -1,9 +1,10 @@
 // SCIM provisioning for a workspace (premium plan E2, decision 0017), end to end: an admin of an
 // Enterprise workspace with a verified email domain creates a SCIM token in the Directory sync
 // section of the Members page and copies its secret; the test plays the directory against
-// /scim/v2 with it (the request shapes Okta sends), provisioning a person who has no account; the
-// person signs in with an email code and is a member at once; the directory deactivates them and
-// their session ends. No real directory is involved.
+// /scim/v2 with it (the request shapes Okta sends), provisioning a person who has no account and
+// pushing a group that holds them; the admin maps the group to editor; the person signs in with an
+// email code and is an editor at once; out of the group they are a member again; the directory
+// deactivates them and their session ends. No real directory is involved.
 
 import type { APIRequestContext, Page } from "@playwright/test";
 import { axeViolations } from "../src/axe.ts";
@@ -44,7 +45,7 @@ function directory(request: APIRequestContext, secret: string) {
   };
 }
 
-test("a directory provisions a person with a token from the dashboard, and deactivating them ends their session", async ({
+test("a directory provisions a person and a group mapped to editor, and deactivating them ends their session", async ({
   page,
   context,
   browser,
@@ -104,13 +105,36 @@ test("a directory provisions a person with a token from the dashboard, and deact
   const user = (await created.json()) as { id: string; active: boolean };
   expect(user.active).toBe(true);
 
-  // The admin sees the person waiting to sign in, listed with the pending invitations.
+  // The directory pushes a group holding the person (Okta: create, then add members).
+  const pushed = await scim.post("/Groups", {
+    schemas: ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+    displayName: "Engineering",
+    members: [],
+  });
+  expect(pushed.status()).toBe(201);
+  const groupId = ((await pushed.json()) as { id: string }).id;
+  const added = await scim.patch(`/Groups/${groupId}`, {
+    schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+    Operations: [{ op: "add", path: "members", value: [{ value: user.id }] }],
+  });
+  expect(added.status()).toBe(200);
+
+  // The admin sees the person waiting to sign in, and maps the group to editor.
   await page.reload();
   const pending = page.getByRole("list", { name: "Pending invitations" });
   await expect(pending.getByText(email)).toBeVisible();
   await expect(pending.getByText("From the directory")).toBeVisible();
+  const roles = page.getByRole("region", { name: "Roles from directory groups" });
+  await roles.getByRole("combobox", { name: "Group whose members are editors" }).click();
+  await page.getByRole("option", { name: /^Engineering/ }).click();
+  await roles.getByRole("button", { name: "Save roles" }).click();
+  await expect(page.getByText("Roles saved.")).toBeAttached();
+  for (const colorScheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    expect(await axeViolations(page), colorScheme).toEqual([]);
+  }
 
-  // The person signs in for the first time and is a member at once.
+  // The person signs in for the first time and is an editor at once, through the group.
   const guest = await browser.newContext();
   try {
     const login = await guest.newPage();
@@ -121,7 +145,19 @@ test("a directory provisions a person with a token from the dashboard, and deact
       "select role from workspace_members where workspace_id = ? and user_id = ?",
       [workspace.id, account?.id ?? ""],
     );
-    expect(membership?.role).toBe("member");
+    expect(membership?.role).toBe("editor");
+
+    // The directory takes them out of the group: a member again.
+    const removed = await scim.patch(`/Groups/${groupId}`, {
+      schemas: ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+      Operations: [{ op: "remove", path: `members[value eq "${user.id}"]` }],
+    });
+    expect(removed.status()).toBe(200);
+    const [after] = await sql<{ role: string }>(
+      "select role from workspace_members where workspace_id = ? and user_id = ?",
+      [workspace.id, account?.id ?? ""],
+    );
+    expect(after?.role).toBe("member");
 
     // The directory deactivates them: out of the workspace, and their session ends.
     const off = await scim.patch(`/Users/${user.id}`, {

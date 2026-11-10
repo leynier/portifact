@@ -300,6 +300,9 @@ function MemberList({
                     ) : (
                       <Badge emphasis="subtle">{t(ROLE_LABELS[member.role])}</Badge>
                     )}
+                    {member.directoryRole ? (
+                      <span className="text-xs text-text-muted">{t("members.directoryRole")}</span>
+                    ) : null}
                     {member.you ? (
                       <Button
                         intent="ghost"

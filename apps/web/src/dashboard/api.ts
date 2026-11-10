@@ -208,6 +208,8 @@ export interface DashboardApi {
   createGroup(slug: string, name: string): Promise<WorkspaceGroupView>;
   renameGroup(slug: string, groupId: string, name: string): Promise<WorkspaceGroupView>;
   deleteGroup(slug: string, groupId: string): Promise<void>;
+  /** Stops syncing a directory-managed group: an ordinary group from then on (decision 0017). */
+  stopGroupSync(slug: string, groupId: string): Promise<void>;
   addGroupMember(slug: string, groupId: string, userId: string): Promise<WorkspaceGroupDetail>;
   removeGroupMember(slug: string, groupId: string, userId: string): Promise<void>;
   /** A workspace's policies (decision 0015): every member reads them, only admins change them. */
@@ -711,6 +713,13 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         WorkspaceGroupView,
         "PATCH",
         { name },
+      );
+    },
+    async stopGroupSync(slug, groupId) {
+      await call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}/stop-sync`,
+        z.object({ stopped: z.literal(true) }),
+        "POST",
       );
     },
     async deleteGroup(slug, groupId) {

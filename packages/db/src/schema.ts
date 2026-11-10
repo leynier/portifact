@@ -1772,6 +1772,12 @@ export const scimUsers = sqliteTable(
      * ended, so a retry after a failure ends them, and only for that removal.
      */
     sessionsPending: integer("sessions_pending", { mode: "boolean" }).notNull().default(false),
+    /**
+     * The role the directory's group mapping last gave the linked account (`editor` or `admin`),
+     * null when it gave none: a sync changes a role only for someone it gave one to or gives one
+     * to now, so a role an admin set by hand for anyone else is never touched.
+     */
+    mappedRole: text("mapped_role", { enum: ["editor", "admin"] }),
     createdAt: timestamp("created_at").notNull(),
     updatedAt: timestamp("updated_at").notNull(),
     /**
@@ -1789,6 +1795,52 @@ export const scimUsers = sqliteTable(
   ],
 );
 
+/**
+ * Groups a workspace's directory manages through SCIM (decision 0017, "Groups and roles"): a row
+ * here marks the `workspace_groups` row as directory-managed, so the dashboard does not change it.
+ * Goes with the group. `write_id` claims each write, like a directory user's.
+ */
+export const scimGroups = sqliteTable(
+  "scim_groups",
+  {
+    groupId: text("group_id")
+      .primaryKey()
+      .references(() => workspaceGroups.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    externalId: text("external_id"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    writeId: text("write_id").notNull(),
+  },
+  (t) => [index("scim_groups_workspace_external_idx").on(t.workspaceId, t.externalId)],
+);
+
+/**
+ * Who the directory says is in each of its groups, by directory user: pending people included.
+ * `workspace_group_members` holds the members among them who are workspace members; a person who
+ * joins later gets their group rows from here in the batch of the join. Goes with the group and
+ * with the directory user.
+ */
+export const scimGroupMembers = sqliteTable(
+  "scim_group_members",
+  {
+    groupId: text("group_id")
+      .notNull()
+      .references(() => scimGroups.groupId, { onDelete: "cascade" }),
+    scimUserId: text("scim_user_id")
+      .notNull()
+      .references(() => scimUsers.id, { onDelete: "cascade" }),
+    workspaceId: text("workspace_id").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.groupId, t.scimUserId] }),
+    index("scim_group_members_user_idx").on(t.scimUserId),
+  ],
+);
+
 /** A workspace's SCIM settings (decision 0017); no row means the defaults. */
 export const workspaceScim = sqliteTable("workspace_scim", {
   workspaceId: text("workspace_id")
@@ -1796,6 +1848,16 @@ export const workspaceScim = sqliteTable("workspace_scim", {
     .references(() => workspaces.id, { onDelete: "cascade" }),
   /** Whether a person provisioned without an account gets the invitation email. Off by default. */
   invitationEmails: integer("invitation_emails", { mode: "boolean" }).notNull().default(false),
+  /**
+   * The directory-managed groups whose members get `editor` and `admin` (decision 0017, "Groups
+   * and roles"); null when unmapped. Cleared in the batch that deletes the group.
+   */
+  editorGroupId: text("editor_group_id"),
+  adminGroupId: text("admin_group_id"),
+  /** Moves with every mapping change; a change is conditioned on the revision it read. */
+  mappingRevision: integer("mapping_revision").notNull().default(0),
+  /** The per-request token of the last mapping write, read back to tell a write from a race. */
+  mappingWriteId: text("mapping_write_id"),
   updatedAt: timestamp("updated_at").notNull(),
 });
 

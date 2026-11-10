@@ -357,6 +357,7 @@ describe("plain words for every kind", () => {
     "scim_token.revoked": {},
     "member.provisioned": { role: "member", emailDomain: "corp.example" },
     "scim.changed": { fields: ["invitationEmails"], invitationEmails: true },
+    "group.sync_stopped": {},
     "audit.exported": { format: "csv", kinds: 0, from: "2026-01-01" },
     "policy.changed": {
       fields: ["publicAccess", "readerDomains", "shareLinks", "shareLinkMaxDays"],
@@ -424,6 +425,7 @@ describe("plain words for every kind", () => {
     "member.provisioned":
       "Provisioned someone at corp.example as member; they join when they sign in",
     "scim.changed": "Turned on invitation emails for provisioned people",
+    "group.sync_stopped": 'Stopped syncing the group "Design" from the directory',
     "audit.exported": "Exported the audit log as CSV (2026-01-01 to now)",
     "policy.changed":
       "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days (existing artifacts changed)",
@@ -552,6 +554,16 @@ describe("plain words for every kind", () => {
         }),
       ),
     ).toBe("Turned off invitation emails for provisioned people");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "scim.changed",
+          detail: { fields: ["editorGroup", "adminGroup"], editorGroup: "wg_1", adminGroup: null },
+        }),
+      ),
+    ).toBe(
+      "Gave editor to the members of a directory group; Stopped giving admin through a directory group",
+    );
     expect(auditActor({ type: "operator" })).toBe("Portifact operator");
     expect(auditActor({ type: "system" })).toBe("Portifact");
   });

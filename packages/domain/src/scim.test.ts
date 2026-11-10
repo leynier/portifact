@@ -418,7 +418,7 @@ describe("resources", () => {
       etag: { supported: false },
       authenticationSchemes: [{ type: "oauthbearertoken" }],
     });
-    expect(scimResourceTypes(BASE).map((type) => type.id)).toEqual(["User"]);
+    expect(scimResourceTypes(BASE).map((type) => type.id)).toEqual(["Group", "User"]);
     const [schema] = scimSchemas(BASE);
     expect(schema?.id).toBe(SCIM_USER_SCHEMA);
     expect(schema?.attributes.map((a) => a.name)).toEqual([

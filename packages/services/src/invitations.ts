@@ -34,6 +34,7 @@ import {
   suppressEmail,
 } from "./email.ts";
 import { hex } from "./objects.ts";
+import { joinGroupStatements, linkDirectoryUser } from "./scim-groups.ts";
 import {
   memberEvent,
   missingWorkspace,
@@ -535,7 +536,31 @@ export async function acceptInvitation(
       .delete(inv)
       .where(and(eq(inv.id, invitation.id), member))
       .returning({ id: inv.id }),
-  ])) as [unknown, unknown[], unknown, unknown, unknown[]];
+    // An upgrade by an admin's invitation is the admin's role, not the directory's (0017).
+    global
+      .update(schema.scimUsers)
+      .set({ mappedRole: null })
+      .where(
+        and(
+          eq(schema.scimUsers.workspaceId, invitation.workspaceId),
+          eq(schema.scimUsers.userId, input.userId),
+          upgrades,
+        ) as SQL,
+      ),
+    // A person the workspace's directory knows gets its groups and their role in this batch.
+    linkDirectoryUser(global, {
+      workspaceId: invitation.workspaceId,
+      userId: input.userId,
+      condition: sql`1`,
+    }),
+    ...joinGroupStatements(global, {
+      workspaceId: invitation.workspaceId,
+      userId: input.userId,
+      actor: { type: "user", id: input.userId },
+      now: input.now,
+      condition: sql`1`,
+    }),
+  ])) as unknown as [unknown, unknown[], unknown, unknown, unknown[]];
   if (inserted.length === 0 && deleted.length === 0) {
     const still = await findInvitation(global, { invitationId: invitation.id });
     if (!still || still.expiresAt <= input.now) return fail("not_found", MISSING_INVITATION);

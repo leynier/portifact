@@ -20,8 +20,20 @@ beforeEach(async () => {
     { slug: "readers", name: "Readers", role: "member" },
   ];
   server.api.groups.set("acme", [
-    { id: DESIGN, name: "Design", members: 3, createdAt: "2026-11-01T00:00:00.000Z" },
-    { id: RESEARCH, name: "Research‮", members: 1, createdAt: "2026-11-01T00:00:00.000Z" },
+    {
+      id: DESIGN,
+      name: "Design",
+      members: 3,
+      createdAt: "2026-11-01T00:00:00.000Z",
+      directory: false,
+    },
+    {
+      id: RESEARCH,
+      name: "Research‮",
+      members: 1,
+      createdAt: "2026-11-01T00:00:00.000Z",
+      directory: false,
+    },
   ]);
   server.api.usage.plan.features = [...server.api.usage.plan.features, "workspaces"];
 });

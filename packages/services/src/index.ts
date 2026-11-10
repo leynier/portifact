@@ -45,6 +45,7 @@ export * from "./read-file.ts";
 export * from "./review-access.ts";
 export { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 export * from "./scim.ts";
+export * from "./scim-groups.ts";
 export * from "./service-tokens.ts";
 export * from "./share-links.ts";
 export * from "./sso.ts";
