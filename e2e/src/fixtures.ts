@@ -1,7 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type BrowserContext, test as base, type Frame, type Page } from "@playwright/test";
+import {
+  type BrowserContext,
+  test as base,
+  expect,
+  type Frame,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import { APP_ORIGIN, artifactOrigin, CONTENT_SITE, SESSION_COOKIE } from "./hosts.ts";
 import type { ContentRequest } from "./stack.ts";
 
@@ -198,6 +205,22 @@ export async function openReview(page: Page, artifactId: string, name: string): 
   await page.getByRole("heading", { level: 1, name }).waitFor();
 }
 
+/**
+ * Opens a disclosure (a `details` element) by its summary. In the viewer the sidebar moves while
+ * the frame connects (the tools above the list appear), so a click aimed at the summary can land
+ * where it used to be and toggle nothing: click until the disclosure reports that it is open,
+ * never when it already is, which would close it.
+ */
+export async function openDisclosure(summary: Locator): Promise<void> {
+  const details = summary.locator("xpath=ancestor-or-self::details[1]");
+  await expect(async () => {
+    if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open))) {
+      await summary.click({ timeout: 2_000 });
+    }
+    await expect(details).toHaveAttribute("open", "", { timeout: 1_000 });
+  }).toPass();
+}
+
 interface Fixtures {
   engine: EngineProfile;
 }
@@ -245,4 +268,4 @@ export const test = base.extend<Fixtures>({
   },
 });
 
-export { expect } from "@playwright/test";
+export { expect };
