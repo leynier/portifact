@@ -5,7 +5,9 @@
 //
 // 1. The event job (subject: the request) turns into one `send` job per recipient account in one
 //    batch that also deletes it: for a request, the reviewers added at that time who have an
-//    account with that verified address (an address that never signed in gets nothing); for a
+//    account with that verified address and a standing relationship to the artifact
+//    (`reviewNoticeRecipient`: never someone admitted only because the artifact is open to
+//    everyone, and nobody when a service token asked, which writes no job); for a
 //    final status, the owner side (the user of a personal space, or a workspace's admins and
 //    editors, the requester among them while they still are), never the person whose verdict
 //    made it final.
@@ -14,15 +16,22 @@
 //    account, its opt-out, the request and the version, the owner's plan, that a reviewer is still
 //    listed and can still open the artifact or that the recipient is still on the owner side and
 //    has not muted it, the suppression list and the cycle's capacity), claims the one email per
-//    person, artifact, version and kind in `review_notices`, and sends. A failed send puts both
-//    back.
+//    person, artifact, version and kind in `review_notices`, counts it against the recipient's
+//    daily cap (`APPROVALS.noticesPerRecipientPerDay`, dropped over it), and sends. A failed send
+//    puts all three back.
 //
 // Emails never hold the note, other reviewers' names or anything the reviewers wrote, and logs
 // never hold an address: only a reason and a count.
-import { ReviewNoticePayload } from "@portifact/contracts";
+import { APPROVALS, isServiceTokenId, ReviewNoticePayload } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { type RegionalDb, schema } from "@portifact/db";
-import { checkReviewNoticeCapacity, effectiveState, reviewNoticesOn } from "@portifact/domain";
+import { hitRateLimit, type RegionalDb, releaseRateLimit, schema } from "@portifact/db";
+import {
+  checkReviewNoticeCapacity,
+  type Entitlements,
+  effectiveState,
+  reviewNoticeRecipient,
+  reviewNoticesOn,
+} from "@portifact/domain";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { loadSettings } from "./account-settings.ts";
@@ -79,7 +88,8 @@ type Skip =
   | "muted"
   | "suppressed"
   | "capacity"
-  | "duplicate";
+  | "duplicate"
+  | "recipient_cap";
 
 function skipped(reason: Skip, recipients = 1): JobOutcome {
   // Only the reason and a count: never an address, a name or anything about the review.
@@ -114,6 +124,54 @@ async function openAt(db: RegionalDb, requestId: string, versionId: string) {
   return found;
 }
 
+type ArtifactRow = typeof schema.artifacts.$inferSelect;
+
+/** The `rate_limits` key of the review emails one person received today, from every space. */
+export function reviewNoticeCapKey(userId: string): string {
+  return `approvals:notices:${userId}`;
+}
+
+/**
+ * The asked addresses that get the "review requested" email (`reviewNoticeRecipient`): people who
+ * can open the artifact and have a standing relationship to it. The reader list counts whatever
+ * the mode, so it is read here when `participation` did not (it reads it for restricted only).
+ */
+async function emailedReviewers(
+  db: RegionalDb,
+  artifact: Pick<ArtifactRow, "id" | "ownerId" | "accessMode">,
+  emails: readonly string[],
+  owner: Entitlements,
+): Promise<string[]> {
+  if (emails.length === 0) return [];
+  const found = await participation(db, artifact, emails, owner);
+  const r = schema.artifactReaders;
+  const listed =
+    artifact.accessMode === "restricted"
+      ? new Set<string>()
+      : new Set(
+          (
+            await db
+              .select({ email: r.email })
+              .from(r)
+              .where(and(eq(r.artifactId, artifact.id), inArray(r.email, [...emails])))
+          ).map((row) => row.email),
+        );
+  return emails.filter((email) => {
+    const person = found.get(email);
+    return (
+      person !== undefined &&
+      reviewNoticeRecipient({
+        mode: artifact.accessMode,
+        takesPart: person.takesPart,
+        side: person.side,
+        listedReader: person.listedReader || listed.has(email),
+        inListedGroup: person.inListedGroup,
+        atVerifiedDomain: person.atVerifiedDomain,
+      })
+    );
+  });
+}
+
 /** Accounts holding these addresses verified, by ID. */
 async function accountsFor(db: RegionalDb, emails: readonly string[]): Promise<string[]> {
   if (emails.length === 0) return [];
@@ -146,19 +204,23 @@ async function fanOut(
       .where(
         and(eq(rr.requestId, request.id), eq(rr.addedAt, event.addedAt), isNull(rr.droppedAt)),
       );
-    recipients = await accountsFor(
+    const emailed = await emailedReviewers(
       db,
+      artifact,
       asked.map((reviewer) => reviewer.email),
+      owner,
     );
-    if (recipients.length < asked.length) {
-      skipped("no_account", asked.length - recipients.length);
+    if (emailed.length < asked.length) skipped("not_reviewer", asked.length - emailed.length);
+    recipients = await accountsFor(db, emailed);
+    if (recipients.length < emailed.length) {
+      skipped("no_account", emailed.length - recipients.length);
     }
   } else {
     // A later change of the status made this one stale; the newer one has its own job.
     if (request.announced !== event.status) return skipped("stale");
     status = event.status;
     recipients = (await ownerSide(db.global, artifact.ownerId)).filter(
-      (id) => id !== event.actorId,
+      (id) => id !== event.actorId && !isServiceTokenId(id),
     );
   }
   const unique = [...new Set(recipients)];
@@ -224,8 +286,10 @@ async function send(
       .where(and(eq(rr.requestId, request.id), eq(rr.email, email), isNull(rr.droppedAt)))
       .limit(1);
     if (!reviewer) return skipped("not_reviewer");
-    const found = await participation(db, artifact, [email], owner);
-    if (!found.get(email)?.takesPart) return skipped("not_reviewer");
+    // The same rule as at fan-out, on what holds now.
+    if ((await emailedReviewers(db, artifact, [email], owner)).length === 0) {
+      return skipped("not_reviewer");
+    }
   } else {
     if (request.announced !== job.status) return skipped("stale");
     if (!(await ownerSide(db.global, artifact.ownerId)).includes(userId)) {
@@ -268,6 +332,18 @@ async function send(
         ),
       );
 
+  // Every review email a person receives a day, from every space, counted atomically last, so a
+  // skip for any other reason never spends it. Over it the email is dropped, not retried.
+  const cap = APPROVALS.noticesPerRecipientPerDay;
+  const capKey = reviewNoticeCapKey(userId);
+  const capWindow = cap.windowSeconds * 1000;
+  const counted = await hitRateLimit(db.global.$client, capKey, capWindow, now);
+  const giveBack = () => releaseRateLimit(db.global.$client, capKey, capWindow, counted.resetAt);
+  if (counted.count > cap.max) {
+    await unclaim();
+    return skipped("recipient_cap");
+  }
+
   const [version] = await db
     .select({ number: schema.versions.number })
     .from(schema.versions)
@@ -289,9 +365,11 @@ async function send(
     if (error instanceof RecipientSuppressedError) {
       await suppressEmail(db, { email: user.email, reason: "provider", now });
       await unclaim();
+      await giveBack();
       return skipped("suppressed");
     }
-    // Back in the outbox for the next run, as it was, and the email unclaimed.
+    // Back in the outbox for the next run, as it was, and the email and its count given back.
+    await giveBack();
     await db.batch([
       unclaim(),
       db.insert(o).values({

@@ -28,6 +28,12 @@ export const APPROVALS = {
   verdictsPerReviewerPerHour: { max: 30, windowSeconds: 3_600 },
   /** Earlier verdicts the owner side's view lists, newest first. */
   historyListed: 50,
+  /**
+   * Review emails one person receives a day, from every space together (decision 0013, "Emails"),
+   * counted in `rate_limits` under the recipient's account, so several spaces cannot gang up on
+   * one person. Over it, the email is dropped.
+   */
+  noticesPerRecipientPerDay: { max: 20, windowSeconds: 86_400 },
   /** Open requests whose reviewers the maintenance scan re-checks per run. */
   recheckPerRun: 100,
 } as const;

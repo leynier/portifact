@@ -59,6 +59,7 @@ import {
   commentScope,
   type Entitlements,
   effectiveState,
+  emailDomainOf,
   entitlements,
   fail,
   type GroupMatch,
@@ -1583,6 +1584,12 @@ export interface Participant {
    */
   knownUserId: string | null;
   side: "owner" | "member" | null;
+  /** On the reader list read for this decision (restricted artifacts only). */
+  listedReader: boolean;
+  /** In a group the artifact lists (restricted workspace artifacts only). */
+  inListedGroup: boolean;
+  /** At a verified email domain of the owning workspace (`domain` artifacts only). */
+  atVerifiedDomain: boolean;
 }
 
 /**
@@ -1699,10 +1706,17 @@ export async function participation(
       actor,
     );
     const side = actsForOwner(actor, artifact.ownerId) ? "owner" : person ? "member" : null;
+    const domain = emailDomainOf(email);
     result.set(email, {
       takesPart: decision.ok,
       knownUserId: person?.userId ?? null,
       side,
+      listedReader: readers.has(email),
+      inListedGroup: person ? (inGroups.get(person.userId) ?? []).length > 0 : false,
+      atVerifiedDomain:
+        domain !== null &&
+        (domains?.featureAvailable ?? false) &&
+        domains?.verified.includes(domain) === true,
     });
   }
   return result;

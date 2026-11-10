@@ -5,7 +5,7 @@
 // checked again at send time (account, opt-out, request, plan, access, owner side, mute,
 // suppression, capacity). Notes and other reviewers' names never leave.
 import { env } from "cloudflare:test";
-import { type JobMessage, WEBHOOK_LIMITS } from "@portifact/contracts";
+import { APPROVALS, type JobMessage, WEBHOOK_LIMITS } from "@portifact/contracts";
 import { globalDb, regionalDb, schema } from "@portifact/db";
 import {
   checkCommentNoticeCapacity,
@@ -14,7 +14,7 @@ import {
   personalActor,
   REVIEW_NOTICE_EMAILS_PER_CYCLE,
 } from "@portifact/domain";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import { requestAccountDeletion } from "../src/account-data.ts";
@@ -28,6 +28,7 @@ import {
 import { RecipientSuppressedError, suppressEmail } from "../src/email.ts";
 import { runJob } from "../src/outbox.ts";
 import type { ReviewNotifier } from "../src/review-notices.ts";
+import { createServiceToken } from "../src/service-tokens.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { webhookKeys } from "../src/webhook-keys.ts";
 import { createWebhook, deliverWebhook, type WebhookDeps } from "../src/webhooks.ts";
@@ -319,6 +320,148 @@ describe("review emails to reviewers", () => {
         .from(schema.reviewNotices)
         .where(eq(schema.reviewNotices.recipientId, ana.id)),
     ).toEqual([]);
+  });
+});
+
+describe("who is asked by email", () => {
+  /** An owner on Team whose artifact is open to every signed-in person, with `readers` listed. */
+  async function openArtifact(readers: Person[]) {
+    const made = await setup(readers);
+    value(
+      await updateAccess(db(), {
+        userId: made.owner.id,
+        artifactId: made.artifactId,
+        change: { mode: "authenticated" },
+        now: NOW,
+      }),
+    );
+    return made;
+  }
+
+  it("emails only people the artifact already has a relationship with, never anyone signed in", async () => {
+    const [ana, stranger] = [await user("Ana"), await user("Stranger")];
+    const { owner, artifactId } = await openArtifact([ana]);
+    // Both can open it and be named; only the listed reader is told by email.
+    value(await ask(owner, artifactId, [ana.email, stranger.email]));
+    const box = mailbox();
+    await drain([await requestIdOf(artifactId)], box.notifier);
+    expect(box.sent.map((n) => n.to)).toEqual([ana.email]);
+  });
+
+  it("stops the email when the relationship ends before the send", async () => {
+    const ana = await user("Ana");
+    const { owner, artifactId } = await openArtifact([ana]);
+    value(await ask(owner, artifactId, [ana.email]));
+    // Still able to open the artifact (it is open to everyone signed in), but no longer listed.
+    value(
+      await updateAccess(db(), {
+        userId: owner.id,
+        artifactId,
+        change: { removeReaders: [ana.email] },
+        now: NOW + 5,
+      }),
+    );
+    const box = mailbox();
+    await drain([await requestIdOf(artifactId)], box.notifier);
+    expect(box.sent).toEqual([]);
+  });
+
+  it("sends no request email when a service token asks, and still tells the people", async () => {
+    const [admin, editor, member] = [
+      await user("Admin"),
+      await user("Editor"),
+      await user("Member"),
+    ];
+    const id = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+    const slug = `t${id.slice(3, 22)}`;
+    await db()
+      .insert(schema.workspaces)
+      .values({ id, slug, name: "Team", createdBy: admin.id, updatedAt: NOW });
+    await db()
+      .insert(schema.workspaceMembers)
+      .values([
+        { workspaceId: id, userId: admin.id, role: "admin", updatedAt: NOW },
+        { workspaceId: id, userId: editor.id, role: "editor", updatedAt: NOW },
+        { workspaceId: id, userId: member.id, role: "member", updatedAt: NOW },
+      ]);
+    await grantPlan(id, "team", { seats: 5 });
+    const prepared = await publishSite(editor.id);
+    value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: editor.id,
+        artifactId: prepared.artifactId,
+        workspace: slug,
+        now: NOW,
+      }),
+    );
+    value(
+      await updateAccess(db(), {
+        userId: admin.id,
+        artifactId: prepared.artifactId,
+        change: { mode: "workspace" },
+        now: NOW,
+      }),
+    );
+    const token = value(
+      await createServiceToken(db().global, {
+        userId: admin.id,
+        slug,
+        body: {
+          label: "CI",
+          role: "editor",
+          scopes: ["artifacts:read", "artifacts:write"],
+          expiresInDays: 30,
+          restriction: { kind: "none" },
+        },
+        now: NOW,
+      }),
+    ).token.id;
+    value(
+      await requestApprovalReview(db(), {
+        userId: token,
+        artifactId: prepared.artifactId,
+        reviewers: [member.email],
+        now: NOW,
+      }),
+    );
+    const requestId = await requestIdOf(prepared.artifactId);
+    expect(await jobsAbout([requestId])).toEqual([]);
+    // A person's verdict still tells the people who manage it; the token is never a recipient.
+    value(await judge(member, prepared.artifactId, "approve"));
+    const box = mailbox();
+    await drain([requestId], box.notifier, NOW + 20);
+    expect(box.sent.map((n) => n.to).sort()).toEqual([admin.email, editor.email].sort());
+  });
+
+  it("caps the review emails one person receives a day, whoever sends them", async () => {
+    const ana = await user("Ana");
+    const { owner, artifactId } = await setup([ana]);
+    await db().run(
+      sql`insert into rate_limits (key, window_start, count) values (${`approvals:notices:${ana.id}`}, ${NOW}, ${APPROVALS.noticesPerRecipientPerDay.max})`,
+    );
+    value(await ask(owner, artifactId, [ana.email]));
+    const box = mailbox();
+    await drain([await requestIdOf(artifactId)], box.notifier);
+    expect(box.sent).toEqual([]);
+    // Dropped, not retried, and nothing is left claimed.
+    expect(await jobsAbout([ana.id])).toEqual([]);
+    expect(
+      await db()
+        .select()
+        .from(schema.reviewNotices)
+        .where(eq(schema.reviewNotices.recipientId, ana.id)),
+    ).toEqual([]);
+  });
+
+  it("gives the count back when a send fails", async () => {
+    const ana = await user("Ana");
+    const { owner, artifactId } = await setup([ana]);
+    value(await ask(owner, artifactId, [ana.email]));
+    await drain([await requestIdOf(artifactId)], mailbox(new Error("provider down")).notifier);
+    const [row] = await db().all<{ count: number }>(
+      sql`select count from rate_limits where key = ${`approvals:notices:${ana.id}`}`,
+    );
+    expect(row?.count ?? 0).toBe(0);
   });
 });
 

@@ -5,6 +5,7 @@
 // already loaded: `review.requested` and `review.completed` webhook events only with `webhooks`,
 // the `review_notice` job only with both `reviews` and `commentNotices` (`reviewNoticesOn`).
 // Nothing here reads.
+import { isServiceTokenId } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { type Entitlements, reviewNoticesOn } from "@portifact/domain";
 import { type SQL, sql } from "drizzle-orm";
@@ -122,7 +123,8 @@ export function reviewRequestedStatements(
       }),
     );
   }
-  if (reviewNoticesOn(context.entitlements)) {
+  // A service token is automation: the people it names are told when a person asks.
+  if (reviewNoticesOn(context.entitlements) && !isServiceTokenId(input.actorId)) {
     statements.push(
       noticeJob(
         db,
