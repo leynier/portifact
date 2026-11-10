@@ -246,6 +246,71 @@ describe("group management through the dashboard's session", () => {
   });
 });
 
+describe("group routes answer malformed and refused requests like missing ones", () => {
+  it("covers every route's refusals", async () => {
+    const t = await team("wge");
+    const cookie = await t.admin.h.signIn(t.admin.email);
+    const missing = `wg_${"7".repeat(32)}`;
+    const call = async (path: string, method = "GET", body?: unknown) => {
+      const response = await t.admin.h.request(path, dashboard(cookie, method, body));
+      return { status: response.status, body: await response.json().catch(() => null) };
+    };
+    const base = `/api/v1/workspaces/${t.slug}/groups`;
+    const notFound = (message: string) => ({
+      status: 404,
+      body: { error: { code: "not_found", message } },
+    });
+    // A malformed slug, a malformed group ID and a group that does not exist, on every route.
+    expect(await call("/api/v1/workspaces/Bad_Slug/groups", "POST", { name: "X" })).toEqual(
+      notFound("Workspace not found."),
+    );
+    expect(await call("/api/v1/workspaces/Bad_Slug/groups")).toMatchObject({ status: 404 });
+    for (const [suffix, method, body] of [
+      ["", "GET", undefined],
+      ["", "PATCH", { name: "Y" }],
+      ["", "DELETE", undefined],
+      ["/members", "POST", { userId: t.member.userId }],
+      [`/members/${t.member.userId}`, "DELETE", undefined],
+    ] as const) {
+      expect(await call(`${base}/nope${suffix}`, method, body), `${method} nope${suffix}`).toEqual(
+        notFound("Group not found."),
+      );
+      expect(
+        await call(`${base}/${missing}${suffix}`, method, body),
+        `${method} missing${suffix}`,
+      ).toEqual(notFound("Group not found."));
+    }
+    // Bodies are validated before any service runs.
+    expect((await call(base, "POST", { name: "" })).status).toBe(400);
+    const created = await call(base, "POST", { name: "Design" });
+    expect(created.status).toBe(201);
+    const id = (created.body as { id: string }).id;
+    expect((await call(`${base}/${id}`, "PATCH", { name: "a\nb" })).status).toBe(400);
+    expect((await call(`${base}/${id}/members`, "POST", {})).status).toBe(400);
+    expect(await call(`${base}/${id}/members`, "POST", { userId: t.outsider.userId })).toEqual(
+      notFound("Member not found."),
+    );
+    expect(await call(`${base}/${id}/members/${t.outsider.userId}`, "DELETE")).toEqual(
+      notFound("Member not found."),
+    );
+    expect((await call(base, "POST", { name: "design" })).status).toBe(400);
+    // The bearer list route refuses a malformed slug like a missing workspace.
+    const listed = await t.editor.apiCall("/api/v1/workspaces/Bad_Slug/groups");
+    expect(listed.status).toBe(404);
+    // MCP: a workspace without groups and a lapsed plan say so in the text.
+    await db()
+      .update(schema.ownerPlans)
+      .set({ plan: "free" })
+      .where(eq(schema.ownerPlans.ownerId, t.id));
+    const tool = await t.editor.tool("list_groups", { workspace: t.slug });
+    expect(tool.structuredContent).toMatchObject({ available: false });
+    expect(JSON.stringify(tool.content)).toContain("groups let nobody read");
+    await db().delete(schema.workspaceGroups).where(eq(schema.workspaceGroups.workspaceId, t.id));
+    const empty = await t.editor.tool("list_groups", { workspace: t.slug });
+    expect(JSON.stringify(empty.content)).toContain("has no groups");
+  });
+});
+
 describe("groups in the API and MCP", () => {
   async function withGroup(prefix: string) {
     const t = await team(prefix);

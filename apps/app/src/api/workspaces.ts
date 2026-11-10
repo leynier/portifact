@@ -579,24 +579,40 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
 
   // Groups (decision 0014): admins manage them through the dashboard session only, like the
   // members they hold. Listing names and counts is the read route above.
-  const groupsOnly = (handler: (c: WorkspaceContext, userId: string) => Promise<Response>) =>
-    sessionOnly(handler, "Groups are managed from the dashboard.");
-  const groupIdOf = (c: WorkspaceContext) => {
-    const id = WorkspaceGroupId.safeParse(c.req.param("groupId"));
-    return id.success ? id.data : null;
-  };
   const detailView = (detail: { group: GroupRow; members: GroupMemberRow[] }) =>
     WorkspaceGroupDetail.parse({
       group: groupView(detail.group),
       items: detail.members.map((row) => ({ ...row, addedAt: iso(row.addedAt) })),
       limit: WORKSPACE_GROUPS.membersPerGroup,
     });
+  /** Answers a service result: the error's status and body, or `done` with the value. */
+  const reply = <T>(
+    c: WorkspaceContext,
+    result: { ok: true; value: T } | { ok: false; code: ErrorCode; message: string },
+    done: (value: T) => Response,
+  ) => (result.ok ? done(result.value) : error(c, result.code, result.message));
+  /**
+   * A group route: the session check, then the slug and (unless `list`) the group ID from the
+   * path, each answering like a missing one when malformed.
+   */
+  const groupRoute = (
+    handler: (
+      c: WorkspaceContext,
+      ids: { userId: string; slug: string; groupId: string },
+    ) => Promise<Response>,
+    list = false,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const groupId = list ? "" : WorkspaceGroupId.safeParse(c.req.param("groupId")).data;
+      if (groupId === undefined) return error(c, "not_found", "Group not found.");
+      return handler(c, { userId, slug, groupId });
+    }, "Groups are managed from the dashboard.");
 
   routes.post(
     "/api/v1/workspaces/:slug/groups",
-    groupsOnly(async (c, userId) => {
-      const slug = slugOf(c);
-      if (!slug) return error(c, "not_found", "Workspace not found.");
+    groupRoute(async (c, { userId, slug }) => {
       const body = await readJson(c, WorkspaceGroupCreate);
       if (!body.ok) return body.response;
       const result = await createWorkspaceGroup(global(c), {
@@ -605,97 +621,63 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         name: body.value.name,
         now: deps.now(),
       });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.json(groupView(result.value), 201);
-    }),
+      return reply(c, result, (group) => c.json(groupView(group), 201));
+    }, true),
   );
 
   routes.get(
     "/api/v1/workspaces/:slug/groups/:groupId",
-    groupsOnly(async (c, userId) => {
-      const slug = slugOf(c);
-      const groupId = groupIdOf(c);
-      if (!slug) return error(c, "not_found", "Workspace not found.");
-      if (!groupId) return error(c, "not_found", "Group not found.");
-      const result = await getWorkspaceGroup(global(c), { userId, slug, groupId });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.json(detailView(result.value));
-    }),
+    groupRoute(async (c, ids) =>
+      reply(c, await getWorkspaceGroup(global(c), ids), (detail) => c.json(detailView(detail))),
+    ),
   );
 
   routes.patch(
     "/api/v1/workspaces/:slug/groups/:groupId",
-    groupsOnly(async (c, userId) => {
-      const slug = slugOf(c);
-      const groupId = groupIdOf(c);
-      if (!slug) return error(c, "not_found", "Workspace not found.");
-      if (!groupId) return error(c, "not_found", "Group not found.");
+    groupRoute(async (c, ids) => {
       const body = await readJson(c, WorkspaceGroupRename);
       if (!body.ok) return body.response;
       const result = await renameWorkspaceGroup(global(c), {
-        userId,
-        slug,
-        groupId,
+        ...ids,
         name: body.value.name,
         now: deps.now(),
       });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.json(groupView(result.value));
+      return reply(c, result, (group) => c.json(groupView(group)));
     }),
   );
 
   routes.delete(
     "/api/v1/workspaces/:slug/groups/:groupId",
-    groupsOnly(async (c, userId) => {
-      const slug = slugOf(c);
-      const groupId = groupIdOf(c);
-      if (!slug) return error(c, "not_found", "Workspace not found.");
-      if (!groupId) return error(c, "not_found", "Group not found.");
-      const result = await deleteWorkspaceGroup(global(c), {
-        userId,
-        slug,
-        groupId,
-        now: deps.now(),
-      });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.body(null, 204);
-    }),
+    groupRoute(async (c, ids) =>
+      reply(c, await deleteWorkspaceGroup(global(c), { ...ids, now: deps.now() }), () =>
+        c.body(null, 204),
+      ),
+    ),
   );
 
   routes.post(
     "/api/v1/workspaces/:slug/groups/:groupId/members",
-    groupsOnly(async (c, userId) => {
-      const slug = slugOf(c);
-      const groupId = groupIdOf(c);
-      if (!slug) return error(c, "not_found", "Workspace not found.");
-      if (!groupId) return error(c, "not_found", "Group not found.");
+    groupRoute(async (c, ids) => {
       const body = await readJson(c, WorkspaceGroupMemberAdd);
       if (!body.ok) return body.response;
-      const input = { userId, slug, groupId, memberId: body.value.userId, now: deps.now() };
-      const result = await addGroupMember(global(c), input);
-      if (!result.ok) return error(c, result.code, result.message);
-      const detail = await getWorkspaceGroup(global(c), input);
-      if (!detail.ok) return error(c, detail.code, detail.message);
-      return c.json(detailView(detail.value), 201);
+      const input = { ...ids, memberId: body.value.userId, now: deps.now() };
+      const added = await addGroupMember(global(c), input);
+      if (!added.ok) return error(c, added.code, added.message);
+      return reply(c, await getWorkspaceGroup(global(c), input), (detail) =>
+        c.json(detailView(detail), 201),
+      );
     }),
   );
 
   routes.delete(
     "/api/v1/workspaces/:slug/groups/:groupId/members/:userId",
-    groupsOnly(async (c, userId) => {
-      const slug = slugOf(c);
-      const groupId = groupIdOf(c);
-      if (!slug) return error(c, "not_found", "Workspace not found.");
-      if (!groupId) return error(c, "not_found", "Group not found.");
+    groupRoute(async (c, ids) => {
       const result = await removeGroupMember(global(c), {
-        userId,
-        slug,
-        groupId,
+        ...ids,
         memberId: c.req.param("userId") as string,
         now: deps.now(),
       });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.body(null, 204);
+      return reply(c, result, () => c.body(null, 204));
     }),
   );
 
