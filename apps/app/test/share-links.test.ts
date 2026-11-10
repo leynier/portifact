@@ -355,13 +355,15 @@ describe("opening a link", () => {
     expect((await answers(paused.token)).status).toBe(200);
   });
 
-  it("asks for the password, then for the human check, then locks the token", async () => {
+  it("asks for the password, then for the human check, then locks only that token from that IP", async () => {
     const b = await both("share-password@example.test");
     await onPlan(b.userId, "pro");
     const id = await publish(b, "password");
     const { token } = await linkFor(b, id, { password: "correct horse" });
     const codeOf = async (response: Response) =>
       (await response.json<{ error?: { code: string } }>()).error?.code;
+    let solved = 0;
+    const human = () => `${HUMAN_TOKEN}-share-${++solved}`;
 
     expect(await codeOf(await open(b.h, { token }))).toBe("unauthenticated");
     for (let i = 0; i < SHARE_OPEN_LIMITS.tokenHumanCheckAfter; i += 1) {
@@ -376,33 +378,139 @@ describe("opening a link", () => {
         await open(b.h, { token, password: "correct horse", turnstileToken: "turnstile-failed" }),
       ),
     ).toBe("human_verification_required");
-    const solved = await open(b.h, {
-      token,
-      password: "correct horse",
-      turnstileToken: `${HUMAN_TOKEN}-share-1`,
-    });
-    expect(solved.status).toBe(200);
+    const opened = await open(b.h, { token, password: "correct horse", turnstileToken: human() });
+    expect(opened.status).toBe(200);
     expect(b.h.siteverifyCalls.at(-1)).toMatchObject({ remoteIp: "203.0.113.7" });
 
+    // Wrong passwords from this IP, each with a solved check, until the pair is locked.
     for (
       let i = SHARE_OPEN_LIMITS.tokenHumanCheckAfter;
-      i < SHARE_OPEN_LIMITS.tokenLockAfter;
+      i < SHARE_OPEN_LIMITS.tokenIpLockAfter;
       i += 1
     ) {
-      await open(
-        b.h,
-        { token, password: `wrong ${i}`, turnstileToken: `${HUMAN_TOKEN}-share-w${i}` },
-        `198.51.100.${i}`,
-      );
+      expect(
+        await codeOf(await open(b.h, { token, password: `wrong ${i}`, turnstileToken: human() })),
+      ).toBe("forbidden");
     }
-    const locked = await open(b.h, {
-      token,
-      password: "correct horse",
-      turnstileToken: `${HUMAN_TOKEN}-share-2`,
-    });
+    const locked = await open(b.h, { token, password: "correct horse", turnstileToken: human() });
     expect(locked.status).toBe(429);
     expect(Number(locked.headers.get("retry-after"))).toBeGreaterThan(0);
     expect(await codeOf(locked)).toBe("rate_limited");
+
+    // Nobody else is locked out: another IP with the right password and a solved check gets in.
+    const elsewhere = await open(
+      b.h,
+      { token, password: "correct horse", turnstileToken: human() },
+      "198.51.100.77",
+    );
+    expect(elsewhere.status).toBe(200);
+  });
+
+  it("counts parallel attempts one by one, so they cannot skip the human check", async () => {
+    const b = await both("share-race-human@example.test");
+    await onPlan(b.userId, "pro");
+    const id = await publish(b, "race");
+    const { token } = await linkFor(b, id, { password: "correct horse" });
+    const answers = await Promise.all(
+      Array.from({ length: 30 }, (_, i) => open(b.h, { token, password: `wrong ${i}` })),
+    );
+    const codes = await Promise.all(
+      answers.map(async (r) => (await r.json<{ error: { code: string } }>()).error.code),
+    );
+    expect(codes.filter((code) => code === "forbidden")).toHaveLength(
+      SHARE_OPEN_LIMITS.tokenHumanCheckAfter,
+    );
+    // Every other attempt was stopped before its password was checked: asked for the check, or,
+    // past the pair's limit while the others were in flight, locked for this IP only.
+    expect(
+      codes.filter((code) => code === "human_verification_required" || code === "rate_limited"),
+    ).toHaveLength(30 - SHARE_OPEN_LIMITS.tokenHumanCheckAfter);
+    expect(codes).toContain("human_verification_required");
+  });
+
+  it("counts parallel attempts one by one, so they cannot skip the lock", async () => {
+    const b = await both("share-race-lock@example.test");
+    await onPlan(b.userId, "pro");
+    const id = await publish(b, "race-lock");
+    const { token } = await linkFor(b, id, { password: "correct horse" });
+    const answers = await Promise.all(
+      Array.from({ length: 25 }, (_, i) =>
+        open(b.h, { token, password: `wrong ${i}`, turnstileToken: `${HUMAN_TOKEN}-race-${i}` }),
+      ),
+    );
+    const statuses = answers.map((r) => r.status);
+    expect(statuses.filter((status) => status === 403)).toHaveLength(
+      SHARE_OPEN_LIMITS.tokenIpLockAfter,
+    );
+    expect(statuses.filter((status) => status === 429)).toHaveLength(
+      25 - SHARE_OPEN_LIMITS.tokenIpLockAfter,
+    );
+  });
+
+  it("does not count right passwords, so an honest visitor never reaches the check", async () => {
+    const b = await both("share-honest@example.test");
+    await onPlan(b.userId, "pro");
+    const id = await publish(b, "honest");
+    const { token } = await linkFor(b, id, { password: "correct horse" });
+    for (let i = 0; i < 2 * SHARE_OPEN_LIMITS.ipHumanCheckAfter; i += 1) {
+      expect((await open(b.h, { token, password: "correct horse" })).status).toBe(200);
+    }
+    for (let i = 0; i < SHARE_OPEN_LIMITS.tokenHumanCheckAfter; i += 1) {
+      expect((await open(b.h, { token, password: `wrong ${i}` })).status).toBe(403);
+    }
+  });
+
+  it("stops every attempt at the token's ceiling, which takes that many solved checks to reach", async () => {
+    const b = await both("share-ceiling@example.test");
+    await onPlan(b.userId, "pro");
+    const id = await publish(b, "ceiling");
+    const { token } = await linkFor(b, id, { password: "correct horse" });
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+    const prefix = [...new Uint8Array(digest)]
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 32);
+    // As if the ceiling's worth of solved wrong attempts had come from many addresses.
+    await env.DB.prepare("insert into rate_limits (key, window_start, count) values (?, ?, ?)")
+      .bind(`share:fail:${prefix}`, NOW, SHARE_OPEN_LIMITS.tokenCeiling)
+      .run();
+    const response = await open(
+      b.h,
+      { token, password: "correct horse", turnstileToken: `${HUMAN_TOKEN}-ceiling` },
+      "198.51.100.200",
+    );
+    expect(response.status).toBe(429);
+  });
+
+  it("asks a crowded IP for the human check instead of refusing it", async () => {
+    const b = await both("share-nat@example.test");
+    await onPlan(b.userId, "pro");
+    const id = await publish(b, "nat");
+    const links = await Promise.all(
+      Array.from({ length: 3 }, () => linkFor(b, id, { password: "correct horse" })),
+    );
+    // Wrong passwords on several links from one address pass the IP's threshold...
+    for (const [i, link] of links.entries()) {
+      for (let j = 0; j < 2; j += 1) {
+        await open(b.h, { token: link.token, password: `wrong ${i} ${j}` }, "192.0.2.150");
+      }
+    }
+    const [first] = links;
+    const asked = await open(
+      b.h,
+      { token: first?.token, password: "correct horse" },
+      "192.0.2.150",
+    );
+    expect((await asked.json<{ error: { code: string } }>()).error.code).toBe(
+      "human_verification_required",
+    );
+    // ...and someone there with the right password and a solved check still gets in.
+    const opened = await open(
+      b.h,
+      { token: first?.token, password: "correct horse", turnstileToken: `${HUMAN_TOKEN}-nat` },
+      "192.0.2.150",
+    );
+    expect(opened.status).toBe(200);
   });
 
   it("fails closed when the human check is down", async () => {

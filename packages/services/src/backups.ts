@@ -306,6 +306,7 @@ export async function applyTombstones(
     db
       .delete(schema.deviceCodes)
       .where(sql`${schema.deviceCodes.userId} in (${tombstonedAccounts})`),
+    db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
   ]);

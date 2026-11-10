@@ -219,8 +219,12 @@ export const shareLinks = sqliteTable(
     passwordHash: text("password_hash"),
     passwordSalt: text("password_salt"),
     passwordIterations: integer("password_iterations"),
-    /** The user who created it; no foreign key, the link belongs to the artifact. */
-    createdBy: text("created_by").notNull(),
+    /**
+     * The user who created it; no foreign key (the table is regional). Account deletion clears it
+     * (`advanceAccountDeletion`), so a deleted account's ID does not stay on links of artifacts it
+     * did not own.
+     */
+    createdBy: text("created_by"),
     createdAt: createdAt(),
     revokedAt: timestamp("revoked_at"),
     /** Start of the UTC day the link was last opened. */

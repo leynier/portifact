@@ -6,6 +6,7 @@ import { SHARE_LINKS } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   checkShareExpiry,
+  type Entitlements,
   effectiveState,
   entitlements,
   fail,
@@ -20,7 +21,7 @@ import {
 } from "@portifact/domain";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
-import { requireOwnerFeature } from "./plans.ts";
+import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
 import { hashSecret, randomToken } from "./read-access.ts";
 
 const SECOND_MS = 1000;
@@ -276,41 +277,64 @@ export type ShareOpenOutcome =
   | { kind: "refused" };
 
 /**
- * Opens a link for a visitor: one indexed read of the link with its artifact and the owner's
- * plan, then, when a password was sent, exactly one PBKDF2 derivation whatever the link (a dummy
- * when it is missing or has none). On success it stores a one-use handoff code for the artifact
- * origin and records the day the link was used, in one batch.
+ * Opens a link for a visitor. The token cannot name its region, so its hash is looked up in each
+ * region's database (`regions`; one read with one region), then the owner's plan in the global
+ * database. When a password was sent, exactly one PBKDF2 derivation runs whatever the link (a
+ * dummy when it is missing or has none). On success it stores a one-use handoff code in the
+ * region that holds the link, where the artifact origin redeems it, and records the day the link
+ * was used, in one batch.
  */
 export async function openShareLink(
-  db: RegionalDb,
+  regions: readonly RegionalDb[],
   input: { token: string; password?: string | undefined; now: number },
 ): Promise<ShareOpenOutcome> {
   const l = schema.shareLinks;
   const a = schema.artifacts;
-  const p = schema.ownerPlans;
-  const [found] = await db
-    .select({
-      id: l.id,
-      artifactId: l.artifactId,
-      expiresAt: l.expiresAt,
-      revokedAt: l.revokedAt,
-      passwordHash: l.passwordHash,
-      passwordSalt: l.passwordSalt,
-      passwordIterations: l.passwordIterations,
-      state: a.state,
-      currentVersionId: a.currentVersionId,
-      artifactExpiresAt: a.expiresAt,
-      archivedAt: a.archivedAt,
-      plan: p.plan,
-      seats: p.seats,
-      validUntil: p.validUntil,
-      overrides: p.overrides,
-    })
-    .from(l)
-    .innerJoin(a, eq(a.id, l.artifactId))
-    .leftJoin(p, eq(p.ownerId, a.ownerId))
-    .where(eq(l.tokenHash, await hashSecret(input.token)))
-    .limit(1);
+  const tokenHash = await hashSecret(input.token);
+  let db: RegionalDb | undefined;
+  let found:
+    | {
+        id: string;
+        artifactId: string;
+        ownerId: string;
+        expiresAt: number | null;
+        revokedAt: number | null;
+        passwordHash: string | null;
+        passwordSalt: string | null;
+        passwordIterations: number | null;
+        state: (typeof schema.artifacts.$inferSelect)["state"];
+        currentVersionId: string | null;
+        artifactExpiresAt: number | null;
+        archivedAt: number | null;
+      }
+    | undefined;
+  for (const region of regions) {
+    [found] = await region
+      .select({
+        id: l.id,
+        artifactId: l.artifactId,
+        ownerId: a.ownerId,
+        expiresAt: l.expiresAt,
+        revokedAt: l.revokedAt,
+        passwordHash: l.passwordHash,
+        passwordSalt: l.passwordSalt,
+        passwordIterations: l.passwordIterations,
+        state: a.state,
+        currentVersionId: a.currentVersionId,
+        artifactExpiresAt: a.expiresAt,
+        archivedAt: a.archivedAt,
+      })
+      .from(l)
+      .innerJoin(a, eq(a.id, l.artifactId))
+      .where(eq(l.tokenHash, tokenHash))
+      .limit(1);
+    if (found) {
+      db = region;
+      break;
+    }
+  }
+  const owner =
+    found && db ? await ownerEntitlements(db.global, found.ownerId, input.now) : undefined;
 
   const stored =
     found?.passwordHash && found.passwordSalt && found.passwordIterations
@@ -334,17 +358,7 @@ export async function openShareLink(
             },
             new Date(input.now),
           ) === "active",
-        owner: entitlements(
-          found.plan === null || found.seats === null
-            ? null
-            : {
-                plan: found.plan,
-                seats: found.seats,
-                validUntil: found.validUntil,
-                overrides: found.overrides ?? null,
-              },
-          input.now,
-        ),
+        owner: owner as Entitlements,
       },
       input.now,
     );
@@ -358,15 +372,16 @@ export async function openShareLink(
   }
 
   const code = randomToken();
-  await db.batch([
-    db.insert(schema.shareHandoffs).values({
+  const target = db as RegionalDb;
+  await target.batch([
+    target.insert(schema.shareHandoffs).values({
       codeHash: await hashSecret(code),
       linkId: found.id,
       artifactId: found.artifactId,
       expiresAt: input.now + SHARE_LINKS.handoffTtlSeconds * SECOND_MS,
       createdAt: input.now,
     }),
-    db
+    target
       .update(l)
       .set({ lastUsedAt: shareUsedDay(input.now) })
       .where(eq(l.id, found.id)),

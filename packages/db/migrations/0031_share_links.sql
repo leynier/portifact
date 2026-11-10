@@ -20,7 +20,7 @@ CREATE TABLE `share_links` (
 	`password_hash` text,
 	`password_salt` text,
 	`password_iterations` integer,
-	`created_by` text NOT NULL,
+	`created_by` text,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`revoked_at` integer,
 	`last_used_at` integer,

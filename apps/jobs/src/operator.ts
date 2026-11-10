@@ -472,7 +472,7 @@ export async function runOperator(
         output: [
           `artifact  ${link.artifactId}`,
           `link      ${link.id}  ${shareLinkStatus(link, now)}`,
-          `created   ${new Date(link.createdAt).toISOString()} by ${link.createdBy}`,
+          `created   ${new Date(link.createdAt).toISOString()} by ${link.createdBy ?? "a deleted account"}`,
           "Suspending the artifact ends every link to it.",
         ].join("\n"),
       };

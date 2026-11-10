@@ -3,7 +3,7 @@
 // indistinguishable, its token unstored and its revocation permanent.
 import { env } from "cloudflare:test";
 import { planRequiredMessage, SHARE_LINKS } from "@portifact/contracts";
-import { accessSchema, createAccessDb, schema } from "@portifact/db";
+import { accessSchema, createAccessDb, regionalDb, schema } from "@portifact/db";
 import { SHARE_MESSAGES } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -299,7 +299,7 @@ describe("openShareLink", () => {
   it("opens a link without a password, stores only the code's hash and the day it was used", async () => {
     const { owner, artifactId } = await owned();
     const { link, token } = value(await create(owner.id, artifactId));
-    const opened = await openShareLink(db(), { token, now: NOW + 5 * 3_600_000 });
+    const opened = await openShareLink([db()], { token, now: NOW + 5 * 3_600_000 });
     if (opened.kind !== "opened") throw new Error(opened.kind);
     expect(opened.artifactId).toBe(artifactId);
     const [handoff] = await db()
@@ -314,11 +314,11 @@ describe("openShareLink", () => {
   it("asks for a password, refuses a wrong one and opens with the right one", async () => {
     const { owner, artifactId } = await owned();
     const { token } = value(await create(owner.id, artifactId, { password: "correct horse" }));
-    expect(await openShareLink(db(), { token, now: NOW })).toEqual({ kind: "password_required" });
-    expect(await openShareLink(db(), { token, password: "wrong horse", now: NOW })).toEqual({
+    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "password_required" });
+    expect(await openShareLink([db()], { token, password: "wrong horse", now: NOW })).toEqual({
       kind: "refused",
     });
-    expect((await openShareLink(db(), { token, password: "correct horse", now: NOW })).kind).toBe(
+    expect((await openShareLink([db()], { token, password: "correct horse", now: NOW })).kind).toBe(
       "opened",
     );
   });
@@ -337,8 +337,8 @@ describe("openShareLink", () => {
     );
     const later = NOW + 10;
     for (const token of [MISSING_TOKEN, expired.token, revoked.token]) {
-      expect(await openShareLink(db(), { token, now: later })).toEqual({ kind: "unavailable" });
-      expect(await openShareLink(db(), { token, password: "longenough", now: later })).toEqual({
+      expect(await openShareLink([db()], { token, now: later })).toEqual({ kind: "unavailable" });
+      expect(await openShareLink([db()], { token, password: "longenough", now: later })).toEqual({
         kind: "refused",
       });
     }
@@ -348,11 +348,11 @@ describe("openShareLink", () => {
     const { owner, artifactId } = await owned();
     const { token } = value(await create(owner.id, artifactId));
     await grantPlan(owner.id, "free");
-    expect(await openShareLink(db(), { token, now: NOW })).toEqual({ kind: "unavailable" });
+    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
     await grantPlan(owner.id, "pro", { validUntil: NOW - 1 });
-    expect(await openShareLink(db(), { token, now: NOW })).toEqual({ kind: "unavailable" });
+    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
     await grantPlan(owner.id, "pro");
-    expect((await openShareLink(db(), { token, now: NOW })).kind).toBe("opened");
+    expect((await openShareLink([db()], { token, now: NOW })).kind).toBe("opened");
   });
 
   it("refuses links of archived, suspended and expired artifacts", async () => {
@@ -364,7 +364,7 @@ describe("openShareLink", () => {
       const { owner, artifactId } = await owned();
       const { token } = value(await create(owner.id, artifactId));
       await db().update(schema.artifacts).set(change).where(eq(schema.artifacts.id, artifactId));
-      expect(await openShareLink(db(), { token, now: NOW })).toEqual({ kind: "unavailable" });
+      expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
     }
   });
 
@@ -375,14 +375,14 @@ describe("openShareLink", () => {
     const derive = vi.spyOn(crypto.subtle, "deriveBits");
     for (const token of [MISSING_TOKEN, plain.token, locked.token]) {
       derive.mockClear();
-      await openShareLink(db(), { token, password: "some guess", now: NOW });
+      await openShareLink([db()], { token, password: "some guess", now: NOW });
       expect(derive).toHaveBeenCalledTimes(1);
       expect(derive.mock.calls[0]?.[0]).toMatchObject({
         iterations: SHARE_LINKS.passwordIterations,
       });
     }
     derive.mockClear();
-    await openShareLink(db(), { token: MISSING_TOKEN, now: NOW });
+    await openShareLink([db()], { token: MISSING_TOKEN, now: NOW });
     expect(derive).not.toHaveBeenCalled();
   });
 });
@@ -411,7 +411,7 @@ describe("redeemShareHandoff and refreshShareSession", () => {
   async function opened(extra: { expiresAt?: number | null } = {}) {
     const { owner, artifactId } = await owned();
     const { link, token } = value(await create(owner.id, artifactId, extra));
-    const result = await openShareLink(db(), { token, now: NOW });
+    const result = await openShareLink([db()], { token, now: NOW });
     if (result.kind !== "opened") throw new Error(result.kind);
     return { owner, artifactId, link, code: result.code };
   }
@@ -497,7 +497,7 @@ describe("pruneShareLinks", () => {
       await create(owner.id, artifactId, { label: "expired", expiresAt: NOW + 1 }),
     ).link;
     const live = value(await create(owner.id, artifactId, { label: "live" }));
-    const opened = await openShareLink(db(), { token: live.token, now: NOW });
+    const opened = await openShareLink([db()], { token: live.token, now: NOW });
     if (opened.kind !== "opened") throw new Error(opened.kind);
     value(await redeemShareHandoff(db(), { code: opened.code, artifactId, now: NOW }));
     value(
@@ -540,10 +540,10 @@ describe("restores, purges and the access log", () => {
       .update(schema.shareLinks)
       .set({ revokedAt: null })
       .where(eq(schema.shareLinks.id, link.id));
-    expect((await openShareLink(db(), { token, now: NOW })).kind).toBe("opened");
+    expect((await openShareLink([db()], { token, now: NOW })).kind).toBe("opened");
     const result = await applyTombstones(db(), markers, NOW + 1);
     expect(result.shareLinks).toBeGreaterThanOrEqual(1);
-    expect(await openShareLink(db(), { token, now: NOW + 2 })).toEqual({ kind: "unavailable" });
+    expect(await openShareLink([db()], { token, now: NOW + 2 })).toEqual({ kind: "unavailable" });
     expect((await applyTombstones(db(), markers, NOW + 3)).shareLinks).toBe(0);
   });
 
@@ -583,5 +583,122 @@ describe("restores, purges and the access log", () => {
     expect(log.entries).toEqual([
       { email: "", openedAt: NOW, shareLink: { id: link.id, label: "Board" } },
     ]);
+  });
+});
+
+describe("links in another region", () => {
+  it("finds a link in the region that holds it and writes the code there", async () => {
+    // A second region with its own database; the plan stays in the global one.
+    const second = regionalDb(env.SECOND_DB, db().global);
+    const owner = await user();
+    await grantPlan(owner.id, "pro");
+    const artifactId = "r2gn2rtfct";
+    await second.insert(schema.artifacts).values({
+      id: artifactId,
+      ownerId: owner.id,
+      type: "site",
+      name: "Elsewhere",
+      state: "active",
+      accessMode: "restricted",
+      currentVersionId: "v_elsewhere",
+      expiresAt: NOW + DAY,
+    });
+    const token = "R".repeat(43);
+    const linkId = `sl_${"e".repeat(32)}`;
+    await second.insert(schema.shareLinks).values({
+      id: linkId,
+      artifactId,
+      tokenHash: await hashSecret(token),
+      label: "Elsewhere",
+      createdBy: owner.id,
+      createdAt: NOW,
+    });
+
+    const opened = await openShareLink([db(), second], { token, now: NOW });
+    if (opened.kind !== "opened") throw new Error(opened.kind);
+    expect(opened.artifactId).toBe(artifactId);
+    const codeHash = await hashSecret(opened.code);
+    const inSecond = await second
+      .select()
+      .from(schema.shareHandoffs)
+      .where(eq(schema.shareHandoffs.codeHash, codeHash));
+    const inDefault = await db()
+      .select()
+      .from(schema.shareHandoffs)
+      .where(eq(schema.shareHandoffs.codeHash, codeHash));
+    expect(inSecond).toHaveLength(1);
+    expect(inDefault).toEqual([]);
+    // The artifact origin redeems it in the artifact's region.
+    expect((await redeemShareHandoff(second, { code: opened.code, artifactId, now: NOW })).ok).toBe(
+      true,
+    );
+    // A token no region holds still costs one derivation and answers like any other.
+    expect(await openShareLink([db(), second], { token: "Q".repeat(43), now: NOW })).toEqual({
+      kind: "unavailable",
+    });
+  });
+});
+
+describe("the account behind links", () => {
+  it("exports the owner's links without their token or hash", async () => {
+    const { exportAccount } = await import("../src/account-data.ts");
+    const { owner, artifactId } = await owned();
+    const live = value(
+      await create(owner.id, artifactId, { label: "Board", password: "longenough" }),
+    );
+    const gone = value(await create(owner.id, artifactId, { label: "Old", expiresAt: NOW + DAY }));
+    value(
+      await revokeShareLink(db(), { userId: owner.id, artifactId, linkId: gone.link.id, now: NOW }),
+    );
+    const exported = value(await exportAccount(db(), { userId: owner.id, now: NOW }));
+    const artifact = exported.artifacts.find((a) => a.id === artifactId);
+    const sorted = [...(artifact?.shareLinks ?? [])].sort((a, b) => a.label.localeCompare(b.label));
+    expect(sorted).toEqual([
+      {
+        label: "Board",
+        state: "active",
+        hasPassword: true,
+        createdAt: new Date(NOW).toISOString(),
+        expiresAt: null,
+      },
+      {
+        label: "Old",
+        state: "revoked",
+        hasPassword: false,
+        createdAt: new Date(NOW).toISOString(),
+        expiresAt: new Date(NOW + DAY).toISOString(),
+      },
+    ]);
+    const text = JSON.stringify(exported);
+    expect(text).not.toContain(live.token);
+    expect(text).not.toContain(await hashSecret(live.token));
+  });
+
+  it("forgets who created a link when that account is deleted, also after a restore", async () => {
+    const { advanceAccountDeletion } = await import("../src/account-data.ts");
+    const admin = await user();
+    const editor = await user();
+    const workspace = await workspaceWith(admin.id, { [editor.id]: "editor" });
+    await grantPlan(workspace, "team");
+    const { artifactId } = await publishSite(admin.id);
+    // A workspace artifact: moved by row, as nothing moves artifacts between owners yet.
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: workspace })
+      .where(eq(schema.artifacts.id, artifactId));
+    const { link } = value(await create(editor.id, artifactId));
+    expect((await linkRow(link.id))?.createdBy).toBe(editor.id);
+
+    await db().insert(schema.accountDeletions).values({ userId: editor.id, requestedAt: NOW });
+    await advanceAccountDeletion(db(), env.ARTIFACTS, editor.id, NOW);
+    expect((await linkRow(link.id))?.createdBy).toBeNull();
+
+    // A restore brings the old value back; re-applying the account's tombstone clears it again.
+    await db()
+      .update(schema.shareLinks)
+      .set({ createdBy: editor.id })
+      .where(eq(schema.shareLinks.id, link.id));
+    await applyTombstones(db(), [{ kind: "account", id: editor.id, deletedAt: NOW }], NOW);
+    expect((await linkRow(link.id))?.createdBy).toBeNull();
   });
 });

@@ -79,30 +79,36 @@ export function shareUsedDay(at: number): number {
   return Math.floor(at / DAY_MS) * DAY_MS;
 }
 
-/** Failed passwords counted in the current window, per token and per IP. */
-export interface PasswordFailures {
+/**
+ * Password attempts counted in the current window, this one included: per token, per IP and per
+ * token and IP together. They are counted atomically before the password is checked, so
+ * parallel attempts see different counts.
+ */
+export interface PasswordAttempts {
   token: number;
   ip: number;
+  tokenIp: number;
 }
 
 export type PasswordGate = "allowed" | "human_check" | "locked";
 
 /**
- * Whether a password attempt may be checked: `locked` once the token or the IP passed its limit
- * of failures (even the right password waits), `human_check` once either passed the earlier
- * threshold, else `allowed`. The token's counter is keyed by its hash, so unknown tokens are
- * gated exactly like real ones.
+ * Whether a password attempt may be checked. `locked` only for one token from one IP past its
+ * limit, or for a token past its ceiling (which takes that many solved human checks to reach),
+ * so nobody can cheaply lock other people out of a link. Past the earlier thresholds, per token
+ * or per IP, the attempt needs a solved human check, which a visitor with the right password
+ * passes. The token's counter is keyed by its hash, so unknown tokens are gated like real ones.
  */
-export function passwordGate(failures: PasswordFailures): PasswordGate {
+export function passwordGate(attempts: PasswordAttempts): PasswordGate {
   if (
-    failures.token >= SHARE_OPEN_LIMITS.tokenLockAfter ||
-    failures.ip >= SHARE_OPEN_LIMITS.ipLockAfter
+    attempts.tokenIp > SHARE_OPEN_LIMITS.tokenIpLockAfter ||
+    attempts.token > SHARE_OPEN_LIMITS.tokenCeiling
   ) {
     return "locked";
   }
   if (
-    failures.token >= SHARE_OPEN_LIMITS.tokenHumanCheckAfter ||
-    failures.ip >= SHARE_OPEN_LIMITS.ipHumanCheckAfter
+    attempts.token > SHARE_OPEN_LIMITS.tokenHumanCheckAfter ||
+    attempts.ip > SHARE_OPEN_LIMITS.ipHumanCheckAfter
   ) {
     return "human_check";
   }

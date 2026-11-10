@@ -17,8 +17,8 @@ import {
   ShareOpenResult,
   shareLinkUrl,
 } from "@portifact/contracts";
-import { hitRateLimit, peekRateLimit } from "@portifact/db";
-import { passwordGate, SHARE_MESSAGES } from "@portifact/domain";
+import { hitRateLimit, releaseRateLimit } from "@portifact/db";
+import { type PasswordAttempts, passwordGate, SHARE_MESSAGES } from "@portifact/domain";
 import {
   createShareLink,
   hashSecret,
@@ -33,7 +33,7 @@ import { authUrls } from "../auth/config.ts";
 import type { FetchLike } from "../auth/deps.ts";
 import { checkLimits } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
-import { artifactDb, defaultDb } from "../regions.ts";
+import { artifactDb, regionsOf } from "../regions.ts";
 import { verifyTurnstile } from "../turnstile.ts";
 import { type ApiContext, error, type Guarded, iso, readJson } from "./http.ts";
 
@@ -158,19 +158,21 @@ export function shareOpenRoutes(deps: ShareOpenDeps) {
     if (!body.ok) return refuse(c, "not_found", SHARE_MESSAGES.unavailable);
     const { token, password, turnstileToken } = body.value;
 
-    const windowMs = SHARE_OPEN_LIMITS.failureWindowSeconds * 1000;
-    const tokenKey = `share:fail:${(await hashSecret(token)).slice(0, 32)}`;
-    const ipKey = `share:ipfail:${ip}`;
-    if (password !== undefined) {
-      const [tokenFailures, ipFailures] = await Promise.all([
-        peekRateLimit(c.env.DB, tokenKey, windowMs, now),
-        peekRateLimit(c.env.DB, ipKey, windowMs, now),
-      ]);
-      const gate = passwordGate({ token: tokenFailures.count, ip: ipFailures.count });
+    // Password attempts are counted before the password is checked, atomically, so parallel
+    // attempts see different counts; an attempt that is not checked, or succeeds, is given back.
+    const attempts =
+      password === undefined
+        ? null
+        : await countAttempt(c.env.DB, (await hashSecret(token)).slice(0, 32), ip, now);
+    if (attempts) {
+      const gate = passwordGate(attempts.counts);
       if (gate === "locked") {
-        const resetAt = Math.max(tokenFailures.resetAt, ipFailures.resetAt);
+        await attempts.giveBack();
         const response = refuse(c, "rate_limited", SHARE_MESSAGES.locked);
-        response.headers.set("Retry-After", String(Math.max(1, Math.ceil((resetAt - now) / 1000))));
+        response.headers.set(
+          "Retry-After",
+          String(Math.max(1, Math.ceil((attempts.resetAt - now) / 1000))),
+        );
         return response;
       }
       if (gate === "human_check") {
@@ -182,22 +184,27 @@ export function shareOpenRoutes(deps: ShareOpenDeps) {
               fetch: deps.siteverify(c.env),
             })
           : "failed";
-        if (verdict === "unavailable") {
-          return refuse(
-            c,
-            "capacity_unavailable",
-            "The human check is unavailable. Try again later.",
-          );
-        }
         if (verdict !== "passed") {
-          return refuse(c, "human_verification_required", SHARE_MESSAGES.humanCheck);
+          await attempts.giveBack();
+          return verdict === "unavailable"
+            ? refuse(c, "capacity_unavailable", "The human check is unavailable. Try again later.")
+            : refuse(c, "human_verification_required", SHARE_MESSAGES.humanCheck);
         }
       }
     }
 
-    const outcome = await openShareLink(defaultDb(c.env), { token, password, now });
+    // The token cannot name its region: look it up in each, and keep the code where the link is.
+    const outcome = await openShareLink(
+      regionsOf(c.env)
+        .all()
+        .map((handles) => handles.db),
+      { token, password, now },
+    );
     switch (outcome.kind) {
       case "opened": {
+        // A right password is not a failure: it must not bring an honest visitor closer to the
+        // human check or the lock.
+        await attempts?.giveBack();
         const location = new URL(
           `https://${outcome.artifactId}.${c.env.CONTENT_DOMAIN}/__portifact/link`,
         );
@@ -209,15 +216,54 @@ export function shareOpenRoutes(deps: ShareOpenDeps) {
       case "unavailable":
         return refuse(c, "not_found", SHARE_MESSAGES.unavailable);
       case "refused":
-        await Promise.all([
-          hitRateLimit(c.env.DB, tokenKey, windowMs, now),
-          hitRateLimit(c.env.DB, ipKey, windowMs, now),
-        ]);
         return refuse(c, "forbidden", SHARE_MESSAGES.refused);
     }
   });
 
   return routes;
+}
+
+interface CountedAttempt {
+  counts: PasswordAttempts;
+  /** When the earliest of the counters' windows ends, for `Retry-After`. */
+  resetAt: number;
+  /** Gives the attempt back on every counter, for one that was not checked or succeeded. */
+  giveBack(): Promise<void>;
+}
+
+/**
+ * Counts one password attempt per token (a prefix of its hash, never the token), per IP and per
+ * token and IP together. Each count is one upsert, so concurrent attempts are serialized by the
+ * database and each sees its own count.
+ */
+async function countAttempt(
+  d1: D1Database,
+  tokenHash: string,
+  ip: string,
+  now: number,
+): Promise<CountedAttempt> {
+  const windowMs = SHARE_OPEN_LIMITS.failureWindowSeconds * 1000;
+  const keys = {
+    token: `share:fail:${tokenHash}`,
+    ip: `share:ipfail:${ip}`,
+    tokenIp: `share:pairfail:${tokenHash}:${ip}`,
+  } as const;
+  const [token, byIp, tokenIp] = await Promise.all([
+    hitRateLimit(d1, keys.token, windowMs, now),
+    hitRateLimit(d1, keys.ip, windowMs, now),
+    hitRateLimit(d1, keys.tokenIp, windowMs, now),
+  ]);
+  return {
+    counts: { token: token.count, ip: byIp.count, tokenIp: tokenIp.count },
+    resetAt: Math.min(token.resetAt, tokenIp.resetAt),
+    giveBack: async () => {
+      await Promise.all([
+        releaseRateLimit(d1, keys.token, windowMs, token.resetAt),
+        releaseRateLimit(d1, keys.ip, windowMs, byIp.resetAt),
+        releaseRateLimit(d1, keys.tokenIp, windowMs, tokenIp.resetAt),
+      ]);
+    },
+  };
 }
 
 /** Every refusal of the entry: the shared error body, never mentioning the token. */

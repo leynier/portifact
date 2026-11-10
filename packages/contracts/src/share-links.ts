@@ -31,12 +31,19 @@ export const SHARE_LINKS = {
 export const SHARE_OPEN_LIMITS = {
   /** Every open request, per IP. */
   perIp: { max: 60, windowSeconds: 600 },
-  /** Failed passwords per token before the human check, and before the token is locked. */
+  /**
+   * Password attempts are counted before the password is checked (an attempt that succeeds or
+   * is refused without a check is given back), per token, per IP and per token and IP together,
+   * in windows of `failureWindowSeconds`. Past `tokenHumanCheckAfter` per token or
+   * `ipHumanCheckAfter` per IP every attempt needs a solved human check, which a visitor with the
+   * right password passes. Only the pair of token and IP is locked (`tokenIpLockAfter`), so
+   * nobody can lock others out of a link; `tokenCeiling` per token is the last bound on guessing,
+   * and reaching it takes that many solved human checks.
+   */
   tokenHumanCheckAfter: 3,
-  tokenLockAfter: 10,
-  /** Failed passwords per IP before the human check, and before the IP is refused. */
   ipHumanCheckAfter: 5,
-  ipLockAfter: 20,
+  tokenIpLockAfter: 10,
+  tokenCeiling: 100,
   failureWindowSeconds: 900,
 } as const;
 

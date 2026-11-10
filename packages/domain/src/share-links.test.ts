@@ -111,31 +111,33 @@ describe("shareUsedDay", () => {
 });
 
 describe("passwordGate", () => {
-  const { tokenHumanCheckAfter, tokenLockAfter, ipHumanCheckAfter, ipLockAfter } =
+  const { tokenHumanCheckAfter, ipHumanCheckAfter, tokenIpLockAfter, tokenCeiling } =
     SHARE_OPEN_LIMITS;
 
-  it("allows attempts below every threshold", () => {
-    expect(passwordGate({ token: 0, ip: 0 })).toBe("allowed");
-    expect(passwordGate({ token: tokenHumanCheckAfter - 1, ip: ipHumanCheckAfter - 1 })).toBe(
-      "allowed",
-    );
-  });
-
-  it("asks for the human check from the token's or the IP's threshold", () => {
-    expect(passwordGate({ token: tokenHumanCheckAfter, ip: 0 })).toBe("human_check");
-    expect(passwordGate({ token: 0, ip: ipHumanCheckAfter })).toBe("human_check");
-    expect(passwordGate({ token: tokenLockAfter - 1, ip: ipLockAfter - 1 })).toBe("human_check");
-  });
-
-  it("locks from the token's or the IP's limit, even before a human check", () => {
-    expect(passwordGate({ token: tokenLockAfter, ip: 0 })).toBe("locked");
-    expect(passwordGate({ token: 0, ip: ipLockAfter })).toBe("locked");
-  });
-
   it("uses the documented numbers", () => {
-    expect([tokenHumanCheckAfter, tokenLockAfter, ipHumanCheckAfter, ipLockAfter]).toEqual([
-      3, 10, 5, 20,
+    expect([tokenHumanCheckAfter, ipHumanCheckAfter, tokenIpLockAfter, tokenCeiling]).toEqual([
+      3, 5, 10, 100,
     ]);
+  });
+
+  // Counts include the attempt being decided.
+  it.each([
+    [{ token: 1, ip: 1, tokenIp: 1 }, "allowed"],
+    [{ token: 3, ip: 5, tokenIp: 3 }, "allowed"],
+    [{ token: 4, ip: 1, tokenIp: 1 }, "human_check"],
+    [{ token: 1, ip: 6, tokenIp: 1 }, "human_check"],
+    // Many IPs past the token's threshold: a solved human check still lets each one try.
+    [{ token: 100, ip: 1, tokenIp: 1 }, "human_check"],
+    // An office or carrier NAT past the IP's threshold is asked to solve the check, never refused.
+    [{ token: 1, ip: 1000, tokenIp: 1 }, "human_check"],
+    [{ token: 10, ip: 10, tokenIp: 10 }, "human_check"],
+    // Only one token from one IP is locked...
+    [{ token: 11, ip: 11, tokenIp: 11 }, "locked"],
+    [{ token: 1, ip: 1, tokenIp: 11 }, "locked"],
+    // ...or a token past the ceiling, which takes that many solved checks to reach.
+    [{ token: 101, ip: 1, tokenIp: 1 }, "locked"],
+  ] as const)("decides %o as %s", (attempts, gate) => {
+    expect(passwordGate(attempts)).toBe(gate);
   });
 });
 

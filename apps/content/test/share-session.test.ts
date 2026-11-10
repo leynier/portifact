@@ -194,7 +194,7 @@ async function link(extra: { password?: string; artifactId?: string } = {}) {
     now: NOW,
   });
   if (!created.ok) throw new Error(created.message);
-  const opened = await openShareLink(db(), {
+  const opened = await openShareLink([db()], {
     token: created.value.token,
     password: extra.password,
     now: NOW,
@@ -333,9 +333,9 @@ describe("a share link's session", () => {
   it("works again through a new entry once the plan includes share links again", async () => {
     const { token } = await link();
     await setPlan("free");
-    expect(await openShareLink(db(), { token, now: NOW })).toEqual({ kind: "unavailable" });
+    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
     await setPlan("pro");
-    const opened = await openShareLink(db(), { token, now: NOW });
+    const opened = await openShareLink([db()], { token, now: NOW });
     if (opened.kind !== "opened") throw new Error(opened.kind);
     const cookie = await enter(opened.code);
     expect((await send("/", { cookie })).status).toBe(200);

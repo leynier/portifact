@@ -12,6 +12,7 @@ import {
   fail,
   ok,
   type Result,
+  shareLinkStatus,
   threadInScope,
 } from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
@@ -74,6 +75,7 @@ export async function exportAccount(
   const artifactIds = artifacts.map((artifact) => artifact.id);
 
   const readers = new Map<string, string[]>();
+  const shareLinks = new Map<string, (typeof schema.shareLinks.$inferSelect)[]>();
   const versionsByArtifact = new Map<string, (typeof schema.versions.$inferSelect)[]>();
   const ownThreads: ThreadRow[] = [];
   for (const ids of chunks(artifactIds)) {
@@ -83,6 +85,13 @@ export async function exportAccount(
       .where(inArray(schema.artifactReaders.artifactId, ids))
       .orderBy(asc(schema.artifactReaders.email))) {
       readers.set(row.artifactId, [...(readers.get(row.artifactId) ?? []), row.email]);
+    }
+    for (const row of await db
+      .select()
+      .from(schema.shareLinks)
+      .where(inArray(schema.shareLinks.artifactId, ids))
+      .orderBy(asc(schema.shareLinks.createdAt), asc(schema.shareLinks.id))) {
+      shareLinks.set(row.artifactId, [...(shareLinks.get(row.artifactId) ?? []), row]);
     }
     for (const row of await db
       .select()
@@ -208,6 +217,14 @@ export async function exportAccount(
       state: artifact.state,
       accessMode: artifact.accessMode,
       readers: readers.get(artifact.id) ?? [],
+      // Never the token or its hash: only what the owner sees in the list.
+      shareLinks: (shareLinks.get(artifact.id) ?? []).map((link) => ({
+        label: link.label,
+        state: shareLinkStatus(link, input.now),
+        hasPassword: link.passwordHash !== null,
+        createdAt: iso(link.createdAt),
+        expiresAt: isoOrNull(link.expiresAt),
+      })),
       annotations: artifact.annotations,
       indexable: artifact.indexable,
       embeddable: artifact.embeddable,
@@ -508,7 +525,14 @@ export async function advanceAccountDeletion(
     .from(schema.accountDeletions)
     .where(eq(schema.accountDeletions.userId, userId));
   if (!deletion) return "absent";
-  await db.batch([...claimArtifacts(db, userId, now)]);
+  await db.batch([
+    ...claimArtifacts(db, userId, now),
+    // Links the account created on artifacts it did not own (a workspace's) keep no trace of it.
+    db
+      .update(schema.shareLinks)
+      .set({ createdBy: null })
+      .where(eq(schema.shareLinks.createdBy, userId)),
+  ]);
   const threads = await threadsToErase(db, userId, threadsPerAccount);
   for (const threadId of threads) {
     await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
