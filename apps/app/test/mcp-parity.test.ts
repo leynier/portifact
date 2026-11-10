@@ -3127,6 +3127,49 @@ describe("API and MCP parity for approval reviews", () => {
     ).toMatchObject({ error: { code: "not_found" } });
   });
 
+  it("answers a retry while the first call still runs the same way as the API", async () => {
+    const { owner, viaMcp } = await setup();
+    const key = crypto.randomUUID();
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.operations)
+      .values({
+        actorId: await ownerId(owner),
+        idempotencyKey: key,
+        operation: "review.verdict",
+        requestHash: "running",
+        createdAt: Date.now(),
+      });
+    const answer = fromTool(
+      await owner.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        idempotencyKey: key,
+      }),
+    );
+    expect(answer.body).toMatchObject({ error: { code: "invalid_input" } });
+    const key2 = crypto.randomUUID();
+    const { hashRequest } = await import("@portifact/services");
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.operations)
+      .values({
+        actorId: await ownerId(owner),
+        idempotencyKey: key2,
+        operation: "review.verdict",
+        requestHash: await hashRequest({ artifactId: viaMcp, verdict: "approve" }),
+        createdAt: Date.now(),
+      });
+    const running = fromTool(
+      await owner.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        idempotencyKey: key2,
+      }),
+    );
+    expect(running.body).toMatchObject({ error: { code: "version_conflict" } });
+  });
+
   it("answers a stranger like a missing artifact and refuses the same scopes", async () => {
     const { owner, viaApi, viaMcp } = await setup();
     const stranger = await both("parity-review-stranger@example.test", EVERY);
