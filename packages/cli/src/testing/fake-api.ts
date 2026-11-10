@@ -51,6 +51,7 @@ export interface FakeArtifact {
   expiresAt: number | null;
   archivedAt: number | null;
   purgeAt: number | null;
+  pinned: boolean;
   createdAt: number;
   updatedAt: number;
   access: {
@@ -270,6 +271,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         expiresAt: now + 30 * DAY_MS,
         archivedAt: null,
         purgeAt: null,
+        pinned: false,
         createdAt: now,
         updatedAt: now,
         access: {
@@ -418,7 +420,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     state.versions.set(artifact.id, list);
     artifact.currentVersionId = added.id;
     artifact.versions = added.number;
-    artifact.expiresAt = now + 30 * DAY_MS;
+    artifact.expiresAt = artifact.pinned ? null : now + 30 * DAY_MS;
     artifact.updatedAt = now;
     return added;
   }
@@ -581,7 +583,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         versionId: added.id,
         versionNumber: added.number,
         url: contentUrl(artifact.id),
-        expiresAt: iso(artifact.expiresAt ?? clock()),
+        expiresAt: artifact.expiresAt === null ? null : iso(artifact.expiresAt),
         fromVersionId: target.id,
         fromVersionNumber: target.number,
       },
@@ -793,6 +795,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       expiresAt: null,
       archivedAt: null,
       purgeAt: null,
+      pinned: false,
       createdAt: now,
       updatedAt: now,
       // New artifacts are private to their owner.
@@ -822,7 +825,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       versionId: session.versionId,
       versionNumber: session.versionNumber,
       url: contentUrl(artifact.id),
-      expiresAt: iso(artifact.expiresAt ?? now),
+      expiresAt: artifact.expiresAt === null ? null : iso(artifact.expiresAt),
     };
     return { status: 200, body: session.committed };
   }
@@ -898,14 +901,24 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const artifact = state.artifacts.get(id);
     if (!artifact || artifact.state === "deleted") return error("not_found", "Artifact not found.");
     const now = clock();
-    if (action === "renew" || action === "archive") {
+    if (action === "pin" && !state.usage.plan.features.includes("pin")) return planRequired("pin");
+    if (action === "renew" || action === "archive" || action === "pin" || action === "unpin") {
       if (artifact.state !== "active") {
         return error("artifact_archived", "Restore the artifact first.");
       }
     }
-    if (action === "renew") artifact.expiresAt = now + 30 * DAY_MS;
+    if (action === "renew" && !artifact.pinned) artifact.expiresAt = now + 30 * DAY_MS;
+    if (action === "pin") {
+      artifact.pinned = true;
+      artifact.expiresAt = null;
+    }
+    if (action === "unpin" && artifact.pinned) {
+      artifact.pinned = false;
+      artifact.expiresAt = now + 30 * DAY_MS;
+    }
     if (action === "archive") {
       artifact.state = "archived";
+      artifact.pinned = false;
       artifact.expiresAt = null;
       artifact.archivedAt = now;
       artifact.purgeAt = now + 182 * DAY_MS;
@@ -918,7 +931,10 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     if (action === "delete") {
       artifact.state = "deleted";
-      return { status: 200, body: { state: "deleted", expiresAt: null, purgeAt: null } };
+      return {
+        status: 200,
+        body: { state: "deleted", expiresAt: null, purgeAt: null, pinned: false },
+      };
     }
     artifact.updatedAt = now;
     return {
@@ -927,6 +943,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         state: artifact.state,
         expiresAt: artifact.expiresAt === null ? null : iso(artifact.expiresAt),
         purgeAt: artifact.purgeAt === null ? null : iso(artifact.purgeAt),
+        pinned: artifact.pinned,
       },
     };
   }
@@ -1039,7 +1056,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     if (shares) return shareLinks(method, shares[1] as string, shares[2], raw);
     const versions = versionRoute(method, path, url, key, raw);
     if (versions) return versions;
-    match = /^\/artifacts\/([^/]+)(?:\/(renew|archive|restore|access))?$/.exec(path);
+    match = /^\/artifacts\/([^/]+)(?:\/(renew|archive|restore|pin|unpin|access))?$/.exec(path);
     if (match) {
       const id = match[1] as string;
       const action = match[2];
@@ -1086,6 +1103,7 @@ function summary(artifact: FakeArtifact): ArtifactSummary {
     expiresAt: artifact.expiresAt === null ? null : iso(artifact.expiresAt),
     archivedAt: artifact.archivedAt === null ? null : iso(artifact.archivedAt),
     purgeAt: artifact.purgeAt === null ? null : iso(artifact.purgeAt),
+    pinned: artifact.pinned,
     createdAt: iso(artifact.createdAt),
     updatedAt: iso(artifact.updatedAt),
   };

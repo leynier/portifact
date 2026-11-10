@@ -550,7 +550,8 @@ export interface CommittedPublish {
   artifactId: string;
   versionId: string;
   versionNumber: number;
-  expiresAt: number;
+  /** Null while the artifact is pinned. */
+  expiresAt: number | null;
 }
 
 /** SHA-256 of an R2 object: the checksum R2 verified at upload, or a streamed recomputation. */
@@ -597,7 +598,7 @@ export async function commitPublish(
       artifactId: session.artifactId,
       versionId: session.versionId,
       versionNumber: version?.number ?? 0,
-      expiresAt: artifact?.expiresAt ?? 0,
+      expiresAt: artifact?.expiresAt ?? null,
     });
   }
   if (session.state !== "uploading" && session.state !== "ready") {
@@ -713,7 +714,8 @@ export async function commitPublish(
       .set({
         currentVersionId: session.versionId,
         state: "active",
-        expiresAt,
+        // A pinned artifact stays pinned through a publish: it keeps no expiry.
+        expiresAt: sql`case when ${schema.artifacts.pinned} then null else ${expiresAt} end`,
         archivedAt: null,
         purgeAt: null,
         lifecycleGeneration: sql`${schema.artifacts.lifecycleGeneration} + 1`,
@@ -728,7 +730,8 @@ export async function commitPublish(
             ? sql`${schema.artifacts.currentVersionId} is null`
             : eq(schema.artifacts.currentVersionId, session.baseVersionId),
         ),
-      ),
+      )
+      .returning({ pinned: schema.artifacts.pinned }),
     db
       .update(schema.versions)
       .set({
@@ -826,7 +829,7 @@ export async function commitPublish(
   }
   const [switchResult] = outcome;
 
-  if (changes(switchResult) === 0) {
+  if (switchResult.length === 0) {
     await closeUploadSession(db, { ownerId, sessionId: session.id, now: input.now }, "failed");
     return fail(
       "version_conflict",
@@ -837,7 +840,7 @@ export async function commitPublish(
     artifactId: session.artifactId,
     versionId: session.versionId,
     versionNumber: version?.number ?? 0,
-    expiresAt,
+    expiresAt: switchResult[0]?.pinned ? null : expiresAt,
   });
 }
 
@@ -1040,11 +1043,6 @@ export async function closeUploadSession(
       ),
   ]);
   return ok(true);
-}
-
-function changes(result: unknown): number {
-  const meta = (result as { meta?: { changes?: number } } | undefined)?.meta;
-  return meta?.changes ?? 0;
 }
 
 function constraintFailed(error: unknown, kind: "UNIQUE" | "CHECK"): boolean {

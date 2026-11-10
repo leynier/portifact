@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatDate, messages } from "./messages.ts";
+import { formatBytes, formatDate, formatExpiry, messages } from "./messages.ts";
 
 describe("formatBytes", () => {
   it("uses decimal units, as the product limits do", () => {
@@ -15,6 +15,15 @@ describe("formatDate", () => {
   it("shows an instant in UTC to the minute, and never for none", () => {
     expect(formatDate("2026-12-08T12:34:56.000Z")).toBe("2026-12-08 12:34 UTC");
     expect(formatDate(null)).toBe("never");
+  });
+});
+
+describe("formatExpiry", () => {
+  it("shows a date, or that a pinned artifact never expires", () => {
+    expect(formatExpiry("2026-12-08T12:34:56.000Z")).toBe("2026-12-08 12:34 UTC");
+    expect(formatExpiry(null)).toBe("never (pinned)");
+    expect(messages.published("https://x/", "a", 2, null)).toContain("Expires: never (pinned)");
+    expect(messages.rolledBack("a", 3, 1, "https://x/", null)).toContain("Expires: never (pinned)");
   });
 });
 

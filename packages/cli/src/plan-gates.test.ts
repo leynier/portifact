@@ -36,6 +36,12 @@ interface GatedCommand {
 /** One line per command that reaches a paid feature. */
 const GATED: GatedCommand[] = [
   {
+    feature: "pin",
+    args: (id) => ["pin", id],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/pin$/,
+  },
+  {
     feature: "shareLinks",
     args: (id) => ["share", "create", id, "--label", "Gate"],
     method: "POST",

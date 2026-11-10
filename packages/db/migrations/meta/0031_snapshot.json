@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "df046114-f316-4c05-a2a4-428dd2aa2b08",
-  "prevId": "26578cea-dc68-4b03-b2a8-0d7c529053d2",
+  "id": "b32949a1-f645-47b0-8007-ad3d41492246",
+  "prevId": "c17fc318-8cae-4804-992e-765c1f706181",
   "tables": {
     "abuse_reports": {
       "name": "abuse_reports",
@@ -1019,6 +1019,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'owner'"
+        },
+        "pinned": {
+          "name": "pinned",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
         }
       },
       "indexes": {
@@ -1026,6 +1034,12 @@
           "name": "artifacts_owner_state_idx",
           "columns": ["owner_id", "state"],
           "isUnique": false
+        },
+        "artifacts_pinned_owner_idx": {
+          "name": "artifacts_pinned_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false,
+          "where": "\"artifacts\".\"pinned\" = 1"
         },
         "artifacts_state_expires_idx": {
           "name": "artifacts_state_expires_idx",

@@ -10,6 +10,7 @@ import {
   Lock,
   PanelsTopLeft,
   PencilLine,
+  Pin,
   ScrollText,
   Trash2,
   Users,
@@ -49,6 +50,16 @@ const ACCESS_ICONS: Record<AccessMode, ReactNode> = {
 };
 
 /** Who can open an artifact, as a short label with its icon. */
+/** Shown where the expiry would be: a pinned artifact has none (premium plan P2). */
+export function PinnedBadge() {
+  const t = useT();
+  return (
+    <Badge icon={<Pin className="size-3.5" />} emphasis="subtle">
+      {t("list.pinned")}
+    </Badge>
+  );
+}
+
 export function AccessBadge({ mode }: { mode: AccessMode }) {
   const t = useT();
   return (

@@ -77,6 +77,7 @@ export const es = {
   "list.refreshFailed.body":
     "Muestra lo último que se cargó. Portifact lo intentará de nuevo en breve.",
   "list.never": "Nunca",
+  "list.pinned": "Fijado",
   "list.column.access": "Acceso",
   "list.captionFiltered": "Tus artifacts que coinciden con la búsqueda y los filtros",
   "list.countFiltered":
@@ -173,6 +174,14 @@ export const es = {
     "Restáuralo antes de que se elimine definitivamente para volver a ponerlo en línea.",
   "detail.noActions": "No hay acciones disponibles en este estado.",
   "detail.renew": "Renovar por 30 días",
+  "detail.pin": "Fijar",
+  "detail.unpin": "Dejar de fijar",
+  "detail.pinned.body": "Fijado: sigue en línea sin vencimiento hasta que lo dejes de fijar.",
+  "detail.pin.paid":
+    "Fijar mantiene un artifact en línea sin vencimiento. Es parte del plan {plan}.",
+  "detail.expiresNever": "Nunca, está fijado",
+  "detail.pinnedDone": "Artifact fijado. Sigue en línea sin vencimiento.",
+  "detail.unpinnedDone": "Artifact sin fijar. Ahora vence el {date}.",
   "detail.archive": "Archivar",
   "detail.restore": "Restaurar",
   "detail.delete": "Eliminar",
@@ -633,6 +642,7 @@ export const es = {
   "publish.startOver": "Empezar de nuevo",
   "publish.done.title": "Versión {number} publicada",
   "publish.done.body": "Está disponible en {url} y vence el {date}.",
+  "publish.done.pinned": "Está disponible en {url}. Está fijado, así que no vence.",
   "publish.done.open": "Abrir la página del artifact",
   "publish.done.another": "Publicar otra cosa",
   "publish.announce.done": "Se publicó la versión {number} de {name}.",

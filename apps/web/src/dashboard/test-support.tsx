@@ -25,6 +25,7 @@ import {
   PLANS,
   type PreparedPublish,
   PublishRequest,
+  planRequiredMessage,
   type ReviewStart,
   RollbackRequest,
   type ShareLinkCreated,
@@ -101,6 +102,7 @@ export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): 
     expiresAt: "2026-12-08T12:00:00.000Z",
     archivedAt: null,
     purgeAt: null,
+    pinned: false,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -564,6 +566,7 @@ function publishingRoute(
         expiresAt: null,
         archivedAt: null,
         purgeAt: null,
+        pinned: false,
         createdAt: NOW,
         updatedAt: NOW,
       };
@@ -881,7 +884,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       nextCursor: next < matching.length ? String(next) : null,
     });
   }
-  const match = /^\/api\/v1\/artifacts\/([^/]+)(?:\/(renew|archive|restore))?$/.exec(path);
+  const match = /^\/api\/v1\/artifacts\/([^/]+)(?:\/(renew|archive|restore|pin|unpin))?$/.exec(
+    path,
+  );
   const found = match && server.artifacts.find((a) => a.id === match[1]);
   if (!match || !found) {
     return Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
@@ -889,12 +894,23 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   if (method === "GET" && !match[2]) return Response.json(found);
   if (method === "DELETE" && !match[2]) {
     server.artifacts = server.artifacts.filter((a) => a !== found);
-    return Response.json({ state: "deleted", expiresAt: null, purgeAt: null });
+    return Response.json({ state: "deleted", expiresAt: null, purgeAt: null, pinned: false });
   }
   const action = match[2];
-  if (action === "archive") {
+  if (action === "pin" && !server.usage.plan.features.includes("pin")) {
+    return Response.json(
+      { error: { code: "plan_required", message: planRequiredMessage("pin") } },
+      { status: 403 },
+    );
+  }
+  if (action === "pin") {
+    Object.assign(found, { pinned: true, expiresAt: null });
+  } else if (action === "unpin") {
+    Object.assign(found, { pinned: false, expiresAt: "2027-01-07T12:00:00.000Z" });
+  } else if (action === "archive") {
     Object.assign(found, {
       state: "archived",
+      pinned: false,
       archivedAt: NOW,
       purgeAt: "2027-05-08T12:00:00.000Z",
     });
@@ -906,7 +922,12 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       expiresAt: "2027-01-07T12:00:00.000Z",
     });
   }
-  return Response.json({ state: found.state, expiresAt: found.expiresAt, purgeAt: found.purgeAt });
+  return Response.json({
+    state: found.state,
+    expiresAt: found.expiresAt,
+    purgeAt: found.purgeAt,
+    pinned: found.pinned,
+  });
 }
 
 const missing = () =>
