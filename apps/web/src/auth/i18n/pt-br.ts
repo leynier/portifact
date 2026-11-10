@@ -47,6 +47,14 @@ const messages = {
       "Esta conta abriu artifacts demais em pouco tempo. Aguarde alguns minutos e abra o link de novo.",
   },
   providerErrorFallback: "O login não foi concluído. Tente de novo.",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "Abrir no endereço próprio",
+    body: (host: string) =>
+      `Este artifact está em ${host}, um endereço que o dono administra. Continue só se você queria abri-lo lá.`,
+    continue: "Continuar",
+    missing: "O link estava incompleto. Abra de novo a partir de onde você o encontrou.",
+  },
   deviceCodeRequired: "Digite o código exibido no seu terminal.",
   deviceCodeInvalid: "Esse código não é válido ou expirou. Execute o comando de login de novo.",
   deviceCodeTaken: "Outra conta já está analisando este código.",

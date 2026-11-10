@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "736d3588-e765-489e-a4c6-8ba2f53ae66a",
+  "id": "5413d16a-ff36-4dcc-87be-ae3a77a89d83",
   "prevId": "876c74d7-b532-4e48-9e5b-8efa0be60b79",
   "tables": {
     "abuse_reports": {
@@ -1094,6 +1094,38 @@
         }
       }
     },
+    "blocked_hostnames": {
+      "name": "blocked_hostnames",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "budget_alerts": {
       "name": "budget_alerts",
       "columns": {
@@ -1409,6 +1441,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch() * 1000)"
+        },
+        "notice_for": {
+          "name": "notice_for",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2481,6 +2520,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch() * 1000)"
+        },
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2711,6 +2757,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'frame'"
+        },
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2937,6 +2990,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(unixepoch() * 1000)"
+        },
+        "host": {
+          "name": "host",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -4211,133 +4271,6 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
-    },
-    "workspace_domains": {
-      "name": "workspace_domains",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "domain": {
-          "name": "domain",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "display": {
-          "name": "display",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "token": {
-          "name": "token",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "verified_at": {
-          "name": "verified_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "checked_at": {
-          "name": "checked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "failed_checks": {
-          "name": "failed_checks",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "problem": {
-          "name": "problem",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "workspace_domains_workspace_domain_idx": {
-          "name": "workspace_domains_workspace_domain_idx",
-          "columns": ["workspace_id", "domain"],
-          "isUnique": true
-        },
-        "workspace_domains_verified_idx": {
-          "name": "workspace_domains_verified_idx",
-          "columns": ["domain"],
-          "isUnique": true,
-          "where": "\"workspace_domains\".\"state\" = 'verified'"
-        },
-        "workspace_domains_state_checked_idx": {
-          "name": "workspace_domains_state_checked_idx",
-          "columns": ["state", "checked_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "workspace_domains_workspace_id_workspaces_id_fk": {
-          "name": "workspace_domains_workspace_id_workspaces_id_fk",
-          "tableFrom": "workspace_domains",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "workspace_domains_state": {
-          "name": "workspace_domains_state",
-          "value": "\"workspace_domains\".\"state\" in ('pending', 'verified')"
-        }
-      }
     },
     "workspace_invitations": {
       "name": "workspace_invitations",

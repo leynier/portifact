@@ -11,6 +11,15 @@ export const SITE_HOST = "portifact.test";
 export const SITE_ORIGIN = `https://${SITE_HOST}`;
 export const CONTROL_HOST = "control.e2e.test";
 /**
+ * A customer's own domain for custom domain tests (decision 0006): `<label>.customer-e2e.test`,
+ * another site than the content domain, served by the content Worker like a custom hostname.
+ */
+export const CUSTOMER_SITE = "customer-e2e.test";
+
+export function customHost(label: string): string {
+  return `${label}.${CUSTOMER_SITE}`;
+}
+/**
  * A redirector on a third site, answered by the test front end: `/?to=<url>` redirects to a URL
  * on a stack host. It plays any site an artifact could bounce a navigation through.
  */
@@ -34,7 +43,8 @@ export function isStackHost(host: string): boolean {
     host === APP_HOST ||
     host === SITE_HOST ||
     host === REDIRECT_HOST ||
-    host.endsWith(`.${CONTENT_SITE}`)
+    host.endsWith(`.${CONTENT_SITE}`) ||
+    host.endsWith(`.${CUSTOMER_SITE}`)
   );
 }
 

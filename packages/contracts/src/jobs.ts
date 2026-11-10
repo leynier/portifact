@@ -16,6 +16,7 @@ export const OutboxTopic = z.enum([
   "delete_custom_hostname",
   "workspace_deletion",
   "access_history_move",
+  "domain_notice",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -95,6 +96,16 @@ export const CommentNoticePayload = z.strictObject({
     .max(COMMENT_NOTICE_THREADS_MAX),
 });
 export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
+
+/**
+ * Payload of a `domain_notice` job (its subject is the owner): the custom domains a plan that
+ * ended will stop covering, and when (decision 0006, section 7). Hostnames only.
+ */
+export const DomainNoticePayload = z.strictObject({
+  hostnames: z.array(z.string().min(1).max(253)).min(1).max(100),
+  detachAt: z.number().int().nonnegative(),
+});
+export type DomainNoticePayload = z.infer<typeof DomainNoticePayload>;
 
 /**
  * One purged or deleted artifact or account, a revoked share link, a removed webhook or a removed

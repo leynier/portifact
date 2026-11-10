@@ -121,6 +121,7 @@ export function createWorkspace(input: {
 export function fakeDomains(input: {
   txt?: { name: string; value: string };
   activate?: string;
+  attach?: { hostname: string; artifactId: string };
 }): Promise<{ ok: boolean }> {
   return control("/domains", input);
 }

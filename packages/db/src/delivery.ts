@@ -22,6 +22,8 @@ export interface DeliveryArtifact {
   embeddable: boolean;
   /** Top-level page visits open in the viewer with the Portifact bar. */
   bar: boolean;
+  /** The artifact's active custom host (decision 0006), or null. */
+  customHost: string | null;
   currentVersionId: string | null;
   /** Entrypoint of the current version: the original of a document. */
   entrypoint: string | null;
@@ -43,12 +45,15 @@ export interface DeliveryPlan {
 
 /**
  * The artifact, its current version's entrypoint, the owner's traffic counter for the cycle
- * that starts at `cycleStart` and the owner's plan, in one lookup.
+ * that starts at `cycleStart` and the owner's plan, in one lookup. With `customHost`, only an
+ * artifact that holds exactly that custom host (decision 0006): the regional column decides what
+ * a custom host serves, whatever any cached hint said.
  */
 export async function findDeliveryArtifact(
   db: Db,
   id: string,
   cycleStart: number,
+  customHost?: string,
 ): Promise<DeliveryArtifact | null> {
   const [row] = await db
     .select({
@@ -61,6 +66,7 @@ export async function findDeliveryArtifact(
       indexable: artifacts.indexable,
       embeddable: artifacts.embeddable,
       bar: artifacts.bar,
+      customHost: artifacts.customHost,
       currentVersionId: artifacts.currentVersionId,
       entrypoint: versions.entrypoint,
       expiresAt: artifacts.expiresAt,
@@ -82,7 +88,11 @@ export async function findDeliveryArtifact(
       ),
     )
     .leftJoin(ownerPlans, eq(ownerPlans.ownerId, artifacts.ownerId))
-    .where(eq(artifacts.id, id))
+    .where(
+      customHost === undefined
+        ? eq(artifacts.id, id)
+        : and(eq(artifacts.id, id), eq(artifacts.customHost, customHost)),
+    )
     .limit(1);
   if (!row) return null;
   const { requests, bytes, plan, seats, validUntil, overrides, ...artifact } = row;

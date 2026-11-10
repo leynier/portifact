@@ -198,6 +198,10 @@ async function signIn(userId: string): Promise<string> {
     authSessionId: appSession(userId),
     state,
     now: NOW,
+    customDomains: true,
+    confirmed: false,
+    requestedHost: null,
+    contentDomain: "portifact.dev",
   });
   if (!issued.ok) throw new Error(issued.code);
   const back = await send(`/__portifact/callback?code=${issued.value.code}`, tx, NOW, FROM_APP);
@@ -220,6 +224,10 @@ describe("workspace and domain artifacts on the artifact origin", () => {
           authSessionId: appSession(userId),
           state: "s".repeat(43),
           now: NOW,
+          customDomains: true,
+          confirmed: false,
+          requestedHost: null,
+          contentDomain: "portifact.dev",
         }),
       ).toMatchObject({ ok: false, code: "not_found" });
     }

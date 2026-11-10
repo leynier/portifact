@@ -1,6 +1,9 @@
 // Cookies of artifact origins. Every Portifact cookie here is host-only (`__Host-`), so a
-// sibling artifact can neither read nor overwrite it; values are HMAC-signed so the Worker can
-// trust their claims without D1. See docs/security.md, "Cookies and sessions".
+// sibling artifact can neither read nor overwrite it; values are encrypted and authenticated
+// (AES-GCM) so the Worker can trust their claims without D1 and nobody else can read them. That
+// matters on a custom host, whose DNS the domain owner controls (decision 0006, "Codes on a
+// custom host"): a code they receive on a server of theirs gives them a cookie, and its claims
+// name the reader. See docs/security.md, "Cookies and sessions".
 
 export const READ_COOKIE = "__Host-pf_read";
 /**
@@ -96,23 +99,77 @@ function hmacKey(secret: string): Promise<CryptoKey> {
   return key;
 }
 
-/**
- * `<base64url JSON>.<base64url HMAC>`. The purpose is part of the signed input, so a value
- * signed as one cookie is never accepted as another.
- */
-export async function seal(secret: string, purpose: string, payload: unknown): Promise<string> {
-  const body = toBase64Url(encoder.encode(JSON.stringify(payload)));
-  const signature = await crypto.subtle.sign(
-    "HMAC",
-    await hmacKey(secret),
-    encoder.encode(`${purpose}.${body}`),
-  );
-  return `${body}.${toBase64Url(new Uint8Array(signature))}`;
+const ENCRYPTED = "e1";
+const IV_BYTES = 12;
+const aesKeys = new Map<string, Promise<CryptoKey>>();
+
+/** The cookie key, derived from the secret with HKDF, apart from the legacy HMAC key. */
+function aesKey(secret: string): Promise<CryptoKey> {
+  let key = aesKeys.get(secret);
+  if (!key) {
+    key = crypto.subtle
+      .importKey("raw", encoder.encode(secret), "HKDF", false, ["deriveKey"])
+      .then((base) =>
+        crypto.subtle.deriveKey(
+          {
+            name: "HKDF",
+            hash: "SHA-256",
+            salt: new Uint8Array(0),
+            info: encoder.encode("portifact artifact-origin cookies v1"),
+          },
+          base,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt", "decrypt"],
+        ),
+      );
+    aesKeys.set(secret, key);
+  }
+  return key;
 }
 
-/** The payload of a sealed value, or null when it is malformed or its signature is wrong. */
+/**
+ * `e1.<base64url IV>.<base64url ciphertext and tag>`: AES-GCM with a random IV, the purpose as
+ * associated data, so a value sealed as one cookie is never accepted as another and its claims
+ * are unreadable without the secret.
+ */
+export async function seal(secret: string, purpose: string, payload: unknown): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: encoder.encode(purpose) },
+    await aesKey(secret),
+    encoder.encode(JSON.stringify(payload)),
+  );
+  return `${ENCRYPTED}.${toBase64Url(iv)}.${toBase64Url(new Uint8Array(ciphertext))}`;
+}
+
+/**
+ * The payload of a sealed value, or null when it is malformed, altered or sealed for another
+ * purpose. Values signed with HMAC before cookies were encrypted (`<base64url JSON>.<base64url
+ * HMAC>`) are still read, so sessions open at a deploy keep working; they last at most a read
+ * session's lifetime.
+ */
 export async function unseal(secret: string, purpose: string, value: string): Promise<unknown> {
   const parts = value.split(".");
+  if (parts.length === 3 && parts[0] === ENCRYPTED) {
+    const iv = fromBase64Url(parts[1] as string);
+    const ciphertext = fromBase64Url(parts[2] as string);
+    if (!iv || iv.length !== IV_BYTES || !ciphertext) return null;
+    try {
+      const plain = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv, additionalData: encoder.encode(purpose) },
+        await aesKey(secret),
+        ciphertext,
+      );
+      return JSON.parse(new TextDecoder().decode(plain));
+    } catch {
+      return null;
+    }
+  }
+  return unsealSigned(secret, purpose, parts);
+}
+
+async function unsealSigned(secret: string, purpose: string, parts: string[]): Promise<unknown> {
   if (parts.length !== 2) return null;
   const [body, signature] = parts as [string, string];
   const signatureBytes = fromBase64Url(signature);

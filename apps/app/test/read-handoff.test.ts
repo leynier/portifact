@@ -115,7 +115,14 @@ describe("read handoff", () => {
 
     // The artifact origin redeems it once, for this browser's transaction only.
     const redeem = (state: string) =>
-      redeemReadHandoff(db(), { code, artifactId: ID, states: [state], now: Date.now() });
+      redeemReadHandoff(db(), {
+        code,
+        artifactId: ID,
+        states: [state],
+        now: Date.now(),
+        host: `${ID}.portifact.dev`,
+        devHost: `${ID}.portifact.dev`,
+      });
     expect((await redeem("x".repeat(43))).ok).toBe(false);
     expect(await redeem(STATE)).toMatchObject({
       ok: true,
@@ -136,6 +143,8 @@ describe("read handoff", () => {
       artifactId: ID,
       states: [STATE],
       now: Date.now(),
+      host: `${ID}.portifact.dev`,
+      devHost: `${ID}.portifact.dev`,
     });
     expect(redeemed.ok).toBe(false);
     expect(await db().select().from(schema.readSessions)).toHaveLength(0);
@@ -203,7 +212,8 @@ describe("read handoff", () => {
     }
     const head = await read(`/read/${ID}?state=${STATE}`, reader, { method: "HEAD" });
     expect(head.headers.get("location")).toBe(UNAVAILABLE_URL);
-    expect((await read(`/read/${ID}?state=${STATE}`, reader, { method: "POST" })).status).toBe(404);
+    // A POST is the login page's confirmation, refused unless the page itself sends it.
+    expect((await read(`/read/${ID}?state=${STATE}`, reader, { method: "POST" })).status).toBe(403);
     expect(await handoffs()).toHaveLength(0);
   });
 

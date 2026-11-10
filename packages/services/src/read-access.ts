@@ -2,12 +2,23 @@
 // issues a one-use handoff after checking access; the artifact origin redeems it into a read
 // session and later renews the session's claims through the same access check. A missing
 // artifact and a forbidden one give the same answer.
-import { READ_SESSION } from "@portifact/contracts";
+import { type AccessMode, READ_SESSION } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { canRead, effectiveState, entitlements, fail, ok, type Result } from "@portifact/domain";
+import {
+  canRead,
+  customHostWithoutClick,
+  devHost,
+  effectiveState,
+  entitlements,
+  fail,
+  handoffHost,
+  ok,
+  type Result,
+} from "@portifact/domain";
 import { and, eq, exists, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
+import { activeCustomHost } from "./custom-domains.ts";
 import { policyDomains } from "./workspace-domains.ts";
 
 const SECOND_MS = 1000;
@@ -17,9 +28,12 @@ const PRUNE_BATCH = 500;
 export interface ReadGrant {
   userId: string;
   policyGeneration: number;
+  accessMode: AccessMode;
 }
 
-export interface ReadSessionGrant extends ReadGrant {
+export interface ReadSessionGrant {
+  userId: string;
+  policyGeneration: number;
   sessionId: string;
   /** End of the read session, in milliseconds. Claims are renewed until then. */
   expiresAt: number;
@@ -134,7 +148,11 @@ export async function checkReadAccess(
     actor,
   );
   if (!decision.ok) return unavailable();
-  return ok({ userId: input.userId, policyGeneration: artifact.policyGeneration });
+  return ok({
+    userId: input.userId,
+    policyGeneration: artifact.policyGeneration,
+    accessMode: artifact.accessMode,
+  });
 }
 
 /**
@@ -142,12 +160,70 @@ export async function checkReadAccess(
  * (`authSessionId`, Better Auth's session ID), the policy generation and the artifact origin's
  * transaction nonce (`state`). Returns the code, which is shown once and stored only as a hash.
  */
-export async function issueReadHandoff(
+interface ReadEntryInput {
+  artifactId: string;
+  userId: string;
+  now: number;
+  /** The custom host the visitor started on, or null for the `.dev` host. Untrusted input. */
+  requestedHost: string | null;
+  contentDomain: string;
+  /** Whether this Worker serves custom hosts (`customDomainsServing`). */
+  customDomains: boolean;
+}
+
+/**
+ * Where the read entry sends the code: the `.dev` host, or the active custom host when exactly
+ * that host was asked for. Only after the access check, and only the artifact's own hosts: a
+ * requested host that is not its active custom host (or any while custom domains are off) answers
+ * exactly like an artifact the visitor cannot open. `confirm` says the visitor must confirm on
+ * the app first (`customHostWithoutClick`).
+ */
+async function readEntryTarget(
   db: RegionalDb,
-  input: { artifactId: string; userId: string; authSessionId: string; state: string; now: number },
-): Promise<Result<{ code: string; expiresAt: number }>> {
+  input: ReadEntryInput,
+): Promise<Result<{ host: string; confirm: boolean; grant: ReadGrant }>> {
   const access = await checkReadAccess(db, input);
   if (!access.ok) return access;
+  const host = handoffHost({
+    artifactId: input.artifactId,
+    contentDomain: input.contentDomain,
+    requested: input.requestedHost,
+    activeHost:
+      input.requestedHost === null
+        ? null
+        : await activeCustomHost(db, input.artifactId, input.customDomains),
+  });
+  if (host === null) return unavailable();
+  const confirm = input.requestedHost !== null && !customHostWithoutClick(access.value.accessMode);
+  return ok({ host, confirm, grant: access.value });
+}
+
+/**
+ * The custom host a visitor must confirm before the read entry sends their code there, or null
+ * when the entry may go on at once (or will refuse anyway). Reads nothing for a `.dev` entry.
+ */
+export async function readEntryConfirmation(
+  db: RegionalDb,
+  input: ReadEntryInput,
+): Promise<string | null> {
+  if (input.requestedHost === null) return null;
+  const target = await readEntryTarget(db, input);
+  return target.ok && target.value.confirm ? target.value.host : null;
+}
+
+export async function issueReadHandoff(
+  db: RegionalDb,
+  input: ReadEntryInput & {
+    authSessionId: string;
+    state: string;
+    /** The visitor confirmed on the app (a same-origin POST), as `readEntryConfirmation` asks. */
+    confirmed: boolean;
+  },
+): Promise<Result<{ code: string; expiresAt: number; host: string }>> {
+  const target = await readEntryTarget(db, input);
+  if (!target.ok) return target;
+  if (target.value.confirm && !input.confirmed) return unavailable();
+  const { host, grant } = target.value;
   const code = randomToken();
   const expiresAt = input.now + READ_SESSION.handoffTtlSeconds * SECOND_MS;
   await db.insert(schema.readHandoffs).values({
@@ -156,11 +232,12 @@ export async function issueReadHandoff(
     userId: input.userId,
     stateHash: await hashSecret(input.state),
     authSessionId: input.authSessionId,
-    policyGeneration: access.value.policyGeneration,
+    policyGeneration: grant.policyGeneration,
     expiresAt,
     createdAt: input.now,
+    host,
   });
-  return ok({ code, expiresAt });
+  return ok({ code, expiresAt, host });
 }
 
 /**
@@ -172,7 +249,15 @@ export async function issueReadHandoff(
  */
 export async function redeemReadHandoff(
   db: Db,
-  input: { code: string; artifactId: string; states: readonly string[]; now: number },
+  input: {
+    code: string;
+    artifactId: string;
+    states: readonly string[];
+    /** The host the request came on, and the artifact's `.dev` host (codes without a host). */
+    host: string;
+    devHost: string;
+    now: number;
+  },
 ): Promise<Result<RedeemedReadSession>> {
   const expired = fail<never>(
     "invalid_input",
@@ -195,6 +280,7 @@ export async function redeemReadHandoff(
           eq(handoff.codeHash, codeHash),
           eq(handoff.artifactId, input.artifactId),
           inArray(handoff.stateHash, [...stateHashes.keys()]),
+          sql`coalesce(${handoff.host}, ${input.devHost}) = ${input.host}`,
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
           liveAppSession(db, handoff.authSessionId, input.now),
@@ -255,7 +341,12 @@ export async function refreshReadSession(
   if (!session) return unavailable();
   const access = await checkReadAccess(db, { ...input, userId: session.userId });
   if (!access.ok) return access;
-  return ok({ ...access.value, sessionId: input.sessionId, expiresAt: session.expiresAt });
+  return ok({
+    userId: access.value.userId,
+    policyGeneration: access.value.policyGeneration,
+    sessionId: input.sessionId,
+    expiresAt: session.expiresAt,
+  });
 }
 
 /**

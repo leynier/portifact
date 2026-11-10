@@ -309,10 +309,29 @@ describe("reading in the workspace modes", () => {
     const open = async (userId: string) => {
       const authSessionId = await session(userId);
       const code = value(
-        await issueReadHandoff(db(), { artifactId, userId, authSessionId, state: "s", now: NOW }),
+        await issueReadHandoff(db(), {
+          artifactId,
+          userId,
+          authSessionId,
+          state: "s",
+          now: NOW,
+          customDomains: true,
+          confirmed: false,
+          requestedHost: null,
+          contentDomain: "portifact.dev",
+        }),
       ).code;
-      return value(await redeemReadHandoff(db(), { code, artifactId, states: ["s"], now: NOW }))
-        .sessionId;
+      const host = `${artifactId}.portifact.dev`;
+      return value(
+        await redeemReadHandoff(db(), {
+          code,
+          artifactId,
+          states: ["s"],
+          now: NOW,
+          host,
+          devHost: host,
+        }),
+      ).sessionId;
     };
     const memberSession = await open(t.member.id);
     const colleagueSession = await open(t.colleague.id);
@@ -383,11 +402,23 @@ describe("reading in the workspace modes", () => {
       .where(eq(schema.artifacts.id, artifactId));
     for (const who of [t.member, t.colleague]) {
       expect(
-        value(await getViewerArtifact(db(), { artifactId, userId: who.id, now: NOW })).role,
+        value(
+          await getViewerArtifact(db(), {
+            artifactId,
+            userId: who.id,
+            now: NOW,
+            customDomains: true,
+          }),
+        ).role,
       ).toBe("reader");
     }
     expect(
-      await getViewerArtifact(db(), { artifactId, userId: t.outsider.id, now: NOW }),
+      await getViewerArtifact(db(), {
+        artifactId,
+        userId: t.outsider.id,
+        now: NOW,
+        customDomains: true,
+      }),
     ).toMatchObject({ ok: false, code: "not_found" });
     const [current] = await db()
       .select({ versionId: schema.artifacts.currentVersionId })

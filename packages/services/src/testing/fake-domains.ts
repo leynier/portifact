@@ -6,7 +6,9 @@ import {
   CloudflareError,
   type CustomHostnames,
   type DomainDeps,
+  type PointingLookup,
   type TxtLookup,
+  type ZoneApexLookup,
 } from "../cloudflare-hostnames.ts";
 
 /**
@@ -43,6 +45,26 @@ export class FakeDomains implements DomainDeps {
       this.#outage("list");
       return [...this.created].map(([id, entry]) => ({ id, hostname: entry.hostname }));
     },
+  };
+
+  /** Names that are the apex of their DNS zone. */
+  readonly apexes = new Set<string>();
+
+  readonly apex: ZoneApexLookup = async (hostname) => {
+    this.calls.push(`apex ${hostname}`);
+    if (this.failing.txt) throw new Error("DNS over HTTPS: 503");
+    return this.apexes.has(hostname);
+  };
+
+  /** Names whose DNS no longer points at Portifact's target; every other name does. */
+  readonly elsewhere = new Set<string>();
+  /** The names asked where they point, apart from `calls` so other tests' call lists hold. */
+  readonly pointingAsked: string[] = [];
+
+  readonly pointing: PointingLookup = async (hostname) => {
+    this.pointingAsked.push(hostname);
+    if (this.failing.txt) throw new Error("DNS over HTTPS: 503");
+    return !this.elsewhere.has(hostname);
   };
 
   readonly txt: TxtLookup = async (name) => {

@@ -61,6 +61,8 @@ export interface FakeArtifact {
   archivedAt: number | null;
   purgeAt: number | null;
   pinned: boolean;
+  /** The active custom domain, if the test gives the artifact one. */
+  customHost?: string;
   createdAt: number;
   updatedAt: number;
   access: {
@@ -1515,6 +1517,7 @@ function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): Arti
     archivedAt: artifact.archivedAt === null ? null : iso(artifact.archivedAt),
     purgeAt: artifact.purgeAt === null ? null : iso(artifact.purgeAt),
     pinned: artifact.pinned,
+    ...(artifact.customHost ? { customHost: artifact.customHost } : {}),
     createdAt: iso(artifact.createdAt),
     updatedAt: iso(artifact.updatedAt),
   };

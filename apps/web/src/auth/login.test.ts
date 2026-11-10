@@ -800,3 +800,114 @@ describe("human check of new accounts", () => {
     expect(element("error-summary").textContent).toContain("human");
   });
 });
+
+describe("confirming an artifact on its owner's own address", () => {
+  const STATE = "n".repeat(43);
+  const ENTRY = `/read/k7d2qm4xab?state=${STATE}&host=docs.example.com`;
+  const search = `?${new URLSearchParams({ confirm: "read", next: ENTRY })}`;
+
+  function confirmFetch(answer: Response | Error) {
+    const calls: { url: string; init: RequestInit | undefined }[] = [];
+    const fetcher = async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (answer instanceof Error) throw answer;
+      return answer;
+    };
+    return { calls, fetcher };
+  }
+
+  async function openConfirm(fetcher: (url: string, init?: RequestInit) => Promise<Response>) {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    location = fakeLocation(search);
+    await setupLogin(document, { ...pageEnv(api, location), fetch: fetcher });
+  }
+
+  it("names the host and goes there only after the click, with a same-origin POST", async () => {
+    const callback = "https://docs.example.com/__portifact/callback?code=c";
+    const { calls, fetcher } = confirmFetch(
+      new Response(JSON.stringify({ url: callback }), { status: 200 }),
+    );
+    await openConfirm(fetcher);
+    expect(element("read-confirm").isConnected).toBe(true);
+    expect(element("signed-in").hidden).toBe(true);
+    expect(element("read-confirm-body").textContent).toBe(
+      messages.readConfirm.body("docs.example.com"),
+    );
+    expect(element("read-confirm-email").textContent).toBe(messages.signedInAs("ada@example.test"));
+    // Nothing is sent and nothing opens until the visitor continues.
+    expect(calls).toEqual([]);
+    expect(location.assigned).toEqual([]);
+    element<HTMLButtonElement>("read-confirm-continue").click();
+    await settle();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("/read/k7d2qm4xab");
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(calls[0]?.init?.credentials).toBe("same-origin");
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      state: STATE,
+      host: "docs.example.com",
+    });
+    expect(location.assigned).toEqual([callback]);
+  });
+
+  it("says so when the answer does not come, and stays put", async () => {
+    for (const answer of [new Error("offline"), new Response("{}", { status: 403 })]) {
+      loadPage("login");
+      const { fetcher } = confirmFetch(answer);
+      await openConfirm(fetcher);
+      element<HTMLButtonElement>("read-confirm-continue").click();
+      await settle();
+      expect(element("error-summary").hidden).toBe(false);
+      expect(element("error-summary").textContent).toContain(messages.unexpected);
+      expect(location.assigned).toEqual([]);
+    }
+  });
+
+  it("never shows a host or state from the link that is not shaped like one", async () => {
+    // The page shows the host next to the visitor's email before the server has checked
+    // anything, so text in its place would be a message from whoever built the link.
+    const hosts = [
+      "nowhere. URGENT: your account is locked, call +1 555 0100",
+      "docs.example.com/evil",
+      "docs.example.com evil.example.com",
+      "DOCS.EXAMPLE.COM",
+      "localhost",
+      "-docs.example.com",
+      "docs..example.com",
+      `${"a".repeat(64)}.example.com`,
+      `${"a.".repeat(127)}com`,
+      "docs.example.com.",
+      "<b>docs.example.com</b>",
+      "",
+    ];
+    const entries = [
+      ...hosts.map((host) => `/read/k7d2qm4xab?${new URLSearchParams({ state: STATE, host })}`),
+      `/read/k7d2qm4xab?${new URLSearchParams({ state: "short", host: "docs.example.com" })}`,
+      `/read/k7d2qm4xab?${new URLSearchParams({ state: `${STATE}!`, host: "docs.example.com" })}`,
+    ];
+    for (const next of entries) {
+      loadPage("login");
+      api.on("GET", "/get-session", session("ada@example.test"));
+      await open(`?${new URLSearchParams({ confirm: "read", next })}`);
+      expect(element("error-summary").textContent, next).toContain(messages.readConfirm.missing);
+      expect(document.getElementById("read-confirm"), next).toBeNull();
+      expect(document.body.textContent, next).not.toContain("URGENT");
+    }
+  });
+
+  it("refuses an incomplete entry, and signs a visitor in before confirming", async () => {
+    for (const next of ["/read/k7d2qm4xab?state=x", "/device", `${ENTRY}&host=other.example.com`]) {
+      loadPage("login");
+      api.on("GET", "/get-session", session("ada@example.test"));
+      await open(`?${new URLSearchParams({ confirm: "read", next })}`);
+      expect(element("error-summary").textContent).toContain(messages.readConfirm.missing);
+      expect(document.getElementById("read-confirm")).toBeNull();
+      expect(location.assigned).toEqual([]);
+    }
+    loadPage("login");
+    api.on("GET", "/get-session", { status: 200, body: null });
+    await open(search);
+    expect(element("sign-in").hidden).toBe(false);
+    expect(document.getElementById("read-confirm")).toBeNull();
+  });
+});

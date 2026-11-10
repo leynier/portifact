@@ -271,8 +271,22 @@
     {
       "idx": 38,
       "version": "6",
-      "when": 1794313533627,
-      "tag": "0038_workspace_domains",
+      "when": 1794308975222,
+      "tag": "0038_custom_domain_delivery",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1794309964642,
+      "tag": "0039_custom_domain_pointing",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1794317798279,
+      "tag": "0040_workspace_domains",
       "breakpoints": true
     }
   ]

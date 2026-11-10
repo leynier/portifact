@@ -28,7 +28,12 @@ const path = (hostname: string) => `/domains/${encodeURIComponent(hostname)}`;
 /** The domain's state and what to do next, as lines for the terminal. */
 export function domainLines(view: CustomDomainView): string[] {
   const lines = [messages.domainState(view.hostname, view.artifactId, view.state)];
-  if (view.state === "pending" || view.state === "provisioning" || view.problem === "txt_missing") {
+  if (
+    view.state === "pending" ||
+    view.state === "provisioning" ||
+    view.problem === "txt_missing" ||
+    view.problem === "cname_elsewhere"
+  ) {
     lines.push(
       messages.domainRecords,
       table([

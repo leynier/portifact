@@ -48,6 +48,14 @@ const messages = {
       "Esta cuenta abrió demasiados artifacts en poco tiempo. Espera unos minutos y abre el enlace de nuevo.",
   },
   providerErrorFallback: "El inicio de sesión no terminó. Inténtalo de nuevo.",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "Abrir en su propia dirección",
+    body: (host: string) =>
+      `Este artifact está en ${host}, una dirección que administra su propietario. Continúa solo si querías abrirlo ahí.`,
+    continue: "Continuar",
+    missing: "El enlace no estaba completo. Ábrelo de nuevo desde donde lo encontraste.",
+  },
   deviceCodeRequired: "Escribe el código que muestra tu terminal.",
   deviceCodeInvalid: "Ese código no es válido o ya venció. Ejecuta de nuevo el comando de login.",
   deviceCodeTaken: "Otra cuenta ya está revisando este código.",

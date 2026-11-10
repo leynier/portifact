@@ -49,6 +49,14 @@ const messages = {
       "Dieses Konto hat in kurzer Zeit zu viele Artifacts geöffnet. Warte ein paar Minuten und öffne den Link erneut.",
   },
   providerErrorFallback: "Die Anmeldung wurde nicht abgeschlossen. Versuch es noch einmal.",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "Unter eigener Adresse öffnen",
+    body: (host: string) =>
+      `Dieses Artifact liegt unter ${host}, einer Adresse, die sein Eigentümer verwaltet. Fahre nur fort, wenn du es dort öffnen wolltest.`,
+    continue: "Weiter",
+    missing: "Der Link war unvollständig. Öffne ihn noch einmal dort, wo du ihn gefunden hast.",
+  },
   deviceCodeRequired: "Gib den Code ein, den dein Terminal anzeigt.",
   deviceCodeInvalid: "Dieser Code ist ungültig oder abgelaufen. Führ den Login-Befehl erneut aus.",
   deviceCodeTaken: "Ein anderes Konto prüft diesen Code bereits.",

@@ -108,6 +108,17 @@ describe("login page accessibility", () => {
     await setupLogin(document, pageEnv(api, fakeLocation()));
     expect(element("terms-update").hidden).toBe(false);
     await expectAccessible();
+
+    // The read entry's confirmation before an artifact opens on its owner's own address.
+    api.on("GET", "/get-session", session("ada@example.test"));
+    open("login");
+    const next = `/read/k7d2qm4xab?state=${"n".repeat(43)}&host=docs.example.com`;
+    await setupLogin(
+      document,
+      pageEnv(api, fakeLocation(`?${new URLSearchParams({ confirm: "read", next })}`)),
+    );
+    expect(element("read-confirm").isConnected).toBe(true);
+    await expectAccessible();
   });
 });
 

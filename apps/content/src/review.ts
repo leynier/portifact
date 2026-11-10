@@ -21,7 +21,7 @@ import { OpaqueToken, REVIEW_SESSION, ReviewClaims, type ReviewKind } from "@por
 import type { RegionalDb } from "@portifact/db";
 import { endReviewSession, redeemReviewHandoff, refreshReviewSession } from "@portifact/services";
 import { cookieValue, seal, setCookie, unseal, usableSecret } from "./cookies.ts";
-import type { ServableArtifact } from "./read-session.ts";
+import type { RequestHosts, ServableArtifact } from "./read-session.ts";
 import { returnPath } from "./viewer.ts";
 
 export const REVIEW_COOKIE = "__Host-pf_review";
@@ -350,7 +350,8 @@ export async function handleReviewExchange(
   db: RegionalDb,
   artifactId: string,
   now: number,
-  kind: ReviewKind = "frame",
+  kind: ReviewKind,
+  hosts: RequestHosts,
 ): Promise<ReviewStep> {
   const secret = env.READ_SESSION_SECRET;
   if (!usableSecret(secret)) return { kind: "unavailable" };
@@ -359,7 +360,13 @@ export async function handleReviewExchange(
   const codes = new URL(request.url).searchParams.getAll("code");
   const code = codes.length === 1 ? OpaqueToken.safeParse(codes[0]) : null;
   if (!code?.success) return failed;
-  const redeemed = await redeemReviewHandoff(db, { code: code.data, artifactId, kind, now });
+  const redeemed = await redeemReviewHandoff(db, {
+    code: code.data,
+    artifactId,
+    kind,
+    ...hosts,
+    now,
+  });
   if (!redeemed.ok) return failed;
   const session = redeemed.value;
   const channel = kind === "tab" ? TAB : FRAME;

@@ -45,6 +45,14 @@ export const en = {
       "This account opened too many artifacts in a short time. Wait a few minutes and open the link again.",
   } as Readonly<Record<string, string>>,
   providerErrorFallback: "Sign-in did not finish. Try again.",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "Open on its own address",
+    body: (host: string) =>
+      `This artifact is on ${host}, an address its owner manages. Continue only if you meant to open it there.`,
+    continue: "Continue",
+    missing: "The link to open was not complete. Open it again from where you found it.",
+  },
   deviceCodeRequired: "Enter the code shown in your terminal.",
   deviceCodeInvalid: "That code is not valid or has expired. Run the login command again.",
   deviceCodeTaken: "Another account is already reviewing this code.",
