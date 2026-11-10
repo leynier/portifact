@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq, inArray, like, ne } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { requestAccountDeletion } from "../src/account-data.ts";
@@ -220,7 +220,7 @@ describe("tombstones after a restore", () => {
       artifactId: purged.artifactId,
       now: NOW,
     });
-    await requestAccountDeletion(db(), {
+    await requestAccountDeletion(regionsFromEnv(env), {
       userId: leaving.id,
       sessionId: await session(leaving.id),
       confirmEmail: leaving.email,
@@ -228,7 +228,7 @@ describe("tombstones after a restore", () => {
     });
     await runMaintenance(db(), env.ARTIFACTS, NOW);
     await runMaintenance(db(), env.ARTIFACTS, NOW);
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toEqual(
       expect.arrayContaining([
         { kind: "artifact", id: purged.artifactId, deletedAt: NOW },
@@ -328,13 +328,13 @@ describe("tombstones after a restore", () => {
   it("exports deletions in progress and artifacts claimed for purging", async () => {
     const owner = await user();
     const site = await publishSite(owner.id);
-    await requestAccountDeletion(db(), {
+    await requestAccountDeletion(regionsFromEnv(env), {
       userId: owner.id,
       sessionId: await session(owner.id),
       confirmEmail: owner.email,
       now: NOW,
     });
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toEqual(
       expect.arrayContaining([
         { kind: "account", id: owner.id, deletedAt: NOW },

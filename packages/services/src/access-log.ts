@@ -6,7 +6,14 @@
 // deletions erase rows (and a purged artifact's view counters) through `erase_access_events`
 // outbox jobs, because no D1 batch spans both databases.
 import { ACCESS_LOG, type EraseAccessEventsPayload } from "@portifact/contracts";
-import { type AccessDb, accessSchema, type Db, type RegionalDb, schema } from "@portifact/db";
+import {
+  type AccessDb,
+  accessSchema,
+  bothSides,
+  type Db,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
 import {
   accessLogCutoff,
   accessWindow,
@@ -122,38 +129,76 @@ interface ActiveOwner {
   plan: OwnerPlanRecord | null;
 }
 
-async function activeOwners(db: Db, ids: readonly string[]): Promise<Map<string, ActiveOwner>> {
-  const owners = new Map<string, ActiveOwner>();
+/**
+ * The owner of each active artifact, with the owner's plan row. Artifacts are regional and plans
+ * global (decision 0005): one regional read of the artifacts, then one global read of their
+ * owners' plans, per batch of openings (never per request).
+ */
+async function activeOwners(
+  db: RegionalDb,
+  ids: readonly string[],
+): Promise<Map<string, ActiveOwner>> {
+  // One database: the plan comes with the artifacts in one read per chunk, as it always did.
+  const both = bothSides(db);
+  if (both) return joinedOwners(both, ids);
+  const found: { id: string; ownerId: string }[] = [];
   for (let i = 0; i < ids.length; i += IN_CHUNK) {
-    const rows = await db
+    found.push(
+      ...(await db
+        .select({ id: schema.artifacts.id, ownerId: schema.artifacts.ownerId })
+        .from(schema.artifacts)
+        .where(
+          and(
+            inArray(schema.artifacts.id, ids.slice(i, i + IN_CHUNK)),
+            eq(schema.artifacts.state, "active"),
+          ),
+        )),
+    );
+  }
+  const plans = new Map<string, OwnerPlanRecord>();
+  const ownerIds = [...new Set(found.map((row) => row.ownerId))];
+  for (let i = 0; i < ownerIds.length; i += IN_CHUNK) {
+    const p = schema.ownerPlans;
+    for (const row of await db.global
+      .select({
+        ownerId: p.ownerId,
+        plan: p.plan,
+        seats: p.seats,
+        validUntil: p.validUntil,
+        overrides: p.overrides,
+      })
+      .from(p)
+      .where(inArray(p.ownerId, ownerIds.slice(i, i + IN_CHUNK)))) {
+      const { ownerId, ...plan } = row;
+      plans.set(ownerId, plan);
+    }
+  }
+  const owners = new Map<string, ActiveOwner>();
+  for (const row of found) {
+    owners.set(row.id, { ownerId: row.ownerId, plan: plans.get(row.ownerId) ?? null });
+  }
+  return owners;
+}
+
+async function joinedOwners(both: Db, ids: readonly string[]): Promise<Map<string, ActiveOwner>> {
+  const owners = new Map<string, ActiveOwner>();
+  const p = schema.ownerPlans;
+  for (let i = 0; i < ids.length; i += IN_CHUNK) {
+    const rows = await both
       .select({
         id: schema.artifacts.id,
         ownerId: schema.artifacts.ownerId,
-        plan: schema.ownerPlans.plan,
-        seats: schema.ownerPlans.seats,
-        validUntil: schema.ownerPlans.validUntil,
-        overrides: schema.ownerPlans.overrides,
+        plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
       })
       .from(schema.artifacts)
-      .leftJoin(schema.ownerPlans, eq(schema.ownerPlans.ownerId, schema.artifacts.ownerId))
+      .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
       .where(
         and(
           inArray(schema.artifacts.id, ids.slice(i, i + IN_CHUNK)),
           eq(schema.artifacts.state, "active"),
         ),
       );
-    for (const row of rows) {
-      const plan =
-        row.plan === null || row.seats === null
-          ? null
-          : {
-              plan: row.plan,
-              seats: row.seats,
-              validUntil: row.validUntil,
-              overrides: row.overrides,
-            };
-      owners.set(row.id, { ownerId: row.ownerId, plan });
-    }
+    for (const row of rows) owners.set(row.id, { ownerId: row.ownerId, plan: row.plan });
   }
   return owners;
 }
@@ -251,7 +296,7 @@ export async function getAccessLog(
   if (!artifact || artifact.state === "purging" || artifact.state === "deleted") return missing();
   const allowed = await authorizeOn(db, input.userId, artifact, "access_log", missing);
   if (!allowed.ok) return allowed;
-  const retentionDays = (await ownerEntitlements(db, artifact.ownerId, input.now)).limits
+  const retentionDays = (await ownerEntitlements(db.global, artifact.ownerId, input.now)).limits
     .accessLogRetentionDays;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
   if (input.cursor !== undefined && !after) return fail("invalid_input", "Invalid cursor.");

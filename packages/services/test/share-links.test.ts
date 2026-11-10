@@ -3,7 +3,7 @@
 // indistinguishable, its token unstored and its revocation permanent.
 import { env } from "cloudflare:test";
 import { planRequiredMessage, SHARE_LINKS } from "@portifact/contracts";
-import { accessSchema, createAccessDb, regionalDb, schema } from "@portifact/db";
+import { accessSchema, createAccessDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { SHARE_MESSAGES } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -669,7 +669,7 @@ describe("restores, purges and the access log", () => {
     const { owner, artifactId } = await owned();
     const { link, token } = value(await create(owner.id, artifactId));
     value(await revokeShareLink(db(), { userId: owner.id, artifactId, linkId: link.id, now: NOW }));
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toContainEqual({ kind: "share_link", id: link.id, deletedAt: NOW });
     // A Time Travel restore to before the revocation brings the link back.
     await db()
@@ -862,7 +862,7 @@ describe("the account behind links", () => {
     expect((await linkRow(link.id))?.createdBy).toBe(editor.id);
 
     await db().insert(schema.accountDeletions).values({ userId: editor.id, requestedAt: NOW });
-    await advanceAccountDeletion(db(), env.ARTIFACTS, editor.id, NOW);
+    await advanceAccountDeletion(regionsFromEnv(env), editor.id, NOW);
     expect((await linkRow(link.id))?.createdBy).toBeNull();
 
     // A restore brings the old value back; re-applying the account's tombstone clears it again.

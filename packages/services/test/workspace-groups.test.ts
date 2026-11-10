@@ -3,7 +3,7 @@
 // races, the maintenance scan and a restore.
 import { env } from "cloudflare:test";
 import type { AnnotationTarget, CommentScope } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAccess, updateAccess } from "../src/access.ts";
@@ -419,7 +419,7 @@ describe("managing groups", () => {
       .where(eq(schema.workspaceGroupMembers.groupId, group.id));
     expect(left).toEqual([]);
     // Both memberships are tombstoned, so a restore cannot bring them back.
-    const markers = (await exportTombstones(db())).filter(
+    const markers = (await exportTombstones(regionsFromEnv(env))).filter(
       (m) => m.kind === "workspace_group_member",
     );
     expect(markers.length).toBeGreaterThanOrEqual(2);
@@ -1079,7 +1079,7 @@ describe("the scan and a restore", () => {
         now: NOW,
       }),
     );
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     // A restore from before the deletions brings the rows back (and the tombstones go).
     await db().delete(schema.tombstones).where(eq(schema.tombstones.id, group.id));
     await db()

@@ -3,7 +3,7 @@
 // version, races, transfers, account deletion and the maintenance re-check.
 import { env } from "cloudflare:test";
 import { APPROVALS, planRequiredMessage, type ServiceTokenCreate } from "@portifact/contracts";
-import { globalDb, regionalDb, schema } from "@portifact/db";
+import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { APPROVAL_MESSAGES, personalActor as personalActorFor } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -770,7 +770,7 @@ describe("deletion and access changes", () => {
     value(await request(owner.id, artifactId, [ana.email, ben.email], { requiredApprovals: 1 }));
     value(await verdict(ana.id, artifactId, "approve", "fine"));
     await db().insert(schema.accountDeletions).values({ userId: ana.id, requestedAt: NOW });
-    await advanceAccountDeletion(db(), env.ARTIFACTS, ana.id, NOW);
+    await advanceAccountDeletion(regionsFromEnv(env), ana.id, NOW);
     const rows = await db()
       .select()
       .from(schema.reviewVerdicts)

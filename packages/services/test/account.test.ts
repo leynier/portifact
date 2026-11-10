@@ -131,7 +131,7 @@ describe("browser sessions", () => {
     await session(userId, { expiresIn: -HOUR });
     await session(await user());
 
-    const sessions = await listBrowserSessions(db(), {
+    const sessions = await listBrowserSessions(db().global, {
       userId,
       currentSessionId: current,
       now: NOW,
@@ -170,7 +170,7 @@ describe("connected apps", () => {
       expiresAt: NOW + HOUR,
     });
 
-    const apps = await listConnectedApps(db(), { userId, now: NOW });
+    const apps = await listConnectedApps(db().global, { userId, now: NOW });
     expect(apps).toEqual([
       {
         clientId: mcp,
@@ -203,7 +203,7 @@ describe("connected apps", () => {
     await accessToken(userId, gone, { expiresAt: NOW - 1 });
     await accessToken(userId, gone, { expiresAt: null });
     await accessToken(await user(), gone);
-    expect(await listConnectedApps(db(), { userId, now: NOW })).toEqual([]);
+    expect(await listConnectedApps(db().global, { userId, now: NOW })).toEqual([]);
   });
 
   it("says when a refresh token never expires and falls back to its creation date", async () => {
@@ -215,7 +215,7 @@ describe("connected apps", () => {
       createdAt: NOW - DAY,
       resources: null,
     });
-    const [app] = await listConnectedApps(db(), { userId, now: NOW });
+    const [app] = await listConnectedApps(db().global, { userId, now: NOW });
     expect(app).toMatchObject({
       name: null,
       resources: [],
@@ -230,7 +230,7 @@ describe("connected apps", () => {
     for (const clientId of [second, first] as string[]) {
       await accessToken(userId, clientId, { scopes: "42", createdAt: NOW - HOUR });
     }
-    const apps = await listConnectedApps(db(), { userId, now: NOW });
+    const apps = await listConnectedApps(db().global, { userId, now: NOW });
     expect(apps.map((a) => a.clientId)).toEqual([first, second]);
     expect(apps[0]?.scopes).toEqual(["42"]);
   });
@@ -246,13 +246,13 @@ describe("connected apps", () => {
     const otherUser = await user();
     const othersToken = await accessToken(otherUser, mcp);
 
-    expect(await disconnectApp(db(), { userId, clientId: mcp })).toEqual({
+    expect(await disconnectApp(db().global, { userId, clientId: mcp })).toEqual({
       ok: true,
       value: { clientId: mcp },
     });
-    expect((await listConnectedApps(db(), { userId, now: NOW })).map((a) => a.clientId)).toEqual([
-      keep,
-    ]);
+    expect(
+      (await listConnectedApps(db().global, { userId, now: NOW })).map((a) => a.clientId),
+    ).toEqual([keep]);
     const stillThere = await db()
       .select({ id: schema.oauthAccessTokens.id })
       .from(schema.oauthAccessTokens)
@@ -269,7 +269,7 @@ describe("connected apps", () => {
     const someoneElses = await client();
     await accessToken(await user(), someoneElses);
     for (const clientId of [someoneElses, "no-such-client"]) {
-      const result = await disconnectApp(db(), { userId, clientId });
+      const result = await disconnectApp(db().global, { userId, clientId });
       expect(result).toMatchObject({ ok: false, code: "not_found" });
     }
   });
@@ -278,6 +278,6 @@ describe("connected apps", () => {
     const userId = await user();
     const consentOnly = await client();
     await consent(userId, consentOnly);
-    expect((await disconnectApp(db(), { userId, clientId: consentOnly })).ok).toBe(true);
+    expect((await disconnectApp(db().global, { userId, clientId: consentOnly })).ok).toBe(true);
   });
 });

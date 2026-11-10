@@ -15,6 +15,7 @@ import {
   ListWorkspacesInput,
   MemberRoleUpdate,
   OwnerView,
+  Region,
   SeatsView,
   TransferArtifactInput,
   TransferRequest,
@@ -41,9 +42,11 @@ import {
 const ID = "ws_0123456789abcdef0123456789abcdef";
 
 describe("workspace contracts", () => {
-  it("has only the default region until the EU exists", () => {
-    expect(REGIONS).toEqual(["default"]);
+  it("knows the default and EU regions; a Worker serves only those it is bound to", () => {
+    expect(REGIONS).toEqual(["default", "eu"]);
     expect(DEFAULT_REGION).toBe("default");
+    expect(Region.safeParse("eu").success).toBe(true);
+    expect(Region.safeParse("us").success).toBe(false);
   });
 
   it("gives workspaces IDs no user or artifact ID can have", () => {

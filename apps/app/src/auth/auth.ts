@@ -179,7 +179,7 @@ export function createAuth(env: Env, deps: AuthDeps) {
         allowedAttempts: OTP_LIMITS.allowedAttempts,
         storeOTP: "hashed",
         sendVerificationOTP: async ({ email, otp }, context) => {
-          await deliverSignInCode(createDb(env.DB), deps.email, {
+          await deliverSignInCode(regionsFromEnv(env).global, deps.email, {
             email,
             code: otp,
             now: Date.now,

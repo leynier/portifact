@@ -1,7 +1,9 @@
 // The expiry notice the jobs Worker sends an owner a few days before their artifacts expire
 // (docs/operations.md, "Expiry notices"): one email per account listing every artifact about to
 // expire, each with its link, its expiry and where to renew it, and how to turn the emails off.
-// Names are the owner's own input and are only ever escaped, never put in the subject. It is
+// Names are the owner's own input and are only ever escaped, never put in the subject, and left
+// out with `names: false` (decision 0005: a workspace whose data stays in the EU), where each
+// artifact is listed by its address instead. It is
 // written in the owner's language (account settings), English when they chose none; the texts
 // are typed by the locale list, so a new language fails the typecheck until it is here.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
@@ -21,6 +23,8 @@ export interface ExpiryNoticeArtifact {
 export interface ExpiryNoticeInput {
   /** Soonest first; at least one. */
   artifacts: ExpiryNoticeArtifact[];
+  /** Whether artifact names may appear; false lists each by its address. True when absent. */
+  names?: boolean | undefined;
   /** The dashboard's settings page, where the notices are turned off. */
   settingsUrl: string;
   /** How long a renewal keeps an artifact online. */
@@ -298,8 +302,11 @@ export function expiryNoticeEmail(input: ExpiryNoticeInput): EmailContent {
   const intro = t.intro(input.activeDays);
   const restore = t.restore(input.archiveMonths);
 
+  // Without names, an artifact is its address: nothing the owner wrote leaves the region.
+  const label = (artifact: ExpiryNoticeArtifact) =>
+    input.names === false ? display(artifact.url) : oneLine(artifact.name);
   const items: Inline[][] = input.artifacts.map((artifact) => [
-    { strong: oneLine(artifact.name) },
+    { strong: label(artifact) },
     t.expires(date(artifact.expiresAt)),
     { href: artifact.url, text: display(artifact.url) },
     " | ",
@@ -336,7 +343,7 @@ export function expiryNoticeEmail(input: ExpiryNoticeInput): EmailContent {
     intro,
     "",
     ...input.artifacts.flatMap((artifact) => [
-      `- ${oneLine(artifact.name)}`,
+      `- ${label(artifact)}`,
       `  ${t.expiresLine(date(artifact.expiresAt))}`,
       `  ${artifact.url}`,
       `  ${t.renew}: ${artifact.renewUrl}`,

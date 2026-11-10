@@ -30,7 +30,7 @@ import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
 import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
 import { enforceWorkspacePolicies } from "./workspace-policies.ts";
-import { processWorkspaceDeletions } from "./workspaces.ts";
+import { type DeletionRegions, processWorkspaceDeletions, singleRegion } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;
 const RELEASE_CHUNK = 40;
@@ -45,7 +45,7 @@ export interface JobResult {
  * its owner's plan at this moment.
  */
 export async function archiveExpired(
-  db: Db,
+  db: RegionalDb,
   now: number,
   limit = DEFAULT_BATCH,
 ): Promise<JobResult> {
@@ -67,7 +67,7 @@ export async function archiveExpired(
     const archivedAt = artifact.expiresAt ?? now;
     let owner = owners.get(artifact.ownerId);
     if (!owner) {
-      owner = await ownerEntitlements(db, artifact.ownerId, now);
+      owner = await ownerEntitlements(db.global, artifact.ownerId, now);
       owners.set(artifact.ownerId, owner);
     }
     const archived = await db
@@ -241,7 +241,7 @@ export async function pruneVersions(
  * tombstone so the ID is never reused. Resumes artifacts left in `purging` by a failed run.
  */
 export async function purgeArchived(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   now: number,
   limit = DEFAULT_BATCH,
@@ -290,7 +290,7 @@ export async function purgeArchived(
 }
 
 export async function deleteArtifactData(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   artifactId: string,
   now: number,
@@ -303,11 +303,14 @@ export async function deleteArtifactData(
     .from(schema.versionFiles)
     .innerJoin(schema.versions, eq(schema.versions.id, schema.versionFiles.versionId))
     .where(eq(schema.versions.artifactId, artifactId));
+  // The tombstone is global and the artifact regional (decision 0005): written first, so a
+  // `purging` artifact never comes back; a crash before the batch below is finished by the next
+  // run of the job, which finds the tombstone already there.
+  await db.global
+    .insert(schema.tombstones)
+    .values({ kind: "artifact", id: artifactId, deletedAt: now })
+    .onConflictDoNothing();
   await db.batch([
-    db
-      .insert(schema.tombstones)
-      .values({ kind: "artifact", id: artifactId, deletedAt: now })
-      .onConflictDoNothing(),
     db.insert(schema.lifecycleEvents).values({
       artifactId,
       actorId: null,
@@ -547,7 +550,44 @@ export async function rerenderDocuments(
 }
 
 /** Runs every job once. Called from the scheduled handler. */
-export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: number) {
+/**
+ * The scans of a region other than the default one (decision 0005): what is stored in the
+ * region, on its own database and bucket. The global scans (account and workspace deletions,
+ * invitations, email counters and suppressions, group tombstones, global audit events) run once,
+ * in `runMaintenance` with the default region, whose database is also the global one. Scans that
+ * still read a plan or a setting through the regional database are left out until they read it
+ * from the global one (decision 0005, "Two-region audit", what remains): they would read every
+ * owner as free there. Leaving them out only delays work (versions kept longer, no expiry notice,
+ * limit columns and pins realigned later), it never removes anything a plan keeps.
+ */
+export async function runRegionalMaintenance(db: RegionalDb, bucket: R2Bucket, now: number) {
+  return {
+    archived: (await archiveExpired(db, now)).processed,
+    commentNotices: (await scheduleCommentNotices(db, now)).recipients,
+    expiredUploads: (await expireUploads(db, now)).processed,
+    purged: (await purgeArchived(db, bucket, now)).processed,
+    orphanObjects: (await sweepOrphanObjects(db, bucket, now)).processed,
+    rerendered: (await rerenderDocuments(db, bucket, now)).processed,
+    prunedOperations: await pruneOperations(db, now),
+    readSessions: (await pruneReadSessions(db, now)).processed,
+    artifactGroups: (await pruneArtifactGroups(db, now)).removed,
+    shareLinks: (await pruneShareLinks(db, now)).processed,
+    reviewSessions: (await pruneReviewSessions(db, now)).processed,
+    prunedTrafficCounters: await pruneTrafficCounters(db, now),
+    webhooks: await maintainWebhooks(db, now),
+    workspacePolicies: await enforceWorkspacePolicies(db, now),
+    prunedAuditEvents: await pruneAuditEvents(db, db.global, now),
+    approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
+  };
+}
+
+export async function runMaintenance(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  now: number,
+  /** Every region, for the deletions that reach all of them; only `db`'s without it. */
+  regions: DeletionRegions = singleRegion(db, bucket),
+) {
   return {
     archived: (await archiveExpired(db, now)).processed,
     expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
@@ -566,16 +606,16 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     // At most four statements of 500 rows (decision 0014, "Restores").
     groupTombstones: (await pruneGroupTombstones(db.global, now)).deleted,
     shareLinks: (await pruneShareLinks(db, now)).processed,
-    accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
-    workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,
+    accountDeletions: (await processAccountDeletions(regions, now)).finished,
+    workspaceDeletions: (await processWorkspaceDeletions(regions, now)).finished,
     expiredInvitations: await pruneExpiredInvitations(db.global, now),
     // What a directory said about people who never got an account, once its pending row lapsed
     // (decision 0017): one delete over the users with no account link.
     directoryUsers: await pruneDirectoryUsers(db.global, now),
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
-    prunedEmailCounters: await pruneEmailCounters(db, now),
-    prunedEmailSuppressions: await pruneEmailSuppressions(db, now),
+    prunedEmailCounters: await pruneEmailCounters(db.global, now),
+    prunedEmailSuppressions: await pruneEmailSuppressions(db.global, now),
     alignedPlanLimits: (await alignPlanLimits(db, now)).processed,
     unpinned: (await unpinLapsedPlans(db, now)).processed,
     // Content search (decision 0012): drop what a plan no longer covers, then index what is missing.

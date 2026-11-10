@@ -134,7 +134,7 @@ function probe(feature: PlanFeature): GatedOperation {
         throw new Error("The probe's caller must manage the artifact");
       });
       if (!actor.ok) throw new Error(actor.message);
-      const gate = await requireOwnerFeature(db(), artifact, feature, NOW);
+      const gate = await requireOwnerFeature(db().global, artifact, feature, NOW);
       if (gate.ok) {
         return {
           api: { status: 200, body: { done: true } },

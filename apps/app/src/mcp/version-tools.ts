@@ -42,7 +42,7 @@ import {
   versionList,
   versionManifest,
 } from "../api/versions.ts";
-import { artifactDb } from "../regions.ts";
+import { artifactDb, artifactRegion, artifactStorage } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 /** The scope of each version tool: the scope of the API route for the same operation. */
@@ -75,8 +75,7 @@ export function registerVersionTools(
     },
     async (args: ReadArtifactInput) => {
       const result = await readVersionFile(
-        await artifactDb(context.env, args.artifactId),
-        context.env.ARTIFACTS,
+        ...(await artifactStorage(context.env, args.artifactId)),
         {
           userId: context.userId,
           artifactId: args.artifactId,
@@ -190,7 +189,8 @@ export function registerVersionTools(
         now,
       });
       if (!result.ok) return failure(result.code, result.message);
-      const body = await versionDownload(context.presigner, result.value, now);
+      const region = (await artifactRegion(context.env, args.artifactId)).region;
+      const body = await versionDownload(context.presigner(region), result.value, now);
       return success(
         `${body.files.length} ${body.kind} file(s) of version ${body.versionNumber} of ${body.artifactId}. The links expire in 5 minutes; call get_download again for fresh ones.`,
         body,
@@ -306,8 +306,7 @@ export function registerVersionTools(
     },
     async (args: DiffVersionFileInput) => {
       const result = await diffVersionFile(
-        await artifactDb(context.env, args.artifactId),
-        context.env.ARTIFACTS,
+        ...(await artifactStorage(context.env, args.artifactId)),
         {
           userId: context.userId,
           artifactId: args.artifactId,

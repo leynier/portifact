@@ -2,8 +2,8 @@
 // visitor's (open a link on the app, redeem its one-use code on the artifact origin, renew the
 // link session's claims). A link grants reading one artifact and nothing else; it never names
 // a visitor, never touches the access policy and does not bump the policy generation.
-import { type AuditDetail, SHARE_LINKS } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { type AuditDetail, isWorkspaceId, SHARE_LINKS } from "@portifact/contracts";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   checkPolicyShareLink,
   checkShareExpiry,
@@ -15,6 +15,7 @@ import {
   hasFeature,
   ok,
   policyLinkOpens,
+  policyOf,
   type Result,
   SHARE_MESSAGES,
   shareLinkOpens,
@@ -26,7 +27,7 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, type SQL, sql }
 import { authorizeOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { activeCustomHost } from "./custom-domains.ts";
-import { requireOwnerFeature } from "./plans.ts";
+import { ownerPlanRecord, requireOwnerFeature } from "./plans.ts";
 import { hashSecret, randomToken } from "./read-access.ts";
 import { ownerEntitlementsAndPolicy } from "./workspace-policies.ts";
 
@@ -217,7 +218,7 @@ export async function createShareLink(
 ): Promise<Result<{ link: ShareLinkRow; token: string }>> {
   const artifact = await loadManaged(db, input.userId, input.artifactId);
   if (!artifact.ok) return artifact;
-  const gate = await requireOwnerFeature(db, artifact.value, "shareLinks", input.now);
+  const gate = await requireOwnerFeature(db.global, artifact.value, "shareLinks", input.now);
   if (!gate.ok) return gate;
   const expiry = checkShareExpiry(input.expiresAt, input.now);
   if (!expiry.ok) return expiry;
@@ -295,19 +296,10 @@ export async function listShareLinks(
       and(eq(schema.shareLinks.artifactId, input.artifactId), isNull(schema.shareLinks.revokedAt)),
     )
     .orderBy(desc(schema.shareLinks.createdAt), desc(schema.shareLinks.id));
-  const [plan] = await db
-    .select({
-      plan: schema.ownerPlans.plan,
-      seats: schema.ownerPlans.seats,
-      validUntil: schema.ownerPlans.validUntil,
-      overrides: schema.ownerPlans.overrides,
-    })
-    .from(schema.ownerPlans)
-    .where(eq(schema.ownerPlans.ownerId, artifact.value.ownerId))
-    .limit(1);
+  const plan = await ownerPlanRecord(db.global, artifact.value.ownerId);
   return ok({
     artifactId: input.artifactId,
-    enabled: hasFeature(entitlements(plan ?? null, input.now), "shareLinks"),
+    enabled: hasFeature(entitlements(plan, input.now), "shareLinks"),
     links: rows.map((row) => view(row, input.now)),
   });
 }
@@ -506,24 +498,57 @@ export async function openShareLink(
 }
 
 /**
- * A link's condition for SQL: not revoked, not expired at `now`, and still allowed by the
- * workspace policy of its artifact's owner (decision 0015). The policy part is the SQL twin of
- * `policyLinkOpens`, read from the workspace's row in the same statement (with one region the
- * workspace and the link share a database, as the delivery lookup's plan join does), so redeeming
- * a code or renewing a link session costs no extra round trip and answers like a link that does
- * not open.
+ * A link's condition for SQL: not revoked and not expired at `now`. With `policy` (only on a
+ * handle from `bothSides`, where the workspace's row is in the same database), also still allowed
+ * by the workspace policy of its artifact's owner (decision 0015), the SQL twin of
+ * `policyLinkOpens`, so redeeming or renewing costs no extra call. With a separate global
+ * database the policy is read from it instead (`policyAllowsLink`).
  */
-function liveLink(now: number) {
+function liveLink(now: number, policy = false) {
   const l = schema.shareLinks;
+  const live = and(isNull(l.revokedAt), or(isNull(l.expiresAt), gt(l.expiresAt, now)));
+  if (!policy) return live;
   const a = schema.artifacts;
   const w = schema.workspaces;
   const rule = (path: string) => sql`json_extract(${w.policy}, ${path})`;
   const stopped = sql`exists (select 1 from ${a} join ${w} on ${w.id} = ${a.ownerId} where ${a.id} = ${l.artifactId} and ${w.policy} is not null and (${rule("$.shareLinks")} = 'disabled' or (${rule("$.shareLinks")} = 'password_required' and ${l.passwordHash} is null) or (${rule("$.shareLinkMaxDays")} is not null and ${l.createdAt} + ${rule("$.shareLinkMaxDays")} * 86400000 <= ${now})))`;
-  return and(
-    isNull(l.revokedAt),
-    or(isNull(l.expiresAt), gt(l.expiresAt, now)),
-    sql`not ${stopped}`,
-  );
+  return and(live, sql`not ${stopped}`);
+}
+
+/**
+ * Whether the workspace policy of the link's owner (decision 0015) still lets it open. Policies
+ * are on the global workspace row and links regional (decision 0005), so a workspace's policy is
+ * one read of the global database; a personal space has no policy and reads nothing.
+ */
+async function policyAllowsLink(
+  global: GlobalDb,
+  link: { ownerId: string; hasPassword: boolean; createdAt: number },
+  now: number,
+): Promise<boolean> {
+  if (!isWorkspaceId(link.ownerId)) return true;
+  const w = schema.workspaces;
+  const [row] = await global
+    .select({ policy: w.policy })
+    .from(w)
+    .where(eq(w.id, link.ownerId))
+    .limit(1);
+  return policyLinkOpens(row ? policyOf(row.policy) : undefined, link, now);
+}
+
+/** The owner and policy facts of a link, read with the regional statements that need them. */
+function linkFacts(db: RegionalDb, linkId: SQL | string) {
+  const l = schema.shareLinks;
+  const a = schema.artifacts;
+  return db
+    .select({
+      ownerId: a.ownerId,
+      hasPassword: sql<number>`${l.passwordHash} is not null`,
+      createdAt: l.createdAt,
+    })
+    .from(l)
+    .innerJoin(a, eq(a.id, l.artifactId))
+    .where(eq(l.id, linkId))
+    .limit(1);
 }
 
 export interface ShareSessionGrant {
@@ -539,7 +564,7 @@ export interface ShareSessionGrant {
  * that update happened, so a replayed, expired or cross-artifact code creates nothing.
  */
 export async function redeemShareHandoff(
-  db: Db,
+  db: RegionalDb,
   input: {
     code: string;
     artifactId: string;
@@ -555,8 +580,11 @@ export async function redeemShareHandoff(
   const longest = input.now + SHARE_LINKS.sessionTtlSeconds * SECOND_MS;
   const h = schema.shareHandoffs;
   const l = schema.shareLinks;
-  const [claimed, sessions] = await db.batch([
-    db
+  // One database: the policy is part of the claim, in one call, as it always was.
+  const both = bothSides(db);
+  const w = both ?? db;
+  const statements = [
+    w
       .update(h)
       .set({ usedAt: input.now, sessionId })
       .where(
@@ -566,20 +594,47 @@ export async function redeemShareHandoff(
           sql`coalesce(${h.host}, ${input.devHost}) = ${input.host}`,
           isNull(h.usedAt),
           gt(h.expiresAt, input.now),
-          sql`exists (select 1 from ${l} where ${l.id} = ${h.linkId} and ${liveLink(input.now)})`,
+          sql`exists (select 1 from ${l} where ${l.id} = ${h.linkId} and ${liveLink(input.now, both !== null)})`,
         ),
       )
       .returning({ linkId: h.linkId }),
-    db
+    w
       .insert(schema.shareSessions)
       .select(
         sql`select ${sessionId}, ${h.linkId}, ${h.artifactId}, min(${longest}, coalesce(${l.expiresAt}, ${longest})), ${input.now} from ${h} inner join ${l} on ${l.id} = ${h.linkId} where ${h.codeHash} = ${codeHash} and ${h.sessionId} = ${sessionId}`,
       )
       .returning({ expiresAt: schema.shareSessions.expiresAt }),
+  ] as const;
+  if (both) {
+    const [claimed, sessions] = await both.batch(statements);
+    const row = claimed[0];
+    const session = sessions[0];
+    if (!row || !session) return expired;
+    return ok({ sessionId, linkId: row.linkId, expiresAt: session.expiresAt });
+  }
+  const [claimed, sessions, facts] = await db.batch([
+    ...statements,
+    linkFacts(
+      db,
+      sql`(select ${h.linkId} from ${h} where ${h.codeHash} = ${codeHash} and ${h.sessionId} = ${sessionId})`,
+    ),
   ]);
   const row = claimed[0];
   const session = sessions[0];
-  if (!row || !session) return expired;
+  const link = facts[0];
+  if (!row || !session || !link) return expired;
+  // A separate global database: the policy is checked after the claim, and a link it stops gets
+  // nothing (one more call, for a workspace's link only).
+  if (
+    !(await policyAllowsLink(
+      db.global,
+      { ...link, hasPassword: Boolean(link.hasPassword) },
+      input.now,
+    ))
+  ) {
+    await db.delete(schema.shareSessions).where(eq(schema.shareSessions.id, sessionId));
+    return expired;
+  }
   return ok({ sessionId, linkId: row.linkId, expiresAt: session.expiresAt });
 }
 
@@ -589,26 +644,39 @@ export async function redeemShareHandoff(
  * content Worker on every request, from its artifact lookup.
  */
 export async function refreshShareSession(
-  db: Db,
+  db: RegionalDb,
   input: { sessionId: string; artifactId: string; linkId: string; now: number },
 ): Promise<Result<{ expiresAt: number }>> {
   const s = schema.shareSessions;
   const l = schema.shareLinks;
-  const [session] = await db
-    .select({ expiresAt: s.expiresAt })
+  const a = schema.artifacts;
+  // One database: the policy is part of the read, one call, as it always was.
+  const both = bothSides(db);
+  const [session] = await (both ?? db)
+    .select({
+      expiresAt: s.expiresAt,
+      ownerId: a.ownerId,
+      hasPassword: sql<number>`${l.passwordHash} is not null`,
+      createdAt: l.createdAt,
+    })
     .from(s)
     .innerJoin(l, eq(l.id, s.linkId))
+    .innerJoin(a, eq(a.id, s.artifactId))
     .where(
       and(
         eq(s.id, input.sessionId),
         eq(s.artifactId, input.artifactId),
         eq(s.linkId, input.linkId),
         gt(s.expiresAt, input.now),
-        liveLink(input.now),
+        liveLink(input.now, both !== null),
       ),
     )
     .limit(1);
   if (!session) return fail("not_found", SHARE_MESSAGES.unavailable);
+  const link = { ...session, hasPassword: Boolean(session.hasPassword) };
+  if (!both && !(await policyAllowsLink(db.global, link, input.now))) {
+    return fail("not_found", SHARE_MESSAGES.unavailable);
+  }
   return ok({ expiresAt: session.expiresAt });
 }
 
@@ -703,7 +771,7 @@ export async function pruneShareLinks(
 }
 
 /** Every revoked link still in the database, as tombstone markers (`exportTombstones`). */
-export async function revokedShareLinks(db: Db) {
+export async function revokedShareLinks(db: RegionalDb) {
   const rows = await db
     .select({ id: schema.shareLinks.id, revokedAt: schema.shareLinks.revokedAt })
     .from(schema.shareLinks)

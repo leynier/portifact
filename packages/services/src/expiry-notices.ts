@@ -242,15 +242,15 @@ export async function sendExpiryNotice(
     .sort((x, y) => x.expiresAt - y.expiresAt || (x.id < y.id ? -1 : 1));
   if (artifacts.length === 0) return skipped("nothing_due", scheduled.length);
 
-  const { archiveMonths } = (await ownerEntitlements(db, ownerId, now)).limits;
+  const { archiveMonths } = (await ownerEntitlements(db.global, ownerId, now)).limits;
   let sent = 0;
   let skip: Skip = "suppressed";
   for (const recipient of opted) {
-    if (await isEmailSuppressed(db, recipient.email, now)) {
+    if (await isEmailSuppressed(db.global, recipient.email, now)) {
       skip = "suppressed";
       continue;
     }
-    if (!checkNoticeCapacity(await emailsSentInCycle(db, now)).ok) {
+    if (!checkNoticeCapacity(await emailsSentInCycle(db.global, now)).ok) {
       skip = "capacity";
       break;
     }
@@ -263,7 +263,7 @@ export async function sendExpiryNotice(
       });
     } catch (error) {
       if (error instanceof RecipientSuppressedError) {
-        await suppressEmail(db, { email: recipient.email, reason: "provider", now });
+        await suppressEmail(db.global, { email: recipient.email, reason: "provider", now });
         skip = "suppressed";
         continue;
       }
@@ -284,7 +284,7 @@ export async function sendExpiryNotice(
       });
       throw error;
     }
-    await recordEmailsSent(db, now);
+    await recordEmailsSent(db.global, now);
     sent += 1;
   }
   return sent > 0 ? "done" : skipped(skip, artifacts.length);

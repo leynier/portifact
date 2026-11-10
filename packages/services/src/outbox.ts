@@ -11,7 +11,7 @@ import {
   EraseAccessEventsPayload,
   type JobMessage,
 } from "@portifact/contracts";
-import { type AccessDb, type Db, type RegionalDb, schema } from "@portifact/db";
+import { type AccessDb, type Db, type Region, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
@@ -28,7 +28,7 @@ import { abortSessionMultipart } from "./multipart.ts";
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
 import { runWorkspacePolicyJob } from "./workspace-policies.ts";
-import { advanceWorkspaceDeletion } from "./workspaces.ts";
+import { advanceWorkspaceDeletion, type DeletionRegions, singleRegion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
 export const OUTBOX_REDELIVER_MS = 60 * 60_000;
@@ -89,6 +89,8 @@ export async function relayOutbox(
   queue: Queue<JobMessage>,
   now: number,
   pages = 5,
+  /** The region whose database `db` is; its messages name it unless it is the default one. */
+  region: Region = "default",
 ): Promise<RelayResult> {
   const o = schema.outbox;
   let relayed = 0;
@@ -105,7 +107,11 @@ export async function relayOutbox(
       .orderBy(asc(o.id))
       .limit(IN_CHUNK);
     if (due.length === 0) break;
-    await queue.sendBatch(due.map((row) => ({ body: { id: row.id, topic: row.topic } })));
+    await queue.sendBatch(
+      due.map((row) => ({
+        body: region === "default" ? { id: row.id, topic: row.topic } : { ...row, region },
+      })),
+    );
     await db
       .update(o)
       .set({ dispatchedAt: now, attempts: sql`${o.attempts} + 1` })
@@ -148,6 +154,8 @@ export interface JobDeps {
   reviewNotifier?: ReviewNotifier | undefined;
   /** Sends `directory_notice` emails (decision 0017). */
   directoryNotifier?: DirectoryNotifier | undefined;
+  /** Every region, for the deletions that reach all of them; only the job's own without it. */
+  regions?: DeletionRegions | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -182,13 +190,14 @@ async function runRow(
     domainNotifier,
     reviewNotifier,
     directoryNotifier,
+    regions = singleRegion(db, bucket),
   }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
       return purgeClaimed(db, bucket, row.subject ?? "", row.generation ?? -1, now);
     case "account_deletion": {
-      const state = await advanceAccountDeletion(db, bucket, row.subject ?? "", now);
+      const state = await advanceAccountDeletion(regions, row.subject ?? "", now);
       return state === "absent" ? "stale" : state === "finished" ? "done" : "pending";
     }
     case "delete_objects":
@@ -212,7 +221,7 @@ async function runRow(
       if (!access) throw new Error("access_history_move needs the access log database");
       return moveAccessHistory(db, access, row.subject ?? "", now);
     case "workspace_deletion": {
-      const state = await advanceWorkspaceDeletion(db, bucket, row.subject ?? "", now);
+      const state = await advanceWorkspaceDeletion(regions, row.subject ?? "", now);
       return state === "absent" ? "stale" : state === "finished" ? "done" : "pending";
     }
     case "comment_notice":
@@ -246,7 +255,7 @@ async function runRow(
 
 /** Purges an artifact only while it is still in the `purging` state the job was claimed with. */
 async function purgeClaimed(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   artifactId: string,
   generation: number,

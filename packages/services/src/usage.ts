@@ -113,9 +113,9 @@ export async function getAccountUsage(
     );
   const events = await windowEvents(db, ownerId, input.now - USAGE_WINDOW_MS);
   const traffic = await getTraffic(db, ownerId, input.now);
-  const owner = await ownerEntitlements(db, ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, ownerId, input.now);
   const { limits } = owner;
-  const capacity = protectionBlock((await platformProtection(db, input.now)).actions);
+  const capacity = protectionBlock((await platformProtection(db.global, input.now)).actions);
 
   // The monthly counter belongs to the month it was last written in, as preparePublish reads it.
   const resetsAt = nextMonthStart(input.now);

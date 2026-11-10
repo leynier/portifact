@@ -2,6 +2,7 @@
 // payloads of outbox rows, and the tombstone markers the operator exports before restoring a
 // backup and applies after it (docs/operations.md).
 import { z } from "zod";
+import { Region } from "./workspaces.ts";
 
 export const OutboxTopic = z.enum([
   "purge_artifact",
@@ -24,10 +25,16 @@ export const OutboxTopic = z.enum([
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
-/** A queue message only points at its outbox row; the row is the job's source of truth. */
+/**
+ * A queue message only points at its outbox row; the row is the job's source of truth. Every
+ * control database has its own outbox (decision 0005), so `region` names the database the row is
+ * in; a message without it is the default region's, which is also the global database's, so the
+ * messages queued before a second region existed keep working.
+ */
 export const JobMessage = z.strictObject({
   id: z.number().int().positive(),
   topic: OutboxTopic,
+  region: Region.optional(),
 });
 export type JobMessage = z.infer<typeof JobMessage>;
 

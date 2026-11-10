@@ -104,13 +104,15 @@ describe("the scheduled run", () => {
     const { hostname } = await domain(fake, "provisioning");
     fake.activate(hostname);
     await db()
-      .update(schema.customDomains)
-      .set({ region: "eu" as "default" })
+      .global.update(schema.customDomains)
+      .set({ region: "mars" as "default" })
       .where(eq(schema.customDomains.hostname, hostname));
     const result = await runScheduled(env, NOW, fake);
     expect(result.customDomains).toBe("failed");
     expect(result).toHaveProperty("relayed");
-    await db().delete(schema.customDomains).where(eq(schema.customDomains.hostname, hostname));
+    await db()
+      .global.delete(schema.customDomains)
+      .where(eq(schema.customDomains.hostname, hostname));
   });
 });
 

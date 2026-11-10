@@ -2197,7 +2197,7 @@ describe("API and MCP parity under budget protection", () => {
   const DOC = { schema: 1, path: "index.md", anchor: { kind: "document" } };
 
   async function protect(level: "slow75" | "protect100", steps = 1) {
-    await setBudgetOverride(regionsFromEnv(env).get("default").db, {
+    await setBudgetOverride(regionsFromEnv(env).global, {
       level,
       steps,
       until: null,
@@ -2206,7 +2206,7 @@ describe("API and MCP parity under budget protection", () => {
     });
   }
   afterEach(async () => {
-    await clearBudgetOverride(regionsFromEnv(env).get("default").db, NOW);
+    await clearBudgetOverride(regionsFromEnv(env).global, NOW);
   });
 
   it("refuses new artifacts, then uploads, with the same error, and keeps updates and reads", async () => {

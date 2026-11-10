@@ -385,10 +385,12 @@ describe("read session refresh", () => {
     expect((await refresh(owner)).ok).toBe(true);
   });
 
+  // Users are global and read sessions regional (decision 0005): no foreign key removes the row,
+  // the global liveness check ends it, and account deletion deletes the rows in every region.
   it("ends sessions when the account is deleted", async () => {
     const id = await session();
-    await db().delete(schema.users).where(eq(schema.users.id, READER));
-    expect(await sessionCount()).toBe(0);
+    await db().global.delete(schema.users).where(eq(schema.users.id, READER));
+    expect(await sessionCount()).toBe(1);
     expect((await refresh(id)).ok).toBe(false);
   });
 });

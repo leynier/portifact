@@ -25,6 +25,14 @@ export interface Env extends DomainEnv {
   R2_ACCOUNT_ID: string;
   R2_BUCKET: string;
   /**
+   * The EU region's bucket (decision 0005), created in the `eu` jurisdiction; bound only where the
+   * EU region is (`DB_EU`). Its uploads are signed against the EU endpoint, with
+   * `R2_ACCESS_KEY_ID_EU` and `R2_SECRET_ACCESS_KEY_EU` when the default token cannot cover it.
+   */
+  R2_BUCKET_EU?: string | undefined;
+  R2_ACCESS_KEY_ID_EU?: string | undefined;
+  R2_SECRET_ACCESS_KEY_EU?: string | undefined;
+  /**
    * Public Turnstile site key the login page and the review viewer render the human check with.
    * Empty until the widget exists; then no challenge is shown and new accounts are refused.
    */

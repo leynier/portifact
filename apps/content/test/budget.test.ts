@@ -53,7 +53,7 @@ const freshIp = () => `198.51.100.${++ipCounter}`;
 async function protect(steps: number | null) {
   await db().delete(schema.platformBudget);
   if (steps !== null) {
-    await setBudgetOverride(db(), {
+    await setBudgetOverride(db().global, {
       level: "protect100",
       steps,
       until: null,
@@ -212,7 +212,7 @@ describe("budget protection on public delivery", () => {
     expect(over.keys).toEqual(["public:203.0.113.7"]);
     const request = new Request(`${ORIGIN}/`);
     await protect(4);
-    await overTrafficLimit(request, { TRAFFIC_LIMITER: over.namespace }, db(), false, NOW);
+    await overTrafficLimit(request, { TRAFFIC_LIMITER: over.namespace }, db().global, false, NOW);
     expect(over.keys).toEqual(["public:203.0.113.7", "protected:unknown"]);
   });
 
@@ -264,21 +264,23 @@ describe("budget protection on public delivery", () => {
     const over = fakeLimiters(() => ({ allowed: false, resetAt }));
     const limits = { TRAFFIC_LIMITER: over.namespace };
     for (let i = 0; i < max; i++) {
-      await overTrafficLimit(request(`ip-${i}`), limits, db(), true, NOW);
+      await overTrafficLimit(request(`ip-${i}`), limits, db().global, true, NOW);
     }
     resetAt = NOW + PERIOD;
     // Full, but every remembered refusal has expired: they go, the new one stays.
-    await overTrafficLimit(request("late"), limits, db(), true, NOW + 1);
+    await overTrafficLimit(request("late"), limits, db().global, true, NOW + 1);
     for (let i = 0; i < max - 1; i++) {
-      await overTrafficLimit(request(`next-${i}`), limits, db(), true, NOW + 1);
+      await overTrafficLimit(request(`next-${i}`), limits, db().global, true, NOW + 1);
     }
     over.keys.length = 0;
-    expect(await overTrafficLimit(request("late"), limits, db(), true, NOW + 2)).toBe(NOW + PERIOD);
+    expect(await overTrafficLimit(request("late"), limits, db().global, true, NOW + 2)).toBe(
+      NOW + PERIOD,
+    );
     expect(over.keys).toEqual([]);
     // Full of refusals still running: all are forgotten, so "late" asks the limiter again.
-    await overTrafficLimit(request("overflow"), limits, db(), true, NOW + 2);
+    await overTrafficLimit(request("overflow"), limits, db().global, true, NOW + 2);
     over.keys.length = 0;
-    await overTrafficLimit(request("late"), limits, db(), true, NOW + 2);
+    await overTrafficLimit(request("late"), limits, db().global, true, NOW + 2);
     expect(over.keys).toEqual(["public:late"]);
     resetProtectionCache();
   });
@@ -293,17 +295,19 @@ describe("budget protection on public delivery", () => {
       TRAFFIC_LIMITER: fakeLimiters(() => ({ allowed: false, resetAt: 0 })).namespace,
     };
     await protect(3);
-    expect(await overTrafficLimit(request, limits, db(), true, NOW)).toBe(0);
+    expect(await overTrafficLimit(request, limits, db().global, true, NOW)).toBe(0);
     await db().delete(schema.platformBudget);
-    expect(await overTrafficLimit(request, limits, db(), true, NOW + PROTECTION_TTL_MS - 1)).toBe(
-      0,
-    );
-    expect(await overTrafficLimit(request, limits, db(), true, NOW + PROTECTION_TTL_MS)).toBeNull();
+    expect(
+      await overTrafficLimit(request, limits, db().global, true, NOW + PROTECTION_TTL_MS - 1),
+    ).toBe(0);
+    expect(
+      await overTrafficLimit(request, limits, db().global, true, NOW + PROTECTION_TTL_MS),
+    ).toBeNull();
   });
 
   it("fails open and logs when the state cannot be read", async () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const broken = new Proxy(db(), {
+    const broken = new Proxy(db().global, {
       get(target, property, receiver) {
         if (property === "select") {
           return () => {
@@ -332,8 +336,8 @@ describe("budget protection on public delivery", () => {
 
   it("serves normally without the limiter bound", async () => {
     await protect(4);
-    expect(await overTrafficLimit(new Request(ORIGIN), {}, db(), true, NOW)).toBeNull();
-    expect(await overTrafficLimit(new Request(ORIGIN), {}, db(), false, NOW)).toBeNull();
+    expect(await overTrafficLimit(new Request(ORIGIN), {}, db().global, true, NOW)).toBeNull();
+    expect(await overTrafficLimit(new Request(ORIGIN), {}, db().global, false, NOW)).toBeNull();
   });
 });
 

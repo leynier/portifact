@@ -2,6 +2,8 @@
 // resource metadata and the auth pages. Every path not listed here answers 404.
 import {
   ArtifactId,
+  DEFAULT_REGION,
+  type Region,
   SHARE_ENTRY_PATH,
   TokenPrincipal,
   TURNSTILE_ORIGIN,
@@ -16,7 +18,7 @@ import { Hono } from "hono";
 import { hasSessionCookie, type SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { noticeRoutes } from "./api/notices.ts";
-import { r2Presigner } from "./api/presign.ts";
+import { r2Presigner, storageEndpoint } from "./api/presign.ts";
 import { reportRoutes } from "./api/reports.ts";
 import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
@@ -132,9 +134,22 @@ export const SHARE_PAGE = "/share";
 /** The share link entry's policy: the strict page policy plus the human check of passwords. */
 export const SHARE_CSP = withHumanCheck(PAGE_CSP);
 
+/** A region's bucket name; a region bound without one is a configuration error, never a fallback. */
+function requiredBucket(name: string | undefined): string {
+  if (!name) throw new Error("R2_BUCKET_EU is not set for the EU region");
+  return name;
+}
+
 /** The S3 endpoint of the artifacts bucket, which the dashboard uploads to and downloads from. */
 export function storageOrigin(r2AccountId: string): string {
-  return `https://${r2AccountId}.r2.cloudflarestorage.com`;
+  return storageEndpoint(r2AccountId);
+}
+
+/** Every bucket endpoint the dashboard talks to: the default one, and the EU one where bound. */
+export function storageOrigins(env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU">): string {
+  const origins = [storageOrigin(env.R2_ACCOUNT_ID)];
+  if (env.R2_BUCKET_EU) origins.push(storageEndpoint(env.R2_ACCOUNT_ID, "eu"));
+  return origins.join(" ");
 }
 
 let stylesheetHash: Promise<string> | undefined;
@@ -172,13 +187,9 @@ export function dashboardPolicy(
 }
 
 export async function dashboardCsp(
-  env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">,
+  env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU" | "CONTENT_DOMAIN">,
 ): Promise<string> {
-  return dashboardPolicy(
-    storageOrigin(env.R2_ACCOUNT_ID),
-    await documentStylesheetSource(),
-    env.CONTENT_DOMAIN,
-  );
+  return dashboardPolicy(storageOrigins(env), await documentStylesheetSource(), env.CONTENT_DOMAIN);
 }
 
 /**
@@ -190,14 +201,14 @@ export async function dashboardCsp(
  * may read it; the logo comes from the same origin.
  */
 export async function viewerCsp(
-  env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">,
+  env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU" | "CONTENT_DOMAIN">,
   artifactId: string,
   frameOrigin = `https://${artifactId}.${env.CONTENT_DOMAIN}`,
 ): Promise<string> {
   // The owner's logo on a branded bar comes from that same artifact origin
   // (`/__portifact/brand/<sha256>`), so `img-src` adds exactly it and no host an owner chose.
   return dashboardPolicy(
-    storageOrigin(env.R2_ACCOUNT_ID),
+    storageOrigins(env),
     await documentStylesheetSource(),
     env.CONTENT_DOMAIN,
     frameOrigin,
@@ -274,13 +285,22 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       return found ? { userId: found.user.id, sessionId: found.session.id } : undefined;
     };
 
-  const presignerFor = (env: Env) =>
-    r2Presigner({
-      accountId: env.R2_ACCOUNT_ID,
-      bucket: env.R2_BUCKET,
-      accessKeyId: env.R2_ACCESS_KEY_ID,
-      secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-    });
+  // Each region's bucket signs against its own endpoint (decision 0005).
+  const presignerFor = (env: Env, region: Region = DEFAULT_REGION) =>
+    region === "eu"
+      ? r2Presigner({
+          accountId: env.R2_ACCOUNT_ID,
+          bucket: requiredBucket(env.R2_BUCKET_EU),
+          jurisdiction: "eu",
+          accessKeyId: env.R2_ACCESS_KEY_ID_EU ?? env.R2_ACCESS_KEY_ID,
+          secretAccessKey: env.R2_SECRET_ACCESS_KEY_EU ?? env.R2_SECRET_ACCESS_KEY,
+        })
+      : r2Presigner({
+          accountId: env.R2_ACCOUNT_ID,
+          bucket: env.R2_BUCKET,
+          accessKeyId: env.R2_ACCESS_KEY_ID,
+          secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+        });
 
   const resources = (env: Env) => {
     const urls = authUrls(env.APP_ORIGIN);

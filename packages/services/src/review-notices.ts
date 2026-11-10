@@ -304,8 +304,9 @@ async function send(
     if (muted) return skipped("muted");
   }
 
-  if (await isEmailSuppressed(db, user.email, now)) return skipped("suppressed");
-  if (!checkReviewNoticeCapacity(await emailsSentInCycle(db, now)).ok) return skipped("capacity");
+  if (await isEmailSuppressed(db.global, user.email, now)) return skipped("suppressed");
+  if (!checkReviewNoticeCapacity(await emailsSentInCycle(db.global, now)).ok)
+    return skipped("capacity");
 
   // One email of each kind per person, artifact and version, whatever the jobs say.
   const once = await db
@@ -363,7 +364,7 @@ async function send(
     });
   } catch (error) {
     if (error instanceof RecipientSuppressedError) {
-      await suppressEmail(db, { email: user.email, reason: "provider", now });
+      await suppressEmail(db.global, { email: user.email, reason: "provider", now });
       await unclaim();
       await giveBack();
       return skipped("suppressed");
@@ -383,6 +384,6 @@ async function send(
     ]);
     throw error;
   }
-  await recordEmailsSent(db, now);
+  await recordEmailsSent(db.global, now);
   return "done";
 }

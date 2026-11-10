@@ -4,11 +4,17 @@
 // version. Renewing the session's claims applies the same access check as read sessions, so a
 // revocation or signing out of the app ends review within the claims' lifetime.
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import { customHostWithoutClick, devHost, fail, ok, type Result } from "@portifact/domain";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { activeCustomHost } from "./custom-domains.ts";
-import { checkReadAccess, hashSecret, liveAppSession, randomToken } from "./read-access.ts";
+import {
+  appSessionLive,
+  checkReadAccess,
+  hashSecret,
+  liveAppSession,
+  randomToken,
+} from "./read-access.ts";
 
 const SECOND_MS = 1000;
 const PRUNE_BATCH = 500;
@@ -139,12 +145,15 @@ export async function issueReviewHandoff(
 /**
  * Redeems a review code on the artifact origin it was issued for, where it was issued to run
  * (`kind`): a frame code never opens a tab session, nor the reverse. One guarded update marks
- * the code used and names the new session, only while the app session that asked for it is
- * live; the session row is inserted only if that update happened, so a replayed or concurrent
- * redemption creates nothing.
+ * the code used and names the new session; the session row is inserted only if that update
+ * happened, so a replayed or concurrent redemption creates nothing. The app session that asked
+ * for the code must be live: with one database that is a condition of the same update
+ * (`liveAppSession`); with a separate regional database it is one read of the global database
+ * after the claim, and a dead app session's new row is deleted before the redemption answers
+ * that the code is spent (decision 0005).
  */
 export async function redeemReviewHandoff(
-  db: Db,
+  db: RegionalDb,
   input: {
     code: string;
     artifactId: string;
@@ -159,9 +168,12 @@ export async function redeemReviewHandoff(
   const sessionId = randomToken();
   const expiresAt = input.now + reviewSessionTtlMs(input.kind);
   const handoff = schema.reviewHandoffs;
+  // One database: the app session is checked in the claim itself. Otherwise after it, globally.
+  const both = bothSides(db);
+  const w = both ?? db;
 
-  const [claimed] = await db.batch([
-    db
+  const [claimed] = await w.batch([
+    w
       .update(handoff)
       .set({ usedAt: input.now, sessionId })
       .where(
@@ -172,16 +184,17 @@ export async function redeemReviewHandoff(
           sql`coalesce(${handoff.host}, ${input.devHost}) = ${input.host}`,
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
-          liveAppSession(db, handoff.authSessionId, input.now),
+          both ? liveAppSession(both, handoff.authSessionId, input.now) : undefined,
         ),
       )
       .returning({
         userId: handoff.userId,
         versionId: handoff.versionId,
         policyGeneration: handoff.policyGeneration,
+        authSessionId: handoff.authSessionId,
       }),
-    db.insert(schema.reviewSessions).select(
-      db
+    w.insert(schema.reviewSessions).select(
+      w
         .select({
           id: sql<string>`${sessionId}`.as("id"),
           artifactId: handoff.artifactId,
@@ -195,8 +208,16 @@ export async function redeemReviewHandoff(
         .where(and(eq(handoff.codeHash, codeHash), eq(handoff.sessionId, sessionId))),
     ),
   ]);
-  const row = claimed[0];
-  if (!row) return fail("invalid_input", "This review link has expired or was already used.");
+  const claimedRow = claimed[0];
+  const spent = () =>
+    fail<never>("invalid_input", "This review link has expired or was already used.");
+  if (!claimedRow) return spent();
+  // A session whose app session ended gets nothing; the code is spent (decision 0005).
+  const { authSessionId, ...row } = claimedRow;
+  if (!both && !(await appSessionLive(db.global, authSessionId, input.now))) {
+    await db.delete(schema.reviewSessions).where(eq(schema.reviewSessions.id, sessionId));
+    return spent();
+  }
   return ok({ ...row, sessionId, expiresAt, sessionTag: await reviewSessionTag(input.code) });
 }
 
@@ -210,11 +231,13 @@ export async function refreshReviewSession(
   input: { sessionId: string; artifactId: string; now: number },
 ): Promise<Result<ReviewGrant>> {
   const sessions = schema.reviewSessions;
-  const [session] = await db
+  const both = bothSides(db);
+  const [session] = await (both ?? db)
     .select({
       userId: sessions.userId,
       versionId: sessions.versionId,
       expiresAt: sessions.expiresAt,
+      authSessionId: sessions.authSessionId,
     })
     .from(sessions)
     .where(
@@ -222,15 +245,22 @@ export async function refreshReviewSession(
         eq(sessions.id, input.sessionId),
         eq(sessions.artifactId, input.artifactId),
         gt(sessions.expiresAt, input.now),
-        liveAppSession(db, sessions.authSessionId, input.now),
+        both ? liveAppSession(both, sessions.authSessionId, input.now) : undefined,
       ),
     )
     .limit(1);
   if (!session) return unavailable();
-  const access = await checkReadAccess(db, { ...input, userId: session.userId });
+  const { authSessionId, ...grant } = session;
+  // One database: the app session was checked in the read above. Otherwise it is global and
+  // checked alongside the access check, adding no round trip.
+  const [live, access] = await Promise.all([
+    both ? true : appSessionLive(db.global, authSessionId, input.now),
+    checkReadAccess(db, { ...input, userId: session.userId }),
+  ]);
+  if (!live) return unavailable();
   if (!access.ok) return access;
   return ok({
-    ...session,
+    ...grant,
     policyGeneration: access.value.policyGeneration,
     sessionId: input.sessionId,
   });

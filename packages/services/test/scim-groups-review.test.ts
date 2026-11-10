@@ -4,7 +4,8 @@
 // answer a conflict; setting a mapping is gated on the plan; every join path gets the groups'
 // role; a restore does not bring back a role the directory took away; a directory group can
 // always stop syncing; the admin confirmation counts pending people.
-import { schema } from "@portifact/db";
+import { env } from "cloudflare:test";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
@@ -397,7 +398,7 @@ describe("finding 7: a restore does not bring back a role the directory took awa
       .where(eq(schema.workspaceGroupMembers.groupId, admins.id));
     ok(await replaceScimGroup(global(), t.caller, admins.id, group("Admins", []), NOW + 1));
     expect(await role(t, adaAccount)).toBe("member");
-    const markers = await exportTombstones(global());
+    const markers = await exportTombstones(regionsFromEnv(env));
     // A D1 Time Travel restore to before the removal: the admin role and the group row come back.
     await global().delete(schema.tombstones);
     await global()

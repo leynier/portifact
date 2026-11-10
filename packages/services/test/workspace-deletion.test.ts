@@ -103,17 +103,17 @@ describe("creating a workspace", () => {
     ).toMatchObject({ ok: false, code: "invalid_input" });
     const listed = await listAllWorkspaces(db().global);
     expect(listed.find((row) => row.id === ws.id)).toMatchObject({ slug: ws.slug, members: 1 });
-    const detail = await getWorkspaceDetail(db().global, db(), ws.slug, NOW);
+    const detail = await getWorkspaceDetail(regionsFromEnv(env), ws.slug, NOW);
     expect(detail).toMatchObject({
       id: ws.id,
       createdBy: admin.id,
       seats: { used: 1, limit: 1 },
       artifacts: 0,
     });
-    expect(await getWorkspaceDetail(db().global, db(), ws.id, NOW)).toMatchObject({
+    expect(await getWorkspaceDetail(regionsFromEnv(env), ws.id, NOW)).toMatchObject({
       slug: ws.slug,
     });
-    expect(await getWorkspaceDetail(db().global, db(), "no-such", NOW)).toBeNull();
+    expect(await getWorkspaceDetail(regionsFromEnv(env), "no-such", NOW)).toBeNull();
   });
 
   it("takes a plan like an account, with seats, until it is deleted", async () => {
@@ -131,7 +131,7 @@ describe("creating a workspace", () => {
       });
     expect(value(await grant()).entitlements).toMatchObject({ plan: "team", seats: 3 });
     expect((await getOwnerPlan(db(), ws.id, NOW)).account?.activeLimit).toBe(2000);
-    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW }));
     expect(await grant()).toEqual({
       ok: false,
       code: "not_found",
@@ -144,7 +144,7 @@ describe("deleting a workspace", () => {
   it("claims its artifacts, ends memberships and invitations at once, and the jobs finish it", async () => {
     const { ws, admin } = await newWorkspace();
     const { artifactId, key } = await publishInto(admin.id, ws.id);
-    expect((await getWorkspaceDetail(db().global, db(), ws.id, NOW))?.artifacts).toBe(1);
+    expect((await getWorkspaceDetail(regionsFromEnv(env), ws.id, NOW))?.artifacts).toBe(1);
     await db()
       .insert(schema.workspaceInvitations)
       .values({
@@ -157,7 +157,9 @@ describe("deleting a workspace", () => {
         expiresAt: NOW + DAY,
       });
 
-    expect(value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }))).toEqual({
+    expect(
+      value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW })),
+    ).toEqual({
       deleted: true,
     });
     expect(await actorOn(db().global, admin.id, ws.id)).toBeNull();
@@ -173,23 +175,27 @@ describe("deleting a workspace", () => {
         .where(eq(schema.workspaceInvitations.workspaceId, ws.id)),
     ).toEqual([]);
     // A retry changes nothing; an unknown workspace is not found.
-    expect(value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }))).toEqual({
+    expect(
+      value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW })),
+    ).toEqual({
       deleted: false,
     });
-    expect(await deleteWorkspace(db(), { workspaceId: "ws_missing", now: NOW })).toEqual({
+    expect(
+      await deleteWorkspace(regionsFromEnv(env), { workspaceId: "ws_missing", now: NOW }),
+    ).toEqual({
       ok: false,
       code: "not_found",
       message: "Workspace not found.",
     });
     // While it is pending, the restore export keeps it.
-    expect(await exportTombstones(db())).toContainEqual({
+    expect(await exportTombstones(regionsFromEnv(env))).toContainEqual({
       kind: "workspace",
       id: ws.id,
       deletedAt: NOW,
     });
 
     await drain(NOW + 1);
-    expect(await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1)).toBe("absent");
+    expect(await advanceWorkspaceDeletion(regionsFromEnv(env), ws.id, NOW + 1)).toBe("absent");
     expect(await env.ARTIFACTS.head(key)).toBeNull();
     const [tombstone] = await db()
       .select()
@@ -209,19 +215,19 @@ describe("deleting a workspace", () => {
 
   it("is advanced by the scheduled scan too", async () => {
     const { ws } = await newWorkspace();
-    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW }));
     const pending = await db().select().from(schema.workspaceDeletions);
-    const result = await processWorkspaceDeletions(db(), env.ARTIFACTS, NOW + 1, 50);
+    const result = await processWorkspaceDeletions(regionsFromEnv(env), NOW + 1, 50);
     expect(result).toEqual({ processed: pending.length, finished: pending.length });
-    expect(await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1)).toBe("absent");
+    expect(await advanceWorkspaceDeletion(regionsFromEnv(env), ws.id, NOW + 1)).toBe("absent");
   });
 
   it("is applied again after a restore brings the workspace back", async () => {
     const { ws, admin } = await newWorkspace();
     const { artifactId } = await publishInto(admin.id, ws.id);
-    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW }));
     await drain(NOW + 1);
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toContainEqual({ kind: "workspace", id: ws.id, deletedAt: NOW + 1 });
 
     // A restore to before the deletion: the workspace, its admin and its artifact are back, and
@@ -252,7 +258,7 @@ describe("deleting a workspace", () => {
       .where(eq(schema.artifacts.id, artifactId));
     expect(artifact?.state).toBe("purging");
     await drain(NOW + 3);
-    expect(await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 3)).toBe("absent");
+    expect(await advanceWorkspaceDeletion(regionsFromEnv(env), ws.id, NOW + 3)).toBe("absent");
     // Running it again changes nothing.
     expect(await applyTombstones(db(), [], NOW + 4)).toMatchObject({ workspaces: 0, artifacts: 0 });
   });
@@ -281,8 +287,8 @@ describe("deleting a workspace", () => {
         token: "claim-token",
         expiresAt: NOW + DAY,
       });
-    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
-    await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1);
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW }));
+    await advanceWorkspaceDeletion(regionsFromEnv(env), ws.id, NOW + 1);
     const [domain] = await db()
       .select({ state: schema.customDomains.state })
       .from(schema.customDomains)
@@ -296,9 +302,9 @@ describe("deleting a workspace", () => {
     const { ws } = await newWorkspace();
     // No foreign key ties a brand to its owner (an owner may be a workspace), so nothing cascades.
     await db().insert(schema.ownerBrands).values({ ownerId: ws.id, name: "Acme", updatedAt: NOW });
-    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW }));
     for (let i = 0; i < 5; i += 1) {
-      if ((await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1)) !== "pending")
+      if ((await advanceWorkspaceDeletion(regionsFromEnv(env), ws.id, NOW + 1)) !== "pending")
         break;
     }
     expect(
@@ -320,7 +326,7 @@ describe("deleting a workspace", () => {
       secretBox: "sealed",
       createdVia: "session",
     });
-    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW }));
     // Before any job runs: a deleted workspace's destination must not receive another event.
     expect(
       await db().select().from(schema.webhooks).where(eq(schema.webhooks.ownerId, ws.id)),
@@ -328,12 +334,12 @@ describe("deleting a workspace", () => {
   });
   it("removes again, after a restore, the webhooks of a workspace deleted before it", async () => {
     const { ws } = await newWorkspace();
-    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws.id, now: NOW }));
     for (let i = 0; i < 5; i += 1) {
-      if ((await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1)) !== "pending")
+      if ((await advanceWorkspaceDeletion(regionsFromEnv(env), ws.id, NOW + 1)) !== "pending")
         break;
     }
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toContainEqual({ kind: "workspace", id: ws.id, deletedAt: NOW + 1 });
     // The restore brought back only a webhook of the deleted workspace.
     const webhookId = `wh_${crypto.randomUUID().replaceAll("-", "")}`;

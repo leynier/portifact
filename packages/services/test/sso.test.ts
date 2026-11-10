@@ -2,7 +2,7 @@
 // lookups a sign-in makes, what an identity may assert, joining the workspace, sealing, the
 // identity provider's answers and what a removal and a restore do.
 import { env } from "cloudflare:test";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
@@ -403,7 +403,7 @@ describe("removing the provider", () => {
         createdAt: new Date(NOW),
         updatedAt: new Date(NOW),
       });
-    const exported = await exportTombstones(global());
+    const exported = await exportTombstones(regionsFromEnv(env));
     // The plan lapses: removing still works.
     await global().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
     expect(
@@ -435,7 +435,7 @@ describe("removing the provider", () => {
       ok: false,
       code: "not_found",
     });
-    const markers = await exportTombstones(global());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toContainEqual({ kind: "workspace_sso", id: provider.id, deletedAt: NOW });
     expect(exported.some((marker) => marker.id === provider.id)).toBe(false);
 
@@ -914,7 +914,7 @@ describe("a removal holds against single sign-on (review finding 2)", () => {
     value(
       await removeMember(global(), { userId: u.admin, slug: u.slug, memberId: u.editor, now: NOW }),
     );
-    value(await deleteWorkspace(db(), { workspaceId: u.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: u.id, now: NOW }));
     expect(
       await global()
         .select()
@@ -965,16 +965,16 @@ describe("a deleted workspace's identities (review finding 5)", () => {
     const t = await team();
     const provider = await setUp(t);
     await addAccount(t.editor, ssoAccountProvider(provider.id), "sub-e");
-    value(await deleteWorkspace(db(), { workspaceId: t.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: t.id, now: NOW }));
     expect(await ssoAccounts(provider.id)).toEqual([]);
   });
 
   it("are deleted again when a race or a restore brings them back during the deletion", async () => {
     const t = await team();
     const provider = await setUp(t);
-    value(await deleteWorkspace(db(), { workspaceId: t.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: t.id, now: NOW }));
     await addAccount(t.editor, ssoAccountProvider(provider.id), "sub-e");
-    await advanceWorkspaceDeletion(db(), env.ARTIFACTS, t.id, NOW);
+    await advanceWorkspaceDeletion(regionsFromEnv(env), t.id, NOW);
     expect(await ssoAccounts(provider.id)).toEqual([]);
   });
 

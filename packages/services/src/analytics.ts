@@ -176,7 +176,7 @@ export async function getArtifactStats(
   const allowed = await authorizeOn(db, input.userId, artifact, "access_log", missing);
   if (!allowed.ok) return allowed;
   const gate = requireFeature(
-    await ownerEntitlements(db, artifact.ownerId, input.now),
+    await ownerEntitlements(db.global, artifact.ownerId, input.now),
     "analytics",
   );
   if (!gate.ok) return gate;
@@ -275,13 +275,13 @@ function expirySql(base: SQL, plan: RetentionPlan): SQL {
  * expiry differs, so running it again changes nothing; `pending` asks the job to run again.
  */
 export async function applyOwnerRetention(
-  db: Db,
+  db: RegionalDb,
   access: AccessDb,
   ownerId: string,
   now: number,
   rounds = 10,
 ): Promise<"done" | "pending"> {
-  const plan = await ownerEntitlements(db, ownerId, now);
+  const plan = await ownerEntitlements(db.global, ownerId, now);
   const v = accessSchema.artifactViews;
   const e = accessSchema.accessEvents;
   const viewsExpiry = expirySql(sql`${v.day} + ${DAY_MS}`, plan);
@@ -317,7 +317,7 @@ export async function applyOwnerRetention(
  * Bounded statements; `pending` asks the job to run again.
  */
 export async function moveAccessHistory(
-  db: Db,
+  db: RegionalDb,
   access: AccessDb,
   artifactId: string,
   now: number,
@@ -330,7 +330,7 @@ export async function moveAccessHistory(
     .limit(1);
   if (!artifact) return "done";
   const owner = artifact.ownerId;
-  const plan = await ownerEntitlements(db, owner, now);
+  const plan = await ownerEntitlements(db.global, owner, now);
   const v = accessSchema.artifactViews;
   const e = accessSchema.accessEvents;
   const viewsExpiry = expirySql(sql`${v.day} + ${DAY_MS}`, plan);

@@ -13,6 +13,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Opening } from "../src/access-log.ts";
 import { READ_COOKIE, seal } from "../src/cookies.ts";
+import { resetDeliveryCaches } from "../src/directory.ts";
 import { handle } from "../src/index.ts";
 import { isPortifactCookie } from "../src/injected.ts";
 import { SHARE_COOKIE } from "../src/share-session.ts";
@@ -341,13 +342,17 @@ describe("a share link's session", () => {
     expect(setCookieFor(later, SHARE_COOKIE)).toMatch(/^__Host-pf_link=[^;]+; Max-Age=\d+/);
   });
 
-  it("stops at once when the artifact is suspended or archived, or the plan loses the feature", async () => {
+  // A plan is global and cached per isolate for a minute (decision 0005, `PLAN_TTL_MS`): a plan
+  // change reaches delivery at the latest when the cached row expires, which the reset stands in
+  // for; the artifact's own state is read on every request and stops it at once.
+  it("stops at once when the artifact is suspended or archived, and within a minute when the plan loses the feature", async () => {
     for (const change of ["suspend", "archive", "plan"] as const) {
       await seed();
       const { code } = await link();
       const cookie = await enter(code);
       if (change === "plan") {
         await setPlan("free");
+        resetDeliveryCaches();
       } else if (change === "suspend") {
         await sql("UPDATE artifacts SET state = 'suspended' WHERE id = ?", ID);
       } else {

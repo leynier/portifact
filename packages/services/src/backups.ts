@@ -204,27 +204,34 @@ export async function listStorageFindings(db: Db, limit = 100) {
  * progress and artifacts already claimed for purging (a purge cannot be undone). Taken from the
  * live database before restoring a backup.
  */
-export async function exportTombstones(db: Db): Promise<TombstoneMarker[]> {
+export async function exportTombstones(regions: {
+  global: GlobalDb;
+  all(): readonly { db: RegionalDb }[];
+}): Promise<TombstoneMarker[]> {
   const markers = new Map<string, TombstoneMarker>();
   const add = (marker: TombstoneMarker) => {
     const key = `${marker.kind}:${marker.id}`;
     if (!markers.has(key)) markers.set(key, marker);
   };
-  for (const row of await db.select().from(schema.tombstones)) add(row);
-  for (const row of await db.select().from(schema.accountDeletions)) {
+  const global = regions.global;
+  for (const row of await global.select().from(schema.tombstones)) add(row);
+  for (const row of await global.select().from(schema.accountDeletions)) {
     add({ kind: "account", id: row.userId, deletedAt: row.requestedAt });
   }
-  for (const row of await db.select().from(schema.workspaceDeletions)) {
+  for (const row of await global.select().from(schema.workspaceDeletions)) {
     add({ kind: "workspace", id: row.workspaceId, deletedAt: row.requestedAt });
   }
-  for (const row of await db
-    .select({ id: schema.artifacts.id, updatedAt: schema.artifacts.updatedAt })
-    .from(schema.artifacts)
-    .where(eq(schema.artifacts.state, "purging"))) {
-    add({ kind: "artifact", id: row.id, deletedAt: row.updatedAt });
+  // Purges and revocations are regional (decision 0005): every region's.
+  for (const { db } of regions.all()) {
+    for (const row of await db
+      .select({ id: schema.artifacts.id, updatedAt: schema.artifacts.updatedAt })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.state, "purging"))) {
+      add({ kind: "artifact", id: row.id, deletedAt: row.updatedAt });
+    }
+    // A revocation is permanent too: a restore must not reopen a link (decision 0008).
+    for (const marker of await revokedShareLinks(db)) add(marker);
   }
-  // A revocation is permanent too: a restore must not reopen a link (decision 0008).
-  for (const marker of await revokedShareLinks(db)) add(marker);
   return [...markers.values()].sort(
     (a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id),
   );
@@ -489,7 +496,10 @@ export async function applyTombstones(
   ]);
   // Roles from directory groups, recomputed from what the restore and the tombstones left
   // (decision 0017): bounded per run (`recomputeDirectoryRoles`), run again while `more`.
-  const roles = await recomputeDirectoryRoles(db as GlobalDb, now);
+  // The mapping and the memberships are global rows: through the global handle when the caller
+  // gave a region's (the rest of this function is a known crossing, to split per database later).
+  const global = "global" in db ? (db as RegionalDb).global : (db as GlobalDb);
+  const roles = await recomputeDirectoryRoles(global, now);
   return {
     inserted,
     artifacts: artifacts.length,
@@ -522,12 +532,9 @@ export async function rebuildArtifactDirectory(
   region: Region,
 ): Promise<number> {
   const a = schema.artifacts;
-  const missing = await regional
-    .select({ id: a.id, createdAt: a.createdAt })
-    .from(a)
-    .where(
-      sql`not exists (select 1 from ${schema.artifactDirectory} where ${schema.artifactDirectory.id} = ${a.id})`,
-    );
+  // The directory is global and the artifacts regional (decision 0005): every ID of the region is
+  // offered again and the ones the directory still has are left alone.
+  const missing = await regional.select({ id: a.id, createdAt: a.createdAt }).from(a);
   let added = 0;
   for (let i = 0; i < missing.length; i += 25) {
     const rows = await global

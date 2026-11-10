@@ -31,7 +31,12 @@ export interface DeliveryArtifact {
   archivedAt: number | null;
   /** What the owner's artifacts served in the cycle asked for; zero without a counter yet. */
   traffic: { requests: number; bytes: number };
-  /** The owner's plan row, which decides its traffic quota; null when it has none (free). */
+  /**
+   * The owner's plan row, which decides its traffic quota; null when it has none (free). Joined
+   * by the lookup with `withPlan` (a handle from `bothSides`, where the region's database is the
+   * global one); otherwise null, and the content Worker attaches it from its per-isolate cache of
+   * `findDeliveryPlan` (decision 0005).
+   */
   plan: DeliveryPlan | null;
 }
 
@@ -44,16 +49,66 @@ export interface DeliveryPlan {
 }
 
 /**
- * The artifact, its current version's entrypoint, the owner's traffic counter for the cycle
- * that starts at `cycleStart` and the owner's plan, in one lookup. With `customHost`, only an
- * artifact that holds exactly that custom host (decision 0006): the regional column decides what
- * a custom host serves, whatever any cached hint said.
+ * The artifact, its current version's entrypoint, the owner's traffic counter for the cycle that
+ * starts at `cycleStart` and, with `withPlan`, the owner's plan, in one lookup. `withPlan` needs
+ * a handle that reaches both sides (`bothSides`: one database, production today); otherwise
+ * `plan` comes back null and the caller attaches it from the global database
+ * (`findDeliveryPlan`). With `customHost`, only an artifact that holds exactly that custom host
+ * (decision 0006): the regional column decides what a custom host serves, whatever any cached
+ * hint said.
  */
 export async function findDeliveryArtifact(
   db: Db,
   id: string,
   cycleStart: number,
   customHost?: string,
+  options: { withPlan?: boolean } = {},
+): Promise<DeliveryArtifact | null> {
+  if (options.withPlan) return findWithPlan(db, id, cycleStart, customHost);
+  const [row] = await db
+    .select({
+      id: artifacts.id,
+      ownerId: artifacts.ownerId,
+      type: artifacts.type,
+      state: artifacts.state,
+      accessMode: artifacts.accessMode,
+      policyGeneration: artifacts.policyGeneration,
+      indexable: artifacts.indexable,
+      embeddable: artifacts.embeddable,
+      bar: artifacts.bar,
+      customHost: artifacts.customHost,
+      currentVersionId: artifacts.currentVersionId,
+      entrypoint: versions.entrypoint,
+      expiresAt: artifacts.expiresAt,
+      archivedAt: artifacts.archivedAt,
+      requests: sql<number>`coalesce(${trafficCounters.requests}, 0)`,
+      bytes: sql<number>`coalesce(${trafficCounters.bytes}, 0)`,
+    })
+    .from(artifacts)
+    .leftJoin(versions, eq(versions.id, artifacts.currentVersionId))
+    .leftJoin(
+      trafficCounters,
+      and(
+        eq(trafficCounters.ownerId, artifacts.ownerId),
+        eq(trafficCounters.cycleStart, cycleStart),
+      ),
+    )
+    .where(
+      customHost === undefined
+        ? eq(artifacts.id, id)
+        : and(eq(artifacts.id, id), eq(artifacts.customHost, customHost)),
+    )
+    .limit(1);
+  if (!row) return null;
+  const { requests, bytes, ...artifact } = row;
+  return { ...artifact, traffic: { requests: Number(requests), bytes: Number(bytes) }, plan: null };
+}
+
+async function findWithPlan(
+  db: Db,
+  id: string,
+  cycleStart: number,
+  customHost: string | undefined,
 ): Promise<DeliveryArtifact | null> {
   const [row] = await db
     .select({
@@ -104,6 +159,21 @@ export async function findDeliveryArtifact(
         ? null
         : { plan, seats, validUntil, overrides: overrides ?? null },
   };
+}
+
+/** The owner's plan row for delivery, from the global database; null when it has none (free). */
+export async function findDeliveryPlan(global: Db, ownerId: string): Promise<DeliveryPlan | null> {
+  const [row] = await global
+    .select({
+      plan: ownerPlans.plan,
+      seats: ownerPlans.seats,
+      validUntil: ownerPlans.validUntil,
+      overrides: ownerPlans.overrides,
+    })
+    .from(ownerPlans)
+    .where(eq(ownerPlans.ownerId, ownerId))
+    .limit(1);
+  return row ? { ...row, overrides: row.overrides ?? null } : null;
 }
 
 export interface DeliveryFile {

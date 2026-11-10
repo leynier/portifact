@@ -546,6 +546,17 @@ describe("emails in languages with more plural forms", () => {
 });
 
 describe("previews", () => {
+  it("list an EU workspace's expiring artifacts by address, never by name (decision 0005)", () => {
+    const named = previews().find((p) => p.name === "expiry-notice")?.email;
+    const nameless = previews().find((p) => p.name === "expiry-notice-without-names")?.email;
+    expect(named?.text).toContain("Q3 launch plan");
+    for (const part of [nameless?.subject, nameless?.text, nameless?.html]) {
+      expect(part).not.toContain("Q3 launch plan");
+      expect(part).not.toContain("Design review notes");
+    }
+    expect(nameless?.text).toContain("k7d2qm4xab.");
+  });
+
   it("cover every email with HTML and text", () => {
     const names = previews().map((p) => p.name);
     const translated = ["es", "pt-br", "fr", "de", "ru", "ja", "zh-cn"];
@@ -556,6 +567,7 @@ describe("previews", () => {
       "budget-alert-no-protection",
       "expiry-notice",
       "expiry-notice-one",
+      "expiry-notice-without-names",
       "comment-notice",
       "comment-notice-one",
       "comment-notice-without-names",

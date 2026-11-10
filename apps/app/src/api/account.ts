@@ -46,7 +46,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import type { Env } from "../env.ts";
-import { artifactDb, defaultDb, ownerScope, regionsOf } from "../regions.ts";
+import { artifactDb, bucketOf, defaultDb, ownerScope, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
 
@@ -295,10 +295,8 @@ export function accountRoutes(deps: AccountDeps) {
       const scope = await brandScope(c, session);
       if (!scope.ok) return error(c, scope.code, scope.message);
       const { actor, db } = scope.value;
-      return brandAnswer(
-        c,
-        await setBrandLogo(db, c.env.ARTIFACTS, { actor, bytes, now: deps.now() }),
-      );
+      const bucket = bucketOf(regionsOf(c.env).get(actor.region));
+      return brandAnswer(c, await setBrandLogo(db, bucket, { actor, bytes, now: deps.now() }));
     }),
   );
 
@@ -320,7 +318,9 @@ export function accountRoutes(deps: AccountDeps) {
       const scope = await brandScope(c, session);
       if (!scope.ok) return error(c, scope.code, scope.message);
       const { actor, db } = scope.value;
-      const logo = await readBrandLogo(db, c.env.ARTIFACTS, { actor });
+      const logo = await readBrandLogo(db, bucketOf(regionsOf(c.env).get(actor.region)), {
+        actor,
+      });
       if (!logo.ok) return error(c, logo.code, logo.message);
       return new Response(logo.value.body, {
         headers: {
@@ -353,7 +353,7 @@ export function accountRoutes(deps: AccountDeps) {
     sessionOnly(async (c, session) => {
       const body = await readJson(c, AccountDeletionInput, 1024);
       if (!body.ok) return body.response;
-      const result = await requestAccountDeletion(defaultDb(c.env), {
+      const result = await requestAccountDeletion(regionsOf(c.env), {
         userId: session.userId,
         sessionId: session.sessionId,
         confirmEmail: body.value.confirmEmail,

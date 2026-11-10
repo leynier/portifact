@@ -9,7 +9,7 @@ import {
   planRequiredMessage,
   type WorkspaceRole,
 } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { type Actor, personalActor } from "@portifact/domain";
 import { jpeg, png, text } from "@portifact/domain/testing/images";
 import { and, eq } from "drizzle-orm";
@@ -504,7 +504,7 @@ describe("the brand goes with its owner", () => {
     ).brand?.logo?.sha256 as string;
     const sid = await session(owner.id, NOW);
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: owner.id,
         sessionId: sid,
         confirmEmail: owner.email,
@@ -512,7 +512,7 @@ describe("the brand goes with its owner", () => {
       }),
     );
     for (let i = 0; i < 5; i += 1) {
-      if ((await advanceAccountDeletion(db(), env.ARTIFACTS, owner.id, NOW + DAY)) !== "pending")
+      if ((await advanceAccountDeletion(regionsFromEnv(env), owner.id, NOW + DAY)) !== "pending")
         break;
     }
     expect(await showBrand(db(), owner.id, NOW)).toMatchObject({ brand: null });
@@ -530,7 +530,7 @@ describe("the brand goes with its owner", () => {
       NOW,
     );
     expect(applied.accounts).toBe(1);
-    expect(await advanceAccountDeletion(db(), env.ARTIFACTS, owner.id, NOW)).toBe("finished");
+    expect(await advanceAccountDeletion(regionsFromEnv(env), owner.id, NOW)).toBe("finished");
     expect(await showBrand(db(), owner.id, NOW)).toMatchObject({ brand: null });
   });
 

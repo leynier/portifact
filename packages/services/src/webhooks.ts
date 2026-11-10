@@ -231,7 +231,7 @@ export async function listWebhooks(
 ): Promise<Result<WebhookListing>> {
   const allowed = authorize(input.actor, "webhooks");
   if (!allowed.ok) return allowed;
-  const owner = await ownerEntitlements(db, input.actor.ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, input.actor.ownerId, input.now);
   const available = hasFeature(owner, WEBHOOK_FEATURE);
   const rows = await db
     .select()
@@ -290,7 +290,10 @@ export async function createWebhook(
   if (!allowed.ok) return allowed;
   if (!input.service.enabled) return unavailable();
   const ownerId = input.actor.ownerId;
-  const owner = requireFeature(await ownerEntitlements(db, ownerId, input.now), WEBHOOK_FEATURE);
+  const owner = requireFeature(
+    await ownerEntitlements(db.global, ownerId, input.now),
+    WEBHOOK_FEATURE,
+  );
   if (!owner.ok) return owner;
   const checked = checkWebhookUrl(input.webhook.url, input.webhook.format);
   if (!checked.ok) return checked;
@@ -353,7 +356,7 @@ export async function updateWebhook(
   const row = await owned(db, input.actor, input.webhookId);
   if (!row) return missing();
   const enabled = input.update.enabled ?? row.disabledAt === null;
-  const owner = await ownerEntitlements(db, input.actor.ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, input.actor.ownerId, input.now);
   if (enabled) {
     if (!input.service.enabled) return unavailable();
     const gate = requireFeature(owner, WEBHOOK_FEATURE);
@@ -456,7 +459,7 @@ export async function sendTestEvent(
   if (!row) return missing();
   if (!input.service.enabled) return unavailable();
   const gate = requireFeature(
-    await ownerEntitlements(db, input.actor.ownerId, input.now),
+    await ownerEntitlements(db.global, input.actor.ownerId, input.now),
     WEBHOOK_FEATURE,
   );
   if (!gate.ok) return gate;
@@ -578,7 +581,7 @@ export async function deliverWebhook(
     if (!job) await db.delete(we).where(eq(we.webhookId, webhook.id));
     return "stale";
   }
-  const protection = await platformProtection(db, now);
+  const protection = await platformProtection(db.global, now);
   if (deps.paused || protection.actions.includes("block_uploads")) {
     await reschedule(db, row, now + WEBHOOK_LIMITS.pausedRetryMs);
     return "kept";

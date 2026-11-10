@@ -39,9 +39,22 @@ export interface Presigner {
   presignGet(key: string, now: number): Promise<PresignedDownload>;
 }
 
+/**
+ * The S3 endpoint of a bucket: `https://<account>.r2.cloudflarestorage.com`, or for a bucket in a
+ * jurisdiction `https://<account>.<jurisdiction>.r2.cloudflarestorage.com` (a jurisdiction's
+ * endpoint reaches only its own buckets, Cloudflare's R2 data location documentation).
+ */
+export function storageEndpoint(accountId: string, jurisdiction?: string | undefined): string {
+  return jurisdiction
+    ? `https://${accountId}.${jurisdiction}.r2.cloudflarestorage.com`
+    : `https://${accountId}.r2.cloudflarestorage.com`;
+}
+
 export interface R2Credentials {
   accountId: string;
   bucket: string;
+  /** The bucket's jurisdiction (`eu`), whose S3 endpoint is its own host; none for the default. */
+  jurisdiction?: string | undefined;
   accessKeyId: string;
   secretAccessKey: string;
 }
@@ -62,7 +75,7 @@ export function r2Presigner(credentials: R2Credentials): Presigner {
     service: "s3",
     region: "auto",
   });
-  const endpoint = `https://${credentials.accountId}.r2.cloudflarestorage.com/${credentials.bucket}`;
+  const endpoint = `${storageEndpoint(credentials.accountId, credentials.jurisdiction)}/${credentials.bucket}`;
   const objectUrl = (key: string) =>
     new URL(`${endpoint}/${key.split("/").map(encodeURIComponent).join("/")}`);
   const amzDate = (now: number) => new Date(now).toISOString().replace(/[:-]|\.\d{3}/g, "");

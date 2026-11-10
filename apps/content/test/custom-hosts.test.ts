@@ -572,14 +572,14 @@ describe("the hint cache", () => {
     const regions = regionsFromEnv(env);
     const hosts = new HostDirectory(2);
     const hostname = host();
-    expect(await resolveCustomHost(regions, hosts, hostname, NOW)).toBeNull();
+    expect(await resolveCustomHost(regions, hosts, hostname, NOW, NOW)).toBeNull();
     expect(hosts.size).toBe(0);
     await attach(hostname);
-    expect((await resolveCustomHost(regions, hosts, hostname, NOW))?.artifact.id).toBe(ID);
+    expect((await resolveCustomHost(regions, hosts, hostname, NOW, NOW))?.artifact.id).toBe(ID);
     expect(hosts.cached(hostname)).toEqual({ artifactId: ID, region: "default" });
     // A stale hint (the row left) is dropped on the same request.
     await detach(hostname);
-    expect(await resolveCustomHost(regions, hosts, hostname, NOW)).toBeNull();
+    expect(await resolveCustomHost(regions, hosts, hostname, NOW, NOW)).toBeNull();
     expect(hosts.cached(hostname)).toBeUndefined();
     // The oldest entries go past the cache's size.
     const names = [host(), host(), host()];
@@ -587,7 +587,7 @@ describe("the hint cache", () => {
       await run("DELETE FROM custom_domains");
       await run("UPDATE artifacts SET custom_host = NULL");
       await attach(name);
-      await resolveCustomHost(regions, hosts, name, NOW);
+      await resolveCustomHost(regions, hosts, name, NOW, NOW);
     }
     expect(hosts.size).toBe(2);
     expect(hosts.cached(names[0] as string)).toBeUndefined();

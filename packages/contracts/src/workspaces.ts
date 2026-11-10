@@ -11,7 +11,7 @@ import { WorkspacePolicy } from "./policies.ts";
  * EU region arrives with E5. A personal space is always in the default region, and a
  * workspace's region is fixed when it is created.
  */
-export const REGIONS = ["default"] as const;
+export const REGIONS = ["default", "eu"] as const;
 export const Region = z.enum(REGIONS);
 export type Region = z.infer<typeof Region>;
 export const DEFAULT_REGION: Region = "default";

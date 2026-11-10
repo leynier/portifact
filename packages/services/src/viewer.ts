@@ -3,13 +3,14 @@
 // as reading the artifact; anonymous visitors see only public artifacts that are servable, so a
 // protected, unavailable or missing artifact gives the same answer until they sign in.
 import type { AccessMode, ViewerRole } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
   customHostWithoutClick,
   effectiveState,
   entitlements,
   fail,
+  type OwnerPlanRecord,
   ok,
   type Result,
 } from "@portifact/domain";
@@ -17,6 +18,7 @@ import { eq } from "drizzle-orm";
 import { actorOn } from "./actors.ts";
 import { type ViewerBrandFacts, viewerBrandFacts } from "./branding.ts";
 import { activeCustomHost } from "./custom-domains.ts";
+import { ownerPlanRecord } from "./plans.ts";
 import { checkReadAccess } from "./read-access.ts";
 
 export interface ViewerArtifact {
@@ -49,7 +51,17 @@ export async function getViewerArtifact(
     customDomains: boolean;
   },
 ): Promise<Result<ViewerArtifact>> {
-  const [artifact] = await db
+  // With one database the plan comes with the artifact, as it always did; otherwise it is read
+  // from the global database only for a branded owner (decision 0005).
+  const both = bothSides(db);
+  const p = schema.ownerPlans;
+  const planColumns = {
+    plan: p.plan,
+    seats: p.seats,
+    validUntil: p.validUntil,
+    overrides: p.overrides,
+  };
+  const base = (both ?? db)
     .select({
       ownerId: schema.artifacts.ownerId,
       name: schema.artifacts.name,
@@ -60,7 +72,8 @@ export async function getViewerArtifact(
       expiresAt: schema.artifacts.expiresAt,
       archivedAt: schema.artifacts.archivedAt,
       versionNumber: schema.versions.number,
-      // The owner's brand and plan come with the artifact, so an unbranded owner costs no read.
+      // The owner's brand comes with the artifact; the plan (global, decision 0005) is read only
+      // for a branded owner, so an unbranded one costs no read.
       brandName: schema.ownerBrands.name,
       brandAccent: schema.ownerBrands.accentColor,
       brandLink: schema.ownerBrands.link,
@@ -68,15 +81,13 @@ export async function getViewerArtifact(
       brandLogoWidth: schema.ownerBrands.logoWidth,
       brandLogoHeight: schema.ownerBrands.logoHeight,
       brandSuspendedAt: schema.ownerBrands.suspendedAt,
-      plan: schema.ownerPlans.plan,
-      planSeats: schema.ownerPlans.seats,
-      planValidUntil: schema.ownerPlans.validUntil,
-      planOverrides: schema.ownerPlans.overrides,
+      ...(both ? { joinedPlan: planColumns } : {}),
     })
     .from(schema.artifacts)
     .innerJoin(schema.versions, eq(schema.versions.id, schema.artifacts.currentVersionId))
     .leftJoin(schema.ownerBrands, eq(schema.ownerBrands.ownerId, schema.artifacts.ownerId))
-    .leftJoin(schema.ownerPlans, eq(schema.ownerPlans.ownerId, schema.artifacts.ownerId))
+    .$dynamic();
+  const [artifact] = await (both ? base.leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId)) : base)
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   if (!artifact) return unavailable();
@@ -119,14 +130,11 @@ export async function getViewerArtifact(
             suspendedAt: artifact.brandSuspendedAt,
           },
       entitlements(
-        artifact.plan === null
-          ? null
-          : {
-              plan: artifact.plan,
-              seats: artifact.planSeats ?? 1,
-              validUntil: artifact.planValidUntil,
-              overrides: artifact.planOverrides,
-            },
+        both
+          ? (("joinedPlan" in artifact ? artifact.joinedPlan : null) as OwnerPlanRecord | null)
+          : artifact.brandName === null
+            ? null
+            : await ownerPlanRecord(db.global, artifact.ownerId),
         input.now,
       ),
     ),

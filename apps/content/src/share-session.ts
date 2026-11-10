@@ -5,7 +5,7 @@
 // A link session reads the artifact's current version and nothing else; a read session, when the
 // browser has a usable one, always wins (see authorizeRead).
 import { OpaqueToken, ShareClaims } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import { entitlements, hasFeature } from "@portifact/domain";
 import { redeemShareHandoff, refreshShareSession } from "@portifact/services";
 import { clearCookie, cookieValue, seal, setCookie, unseal, usableSecret } from "./cookies.ts";
@@ -55,7 +55,7 @@ export type LinkStep =
 export async function handleLinkCallback(
   request: Request,
   env: ReadEnv,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   now: number,
   hosts: RequestHosts,
@@ -100,7 +100,7 @@ export async function handleLinkCallback(
 export async function authorizeLink(
   request: Request,
   env: ReadEnv,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,

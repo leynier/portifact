@@ -3,7 +3,7 @@
 // session and later renews the session's claims through the same access check. A missing
 // artifact and a forbidden one give the same answer.
 import { type AccessMode, READ_SESSION } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   canRead,
   customHostWithoutClick,
@@ -19,6 +19,7 @@ import { and, eq, exists, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
 import { activeCustomHost } from "./custom-domains.ts";
+import { ownerPlanQuery } from "./plans.ts";
 import { policyDomains } from "./workspace-domains.ts";
 import { artifactGroupRows, viewerGroups } from "./workspace-groups.ts";
 
@@ -47,17 +48,37 @@ export interface RedeemedReadSession extends ReadSessionGrant {
 
 /**
  * Whether the app.portifact.com session behind a code or read session still exists and has not
- * expired. Signing out, signing out everywhere and revoking a session all delete the row.
+ * expired. Signing out, signing out everywhere and revoking a session all delete the row. Better
+ * Auth's sessions are global and handoffs and sessions regional (decision 0005), so this is its
+ * own read of the global database, never a condition inside a regional statement.
  */
-export function liveAppSession(db: Db, authSessionId: SQLiteColumn, now: number) {
+/**
+ * The same check as a condition inside a statement, for a handle from `bothSides`: with one
+ * database the app session is checked in the redemption's or renewal's own statement, as it
+ * always was, at no extra call.
+ */
+export function liveAppSession(both: Db, authSessionId: SQLiteColumn, now: number) {
   return exists(
-    db
+    both
       .select({ one: sql`1` })
       .from(schema.sessions)
       .where(
         and(eq(schema.sessions.id, authSessionId), gt(schema.sessions.expiresAt, new Date(now))),
       ),
   );
+}
+
+export async function appSessionLive(
+  global: GlobalDb,
+  authSessionId: string,
+  now: number,
+): Promise<boolean> {
+  const [row] = await global
+    .select({ one: sql`1` })
+    .from(schema.sessions)
+    .where(and(eq(schema.sessions.id, authSessionId), gt(schema.sessions.expiresAt, new Date(now))))
+    .limit(1);
+  return row !== undefined;
 }
 
 const unavailable = () =>
@@ -91,7 +112,6 @@ export async function checkReadAccess(
   db: RegionalDb,
   input: { artifactId: string; userId: string; now: number },
 ): Promise<Result<ReadGrant>> {
-  const p = schema.ownerPlans;
   const [artifact] = await db
     .select({
       ownerId: schema.artifacts.ownerId,
@@ -101,11 +121,8 @@ export async function checkReadAccess(
       currentVersionId: schema.artifacts.currentVersionId,
       expiresAt: schema.artifacts.expiresAt,
       archivedAt: schema.artifacts.archivedAt,
-      // The owner's plan comes with the artifact: the `domain` mode depends on it.
-      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
     })
     .from(schema.artifacts)
-    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   if (!artifact?.currentVersionId) return unavailable();
@@ -119,11 +136,16 @@ export async function checkReadAccess(
   );
   if (state !== "active") return unavailable();
 
-  const [user] = await db.global
-    .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
-    .from(schema.users)
-    .where(eq(schema.users.id, input.userId))
-    .limit(1);
+  // The account and the owner's plan (the `domain` mode depends on it) are global: one batch of
+  // the global database, the round trip the account's read already took.
+  const [[user], [plan]] = await db.global.batch([
+    db.global
+      .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
+      .from(schema.users)
+      .where(eq(schema.users.id, input.userId))
+      .limit(1),
+    ownerPlanQuery(db.global, artifact.ownerId),
+  ]);
   if (!user) return unavailable();
 
   const readers =
@@ -142,7 +164,7 @@ export async function checkReadAccess(
     ownerId: artifact.ownerId,
     actor,
     verifiedEmails,
-    entitlements: entitlements(artifact.plan, input.now),
+    entitlements: entitlements(plan ?? null, input.now),
   });
   const viewer = { userId: input.userId, verifiedEmails };
   const policy = { mode: artifact.accessMode, ownerId: artifact.ownerId, readers, domains };
@@ -155,7 +177,7 @@ export async function checkReadAccess(
       ownerId: artifact.ownerId,
       actor,
       listed: await artifactGroupRows(db, input.artifactId),
-      entitlements: entitlements(artifact.plan, input.now),
+      entitlements: entitlements(plan ?? null, input.now),
     });
     decision = canRead({ ...policy, groups }, viewer, actor);
   }
@@ -260,7 +282,7 @@ export async function issueReadHandoff(
  * concurrent redemption creates nothing.
  */
 export async function redeemReadHandoff(
-  db: Db,
+  db: RegionalDb,
   input: {
     code: string;
     artifactId: string;
@@ -282,9 +304,12 @@ export async function redeemReadHandoff(
   const sessionId = randomToken();
   const expiresAt = input.now + READ_SESSION.sessionTtlSeconds * SECOND_MS;
   const handoff = schema.readHandoffs;
+  // One database: the app session is checked in the claim itself. Otherwise after it, globally.
+  const both = bothSides(db);
+  const w = both ?? db;
 
-  const [claimed] = await db.batch([
-    db
+  const [claimed] = await w.batch([
+    w
       .update(handoff)
       .set({ usedAt: input.now, sessionId })
       .where(
@@ -295,16 +320,17 @@ export async function redeemReadHandoff(
           sql`coalesce(${handoff.host}, ${input.devHost}) = ${input.host}`,
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
-          liveAppSession(db, handoff.authSessionId, input.now),
+          both ? liveAppSession(both, handoff.authSessionId, input.now) : undefined,
         ),
       )
       .returning({
         userId: handoff.userId,
         policyGeneration: handoff.policyGeneration,
         stateHash: handoff.stateHash,
+        authSessionId: handoff.authSessionId,
       }),
-    db.insert(schema.readSessions).select(
-      db
+    w.insert(schema.readSessions).select(
+      w
         .select({
           id: sql<string>`${sessionId}`.as("id"),
           artifactId: handoff.artifactId,
@@ -320,6 +346,12 @@ export async function redeemReadHandoff(
   const row = claimed[0];
   const state = row && stateHashes.get(row.stateHash);
   if (!row || state === undefined) return expired;
+  // The code is spent either way; a session whose app session ended gets nothing (one global
+  // read after the claim, decision 0005).
+  if (!both && !(await appSessionLive(db.global, row.authSessionId, input.now))) {
+    await db.delete(schema.readSessions).where(eq(schema.readSessions.id, sessionId));
+    return expired;
+  }
   return ok({
     sessionId,
     expiresAt,
@@ -338,20 +370,31 @@ export async function refreshReadSession(
   db: RegionalDb,
   input: { sessionId: string; artifactId: string; now: number },
 ): Promise<Result<ReadSessionGrant>> {
-  const [session] = await db
-    .select({ userId: schema.readSessions.userId, expiresAt: schema.readSessions.expiresAt })
+  const both = bothSides(db);
+  const [session] = await (both ?? db)
+    .select({
+      userId: schema.readSessions.userId,
+      expiresAt: schema.readSessions.expiresAt,
+      authSessionId: schema.readSessions.authSessionId,
+    })
     .from(schema.readSessions)
     .where(
       and(
         eq(schema.readSessions.id, input.sessionId),
         eq(schema.readSessions.artifactId, input.artifactId),
         gt(schema.readSessions.expiresAt, input.now),
-        liveAppSession(db, schema.readSessions.authSessionId, input.now),
+        both ? liveAppSession(both, schema.readSessions.authSessionId, input.now) : undefined,
       ),
     )
     .limit(1);
   if (!session) return unavailable();
-  const access = await checkReadAccess(db, { ...input, userId: session.userId });
+  // One database: the app session was checked in the read above. Otherwise it is global and
+  // checked alongside the access check, adding no round trip.
+  const [live, access] = await Promise.all([
+    both ? true : appSessionLive(db.global, session.authSessionId, input.now),
+    checkReadAccess(db, { ...input, userId: session.userId }),
+  ]);
+  if (!live) return unavailable();
   if (!access.ok) return access;
   return ok({
     userId: access.value.userId,

@@ -2,7 +2,8 @@
 // settings, authentication, provisioning with and without an account, deactivation and deletion,
 // seats, the last admin, verified domains, removals by hand, sign-in claims, races, single
 // sign-on, restores and pruning.
-import { schema } from "@portifact/db";
+import { env } from "cloudflare:test";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it, vi } from "vitest";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
@@ -230,7 +231,7 @@ describe("the directory's tokens", () => {
       ok: false,
       reason: "invalid",
     });
-    const markers = await exportTombstones(global());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toContainEqual({ kind: "scim_token", id: caller.tokenId, deletedAt: NOW });
     expect(
       await revokeScimToken(global(), {
@@ -552,7 +553,7 @@ describe("deactivation and deletion", () => {
     expect(off.ended).toBe(ada);
     expect(await role(t, ada)).toBeNull();
     expect(await events(t)).toContainEqual(["member.removed", "directory"]);
-    expect(await exportTombstones(global())).toContainEqual({
+    expect(await exportTombstones(regionsFromEnv(env))).toContainEqual({
       kind: "workspace_member",
       id: `${t.id}:${ada}`,
       deletedAt: NOW + 1,
@@ -686,7 +687,7 @@ describe("deactivation and deletion", () => {
     expect(await deleteScimUser(global(), caller, created.user.id, NOW + 2, END)).toMatchObject({
       error: { status: 404 },
     });
-    expect(await exportTombstones(global())).toContainEqual({
+    expect(await exportTombstones(regionsFromEnv(env))).toContainEqual({
       kind: "scim_user",
       id: created.user.id,
       deletedAt: NOW + 1,
@@ -878,7 +879,7 @@ describe("restores and pruning", () => {
     const invitation = await pending(t, `p@${t.domain}`);
     ok(await patchScimUser(global(), NO_EMAIL, caller, member.user.id, deactivate, NOW + 1));
     ok(await patchScimUser(global(), NO_EMAIL, caller, pendingUser.user.id, deactivate, NOW + 1));
-    const markers = await exportTombstones(global());
+    const markers = await exportTombstones(regionsFromEnv(env));
     // A D1 Time Travel restore to before the deactivation brings back both rows and no removal.
     await global().delete(schema.tombstones);
     await global()
@@ -930,7 +931,7 @@ describe("restores and pruning", () => {
       .where(eq(schema.scimUsers.id, created.user.id));
     ok(await deleteScimUser(global(), caller, created.user.id, NOW, END));
     expect(await operatorRevokeScimToken(global(), caller.tokenId, NOW)).toBe(true);
-    const markers = await exportTombstones(global());
+    const markers = await exportTombstones(regionsFromEnv(env));
     if (tokenRow) await global().insert(schema.scimTokens).values(tokenRow);
     if (userRow) await global().insert(schema.scimUsers).values(userRow);
     expect(await applyTombstones(global(), markers, NOW + 1)).toMatchObject({

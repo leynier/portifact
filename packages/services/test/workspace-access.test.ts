@@ -3,7 +3,7 @@
 // workspace proves a domain and what the re-check, removal, transfer, export and a restore do.
 import { env } from "cloudflare:test";
 import type { AnnotationTarget } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { entitlements } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -990,7 +990,7 @@ describe("lifecycle", () => {
         now: NOW,
       }),
     );
-    const markers = (await exportTombstones(db())).filter(
+    const markers = (await exportTombstones(regionsFromEnv(env))).filter(
       (marker) => marker.kind === "workspace_domain",
     );
     expect(markers.map((marker) => marker.id)).toContain(domain.id);

@@ -6,7 +6,7 @@
 // suppression, capacity). Notes and other reviewers' names never leave.
 import { env } from "cloudflare:test";
 import { APPROVALS, type JobMessage, WEBHOOK_LIMITS } from "@portifact/contracts";
-import { globalDb, regionalDb, schema } from "@portifact/db";
+import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import {
   checkCommentNoticeCapacity,
   checkReviewNoticeCapacity,
@@ -199,7 +199,7 @@ describe("review emails to reviewers", () => {
     await db()
       .insert(schema.accountSettings)
       .values({ userId: ana.id, commentNotices: false, updatedAt: NOW });
-    await suppressEmail(db(), { email: ben.email, reason: "hard_bounce", now: NOW });
+    await suppressEmail(db().global, { email: ben.email, reason: "hard_bounce", now: NOW });
     value(await ask(owner, artifactId, [ana.email, ben.email, cy.email]));
     value(
       await updateAccess(db(), {
@@ -306,7 +306,7 @@ describe("review emails to reviewers", () => {
       .insert(schema.outbox)
       .values({ topic: "review_notice", payload: {}, availableAt: NOW, subject: ana.id });
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: ana.id,
         sessionId: await session(ana.id),
         confirmEmail: ana.email,
