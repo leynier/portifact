@@ -67,7 +67,7 @@ describe("abuse reports", () => {
   it("drops reports about unknown, deleted or missing artifacts without telling", async () => {
     const owner = await user();
     const { artifactId } = await publishSite(owner.id);
-    await deleteArtifact(db(), env.ARTIFACTS, { ownerId: owner.id, artifactId, now: NOW });
+    await deleteArtifact(db(), env.ARTIFACTS, { userId: owner.id, artifactId, now: NOW });
     for (const id of [artifactId, "zzzzzzzzzz", null]) {
       expect(
         await submitAbuseReport(db(), {
@@ -204,7 +204,7 @@ describe("suspending an artifact", () => {
     const owner = await user();
     const { artifactId } = await publishSite(owner.id);
     const lost = await suspendArtifact(
-      racing(() => archiveArtifact(db(), { ownerId: owner.id, artifactId, now: NOW })),
+      racing(() => archiveArtifact(db(), { userId: owner.id, artifactId, now: NOW })),
       { artifactId, reason: "spam", now: NOW + 1 },
     );
     expect(lost).toMatchObject({ ok: false, code: "version_conflict" });
@@ -214,13 +214,13 @@ describe("suspending an artifact", () => {
   it("keeps an archived artifact archived when reinstated, with its purge date", async () => {
     const owner = await user();
     const { artifactId } = await publishSite(owner.id);
-    await archiveArtifact(db(), { ownerId: owner.id, artifactId, now: NOW });
+    await archiveArtifact(db(), { userId: owner.id, artifactId, now: NOW });
     const archived = await artifactRow(artifactId);
     await suspendArtifact(db(), { artifactId, reason: "copyright", now: NOW + 1 });
     expect(await activeSlots(owner.id)).toBe(0);
     // The owner cannot restore a suspended artifact.
     expect(
-      await restoreArtifact(db(), { ownerId: owner.id, artifactId, now: NOW + 2 }),
+      await restoreArtifact(db(), { userId: owner.id, artifactId, now: NOW + 2 }),
     ).toMatchObject({ ok: false });
     const reinstated = await reinstateArtifact(db(), { artifactId, now: NOW + 3 });
     expect(reinstated).toEqual({ ok: true, value: { state: "archived", changed: true } });
@@ -316,7 +316,7 @@ describe("suspending an artifact", () => {
     });
     expect(download).toMatchObject({ ok: false, code: "not_found" });
     const deleted = await deleteArtifact(db(), env.ARTIFACTS, {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId,
       now: NOW,
     });
@@ -331,7 +331,7 @@ describe("suspending an account", () => {
     const active = await publishSite(owner.id);
     const archived = await publishSite(owner.id);
     const alone = await publishSite(owner.id);
-    await archiveArtifact(db(), { ownerId: owner.id, artifactId: archived.artifactId, now: NOW });
+    await archiveArtifact(db(), { userId: owner.id, artifactId: archived.artifactId, now: NOW });
     await suspendArtifact(db(), { artifactId: alone.artifactId, reason: "spam", now: NOW });
 
     const suspended = await suspendAccount(db(), {
@@ -352,7 +352,7 @@ describe("suspending an account", () => {
 
     const body = "<p>new</p>";
     const prepare = await preparePublish(db(), {
-      ownerId: owner.id,
+      userId: owner.id,
       type: "site",
       name: "New",
       entrypoint: "index.html",

@@ -10,7 +10,7 @@
 //    (artifact, user, policy generation) that are trusted without D1 for 60 seconds and only
 //    while the artifact's policy generation is unchanged.
 import { OpaqueToken, READ_SESSION, ReadClaims, ReadTransaction } from "@portifact/contracts";
-import type { Db, DeliveryArtifact } from "@portifact/db";
+import type { DeliveryArtifact, RegionalDb } from "@portifact/db";
 import { randomToken, redeemReadHandoff, refreshReadSession } from "@portifact/services";
 import {
   clearCookie,
@@ -103,7 +103,7 @@ async function claimsCookie(
 export async function authorizeRead(
   request: Request,
   env: ReadEnv,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,
@@ -251,7 +251,7 @@ async function openTransactions(
 export async function handleCallback(
   request: Request,
   env: ReadEnv,
-  db: Db,
+  db: RegionalDb,
   artifactId: string,
   now: number,
 ): Promise<SignInStep> {

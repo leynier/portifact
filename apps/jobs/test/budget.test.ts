@@ -1,12 +1,12 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { emailsSentInCycle, getBudgetState, listBudgetAlerts } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsCollector } from "../src/analytics.ts";
 import { alertEmail, type BudgetEmail, notifierFromEnv, runBudget } from "../src/budget.ts";
 import { runScheduledBudget } from "../src/index.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 // November has 30 days: the 16th at 00:00 is half the cycle, so counters project to double.
 const MID = Date.UTC(2026, 10, 16);
 

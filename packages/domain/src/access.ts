@@ -1,4 +1,5 @@
 import { type AccessMode, LIMITS } from "@portifact/contracts";
+import { type Actor, actsForOwner } from "./actor.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 const MINUTE_MS = 60 * 1000;
@@ -19,23 +20,23 @@ export interface Viewer {
 
 /**
  * Decides whether a viewer may read an artifact. `unauthenticated` means signing in could
- * grant access; `forbidden` means the signed-in account has no access.
+ * grant access; `forbidden` means the signed-in account has no access. `actor` is the viewer's
+ * role on the artifact's owner (from `resolveActor`), null when they have none: an admin or
+ * editor of the owner reads every artifact of it, as the owner of a personal space always has.
+ * Readers listed by email are not members and keep reading through the list.
  */
-export function canRead(policy: AccessPolicy, viewer: Viewer | null): Result<true> {
+export function canRead(
+  policy: AccessPolicy,
+  viewer: Viewer | null,
+  actor: Actor | null,
+): Result<true> {
   if (policy.mode === "public") return ok(true);
   if (!viewer) return fail("unauthenticated", "Sign in to open this artifact.");
-  if (viewer.userId === policy.ownerId) return ok(true);
+  if (actor?.userId === viewer.userId && actsForOwner(actor, policy.ownerId)) return ok(true);
   if (policy.mode === "authenticated") return ok(true);
   const readers = new Set(policy.readers);
   if (viewer.verifiedEmails.some((email) => readers.has(email))) return ok(true);
   return fail("forbidden", "Your account does not have access to this artifact.");
-}
-
-/** Only the owner manages an artifact: publishing, access, renewal, restore and deletion. */
-export function canManage(policy: AccessPolicy, viewer: Viewer | null): Result<true> {
-  if (!viewer) return fail("unauthenticated", "Sign in to manage this artifact.");
-  if (viewer.userId !== policy.ownerId) return fail("forbidden", "Only the owner can do this.");
-  return ok(true);
 }
 
 /** New accounts cannot make artifacts public during their first minutes (abuse protection). */

@@ -1,3 +1,5 @@
+import { value } from "./fixtures.ts";
+import { personalActor } from "@portifact/domain";
 // Plans in the services (premium plan section 3, F1): an owner without a row is exactly today's
 // free account, and an owner's plan row raises or lowers the limits the domain rules apply.
 import { PLANS } from "@portifact/contracts";
@@ -20,7 +22,7 @@ function bigSite(): ManifestEntry[] {
 
 const prepare = (ownerId: string, files: ManifestEntry[], now = NOW) =>
   preparePublish(db(), {
-    ownerId,
+    userId: ownerId,
     type: "site",
     name: "Large dataset",
     entrypoint: "a.bin",
@@ -122,7 +124,7 @@ describe("publishing with a plan", () => {
 describe("usage with a plan", () => {
   it("reports free and today's limits without a row", async () => {
     const owner = await user();
-    const report = await getAccountUsage(db(), { ownerId: owner.id, now: NOW });
+    const report = value(await getAccountUsage(db(), { actor: personalActor(owner.id), now: NOW }));
     expect(report.plan.plan).toBe("free");
     expect(report.activeArtifacts.limit).toBe(50);
     expect(report.storage.limit).toBe(2_500_000_000);
@@ -135,13 +137,15 @@ describe("usage with a plan", () => {
     const owner = await user();
     const other = await user();
     await grantPlan(owner.id, "pro");
-    const pro = await getAccountUsage(db(), { ownerId: owner.id, now: NOW });
+    const pro = value(await getAccountUsage(db(), { actor: personalActor(owner.id), now: NOW }));
     expect(pro.plan.plan).toBe("pro");
     expect(pro.activeArtifacts.limit).toBe(500);
     expect(pro.storage.limit).toBe(25_000_000_000);
     expect(pro.trafficThisMonth.requests.limit).toBe(2_000_000);
     expect(pro.trafficThisMonth.bytes.limit).toBe(250_000_000_000);
     expect(pro.versionLimits.publishedBytes).toBe(2_000_000_000);
-    expect((await getAccountUsage(db(), { ownerId: other.id, now: NOW })).plan.plan).toBe("free");
+    expect(
+      value(await getAccountUsage(db(), { actor: personalActor(other.id), now: NOW })).plan.plan,
+    ).toBe("free");
   });
 });

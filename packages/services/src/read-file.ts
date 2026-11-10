@@ -2,7 +2,7 @@
 // content up to 256 KiB per operation, larger files in pages by byte offset. Who may read what
 // is exactly what `getVersionDownload` allows; this only fetches the bytes the plan names.
 import { type DownloadKind, LIMITS } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import { fail, isTextContentType, ok, type Result, utf8BoundaryEnd } from "@portifact/domain";
 import { getVersionDownload } from "./versions.ts";
 
@@ -39,7 +39,7 @@ export interface FilePage {
 export const READ_PAGE_BYTES = LIMITS.inlineMcpBytes;
 
 export async function readVersionFile(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   input: ReadFileInput,
 ): Promise<Result<FilePage>> {

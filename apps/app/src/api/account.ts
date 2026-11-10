@@ -17,7 +17,7 @@ import {
   type ErrorCode,
   SignOutOthersResult,
 } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { defaultDb, regionsOf } from "../regions.ts";
 import {
   type ConnectedAppRow,
   disconnectApp,
@@ -85,7 +85,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     "/api/v1/account/sessions",
     sessionOnly(async (c, session) => {
-      const rows = await listBrowserSessions(createDb(c.env.DB), {
+      const rows = await listBrowserSessions(regionsOf(c.env).global, {
         userId: session.userId,
         currentSessionId: session.sessionId,
         now: deps.now(),
@@ -108,7 +108,7 @@ export function accountRoutes(deps: AccountDeps) {
     "/api/v1/account/sessions/sign-out-others",
     sessionOnly(async (c, session) => {
       const others = (
-        await listBrowserSessions(createDb(c.env.DB), {
+        await listBrowserSessions(regionsOf(c.env).global, {
           userId: session.userId,
           currentSessionId: session.sessionId,
           now: deps.now(),
@@ -122,7 +122,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     "/api/v1/account/apps",
     sessionOnly(async (c, session) => {
-      const rows = await listConnectedApps(createDb(c.env.DB), {
+      const rows = await listConnectedApps(regionsOf(c.env).global, {
         userId: session.userId,
         now: deps.now(),
       });
@@ -134,7 +134,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.delete(
     "/api/v1/account/apps/:clientId",
     sessionOnly(async (c, session) => {
-      const result = await disconnectApp(createDb(c.env.DB), {
+      const result = await disconnectApp(regionsOf(c.env).global, {
         userId: session.userId,
         clientId: c.req.param("clientId") as string,
       });
@@ -149,7 +149,7 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     "/api/v1/account/settings",
     sessionOnly(async (c, session) => {
-      const result = await getAccountSettings(createDb(c.env.DB), { userId: session.userId });
+      const result = await getAccountSettings(regionsOf(c.env).global, { userId: session.userId });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(AccountSettings.parse(result.value));
     }),
@@ -160,7 +160,7 @@ export function accountRoutes(deps: AccountDeps) {
     sessionOnly(async (c, session) => {
       const body = await readJson(c, AccountSettingsUpdate, 1024);
       if (!body.ok) return body.response;
-      const result = await updateAccountSettings(createDb(c.env.DB), {
+      const result = await updateAccountSettings(regionsOf(c.env).global, {
         userId: session.userId,
         update: body.value,
         now: deps.now(),
@@ -175,7 +175,7 @@ export function accountRoutes(deps: AccountDeps) {
     "/api/v1/account/export",
     sessionOnly(async (c, session) => {
       const now = deps.now();
-      const result = await exportAccount(createDb(c.env.DB), { userId: session.userId, now });
+      const result = await exportAccount(defaultDb(c.env), { userId: session.userId, now });
       if (!result.ok) return error(c, result.code, result.message);
       const day = new Date(now).toISOString().slice(0, 10);
       c.header("Content-Disposition", `attachment; filename="portifact-export-${day}.json"`);
@@ -189,7 +189,7 @@ export function accountRoutes(deps: AccountDeps) {
     sessionOnly(async (c, session) => {
       const body = await readJson(c, AccountDeletionInput, 1024);
       if (!body.ok) return body.response;
-      const result = await requestAccountDeletion(createDb(c.env.DB), {
+      const result = await requestAccountDeletion(defaultDb(c.env), {
         userId: session.userId,
         sessionId: session.sessionId,
         confirmEmail: body.value.confirmEmail,

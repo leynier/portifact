@@ -80,7 +80,7 @@ describe("outbox jobs for deletions", () => {
     const owner = await user();
     const site = await publishSite(owner.id);
     const deleted = await deleteArtifact(db(), env.ARTIFACTS, {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: site.artifactId,
       now: NOW,
     });
@@ -95,7 +95,7 @@ describe("outbox jobs for deletions", () => {
     const before = await artifactRow(site.artifactId);
     await expect(
       deleteArtifact(crashAfterBatches(1), env.ARTIFACTS, {
-        ownerId: owner.id,
+        userId: owner.id,
         artifactId: site.artifactId,
         now: NOW,
       }),
@@ -125,7 +125,7 @@ describe("outbox jobs for deletions", () => {
     const owner = await user();
     const site = await publishSite(owner.id);
     await deleteArtifact(crashAfterBatches(1), env.ARTIFACTS, {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: site.artifactId,
       now: NOW,
     }).catch(() => undefined);
@@ -151,7 +151,7 @@ describe("outbox jobs for deletions", () => {
     const owner = await user();
     const site = await publishSite(owner.id);
     await deleteArtifact(crashAfterBatches(1), env.ARTIFACTS, {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: site.artifactId,
       now: NOW,
     }).catch(() => undefined);
@@ -171,7 +171,7 @@ describe("outbox jobs for deletions", () => {
     const owner = await user();
     const site = await publishSite(owner.id);
     await deleteArtifact(crashAfterBatches(1), env.ARTIFACTS, {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: site.artifactId,
       now: NOW,
     }).catch(() => undefined);
@@ -189,7 +189,7 @@ describe("outbox jobs for deletions", () => {
     const body = `<p>${crypto.randomUUID()}</p>`;
     const site = await publishSite(owner.id, { "index.html": body });
     await deleteArtifact(crashAfterBatches(1), env.ARTIFACTS, {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: site.artifactId,
       now: NOW,
     }).catch(() => undefined);
@@ -209,7 +209,7 @@ describe("outbox jobs for deletions", () => {
   it("writes the purge job with the scheduled claim and closes it after purging", async () => {
     const owner = await user();
     const site = await publishSite(owner.id);
-    await archiveArtifact(db(), { ownerId: owner.id, artifactId: site.artifactId, now: NOW });
+    await archiveArtifact(db(), { userId: owner.id, artifactId: site.artifactId, now: NOW });
     const purgeAt = (await artifactRow(site.artifactId))?.purgeAt ?? 0;
     await expect(purgeArchived(crashAfterBatches(1), env.ARTIFACTS, purgeAt)).rejects.toThrow();
     const [job] = await jobsFor(site.artifactId);

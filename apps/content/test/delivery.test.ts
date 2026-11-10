@@ -1,5 +1,5 @@
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { beforeEach, describe, expect, it } from "vitest";
 import worker, { artifactIdFromHost, byteSpan, handle, requestedPath } from "../src/index.ts";
 
@@ -17,7 +17,7 @@ const files = {
 } as const;
 
 async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {}) {
-  const db = createDb(env.DB);
+  const db = regionsFromEnv(env).get("default").db;
   for (const table of ["version_files", "versions", "objects", "artifacts"]) {
     await env.DB.exec(`DELETE FROM ${table}`);
   }
@@ -153,7 +153,7 @@ describe("artifact delivery", () => {
     const otherId = "p3n5wq7yzc";
     const otherPage = "<h1>Other</h1>";
     const otherHash = sha("e");
-    const db = createDb(env.DB);
+    const db = regionsFromEnv(env).get("default").db;
     await env.ARTIFACTS.put(`objects/u_other/${otherHash}`, otherPage);
     await db.insert(schema.artifacts).values({
       id: otherId,
@@ -213,7 +213,7 @@ describe("artifact delivery", () => {
     expect(await response.text()).toBe("<h1>Plan</h1>");
     // The write happens in waitUntil, once the isolate's window closes.
     await waitOnExecutionContext(ctx);
-    const rows = await createDb(env.DB).select().from(schema.trafficCounters);
+    const rows = await regionsFromEnv(env).get("default").db.select().from(schema.trafficCounters);
     expect(rows).toMatchObject([{ ownerId: "u_owner", requests: 1, bytes: 13 }]);
   });
 

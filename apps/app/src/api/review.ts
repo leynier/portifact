@@ -18,7 +18,7 @@ import {
   ReviewTabStart,
   ViewerInfo,
 } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { artifactDb } from "../regions.ts";
 import {
   getViewerArtifact,
   type IssuedReviewHandoff,
@@ -116,7 +116,7 @@ export function reviewRoutes(deps: ReviewDeps) {
     const userId = hasSessionCookie(request.headers.get("cookie"))
       ? ((await deps.viewer(c.env)(request)) ?? null)
       : null;
-    const found = await getViewerArtifact(createDb(c.env.DB), { artifactId, userId, now });
+    const found = await getViewerArtifact(await artifactDb(c.env, artifactId), { artifactId, userId, now });
     if (!found.ok) return error(c, found.code, found.message);
     return c.json(
       ViewerInfo.parse({
@@ -174,7 +174,7 @@ async function issue(c: ReviewContext, deps: ReviewDeps, kind: ReviewKind): Prom
       "Too many reviews of this artifact opened. Try again in a few minutes.",
     );
   }
-  const issued = await issueReviewHandoff(createDb(c.env.DB), {
+  const issued = await issueReviewHandoff(await artifactDb(c.env, artifactId), {
     artifactId,
     userId: session.userId,
     authSessionId: session.sessionId,

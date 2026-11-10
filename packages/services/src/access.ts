@@ -9,8 +9,9 @@ import {
   LIMITS,
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
-import { checkAccessChange, fail, ok, type Result } from "@portifact/domain";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { type Actor, checkAccessChange, fail, ok, type Result } from "@portifact/domain";
+import { authorizeOn } from "./actors.ts";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -58,16 +59,26 @@ function changesAccess(change: AccessChange): boolean {
   );
 }
 
-async function loadOwned(db: Db, ownerId: string, artifactId: string) {
+const missing = () => fail<never>("not_found", "Artifact not found.");
+
+/**
+ * The artifact and the actor managing its access: an admin or editor of its owner. A user with
+ * no role on the owner, or an artifact being deleted, looks the same as a missing one.
+ */
+async function loadManaged(
+  db: RegionalDb,
+  userId: string,
+  artifactId: string,
+): Promise<Result<{ artifact: typeof schema.artifacts.$inferSelect; actor: Actor }>> {
   const [artifact] = await db
     .select()
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
-  // Someone else's artifact, or one being deleted, looks the same as a missing one.
-  if (!artifact || artifact.ownerId !== ownerId) return undefined;
-  if (artifact.state === "deleted" || artifact.state === "purging") return undefined;
-  return artifact;
+  if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
+  const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
+  if (!actor.ok) return actor;
+  return ok({ artifact, actor: actor.value });
 }
 
 async function readerRows(db: Db, artifactId: string) {
@@ -86,11 +97,12 @@ async function readers(db: Db, artifactId: string): Promise<string[]> {
 }
 
 export async function getAccess(
-  db: Db,
-  input: { ownerId: string; artifactId: string },
+  db: RegionalDb,
+  input: { userId: string; artifactId: string },
 ): Promise<Result<AccessPolicyState>> {
-  const artifact = await loadOwned(db, input.ownerId, input.artifactId);
-  if (!artifact) return fail("not_found", "Artifact not found.");
+  const loaded = await loadManaged(db, input.userId, input.artifactId);
+  if (!loaded.ok) return loaded;
+  const { artifact } = loaded.value;
   const rows = await readerRows(db, artifact.id);
   return ok({
     mode: artifact.accessMode,
@@ -114,21 +126,23 @@ export async function getAccess(
  * clean `version_conflict` with nothing half-applied.
  */
 export async function updateAccess(
-  db: Db,
-  input: { ownerId: string; artifactId: string; change: AccessChange; now: number },
+  db: RegionalDb,
+  input: { userId: string; artifactId: string; change: AccessChange; now: number },
 ): Promise<Result<AccessPolicyState>> {
-  const artifact = await loadOwned(db, input.ownerId, input.artifactId);
-  if (!artifact) return fail("not_found", "Artifact not found.");
+  const loaded = await loadManaged(db, input.userId, input.artifactId);
+  if (!loaded.ok) return loaded;
+  const { artifact, actor } = loaded.value;
   if (artifact.state === "suspended") {
     return fail("forbidden", "This artifact is suspended; its access cannot change.");
   }
   const { change } = input;
-  // Widening the audience is checked against the account age; narrowing it never is.
+  // Widening the audience is checked against the age of the account making the change (the
+  // owner's, in a personal space); narrowing it never is.
   if (change.mode && change.mode !== artifact.accessMode) {
-    const [owner] = await db
+    const [owner] = await db.global
       .select({ createdAt: schema.users.createdAt })
       .from(schema.users)
-      .where(eq(schema.users.id, input.ownerId))
+      .where(eq(schema.users.id, actor.userId))
       .limit(1);
     const allowed = checkAccessChange(
       change.mode,
@@ -228,7 +242,7 @@ export async function updateAccess(
   }
   await db.insert(schema.lifecycleEvents).values({
     artifactId: artifact.id,
-    actorId: input.ownerId,
+    actorId: actor.userId,
     channel: "system",
     event: "access_changed",
     details: {

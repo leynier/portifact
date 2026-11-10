@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -23,7 +23,7 @@ import { grantPlan } from "./fixtures.ts";
 const OWNER = "u_owner";
 const DAY = 86_400_000;
 const T0 = Date.UTC(2026, 0, 10, 12);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -49,7 +49,7 @@ async function publish(
   base?: { artifactId: string; versionId: string },
 ) {
   const prepared = await preparePublish(db(), {
-    ownerId: OWNER,
+    userId: OWNER,
     type: "site",
     name: "Plan",
     entrypoint: "index.html",
@@ -63,7 +63,7 @@ async function publish(
     await env.ARTIFACTS.put(`objects/${OWNER}/${await sha256(body)}`, body);
   }
   const committed = await commitPublish(db(), env.ARTIFACTS, {
-    ownerId: OWNER,
+    userId: OWNER,
     sessionId: prepared.value.sessionId,
     now,
   });
@@ -88,7 +88,7 @@ async function r2Keys() {
   return (await env.ARTIFACTS.list()).objects.map((o) => o.key).sort();
 }
 
-const input = (artifactId: string, now: number, ownerId = OWNER) => ({ ownerId, artifactId, now });
+const input = (artifactId: string, now: number, userId = OWNER) => ({ userId, artifactId, now });
 
 beforeEach(async () => {
   const listed = await env.ARTIFACTS.list();
@@ -347,7 +347,7 @@ describe("pruning versions and uploads", () => {
   it("releases abandoned uploads and removes what they left behind", async () => {
     const a = await publish({ "index.html": "<h1>v1</h1>" });
     const pending = await preparePublish(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       type: "site",
       name: "Plan",
       entrypoint: "index.html",
@@ -383,7 +383,7 @@ describe("pruning versions and uploads", () => {
 
   it("lets an aborted first upload leave nothing behind", async () => {
     const pending = await preparePublish(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       type: "site",
       name: "Plan",
       entrypoint: "index.html",
@@ -393,7 +393,7 @@ describe("pruning versions and uploads", () => {
     });
     if (!pending.ok) throw new Error(pending.message);
     await env.ARTIFACTS.put(pending.value.uploads[0]?.r2Key ?? "", "<h1>draft</h1>");
-    await abortPublish(db(), { ownerId: OWNER, sessionId: pending.value.sessionId, now: T0 });
+    await abortPublish(db(), { userId: OWNER, sessionId: pending.value.sessionId, now: T0 });
 
     expect(await sweepOrphanObjects(db(), env.ARTIFACTS, T0)).toEqual({ processed: 1 });
     expect(await db().select().from(schema.objects)).toEqual([]);

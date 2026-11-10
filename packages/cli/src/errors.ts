@@ -56,6 +56,7 @@ export function exitCodeFor(code: CliErrorCode): number {
     case "version_conflict":
     case "upload_incomplete":
     case "artifact_archived":
+    case "sole_workspace_admin":
       return EXIT.conflict;
     case "quota_exceeded":
     case "traffic_exceeded":

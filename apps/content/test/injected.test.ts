@@ -2,7 +2,7 @@
 // Suffix List): they never grant anything and are expired once they grow. Access with injected
 // cookies next to real sessions is covered in read-session.test.ts and review.test.ts.
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { beforeEach, describe, expect, it } from "vitest";
 import { READ_COOKIE } from "../src/cookies.ts";
 import { handle } from "../src/index.ts";
@@ -37,7 +37,7 @@ const SAME_ORIGIN = {
 };
 
 async function seed() {
-  const db = createDb(env.DB);
+  const db = regionsFromEnv(env).get("default").db;
   for (const table of ["version_files", "versions", "objects", "artifacts"]) {
     await env.DB.exec(`DELETE FROM ${table}`);
   }

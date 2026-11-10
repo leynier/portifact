@@ -27,7 +27,8 @@ import {
   SetCommentVisibilityInput,
   SetPortifactBarInput,
 } from "@portifact/contracts";
-import { createDb, type Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
+import { artifactDb, defaultDb, personalScope } from "../regions.ts";
 import type { MultipartConfig } from "@portifact/domain";
 import type { HumanCheck } from "@portifact/services";
 import {
@@ -120,7 +121,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
     { name: "portifact", title: "Portifact", version: "1.0.0" },
     { instructions: SERVER_INSTRUCTIONS },
   );
-  const db = createDb(context.env.DB);
+  // Idempotency records and uploads live in the default region until a second one exists (E5).
+  const db = defaultDb(context.env);
   const register = <Input extends StandardSchemaWithJSON>(
     name: string,
     config: ToolConfig<Input>,
@@ -145,17 +147,12 @@ export function createPortifactServer(context: ToolContext): McpServer {
     },
     async (args: ListArtifactsInput) => {
       const { cursor, limit, ...filters } = args;
-      const page = await listArtifacts(db, {
-        ownerId: context.userId,
-        cursor,
-        limit,
-        filters,
-        now: context.now(),
-      });
-      if (!page) return failure("invalid_input", "Invalid cursor.");
+      const { actor, db: owned } = await personalScope(context.env, context.userId);
+      const page = await listArtifacts(owned, { actor, cursor, limit, filters, now: context.now() });
+      if (!page.ok) return failure(page.code, page.message);
       const body = ArtifactList.parse({
-        items: page.items.map((row) => artifactListItem(context.env, row)),
-        nextCursor: page.nextCursor,
+        items: page.value.items.map((row) => artifactListItem(context.env, row)),
+        nextCursor: page.value.nextCursor,
       });
       const lines = body.items.map(
         (item) =>
@@ -179,9 +176,12 @@ export function createPortifactServer(context: ToolContext): McpServer {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async (args: ArtifactRef) => {
-      const row = await getArtifact(db, { ownerId: context.userId, artifactId: args.artifactId });
-      if (!row) return failure("not_found", "Artifact not found.");
-      const body = artifactSummary(context.env, row);
+      const row = await getArtifact(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
+        artifactId: args.artifactId,
+      });
+      if (!row.ok) return failure(row.code, row.message);
+      const body = artifactSummary(context.env, row.value);
       return success(
         `${body.id} "${body.name}" is ${body.state}, access ${body.accessMode}, current version ${body.currentVersionId}, expires ${body.expiresAt}. URL: ${body.url}`,
         body,
@@ -207,8 +207,11 @@ export function createPortifactServer(context: ToolContext): McpServer {
     async (args: PublishDocumentInput) => {
       const { idempotencyKey, ...request } = args;
       const run = async () => {
-        const result = await publishInline(db, context.env.ARTIFACTS, {
-          ownerId: context.userId,
+        const target = request.artifactId
+          ? await artifactDb(context.env, request.artifactId)
+          : (await personalScope(context.env, context.userId)).db;
+        const result = await publishInline(target, context.env.ARTIFACTS, {
+          userId: context.userId,
           type: request.type,
           name: request.name,
           content: request.content,
@@ -238,8 +241,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
     description: string,
     annotations: { destructiveHint: boolean; idempotentHint: boolean },
     action: (
-      db: Db,
-      input: { ownerId: string; artifactId: string; now: number },
+      db: RegionalDb,
+      input: { userId: string; artifactId: string; now: number },
     ) => Promise<Outcome<LifecycleOutcome>>,
   ) =>
     register(
@@ -254,8 +257,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
       async (args: ArtifactRef) =>
         lifecycleResponse(
           args.artifactId,
-          await action(db, {
-            ownerId: context.userId,
+          await action(await artifactDb(context.env, args.artifactId), {
+            userId: context.userId,
             artifactId: args.artifactId,
             now: context.now(),
           }),
@@ -308,8 +311,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
       }
       return lifecycleResponse(
         args.artifactId,
-        await deleteArtifact(db, context.env.ARTIFACTS, {
-          ownerId: context.userId,
+        await deleteArtifact(await artifactDb(context.env, args.artifactId), context.env.ARTIFACTS, {
+          userId: context.userId,
           artifactId: args.artifactId,
           now: context.now(),
         }),
@@ -333,8 +336,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
       },
     },
     async (args: SetPortifactBarInput) => {
-      const result = await updateAccess(db, {
-        ownerId: context.userId,
+      const result = await updateAccess(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
         artifactId: args.artifactId,
         change: { bar: args.enabled },
         now: context.now(),
@@ -372,8 +375,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
       if (!change.success) {
         return failure("invalid_input", change.error.issues[0]?.message ?? "Invalid change.");
       }
-      const result = await updateAccess(db, {
-        ownerId: context.userId,
+      const result = await updateAccess(await artifactDb(context.env, args.artifactId), {
+        userId: context.userId,
         artifactId: args.artifactId,
         change: change.data,
         now: context.now(),
@@ -403,7 +406,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
  * response is the API-shaped body, so a retry returns exactly the first result.
  */
 async function idempotent(
-  db: Db,
+  db: RegionalDb,
   context: ToolContext,
   key: string,
   request: Omit<PublishDocumentInput, "idempotencyKey">,

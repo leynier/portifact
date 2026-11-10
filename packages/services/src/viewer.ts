@@ -3,8 +3,9 @@
 // as reading the artifact; anonymous visitors see only public artifacts that are servable, so a
 // protected, unavailable or missing artifact gives the same answer until they sign in.
 import type { ViewerRole } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
-import { effectiveState, fail, ok, type Result } from "@portifact/domain";
+import { type RegionalDb, schema } from "@portifact/db";
+import { actsForOwner, effectiveState, fail, ok, type Result } from "@portifact/domain";
+import { actorOn } from "./actors.ts";
 import { eq } from "drizzle-orm";
 import { checkReadAccess } from "./read-access.ts";
 
@@ -22,7 +23,7 @@ const unavailable = () =>
 
 /** The artifact as the viewer shows it to `userId`, or to an anonymous visitor when null. */
 export async function getViewerArtifact(
-  db: Db,
+  db: RegionalDb,
   input: { artifactId: string; userId: string | null; now: number },
 ): Promise<Result<ViewerArtifact>> {
   const [artifact] = await db
@@ -57,7 +58,9 @@ export async function getViewerArtifact(
   } else {
     const access = await checkReadAccess(db, { ...input, userId: input.userId });
     if (!access.ok) return access;
-    role = artifact.ownerId === input.userId ? "owner" : "reader";
+    // An admin or editor of the owner is the owner here, as the user of a personal space is.
+    const actor = await actorOn(db.global, input.userId, artifact.ownerId);
+    role = actsForOwner(actor, artifact.ownerId) ? "owner" : "reader";
   }
   return ok({
     name: artifact.name,

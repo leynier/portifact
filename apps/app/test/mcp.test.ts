@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { LIMITS } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { regionsFromEnv } from "@portifact/db";
 import { commitPublish, hashRequest, preparePublish } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { publishInline } from "../src/mcp/inline.ts";
@@ -516,8 +516,8 @@ describe("publishing inline", () => {
 
   it("loses cleanly to a publish on the same base that commits first", async () => {
     const owner = "owner-race";
-    const db = createDb(env.DB);
-    const base = { ownerId: owner, type: "text" as const, name: "Race" };
+    const db = regionsFromEnv(env).get("default").db;
+    const base = { userId: owner, type: "text" as const, name: "Race" };
     const first = await publishInline(db, env.ARTIFACTS, {
       ...base,
       content: "v1",
@@ -555,7 +555,7 @@ describe("publishing inline", () => {
         if (!prepared.ok) throw new Error(prepared.message);
         await env.ARTIFACTS.put(`objects/${owner}/${sha}`, other, { sha256: sha });
         await commitPublish(db, env.ARTIFACTS, {
-          ownerId: owner,
+          userId: owner,
           sessionId: prepared.value.sessionId,
           now: Date.now(),
         });
@@ -588,7 +588,7 @@ describe("publishing inline", () => {
 
   it("releases the reservation when writing the bytes fails", async () => {
     const owner = "owner-put-fails";
-    const db = createDb(env.DB);
+    const db = regionsFromEnv(env).get("default").db;
     const failing = {
       put: async () => {
         throw new Error("R2 unavailable");
@@ -597,7 +597,7 @@ describe("publishing inline", () => {
     } as unknown as R2Bucket;
     await expect(
       publishInline(db, failing, {
-        ownerId: owner,
+        userId: owner,
         type: "text",
         name: "x",
         content: "never stored",

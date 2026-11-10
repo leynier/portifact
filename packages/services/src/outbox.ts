@@ -10,7 +10,7 @@ import {
   EraseAccessEventsPayload,
   type JobMessage,
 } from "@portifact/contracts";
-import { type AccessDb, type Db, schema } from "@portifact/db";
+import { type AccessDb, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
@@ -126,7 +126,7 @@ export interface JobDeps {
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
 export async function runJob(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   message: JobMessage,
   now: number,
@@ -143,7 +143,7 @@ export async function runJob(
 }
 
 async function runRow(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,

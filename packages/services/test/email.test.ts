@@ -1,7 +1,7 @@
 // Email delivery: the day counters the budget reads, the monthly cap of sign-in codes and the
 // suppression list fed by Email Service events and refused sends.
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { SIGN_IN_EMAILS_PER_CYCLE } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -23,7 +23,7 @@ import { runMaintenance } from "../src/maintenance.ts";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 20, 12);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const bounced = (recipient: string, type = "hard", eventId = "evt-1") => ({
   type: "cf.email.sending.message.bounced",

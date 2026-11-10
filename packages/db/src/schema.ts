@@ -14,6 +14,10 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { sessions, users } from "./auth-schema.ts";
 
+/** Regions and roles, as in @portifact/contracts (packages/db does not depend on it). */
+export const REGIONS = ["default"] as const;
+export const WORKSPACE_ROLES = ["admin", "editor", "member"] as const;
+
 /** Categories of the Acceptable Use Policy, for reports and suspensions (contracts: AbuseReason). */
 export const ABUSE_REASONS = [
   "phishing",
@@ -1014,5 +1018,62 @@ export const ownerPlans = sqliteTable(
     check("owner_plans_seats", sql`${t.seats} >= 1`),
   ],
 );
+
+/**
+ * Workspaces (premium plan F3, decision 0004): an owner that is not a user. Changed only by
+ * packages/services, in D1 batches; Better Auth never sees these tables. The region is fixed at
+ * creation (decision 0005): a trigger in 0030_workspaces.sql refuses changing it.
+ */
+export const workspaces = sqliteTable(
+  "workspaces",
+  {
+    /** `ws_` and 32 hex characters (contracts: WorkspaceId); never a user or artifact ID. */
+    id: text("id").primaryKey(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    region: text("region", { enum: REGIONS }).notNull().default("default"),
+    /** The user who created it. No foreign key: the workspace outlives its creator's account. */
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("workspaces_slug_idx").on(t.slug)],
+);
+
+/**
+ * Who belongs to a workspace and with which role (contracts: WORKSPACE_ROLES). A membership
+ * goes with its user and with its workspace. External readers listed by email are not members.
+ */
+export const workspaceMembers = sqliteTable(
+  "workspace_members",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role", { enum: WORKSPACE_ROLES }).notNull(),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.userId] }),
+    index("workspace_members_user_idx").on(t.userId),
+    check("workspace_members_role", sql`${t.role} in ('admin', 'editor', 'member')`),
+  ],
+);
+
+/**
+ * The global artifact directory (decision 0005, section 2): which region holds each artifact ID
+ * ever handed out. No owner, no name. A row is claimed before the artifact is written in its
+ * region and is never updated or deleted (triggers in 0030_workspaces.sql refuse both), so no ID
+ * is reused in any region.
+ */
+export const artifactDirectory = sqliteTable("artifact_directory", {
+  id: text("id").primaryKey(),
+  region: text("region", { enum: REGIONS }).notNull(),
+  createdAt: timestamp("created_at").notNull(),
+});
 
 export * from "./auth-schema.ts";

@@ -2,7 +2,7 @@
 // visitors who opened the artifact, newest first, for its owner only. The MCP tool
 // get_access_logs returns the same body through `accessLogView`.
 import { AccessLogQuery, AccessLogView } from "@portifact/contracts";
-import { createAccessDb, createDb } from "@portifact/db";
+import { accessDbOf, artifactRegion } from "../regions.ts";
 import { type AccessLogPage, getAccessLog } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
@@ -25,9 +25,11 @@ export function accessLogRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, 
         since: c.req.query("since"),
       });
       if (!query.success) return error(c, "invalid_input", "Invalid cursor, limit or since.");
-      const result = await getAccessLog(createDb(c.env.DB), createAccessDb(c.env.ACCESS_DB), {
-        ownerId: userId,
-        artifactId: c.req.param("artifactId") as string,
+      const artifactId = c.req.param("artifactId") as string;
+      const region = await artifactRegion(c.env, artifactId);
+      const result = await getAccessLog(region.db, accessDbOf(region), {
+        userId,
+        artifactId,
         cursor: query.data.cursor,
         limit: query.data.limit,
         since: query.data.since === undefined ? undefined : Date.parse(query.data.since),

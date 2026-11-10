@@ -1,7 +1,7 @@
 // Batching of the access log on the content Worker: openings are gathered per isolate, written
 // once per batch after the response, deduplicated by window, and kept when a write fails.
 import { env } from "cloudflare:test";
-import { createAccessDb, createDb, schema } from "@portifact/db";
+import { createAccessDb, regionsFromEnv, schema } from "@portifact/db";
 import { ACCESS_WINDOW_MS } from "@portifact/domain";
 import { recordOpenings } from "@portifact/services";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -96,7 +96,7 @@ describe("opening log", () => {
 
 describe("the isolate's log", () => {
   it("writes openings to the access log database with the visitor's email", async () => {
-    const db = createDb(env.DB);
+    const db = regionsFromEnv(env).get("default").db;
     const at = new Date(NOW);
     await db.insert(schema.users).values(
       ["al_owner", "al_reader"].map((id) => ({

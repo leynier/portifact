@@ -14,7 +14,7 @@ import {
   PlanName,
   TombstoneMarker,
 } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, regionsFromEnv, schema } from "@portifact/db";
 import {
   BUDGET_LEVELS,
   type BudgetLevel,
@@ -30,6 +30,7 @@ import {
   clearBudgetOverride,
   exportOwnerPlans,
   exportTombstones,
+  rebuildArtifactDirectory,
   getBudgetState,
   getOwnerPlan,
   liftEmailSuppression,
@@ -539,9 +540,15 @@ export async function runOperator(
         markers = parsed.markers;
       }
       const result = await applyTombstones(db, markers, now);
+      // A restore of the global database rewinds the artifact directory too (decision 0005).
+      const regions = regionsFromEnv({ DB: db.$client });
+      let directory = 0;
+      for (const handles of regions.all()) {
+        directory += await rebuildArtifactDirectory(regions.global, handles.db, handles.region);
+      }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {

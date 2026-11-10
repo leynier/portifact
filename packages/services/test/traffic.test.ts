@@ -1,13 +1,13 @@
 // Traffic counters: batched upserts that add up, the current cycle's read and the pruning job.
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { asc } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { getTraffic, pruneTrafficCounters, recordTraffic } from "../src/traffic.ts";
 
 const NOW = Date.UTC(2026, 10, 20, 12);
 const NOVEMBER = Date.UTC(2026, 10, 1);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const rows = () =>
   db()

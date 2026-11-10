@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -21,7 +21,7 @@ const DAY = 86_400_000;
 const HANDOFF_MS = REVIEW_SESSION.handoffTtlSeconds * 1000;
 const SESSION_MS = REVIEW_SESSION.sessionTtlSeconds * 1000;
 const TAB_SESSION_MS = REVIEW_SESSION.tabSessionTtlSeconds * 1000;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const OWNER = "ru_owner";
 const READER = "ru_reader";

@@ -1,10 +1,12 @@
+import { personalActor } from "@portifact/domain";
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { decodeCursor, encodeCursor, getArtifact, listArtifacts } from "../src/artifacts.ts";
+import { value } from "./fixtures.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const NOW = Date.parse("2026-11-08T12:00:00Z");
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 
@@ -51,15 +53,18 @@ describe("listing an owner's artifacts", () => {
     const seen: string[] = [];
     let cursor: string | undefined;
     for (let page = 0; page < 5; page += 1) {
-      const result = await listArtifacts(db(), { ownerId: owner, cursor, limit: 2, now: NOW });
-      if (!result) throw new Error("invalid cursor");
+      const result = value(
+        await listArtifacts(db(), { actor: personalActor(owner), cursor, limit: 2, now: NOW }),
+      );
       seen.push(...result.items.map((item) => item.id));
       if (!result.nextCursor) break;
       cursor = result.nextCursor;
     }
     expect(seen).toHaveLength(5);
     expect(new Set(seen)).toEqual(new Set(ids));
-    const rows = await listArtifacts(db(), { ownerId: owner, limit: 100, now: NOW });
+    const rows = value(
+      await listArtifacts(db(), { actor: personalActor(owner), limit: 100, now: NOW }),
+    );
     const times = rows?.items.map((row) => row.updatedAt) ?? [];
     expect([...times].sort((a, b) => b - a)).toEqual(times);
     expect(rows?.nextCursor).toBeNull();
@@ -68,9 +73,9 @@ describe("listing an owner's artifacts", () => {
   it("rejects a cursor it did not issue", async () => {
     for (const cursor of ["not-base64!", btoa("x.y"), btoa("123.TOOSHORT"), "%%%"]) {
       expect(
-        await listArtifacts(db(), { ownerId: "u", cursor, limit: 10, now: NOW }),
+        await listArtifacts(db(), { actor: personalActor("u"), cursor, limit: 10, now: NOW }),
         cursor,
-      ).toBeUndefined();
+      ).toEqual({ ok: false, code: "invalid_input", message: "Invalid cursor." });
     }
     expect(decodeCursor(encodeCursor({ updatedAt: 42, id: "abcdefghij" }))).toEqual({
       updatedAt: 42,
@@ -82,14 +87,15 @@ describe("listing an owner's artifacts", () => {
     const owner = `u_${crypto.randomUUID()}`;
     const [live] = await insert(owner, 1, "active", 60);
     const [gone] = await insert(owner, 1, "deleted", 61);
-    expect((await getArtifact(db(), { ownerId: owner, artifactId: live as string }))?.id).toBe(
+    const missing = { ok: false, code: "not_found", message: "Artifact not found." };
+    expect(value(await getArtifact(db(), { userId: owner, artifactId: live as string })).id).toBe(
       live,
     );
-    expect(
-      await getArtifact(db(), { ownerId: "u_else", artifactId: live as string }),
-    ).toBeUndefined();
-    expect(await getArtifact(db(), { ownerId: owner, artifactId: gone as string })).toBeUndefined();
-    expect(await getArtifact(db(), { ownerId: owner, artifactId: "zzzzzzzzzz" })).toBeUndefined();
+    expect(await getArtifact(db(), { userId: "u_else", artifactId: live as string })).toEqual(
+      missing,
+    );
+    expect(await getArtifact(db(), { userId: owner, artifactId: gone as string })).toEqual(missing);
+    expect(await getArtifact(db(), { userId: owner, artifactId: "zzzzzzzzzz" })).toEqual(missing);
   });
 });
 
@@ -123,9 +129,9 @@ async function insertRows(ownerId: string, rows: Partial<Row>[]) {
 
 describe("searching and filtering an owner's artifacts", () => {
   const ids = async (ownerId: string, filters: Parameters<typeof listArtifacts>[1]["filters"]) =>
-    (await listArtifacts(db(), { ownerId, limit: 100, filters, now: NOW }))?.items.map(
-      (row) => row.id,
-    );
+    value(
+      await listArtifacts(db(), { actor: personalActor(ownerId), limit: 100, filters, now: NOW }),
+    )?.items.map((row) => row.id);
 
   it("matches a part of the name in any case, or a part of the ID", async () => {
     const owner = `u_${crypto.randomUUID()}`;
@@ -187,14 +193,15 @@ describe("searching and filtering an owner's artifacts", () => {
     const seen: string[] = [];
     let cursor: string | undefined;
     for (let page = 0; page < 5; page += 1) {
-      const result = await listArtifacts(db(), {
-        ownerId: owner,
-        cursor,
-        limit: 2,
-        filters: { search: "even" },
-        now: NOW,
-      });
-      if (!result) throw new Error("invalid cursor");
+      const result = value(
+        await listArtifacts(db(), {
+          actor: personalActor(owner),
+          cursor,
+          limit: 2,
+          filters: { search: "even" },
+          now: NOW,
+        }),
+      );
       seen.push(...result.items.map((item) => item.id));
       if (!result.nextCursor) break;
       cursor = result.nextCursor;
@@ -269,7 +276,9 @@ describe("the activity of listed artifacts", () => {
     // An earlier version's thread is not open on the current one, but its later change counts.
     await thread(id, kept, owner, { changeSeq: 9, updatedAt: NOW - 50 });
 
-    const page = await listArtifacts(db(), { ownerId: owner, limit: 10, now: NOW });
+    const page = value(
+      await listArtifacts(db(), { actor: personalActor(owner), limit: 10, now: NOW }),
+    );
     const byId = new Map(page?.items.map((item) => [item.id, item.activity]));
     expect(byId.get(id)).toEqual({
       versions: 2,
@@ -285,7 +294,9 @@ describe("the activity of listed artifacts", () => {
     });
 
     // The previous version stops counting once its seven days are over.
-    const later = await listArtifacts(db(), { ownerId: owner, limit: 10, now: NOW + 1000 });
+    const later = value(
+      await listArtifacts(db(), { actor: personalActor(owner), limit: 10, now: NOW + 1000 }),
+    );
     expect(later?.items.find((item) => item.id === id)?.activity.versions).toBe(1);
   });
 
@@ -301,7 +312,9 @@ describe("the activity of listed artifacts", () => {
       .set({ currentVersionId: own })
       .where(eq(schema.artifacts.id, mine as string));
 
-    const page = await listArtifacts(db(), { ownerId: owner, limit: 10, now: NOW });
+    const page = value(
+      await listArtifacts(db(), { actor: personalActor(owner), limit: 10, now: NOW }),
+    );
     expect(page?.items.map((item) => item.activity)).toEqual([
       { versions: 1, currentBytes: 100, openThreads: 0, lastAnnotationAt: null },
     ]);
@@ -321,7 +334,11 @@ describe("the activity of listed artifacts", () => {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    await listArtifacts(createDb(recording), { ownerId: "u_plan", limit: 10, now: NOW });
+    await listArtifacts(regionalDb(recording, globalDb(recording)), {
+      actor: personalActor("u_plan"),
+      limit: 10,
+      now: NOW,
+    });
     const [query] = statements;
     const plan = await env.DB.prepare(`explain query plan ${query}`)
       .bind(NOW, "u_plan", "deleted", "draft", 11)

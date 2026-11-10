@@ -9,7 +9,8 @@ import {
   ReaderChangeInput,
   SetAccessInput,
 } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
+import { artifactDb } from "../regions.ts";
 import { updateAccess } from "@portifact/services";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
@@ -26,7 +27,7 @@ const CHANGE = {
   openWorldHint: false,
 };
 
-export function registerAccessTools(register: RegisterTool, context: ToolContext, db: Db): void {
+export function registerAccessTools(register: RegisterTool, context: ToolContext, db: RegionalDb): void {
   /** Validates `change` as the API's body and applies it; the result is the API's answer. */
   const apply = async (
     artifactId: string,
@@ -40,8 +41,8 @@ export function registerAccessTools(register: RegisterTool, context: ToolContext
       const where = issue?.path.length ? `${issue.path.join(".")}: ` : "";
       return failure("invalid_input", `${where}${issue?.message ?? "Invalid input."}`);
     }
-    const result = await updateAccess(db, {
-      ownerId: context.userId,
+    const result = await updateAccess(await artifactDb(context.env, artifactId), {
+      userId: context.userId,
       artifactId,
       change: parsed.data,
       now: context.now(),

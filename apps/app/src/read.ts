@@ -7,7 +7,7 @@
 // also bound to the dashboard session, so signing out of the app ends the read sessions it
 // opened.
 import { ArtifactId, OpaqueToken } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { artifactDb } from "./regions.ts";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { issueReadHandoff } from "@portifact/services";
 import { Hono } from "hono";
@@ -51,7 +51,7 @@ export function readRoutes(authFor: (env: Env) => Auth) {
       return response;
     }
 
-    const issued = await issueReadHandoff(createDb(c.env.DB), {
+    const issued = await issueReadHandoff(await artifactDb(c.env, id), {
       artifactId: id,
       userId: session.user.id,
       authSessionId: session.session.id,

@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { describe, expect, it } from "vitest";
 import {
   ABANDONED_CLAIM_MS,
@@ -9,7 +9,7 @@ import {
   runIdempotent,
 } from "../src/idempotency.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const NOW = Date.UTC(2026, 10, 8, 12);
 
 function request(overrides: Partial<Parameters<typeof runIdempotent>[1]> = {}) {

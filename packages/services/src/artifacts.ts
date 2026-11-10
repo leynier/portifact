@@ -1,7 +1,9 @@
 // Read use cases for an owner's artifacts: list with a cursor and look one up. Someone else's
 // artifact looks exactly like a missing one.
 import type { ArtifactListFilters } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { type Actor, authorize, fail, ok, type Result } from "@portifact/domain";
+import { authorizeOn } from "./actors.ts";
 import {
   and,
   type Column,
@@ -35,7 +37,8 @@ export interface ArtifactActivity {
 export type ListedArtifact = ArtifactRow & { activity: ArtifactActivity };
 
 export interface ListInput {
-  ownerId: string;
+  /** The user acting on the owner whose artifacts are listed (from `resolveActor`). */
+  actor: Actor;
   cursor?: string | undefined;
   limit: number;
   /** Only artifacts that match every filter given; a cursor continues the same filters. */
@@ -119,18 +122,20 @@ function activityColumns(now: number) {
 
 /**
  * The owner's artifacts that match the filters, most recently updated first, each with its
- * activity. Deleted artifacts are not listed.
+ * activity. Deleted artifacts are not listed. Listing is for admins and editors of the owner.
  */
-export async function listArtifacts(db: Db, input: ListInput): Promise<ArtifactPage | undefined> {
+export async function listArtifacts(db: Db, input: ListInput): Promise<Result<ArtifactPage>> {
+  const allowed = authorize(input.actor, "list");
+  if (!allowed.ok) return allowed;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
-  if (input.cursor !== undefined && !after) return undefined;
+  if (input.cursor !== undefined && !after) return fail("invalid_input", "Invalid cursor.");
   const t = schema.artifacts;
   const rows = await db
     .select({ ...getTableColumns(t), ...activityColumns(input.now) })
     .from(t)
     .where(
       and(
-        eq(t.ownerId, input.ownerId),
+        eq(t.ownerId, input.actor.ownerId),
         ne(t.state, "deleted"),
         ne(t.state, "draft"),
         ...filterConditions(input.filters),
@@ -165,19 +170,25 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<ArtifactP
       }),
     );
   const last = items.at(-1);
-  return { items, nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null };
+  return ok({ items, nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null });
 }
 
-/** One of the owner's artifacts, or undefined when it is missing, deleted or someone else's. */
+/**
+ * One artifact, for an admin or editor of its owner. Missing, deleted and artifacts of an owner
+ * the user has no role on give the same `not_found`.
+ */
 export async function getArtifact(
-  db: Db,
-  input: { ownerId: string; artifactId: string },
-): Promise<ArtifactRow | undefined> {
+  db: RegionalDb,
+  input: { userId: string; artifactId: string },
+): Promise<Result<ArtifactRow>> {
+  const missing = () => fail<never>("not_found", "Artifact not found.");
   const [row] = await db
     .select()
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (!row || row.ownerId !== input.ownerId || row.state === "deleted") return undefined;
-  return row;
+  if (!row || row.state === "deleted") return missing();
+  const actor = await authorizeOn(db, input.userId, row.ownerId, "list", missing);
+  if (!actor.ok) return actor;
+  return ok(row);
 }

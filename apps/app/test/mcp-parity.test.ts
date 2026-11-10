@@ -3,7 +3,7 @@
 // controlled time, and must give the same body, the same error and the same permission boundary.
 import { env } from "cloudflare:workers";
 import { PLANS } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { regionsFromEnv } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -223,7 +223,7 @@ describe("API and MCP parity", () => {
       fromTool(await b.tool("publish_document", { type: "text", name: "Held", content: "h" }))
         .body as { artifactId: string }
     ).artifactId;
-    await suspendArtifact(createDb(env.DB), {
+    await suspendArtifact(regionsFromEnv(env).get("default").db, {
       artifactId: id,
       reason: "phishing",
       note: "operator only",
@@ -1655,10 +1655,10 @@ describe("API and MCP parity under budget protection", () => {
   const DOC = { schema: 1, path: "index.md", anchor: { kind: "document" } };
 
   async function protect(level: "slow75" | "protect100", steps = 1) {
-    await setBudgetOverride(createDb(env.DB), { level, steps, until: null, note: null, now: NOW });
+    await setBudgetOverride(regionsFromEnv(env).get("default").db, { level, steps, until: null, note: null, now: NOW });
   }
   afterEach(async () => {
-    await clearBudgetOverride(createDb(env.DB), NOW);
+    await clearBudgetOverride(regionsFromEnv(env).get("default").db, NOW);
   });
 
   it("refuses new artifacts, then uploads, with the same error, and keeps updates and reads", async () => {

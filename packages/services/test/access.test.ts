@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
 import { LIMITS } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAccess, updateAccess } from "../src/access.ts";
 
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const NOW = Date.UTC(2026, 10, 8, 12);
 const DAY = 86_400_000;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
@@ -56,7 +56,7 @@ describe("access policy", () => {
   it("starts private, then opens to a reader list and bumps the generation each time", async () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);
-    const initial = await getAccess(db(), { ownerId, artifactId });
+    const initial = await getAccess(db(), { userId: ownerId, artifactId });
     expect(initial).toEqual({
       ok: true,
       value: {
@@ -72,7 +72,7 @@ describe("access policy", () => {
     });
 
     const added = await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { addReaders: ["b@example.test", "a@example.test", "a@example.test"] },
       now: NOW,
@@ -83,7 +83,7 @@ describe("access policy", () => {
     });
 
     const changed = await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: {
         removeReaders: ["a@example.test"],
@@ -110,17 +110,22 @@ describe("access policy", () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);
     const off = await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { bar: false },
       now: NOW,
     });
     expect(off.ok && off.value).toMatchObject({ bar: false, policyGeneration: 1 });
-    const on = await updateAccess(db(), { ownerId, artifactId, change: { bar: true }, now: NOW });
+    const on = await updateAccess(db(), {
+      userId: ownerId,
+      artifactId,
+      change: { bar: true },
+      now: NOW,
+    });
     expect(on.ok && on.value).toMatchObject({ bar: true, policyGeneration: 1 });
     // Combined with a change that does affect access, the generation moves as usual.
     const both = await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { bar: false, mode: "authenticated" },
       now: NOW,
@@ -132,7 +137,7 @@ describe("access policy", () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);
     const everyone = await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { commentVisibility: "everyone" },
       now: NOW,
@@ -142,7 +147,7 @@ describe("access policy", () => {
       policyGeneration: 1,
     });
     const back = await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { commentVisibility: "owner" },
       now: NOW,
@@ -157,7 +162,7 @@ describe("access policy", () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);
     const change = (c: Parameters<typeof updateAccess>[1]["change"]) =>
-      updateAccess(db(), { ownerId, artifactId, change: c, now: NOW });
+      updateAccess(db(), { userId: ownerId, artifactId, change: c, now: NOW });
 
     const unlisted = await change({
       readerCommentVisibility: [{ email: "a@example.test", commentVisibility: "all" }],
@@ -201,7 +206,7 @@ describe("access policy", () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);
     const result = await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: { addReaders: ["c@example.test"], removeReaders: ["c@example.test"] },
       now: NOW,
@@ -214,7 +219,7 @@ describe("access policy", () => {
     const artifactId = await artifact(young);
     expect(
       await updateAccess(db(), {
-        ownerId: young,
+        userId: young,
         artifactId,
         change: { mode: "public" },
         now: NOW,
@@ -222,7 +227,7 @@ describe("access policy", () => {
     ).toMatchObject({ ok: false, code: "account_too_new_for_public" });
     expect(
       await updateAccess(db(), {
-        ownerId: young,
+        userId: young,
         artifactId,
         change: { mode: "authenticated" },
         now: NOW,
@@ -233,7 +238,7 @@ describe("access policy", () => {
     const other = await artifact(old);
     expect(
       await updateAccess(db(), {
-        ownerId: old,
+        userId: old,
         artifactId: other,
         change: { mode: "public" },
         now: NOW,
@@ -248,7 +253,7 @@ describe("access policy", () => {
       Array.from({ length: count }, (_, i) => `r${from + i}@example.test`);
     for (let start = 0; start < LIMITS.readersPerArtifact; start += LIMITS.readersPerChange) {
       const step = await updateAccess(db(), {
-        ownerId,
+        userId: ownerId,
         artifactId,
         change: { addReaders: emails(start, LIMITS.readersPerChange) },
         now: NOW,
@@ -257,7 +262,7 @@ describe("access policy", () => {
     }
     expect(
       await updateAccess(db(), {
-        ownerId,
+        userId: ownerId,
         artifactId,
         change: { addReaders: ["one-more@example.test"] },
         now: NOW,
@@ -266,7 +271,7 @@ describe("access policy", () => {
     // Swapping one reader for another stays within the cap.
     expect(
       await updateAccess(db(), {
-        ownerId,
+        userId: ownerId,
         artifactId,
         change: { addReaders: ["swap@example.test"], removeReaders: ["r0@example.test"] },
         now: NOW,
@@ -279,15 +284,15 @@ describe("access policy", () => {
     const artifactId = await artifact(ownerId);
     const deleted = await artifact(ownerId, "deleted");
     const suspended = await artifact(ownerId, "suspended");
-    expect(await getAccess(db(), { ownerId: "u_else", artifactId })).toMatchObject({
+    expect(await getAccess(db(), { userId: "u_else", artifactId })).toMatchObject({
       code: "not_found",
     });
-    expect(await getAccess(db(), { ownerId, artifactId: deleted })).toMatchObject({
+    expect(await getAccess(db(), { userId: ownerId, artifactId: deleted })).toMatchObject({
       code: "not_found",
     });
     expect(
       await updateAccess(db(), {
-        ownerId: "u_else",
+        userId: "u_else",
         artifactId,
         change: { mode: "authenticated" },
         now: NOW,
@@ -295,7 +300,7 @@ describe("access policy", () => {
     ).toMatchObject({ code: "not_found" });
     expect(
       await updateAccess(db(), {
-        ownerId,
+        userId: ownerId,
         artifactId: suspended,
         change: { mode: "authenticated" },
         now: NOW,
@@ -308,7 +313,7 @@ describe("access policy", () => {
     const artifactId = await artifact(ownerId, "archived");
     expect(
       await updateAccess(db(), {
-        ownerId,
+        userId: ownerId,
         artifactId,
         change: { removeReaders: ["x@example.test"] },
         now: NOW,
@@ -321,13 +326,13 @@ describe("access policy", () => {
     const artifactId = await artifact(ownerId);
     const results = await Promise.all([
       updateAccess(db(), {
-        ownerId,
+        userId: ownerId,
         artifactId,
         change: { addReaders: ["first@example.test"] },
         now: NOW,
       }),
       updateAccess(db(), {
-        ownerId,
+        userId: ownerId,
         artifactId,
         change: { addReaders: ["second@example.test"] },
         now: NOW,
@@ -336,7 +341,7 @@ describe("access policy", () => {
     const conflicts = results.filter((r) => !r.ok);
     expect(conflicts).toHaveLength(1);
     expect(conflicts[0]).toMatchObject({ code: "version_conflict" });
-    const final = await getAccess(db(), { ownerId, artifactId });
+    const final = await getAccess(db(), { userId: ownerId, artifactId });
     expect(final.ok && final.value.readers).toHaveLength(1);
     expect(final.ok && final.value.policyGeneration).toBe(2);
   });
@@ -344,7 +349,12 @@ describe("access policy", () => {
   it("records each change for the owner's activity log", async () => {
     const ownerId = await owner(30);
     const artifactId = await artifact(ownerId);
-    await updateAccess(db(), { ownerId, artifactId, change: { mode: "authenticated" }, now: NOW });
+    await updateAccess(db(), {
+      userId: ownerId,
+      artifactId,
+      change: { mode: "authenticated" },
+      now: NOW,
+    });
     const events = await db()
       .select()
       .from(schema.lifecycleEvents)
@@ -353,7 +363,7 @@ describe("access policy", () => {
       { event: "access_changed", details: { mode: "authenticated", added: 0, removed: 0 } },
     ]);
     await updateAccess(db(), {
-      ownerId,
+      userId: ownerId,
       artifactId,
       change: {
         commentVisibility: "everyone",

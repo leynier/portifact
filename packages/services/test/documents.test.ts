@@ -2,7 +2,7 @@
 // inside workerd against local D1 and R2, so they also prove the renderer works in the runtime.
 import { env } from "cloudflare:test";
 import { LIMITS } from "@portifact/contracts";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { DIAGRAM_LOADER, DIAGRAM_LOADER_HASH, RENDERER_VERSION } from "@portifact/render";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ import {
 
 const OWNER = "u_owner";
 const NOW = Date.UTC(2026, 10, 8, 12);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const encode = (text: string) => new TextEncoder().encode(text);
 
 async function sha256(bytes: Uint8Array): Promise<string> {
@@ -52,7 +52,7 @@ function input(
   overrides: Partial<PrepareInput> = {},
 ): PrepareInput {
   return {
-    ownerId: OWNER,
+    userId: OWNER,
     type,
     name: "Release <notes>",
     entrypoint: files[0]?.path ?? "",
@@ -70,7 +70,7 @@ async function prepared(...args: Parameters<typeof input>) {
 }
 
 const commit = (sessionId: string, now = NOW) =>
-  commitPublish(db(), env.ARTIFACTS, { ownerId: OWNER, sessionId, now });
+  commitPublish(db(), env.ARTIFACTS, { userId: OWNER, sessionId, now });
 
 /** Prepares, uploads and commits a single document. */
 async function publish(
@@ -334,7 +334,7 @@ describe("commit a document", () => {
       contentType: "text/html; charset=utf-8",
     });
     const progress = await uploadProgress(db(), {
-      ownerId: OWNER,
+      userId: OWNER,
       sessionId: upload.sessionId,
       now: NOW,
     });

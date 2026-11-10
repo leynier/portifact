@@ -3,7 +3,7 @@
 // `GET /api/v1/publishes/:uploadId` and the MCP tools prepare_upload and get_upload_status all
 // build their bodies here, so every client gets the same instructions.
 import { PreparedPublish, type PublishRequest } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
 import { type MultipartConfig, partRange } from "@portifact/domain";
 import {
   type PendingUpload,
@@ -23,9 +23,9 @@ export interface UploadDeps {
 
 /** Opens an upload; a stored response, so an idempotent retry replays it exactly. */
 export async function prepareUpload(
-  db: Db,
+  db: RegionalDb,
   deps: UploadDeps,
-  ownerId: string,
+  userId: string,
   body: PublishRequest,
   now: number,
 ): Promise<StoredResponse> {
@@ -35,7 +35,7 @@ export async function prepareUpload(
   const result = await preparePublish(
     db,
     {
-      ownerId,
+      userId,
       ...(body.artifactId ? { artifactId: body.artifactId } : {}),
       type: body.type,
       name: body.name,

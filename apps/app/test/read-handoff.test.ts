@@ -1,7 +1,7 @@
 // The app's part of the entry to protected artifacts: GET /read/<id>?state=<nonce>.
 // apps/content/test/read-session.test.ts covers the artifact origin's part.
 import { env } from "cloudflare:workers";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { hashSecret, redeemReadHandoff } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -12,7 +12,7 @@ import { createHarness, type Harness, json } from "./harness.ts";
 const ID = "k7d2qm4xab";
 const STATE = "n".repeat(43);
 const DAY = 86_400_000;
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 
 const OWNER_EMAIL = "read-owner@example.com";
 const READER_EMAIL = "read-reader@example.com";

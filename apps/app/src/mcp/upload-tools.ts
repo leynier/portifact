@@ -14,7 +14,8 @@ import {
   PublishRequest,
   UploadRef,
 } from "@portifact/contracts";
-import type { Db } from "@portifact/db";
+import type { RegionalDb } from "@portifact/db";
+import { artifactDb, personalScope } from "../regions.ts";
 import {
   commitPublish,
   hashRequest,
@@ -50,7 +51,7 @@ function nextSteps(body: PreparedPublish): string {
     .join(" ");
 }
 
-export function registerUploadTools(register: RegisterTool, context: ToolContext, db: Db): void {
+export function registerUploadTools(register: RegisterTool, context: ToolContext, db: RegionalDb): void {
   const uploadDeps = () => ({
     bucket: context.env.ARTIFACTS,
     presigner: context.presigner,
@@ -91,7 +92,16 @@ export function registerUploadTools(register: RegisterTool, context: ToolContext
           requestHash: await hashRequest(request.data),
           now,
         },
-        () => prepareUpload(db, uploadDeps(), context.userId, request.data, now),
+        async () =>
+          prepareUpload(
+            request.data.artifactId
+              ? await artifactDb(context.env, request.data.artifactId)
+              : (await personalScope(context.env, context.userId)).db,
+            uploadDeps(),
+            context.userId,
+            request.data,
+            now,
+          ),
       );
       if (outcome.kind === "mismatch") {
         return failure("invalid_input", "This idempotency key was used for a different request.");
@@ -120,7 +130,7 @@ export function registerUploadTools(register: RegisterTool, context: ToolContext
     async (args: UploadRef) => {
       const now = context.now();
       const result = await uploadProgress(db, {
-        ownerId: context.userId,
+        userId: context.userId,
         sessionId: args.uploadId,
         now,
       });
@@ -146,7 +156,7 @@ export function registerUploadTools(register: RegisterTool, context: ToolContext
       },
     },
     async (args: CommitUploadInput) => {
-      const session = { ownerId: context.userId, sessionId: args.uploadId };
+      const session = { userId: context.userId, sessionId: args.uploadId };
       // The same report as POST /api/v1/publishes/:uploadId/parts, once per part.
       for (const part of args.parts ?? []) {
         const reported = await reportUploadedPart(db, { ...session, ...part, now: context.now() });

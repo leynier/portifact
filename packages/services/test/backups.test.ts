@@ -216,7 +216,7 @@ describe("tombstones after a restore", () => {
 
     // After the backup: one artifact is deleted and one account deletes itself.
     await deleteArtifact(db(), env.ARTIFACTS, {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: purged.artifactId,
       now: NOW,
     });

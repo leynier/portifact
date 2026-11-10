@@ -11,7 +11,7 @@ import {
   TokenGrantList,
   TokenRevokeResult,
 } from "@portifact/contracts";
-import { createDb } from "@portifact/db";
+import { regionsOf } from "../regions.ts";
 import { disconnectApp, listConnectedApps } from "@portifact/services";
 import { type Context, Hono } from "hono";
 import {
@@ -58,7 +58,7 @@ export function tokenRoutes(deps: TokenDeps) {
   routes.get(
     "/api/v1/tokens",
     withCredentialsScope(async (c, caller) => {
-      const rows = await listConnectedApps(createDb(c.env.DB), {
+      const rows = await listConnectedApps(regionsOf(c.env).global, {
         userId: caller.userId,
         now: deps.now(),
       });
@@ -80,7 +80,7 @@ export function tokenRoutes(deps: TokenDeps) {
     "/api/v1/tokens/:clientId",
     withCredentialsScope(async (c, caller) => {
       const clientId = c.req.param("clientId") as string;
-      const result = await disconnectApp(createDb(c.env.DB), { userId: caller.userId, clientId });
+      const result = await disconnectApp(regionsOf(c.env).global, { userId: caller.userId, clientId });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(
         TokenRevokeResult.parse({

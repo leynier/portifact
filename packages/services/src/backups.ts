@@ -4,7 +4,7 @@
 // D1 Time Travel restore and applied after it, so purged artifacts and deleted accounts that the
 // restored database still holds are deleted again instead of coming back (docs/operations.md).
 import type { TombstoneMarker } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type GlobalDb, type Region, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { purgeJobs } from "./outbox.ts";
 
@@ -296,4 +296,36 @@ export async function applyTombstones(
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
   ]);
   return { inserted, artifacts: artifacts.length, accounts: deletions.length };
+}
+
+/**
+ * Puts back the directory rows of artifacts a restore of the global database rewound
+ * (decision 0005, section 2): every artifact still in the region's database gets its row again.
+ * Run next to `applyTombstones` after a restore, before publishing reopens. Running it again
+ * changes nothing. Returns the rows added.
+ */
+export async function rebuildArtifactDirectory(
+  global: GlobalDb,
+  regional: RegionalDb,
+  region: Region,
+): Promise<number> {
+  const a = schema.artifacts;
+  const missing = await regional
+    .select({ id: a.id, createdAt: a.createdAt })
+    .from(a)
+    .where(
+      sql`not exists (select 1 from ${schema.artifactDirectory} where ${schema.artifactDirectory.id} = ${a.id})`,
+    );
+  let added = 0;
+  for (let i = 0; i < missing.length; i += 25) {
+    const rows = await global
+      .insert(schema.artifactDirectory)
+      .values(
+        missing.slice(i, i + 25).map((row) => ({ id: row.id, region, createdAt: row.createdAt })),
+      )
+      .onConflictDoNothing()
+      .returning({ id: schema.artifactDirectory.id });
+    added += rows.length;
+  }
+  return added;
 }

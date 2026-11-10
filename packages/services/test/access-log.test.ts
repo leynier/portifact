@@ -42,7 +42,7 @@ async function setup() {
 }
 
 const list = (ownerId: string, artifactId: string, extra: object = {}) =>
-  getAccessLog(db(), access(), { ownerId, artifactId, limit: 50, now: NOW, ...extra });
+  getAccessLog(db(), access(), { userId: ownerId, artifactId, limit: 50, now: NOW, ...extra });
 
 /** Inserts `count` openings of one artifact by distinct visitors at `at`, in one statement. */
 async function bulkOpenings(artifactId: string, ownerId: string, count: number, at: number) {
@@ -105,7 +105,7 @@ describe("recording openings", () => {
   it("writes nothing for the owner, unknown accounts, unknown or inactive artifacts", async () => {
     const { owner, reader, artifactId } = await setup();
     const archived = await publishSite(owner.id);
-    await archiveArtifact(db(), { ownerId: owner.id, artifactId: archived.artifactId, now: NOW });
+    await archiveArtifact(db(), { userId: owner.id, artifactId: archived.artifactId, now: NOW });
     expect(await recordOpenings(db(), access(), [])).toBe(0);
     expect(
       await recordOpenings(db(), access(), [
@@ -172,7 +172,7 @@ describe("the owner's access log", () => {
   it("keeps the log of an archived artifact for its owner", async () => {
     const { owner, reader, artifactId } = await setup();
     await recordOpenings(db(), access(), [{ artifactId, userId: reader.id, at: NOW }]);
-    await archiveArtifact(db(), { ownerId: owner.id, artifactId, now: NOW + MINUTE });
+    await archiveArtifact(db(), { userId: owner.id, artifactId, now: NOW + MINUTE });
     expect(await list(owner.id, artifactId)).toMatchObject({
       ok: true,
       value: { entries: [{ email: reader.email, openedAt: NOW }] },
@@ -326,7 +326,7 @@ describe("erasure jobs", () => {
   it("deleting an artifact writes one job that erases its log through the queue", async () => {
     const { owner, reader, artifactId } = await setup();
     await recordOpenings(db(), access(), [{ artifactId, userId: reader.id, at: NOW }]);
-    const input = { ownerId: owner.id, artifactId, now: NOW + MINUTE };
+    const input = { userId: owner.id, artifactId, now: NOW + MINUTE };
     await deleteArtifact(db(), env.ARTIFACTS, input);
     // A retry finds the artifact gone and writes no second job.
     await deleteArtifact(db(), env.ARTIFACTS, input);
@@ -353,7 +353,7 @@ describe("erasure jobs", () => {
   it("leaves a pending job for the next delivery when the log is long", async () => {
     const { owner, artifactId } = await setup();
     await bulkOpenings(artifactId, owner.id, 10 * ACCESS_DELETE_BATCH + 1, NOW);
-    await deleteArtifact(db(), env.ARTIFACTS, { ownerId: owner.id, artifactId, now: NOW });
+    await deleteArtifact(db(), env.ARTIFACTS, { userId: owner.id, artifactId, now: NOW });
     const [job] = await eraseJobs(artifactId);
     const message = { id: job?.id ?? 0, topic: "erase_access_events" as const };
     expect(await runJob(db(), env.ARTIFACTS, message, NOW, { access: access() })).toBe("pending");

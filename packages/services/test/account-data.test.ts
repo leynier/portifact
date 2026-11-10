@@ -40,7 +40,7 @@ const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "
 async function shared(ownerId: string, readers: { email: string }[]) {
   const published = await publishSite(ownerId);
   await updateAccess(db(), {
-    ownerId,
+    userId: ownerId,
     artifactId: published.artifactId,
     // Every reader sees every thread, so readers can answer each other's threads.
     change: {
@@ -192,7 +192,7 @@ describe("exporting the account", () => {
     const own = await thread(theirs.artifactId, theirs.versionId, replier.id, "My own topic");
     // The owner narrows who sees comments: the replier no longer sees the starter's thread.
     await updateAccess(db(), {
-      ownerId: owner.id,
+      userId: owner.id,
       artifactId: theirs.artifactId,
       change: { commentVisibility: "owner" },
       now: NOW,

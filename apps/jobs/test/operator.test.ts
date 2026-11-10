@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { OPERATOR_USAGE, operatorTarget, parseArgs, runOperator } from "../src/operator.ts";
 
 const NOW = Date.UTC(2026, 10, 8, 12);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 
 function artifactId(): string {
@@ -290,7 +290,12 @@ describe("operator backup commands", () => {
     const applied = await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files);
     expect(applied).toEqual({
       exitCode: 0,
-      output: `Applied tombstones: ${lines.length} restored, 1 artifact(s) claimed for purging, 1 account(s) deleted again. The jobs Worker purges them on its next runs.`,
+      // Other tests in this file write artifacts without directory rows, so the count varies.
+      output: expect.stringMatching(
+        new RegExp(
+          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) deleted again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
+        ),
+      ),
     });
     const [row] = await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
     expect(row?.state).toBe("purging");
@@ -299,7 +304,7 @@ describe("operator backup commands", () => {
     expect(
       (await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files)).output,
     ).toBe(
-      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) deleted again. The jobs Worker purges them on its next runs.",
+      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) deleted again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
     );
     expect((await run("apply-tombstones")).exitCode).toBe(0);
   });

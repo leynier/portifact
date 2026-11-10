@@ -1,11 +1,11 @@
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { isEmailSuppressed, suppressEmail } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import { OPERATOR_USAGE, runOperator } from "../src/operator.ts";
 
 const NOW = Date.UTC(2026, 10, 16);
-const db = () => createDb(env.DB);
+const db = () => regionsFromEnv(env).get("default").db;
 const run = (...argv: string[]) => runOperator(db(), argv, NOW);
 
 beforeEach(async () => {
