@@ -109,10 +109,13 @@ describe("the space menu", () => {
     server.workspaces.e = workspace("e", "editor");
     server.workspaces.m = workspace("m", "member");
     const cases: [string, string[]][] = [
-      ["/", ["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Branding", "Settings"]],
+      [
+        "/",
+        ["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Branding", "Audit log", "Settings"],
+      ],
       [
         "/?workspace=a",
-        ["Artifacts", "Publish", "Apps", "Usage", "Branding", "Members", "Settings"],
+        ["Artifacts", "Publish", "Apps", "Usage", "Branding", "Members", "Audit log", "Settings"],
       ],
       ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Members", "Settings"]],
       ["/?workspace=m", ["Artifacts", "Apps", "Members", "Settings"]],

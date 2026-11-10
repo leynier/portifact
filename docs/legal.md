@@ -92,6 +92,8 @@ Changes that shipped and that the legal pages do not describe yet, to be written
 
   The Terms and Acceptable Use changes are material (new obligations for owners), so they go in the wave's single `TERMS_VERSION` bump.
 
+- Audit log (premium plan T10). The Privacy page must say that Portifact keeps, for every owner, a record of the changes made to it (publishing and lifecycle, access and readers as counts and email domains, share links, custom domains, webhooks, branding, members, invitations, roles and plan grants) with which account made each one and when, for 90 days (longer only under an Enterprise contract); that the admins of a workspace on a plan with the audit log see which member did what, naming members by display name and showing people who left as removed members; that it never holds comment text, content, full email addresses or IP addresses; that a personal space's record is part of the account export; and that it is deleted with the account or workspace. This is new personal data about members' actions, a material change for the Privacy Policy, so it goes in the Team wave's single `TERMS_VERSION` bump.
+
 ## Changing the texts
 
 1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.
