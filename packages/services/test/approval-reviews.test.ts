@@ -841,9 +841,17 @@ function recording() {
 }
 
 /** Runs the re-check until a pass ends (the cursor comes back to the start). */
+/**
+ * One whole pass of the scan over every open request. The tests share a database, so the cursor
+ * a test before left may sit past this test's requests (their IDs are random): the pass starts
+ * from the first request. The clock is fixed, so a slow machine never spends the time budget.
+ */
 async function recheckAll(now: number) {
+  await db()
+    .delete(schema.maintenanceCursors)
+    .where(eq(schema.maintenanceCursors.name, "approval_reviewers"));
   for (let i = 0; i < 100; i += 1) {
-    const run = await recheckApprovalReviewers(db(), now);
+    const run = await recheckApprovalReviewers(db(), now, { clock: () => 0 });
     const [cursor] = await db()
       .select()
       .from(schema.maintenanceCursors)
