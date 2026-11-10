@@ -46,7 +46,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
-import { AccessBadge, StateBadge, TypeIcon } from "../presentation.tsx";
+import { AccessBadge, PinnedBadge, StateBadge, TypeIcon } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { TrafficNotice, trafficBlock, useUsage } from "./usage.tsx";
@@ -244,9 +244,13 @@ export function ArtifactListScreen() {
                     <AccessBadge mode={artifact.accessMode} />
                   </TableCell>
                   <TableCell stack="inline" label={t("list.column.expires")}>
-                    <span className="whitespace-nowrap tabular-nums">
-                      {artifact.expiresAt ? formatDate(artifact.expiresAt) : t("list.never")}
-                    </span>
+                    {artifact.pinned ? (
+                      <PinnedBadge />
+                    ) : (
+                      <span className="whitespace-nowrap tabular-nums">
+                        {artifact.expiresAt ? formatDate(artifact.expiresAt) : t("list.never")}
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <UsageCell artifact={artifact} />

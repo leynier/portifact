@@ -148,7 +148,7 @@ describe("owner lifecycle actions", () => {
     const a = await publish({ "index.html": "<h1>a</h1>" });
     expect(await renewArtifact(db(), input(a.artifactId, T0 + 10 * DAY))).toEqual({
       ok: true,
-      value: { state: "active", expiresAt: T0 + 40 * DAY, purgeAt: null },
+      value: { state: "active", expiresAt: T0 + 40 * DAY, purgeAt: null, pinned: false },
     });
   });
 
@@ -173,7 +173,7 @@ describe("owner lifecycle actions", () => {
     const restored = await restoreArtifact(db(), input(a.artifactId, T0 + 60 * DAY));
     expect(restored).toEqual({
       ok: true,
-      value: { state: "active", expiresAt: T0 + 90 * DAY, purgeAt: null },
+      value: { state: "active", expiresAt: T0 + 90 * DAY, purgeAt: null, pinned: false },
     });
     expect(await artifact(a.artifactId)).toMatchObject({
       state: "active",
@@ -446,6 +446,7 @@ describe("purging archives", () => {
       prunedEmailCounters: 0,
       prunedEmailSuppressions: 0,
       alignedPlanLimits: 0,
+      unpinned: 0,
     });
   });
 });

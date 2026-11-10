@@ -26,9 +26,11 @@ import {
   getArtifact,
   type LifecycleOutcome,
   listArtifacts,
+  pinArtifact,
   renewArtifact,
   reportUploadedPart,
   restoreArtifact,
+  unpinArtifact,
   updateAccess,
   uploadProgress,
 } from "@portifact/services";
@@ -159,7 +161,7 @@ export function apiRoutes(deps: ApiDeps) {
           versionId: result.value.versionId,
           versionNumber: result.value.versionNumber,
           url: contentUrl(c.env, result.value.artifactId),
-          expiresAt: iso(result.value.expiresAt),
+          expiresAt: result.value.expiresAt === null ? null : iso(result.value.expiresAt),
         }),
       );
     }),
@@ -273,6 +275,7 @@ export function apiRoutes(deps: ApiDeps) {
           state: result.value.state,
           expiresAt: result.value.expiresAt === null ? null : iso(result.value.expiresAt),
           purgeAt: result.value.purgeAt === null ? null : iso(result.value.purgeAt),
+          pinned: result.value.pinned,
         }),
       );
     });
@@ -288,6 +291,15 @@ export function apiRoutes(deps: ApiDeps) {
   api.post(
     "/api/v1/artifacts/:artifactId/restore",
     lifecycle((db, _b, i) => restoreArtifact(db, i), "artifacts:write"),
+  );
+  // Pinning is a paid feature (premium plan P2); unpinning always works. Both are idempotent.
+  api.post(
+    "/api/v1/artifacts/:artifactId/pin",
+    lifecycle((db, _b, i) => pinArtifact(db, i), "artifacts:write"),
+  );
+  api.post(
+    "/api/v1/artifacts/:artifactId/unpin",
+    lifecycle((db, _b, i) => unpinArtifact(db, i), "artifacts:write"),
   );
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
@@ -313,6 +325,7 @@ function summary(env: Env, row: ArtifactRow) {
     expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
     archivedAt: row.archivedAt === null ? null : iso(row.archivedAt),
     purgeAt: row.purgeAt === null ? null : iso(row.purgeAt),
+    pinned: row.pinned,
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),

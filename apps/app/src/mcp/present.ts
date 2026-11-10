@@ -27,6 +27,7 @@ export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
     expiresAt: isoOrNull(row.expiresAt),
     archivedAt: isoOrNull(row.archivedAt),
     purgeAt: isoOrNull(row.purgeAt),
+    pinned: row.pinned,
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),
@@ -55,7 +56,7 @@ export function committedPublish(env: Env, value: CommittedVersion): CommittedPu
     versionId: value.versionId,
     versionNumber: value.versionNumber,
     url: contentUrl(env, value.artifactId),
-    expiresAt: iso(value.expiresAt),
+    expiresAt: isoOrNull(value.expiresAt),
   });
 }
 
@@ -64,6 +65,7 @@ export function lifecycleResult(value: LifecycleOutcome): LifecycleResult {
     state: value.state,
     expiresAt: isoOrNull(value.expiresAt),
     purgeAt: isoOrNull(value.purgeAt),
+    pinned: value.pinned,
   });
 }
 

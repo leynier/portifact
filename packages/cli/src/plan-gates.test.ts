@@ -33,12 +33,14 @@ interface GatedCommand {
   path: RegExp;
 }
 
-/**
- * One line per command that reaches a paid feature. The first entry stands in for them until
- * one exists: `info` with the API refusing the read, which no free plan ever does in production.
- */
+/** One line per command that reaches a paid feature. */
 const GATED: GatedCommand[] = [
-  { feature: "pin", args: (id) => ["info", id], method: "GET", path: /^\/api\/v1\/artifacts\// },
+  {
+    feature: "pin",
+    args: (id) => ["pin", id],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/pin$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {
