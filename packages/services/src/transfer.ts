@@ -9,6 +9,7 @@
 // at the same R2 key (no bytes are copied), counted in the target's storage. The source keeps its
 // rows while other artifacts reference them; rows nothing references any more are released after
 // the batch (`releaseOrphans`), and an R2 key is deleted only once no row of any owner has it.
+import { isWorkspaceId } from "@portifact/contracts";
 import { type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   authorize,
@@ -22,6 +23,7 @@ import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { accessHistoryMoveJob } from "./analytics.ts";
 import type { ArtifactRow } from "./artifacts.ts";
+import { auditEvent } from "./audit.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
@@ -224,6 +226,12 @@ export async function transferArtifact(
         // Columns in schema order: id, artifact, actor, channel, event, details, at.
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'transferred', ${JSON.stringify({ from, to })}, ${input.now} where ${unchanged}`,
       ),
+      // One event for each side, on the same conditions.
+      ...transferEvents(
+        db,
+        { artifactId: artifact.id, from, to, userId: input.userId, now: input.now },
+        unchanged,
+      ),
       // The triggers of the workspace_members_invitations migration move the active slot and the annotation usage with these updates.
       db
         .update(a)
@@ -262,4 +270,41 @@ export async function transferArtifact(
   );
   const [moved] = await db.select().from(a).where(eq(a.id, artifact.id)).limit(1);
   return moved ? ok(moved) : missingArtifact();
+}
+
+/** The audit events of a move: out of the source and into the target, both on `condition`. */
+function transferEvents(
+  db: RegionalDb,
+  input: { artifactId: string; from: string; to: string; userId: string; now: number },
+  condition: SQL,
+) {
+  const side = (ownerId: string) => (isWorkspaceId(ownerId) ? "workspace" : "personal");
+  const common = {
+    actor: { type: "user" as const, id: input.userId },
+    targetId: input.artifactId,
+    artifactId: input.artifactId,
+    now: input.now,
+  };
+  return [
+    auditEvent(
+      db,
+      {
+        ...common,
+        ownerId: input.from,
+        kind: "artifact.transferred_out",
+        detail: { to: side(input.to) },
+      },
+      condition,
+    ),
+    auditEvent(
+      db,
+      {
+        ...common,
+        ownerId: input.to,
+        kind: "artifact.transferred_in",
+        detail: { from: side(input.from) },
+      },
+      condition,
+    ),
+  ];
 }

@@ -50,6 +50,7 @@ import { artifactDb, defaultDb, ownerOf, ownerScope } from "../regions.ts";
 import { ACCESS_LOG_TOOL_SCOPES, registerAccessLogTools } from "./access-log-tools.ts";
 import { ACCESS_TOOL_SCOPES, registerAccessTools } from "./access-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
+import { AUDIT_TOOL_SCOPES, registerAuditTools } from "./audit-tools.ts";
 import { DOMAIN_TOOL_SCOPES, registerDomainTools } from "./domain-tools.ts";
 import { type Outcome, publishInline } from "./inline.ts";
 import { artifactListItem, artifactSummary, committedPublish, lifecycleResult } from "./present.ts";
@@ -66,6 +67,7 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ...VERSION_TOOL_SCOPES,
   ...USAGE_TOOL_SCOPES,
   ...ACCESS_LOG_TOOL_SCOPES,
+  ...AUDIT_TOOL_SCOPES,
   ...STATS_TOOL_SCOPES,
   ...ANNOTATION_TOOL_SCOPES,
   ...UPLOAD_TOOL_SCOPES,
@@ -452,6 +454,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
   registerAccessTools(register, context, db);
   registerVersionTools(register, context, db);
   registerUsageTools(register, context, db);
+  registerAuditTools(register, context);
   registerWorkspaceTools(register, context);
   registerAccessLogTools(register, context, db);
   registerShareTools(register, context);

@@ -7,6 +7,7 @@
 import {
   type AccessAudience,
   type AccessMode,
+  type EmailDomainRemovalReason,
   isWorkspaceId,
   WORKSPACE_DOMAINS,
 } from "@portifact/contracts";
@@ -30,6 +31,7 @@ import {
 } from "@portifact/domain";
 import { and, asc, eq, inArray, isNull, lt, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import { parse } from "tldts";
+import { type AuditActor, auditEvent } from "./audit.ts";
 import type { TxtLookup } from "./cloudflare-hostnames.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { scoped, stillAdmin, type WorkspaceRow } from "./workspaces.ts";
@@ -219,7 +221,7 @@ export async function verifyWorkspaceDomain(
     );
   }
   const [holder] = await global
-    .select({ id: wd.id, token: wd.token })
+    .select({ id: wd.id, token: wd.token, workspaceId: wd.workspaceId })
     .from(wd)
     .where(
       and(eq(wd.domain, row.domain), eq(wd.state, "verified"), ne(wd.workspaceId, workspace.id)),
@@ -236,6 +238,14 @@ export async function verifyWorkspaceDomain(
     sql`exists (select 1 from ${wd} as "claim" where "claim"."id" = ${row.id} and "claim"."state" = 'pending' and "claim"."token" = ${row.token} and "claim"."expires_at" > ${input.now})`,
     stillAdmin(workspace.id, input.userId),
   ) as SQL;
+  const provable = and(
+    eq(wd.id, row.id),
+    eq(wd.state, "pending"),
+    eq(wd.token, row.token),
+    sql`${wd.expiresAt} > ${input.now}`,
+    stillAdmin(workspace.id, input.userId),
+    sql`not exists (select 1 from ${wd} as "other" where "other"."domain" = ${row.domain} and "other"."state" = 'verified')`,
+  ) as SQL;
   const verify = global
     .update(wd)
     .set({
@@ -245,17 +255,21 @@ export async function verifyWorkspaceDomain(
       failedChecks: 0,
       problem: null,
     })
-    .where(
-      and(
-        eq(wd.id, row.id),
-        eq(wd.state, "pending"),
-        eq(wd.token, row.token),
-        sql`${wd.expiresAt} > ${input.now}`,
-        stillAdmin(workspace.id, input.userId),
-        sql`not exists (select 1 from ${wd} as "other" where "other"."domain" = ${row.domain} and "other"."state" = 'verified')`,
-      ),
-    )
+    .where(provable)
     .returning();
+  // Recorded right before the update, on the update's own condition.
+  const verifiedEvent = auditEvent(
+    global,
+    {
+      ownerId: workspace.id,
+      kind: "email_domain.verified",
+      actor: { type: "user", id: input.userId },
+      targetId: row.id,
+      detail: { domain: row.domain },
+      now: input.now,
+    },
+    sql`exists (select 1 from ${wd} where ${provable})`,
+  );
   try {
     let verified: WorkspaceDomainRow | undefined;
     if (holder) {
@@ -265,19 +279,30 @@ export async function verifyWorkspaceDomain(
         eq(wd.token, holder.token),
         eq(wd.state, "verified"),
       ) as SQL;
-      const [, , rows] = await global.batch([
-        global
-          .insert(t)
-          .select(
-            sql`select 'workspace_domain', ${wd.id}, ${input.now} from ${wd} where ${holderRow} and ${claimLive}`,
-          )
-          .onConflictDoNothing(),
-        global.delete(wd).where(and(holderRow, claimLive)),
-        verify,
-      ]);
+      const rows = (
+        await global.batch([
+          removedEvent(
+            global,
+            { id: holder.id, workspaceId: holder.workspaceId, domain: row.domain },
+            { type: "system" },
+            "claimed",
+            input.now,
+            sql`exists (select 1 from ${wd} where ${holderRow} and ${claimLive})`,
+          ),
+          global
+            .insert(t)
+            .select(
+              sql`select 'workspace_domain', ${wd.id}, ${input.now} from ${wd} where ${holderRow} and ${claimLive}`,
+            )
+            .onConflictDoNothing(),
+          global.delete(wd).where(and(holderRow, claimLive)),
+          verifiedEvent,
+          verify,
+        ])
+      )[4];
       verified = rows[0];
     } else {
-      [verified] = await verify;
+      [, [verified]] = await global.batch([verifiedEvent, verify]);
     }
     if (verified) return ok(verified);
   } catch (error) {
@@ -290,6 +315,32 @@ export async function verifyWorkspaceDomain(
   const current = await domainRow(global, workspace.id, row.id);
   if (current?.state === "verified") return ok(current);
   return changedMeanwhile();
+}
+
+/**
+ * The audit event of a verified domain going away, in the batch that deletes it. A claim that was
+ * never proved granted nothing, so `condition` holds only for a verified row.
+ */
+function removedEvent(
+  global: GlobalDb,
+  row: { id: string; workspaceId: string; domain: string },
+  actor: AuditActor,
+  reason: EmailDomainRemovalReason,
+  now: number,
+  condition: SQL,
+) {
+  return auditEvent(
+    global,
+    {
+      ownerId: row.workspaceId,
+      kind: "email_domain.removed",
+      actor,
+      targetId: row.id,
+      detail: { domain: row.domain, reason },
+      now,
+    },
+    condition,
+  );
 }
 
 /** Removes a domain, for an admin, with a tombstone so a restore cannot bring it back. */
@@ -307,7 +358,15 @@ export async function removeWorkspaceDomain(
     eq(wd.workspaceId, workspace.id),
     stillAdmin(workspace.id, input.userId),
   ) as SQL;
-  const [, deleted] = await global.batch([
+  const [, , deleted] = await global.batch([
+    removedEvent(
+      global,
+      row,
+      { type: "user", id: input.userId },
+      "removed",
+      input.now,
+      sql`exists (select 1 from ${wd} where ${target} and ${wd.state} = 'verified')`,
+    ),
     global
       .insert(t)
       .select(sql`select 'workspace_domain', ${wd.id}, ${input.now} from ${wd} where ${target}`)
@@ -384,7 +443,15 @@ export async function recheckEmailDomains(
     const outcome = recheckOutcome(row.failedChecks, recordHolds(values, row.token));
     result.checked++;
     if (outcome.kind === "remove") {
-      const [, deleted] = await global.batch([
+      const [, , deleted] = await global.batch([
+        removedEvent(
+          global,
+          row,
+          { type: "system" },
+          "record_missing",
+          now,
+          sql`exists (select 1 from ${wd} where ${unchanged})`,
+        ),
         global
           .insert(t)
           .select(sql`select 'workspace_domain', ${wd.id}, ${now} from ${wd} where ${unchanged}`)

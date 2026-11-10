@@ -12,6 +12,7 @@ import { exportAccount, requestAccountDeletion } from "../src/account-data.ts";
 import { actorOn, resolveActor } from "../src/actors.ts";
 import { createAnnotationThread } from "../src/annotations.ts";
 import { getArtifact, listArtifacts } from "../src/artifacts.ts";
+import { getAuditLog } from "../src/audit.ts";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
 import { addCustomDomain } from "../src/custom-domains.ts";
 import { deleteArtifact, renewArtifact } from "../src/lifecycle.ts";
@@ -838,6 +839,141 @@ describe("lifecycle of tokens", () => {
       kind: "service_token",
       id: created.token.id,
       deletedAt: NOW,
+    });
+  });
+});
+
+describe("the audit log", () => {
+  const audit = (ownerId: string) =>
+    db()
+      .global.select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.ownerId, ownerId))
+      .orderBy(schema.auditEvents.at, schema.auditEvents.id);
+  const log = async (t: Team) =>
+    value(
+      await getAuditLog(db(), {
+        actor: { userId: t.admin.id, ownerId: t.id, role: "admin", region: "default" },
+        filters: {},
+        limit: 50,
+        now: NOW + DAY,
+      }),
+    ).events;
+
+  it("records creating and revoking a token once, with what it may do and nothing secret", async () => {
+    const t = await team();
+    const created = await token(t, {
+      label: "Nightly docs",
+      scopes: ["artifacts:write", "artifacts:read"],
+      restriction: { kind: "key", prefix: "docs/" },
+    });
+    const id = created.token.id;
+    const revoke = (now: number) =>
+      revokeServiceToken(db().global, { userId: t.admin.id, slug: t.slug, tokenId: id, now });
+    value(await revoke(NOW + 1));
+    expect(await revoke(NOW + 2)).toMatchObject({ ok: false, code: "not_found" });
+    const rows = await audit(t.id);
+    expect(
+      rows.map((row) => [row.kind, row.actorType, row.actorId, row.targetId, row.detail]),
+    ).toEqual([
+      [
+        "service_token.created",
+        "user",
+        t.admin.id,
+        id,
+        { scopes: ["artifacts:read", "artifacts:write"], restriction: "key", days: 30 },
+      ],
+      ["service_token.revoked", "user", t.admin.id, id, {}],
+    ]);
+    const stored = JSON.stringify(rows);
+    for (const secret of [created.secret, "Nightly docs", "docs/"]) {
+      expect(stored).not.toContain(secret);
+    }
+  });
+
+  it("records nothing for a refused create or a token of another workspace", async () => {
+    const [t, other, free] = [await team(), await team(), await team(null)];
+    expect((await create(t.editor.id, t.slug)).ok).toBe(false);
+    expect((await create(free.admin.id, free.slug)).ok).toBe(false);
+    const theirs = await token(other);
+    expect(
+      await revokeServiceToken(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        tokenId: theirs.token.id,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(await audit(t.id)).toEqual([]);
+    expect(await audit(free.id)).toEqual([]);
+    expect((await audit(other.id)).map((row) => row.kind)).toEqual(["service_token.created"]);
+  });
+
+  it("records the operator's revocation as the operator's, and nothing for a token already gone", async () => {
+    const t = await team();
+    const created = await token(t);
+    expect(await operatorRevokeServiceToken(db().global, created.token.id, NOW + 1)).toBe(true);
+    expect(await operatorRevokeServiceToken(db().global, created.token.id, NOW + 2)).toBe(false);
+    expect(
+      (await audit(t.id)).map((row) => [row.kind, row.actorType, row.actorId, row.targetId]),
+    ).toEqual([
+      ["service_token.created", "user", t.admin.id, created.token.id],
+      ["service_token.revoked", "operator", null, created.token.id],
+    ]);
+  });
+
+  it("shows what a token did under its label while it exists, and as a revoked token after", async () => {
+    const t = await team();
+    const created = await token(t);
+    const id = created.token.id;
+    const published = value(await publish(id, t.id));
+    const [stored] = await db()
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.artifactId, published.artifactId));
+    expect(stored).toMatchObject({ kind: "artifact.published", actorType: "token", actorId: id });
+    const named = { type: "service_token", id, label: "CI previews" };
+    const before = await log(t);
+    expect(before.find((event) => event.kind === "artifact.published")?.actor).toEqual(named);
+    expect(before.find((event) => event.kind === "service_token.created")).toMatchObject({
+      actor: { type: "member", id: t.admin.id },
+      target: { type: "service_token", id, serviceToken: named },
+    });
+    value(
+      await revokeServiceToken(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        tokenId: id,
+        now: NOW + 1,
+      }),
+    );
+    const gone = { type: "service_token", id, label: null };
+    const after = await log(t);
+    expect(after.find((event) => event.kind === "artifact.published")?.actor).toEqual(gone);
+    expect(after.find((event) => event.kind === "service_token.revoked")?.target).toEqual({
+      type: "service_token",
+      id,
+      serviceToken: gone,
+    });
+    // Filtering by the token's ID finds what it did.
+    const byToken = value(
+      await getAuditLog(db(), {
+        actor: { userId: t.admin.id, ownerId: t.id, role: "admin", region: "default" },
+        filters: { actor: id },
+        limit: 50,
+        now: NOW + DAY,
+      }),
+    ).events;
+    expect(byToken.map((event) => event.kind)).toEqual(["artifact.published"]);
+  });
+
+  it("never lets a token read the audit log", async () => {
+    const t = await team();
+    const created = await token(t);
+    const actor = value(await resolveActor(db().global, created.token.id, t.id));
+    expect(await getAuditLog(db(), { actor, filters: {}, limit: 50, now: NOW })).toMatchObject({
+      ok: false,
+      code: "forbidden",
     });
   });
 });

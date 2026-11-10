@@ -4,6 +4,7 @@ export * from "./account-settings.ts";
 export * from "./actor.ts";
 export * from "./analytics.ts";
 export * from "./annotations.ts";
+export * from "./audit.ts";
 export * from "./branding.ts";
 export * from "./budget.ts";
 export * from "./cloudflare-hosts.ts";

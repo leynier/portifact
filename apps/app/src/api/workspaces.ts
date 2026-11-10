@@ -264,6 +264,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         userId,
         slug,
         memberId: c.req.param("userId") as string,
+        now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.body(null, 204);
@@ -328,7 +329,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
     sessionOnly(async (c, userId) => {
       const slug = slugOf(c);
       if (!slug) return error(c, "not_found", "Workspace not found.");
-      const result = await leaveWorkspace(global(c), { userId, slug });
+      const result = await leaveWorkspace(global(c), { userId, slug, now: deps.now() });
       if (!result.ok) return error(c, result.code, result.message);
       return c.body(null, 204);
     }),
@@ -377,6 +378,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         userId,
         slug,
         invitationId: invitationId.data,
+        now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.body(null, 204);

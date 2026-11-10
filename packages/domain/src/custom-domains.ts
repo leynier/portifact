@@ -1,7 +1,7 @@
 // Custom domains (premium plan P7, decision 0006): which hostnames an owner may attach, how the
 // content Worker tells an artifact host from a custom one, and the decisions of the daily check
 // and the plan limit. Pure functions, no I/O; the services apply them with D1 and Cloudflare.
-import { type AccessMode, CUSTOM_DOMAINS } from "@portifact/contracts";
+import { type AccessMode, CUSTOM_DOMAINS, type DomainDetachReason } from "@portifact/contracts";
 import type { Entitlements } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
@@ -160,20 +160,7 @@ export type DomainCheck =
   | { action: "keep"; missedChecks: number }
   | { action: "detach"; reason: DetachReason };
 
-export type DetachReason =
-  | "removed"
-  | "txt_lost"
-  | "cloudflare_gone"
-  | "provisioning_timeout"
-  | "artifact_unavailable"
-  | "plan_limit"
-  | "suspended"
-  | "purged"
-  | "account_deleted"
-  | "reconciled"
-  | "operator"
-  | "blocked"
-  | "cname_elsewhere";
+export type DetachReason = DomainDetachReason;
 
 /**
  * The daily check of a domain that is proven: three misses of the TXT proof in a row detach it,

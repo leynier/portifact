@@ -39,9 +39,17 @@ export type PlanFeature = z.infer<typeof PlanFeature>;
 const count = z.number().int().min(0);
 
 /**
+ * How long audit events are kept (premium plan T10): 90 days. Events are written for every owner
+ * and reading them needs `audit` (Team and above), so the value is the same on every plan: a plan
+ * that lapses or is lowered never shortens what was already kept. Enterprise changes it through
+ * overrides.
+ */
+export const AUDIT_RETENTION_DAYS = 90;
+
+/**
  * The limits a plan sets. Sizes are decimal bytes. `bytesPerMonth` is the traffic served, an
  * abuse cap. `accessLogRetentionDays` is how long the access log and the analytics view counters
- * are kept. Version and domain values are carried for later features; nothing applies them yet.
+ * are kept, `auditRetentionDays` how long audit events are. Version and domain values are carried for later features; nothing applies them yet.
  */
 export const PlanLimits = z
   .object({
@@ -57,6 +65,7 @@ export const PlanLimits = z
     previousVersionRetentionDays: count,
     accessLogRetentionDays: count,
     customDomains: count,
+    auditRetentionDays: count,
   })
   .strict();
 export type PlanLimits = z.infer<typeof PlanLimits>;
@@ -91,6 +100,7 @@ const TEAM_LIMITS: PlanLimits = {
   previousVersionRetentionDays: 365,
   accessLogRetentionDays: 365,
   customDomains: 5,
+  auditRetentionDays: AUDIT_RETENTION_DAYS,
 };
 
 export const PLANS: Readonly<Record<PlanName, PlanDefinition>> = {
@@ -108,6 +118,7 @@ export const PLANS: Readonly<Record<PlanName, PlanDefinition>> = {
       previousVersionRetentionDays: LIMITS.previousVersionRetentionDays,
       accessLogRetentionDays: ACCESS_LOG.retentionDays,
       customDomains: 0,
+      auditRetentionDays: AUDIT_RETENTION_DAYS,
     },
     perSeat: [],
     features: [],
@@ -126,6 +137,7 @@ export const PLANS: Readonly<Record<PlanName, PlanDefinition>> = {
       previousVersionRetentionDays: 90,
       accessLogRetentionDays: 365,
       customDomains: 1,
+      auditRetentionDays: AUDIT_RETENTION_DAYS,
     },
     perSeat: [],
     features: PRO_FEATURES,

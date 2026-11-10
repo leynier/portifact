@@ -17,6 +17,7 @@ import {
   type Actor,
   checkAccessChange,
   checkCommentVisibilityChange,
+  emailDomains,
   entitlements,
   fail,
   ok,
@@ -24,9 +25,10 @@ import {
   requireFeature,
   seesReaders,
 } from "@portifact/domain";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { accessAudience } from "./workspace-domains.ts";
 
@@ -303,6 +305,16 @@ export async function updateAccess(
           condition: unchanged,
         })
       : []),
+    ...accessAuditEvent(db, {
+      artifact,
+      actorId: actor.userId,
+      change,
+      added: add,
+      removed: remove,
+      exceptions: exceptions.length,
+      now: input.now,
+      condition: unchanged,
+    }),
     db
       .update(schema.artifacts)
       .set({
@@ -345,4 +357,69 @@ export async function updateAccess(
     at: input.now,
   });
   return getAccess(db, input);
+}
+
+/**
+ * The audit event of an access change, before the guarded update on the same old state: what
+ * changed, readers as counts and the domains of their addresses, never the addresses. Nothing when
+ * the change changes nothing.
+ */
+function accessAuditEvent(
+  db: Db,
+  input: {
+    artifact: {
+      id: string;
+      ownerId: string;
+      accessMode: AccessMode;
+      bar: boolean;
+      indexable: boolean;
+      embeddable: boolean;
+      commentVisibility: CommentVisibility;
+    };
+    actorId: string;
+    change: AccessChange;
+    added: string[];
+    removed: string[];
+    exceptions: number;
+    now: number;
+    condition: SQL;
+  },
+): BatchItem<"sqlite">[] {
+  const { artifact, change } = input;
+  const differs = <T>(next: T | undefined, current: T) =>
+    next !== undefined && next !== current ? { value: next } : null;
+  const mode = differs(change.mode, artifact.accessMode);
+  const bar = differs(change.bar, artifact.bar);
+  const indexable = differs(change.indexable, artifact.indexable);
+  const embeddable = differs(change.embeddable, artifact.embeddable);
+  const commentVisibility = differs(change.commentVisibility, artifact.commentVisibility);
+  const detail = {
+    ...(mode ? { mode: mode.value } : {}),
+    ...(input.added.length > 0 ? { readersAdded: input.added.length } : {}),
+    ...(input.removed.length > 0 ? { readersRemoved: input.removed.length } : {}),
+    ...(input.added.length + input.removed.length > 0
+      ? { readerDomains: emailDomains([...input.added, ...input.removed]) }
+      : {}),
+    ...(input.exceptions > 0 ? { readerExceptions: input.exceptions } : {}),
+    ...(bar ? { bar: bar.value } : {}),
+    ...(commentVisibility ? { commentVisibility: commentVisibility.value } : {}),
+    ...(indexable ? { indexable: indexable.value } : {}),
+    ...(embeddable ? { embeddable: embeddable.value } : {}),
+  };
+  if (Object.keys(detail).length === 0) return [];
+  return [
+    auditEvent(
+      db,
+      {
+        ownerId: artifact.ownerId,
+        kind: "access.changed",
+        actor: { type: "user", id: input.actorId },
+        targetId: artifact.id,
+        artifactId: artifact.id,
+        detail,
+        now: input.now,
+      },
+      input.condition,
+    ),
+  ];
 }

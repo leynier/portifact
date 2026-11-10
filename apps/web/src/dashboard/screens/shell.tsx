@@ -22,6 +22,7 @@ import {
   Layers,
   Mail,
   Palette,
+  ScrollText,
   Settings,
   Upload,
   Users,
@@ -143,6 +144,7 @@ const SPACE_PAGES = new Set([
   "/usage",
   "/branding",
   "/members",
+  "/audit",
   "/service-tokens",
 ]);
 
@@ -290,6 +292,12 @@ export function Shell() {
       label: t("shell.membersLink"),
       icon: <Users className="size-4" />,
       render: (props) => <Link to="/members" {...props} />,
+    },
+    allowed("audit") && {
+      key: "audit",
+      label: t("shell.auditLink"),
+      icon: <ScrollText className="size-4" />,
+      render: (props) => <Link to="/audit" {...props} />,
     },
     space?.kind === "workspace" &&
       allowed("tokens") && {

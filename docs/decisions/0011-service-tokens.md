@@ -113,6 +113,6 @@ Second review, settled here:
 
 - **A leaked token works until revoked or expired.** Scopes, the restriction, the editor ceiling and the expiry bound it. The dashboard shows last used to the hour so an admin can spot use they did not expect; the operator can find a token from a leaked secret and revoke it (operations.md).
 - **Last write wins on keyed publishes.** Two jobs publishing the same key race; one of them becomes the current version, the other a previous version (or fails with `version_conflict` after its retry). CI runs per pull request usually serialize.
-- **No audit log yet.** Until T10, what a token did is visible only through the version authors, lifecycle events and webhooks; the audit log will record token creation, revocation and use.
+- **The audit log** (T10) records creating and revoking a token and everything a token changes, with the token as the actor, shown by its label while it exists. A token's reads are not recorded, like a person's.
 - **Secret scanners outside this repository** do not know the prefix until a scanning partnership is registered.
 - **Restore gaps.** Tokens created after the restore point are lost (their holders get 401 and the admin creates new ones); revoked ones stay revoked through their tombstones.

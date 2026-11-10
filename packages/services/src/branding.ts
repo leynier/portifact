@@ -11,6 +11,7 @@
 //   that does not fit, and the old key goes to a `delete_objects` job in the same batch.
 import {
   type AbuseReason,
+  type AuditDetail,
   BRAND_LOGO_PATH,
   type Brand,
   type BrandSettings,
@@ -37,6 +38,7 @@ import {
 } from "@portifact/domain";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { auditEvent } from "./audit.ts";
 import { sha256Hex } from "./objects.ts";
 import { OUTBOX_INLINE_GRACE_MS } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -133,12 +135,49 @@ export async function updateBrand(
     updatedAt: input.now,
   };
   const b = schema.ownerBrands;
-  const [row] = await db
-    .insert(b)
-    .values({ ownerId: input.actor.ownerId, ...values })
-    .onConflictDoUpdate({ target: b.ownerId, set: { ...values, revision: sql`${b.revision} + 1` } })
-    .returning();
+  const [, [row]] = await db.batch([
+    // Before the upsert, only when it changes something.
+    brandEvent(
+      db,
+      input.actor,
+      "brand.changed",
+      ["name", "accent", "link"],
+      input.now,
+      sql`not exists (select 1 from ${b} where ${b.ownerId} = ${input.actor.ownerId} and ${b.name} = ${values.name} and ${b.accentColor} = ${values.accentColor} and ${b.link} is ${values.link})`,
+    ),
+    db
+      .insert(b)
+      .values({ ownerId: input.actor.ownerId, ...values })
+      .onConflictDoUpdate({
+        target: b.ownerId,
+        set: { ...values, revision: sql`${b.revision} + 1` },
+      })
+      .returning(),
+  ]);
   return ok(settingsOf(row ?? null, owner));
+}
+
+/** The audit event of a brand change, before its guarded write on the same condition. */
+function brandEvent<K extends "brand.changed" | "brand.removed">(
+  db: Db,
+  actor: Actor,
+  kind: K,
+  fields: AuditDetail<K>["fields"],
+  now: number,
+  condition: SQL,
+): BatchItem<"sqlite"> {
+  return auditEvent(
+    db,
+    {
+      ownerId: actor.ownerId,
+      kind,
+      actor: { type: "user", id: actor.userId },
+      targetId: actor.ownerId,
+      detail: { fields } as AuditDetail<K>,
+      now,
+    },
+    condition,
+  );
 }
 
 /** The statements that release a stored logo, while the row still has the revision read. */
@@ -183,6 +222,7 @@ export async function deleteBrand(
     }
     const b = schema.ownerBrands;
     const results = await db.batch([
+      brandEvent(db, input.actor, "brand.removed", ["all"], input.now, sameRevision(row)),
       ...releaseLogo(db, row, sameRevision(row), input.now),
       db
         .delete(b)
@@ -254,6 +294,7 @@ export async function setBrandLogo(
           bytesLimit: columns.bytesLimit,
         })
         .onConflictDoNothing(),
+      brandEvent(db, input.actor, "brand.changed", ["logo"], input.now, guard),
       ...releaseLogo(db, row, guard, input.now),
       db
         .update(u)
@@ -297,6 +338,7 @@ export async function removeBrandLogo(
   if (row?.logoSha256 != null) {
     const b = schema.ownerBrands;
     const results = await db.batch([
+      brandEvent(db, input.actor, "brand.removed", ["logo"], input.now, sameRevision(row)),
       ...releaseLogo(db, row, sameRevision(row), input.now),
       db
         .update(b)

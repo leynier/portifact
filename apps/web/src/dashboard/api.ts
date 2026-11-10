@@ -23,6 +23,8 @@ import {
   type ArtifactListFilters,
   ArtifactStatsView,
   ArtifactSummary,
+  type AuditKind,
+  AuditLogView,
   BrandSettings,
   type BrandUpdate,
   BrowserSessionList,
@@ -96,6 +98,15 @@ export class ApiFailure extends Error {
     super(code);
     this.name = "ApiFailure";
   }
+}
+
+/** Filters and the page of an audit log request. */
+export interface AuditPageQuery {
+  kinds?: readonly AuditKind[] | undefined;
+  actor?: string | undefined;
+  /** ISO date and time: only events at or after it. */
+  from?: string | undefined;
+  cursor?: string | undefined;
 }
 
 export type LifecycleAction = "renew" | "archive" | "restore" | "delete" | "pin" | "unpin";
@@ -221,6 +232,8 @@ export interface DashboardApi {
   removeDomain(hostname: string): Promise<CustomDomainRemoved>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
+  /** A page of the space's audit log (`GET /api/v1/audit`), newest first. */
+  audit(workspace: string | undefined, query: AuditPageQuery): Promise<AuditLogView>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
   /**
@@ -685,6 +698,15 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     removeDomain(hostname) {
       return call(`/api/v1/domains/${encodeURIComponent(hostname)}`, CustomDomainRemoved, "DELETE");
+    },
+    audit(workspace, query) {
+      const params = new URLSearchParams();
+      for (const kind of query.kinds ?? []) params.append("kind", kind);
+      if (query.actor) params.set("actor", query.actor);
+      if (query.from) params.set("from", query.from);
+      if (query.cursor) params.set("cursor", query.cursor);
+      const path = params.size > 0 ? `/api/v1/audit?${params}` : "/api/v1/audit";
+      return call(inSpace(path, workspace), AuditLogView);
     },
     accessLog(artifactId, cursor, limit) {
       const params = new URLSearchParams();

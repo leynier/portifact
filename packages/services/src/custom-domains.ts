@@ -60,6 +60,7 @@ import {
 } from "@portifact/domain";
 import { and, asc, eq, inArray, isNotNull, isNull, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import { actorOn, artifactHandles, authorizeOn } from "./actors.ts";
+import { type AuditActor, auditEvent } from "./audit.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { scheduleDomainNotices } from "./domain-notices.ts";
 import type { JobOutcome } from "./outbox.ts";
@@ -343,7 +344,9 @@ export async function verifyCustomDomain(
   if (!gate.ok) return gate;
   if (!deps) return unavailable();
   const dbs = domainDbs(regions);
-  if (claim) return proveClaim(dbs, deps, claim, gate.value, input.now);
+  if (claim) {
+    return proveClaim(dbs, deps, claim, gate.value, input.now, { type: "user", id: input.userId });
+  }
   return checkAgain(dbs, deps, domain as DomainRow, input.now);
 }
 
@@ -400,6 +403,7 @@ async function proveClaim(
   claim: ClaimRow,
   owner: Entitlements,
   now: number,
+  actor?: AuditActor,
 ): Promise<Result<DomainRecord>> {
   const values = await lookupTxt(deps, claim.hostname);
   if (values === null) return dnsUnavailable();
@@ -452,6 +456,21 @@ async function proveClaim(
   const live = sql`exists (select 1 from ${k} where ${k.hostname} = ${hostname} and ${k.ownerId} = ${claim.ownerId} and ${k.token} = ${claim.token} and ${k.expiresAt} > ${now})`;
   const proven = sql`exists (select 1 from ${c} where ${c.hostname} = ${hostname} and ${c.ownerId} = ${claim.ownerId} and ${c.token} = ${claim.token} and ${c.verifiedAt} = ${now} and ${c.state} = 'provisioning')`;
   await dbs.global.batch([
+    // Before the writes, on the claim being live and fitting: the proof's batch deletes the
+    // claim, so a second proof of the same claim records nothing.
+    auditEvent(
+      dbs.global,
+      {
+        ownerId: claim.ownerId,
+        kind: "domain.attached",
+        actor: actor ?? { type: "system" },
+        targetId: claim.artifactId,
+        artifactId: claim.artifactId,
+        detail: { hostname },
+        now,
+      },
+      sql`${live} and ${fits} and not exists (select 1 from ${c} where ${c.hostname} = ${hostname} and ${c.state} = 'detaching')`,
+    ),
     // A transfer keeps the Cloudflare hostname, which is Portifact's and names the same host.
     dbs.global
       .update(c)
@@ -693,6 +712,7 @@ export async function detachDomain(
   reason: DetachReason,
   now: number,
   expect: { ownerId?: string; artifactId?: string } = {},
+  actor: AuditActor = { type: "system" },
 ): Promise<boolean> {
   const row = await domainRow(dbs.global, hostname);
   if (!row || row.state === "detaching") return false;
@@ -700,7 +720,21 @@ export async function detachDomain(
   if (expect.artifactId !== undefined && row.artifactId !== expect.artifactId) return false;
   await clearHost(dbs.regional(row.region), row.artifactId, hostname);
   const same: SQL = sql`${c.hostname} = ${hostname} and ${c.state} != 'detaching' and ${c.ownerId} = ${row.ownerId} and ${c.artifactId} = ${row.artifactId}`;
-  const [, detached] = await dbs.global.batch([
+  const [, , detached] = await dbs.global.batch([
+    // Before the state change, on the same old state, as the job.
+    auditEvent(
+      dbs.global,
+      {
+        ownerId: row.ownerId,
+        kind: "domain.removed",
+        actor,
+        targetId: row.artifactId,
+        artifactId: row.artifactId,
+        detail: { hostname, reason },
+        now,
+      },
+      sql`exists (select 1 from ${c} where ${same})`,
+    ),
     // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
     // subject, generation.
     dbs.global
@@ -767,9 +801,14 @@ export async function removeCustomDomain(
       .where(and(eq(k.hostname, claim.hostname), eq(k.ownerId, claim.ownerId)));
   }
   if (domain) {
-    await detachDomain(domainDbs(regions), domain.hostname, "removed", input.now, {
-      ownerId: domain.ownerId,
-    });
+    await detachDomain(
+      domainDbs(regions),
+      domain.hostname,
+      "removed",
+      input.now,
+      { ownerId: domain.ownerId },
+      { type: "user", id: input.userId },
+    );
   }
   return ok({ hostname: (claim ?? (domain as DomainRow)).hostname });
 }

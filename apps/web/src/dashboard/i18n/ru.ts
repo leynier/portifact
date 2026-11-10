@@ -1602,6 +1602,110 @@ export const ru = {
   "webhooks.personalOnly.title": "Webhooks настраиваются в личном пространстве",
   "webhooks.personalOnly.body":
     "Пока webhooks отправляют события только об artifacts вашего личного пространства. Перейдите в него, чтобы управлять ими.",
+  "shell.auditLink": "Журнал аудита",
+  "audit.title": "Журнал аудита",
+  "audit.description": "Кто и что изменил в этом пространстве. Изменения хранятся {days} дн.",
+  "audit.planTitle": "Журнал аудита входит в платный тариф",
+  "audit.planRequired":
+    "Журнал аудита входит в тариф {plan}. Изменения уже записываются, поэтому после подключения тарифа здесь появятся последние 90 дней.",
+  "audit.forbidden.title": "Журнал аудита могут читать только администраторы",
+  "audit.forbidden.body":
+    "Спросите администратора этого рабочего пространства, если нужно узнать, кто что изменил.",
+  "audit.loading": "Загрузка журнала аудита",
+  "audit.error.title": "Не удалось загрузить журнал аудита",
+  "audit.empty.title": "Изменений не записано",
+  "audit.empty.body": "За последние {days} дн. ничего не подходит под эти фильтры.",
+  "audit.caption": "Изменения в этом пространстве, сначала новые",
+  "audit.column.when": "Когда",
+  "audit.column.who": "Кто",
+  "audit.column.what": "Что",
+  "audit.column.on": "Где",
+  "audit.loadMore": "Показать более ранние изменения",
+  "audit.filters": "Фильтры журнала аудита",
+  "audit.filter.kind": "Вид изменения",
+  "audit.filter.actor": "Кто",
+  "audit.filter.period": "Период",
+  "audit.group.all": "Все изменения",
+  "audit.group.access": "Доступ и общий доступ",
+  "audit.group.lifecycle": "Публикация и жизненный цикл",
+  "audit.group.integrations": "Домены, вебхуки и бренд",
+  "audit.group.members": "Участники, токены и тариф",
+  "audit.actor.all": "Кто угодно",
+  "audit.period.day": "Последние 24 часа",
+  "audit.period.week": "Последние 7 дней",
+  "audit.period.month": "Последние 30 дней",
+  "audit.period.all": "Всё сохранённое",
+  "audit.actor.removed": "Удалённый участник",
+  "audit.actor.token": "{label} (сервисный токен)",
+  "audit.actor.tokenGone": "Отозванный сервисный токен",
+  "audit.actor.operator": "Оператор Portifact",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Удалённый artifact",
+  "audit.target.space": "Это пространство",
+  "audit.target.invitation": "Приглашение",
+  "audit.kind.published": "Опубликовал(а) версию {version}",
+  "audit.kind.publishedFirst": "Создал(а) с версией {version}",
+  "audit.kind.rolledBack": "Вернул(а) файлы версии {from}, теперь это версия {version}",
+  "audit.kind.renewed": "Продлил(а)",
+  "audit.kind.archived": "Архивировал(а)",
+  "audit.kind.restored": "Восстановил(а)",
+  "audit.kind.deleted": "Удалил(а)",
+  "audit.kind.pinned": "Закрепил(а)",
+  "audit.kind.unpinned": "Открепил(а)",
+  "audit.kind.transferredIn":
+    "Перенёс(ла) сюда из {from, select, workspace {рабочего пространства} other {личного пространства}}",
+  "audit.kind.transferredOut":
+    "Перенёс(ла) в {to, select, workspace {рабочее пространство} other {личное пространство}}",
+  "audit.kind.accessChanged": "Изменил(а) доступ: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {сделал(а) публичным} authenticated {открыл(а) всем, кто вошёл} other {ограничил(а) читателями из списка}}",
+  "audit.access.readersAdded":
+    "{count, plural, one {добавил(а) # читателя} few {добавил(а) # читателей} many {добавил(а) # читателей} other {добавил(а) # читателя}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {удалил(а) # читателя} few {удалил(а) # читателей} many {удалил(а) # читателей} other {удалил(а) # читателя}}",
+  "audit.access.domains": "из {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {изменил(а) видимость комментариев для # читателя} few {изменил(а) видимость комментариев для # читателей} many {изменил(а) видимость комментариев для # читателей} other {изменил(а) видимость комментариев для # читателя}}",
+  "audit.access.bar":
+    "{on, select, true {включил(а) панель Portifact} other {выключил(а) панель Portifact}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {показал(а) комментарии всем} other {показал(а) комментарии только владельцу}}",
+  "audit.access.indexable":
+    "{on, select, true {разрешил(а) индексацию} other {запретил(а) индексацию}}",
+  "audit.access.embeddable":
+    "{on, select, true {разрешил(а) встраивание} other {запретил(а) встраивание}}",
+  "audit.kind.shareLinkCreated":
+    "Создал(а) ссылку для общего доступа{password, select, true { с паролем} other {}}{expires, select, true {, у которой есть срок} other {}}",
+  "audit.kind.shareLinkRevoked": "Отозвал(а) ссылку для общего доступа",
+  "audit.kind.domainAttached": "Подключил(а) домен {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Удалил(а) домен {hostname}} operator {Portifact удалил домен {hostname}} other {Домен {hostname} отключён автоматически}}",
+  "audit.kind.webhookCreated":
+    "Добавил(а) {format, select, slack {вебхук Slack} discord {вебхук Discord} other {подписанный вебхук}} на {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Включил(а) вебхук} false {Выключил(а) вебхук} other {Изменил(а) события вебхука}}",
+  "audit.kind.webhookRemoved": "Удалил(а) вебхук",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Изменил(а) логотип бренда} other {Изменил(а) название, цвет или ссылку бренда}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Удалил(а) логотип бренда} other {Удалил(а) бренд}}",
+  "audit.kind.memberInvited": "Пригласил(а) пользователя из {domain} как {role}",
+  "audit.kind.invitationRevoked": "Отозвал(а) приглашение",
+  "audit.kind.memberJoined": "{member} присоединился(-ась) как {role}",
+  "audit.kind.roleChanged": "Изменил(а) роль {member} с {from} на {to}",
+  "audit.kind.memberRemoved": "Удалил(а) {member}",
+  "audit.kind.memberLeft": "{member} вышел(-ла)",
+  "audit.kind.planGranted":
+    "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}}",
+  "audit.kind.planGrantedUntil":
+    "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}} до {until}",
+  "audit.kind.planRemoved": "Удалил тариф, пространство снова на Free",
+  "audit.kind.tokenCreated":
+    "Создал сервисный токен, который истекает через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+  "audit.kind.tokenRevoked": "Отозвал сервисный токен",
+  "audit.kind.emailDomainVerified": "Подтвердил(а) почтовый домен {domain}",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {Удалил(а) почтовый домен {domain}} claimed {Почтовый домен {domain} удалён, потому что его подтвердил другой workspace} other {Почтовый домен {domain} удалён, потому что отсутствует его DNS-запись}}",
   "shell.serviceTokensLink": "Сервисные токены",
   "tokens.title": "Сервисные токены",
   "tokens.description":

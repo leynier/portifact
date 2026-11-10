@@ -16,6 +16,8 @@ import {
   ArtifactListQuery,
   type ArtifactStatsView,
   type ArtifactSummary,
+  type AuditEventView,
+  type AuditLogView,
   type BrandSettings,
   type BrandUpdate,
   type BrowserSession,
@@ -445,6 +447,11 @@ export interface FakeServer {
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
   /**
+   * Audit events by space (`""` for the personal space), newest first. A space without an entry
+   * answers `plan_required`; a workspace role other than admin answers `forbidden`.
+   */
+  audit: Record<string, AuditEventView[]>;
+  /**
    * Analytics by artifact ID. An artifact without an entry answers `plan_required`, like an
    * owner on the free plan; the range asked for comes back as `from`.
    */
@@ -511,6 +518,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     webhooks: { list: [], available: true, attempts: {} },
     webhookTests: [],
     accessLogs: {},
+    audit: {},
     stats: {},
     shareLinks: {},
     shareLinksEnabled: true,
@@ -1292,6 +1300,34 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       windowMinutes: 30,
       retentionDays: 30,
     } satisfies AccessLogView);
+  }
+  if (path === "/api/v1/audit" && method === "GET") {
+    const slug = url.searchParams.get("workspace") ?? "";
+    if (slug !== "") {
+      const w = server.workspaces[slug];
+      if (!w) return apiError("not_found", 404);
+      if (w.view.role !== "admin") return apiError("forbidden", 403);
+    }
+    const events = server.audit[slug];
+    if (!events) return apiError("plan_required", 403);
+    const kinds = url.searchParams.getAll("kind");
+    const actor = url.searchParams.get("actor");
+    const from = url.searchParams.get("from");
+    const all = events.filter(
+      (event) =>
+        (kinds.length === 0 || kinds.includes(event.kind)) &&
+        (!actor || ("id" in event.actor && event.actor.id === actor)) &&
+        (!from || event.at >= from),
+    );
+    const offset = Number(url.searchParams.get("cursor") ?? "0");
+    const page = all.slice(offset, offset + server.pageSize);
+    const next = offset + server.pageSize;
+    return json({
+      owner: slug === "" ? { kind: "personal" } : { kind: "workspace", slug, name: slug },
+      events: page,
+      nextCursor: next < all.length ? String(next) : null,
+      retentionDays: 90,
+    } satisfies AuditLogView);
   }
   if (path === "/api/v1/usage" && method === "GET") {
     const slug = url.searchParams.get("workspace");

@@ -78,6 +78,8 @@ export const ROLE_ACTIONS = [
   "delete_workspace",
   "webhooks",
   "brand",
+  /** Reading the audit log (premium plan T10): what every member did. */
+  "audit",
   /** Service tokens of the workspace (decision 0011): creating, listing and revoking them. */
   "tokens",
 ] as const;

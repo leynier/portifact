@@ -231,6 +231,19 @@ const GATED: GatedOperation[] = [
     (id) => ({ artifactId: id, hostname: `gate-${id}.example.com` }),
   ),
   {
+    feature: "audit",
+    name: "read the audit log",
+    scope: "owner",
+    run: async (who) => {
+      const response = await who.apiCall("/api/v1/audit");
+      const result = await who.tool("get_audit_log", {});
+      return {
+        api: { status: response.status, body: await response.json<unknown>() },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
+  {
     feature: "serviceTokens",
     name: "use a service token",
     scope: "owner",

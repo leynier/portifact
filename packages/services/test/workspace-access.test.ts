@@ -34,6 +34,7 @@ import {
 } from "../src/workspace-domains.ts";
 import { removeMember } from "../src/workspaces.ts";
 import { DAY, db, grantPlan, NOW, session, sha256, value } from "./fixtures.ts";
+import { raceGlobalBeforeFirstWrite } from "./race.ts";
 
 const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
 const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "document" } };
@@ -1045,6 +1046,157 @@ describe("lifecycle", () => {
     expect(JSON.stringify(admin)).not.toContain(domain.token);
     expect((await exported(t.editor.id))?.domains).toBeUndefined();
     expect((await exported(t.member.id))?.domains).toBeUndefined();
+  });
+});
+
+describe("the audit log of email domains", () => {
+  const audit = async (workspaceId: string) =>
+    (
+      await db()
+        .global.select()
+        .from(schema.auditEvents)
+        .where(eq(schema.auditEvents.ownerId, workspaceId))
+        .orderBy(schema.auditEvents.at, schema.auditEvents.id)
+    ).map((row) => [row.kind, row.actorType, row.actorId, row.targetId, row.detail]);
+
+  it("records proving and removing a domain once, and nothing for a claim never proved", async () => {
+    const t = await team();
+    const dns = new FakeDomains();
+    const claim = value(
+      await addWorkspaceDomain(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        domain: t.domain,
+        now: NOW,
+      }),
+    );
+    const verify = (now: number) =>
+      verifyWorkspaceDomain(db().global, dns, {
+        userId: t.admin.id,
+        slug: t.slug,
+        domainId: claim.id,
+        now,
+      });
+    // No record yet: refused, nothing recorded.
+    expect((await verify(NOW)).ok).toBe(false);
+    expect(await audit(t.id)).toEqual([]);
+    dns.publishTxt(`_portifact-email.${t.domain}`, `portifact-email-verify=${claim.token}`);
+    value(await verify(NOW + 1));
+    // Verifying what is verified changes nothing.
+    value(await verify(NOW + 2));
+    const proved = ["email_domain.verified", "user", t.admin.id, claim.id, { domain: t.domain }];
+    expect(await audit(t.id)).toEqual([proved]);
+    const remove = (domainId: string, now: number) =>
+      removeWorkspaceDomain(db().global, { userId: t.admin.id, slug: t.slug, domainId, now });
+    value(await remove(claim.id, NOW + 3));
+    expect((await remove(claim.id, NOW + 4)).ok).toBe(false);
+    expect(await audit(t.id)).toEqual([
+      proved,
+      [
+        "email_domain.removed",
+        "user",
+        t.admin.id,
+        claim.id,
+        { domain: t.domain, reason: "removed" },
+      ],
+    ]);
+    // A claim removed before it was proved granted nothing and records nothing.
+    const pending = value(
+      await addWorkspaceDomain(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        domain: `other${t.domain}`,
+        now: NOW + 5,
+      }),
+    );
+    value(await remove(pending.id, NOW + 6));
+    expect(await audit(t.id)).toHaveLength(2);
+    expect(JSON.stringify(await audit(t.id))).not.toContain(claim.token);
+  });
+
+  it("tells the workspace that lost a domain to another one, in the same batch", async () => {
+    const [a, b] = [await team(), await team()];
+    const dns = new FakeDomains();
+    const held = await verified(a, dns);
+    const claim = value(
+      await addWorkspaceDomain(db().global, {
+        userId: b.admin.id,
+        slug: b.slug,
+        domain: a.domain,
+        now: NOW,
+      }),
+    );
+    dns.records.set(`_portifact-email.${a.domain}`, [`portifact-email-verify=${claim.token}`]);
+    value(
+      await verifyWorkspaceDomain(db().global, dns, {
+        userId: b.admin.id,
+        slug: b.slug,
+        domainId: claim.id,
+        now: NOW + 1,
+      }),
+    );
+    expect((await audit(a.id)).at(-1)).toEqual([
+      "email_domain.removed",
+      "system",
+      null,
+      held.id,
+      { domain: a.domain, reason: "claimed" },
+    ]);
+    expect(await audit(b.id)).toEqual([
+      ["email_domain.verified", "user", b.admin.id, claim.id, { domain: a.domain }],
+    ]);
+  });
+
+  it("records the daily check removing a domain, and nothing for a miss it only counts", async () => {
+    const t = await team();
+    const dns = new FakeDomains();
+    const domain = await verified(t, dns);
+    dns.clearTxt(`_portifact-email.${t.domain}`);
+    await recheckEmailDomains(db().global, dns, NOW + DAY + 1);
+    expect(await audit(t.id)).toHaveLength(1);
+    for (let day = 2; day <= 4; day++) {
+      await recheckEmailDomains(db().global, dns, NOW + day * DAY + day);
+    }
+    const events = await audit(t.id);
+    expect(events).toHaveLength(2);
+    expect(events.at(-1)).toMatchObject([
+      "email_domain.removed",
+      "system",
+      null,
+      domain.id,
+      { domain: t.domain, reason: "record_missing" },
+    ]);
+  });
+
+  it("records nothing when the admin was demoted before the write", async () => {
+    const t = await team();
+    const dns = new FakeDomains();
+    const domain = await verified(t, dns);
+    await db()
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: t.id, userId: t.outsider.id, role: "admin", updatedAt: NOW });
+    const raced = raceGlobalBeforeFirstWrite(async () => {
+      await db()
+        .update(schema.workspaceMembers)
+        .set({ role: "editor" })
+        .where(
+          and(
+            eq(schema.workspaceMembers.workspaceId, t.id),
+            eq(schema.workspaceMembers.userId, t.admin.id),
+          ),
+        );
+    });
+    expect(
+      (
+        await removeWorkspaceDomain(raced, {
+          userId: t.admin.id,
+          slug: t.slug,
+          domainId: domain.id,
+          now: NOW + 1,
+        })
+      ).ok,
+    ).toBe(false);
+    expect((await audit(t.id)).map(([kind]) => kind)).toEqual(["email_domain.verified"]);
   });
 });
 

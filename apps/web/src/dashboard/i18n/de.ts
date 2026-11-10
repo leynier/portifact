@@ -1620,6 +1620,109 @@ export const de = {
   "webhooks.personalOnly.title": "Webhooks gehören zu deinem persönlichen Bereich",
   "webhooks.personalOnly.body":
     "Webhooks senden vorerst nur Ereignisse zu den Artifacts deines persönlichen Bereichs. Wechsle dorthin, um sie zu verwalten.",
+  "shell.auditLink": "Audit-Log",
+  "audit.title": "Audit-Log",
+  "audit.description":
+    "Wer in diesem Bereich was geändert hat. Änderungen werden {days} Tage aufbewahrt.",
+  "audit.planTitle": "Das Audit-Log gehört zu einem kostenpflichtigen Tarif",
+  "audit.planRequired":
+    "Das Audit-Log gehört zum Tarif {plan}. Änderungen werden bereits aufgezeichnet, daher erscheinen hier die letzten 90 Tage, sobald der Tarif es enthält.",
+  "audit.forbidden.title": "Nur Admins können das Audit-Log lesen",
+  "audit.forbidden.body":
+    "Frag einen Admin dieses Workspaces, wenn du wissen musst, wer etwas geändert hat.",
+  "audit.loading": "Audit-Log wird geladen",
+  "audit.error.title": "Das Audit-Log konnte nicht geladen werden",
+  "audit.empty.title": "Keine Änderungen aufgezeichnet",
+  "audit.empty.body": "In den letzten {days} Tagen passt nichts zu diesen Filtern.",
+  "audit.caption": "Änderungen in diesem Bereich, neueste zuerst",
+  "audit.column.when": "Wann",
+  "audit.column.who": "Wer",
+  "audit.column.what": "Was",
+  "audit.column.on": "Bei",
+  "audit.loadMore": "Ältere Änderungen anzeigen",
+  "audit.filters": "Audit-Log filtern",
+  "audit.filter.kind": "Art der Änderung",
+  "audit.filter.actor": "Wer",
+  "audit.filter.period": "Zeitraum",
+  "audit.group.all": "Alle Änderungen",
+  "audit.group.access": "Zugriff und Teilen",
+  "audit.group.lifecycle": "Veröffentlichen und Lebenszyklus",
+  "audit.group.integrations": "Domains, Webhooks und Marke",
+  "audit.group.members": "Mitglieder, Tokens und Tarif",
+  "audit.actor.all": "Alle",
+  "audit.period.day": "Letzte 24 Stunden",
+  "audit.period.week": "Letzte 7 Tage",
+  "audit.period.month": "Letzte 30 Tage",
+  "audit.period.all": "Alles Aufbewahrte",
+  "audit.actor.removed": "Entferntes Mitglied",
+  "audit.actor.token": "{label} (Service-Token)",
+  "audit.actor.tokenGone": "Widerrufenes Service-Token",
+  "audit.actor.operator": "Portifact-Betreiber",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Gelöschtes Artifact",
+  "audit.target.space": "Dieser Bereich",
+  "audit.target.invitation": "Eine Einladung",
+  "audit.kind.published": "Hat Version {version} veröffentlicht",
+  "audit.kind.publishedFirst": "Hat es mit Version {version} erstellt",
+  "audit.kind.rolledBack":
+    "Hat die Dateien von Version {from} wiederhergestellt, jetzt Version {version}",
+  "audit.kind.renewed": "Hat es verlängert",
+  "audit.kind.archived": "Hat es archiviert",
+  "audit.kind.restored": "Hat es wiederhergestellt",
+  "audit.kind.deleted": "Hat es gelöscht",
+  "audit.kind.pinned": "Hat es angeheftet",
+  "audit.kind.unpinned": "Hat es losgelöst",
+  "audit.kind.transferredIn":
+    "Hat es hierher verschoben aus {from, select, workspace {einem Workspace} other {einem persönlichen Bereich}}",
+  "audit.kind.transferredOut":
+    "Hat es verschoben in {to, select, workspace {einen Workspace} other {einen persönlichen Bereich}}",
+  "audit.kind.accessChanged": "Hat den Zugriff geändert: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {öffentlich gemacht} authenticated {für alle Angemeldeten geöffnet} other {auf gelistete Leser beschränkt}}",
+  "audit.access.readersAdded":
+    "{count, plural, one {# Leser hinzugefügt} other {# Leser hinzugefügt}}",
+  "audit.access.readersRemoved": "{count, plural, one {# Leser entfernt} other {# Leser entfernt}}",
+  "audit.access.domains": "bei {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {Kommentarsicht für # Leser geändert} other {Kommentarsicht für # Leser geändert}}",
+  "audit.access.bar":
+    "{on, select, true {Portifact-Leiste eingeschaltet} other {Portifact-Leiste ausgeschaltet}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {Kommentare für alle sichtbar} other {Kommentare nur für die Eigentümerseite sichtbar}}",
+  "audit.access.indexable": "{on, select, true {Indexierung erlaubt} other {Indexierung beendet}}",
+  "audit.access.embeddable": "{on, select, true {Einbetten erlaubt} other {Einbetten beendet}}",
+  "audit.kind.shareLinkCreated":
+    "Hat einen Freigabelink erstellt{password, select, true { mit Passwort} other {}}{expires, select, true {, der abläuft} other {}}",
+  "audit.kind.shareLinkRevoked": "Hat einen Freigabelink widerrufen",
+  "audit.kind.domainAttached": "Hat die Domain {hostname} verbunden",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Hat die Domain {hostname} entfernt} operator {Portifact hat die Domain {hostname} entfernt} other {Die Domain {hostname} wurde automatisch getrennt}}",
+  "audit.kind.webhookCreated":
+    "Hat einen {format, select, slack {Slack-} discord {Discord-} other {signierten }}Webhook an {host} hinzugefügt",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Hat einen Webhook eingeschaltet} false {Hat einen Webhook ausgeschaltet} other {Hat die Ereignisse eines Webhooks geändert}}",
+  "audit.kind.webhookRemoved": "Hat einen Webhook entfernt",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Hat das Logo der Marke geändert} other {Hat Name, Farbe oder Link der Marke geändert}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Hat das Logo der Marke entfernt} other {Hat die Marke entfernt}}",
+  "audit.kind.memberInvited": "Hat jemanden bei {domain} als {role} eingeladen",
+  "audit.kind.invitationRevoked": "Hat eine Einladung widerrufen",
+  "audit.kind.memberJoined": "{member} ist als {role} beigetreten",
+  "audit.kind.roleChanged": "Hat {member} von {from} zu {to} geändert",
+  "audit.kind.memberRemoved": "Hat {member} entfernt",
+  "audit.kind.memberLeft": "{member} hat den Workspace verlassen",
+  "audit.kind.planGranted":
+    "Hat den Tarif {plan} mit {seats, plural, one {# Platz} other {# Plätzen}} festgelegt",
+  "audit.kind.planGrantedUntil":
+    "Hat den Tarif {plan} mit {seats, plural, one {# Platz} other {# Plätzen}} bis {until} festgelegt",
+  "audit.kind.planRemoved": "Hat den Tarif entfernt, der Bereich ist wieder auf Free",
+  "audit.kind.tokenCreated":
+    "Hat ein Service-Token erstellt, das in {days, plural, one {# Tag} other {# Tagen}} abläuft",
+  "audit.kind.tokenRevoked": "Hat ein Service-Token widerrufen",
+  "audit.kind.emailDomainVerified": "Hat die E-Mail-Domain {domain} verifiziert",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {Hat die E-Mail-Domain {domain} entfernt} claimed {Die E-Mail-Domain {domain} wurde entfernt, weil ein anderer Workspace sie nachgewiesen hat} other {Die E-Mail-Domain {domain} wurde entfernt, weil ihr DNS-Eintrag fehlt}}",
   "shell.serviceTokensLink": "Service-Tokens",
   "tokens.title": "Service-Tokens",
   "tokens.description":

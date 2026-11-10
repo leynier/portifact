@@ -1020,7 +1020,16 @@ export async function runOperator(
       const [hostname] = args;
       if (!hostname) return usage("detach-domain needs a hostname.");
       const name = hostname.trim().toLowerCase().replace(/\.$/, "");
-      const detached = await detachDomain(domainDbsOf(db), name, "operator", now);
+      const detached = await detachDomain(
+        domainDbsOf(db),
+        name,
+        "operator",
+        now,
+        {},
+        {
+          type: "operator",
+        },
+      );
       return detached
         ? {
             exitCode: 0,

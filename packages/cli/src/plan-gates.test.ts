@@ -84,6 +84,12 @@ const GATED: GatedCommand[] = [
     path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}\/test$/,
   },
   {
+    feature: "audit",
+    args: () => ["audit"],
+    method: "GET",
+    path: /^\/api\/v1\/audit$/,
+  },
+  {
     feature: "workspaces",
     args: (id) => ["access", "set", id, "workspace"],
     method: "PATCH",

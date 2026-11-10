@@ -27,7 +27,8 @@ import {
   serviceTokenExpiry,
   storedTokenScopes,
 } from "@portifact/domain";
-import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, or, type SQL, sql } from "drizzle-orm";
+import { type AuditActor, auditEvent } from "./audit.ts";
 import { hashSecret } from "./read-access.ts";
 import { scoped, stillAdmin } from "./workspaces.ts";
 
@@ -135,13 +136,32 @@ export async function createServiceToken(
   const scopes = [...input.body.scopes].sort().join(" ");
   const expiresAt = serviceTokenExpiry(input.now, input.body.expiresInDays);
   const count = sql`(select count(*) from ${t} where ${t.workspaceId} = ${workspaceId})`;
-  // Every column in schema order (AGENTS.md, insert ... select).
-  const inserted = await global
-    .insert(t)
-    .select(
-      sql`select ${id}, ${workspaceId}, ${input.body.label}, ${input.body.role}, ${scopes}, ${restriction}, ${keyPrefix}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, null where ${stillAdmin(workspaceId, input.userId)} and ${count} < ${SERVICE_TOKENS.perWorkspace}`,
-    )
-    .returning();
+  const [inserted] = await global.batch([
+    // Every column in schema order (AGENTS.md, insert ... select).
+    global
+      .insert(t)
+      .select(
+        sql`select ${id}, ${workspaceId}, ${input.body.label}, ${input.body.role}, ${scopes}, ${restriction}, ${keyPrefix}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, null where ${stillAdmin(workspaceId, input.userId)} and ${count} < ${SERVICE_TOKENS.perWorkspace}`,
+      )
+      .returning(),
+    // Recorded only when the row above was written: the ID is this request's own.
+    auditEvent(
+      global,
+      {
+        ownerId: workspaceId,
+        kind: "service_token.created",
+        actor: { type: "user", id: input.userId },
+        targetId: id,
+        detail: {
+          scopes: [...input.body.scopes].sort(),
+          restriction,
+          days: input.body.expiresInDays,
+        },
+        now: input.now,
+      },
+      sql`exists (select 1 from ${t} where ${t.id} = ${id})`,
+    ),
+  ]);
   const row = inserted[0];
   if (!row) {
     const again = await scoped(global, input.userId, input.slug, "tokens");
@@ -171,7 +191,15 @@ export async function revokeServiceToken(
   if (!scope.ok) return scope;
   const workspaceId = scope.value.workspace.id;
   const mine = sql`exists (select 1 from ${t} where ${t.id} = ${input.tokenId} and ${t.workspaceId} = ${workspaceId}) and ${stillAdmin(workspaceId, input.userId)}`;
-  const [, deleted] = await global.batch([
+  const [, , deleted] = await global.batch([
+    revokedEvent(
+      global,
+      workspaceId,
+      input.tokenId,
+      { type: "user", id: input.userId },
+      input.now,
+      mine,
+    ),
     global
       .insert(schema.tombstones)
       .select(sql`select 'service_token', ${input.tokenId}, ${input.now} where ${mine}`)
@@ -190,6 +218,29 @@ export async function revokeServiceToken(
   if (deleted.length === 1) return ok({ tokenId: input.tokenId });
   const again = await scoped(global, input.userId, input.slug, "tokens");
   return again.ok ? missingToken() : again;
+}
+
+/** The audit event of a revocation, in its batch, while the token is still there. */
+function revokedEvent(
+  global: GlobalDb,
+  workspaceId: string,
+  tokenId: string,
+  actor: AuditActor,
+  now: number,
+  condition: SQL,
+) {
+  return auditEvent(
+    global,
+    {
+      ownerId: workspaceId,
+      kind: "service_token.revoked",
+      actor,
+      targetId: tokenId,
+      detail: {},
+      now,
+    },
+    condition,
+  );
 }
 
 /** What authenticating a secret gave: the token, or why it is refused. */
@@ -291,7 +342,15 @@ export async function operatorRevokeServiceToken(
   tokenId: string,
   now: number,
 ): Promise<boolean> {
-  const [, deleted] = await global.batch([
+  const [found] = await global
+    .select({ workspaceId: t.workspaceId })
+    .from(t)
+    .where(eq(t.id, tokenId))
+    .limit(1);
+  const exists = sql`exists (select 1 from ${t} where ${t.id} = ${tokenId})`;
+  const [, , deleted] = await global.batch([
+    // The workspace's admins see that Portifact revoked it; a token already gone records nothing.
+    revokedEvent(global, found?.workspaceId ?? "", tokenId, { type: "operator" }, now, exists),
     global
       .insert(schema.tombstones)
       .values({ kind: "service_token", id: tokenId, deletedAt: now })

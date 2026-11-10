@@ -23,6 +23,7 @@ import {
 } from "@portifact/domain";
 import { and, asc, desc, eq, exists, inArray, lt, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
@@ -623,6 +624,21 @@ export async function rollbackArtifact(
       .select(
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'rolled_back', ${JSON.stringify({ fromVersionId: target.id, versionId })}, ${input.now} where ${switched}`,
       ),
+    auditEvent(
+      db,
+      {
+        ownerId,
+        kind: "artifact.rolled_back",
+        actor: { type: "user", id: input.userId },
+        targetId: artifact.id,
+        artifactId: artifact.id,
+        // The new number is set by the insert above; the placeholder is replaced in SQL.
+        detail: { version: 1, from: target.number },
+        computed: { version: sql`(select ${v.number} from ${v} where ${v.id} = ${versionId})` },
+        now: input.now,
+      },
+      switched,
+    ),
     // A rollback is a new version for the owner's webhooks, numbered by the insert above.
     ...markWebhookEvent(db, {
       entitlements: owner,
