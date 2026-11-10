@@ -207,3 +207,74 @@ describe("invitation email abuse", () => {
     ]);
   });
 });
+
+describe("the last admin, decided by the database", () => {
+  it("refuses demoting oneself once the other admin was demoted meanwhile", async () => {
+    const t = await team();
+    const result = await changeMemberRole(raceGlobalBeforeFirstWrite(t.demote(t.other)), {
+      userId: t.admin.id,
+      slug: t.slug,
+      memberId: t.admin.id,
+      role: "member",
+      now: NOW,
+    });
+    expect(result).toMatchObject({ ok: false, code: "sole_workspace_admin" });
+    expect(await roleOf(t.ws.id, t.admin.id)).toBe("admin");
+  });
+
+  it("refuses leaving once the other admin was demoted meanwhile", async () => {
+    const t = await team();
+    const result = await removeMember(raceGlobalBeforeFirstWrite(t.demote(t.other)), {
+      userId: t.admin.id,
+      slug: t.slug,
+      memberId: t.admin.id,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      code: "sole_workspace_admin",
+      message: expect.stringContaining("before you leave"),
+    });
+    expect(await roleOf(t.ws.id, t.admin.id)).toBe("admin");
+  });
+
+  it("answers a refused write with a conflict when the caller is still an admin", async () => {
+    const t = await team();
+    const result = await changeMemberRole(
+      raceGlobalBeforeFirstWrite(async () => {
+        await db()
+          .update(schema.workspaceMembers)
+          .set({ role: "editor" })
+          .where(
+            and(
+              eq(schema.workspaceMembers.workspaceId, t.ws.id),
+              eq(schema.workspaceMembers.userId, t.member.id),
+            ),
+          );
+      }),
+      { userId: t.admin.id, slug: t.slug, memberId: t.member.id, role: "admin", now: NOW },
+    );
+    expect(result).toEqual({
+      ok: false,
+      code: "version_conflict",
+      message: "The member changed meanwhile. Reload and try again.",
+    });
+  });
+
+  it("answers an accept that lost to a seat change, with seats still free, as a conflict", async () => {
+    const t = await team(10);
+    const invitee = await user("Hal");
+    const sender = recorder();
+    value(await invite(db().global, t, invitee.email, "member", sender));
+    const token = (sender.sent[0] as InvitationMessage).token;
+    const result = await acceptInvitation(raceGlobalBeforeFirstWrite(t.setSeats(9)), {
+      userId: invitee.id,
+      key: { token },
+      now: NOW,
+    });
+    expect(result).toEqual({
+      ok: false,
+      code: "version_conflict",
+      message: "The workspace changed meanwhile. Try again.",
+    });
+  });
+});
