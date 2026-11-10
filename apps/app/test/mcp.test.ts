@@ -66,6 +66,7 @@ const TOOLS = [
     "set_annotations",
   ],
   ...["list_webhooks", "list_webhook_deliveries"],
+  ...["request_review", "submit_review", "get_review_status"],
 ].sort();
 
 interface Committed {
