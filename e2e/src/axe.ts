@@ -24,15 +24,31 @@ interface AxeWindow {
   };
 }
 
-/** The axe violations of the page as it is now, in its current color scheme. */
+/** How long `axeViolations` waits for running transitions before it looks anyway. */
+const SETTLE_MS = 2_000;
+
+/**
+ * The axe violations of the page as it is now, in its current color scheme. Transitions and
+ * animations that end are left to finish first: a color scheme that has just changed fades every
+ * `transition-colors` element, and axe would measure the contrast of a color halfway there.
+ * Animations that never end (a spinner) are not waited for.
+ */
 export async function axeViolations(page: Page): Promise<AxeViolation[]> {
   await page.evaluate(AXE_SOURCE);
-  return page.evaluate(async () => {
+  return page.evaluate(async (settleMs) => {
+    const ending = document
+      .getAnimations()
+      .filter((animation) => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+      .map((animation) => animation.finished.catch(() => undefined));
+    await Promise.race([
+      Promise.all(ending),
+      new Promise((resolve) => setTimeout(resolve, settleMs)),
+    ]);
     const { axe } = window as unknown as AxeWindow;
     const result = await axe.run(document, { resultTypes: ["violations"] });
     return result.violations.map((violation) => ({
       id: violation.id,
       targets: violation.nodes.map((node) => node.target.join(" ")),
     }));
-  });
+  }, SETTLE_MS);
 }
