@@ -138,12 +138,13 @@ export async function removeWebhook(
   options: RemoveWebhookOptions,
 ) {
   const webhookId = parseWebhookId(id);
+  const space = flaggedWorkspace(options.workspace);
   const listPath = inSpace("/webhooks", options);
   const path = inSpace(`/webhooks/${webhookId}`, options);
   if (!options.yes && !runtime.prompt) {
     throw new CliError(
       "invalid_input",
-      messages.errors.webhookRemoveConfirmationRequired(webhookId),
+      messages.errors.webhookRemoveConfirmationRequired(webhookId, space),
     );
   }
   const session = await openSession(io, runtime);
@@ -153,7 +154,7 @@ export async function removeWebhook(
     // Nothing to confirm: the server answers a missing webhook with its own not_found.
     if (webhook) {
       const answer = await runtime.prompt(
-        messages.confirmWebhookRemove(webhookId, plain(webhook.host)),
+        messages.confirmWebhookRemove(webhookId, plain(webhook.host), space),
       );
       if (answer.trim().toLowerCase() !== "remove") {
         throw new CliError("cancelled", messages.errors.webhookRemoveCancelled);

@@ -204,6 +204,33 @@ describe("portifact webhooks", () => {
     ).toEqual(["", ""]);
   });
 
+  it("names the space a removal acts on, in the prompt and in the --yes hint", async () => {
+    h.signIn();
+    const inWorkspace = await add("--workspace", "acme");
+    const noTerminal = await h.invoke("webhooks", "remove", inWorkspace, "--workspace", "acme");
+    expect(noTerminal.stderr).toContain(
+      `portifact webhooks remove ${inWorkspace} --workspace acme --yes`,
+    );
+    const team = await createHarness({ server, answers: ["remove"] });
+    team.signIn();
+    expect((await team.invoke("webhooks", "remove", inWorkspace, "--workspace", "acme")).code).toBe(
+      0,
+    );
+    expect(team.prompts[0]).toContain(
+      `removes webhook ${inWorkspace} for hooks.example.com from the workspace acme`,
+    );
+    await team.cleanup();
+
+    const mine = await add();
+    const personal = await createHarness({ server, answers: ["remove"] });
+    personal.signIn();
+    expect((await personal.invoke("webhooks", "remove", mine)).code).toBe(0);
+    expect(personal.prompts[0]).toContain(
+      `removes webhook ${mine} for hooks.example.com from your personal space`,
+    );
+    await personal.cleanup();
+  });
+
   it("refuses a malformed workspace slug before calling the server", async () => {
     h.signIn();
     const result = await h.invoke("webhooks", "list", "--workspace", "Not a slug!");

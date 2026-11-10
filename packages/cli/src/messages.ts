@@ -282,8 +282,9 @@ export const messages = {
   webhookTestQueued: (id: string) =>
     `Queued a test event for ${id}. It goes within about two minutes; check \`portifact webhooks deliveries ${id}\`.`,
   webhookDeliveriesEmpty: (days: number) => `No delivery attempts in the last ${days} days.`,
-  confirmWebhookRemove: (id: string, host: string) =>
-    `This removes webhook ${id} for ${host} and its delivery log.\nType "remove" to confirm: `,
+  /** `workspace` is the slug the command acts on; undefined for the personal space. */
+  confirmWebhookRemove: (id: string, host: string, workspace: string | undefined) =>
+    `This removes webhook ${id} for ${host} from ${workspace === undefined ? "your personal space" : `the workspace ${workspace}`} and its delivery log.\nType "remove" to confirm: `,
   tokensEmpty: "No app holds tokens for your account.",
   tokensUnnamed: "Unnamed app",
   tokensNote:
@@ -364,8 +365,8 @@ export const messages = {
       `${JSON.stringify(value)} is not a webhook ID. Run \`portifact webhooks list\` to see them.`,
     invalidWebhookEvents: (value: string) =>
       `${JSON.stringify(value)} is not a list of events. Use comma-separated names from: ${WEBHOOK_EVENTS.join(", ")}.`,
-    webhookRemoveConfirmationRequired: (id: string) =>
-      `Removing stops the webhook for good. Run \`portifact webhooks remove ${id} --yes\` to confirm without a prompt.`,
+    webhookRemoveConfirmationRequired: (id: string, workspace: string | undefined) =>
+      `Removing stops the webhook for good. Run \`portifact webhooks remove ${id}${workspace === undefined ? "" : ` --workspace ${workspace}`} --yes\` to confirm without a prompt.`,
     webhookRemoveCancelled: 'Nothing was removed: the confirmation was not "remove".',
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
