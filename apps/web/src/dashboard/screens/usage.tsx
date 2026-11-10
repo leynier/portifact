@@ -19,14 +19,29 @@ import {
   useT,
 } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
+import { spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
+import { RoleNotice, SpaceBadge } from "./space-parts.tsx";
 
 export const USAGE_QUERY = ["usage"] as const;
 
-export function useUsage() {
+/** The usage of a space: a workspace by slug, the personal space without one. */
+export const usageQuery = (workspace: string | undefined) =>
+  [...USAGE_QUERY, workspace ?? null] as const;
+
+/**
+ * The usage of a space, the personal one by default. Only editors and admins read a workspace's
+ * usage, so callers pass `enabled` false for a role that cannot.
+ */
+export function useUsage(workspace?: string, enabled = true) {
   const { api } = useDashboard();
-  return useQuery({ queryKey: USAGE_QUERY, queryFn: () => api.usage(), ...refreshOptions });
+  return useQuery({
+    queryKey: usageQuery(workspace),
+    queryFn: () => api.usage(workspace),
+    enabled,
+    ...refreshOptions,
+  });
 }
 
 export function trafficBlock(usage: AccountUsageView | undefined): UsageBlock | undefined {
@@ -57,13 +72,29 @@ export function TrafficNotice({ block, link }: { block: UsageBlock; link?: boole
 export function UsageScreen() {
   const t = useT();
   useDocumentTitle(t("usage.title"));
-  const usage = useUsage();
+  const space = useReadySpace();
+  const allowed = spaceCan(space, "usage");
+  const usage = useUsage(space.slug, allowed);
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t("usage.title")} description={t("usage.description")} />
-      <Loaded query={usage} loading={t("usage.loading")} error={t("usage.error")}>
-        {(view) => <UsageDetails usage={view} />}
-      </Loaded>
+      <PageHeader
+        title={t("usage.title")}
+        meta={<SpaceBadge owner={space} />}
+        description={
+          space.kind === "workspace"
+            ? t("usage.descriptionWorkspace", { workspace: space.name })
+            : t("usage.description")
+        }
+      />
+      {allowed ? (
+        <Loaded query={usage} loading={t("usage.loading")} error={t("usage.error")}>
+          {(view) => <UsageDetails usage={view} />}
+        </Loaded>
+      ) : (
+        <RoleNotice>
+          {t("space.notAllowed.usage", { workspace: space.kind === "workspace" ? space.name : "" })}
+        </RoleNotice>
+      )}
     </div>
   );
 }

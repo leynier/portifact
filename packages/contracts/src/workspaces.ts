@@ -188,6 +188,17 @@ export type IncomingInvitationView = z.infer<typeof IncomingInvitationView>;
 export const IncomingInvitationList = z.object({ items: z.array(IncomingInvitationView) });
 export type IncomingInvitationList = z.infer<typeof IncomingInvitationList>;
 
+/**
+ * What the invitation page shows for a link's token (`POST /api/v1/invitations/lookup`): the
+ * invitation for its verified address, or only the address it was sent to for any other account,
+ * so the person can switch accounts. A missing, expired, revoked or used one is `not_found`.
+ */
+export const InvitationLookup = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("invited"), invitation: IncomingInvitationView }),
+  z.object({ status: z.literal("other_account"), email: z.string() }),
+]);
+export type InvitationLookup = z.infer<typeof InvitationLookup>;
+
 /** Accepting or declining from the email's link. */
 export const InvitationTokenInput = z.strictObject({ token: InvitationToken });
 export type InvitationTokenInput = z.infer<typeof InvitationTokenInput>;

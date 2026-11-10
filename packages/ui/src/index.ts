@@ -131,6 +131,11 @@ export {
   type SectionedPageProps,
 } from "./patterns/section-nav.tsx";
 export {
+  SpaceSwitcher,
+  type SpaceSwitcherOption,
+  type SpaceSwitcherProps,
+} from "./patterns/space-switcher.tsx";
+export {
   HostingNotice,
   type HostingNoticeProps,
   ViewerBarPreview,

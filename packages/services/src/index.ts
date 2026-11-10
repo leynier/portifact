@@ -20,6 +20,7 @@ export * from "./domain-notices.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";
 export * from "./idempotency.ts";
+export * from "./invitation-lookup.ts";
 export * from "./invitations.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";

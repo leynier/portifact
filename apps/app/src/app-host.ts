@@ -68,6 +68,7 @@ export const DASHBOARD_ROUTES = [
   "/webhooks",
   "/branding",
   "/settings",
+  "/members",
   // The old account page; the dashboard sends it on to the page that holds each section now.
   "/account",
 ] as const;
@@ -78,6 +79,14 @@ export const DASHBOARD_ROUTES = [
  * without a session: anonymous visitors of a public artifact see it too.
  */
 export const VIEWER_ROUTE = "/view/:artifactId";
+
+/**
+ * The invitation page (premium plan T1), where an invitation email's link lands. Served with or
+ * without a session: signed out, the page explains the invitation and sends the person through
+ * sign-in itself, so the token, which the link carries in its fragment, never travels in a
+ * `next` parameter.
+ */
+export const INVITATION_ROUTE = "/invitations";
 
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
@@ -430,6 +439,16 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
         artifactId,
         await viewerFrameOriginFor(c.env, c.req.raw, artifactId, sessionUserFor(c.env)),
       ),
+    );
+    page.headers.set("X-Robots-Tag", "noindex");
+    return withSiteKey(page, c.env.TURNSTILE_SITE_KEY);
+  });
+
+  app.get(INVITATION_ROUTE, async (c) => {
+    c.header("Cache-Control", "no-store");
+    const page = trustedPage(
+      await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
+      await dashboardCsp(c.env),
     );
     page.headers.set("X-Robots-Tag", "noindex");
     return withSiteKey(page, c.env.TURNSTILE_SITE_KEY);

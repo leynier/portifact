@@ -1394,4 +1394,204 @@ export const ptBR = {
   "viewer.brandNewTab": "(abre em uma nova aba)",
   "viewer.hosting.poweredBy": "Com tecnologia Portifact",
   "viewer.hosting.origin": "Publicado em",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "Espaço",
+  "space.personal": "Pessoal",
+  "space.personalDetail": "Seu próprio espaço",
+  "space.invitations": "{count, plural, one {# convite pendente} other {# convites pendentes}}",
+  "space.missing.title": "Workspace não encontrado",
+  "space.missing.body":
+    "Este workspace não existe ou você não é membro dele. Peça a um dos admins para convidar você.",
+  "space.missing.personal": "Ir para o seu espaço pessoal",
+  "space.notAllowed.title": "Indisponível para o seu papel",
+  "space.notAllowed.back": "Voltar aos artifacts",
+  "space.notAllowed.list":
+    "Como membro de {workspace}, você lê e comenta os artifacts compartilhados com você, pelos links deles. Ver e gerenciar todos os artifacts do workspace exige o papel de editor ou admin: peça a um dos admins.",
+  "space.notAllowed.publish":
+    "Publicar em {workspace} exige o papel de editor ou admin. Peça a um dos admins.",
+  "space.notAllowed.usage": "O uso de {workspace} é mostrado aos editores e admins dele.",
+  "space.notAllowed.branding": "Só os admins de {workspace} definem a marca dele.",
+  "role.admin": "Admin",
+  "role.editor": "Editor",
+  "role.member": "Membro",
+  "role.admin.hint":
+    "gerencia membros, a marca e todos os artifacts, e pode tirar artifacts do workspace",
+  "role.editor.hint": "publica e gerencia os artifacts do workspace",
+  "role.member.hint": "lê e comenta o que é compartilhado com ele",
+  "shell.membersLink": "Membros",
+  "list.descriptionWorkspace":
+    "Tudo o que foi publicado em {workspace}, com estado, acesso e atividade.",
+  "publish.descriptionWorkspace":
+    "Publique em {workspace}: um arquivo HTML, uma pasta, um ZIP ou um documento. Nada é enviado antes da sua revisão.",
+  "publish.review.accessNewWorkspace":
+    "Os admins e editores de {workspace}. Depois de publicar, você pode compartilhar pela página do artifact.",
+  "usage.descriptionWorkspace":
+    "As cotas de {workspace}, compartilhadas por todos que publicam nele, e o tráfego deste mês.",
+  "branding.descriptionWorkspace":
+    "A marca que a barra do visualizador mostra nos artifacts de {workspace}.",
+  "detail.section.space": "Espaço",
+  "transfer.title": "Mover para outro espaço",
+  "transfer.description":
+    "Este artifact está em {space}. Mova para o seu espaço pessoal ou para um workspace em que você seja editor ou admin.",
+  "transfer.destination": "Destino",
+  "transfer.move": "Mover artifact",
+  "transfer.blocked": "Este artifact não pode ser movido agora",
+  "transfer.notAdmin": "Só um admin de {workspace} pode tirar artifacts dele.",
+  "transfer.domain":
+    "Este artifact tem um domínio próprio, ativo ou pendente. Remova em Compartilhamento e depois mova o artifact.",
+  "transfer.none":
+    "Não há outro espaço para onde você possa movê-lo. Você pode mover artifacts para o seu espaço pessoal e para workspaces em que seja editor ou admin.",
+  "transfer.confirm.title": "Mover {name} para {space}?",
+  "transfer.confirm.stays":
+    "Não muda: o ID, o link, as versões, as pessoas que você adicionou e os comentários.",
+  "transfer.confirm.changes":
+    "Muda: os admins e editores de {space} passam a gerenciá-lo e a ver quem o abriu, inclusive antes da mudança, e ele conta no uso de {space}.",
+  "transfer.confirm.plan":
+    "Fixações e links de compartilhamento seguem o plano de {space}: se ele não os incluir, eles param de funcionar.",
+  "transfer.confirm.blocks":
+    "Ele não é movido se {space} não tiver espaço para ele ou se ainda houver um envio aberto.",
+  "transfer.confirm.action": "Mover",
+  "transfer.done": "{name} foi movido para {space}.",
+  "transfer.failed": "O artifact não foi movido",
+  "transfer.error.quota_exceeded":
+    "{space} não tem espaço para este artifact. Libere antes uma vaga ativa ou armazenamento lá.",
+  "transfer.error.version_conflict":
+    "Ainda há um envio aberto para este artifact, ou ele mudou nesse meio-tempo. Conclua ou cancele o envio, recarregue e tente de novo.",
+  "transfer.error.invalid_input":
+    "Este artifact tem um domínio próprio ou já está nesse espaço. Remova o domínio antes.",
+  "transfer.error.forbidden":
+    "O seu papel não permite tirar este artifact do espaço dele nem movê-lo para esse.",
+  "transfer.error.artifact_archived": "Só um artifact ativo ou arquivado pode ser movido.",
+  "transfer.error.not_found": "Esse espaço ou este artifact não está mais disponível para você.",
+  "members.title": "Membros",
+  "members.description":
+    "As pessoas de {workspace} e o que cada uma pode fazer. Os admins gerenciam membros e convites.",
+  "members.personal.title": "O seu espaço pessoal não tem membros",
+  "members.personal.body":
+    "Membros pertencem a workspaces. Escolha um workspace no menu de espaços para ver os membros dele.",
+  "members.loading": "Carregando membros",
+  "members.loadFailed": "Os membros não carregaram",
+  "members.seats": "Vagas",
+  "members.seatsUsed": "Vagas em uso",
+  "members.seatsValue": "{used} de {limit} ({percent})",
+  "members.seatsHint":
+    "Cada membro e cada convite pendente ocupa uma vaga. O plano do workspace define quantas existem.",
+  "members.listTitle": "Pessoas",
+  "members.count": "{count, plural, one {# membro} other {# membros}}",
+  "members.caption": "Membros de {workspace}",
+  "members.you": "Você",
+  "members.joined": "Entrou em {date}",
+  "members.roleLabel": "Papel de {name}",
+  "members.remove": "Remover",
+  "members.removeNamed": "Remover {name}",
+  "members.leave": "Sair do workspace",
+  "members.lastAdmin":
+    "Único admin: torne outro membro admin antes de mudar este papel, remover essa pessoa ou sair.",
+  "members.confirmRemove.title": "Remover {name} de {workspace}?",
+  "members.confirmRemove.body":
+    "A pessoa perde o acesso aos artifacts do workspace na hora. O que ela publicou continua no workspace.",
+  "members.confirmRemove.action": "Remover membro",
+  "members.confirmLeave.title": "Sair de {workspace}?",
+  "members.confirmLeave.body":
+    "Você perde o acesso aos artifacts dele na hora. Para voltar, um admin precisa convidar você de novo.",
+  "members.roleChanged": "{name} agora é {role}.",
+  "members.removed": "{name} foi removido.",
+  "members.left": "Você saiu de {workspace}.",
+  "members.actionFailed": "A alteração não foi salva",
+  "members.error.forbidden":
+    "O seu papel mudou nesse meio-tempo: só admins gerenciam membros e convites. Recarregue a página.",
+  "members.error.version_conflict": "O membro mudou nesse meio-tempo. Recarregue e tente de novo.",
+  "members.error.not_found": "Essa pessoa não está mais no workspace.",
+  "invite.title": "Convidar alguém",
+  "invite.description":
+    "Enviamos por e-mail um link válido por 7 dias. A pessoa entra fazendo login com esse endereço.",
+  "invite.email": "E-mail",
+  "invite.role": "Papel",
+  "invite.send": "Enviar convite",
+  "invite.sent": "Convite enviado para {email}.",
+  "invite.emailInvalid": "Digite um endereço de e-mail, como nome@exemplo.com.",
+  "invite.alreadyMember": "{email} já é membro.",
+  "invite.full.title": "Nenhuma vaga livre",
+  "invite.failed": "O convite não foi enviado",
+  "invite.error.invalid_input": "Esse endereço já pertence a um membro ou não é um e-mail válido.",
+  "invite.error.rate_limited": "Convites demais por enquanto. Aguarde um pouco e tente de novo.",
+  "invite.error.capacity_unavailable":
+    "O Portifact já enviou todos os e-mails de convite que pode neste mês. Tente de novo no mês que vem.",
+  "invite.error.not_found": "Esse convite não existe mais. Recarregue a página.",
+  "pending.title": "Convites pendentes",
+  "pending.description": "Cada um ocupa uma vaga até ser aceito, recusado, revogado ou expirar.",
+  "pending.loading": "Carregando convites",
+  "pending.loadFailed": "Os convites não carregaram",
+  "pending.empty": "Nenhum convite pendente.",
+  "pending.detail": "{role}, convidado por {inviter}, expira em {date}",
+  "pending.unknownInviter": "um ex-membro",
+  "pending.resend": "Convidar de novo",
+  "pending.resendNamed": "Convidar de novo: {email}",
+  "pending.revoke": "Revogar",
+  "pending.revokeNamed": "Revogar: {email}",
+  "pending.confirmRevoke.title": "Revogar o convite de {email}?",
+  "pending.confirmRevoke.body": "O link para de funcionar e a vaga fica livre de novo.",
+  "pending.confirmRevoke.action": "Revogar convite",
+  "pending.revoked": "O convite de {email} foi revogado.",
+  "pending.resent": "Um novo convite foi enviado para {email}. O link anterior não funciona mais.",
+  "invitation.title": "Convite para um workspace",
+  "invitation.signedOut.body":
+    "Alguém convidou você para um workspace no Portifact. Entre com o endereço de e-mail para o qual o convite foi enviado e depois aceite ou recuse aqui.",
+  "invitations.signedOut.body":
+    "Entre para ver os convites para workspaces enviados ao seu e-mail.",
+  "invitation.signIn": "Entrar para responder",
+  "invitation.loading": "Carregando o convite",
+  "invitation.loadFailed": "O convite não carregou",
+  "invitation.invited.body": "{inviter} convidou você para {workspace} como {role}.",
+  "invitation.invited.bodyNoInviter": "Você foi convidado para {workspace} como {role}.",
+  "invitation.expiresTerm": "Expira",
+  "invitation.accept": "Aceitar",
+  "invitation.acceptNamed": "Aceitar o convite para {workspace}",
+  "invitation.decline": "Recusar",
+  "invitation.declineNamed": "Recusar o convite para {workspace}",
+  "invitation.confirmDecline.title": "Recusar o convite para {workspace}?",
+  "invitation.confirmDecline.body":
+    "O link para de funcionar. Um admin pode convidar você de novo mais tarde.",
+  "invitation.confirmDecline.action": "Recusar convite",
+  "invitation.accepted": "Você entrou em {workspace}.",
+  "invitation.declined": "Você recusou o convite para {workspace}.",
+  "invitation.failed": "A sua resposta não foi salva",
+  "invitation.other.title": "Este convite é para outro endereço",
+  "invitation.other.body":
+    "Ele foi enviado para {email}, e você entrou como {current}. Entre com {email} para responder.",
+  "invitation.other.unverified":
+    "Ele foi enviado para {email}, o endereço desta conta, que ainda não foi verificado. Saia e entre de novo com um código enviado para {email}.",
+  "invitation.switch": "Entrar com outra conta",
+  "invitation.missing.title": "Este convite não funciona mais",
+  "invitation.missing.body":
+    "Ele expirou, foi revogado ou já foi usado. Peça a um admin do workspace para convidar você de novo.",
+  "invitations.title": "Convites",
+  "invitations.description":
+    "Convites para workspaces enviados ao seu endereço de e-mail verificado.",
+  "invitations.loading": "Carregando convites",
+  "invitations.loadFailed": "Os convites não carregaram",
+  "invitations.empty.title": "Nenhum convite pendente",
+  "invitations.empty.body":
+    "Quando um admin convidar o seu endereço para um workspace, o convite aparece aqui e no seu e-mail.",
+  "invitations.others": "Outros convites",
+  "invitations.notice.title": "Você foi convidado para um workspace",
+  "invitations.notice.body":
+    "{count, plural, one {Você tem # convite pendente.} other {Você tem # convites pendentes.}}",
+  "invitations.notice.link": "Ver convites",
+  "workspaces.title": "Workspaces",
+  "workspaces.description":
+    "Os workspaces de que você faz parte e o seu papel em cada um. Os admins convidam pessoas e mudam papéis na página Membros de cada workspace.",
+  "workspaces.loading": "Carregando workspaces",
+  "workspaces.loadFailed": "Os workspaces não carregaram",
+  "workspaces.none":
+    "Você não faz parte de nenhum workspace. O Portifact cria workspaces para equipes, e um admin convida você por e-mail.",
+  "workspaces.leave": "Sair",
+  "workspaces.leaveNamed": "Sair de {workspace}",
+  "account.delete.soleAdmin.title": "Você é o único admin de um workspace",
+  "account.delete.soleAdmin.body":
+    "Um workspace precisa manter um admin. Torne outro membro admin em cada um destes workspaces, ou peça ao Portifact em hello@portifact.com para excluí-los, e depois exclua a sua conta.",
+  "account.delete.soleAdmin.members": "Membros de {workspace}",
+  "webhooks.personalOnly.title": "Os webhooks ficam no seu espaço pessoal",
+  "webhooks.personalOnly.body":
+    "Por enquanto, os webhooks só enviam eventos dos artifacts do seu espaço pessoal. Mude para ele para gerenciá-los.",
 } satisfies Catalog;

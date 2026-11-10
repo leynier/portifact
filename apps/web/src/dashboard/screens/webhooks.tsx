@@ -35,6 +35,7 @@ import {
   TextInput,
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   CircleAlert,
   CirclePause,
@@ -49,9 +50,11 @@ import {
 import { type FormEvent, useId, useState } from "react";
 import { useAnnounce, useDashboard, useFormatDate, useRelativeTime, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
+import { useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
+import { SpaceBadge } from "./space-parts.tsx";
 
 export const WEBHOOKS_QUERY = ["webhooks"] as const;
 const deliveriesQuery = (id: string) => ["webhooks", id, "deliveries"] as const;
@@ -62,15 +65,36 @@ export function WebhooksScreen() {
   const t = useT();
   const { api } = useDashboard();
   useDocumentTitle(t("webhooks.title"));
+  // Webhooks belong to the personal space for now (API, MCP and CLI alike).
+  const space = useReadySpace();
   const list = useQuery({
     queryKey: WEBHOOKS_QUERY,
     queryFn: () => api.webhooks(),
+    enabled: space.kind === "personal",
     ...refreshOptions,
   });
   const [created, setCreated] = useState<WebhookCreated | null>(null);
   const available = list.data?.available ?? true;
   const offered = list.data?.serviceAvailable ?? true;
   const full = (list.data?.webhooks.length ?? 0) >= (list.data?.limit ?? Number.POSITIVE_INFINITY);
+
+  if (space.kind === "workspace") {
+    return (
+      <div className="flex flex-col gap-6">
+        <PageHeader title={t("webhooks.title")} meta={<SpaceBadge owner={space} />} />
+        <Callout
+          title={t("webhooks.personalOnly.title")}
+          action={
+            <Link to="/webhooks" search={{ workspace: undefined }} className="font-semibold">
+              {t("space.missing.personal")}
+            </Link>
+          }
+        >
+          {t("webhooks.personalOnly.body")}
+        </Callout>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">

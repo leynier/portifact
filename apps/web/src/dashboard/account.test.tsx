@@ -387,6 +387,7 @@ describe("section guides", () => {
         "Appearance",
         "Defaults for new artifacts",
         "Email notices",
+        "Workspaces",
         "Your data",
         "Danger zone",
       ],

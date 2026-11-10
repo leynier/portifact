@@ -275,6 +275,8 @@ export interface PublishRun {
   transport: StorageTransport;
   request: Parameters<DashboardApi["preparePublish"]>[0];
   idempotencyKey: string;
+  /** The workspace a new artifact goes to; the personal space without it. */
+  workspace?: string | undefined;
   objects: UploadJob["objects"];
   /** An upload prepared by an earlier attempt, to resume instead of preparing again. */
   resume?: PreparedPublish | undefined;
@@ -294,7 +296,11 @@ export async function runPublish(run: PublishRun): Promise<CommittedPublish> {
   const prepared = run.resume
     ? await run.api.uploadProgress(run.resume.uploadId)
     : // This uploader sends large objects in parts, so it asks for multipart targets.
-      await run.api.preparePublish({ ...run.request, multipart: true }, run.idempotencyKey);
+      await run.api.preparePublish(
+        { ...run.request, multipart: true },
+        run.idempotencyKey,
+        run.workspace,
+      );
   run.onPhase("uploading", prepared);
   try {
     await uploadObjects({

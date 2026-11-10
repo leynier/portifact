@@ -69,6 +69,7 @@ describe("dashboard pages", () => {
       "/artifacts/k7d2qm4xab/publish",
       "/artifacts/k7d2qm4xab/edit",
       "/artifacts/k7d2qm4xab/history",
+      "/members?workspace=team",
       "/account",
     ]) {
       const response = await h.request(path, { headers: { cookie } });
@@ -113,6 +114,27 @@ describe("dashboard pages", () => {
       const response = await SELF.fetch(`https://portifact.com${path}`, { redirect: "manual" });
       expect(response.status, path).toBe(404);
     }
+  });
+});
+
+describe("invitation page", () => {
+  it("serves the invitation page with or without a session, never sending it to sign in or indexing it", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("invitation-page@example.test");
+    for (const headers of [{}, { cookie }, { cookie: `${SESSION_COOKIE}=forged.value` }]) {
+      const response = await h.request("/invitations", { headers, redirect: "manual" });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-security-policy")).toBe(await dashboardCsp(env));
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(response.headers.get("x-robots-tag")).toBe("noindex");
+      expect(await response.text()).toContain('<div id="root"></div>');
+    }
+    for (const path of ["/invitations/x", "/invitation"]) {
+      expect((await h.request(path, { headers: { cookie } })).status, path).toBe(404);
+    }
+    const elsewhere = await SELF.fetch("https://portifact.com/invitations", { redirect: "manual" });
+    expect(elsewhere.status).toBe(404);
   });
 });
 

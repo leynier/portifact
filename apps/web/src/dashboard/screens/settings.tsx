@@ -20,6 +20,7 @@ import { publicAvailableFrom } from "./access-settings.tsx";
 import { AccountData, DeleteAccount, Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
 import { LanguageChoice, SETTINGS_QUERY } from "./language.tsx";
+import { MyWorkspaces } from "./my-workspaces.tsx";
 import { ACCOUNT_QUERY, themeLabels } from "./shell.tsx";
 
 export { SETTINGS_QUERY } from "./language.tsx";
@@ -69,6 +70,7 @@ export function SettingsScreen() {
           { id: "appearance", label: t("settings.appearance.title") },
           { id: "defaults", label: t("settings.defaults.title") },
           { id: "notices", label: t("settings.notices.title") },
+          { id: "workspaces", label: t("workspaces.title") },
           { id: "data", label: t("account.data.title") },
           { id: "delete", label: t("settings.danger.title") },
         ]}
@@ -79,6 +81,7 @@ export function SettingsScreen() {
         <Appearance />
         <ArtifactDefaults />
         <EmailNotices />
+        <MyWorkspaces />
         <AccountData />
         <DeleteAccount email={account?.email ?? ""} />
       </SectionedPage>

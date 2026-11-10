@@ -184,6 +184,7 @@ test("settings and profile have a section guide, a compact menu on phones", asyn
     "Appearance",
     "Defaults for new artifacts",
     "Email notices",
+    "Workspaces",
     "Your data",
     "Danger zone",
   ]);

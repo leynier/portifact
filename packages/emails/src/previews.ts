@@ -57,7 +57,7 @@ const invitation = {
   inviterName: "Ada Lovelace",
   workspaceName: "Analytical Engines",
   role: "editor" as const,
-  acceptUrl: "https://app.portifact.com/invitations?token=sample",
+  acceptUrl: "https://app.portifact.com/invitations#token=sample",
   expiresAt: CREATED_AT + 7 * 24 * HOUR,
 };
 
