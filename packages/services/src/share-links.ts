@@ -6,6 +6,7 @@ import { SHARE_LINKS } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   checkShareExpiry,
+  devHost,
   type Entitlements,
   effectiveState,
   entitlements,
@@ -21,6 +22,7 @@ import {
 } from "@portifact/domain";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
+import { activeCustomHost } from "./custom-domains.ts";
 import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
 import { hashSecret, randomToken } from "./read-access.ts";
 
@@ -292,7 +294,7 @@ export async function revokeShareLink(
 
 export type ShareOpenOutcome =
   /** The link opened: the code goes to the artifact origin's `/__portifact/link`. */
-  | { kind: "opened"; artifactId: string; code: string }
+  | { kind: "opened"; artifactId: string; code: string; host: string }
   /** A live link that needs a password, asked without one. */
   | { kind: "password_required" }
   /** No password was sent and the link does not open (unknown, expired, revoked or paused). */
@@ -310,7 +312,15 @@ export type ShareOpenOutcome =
  */
 export async function openShareLink(
   regions: readonly RegionalDb[],
-  input: { token: string; password?: string | undefined; now: number },
+  input: {
+    token: string;
+    password?: string | undefined;
+    now: number;
+    /** The deployment's content domain, for the artifact's `.dev` host. */
+    contentDomain: string;
+    /** Whether this Worker serves custom hosts (`customDomainsServing`). */
+    customDomains: boolean;
+  },
 ): Promise<ShareOpenOutcome> {
   const l = schema.shareLinks;
   const a = schema.artifacts;
@@ -397,6 +407,11 @@ export async function openShareLink(
 
   const code = randomToken();
   const target = db as RegionalDb;
+  // The link opens the artifact on its active custom host when it has one, from the tables; the
+  // code works only on the host it is sent to.
+  const host =
+    (await activeCustomHost(target, found.artifactId, input.customDomains)) ??
+    devHost(found.artifactId, input.contentDomain);
   await target.batch([
     target.insert(schema.shareHandoffs).values({
       codeHash: await hashSecret(code),
@@ -404,13 +419,14 @@ export async function openShareLink(
       artifactId: found.artifactId,
       expiresAt: input.now + SHARE_LINKS.handoffTtlSeconds * SECOND_MS,
       createdAt: input.now,
+      host,
     }),
     target
       .update(l)
       .set({ lastUsedAt: shareUsedDay(input.now) })
       .where(eq(l.id, found.id)),
   ]);
-  return { kind: "opened", artifactId: found.artifactId, code };
+  return { kind: "opened", artifactId: found.artifactId, code, host };
 }
 
 /** A link's condition for SQL: not revoked and not expired at `now`. */
@@ -433,7 +449,14 @@ export interface ShareSessionGrant {
  */
 export async function redeemShareHandoff(
   db: Db,
-  input: { code: string; artifactId: string; now: number },
+  input: {
+    code: string;
+    artifactId: string;
+    /** The host the request came on, and the artifact's `.dev` host (codes without a host). */
+    host: string;
+    devHost: string;
+    now: number;
+  },
 ): Promise<Result<ShareSessionGrant>> {
   const expired = fail<never>("invalid_input", "This link has expired or was already used.");
   const codeHash = await hashSecret(input.code);
@@ -449,6 +472,7 @@ export async function redeemShareHandoff(
         and(
           eq(h.codeHash, codeHash),
           eq(h.artifactId, input.artifactId),
+          sql`coalesce(${h.host}, ${input.devHost}) = ${input.host}`,
           isNull(h.usedAt),
           gt(h.expiresAt, input.now),
           sql`exists (select 1 from ${l} where ${l.id} = ${h.linkId} and ${liveLink(input.now)})`,

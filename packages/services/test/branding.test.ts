@@ -365,7 +365,9 @@ describe("what the viewer and the logo route get", () => {
       logo: { sha256: sha, width: 64, height: 32 },
     };
     for (const userId of [null, owner.id, (await user("Reader")).id]) {
-      const found = value(await getViewerArtifact(db(), { artifactId, userId, now: NOW }));
+      const found = value(
+        await getViewerArtifact(db(), { customDomains: true, artifactId, userId, now: NOW }),
+      );
       expect(found.brand, String(userId)).toEqual(expected);
     }
     expect(await findBrandLogo(db(), { artifactId, sha256: sha, now: NOW })).toEqual({
@@ -381,7 +383,9 @@ describe("what the viewer and the logo route get", () => {
     const { owner, artifactId, sha } = await brandedArtifact();
     await grantPlan(owner.id, "pro", { validUntil: NOW - 1 });
     expect(
-      value(await getViewerArtifact(db(), { artifactId, userId: null, now: NOW })).brand,
+      value(
+        await getViewerArtifact(db(), { customDomains: true, artifactId, userId: null, now: NOW }),
+      ).brand,
     ).toBeNull();
     expect(await findBrandLogo(db(), { artifactId, sha256: sha, now: NOW })).toBeNull();
     // The brand is kept, unused, and the owner can still see and delete it.
@@ -389,7 +393,9 @@ describe("what the viewer and the logo route get", () => {
     expect(kept).toMatchObject({ available: false, brand: { name: "Acme" } });
     await grantPlan(owner.id, "pro");
     expect(
-      value(await getViewerArtifact(db(), { artifactId, userId: null, now: NOW })).brand?.name,
+      value(
+        await getViewerArtifact(db(), { customDomains: true, artifactId, userId: null, now: NOW }),
+      ).brand?.name,
     ).toBe("Acme");
   });
 
@@ -406,7 +412,9 @@ describe("what the viewer and the logo route get", () => {
       suspended: false,
     });
     expect(
-      value(await getViewerArtifact(db(), { artifactId, userId: null, now: NOW })).brand,
+      value(
+        await getViewerArtifact(db(), { customDomains: true, artifactId, userId: null, now: NOW }),
+      ).brand,
     ).toBeNull();
     expect(await findBrandLogo(db(), { artifactId, sha256: sha, now: NOW })).toBeNull();
     expect(value(await getBrandSettings(db(), { actor: owner.actor, now: NOW })).suspended).toBe(
@@ -428,7 +436,9 @@ describe("what the viewer and the logo route get", () => {
       reinstated: false,
     });
     expect(
-      value(await getViewerArtifact(db(), { artifactId, userId: null, now: NOW })).brand?.name,
+      value(
+        await getViewerArtifact(db(), { customDomains: true, artifactId, userId: null, now: NOW }),
+      ).brand?.name,
     ).toBe("Acme");
     const nobody = `u_${crypto.randomUUID()}`;
     expect(await suspendBrand(db(), { ownerId: nobody, reason: "spam", now: NOW })).toMatchObject({
@@ -462,7 +472,14 @@ describe("what the viewer and the logo route get", () => {
     const owner = await paid();
     const { artifactId } = await publishSite(owner.id);
     expect(
-      value(await getViewerArtifact(db(), { artifactId, userId: owner.id, now: NOW })).brand,
+      value(
+        await getViewerArtifact(db(), {
+          customDomains: true,
+          artifactId,
+          userId: owner.id,
+          now: NOW,
+        }),
+      ).brand,
     ).toBeNull();
   });
 });

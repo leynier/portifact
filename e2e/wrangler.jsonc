@@ -18,6 +18,9 @@
   "vars": {
     "APP_ORIGIN": "https://app.portifact.test",
     "CONTENT_DOMAIN": "portifact-content.test",
+    // Test-only: custom hosts are served, with the fake Cloudflare of worker/domains.ts. The
+    // deployed Workers keep the feature switched off (docs/releasing.md).
+    "CUSTOM_DOMAINS_ENABLED": "true",
     "GOOGLE_CLIENT_ID": "e2e",
     "GITHUB_CLIENT_ID": "e2e",
     "GOOGLE_CLIENT_SECRET": "e2e",

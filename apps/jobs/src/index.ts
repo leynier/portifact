@@ -28,7 +28,12 @@ import {
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
-import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
+import {
+  commentNotifierFromEnv,
+  domainNotifierFromEnv,
+  expiryNotifierFromEnv,
+  type NoticeEnv,
+} from "./notices.ts";
 import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
 
 export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, WebhookEnv {
@@ -37,6 +42,8 @@ export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, We
   ACCESS_DB: D1Database;
   ARTIFACTS: R2Bucket;
   JOBS: Queue<JobMessage>;
+  /** Required here: notices name `.dev` addresses and the DNS check needs the CNAME target. */
+  CONTENT_DOMAIN: string;
 }
 
 /** Delay before a job that is not finished yet (an account with artifacts left) runs again. */
@@ -187,6 +194,7 @@ export async function runQueue(
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   const notifier = expiryNotifierFromEnv(env);
   const commentNotifier = commentNotifierFromEnv(env);
+  const domainNotifier = domainNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const run = async (message: Message<unknown>) => {
     const parsed = JobMessage.safeParse(message.body);
@@ -203,6 +211,7 @@ export async function runQueue(
         commentNotifier,
         webhooks,
         domains,
+        domainNotifier,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

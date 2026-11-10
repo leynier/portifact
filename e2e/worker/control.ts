@@ -7,6 +7,7 @@ import {
   createAnnotationThread,
   createShareLink,
   createWorkspace,
+  customDomainsServing,
   issueReviewHandoff,
   preparePublish,
   revokeShareLink,
@@ -327,6 +328,8 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       authSessionId: sessionId,
       now,
       ...(kind ? { kind } : {}),
+      contentDomain: env.CONTENT_DOMAIN,
+      customDomains: customDomainsServing(env),
     });
     if (!issued.ok) return Response.json(issued, { status: 400 });
     return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });
@@ -447,12 +450,27 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
 
   // Custom domains: what DNS holds and what Cloudflare reports, as a customer and Cloudflare would.
   if (path === "/domains") {
-    const { txt, activate } = input as {
+    const { txt, activate, attach } = input as {
       txt?: { name: string; value: string };
       activate?: string;
+      /** An active domain as the jobs leave it, without going through the dashboard. */
+      attach?: { hostname: string; artifactId: string };
     };
     if (txt) e2eDomains.publishTxt(txt.name, txt.value);
     if (activate) e2eDomains.activate(activate);
+    if (attach) {
+      const now = Date.now();
+      const inserted = await env.DB.prepare(
+        `INSERT INTO custom_domains (hostname, owner_id, artifact_id, region, state, token, verified_at, checked_at)
+         SELECT ?, owner_id, id, 'default', 'active', ?, ?, ? FROM artifacts WHERE id = ?`,
+      )
+        .bind(attach.hostname, "e".repeat(32), now, now, attach.artifactId)
+        .run();
+      if (inserted.meta.changes !== 1) return new Response("Not found", { status: 404 });
+      await env.DB.prepare("UPDATE artifacts SET custom_host = ? WHERE id = ?")
+        .bind(attach.hostname, attach.artifactId)
+        .run();
+    }
     return Response.json({ ok: true });
   }
 

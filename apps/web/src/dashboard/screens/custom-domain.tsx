@@ -41,6 +41,7 @@ const PROBLEMS: Record<NonNullable<CustomDomainView["problem"]>, MessageId> = {
   txt_missing: "domains.problem.txt_missing",
   certificate_pending: "domains.problem.certificate_pending",
   cloudflare_unavailable: "domains.problem.cloudflare_unavailable",
+  cname_elsewhere: "domains.problem.cname_elsewhere",
 };
 
 export function CustomDomainPanel({
@@ -182,7 +183,8 @@ function DomainCard({
   const showRecords =
     domain.state === "pending" ||
     domain.state === "provisioning" ||
-    domain.problem === "txt_missing";
+    domain.problem === "txt_missing" ||
+    domain.problem === "cname_elsewhere";
   const [txt, cname] = domain.records;
 
   return (
@@ -200,11 +202,15 @@ function DomainCard({
       <p className="text-sm">{t(`domains.next.${domain.state}` as MessageId)}</p>
       {domain.problem ? (
         <Callout
-          tone={domain.problem === "txt_missing" ? "error" : "info"}
+          tone={
+            domain.problem === "txt_missing" || domain.problem === "cname_elsewhere"
+              ? "error"
+              : "info"
+          }
           title={t(PROBLEMS[domain.problem])}
           icon={<CircleAlert className="size-5" />}
         >
-          {domain.state === "active" && domain.missedChecks > 0
+          {domain.state === "active" && domain.problem === "txt_missing" && domain.missedChecks > 0
             ? t("domains.missedChecks", { count: domain.missedChecks })
             : t(`${PROBLEMS[domain.problem]}.hint` as MessageId)}
         </Callout>

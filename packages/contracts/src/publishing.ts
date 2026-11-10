@@ -164,6 +164,11 @@ export const ArtifactSummary = z.object({
   pinned: z.boolean(),
   /** Why an operator suspended it; present only while `state` is `suspended`. */
   suspension: SuspensionView.optional(),
+  /**
+   * The artifact's custom domain (decision 0006), present only while one is active; `url` is
+   * then on it, the address people should use. The `.dev` address keeps working.
+   */
+  customHost: z.string().optional(),
   createdAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });

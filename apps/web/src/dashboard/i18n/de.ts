@@ -1207,6 +1207,9 @@ export const de = {
   "domains.problem.cloudflare_unavailable": "Der Zertifikatsdienst hat nicht geantwortet",
   "domains.problem.cloudflare_unavailable.hint":
     "Auf Ihrer Seite ist alles in Ordnung. Es wird gleich erneut versucht.",
+  "domains.problem.cname_elsewhere": "Die Domain zeigt nicht auf Portifact",
+  "domains.problem.cname_elsewhere.hint":
+    "Ihr DNS führt nicht mehr zum CNAME-Ziel unten. Richten Sie es wieder darauf aus; eine aktive Domain wird nach 3 solchen täglichen Prüfungen in Folge entfernt.",
   "domains.missedChecks":
     "{count, plural, one {Der TXT-Eintrag fehlte bei der letzten täglichen Prüfung. Nach 3 Fehlschlägen in Folge wird die Domain entfernt.} other {Der TXT-Eintrag fehlte bei den letzten # täglichen Prüfungen. Nach 3 Fehlschlägen in Folge wird die Domain entfernt.}}",
   "domains.records": "Anzulegende Einträge",

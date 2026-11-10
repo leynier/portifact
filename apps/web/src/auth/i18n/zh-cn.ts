@@ -44,6 +44,14 @@ const messages = {
     read_rate_limited: "此账号在短时间内打开了过多 artifact。请等待几分钟后重新打开链接。",
   },
   providerErrorFallback: "登录未完成。请重试。",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "在其自有地址打开",
+    body: (host: string) =>
+      `此 artifact 位于 ${host}，该地址由其所有者管理。仅当你确实想在那里打开它时才继续。`,
+    continue: "继续",
+    missing: "链接不完整。请从你找到它的地方重新打开。",
+  },
   deviceCodeRequired: "请输入终端中显示的代码。",
   deviceCodeInvalid: "该代码无效或已过期。请重新运行登录命令。",
   deviceCodeTaken: "另一个账号正在审核此代码。",

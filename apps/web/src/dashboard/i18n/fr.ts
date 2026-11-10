@@ -1209,6 +1209,9 @@ export const fr = {
   "domains.problem.cloudflare_unavailable": "Le service de certificats n'a pas répondu",
   "domains.problem.cloudflare_unavailable.hint":
     "Rien ne cloche de votre côté. Une nouvelle tentative a lieu sous peu.",
+  "domains.problem.cname_elsewhere": "Le domaine ne pointe pas vers Portifact",
+  "domains.problem.cname_elsewhere.hint":
+    "Son DNS ne mène plus à la cible CNAME ci-dessous. Faites-le pointer de nouveau ; un domaine actif est retiré après 3 vérifications quotidiennes de suite dans cet état.",
   "domains.missedChecks":
     "{count, plural, one {L'enregistrement TXT manquait lors de la dernière vérification quotidienne. Après 3 absences de suite, le domaine est retiré.} other {L'enregistrement TXT manquait lors des # dernières vérifications quotidiennes. Après 3 absences de suite, le domaine est retiré.}}",
   "domains.records": "Enregistrements à créer",
