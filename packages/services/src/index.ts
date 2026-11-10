@@ -4,17 +4,22 @@ export * from "./account.ts";
 export * from "./account-data.ts";
 export * from "./account-settings.ts";
 export * from "./actors.ts";
+export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./artifacts.ts";
 export * from "./backups.ts";
+export * from "./branding.ts";
 export * from "./budget.ts";
+export * from "./cloudflare-hostnames.ts";
 export * from "./comment-notices.ts";
+export * from "./custom-domains.ts";
 export * from "./directory.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";
 export * from "./idempotency.ts";
+export * from "./invitations.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";
 export * from "./moderation.ts";
@@ -31,7 +36,26 @@ export * from "./publish.ts";
 export * from "./read-access.ts";
 export * from "./read-file.ts";
 export * from "./review-access.ts";
+export * from "./share-links.ts";
 export * from "./traffic.ts";
+export * from "./transfer.ts";
 export * from "./usage.ts";
-export * from "./versions.ts";
+export * from "./version-diff.ts";
+export {
+  type DownloadPlan,
+  getVersionDownload,
+  getVersionManifest,
+  listVersions,
+  type RollbackInput,
+  type RollbackOutcome,
+  rollbackArtifact,
+  type VersionFileEntry,
+  type VersionInfo,
+  type VersionManifestResult,
+  type VersionPage,
+} from "./versions.ts";
 export * from "./viewer.ts";
+export * from "./webhook-activity.ts";
+export * from "./webhook-keys.ts";
+export * from "./webhooks.ts";
+export * from "./workspaces.ts";

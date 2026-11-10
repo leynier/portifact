@@ -35,6 +35,7 @@ import {
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { ownerRetentionJob } from "./analytics.ts";
 
 /** What the owner's plan grants at `now`; `free` without a row or once it expired. */
 export async function ownerEntitlements(
@@ -241,12 +242,15 @@ function limitStatements(
   ];
 }
 
-/** The owner is an account that exists and is not being deleted. */
-function grantableOwner(ownerId: string): SQL {
-  return sql`exists (select 1 from ${schema.users} where ${schema.users.id} = ${ownerId}) and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${ownerId})`;
+/**
+ * The owner is an account or a workspace that exists and is not being deleted (a deleted
+ * workspace's row is already gone).
+ */
+export function grantableOwner(ownerId: string): SQL {
+  return sql`((exists (select 1 from ${schema.users} where ${schema.users.id} = ${ownerId}) and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${ownerId})) or exists (select 1 from ${schema.workspaces} where ${schema.workspaces.id} = ${ownerId}))`;
 }
 
-function checkGrant(input: SetOwnerPlanInput): Result<PlanOverrides | null> {
+export function checkGrant(input: SetOwnerPlanInput): Result<PlanOverrides | null> {
   if (!PlanNameSchema.safeParse(input.plan).success) {
     return fail("invalid_input", `Unknown plan: ${input.plan}.`);
   }
@@ -291,7 +295,10 @@ export async function setOwnerPlan(
   );
   const guard = grantableOwner(input.ownerId);
   const p = schema.ownerPlans;
-  const [plan] = (await db.batch([
+  const [, plan] = (await db.batch([
+    // Retention follows the plan: the job moves the expiries of the owner's analytics and access
+    // log rows (`applyOwnerRetention`), on the same condition as the grant.
+    ownerRetentionJob(db, input.ownerId, guard, input.now),
     db
       .insert(p)
       .select(
@@ -311,8 +318,8 @@ export async function setOwnerPlan(
       })
       .returning({ ownerId: p.ownerId }),
     ...limitStatements(db, input.ownerId, limitColumns(granted), guard, input.now, true),
-  ])) as [unknown[], ...unknown[]];
-  if (plan.length === 0) return fail("not_found", "Account not found.");
+  ])) as [unknown, unknown[], ...unknown[]];
+  if (plan.length === 0) return fail("not_found", "Account or workspace not found.");
   return ok(await getOwnerPlan(db, input.ownerId, input.now));
 }
 
@@ -325,13 +332,15 @@ export async function removeOwnerPlan(
   db: Db,
   input: { ownerId: string; now: number },
 ): Promise<Result<{ removed: boolean; state: OwnerPlanState }>> {
-  const [deleted] = (await db.batch([
+  const hadPlan = sql`exists (select 1 from ${schema.ownerPlans} where ${schema.ownerPlans.ownerId} = ${input.ownerId})`;
+  const [, deleted] = (await db.batch([
+    ownerRetentionJob(db, input.ownerId, hadPlan, input.now),
     db
       .delete(schema.ownerPlans)
       .where(eq(schema.ownerPlans.ownerId, input.ownerId))
       .returning({ ownerId: schema.ownerPlans.ownerId }),
     ...limitStatements(db, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false),
-  ])) as [unknown[], ...unknown[]];
+  ])) as [unknown, unknown[], ...unknown[]];
   return ok({
     removed: deleted.length === 1,
     state: await getOwnerPlan(db, input.ownerId, input.now),

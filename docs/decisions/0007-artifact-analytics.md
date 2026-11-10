@@ -1,6 +1,6 @@
 # 0007 Per-artifact analytics
 
-- Status: proposed (spike S3 of the paid plans programme; blocks P8)
+- Status: accepted, implemented in P8 with the deviations under "Implementation" (spike S3 of the paid plans programme)
 - Date: 2026-11-10
 - Spike: [spikes/artifact-analytics](../../spikes/artifact-analytics)
 
@@ -151,3 +151,15 @@ About 5 PRs and 6.5 days. 1 comes first; 2 and 3 can run in parallel after it; 4
 - The cost model in plan section 8 leaves out D1 writes; this design adds at most as many as traffic metering already costs in the worst case, which should be measured in production before the first paid plan is granted.
 - The access log's one year is a material change for the Privacy Policy and needs the lawyer's review before it ships.
 - UTC days: owners in other time zones see days that start at 00:00 UTC. Per-time-zone days would need hourly rows (24 times the storage) and are left out.
+
+## Implementation
+
+P8 shipped the design in one change. Where it differs from the text above:
+
+- **The owner side of a workspace** is dropped when the batch is written, not in `pageView`: delivery knows only the visitor and the owner, so the meter keeps signed-in views per visitor until the write, and `recordViews` removes the admins and editors of a workspace owner with one membership read per workspace and batch. The personal owner is still dropped in `pageView`. `recordViews` therefore reads the global database once per workspace and batch; it still reads nothing about the artifact.
+- **Plan expiry without a job.** Each row's `expires_at` (`retentionExpiry`) is capped at the plan's `valid_until` when the free retention is shorter, so a plan that runs out needs no `owner_retention` job. Grants and removals write the job as described.
+- **Boundary.** Rows are kept through the instant they expire and pruned after, the access log's existing boundary.
+- **Budget.** The collector adds the access database's rows read and written to the control database's (`databaseId_in`). It does not watch the size of either database: the budget has no storage metric for D1 yet, so the alert before 10 GB is still open.
+- **Workspace deletion** does not exist yet, so only purges and account deletions erase.
+- **Share links** (decision 0008, which landed meanwhile): a page load through a link session is an anonymous view, never a signed-in one (the link names no visitor, and link visitors get the artifact itself, so they count at the top-level document). Share-link openings in the access log carry the same per-row expiry and move with the owner's plan like any other opening; the expiry migration became access migration 0002, after 0001's `link_id`.
+- **Dashboard** shows the series in the artifact page's Activity section, with no per-owner overview.

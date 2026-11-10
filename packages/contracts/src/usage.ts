@@ -3,6 +3,7 @@
 // The MCP tool get_usage returns the same body.
 import { z } from "zod";
 import { PlanView } from "./plans.ts";
+import { WorkspaceSlug } from "./workspaces.ts";
 
 const count = z.number().int().min(0);
 
@@ -79,5 +80,9 @@ export const AccountUsageView = z.object({
 export type AccountUsageView = z.infer<typeof AccountUsageView>;
 
 /** Input of the MCP tool get_usage: none; the account comes from the token. */
-export const GetUsageInput = z.object({});
+export const GetUsageInput = z.object({
+  workspace: WorkspaceSlug.optional().describe(
+    "The slug of a workspace from list_workspaces for that workspace's usage. Omit it for the user's personal space.",
+  ),
+});
 export type GetUsageInput = z.infer<typeof GetUsageInput>;

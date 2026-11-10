@@ -7,7 +7,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./locale": "./src/locale.ts"
+    "./locale": "./src/locale.ts",
+    "./testing/images": "./src/testing/images.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

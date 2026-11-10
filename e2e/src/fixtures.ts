@@ -1,7 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type BrowserContext, test as base, type Frame, type Page } from "@playwright/test";
+import {
+  type BrowserContext,
+  test as base,
+  expect,
+  type Frame,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import { APP_ORIGIN, artifactOrigin, CONTENT_SITE, SESSION_COOKIE } from "./hosts.ts";
 import type { ContentRequest } from "./stack.ts";
 
@@ -77,6 +84,41 @@ export function changeAccess(input: {
   removeReaders?: string[];
 }): Promise<{ ok: boolean }> {
   return control("/access", input);
+}
+
+/** Gives an owner a plan, as the operator's grant writes the row. */
+export async function grantPlan(ownerId: string, plan: "free" | "pro"): Promise<void> {
+  await sql(
+    "insert into owner_plans (owner_id, plan, seats, granted_by, updated_at) values (?, ?, 1, 'e2e', ?) on conflict (owner_id) do update set plan = excluded.plan",
+    [ownerId, plan, Date.now()],
+  );
+}
+
+/** Publishes a TXT record in the stack's fake DNS, or reports a hostname active in its Cloudflare. */
+export function fakeDomains(input: {
+  txt?: { name: string; value: string };
+  activate?: string;
+}): Promise<{ ok: boolean }> {
+  return control("/domains", input);
+}
+
+/** A share link of the artifact, created by its owner; the URL holds the token. */
+export function createShareLink(input: {
+  ownerId: string;
+  artifactId: string;
+  label?: string;
+  expiresAt?: number;
+  password?: string;
+}): Promise<{ id: string; url: string; token: string }> {
+  return control("/share-link", input);
+}
+
+export function revokeShareLink(input: {
+  ownerId: string;
+  artifactId: string;
+  linkId: string;
+}): Promise<{ ok: boolean }> {
+  return control("/share-link", { ...input, revoke: input.linkId });
 }
 
 /**
@@ -171,6 +213,22 @@ export async function openReview(page: Page, artifactId: string, name: string): 
   await page.getByRole("heading", { level: 1, name }).waitFor();
 }
 
+/**
+ * Opens a disclosure (a `details` element) by its summary. In the viewer the sidebar moves while
+ * the frame connects (the tools above the list appear), so a click aimed at the summary can land
+ * where it used to be and toggle nothing: click until the disclosure reports that it is open,
+ * never when it already is, which would close it.
+ */
+export async function openDisclosure(summary: Locator): Promise<void> {
+  const details = summary.locator("xpath=ancestor-or-self::details[1]");
+  await expect(async () => {
+    if (!(await details.evaluate((element) => (element as HTMLDetailsElement).open))) {
+      await summary.click({ timeout: 2_000 });
+    }
+    await expect(details).toHaveAttribute("open", "", { timeout: 1_000 });
+  }).toPass();
+}
+
 interface Fixtures {
   engine: EngineProfile;
 }
@@ -218,4 +276,4 @@ export const test = base.extend<Fixtures>({
   },
 });
 
-export { expect } from "@playwright/test";
+export { expect };

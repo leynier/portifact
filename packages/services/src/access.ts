@@ -10,10 +10,18 @@ import {
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { type Actor, checkAccessChange, fail, ok, type Result } from "@portifact/domain";
+import {
+  type Actor,
+  checkAccessChange,
+  entitlements,
+  fail,
+  ok,
+  type Result,
+} from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn } from "./actors.ts";
+import { markWebhookEvent } from "./webhook-activity.ts";
 
 export interface AccessPolicyState {
   mode: AccessMode;
@@ -59,6 +67,8 @@ function changesAccess(change: AccessChange): boolean {
   );
 }
 
+type PlanRow = Parameters<typeof entitlements>[0];
+
 const missing = () => fail<never>("not_found", "Artifact not found.");
 
 /**
@@ -69,16 +79,25 @@ async function loadManaged(
   db: RegionalDb,
   userId: string,
   artifactId: string,
-): Promise<Result<{ artifact: typeof schema.artifacts.$inferSelect; actor: Actor }>> {
-  const [artifact] = await db
-    .select()
+): Promise<
+  Result<{ artifact: typeof schema.artifacts.$inferSelect; actor: Actor; plan: PlanRow }>
+> {
+  const p = schema.ownerPlans;
+  const [row] = await db
+    .select({
+      artifact: schema.artifacts,
+      // The owner's plan comes with the artifact, so the webhook event costs no read.
+      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+    })
     .from(schema.artifacts)
+    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
+  const artifact = row?.artifact;
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
   const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
   if (!actor.ok) return actor;
-  return ok({ artifact, actor: actor.value });
+  return ok({ artifact, actor: actor.value, plan: row.plan });
 }
 
 async function readerRows(db: Db, artifactId: string) {
@@ -132,6 +151,7 @@ export async function updateAccess(
   const loaded = await loadManaged(db, input.userId, input.artifactId);
   if (!loaded.ok) return loaded;
   const { artifact, actor } = loaded.value;
+  const owner = entitlements(loaded.value.plan, input.now);
   if (artifact.state === "suspended") {
     return fail("forbidden", "This artifact is suspended; its access cannot change.");
   }
@@ -176,7 +196,8 @@ export async function updateAccess(
   // Reader writes run first, conditioned on the generation this request read, and the guarded
   // update runs last in the same transaction. A concurrent change that committed first moved the
   // generation, so this one skips its reader writes and its update matches no row.
-  const unchanged = sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifact.id} and ${schema.artifacts.policyGeneration} = ${artifact.policyGeneration})`;
+  // The same owner too: a transfer in between means the role was decided on another owner.
+  const unchanged = sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifact.id} and ${schema.artifacts.ownerId} = ${artifact.ownerId} and ${schema.artifacts.policyGeneration} = ${artifact.policyGeneration})`;
   const statements: BatchItem<"sqlite">[] = [
     ...(remove.length > 0
       ? [
@@ -213,6 +234,20 @@ export async function updateAccess(
           ),
         ),
     ),
+    // Before the guarded update and on the same old state: the event exists exactly when the
+    // change does. Only changes that move the generation are access changes for webhooks.
+    ...(changesAccess(change)
+      ? markWebhookEvent(db, {
+          entitlements: owner,
+          ownerId: artifact.ownerId,
+          artifactId: artifact.id,
+          type: "artifact.access_changed",
+          actorId: actor.userId,
+          access: change.mode ?? artifact.accessMode,
+          now: input.now,
+          condition: unchanged,
+        })
+      : []),
     db
       .update(schema.artifacts)
       .set({

@@ -13,6 +13,7 @@ import {
 import { AppsScreen } from "./screens/apps.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx";
+import { BrandingScreen } from "./screens/branding.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
@@ -22,6 +23,7 @@ import { SettingsScreen } from "./screens/settings.tsx";
 import { Shell } from "./screens/shell.tsx";
 import { UsageScreen } from "./screens/usage.tsx";
 import { parseViewerSearch, ViewerScreen } from "./screens/viewer.tsx";
+import { WebhooksScreen } from "./screens/webhooks.tsx";
 
 /**
  * Every dashboard screen sits in the shell (navigation and account); the viewer draws its own
@@ -99,10 +101,20 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/usage",
     component: UsageScreen,
   });
+  const webhooks = createRoute({
+    getParentRoute: () => root,
+    path: "/webhooks",
+    component: WebhooksScreen,
+  });
   const settings = createRoute({
     getParentRoute: () => root,
     path: "/settings",
     component: SettingsScreen,
+  });
+  const branding = createRoute({
+    getParentRoute: () => root,
+    path: "/branding",
+    component: BrandingScreen,
   });
   // The old account page: links and bookmarks to it, with or without an anchor, still work.
   const account = createRoute({
@@ -129,6 +141,8 @@ export function createDashboardRouter(history?: RouterHistory) {
       profile,
       apps,
       usage,
+      webhooks,
+      branding,
       settings,
       account,
       viewer,

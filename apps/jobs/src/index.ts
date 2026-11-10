@@ -10,19 +10,28 @@
 import { EmailSendingEvent, JobMessage } from "@portifact/contracts";
 import { createAccessDb, type Db, regionsFromEnv } from "@portifact/db";
 import {
+  checkCustomDomains,
+  type DomainDeps,
+  type DomainEnv,
+  domainDbs,
+  domainDepsFromEnv,
   personalHandles,
   pruneAccessEvents,
   reconcileStorage,
   recordEmailEvent,
   relayOutbox,
+  rewrapWebhookKeys,
   runJob,
   runMaintenance,
+  stopWebhooksWhileOff,
+  webhookKeys,
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
+import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
 
-export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv {
+export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, WebhookEnv {
   DB: D1Database;
   /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
   ACCESS_DB: D1Database;
@@ -40,18 +49,56 @@ export const EMAIL_EVENTS_QUEUE = "portifact-email-events";
 
 const errorName = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export async function runScheduled(env: Env, now: number) {
-  // One region for now; with a second (E5) the scans run once per region (decision 0005).
+/** Cloudflare's custom hostnames and DNS, or null while custom domains are switched off. */
+export function domainsFromEnv(env: Env, fetcher: typeof fetch = fetch): DomainDeps | null {
+  return domainDepsFromEnv(env, (input, init) => fetcher(input, init));
+}
+
+/** The schedule that only relays the outbox, every minute, so webhook deliveries go within minutes. */
+export const RELAY_CRON = "* * * * *";
+
+/** Relays pending outbox rows to the queue; a failure is logged and the rows wait for the next run. */
+export async function runRelay(env: Env, now: number): Promise<number | "failed"> {
   const db = personalHandles(regionsFromEnv(env)).db;
-  const maintenance = await runMaintenance(db, env.ARTIFACTS, now);
-  // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
-  let relayed: number | "failed";
   try {
-    relayed = (await relayOutbox(db, env.JOBS, now)).relayed;
+    return (await relayOutbox(db, env.JOBS, now)).relayed;
   } catch (error) {
-    relayed = "failed";
     console.error(JSON.stringify({ event: "outbox_relay_failed", error: errorName(error) }));
+    return "failed";
   }
+}
+
+/**
+ * The maintenance run. The relay runs on its own one-minute schedule in production
+ * (`relay: false` here); tests and a run by hand keep it.
+ */
+export async function runScheduled(
+  env: Env,
+  now: number,
+  domains = domainsFromEnv(env),
+  options: { relay?: boolean } = {},
+) {
+  // One region for now; with a second (E5) the scans run once per region (decision 0005).
+  const regions = regionsFromEnv(env);
+  const db = personalHandles(regions).db;
+  const maintenance = await runMaintenance(db, env.ARTIFACTS, now);
+  // Custom domains call Cloudflare and DNS: a failure must not hide the rest of the run.
+  let customDomains: Awaited<ReturnType<typeof checkCustomDomains>> | "failed";
+  try {
+    customDomains = await checkCustomDomains(domainDbs(regions), domains, now);
+  } catch (error) {
+    customDomains = "failed";
+    console.error(JSON.stringify({ event: "custom_domains_failed", error: errorName(error) }));
+  }
+  // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
+  const relayed = options.relay === false ? "scheduled" : await runRelay(env, now);
+  // Webhooks sealed with `WEBHOOK_KEY_PREVIOUS` move to the current key (docs/releasing.md).
+  // Switched off: no webhook stays enabled, so writes record no events (decision 0009).
+  const webhooksStopped = webhooksEnabled(env) ? 0 : await stopWebhooksWhileOff(db, now);
+  const webhookKeyRotation = await rewrapWebhookKeys(
+    db,
+    await webhookKeys({ current: env.WEBHOOK_KEY, previous: env.WEBHOOK_KEY_PREVIOUS }),
+  );
   const storage = await reconcileStorage(db, env.ARTIFACTS, now);
   // A separate database: its failure must not hide the rest of the run's result.
   let prunedAccessEvents: number | "failed";
@@ -61,7 +108,16 @@ export async function runScheduled(env: Env, now: number) {
     prunedAccessEvents = "failed";
     console.error(JSON.stringify({ event: "access_log_prune_failed", error: errorName(error) }));
   }
-  const result = { ...maintenance, relayed, storage, prunedAccessEvents };
+  const result = {
+    ...maintenance,
+    relayed,
+    storage,
+    prunedAccessEvents,
+    webhookKeysRewrapped: webhookKeyRotation.rewrapped,
+    webhookKeysLeft: webhookKeyRotation.left,
+    webhooksStopped,
+    customDomains,
+  };
   console.log(JSON.stringify({ event: "maintenance", ...result }));
   return result;
 }
@@ -119,25 +175,34 @@ function safeJson(text: string): unknown {
   }
 }
 
-export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: number) {
+export async function runQueue(
+  batch: MessageBatch<unknown>,
+  env: Env,
+  now: number,
+  domains = domainsFromEnv(env),
+  fetcher?: Fetch,
+) {
   const db = personalHandles(regionsFromEnv(env)).db;
   const access = createAccessDb(env.ACCESS_DB);
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   const notifier = expiryNotifierFromEnv(env);
   const commentNotifier = commentNotifierFromEnv(env);
-  for (const message of batch.messages) {
+  const webhooks = await webhookDepsFromEnv(env, fetcher);
+  const run = async (message: Message<unknown>) => {
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {
       // Never retried: no delivery can make a malformed message valid.
       console.error(JSON.stringify({ event: "job_malformed", messageId: message.id }));
       message.ack();
-      continue;
+      return;
     }
     try {
       const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, {
         access,
         notifier,
         commentNotifier,
+        webhooks,
+        domains,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });
@@ -151,12 +216,26 @@ export async function runQueue(batch: MessageBatch<unknown>, env: Env, now: numb
       );
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }
-  }
+  };
+  // Webhook deliveries wait on receivers outside Portifact: they run concurrently with each
+  // other and alongside the rest of the batch, so a slow receiver never delays a purge, a
+  // deletion or a notice in the same batch. The other jobs keep running one after another.
+  const isDelivery = (message: Message<unknown>) =>
+    JobMessage.safeParse(message.body).data?.topic === "webhook_delivery";
+  const deliveries = Promise.all(batch.messages.filter(isDelivery).map(run));
+  for (const message of batch.messages.filter((m) => !isDelivery(m))) await run(message);
+  await deliveries;
 }
 
 export default {
   scheduled: (controller, env, ctx) => {
-    ctx.waitUntil(runScheduled(env, controller.scheduledTime));
+    if (controller.cron === RELAY_CRON) {
+      ctx.waitUntil(runRelay(env, controller.scheduledTime));
+      return;
+    }
+    ctx.waitUntil(
+      runScheduled(env, controller.scheduledTime, domainsFromEnv(env), { relay: false }),
+    );
     // Independent of maintenance: a failing scan must not stop the budget's protection.
     ctx.waitUntil(runScheduledBudget(env, controller.scheduledTime));
   },

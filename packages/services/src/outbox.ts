@@ -14,10 +14,15 @@ import { type AccessDb, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
+import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
+import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
+import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
+import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
+import { advanceWorkspaceDeletion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
 export const OUTBOX_REDELIVER_MS = 60 * 60_000;
@@ -114,17 +119,23 @@ export async function relayOutbox(
  * - `done`: the job did its work, or found it already done.
  * - `stale`: what the job was about changed meanwhile, so it did nothing.
  * - `pending`: it advanced but is not finished; deliver it again later.
+ * - `kept`: the job moved its own row to a later time (the relay sends it again then), or another
+ *   run holds it; the row stays and the message is done.
  */
-export type JobOutcome = "done" | "stale" | "pending";
+export type JobOutcome = "done" | "stale" | "pending" | "kept";
 
 /** What some jobs need besides D1 and R2; the jobs Worker always passes both. */
 export interface JobDeps {
-  /** The access log database, for `erase_access_events` jobs. */
+  /** The access log database, for `erase_access_events` and `owner_retention` jobs. */
   access?: AccessDb | undefined;
   /** Sends `expiry_notice` emails. */
   notifier?: ExpiryNotifier | undefined;
   /** Sends `comment_notice` emails. */
   commentNotifier?: CommentNotifier | undefined;
+  /** Delivers `webhook_delivery` jobs. */
+  webhooks?: WebhookDeps | undefined;
+  /** Cloudflare's custom hostnames, for `delete_custom_hostname` jobs; null while switched off. */
+  domains?: DomainDeps | null | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -139,7 +150,7 @@ export async function runJob(
   // Done by an earlier delivery, by the request itself or by a scheduled scan.
   if (!row) return "done";
   const outcome = await runRow(db, bucket, row, now, deps);
-  if (outcome !== "pending") {
+  if (outcome !== "pending" && outcome !== "kept") {
     await db.delete(schema.outbox).where(eq(schema.outbox.id, row.id));
   }
   return outcome;
@@ -150,7 +161,7 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  { access, notifier, commentNotifier }: JobDeps,
+  { access, notifier, commentNotifier, webhooks, domains }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -170,12 +181,31 @@ async function runRow(
       const { kind } = EraseAccessEventsPayload.parse(row.payload);
       return eraseAccessEvents(access, kind, row.subject ?? "");
     }
+    case "owner_retention":
+      if (!access) throw new Error("owner_retention needs the access log database");
+      return applyOwnerRetention(db, access, row.subject ?? "", now);
     case "expiry_notice":
       if (!notifier) throw new Error("expiry_notice needs the notifier");
       return sendExpiryNotice(db, row, now, notifier);
+    case "access_history_move":
+      if (!access) throw new Error("access_history_move needs the access log database");
+      return moveAccessHistory(db, access, row.subject ?? "", now);
+    case "workspace_deletion": {
+      const state = await advanceWorkspaceDeletion(db, bucket, row.subject ?? "", now);
+      return state === "absent" ? "stale" : state === "finished" ? "done" : "pending";
+    }
     case "comment_notice":
       if (!commentNotifier) throw new Error("comment_notice needs the comment notifier");
       return sendCommentNotice(db, row, now, commentNotifier);
+    case "webhook_delivery":
+      // Thrown, not reported done: the row stays and the job runs again where the keys are.
+      if (!webhooks || webhooks.keys.length === 0) {
+        throw new Error("webhook_delivery needs the webhook keys");
+      }
+      return deliverWebhook(db, row, now, webhooks);
+    case "delete_custom_hostname":
+      // Written in the global batch that detached the domain (one database with one region).
+      return runDeleteHostname(domainDbsOf(db), domains ?? null, row.subject ?? "");
   }
 }
 
@@ -199,7 +229,8 @@ async function purgeClaimed(
 
 /**
  * Deletes R2 objects whose rows a committed batch already deleted. Keys are content addressed,
- * so a key that has a row again (the same bytes uploaded since) is kept.
+ * so a key that has a row again (the same bytes uploaded since, or a brand's logo named again)
+ * is kept.
  */
 async function deleteUnreferencedKeys(db: Db, bucket: R2Bucket, keys: string[]) {
   for (let i = 0; i < keys.length; i += IN_CHUNK) {
@@ -212,6 +243,15 @@ async function deleteUnreferencedKeys(db: Db, bucket: R2Bucket, keys: string[]) 
           .where(inArray(schema.objects.r2Key, chunk))
       ).map((row) => row.key),
     );
+    // A logo key is kept while a brand names it again (the same logo uploaded since).
+    const logos = chunk.filter((key) => key.startsWith("brands/"));
+    if (logos.length > 0) {
+      const b = schema.ownerBrands;
+      const named = sql<string>`'brands/' || ${b.ownerId} || '/' || ${b.logoSha256}`;
+      for (const row of await db.select({ key: named }).from(b).where(inArray(named, logos))) {
+        kept.add(row.key);
+      }
+    }
     const gone = chunk.filter((key) => !kept.has(key));
     if (gone.length > 0) await bucket.delete(gone);
   }

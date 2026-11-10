@@ -14,13 +14,19 @@ import {
   type AnnotationThreadView,
   type ArtifactActivity,
   ArtifactListQuery,
+  type ArtifactStatsView,
   type ArtifactSummary,
+  type BrandSettings,
+  type BrandUpdate,
   type BrowserSession,
   type CommentNoticeMute,
   type CommentScope,
   type ConnectedApp,
+  type CustomDomainList,
+  type CustomDomainView,
   DocumentPreviewRequest,
   type ErrorCode,
+  type FileChange,
   LIMITS,
   type ManifestFile,
   PLANS,
@@ -29,12 +35,18 @@ import {
   planRequiredMessage,
   type ReviewStart,
   RollbackRequest,
+  type ShareLinkCreated,
+  type ShareLinkList,
+  type ShareLinkView,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
   type VersionSummary,
   type ViewerInfo,
+  type WebhookAttempt,
+  type WebhookView,
 } from "@portifact/contracts";
+import { diffText, textDiffEligibility } from "@portifact/domain";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
@@ -97,6 +109,7 @@ export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): 
     annotations: "off",
     currentVersionId: `v-${id}`,
     url: `https://${id}.portifact.dev/`,
+    owner: { kind: "personal" },
     expiresAt: "2026-12-08T12:00:00.000Z",
     archivedAt: null,
     purgeAt: null,
@@ -320,6 +333,8 @@ export interface FakeServer {
   annotations: Record<string, FakeAnnotations>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
+  /** The text of each seeded file by SHA-256, for the comparison routes. */
+  texts: Map<string, string>;
   uploads: FakeUpload[];
   storage: FakeStorage;
   /** How long upload URLs the fake API issues stay valid. */
@@ -339,8 +354,37 @@ export interface FakeServer {
   commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
+  /** The account's webhooks and whether its plan includes them, as /api/v1/webhooks keeps them. */
+  webhooks: {
+    list: WebhookView[];
+    available: boolean;
+    attempts: Record<string, WebhookAttempt[]>;
+    /** Whether the deployment offers webhooks (`WEBHOOKS_ENABLED`). */
+    offered?: boolean;
+  };
+  /** Webhooks a test event was queued for. */
+  webhookTests: string[];
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
+  /**
+   * Analytics by artifact ID. An artifact without an entry answers `plan_required`, like an
+   * owner on the free plan; the range asked for comes back as `from`.
+   */
+  stats: Record<string, ArtifactStatsView>;
+  /** Share links by artifact ID, newest first, as the API lists them. */
+  shareLinks: Record<string, ShareLinkView[]>;
+  /** Whether the owner's plan includes share links. */
+  shareLinksEnabled: boolean;
+  /** Custom domains and pending claims, oldest first. */
+  domains: CustomDomainView[];
+  /** Whether the owner's plan includes custom domains (one, like Pro). */
+  domainsEnabled: boolean;
+  /** Whether the deployment serves custom domains. */
+  domainsAvailable: boolean;
+  /** The account's brand, as GET /api/v1/account/branding answers it. */
+  branding: BrandSettings;
+  /** Logo files sent to PUT /api/v1/account/branding/logo, in order. */
+  logoUploads: Blob[];
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -383,10 +427,21 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       locale: null,
     },
     usage: usageView(),
+    webhooks: { list: [], available: true, attempts: {} },
+    webhookTests: [],
     accessLogs: {},
+    stats: {},
+    shareLinks: {},
+    shareLinksEnabled: true,
+    domains: [],
+    domainsEnabled: true,
+    domainsAvailable: true,
+    branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
+    logoUploads: [],
     commentNotices: {},
     bodies: [],
     pageSize: 50,
+    texts: new Map(),
     requests: [],
     idempotencyKeys: [],
     fail(method, path, failure, times = 1) {
@@ -403,6 +458,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       const idempotencyKey = new Headers(init.headers).get("idempotency-key");
       if (idempotencyKey) server.idempotencyKeys.push({ path: url.pathname, key: idempotencyKey });
       if (typeof init.body === "string") server.bodies.push(JSON.parse(init.body));
+      if (init.body instanceof Blob) server.logoUploads.push(init.body);
       const failure = failures.find((f) => f.key === `${method} ${url.pathname}` && f.times > 0);
       if (failure) {
         failure.times -= 1;
@@ -452,6 +508,7 @@ export async function seedVersion(
     const blob = new Blob([file.text]);
     const sha256 = await sha256OfBlob(blob);
     server.storage.objects.set(sha256, blob);
+    server.texts.set(sha256, file.text);
     manifest.push({
       path: file.path,
       kind: file.kind ?? "published",
@@ -559,6 +616,7 @@ function publishingRoute(
         annotations: "off",
         currentVersionId: null,
         url: "",
+        owner: { kind: "personal" },
         expiresAt: null,
         archivedAt: null,
         purgeAt: null,
@@ -637,6 +695,10 @@ function publishingRoute(
       rendererVersion: "1",
     });
   }
+  const diff = /^\/api\/v1\/artifacts\/([^/]+)\/versions\/([^/]+)\/diff\/([^/]+)(\/file)?$/.exec(
+    path,
+  );
+  if (diff && method === "GET") return diffRoute(server, diff, url);
   const versions =
     /^\/api\/v1\/artifacts\/([^/]+)\/(versions|rollback)(?:\/([^/]+))?(\/download)?$/.exec(path);
   if (!versions) return undefined;
@@ -681,6 +743,11 @@ function publishingRoute(
       artifactId: artifact.id,
       items: items.map((v) => summaryOf(v, artifact.currentVersionId)),
       nextCursor: next < list.length ? String(next) : null,
+      retention: {
+        previousVersions: server.usage.plan.limits.retainedPreviousVersions,
+        days: server.usage.plan.limits.previousVersionRetentionDays,
+      },
+      versionDiff: server.usage.plan.features.includes("versionDiff"),
     });
   }
   const ref = versions[3] === "current" ? artifact.currentVersionId : versions[3];
@@ -713,6 +780,67 @@ function publishingRoute(
       expiresAt: new Date(Date.now() + 300_000).toISOString(),
     })),
   });
+}
+
+/** The comparison routes, from the seeded files and the plan in `usage`, like the Worker. */
+function diffRoute(server: FakeServer, match: RegExpExecArray, url: URL): Response {
+  const artifact = server.artifacts.find((a) => a.id === match[1]);
+  if (!artifact) return apiError("not_found", 404);
+  if (!server.usage.plan.features.includes("versionDiff")) return apiError("plan_required", 403);
+  const list = server.versions[artifact.id] ?? [];
+  const find = (ref: string) =>
+    list.find((v) => v.id === (ref === "current" ? artifact.currentVersionId : ref));
+  const from = find(decodeURIComponent(match[2] as string));
+  const to = find(decodeURIComponent(match[3] as string));
+  if (!from || !to) return apiError("not_found", 404);
+  const key = (f: ManifestFile) => `${f.kind}\u0000${f.path}`;
+  const a = new Map(from.files.map((f) => [key(f), f]));
+  const b = new Map(to.files.map((f) => [key(f), f]));
+  const side = (f: ManifestFile | undefined) =>
+    f ? { sha256: f.sha256, size: f.size, contentType: f.contentType } : null;
+  const files = [...new Set([...a.keys(), ...b.keys()])].sort().map((k) => {
+    const before = a.get(k);
+    const after = b.get(k);
+    const any = (before ?? after) as ManifestFile;
+    const change: FileChange = !before
+      ? "added"
+      : !after
+        ? "removed"
+        : before.sha256 === after.sha256
+          ? "unchanged"
+          : "changed";
+    return { kind: any.kind, path: any.path, change, before: side(before), after: side(after) };
+  });
+  const versionsOf = {
+    from: { id: from.id, number: from.number },
+    to: { id: to.id, number: to.number },
+  };
+  if (!match[4]) {
+    const counts = { added: 0, removed: 0, changed: 0, unchanged: 0 };
+    for (const file of files) counts[file.change] += 1;
+    return json({
+      artifactId: artifact.id,
+      ...versionsOf,
+      counts,
+      files: files.filter((file) => file.change !== "unchanged"),
+      nextCursor: null,
+    });
+  }
+  const file = files.find(
+    (f) =>
+      f.kind === (url.searchParams.get("kind") ?? "published") &&
+      f.path === url.searchParams.get("path"),
+  );
+  if (!file) return apiError("not_found", 404);
+  const answer = (diff: unknown) => json({ artifactId: artifact.id, ...versionsOf, ...file, diff });
+  if (file.change === "unchanged") return answer({ status: "identical" });
+  if ([file.before, file.after].some((f) => textDiffEligibility(f) === "binary")) {
+    return answer({ status: "binary" });
+  }
+  const text = (f: { sha256: string } | null) => (f ? (server.texts.get(f.sha256) ?? "") : "");
+  const result = diffText(text(file.before), text(file.after));
+  if (result.status !== "text") return answer({ status: result.status });
+  return answer({ ...result, nextCursor: null });
 }
 
 function route(server: FakeServer, method: string, url: URL, headers: Headers): Response {
@@ -766,6 +894,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     server.settings = { ...server.settings, ...update };
     return Response.json(server.settings);
   }
+  if (path.startsWith("/api/v1/account/branding")) return brandingRoute(server, method, path);
   if (path === "/api/v1/account/delete" && method === "POST") {
     const body = server.bodies.at(-1) as { confirmEmail?: string } | undefined;
     if (body?.confirmEmail?.trim().toLowerCase() !== server.email) {
@@ -773,6 +902,106 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     }
     server.email = null;
     return Response.json({ deleted: true });
+  }
+  const shares = /^\/api\/v1\/artifacts\/([^/]+)\/share-links(?:\/([^/]+))?$/.exec(path);
+  if (shares) {
+    const artifact = server.artifacts.find((a) => a.id === shares[1]);
+    if (!artifact) return apiError("not_found", 404);
+    const links = server.shareLinks[artifact.id] ?? [];
+    if (method === "GET" && !shares[2]) {
+      return json({
+        artifactId: artifact.id,
+        enabled: server.shareLinksEnabled,
+        links,
+        activeLimit: 20,
+      } satisfies ShareLinkList);
+    }
+    if (method === "POST" && !shares[2]) {
+      if (!server.shareLinksEnabled) return apiError("plan_required", 403);
+      const body = server.bodies.at(-1) as { label: string; expiresAt?: string; password?: string };
+      const link: ShareLinkView = {
+        id: `sl_${String(links.length + 1).padStart(32, "0")}`,
+        label: body.label,
+        state: "active",
+        hasPassword: body.password !== undefined,
+        createdAt: "2026-11-10T12:00:00.000Z",
+        expiresAt: body.expiresAt ?? null,
+        lastUsedOn: null,
+      };
+      server.shareLinks[artifact.id] = [link, ...links];
+      return json(
+        { link, url: `https://app.portifact.com/s#${"T".repeat(43)}` } satisfies ShareLinkCreated,
+        201,
+      );
+    }
+    if (method === "DELETE" && shares[2]) {
+      const id = decodeURIComponent(shares[2]);
+      if (!links.some((link) => link.id === id)) return apiError("not_found", 404);
+      server.shareLinks[artifact.id] = links.filter((link) => link.id !== id);
+      return json({ id, revoked: true });
+    }
+  }
+  const stats = /^\/api\/v1\/artifacts\/([^/]+)\/stats$/.exec(path);
+  if (stats && method === "GET") {
+    const artifact = server.artifacts.find((a) => a.id === stats[1]);
+    if (!artifact) return apiError("not_found", 404);
+    const body = server.stats[artifact.id];
+    if (!body) {
+      return Response.json(
+        { error: { code: "plan_required", message: planRequiredMessage("analytics") } },
+        { status: 403 },
+      );
+    }
+    return json({ ...body, from: url.searchParams.get("from") ?? body.from });
+  }
+  if (path === "/api/v1/domains" && method === "GET") {
+    const artifactId = url.searchParams.get("artifactId");
+    return json({
+      available: server.domainsAvailable,
+      enabled: server.domainsEnabled,
+      limit: server.domainsEnabled ? 1 : 0,
+      used: server.domains.filter((d) => d.state === "active" || d.state === "provisioning").length,
+      cnameTarget: "domains.portifact.dev",
+      domains: server.domains.filter((d) => artifactId === null || d.artifactId === artifactId),
+    } satisfies CustomDomainList);
+  }
+  const addDomain = /^\/api\/v1\/artifacts\/([^/]+)\/domain$/.exec(path);
+  if (addDomain && method === "POST") {
+    if (!server.domainsEnabled) return apiError("plan_required", 403);
+    const hostname = (server.bodies.at(-1) as { hostname: string }).hostname.toLowerCase();
+    const view: CustomDomainView = {
+      hostname,
+      artifactId: addDomain[1] as string,
+      state: "pending",
+      records: [
+        {
+          type: "TXT",
+          name: `_portifact.${hostname}`,
+          value: `portifact-verify=${"a".repeat(32)}`,
+        },
+        { type: "CNAME", name: hostname, value: "domains.portifact.dev" },
+      ],
+      claimExpiresAt: "2026-11-17T12:00:00.000Z",
+      verifiedAt: null,
+      checkedAt: null,
+      missedChecks: 0,
+      problem: null,
+    };
+    server.domains = [...server.domains.filter((d) => d.hostname !== hostname), view];
+    return json(view, 201);
+  }
+  const named = /^\/api\/v1\/domains\/([^/]+)(\/verify)?$/.exec(path);
+  if (named) {
+    const hostname = decodeURIComponent(named[1] as string);
+    const found = server.domains.find((d) => d.hostname === hostname);
+    if (!found) return apiError("not_found", 404);
+    if (method === "POST" && named[2]) return json(found);
+    if (method === "DELETE" && !named[2]) {
+      server.domains = server.domains.map((d) =>
+        d.hostname === hostname ? { ...d, state: "removing" as const } : d,
+      );
+      return json({ hostname, removed: true });
+    }
   }
   const log = /^\/api\/v1\/artifacts\/([^/]+)\/access-log$/.exec(path);
   if (log && method === "GET") {
@@ -793,6 +1022,98 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   if (path === "/api/v1/usage" && method === "GET") {
     return Response.json(server.usage);
+  }
+  if (path.startsWith("/api/v1/webhooks")) {
+    const hooks = server.webhooks;
+    const refused = () =>
+      Response.json(
+        { error: { code: "plan_required", message: "Webhooks is part of the Pro plan." } },
+        { status: 403 },
+      );
+    if (path === "/api/v1/webhooks" && method === "GET") {
+      return Response.json({
+        webhooks: hooks.list,
+        available: hooks.available,
+        serviceAvailable: hooks.offered ?? true,
+        limit: 10,
+      });
+    }
+    if (path === "/api/v1/webhooks" && method === "POST") {
+      if (!hooks.available) return refused();
+      const body = server.bodies.at(-1) as {
+        url: string;
+        format: WebhookView["format"];
+        events: WebhookView["events"];
+      };
+      let host: string;
+      try {
+        const url = new URL(body.url);
+        if (url.protocol !== "https:") throw new Error("http");
+        host = url.hostname;
+      } catch {
+        return Response.json(
+          { error: { code: "invalid_input", message: "The URL must start with https://." } },
+          { status: 400 },
+        );
+      }
+      const webhook: WebhookView = {
+        id: `wh_${String(hooks.list.length + 1).padStart(32, "0")}`,
+        host,
+        format: body.format,
+        events: body.events,
+        state: "active",
+        disabledReason: null,
+        disabledAt: null,
+        failures: 0,
+        createdAt: "2026-11-10T09:00:00.000Z",
+        createdVia: "dashboard",
+        createdBy: "Ada",
+        probation: false,
+        lastAttempt: null,
+      };
+      hooks.list = [...hooks.list, webhook];
+      return Response.json(
+        { webhook, secret: body.format === "generic" ? "whsec_sample-secret-for-tests" : null },
+        { status: 201 },
+      );
+    }
+    const match = /^\/api\/v1\/webhooks\/([^/]+)(\/test|\/deliveries)?$/.exec(path);
+    const webhook = match && hooks.list.find((w) => w.id === match[1]);
+    if (!match || !webhook) {
+      return Response.json(
+        { error: { code: "not_found", message: "Webhook not found." } },
+        { status: 404 },
+      );
+    }
+    if (match[2] === "/deliveries") {
+      return Response.json({
+        webhookId: webhook.id,
+        attempts: hooks.attempts[webhook.id] ?? [],
+        retentionDays: 7,
+      });
+    }
+    if (match[2] === "/test") {
+      if (!hooks.available) return refused();
+      server.webhookTests.push(webhook.id);
+      return Response.json({ webhookId: webhook.id, queued: true }, { status: 202 });
+    }
+    if (method === "DELETE") {
+      hooks.list = hooks.list.filter((w) => w.id !== webhook.id);
+      return Response.json({ webhookId: webhook.id, removed: true });
+    }
+    const change = server.bodies.at(-1) as { enabled?: boolean };
+    if (change.enabled === true && !hooks.available) return refused();
+    const next: WebhookView =
+      change.enabled === false
+        ? {
+            ...webhook,
+            state: "disabled",
+            disabledReason: "manual",
+            disabledAt: "2026-11-10T10:00:00.000Z",
+          }
+        : { ...webhook, state: "active", disabledReason: null, disabledAt: null, failures: 0 };
+    hooks.list = hooks.list.map((w) => (w.id === webhook.id ? next : w));
+    return Response.json(next);
   }
   if (path === "/api/v1/account/apps" && method === "GET") {
     return Response.json({ items: server.apps });
@@ -898,6 +1219,74 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   });
 }
 
+/** The brand routes like the Worker: paid plans set it, every plan removes it. */
+function brandingRoute(server: FakeServer, method: string, path: string): Response {
+  const state = server.branding;
+  const refused = () =>
+    Response.json(
+      {
+        error: {
+          code: "plan_required",
+          message: "Branding the Portifact bar is part of the Pro plan.",
+        },
+      },
+      { status: 403 },
+    );
+  const now = new Date().toISOString();
+  if (path === "/api/v1/account/branding") {
+    if (method === "GET") return Response.json(state);
+    if (method === "DELETE") {
+      server.branding = { ...state, brand: null };
+      return Response.json(server.branding);
+    }
+    if (method === "PUT") {
+      if (!state.available) return refused();
+      const update = server.bodies.at(-1) as BrandUpdate;
+      if (/portifact/i.test(update.name)) return apiError("invalid_input", 400);
+      server.branding = {
+        ...state,
+        brand: {
+          name: update.name,
+          link: update.link,
+          accentColor: update.accentColor,
+          logo: state.brand?.logo ?? null,
+          updatedAt: now,
+        },
+      };
+      return Response.json(server.branding);
+    }
+  }
+  if (path === "/api/v1/account/branding/logo" && state.brand) {
+    if (method === "DELETE") {
+      server.branding = { ...state, brand: { ...state.brand, logo: null, updatedAt: now } };
+      return Response.json(server.branding);
+    }
+    if (method === "PUT") {
+      if (!state.available) return refused();
+      const file = server.logoUploads.at(-1);
+      if (!file || file.size > 100_000 || !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+        return apiError("invalid_input", 400);
+      }
+      server.branding = {
+        ...state,
+        brand: {
+          ...state.brand,
+          logo: {
+            sha256: "b".repeat(64),
+            type: "image/png",
+            width: 64,
+            height: 32,
+            bytes: file.size,
+          },
+          updatedAt: now,
+        },
+      };
+      return Response.json(server.branding);
+    }
+  }
+  return apiError("invalid_input", 400);
+}
+
 const missing = () =>
   Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
 
@@ -919,6 +1308,7 @@ function viewerRoute(server: FakeServer, id: string): Response {
       accessMode: listed?.accessMode ?? "restricted",
       annotations: server.annotations[id]?.mode ?? "off",
       role: server.annotations[id]?.role === "participant" ? "reader" : "owner",
+      brand: null,
     });
   if (!info) return missing();
   if (server.email === null) {

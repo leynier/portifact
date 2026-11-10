@@ -9,6 +9,13 @@ import { axeViolations } from "../src/axe.ts";
 import { createUser, expect, lastEmail, publish, signIn, sql, test } from "../src/fixtures.ts";
 import { APP_ORIGIN, SITE_ORIGIN } from "../src/hosts.ts";
 
+// The landing's hero fades its lines in one after another. A contrast check that runs while a
+// line is still fading reads its half-transparent color and fails, which a slower browser
+// (WebKit in CI) hit now and then. These tests are about languages and layout, not motion.
+test.beforeEach(async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+});
+
 test("the landing switches to Spanish from its top bar and stays there on reload", async ({
   page,
 }) => {

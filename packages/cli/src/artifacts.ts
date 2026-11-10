@@ -20,6 +20,7 @@ import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { formatDate, messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import { chosenWorkspace, ownerLabel, workspaceQuery } from "./workspaces.ts";
 
 export function parseArtifactId(value: string): string {
   const parsed = ArtifactId.safeParse(value.trim());
@@ -29,6 +30,8 @@ export function parseArtifactId(value: string): string {
 }
 
 export interface ListOptions extends OutputOptions {
+  /** A workspace slug or `personal`; the device's default when absent. */
+  workspace?: string | undefined;
   limit?: number | undefined;
   cursor?: string | undefined;
   filters?: ArtifactListFilters | undefined;
@@ -55,7 +58,8 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
   for (const [name, value] of Object.entries(options.filters ?? {})) {
     if (typeof value === "string") query.set(name, value);
   }
-  const search = query.size > 0 ? `?${query}` : "";
+  const workspace = await chosenWorkspace(session, options.workspace);
+  const search = workspaceQuery(workspace, query);
   const page = await callApi(session, {
     method: "GET",
     path: `/artifacts${search}`,
@@ -66,9 +70,12 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
     writeJson(io, page);
     return;
   }
-  const flags = filterFlags(options.filters);
+  const filters = filterFlags(options.filters);
+  const flags = filters + (workspace ? ` --workspace ${workspace}` : "");
+  // A workspace's list says whose it is; the personal list looks as it always did.
+  if (workspace !== undefined) io.stdout(`Workspace: ${workspace}\n`);
   if (page.items.length === 0 && page.nextCursor === null) {
-    io.stdout(`${flags ? messages.listNoMatch : messages.listEmpty}\n`);
+    io.stdout(`${filters ? messages.listNoMatch : messages.listEmpty}\n`);
     return;
   }
   const rows = [
@@ -115,6 +122,7 @@ export async function info(
       ["Access", artifact.accessMode],
       ["Annotations", artifact.annotations],
       ["URL", artifact.url],
+      ["Space", ownerLabel(artifact.owner)],
       ["Pinned", artifact.pinned ? "yes, no expiry" : "no"],
       ["Expires", formatDate(artifact.expiresAt)],
       ["Archived", formatDate(artifact.archivedAt)],

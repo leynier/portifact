@@ -262,8 +262,8 @@ describe("the activity of listed artifacts", () => {
     const id = busy as string;
     // Retained: the current one and a previous one inside its seven days. Not retained: a
     // previous one past them that pruning has not removed yet, and an unfinished upload.
-    const kept = await version(id, 1, { expiresAt: NOW + 1000 });
-    await version(id, 2, { expiresAt: NOW });
+    const kept = await version(id, 1, { supersededAt: NOW - 7 * 86_400_000 + 1000 });
+    await version(id, 2, { supersededAt: NOW - 7 * 86_400_000 });
     await version(id, 3, { state: "uploading" });
     const current = await version(id, 4, { publishedBytes: 1500, sourceBytes: 250 });
     await db()
@@ -339,9 +339,10 @@ describe("the activity of listed artifacts", () => {
       limit: 10,
       now: NOW,
     });
-    const [query] = statements;
+    // The owner's plan is read first; the list is the last statement.
+    const query = statements.at(-1);
     const plan = await env.DB.prepare(`explain query plan ${query}`)
-      .bind(NOW, "u_plan", "deleted", "draft", 11)
+      .bind(NOW - 7 * 86_400_000, 2, "u_plan", "deleted", "draft", 11)
       .all<{ detail: string }>();
     const steps = plan.results.map((row) => row.detail);
     expect(steps.filter((step) => step.startsWith("SCAN"))).toEqual([]);

@@ -1,6 +1,9 @@
 // User-facing text of the CLI, kept in one place so it can move to the i18n layer. Sentences
 // end with a period; no em dashes. Never interpolate a token, cookie or code other than the
 // device user code, which the user must see to approve the login.
+import { VERSION_DIFF } from "@portifact/contracts";
+
+const VERSION_DIFF_FILE_BYTES = VERSION_DIFF.fileBytes;
 
 export const messages = {
   notice: [
@@ -116,12 +119,41 @@ export const messages = {
 
   // Versions.
   versionsEmpty: (id: string) => `${id} has no published versions.`,
+  versionsRetention: (previous: number, days: number) =>
+    `The owner's plan keeps ${previous} previous ${plural(previous, "version", "versions")} for ${days} ${plural(days, "day", "days")} after each is replaced.`,
+  diffSummary: (
+    id: string,
+    from: number,
+    to: number,
+    counts: { added: number; removed: number; changed: number; unchanged: number },
+  ) =>
+    `Version ${from} to ${to} of ${id}: ${counts.added} added, ${counts.removed} removed, ${counts.changed} changed and ${counts.unchanged} unchanged ${plural(counts.unchanged, "file", "files")}.`,
+  diffNoText: (
+    path: string,
+    change: string,
+    status: string,
+    before: number | null,
+    after: number | null,
+  ) => {
+    const reason = {
+      identical: "is identical in both versions",
+      binary: "is not text, so there is no line diff",
+      too_large: `is larger than ${formatBytes(VERSION_DIFF_FILE_BYTES)} in a version, so there is no line diff`,
+      too_many_lines: "has too many lines for a line diff",
+      too_many_changes: "changed too much for a line diff",
+    }[status];
+    const size = (bytes: number | null) => (bytes === null ? "none" : formatBytes(bytes));
+    return `${path} (${change}) ${reason}. Size before: ${size(before)}, after: ${size(after)}.`;
+  },
 
   // Access logs.
   logsEmpty: (id: string, days: number) =>
     `No signed-in visitor opened ${id} in the last ${days} days.`,
   logsNote: (minutes: number, days: number) =>
-    `One entry per visitor every ${minutes} minutes, kept ${days} days. Only artifacts restricted to listed readers record openings, your own visits are not recorded, and some openings may be missing.`,
+    `One entry per visitor every ${minutes} minutes, kept ${days} days. Only artifacts restricted to listed readers record signed-in openings, share link openings name only the link, your own visits are not recorded, and some openings may be missing.`,
+  logsShareLink: (label: string) => `share link: ${label}`,
+  statsNote: (logged: boolean, days: number) =>
+    `Views per UTC day; SIGNED IN counts views with a signed-in visitor.${logged ? " VISITORS counts distinct signed-in readers from the access log; the total counts each reader once." : " Distinct visitors are shown only for artifacts restricted to listed readers."} Kept ${days} days. Your own visits and link previews are not counted, automated browsers can be: an indicator, not an audit.`,
   rolledBack: (id: string, version: number, from: number, url: string, expiresAt: string | null) =>
     [
       `Rolled back ${id}: version ${version} has the files of version ${from}. Access did not change.`,
@@ -141,7 +173,68 @@ export const messages = {
   usageBlock: (message: string, until: string | null) =>
     `  ${message}${until === null ? "" : ` Lifts ${formatDate(until)}.`}`,
 
+  // Share links.
+  shareCreated: (linkId: string, id: string, url: string, expiresAt: string | null) =>
+    [
+      `Created share link ${linkId} for ${id}. Anyone with this link can read the artifact without an account:`,
+      url,
+      `It is shown only this once: copy it now. ${expiresAt === null ? "It works until you revoke it." : `It stops working ${formatDate(expiresAt)}.`}`,
+    ].join("\n"),
+  sharesEmpty: (id: string) => `${id} has no share links.`,
+  sharesPaused:
+    "Your plan does not include share links now, so these links do not open. They work again if the plan includes them; you can still revoke them.",
+  confirmShareRevoke: (linkId: string) =>
+    `Anyone with share link ${linkId} loses access, and it cannot be undone.\nType "revoke" to confirm: `,
+  shareRevoked: (linkId: string, id: string) =>
+    `Revoked share link ${linkId} of ${id}. Sessions opened with it end within a minute.`,
+
+  // Custom domains.
+  domainState: (hostname: string, id: string, state: string) =>
+    ({
+      pending: `${hostname} is waiting for its DNS records (artifact ${id}).`,
+      provisioning: `${hostname} is proven; Cloudflare is issuing its certificate (artifact ${id}).`,
+      active: `${hostname} serves artifact ${id}.`,
+      removing: `${hostname} is being removed (artifact ${id}).`,
+    })[state] ?? `${hostname}: ${state}`,
+  domainRecords:
+    "Create these records at your DNS provider. Keep the TXT record: it is checked every day.",
+  domainProblem: {
+    txt_missing:
+      "The TXT record does not hold this value yet. DNS changes can take a few minutes to appear.",
+    certificate_pending:
+      "The certificate is not ready yet. Check that the CNAME points at the target above, then check again in a few minutes.",
+    cloudflare_unavailable: "The certificate service did not answer. It is tried again shortly.",
+  },
+  domainClaimExpires: (date: string) => `Add the records before ${date}, or add the domain again.`,
+  domainMissedChecks: (count: number) =>
+    `The TXT record was missing at ${count} ${plural(count, "daily check", "daily checks")} in a row; after 3 the domain is removed.`,
+  domainNextVerify: (hostname: string) => `Then run \`portifact domains verify ${hostname}\`.`,
+  domainBarNote:
+    "While the artifact's Portifact bar is on, visits to the domain open in the viewer on app.portifact.com. Run `portifact access bar <id> off` to keep your domain in the address bar.",
+  domainsEmpty: "No custom domains.",
+  domainsUsed: (used: number, limit: number) =>
+    `Your plan allows ${limit} custom ${plural(limit, "domain", "domains")}; ${used} in use.`,
+  domainsUnavailable: "Custom domains are not available on this server yet.",
+  confirmDomainRemove: (hostname: string) =>
+    `${hostname} stops serving the artifact, and adding it again needs a new DNS check.\nType the hostname to confirm: `,
+  domainRemoved: (hostname: string) =>
+    `Removed ${hostname}. The artifact keeps its Portifact address.`,
+
   // Tokens.
+  webhooksEmpty:
+    "You have no webhooks. Add one with `portifact webhooks add <url> --events <list>`.",
+  webhooksNotOffered: "This Portifact server does not offer webhooks yet.",
+  webhooksUnavailable:
+    "Your plan does not include webhooks: they are kept but send nothing until it does again.",
+  webhookSecret: (secret: string) =>
+    `Signing secret (shown once, keep it in your receiver's configuration): ${secret}`,
+  webhookAdded: (id: string, host: string) => `Added webhook ${id} for ${host}.`,
+  webhookRemoved: (id: string) => `Removed webhook ${id}. It receives nothing more.`,
+  webhookTestQueued: (id: string) =>
+    `Queued a test event for ${id}. It goes within about two minutes; check \`portifact webhooks deliveries ${id}\`.`,
+  webhookDeliveriesEmpty: (days: number) => `No delivery attempts in the last ${days} days.`,
+  confirmWebhookRemove: (id: string, host: string) =>
+    `This removes webhook ${id} for ${host} and its delivery log.\nType "remove" to confirm: `,
   tokensEmpty: "No app holds tokens for your account.",
   tokensUnnamed: "Unnamed app",
   tokensNote:
@@ -185,6 +278,26 @@ export const messages = {
     revokeConfirmationRequired: (id: string) =>
       `Revoking disconnects the app on every device. Run \`portifact tokens revoke ${id} --yes\` to confirm without a prompt.`,
     revokeCancelled: 'Nothing was revoked: the confirmation was not "revoke".',
+    invalidShareLinkId: (value: string) =>
+      `${JSON.stringify(value)} is not a share link ID. Run \`portifact share list <id>\` to see them.`,
+    shareRevokeConfirmationRequired: (id: string, linkId: string) =>
+      `Revoking a share link cannot be undone. Run \`portifact share revoke ${id} ${linkId} --yes\` to confirm without a prompt.`,
+    shareRevokeCancelled: 'Nothing was revoked: the confirmation was not "revoke".',
+    invalidHostname: (value: string) =>
+      `${JSON.stringify(value)} is not a hostname. Use a name like docs.example.com.`,
+    domainRemoveConfirmationRequired: (hostname: string) =>
+      `Removing a domain stops it serving at once. Run \`portifact domains remove ${hostname} --yes\` to confirm without a prompt.`,
+    domainRemoveCancelled: "Nothing was removed: the confirmation was not the hostname.",
+    invalidExpiry: (value: string) =>
+      `${JSON.stringify(value)} is not an expiry. Use a duration like 12h or 7d, or an ISO date like 2026-12-01T00:00:00Z.`,
+    emptyPassword: "The password file is empty. Put the password on its first line.",
+    invalidWebhookId: (value: string) =>
+      `${JSON.stringify(value)} is not a webhook ID. Run \`portifact webhooks list\` to see them.`,
+    invalidWebhookEvents: (value: string) =>
+      `${JSON.stringify(value)} is not a list of events. Use comma-separated names from: comment.created, thread.resolved, artifact.published, artifact.expiring, artifact.access_changed.`,
+    webhookRemoveConfirmationRequired: (id: string) =>
+      `Removing stops the webhook for good. Run \`portifact webhooks remove ${id} --yes\` to confirm without a prompt.`,
+    webhookRemoveCancelled: 'Nothing was removed: the confirmation was not "remove".',
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
     invalidMode: (value: string) =>
@@ -200,6 +313,10 @@ export const messages = {
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,
     invalidSince: (value: string) =>
       `${JSON.stringify(value)} is not a time. Use a duration like 30m, 12h or 7d, or an ISO date like 2026-11-01T00:00:00Z.`,
+    statsDaysWithRange: "Use --days or --from and --to, not both.",
+    invalidDays: (max: number) => `--days takes a whole number from 1 to ${max}.`,
+    invalidDay: (value: string) =>
+      `${JSON.stringify(value)} is not a day. Use a UTC date like 2026-11-01.`,
     invalidSearch: (max: number) => `Search for 1 to ${max} characters.`,
     invalidRevision: "Use the message revision, a whole number from 1.",
     notFoundPath: (path: string) => `${path} does not exist or cannot be read.`,

@@ -21,18 +21,25 @@ import {
   ApiError,
   ArtifactList,
   type ArtifactListFilters,
+  ArtifactStatsView,
   ArtifactSummary,
+  BrandSettings,
+  type BrandUpdate,
   BrowserSessionList,
   CommentNoticeMute,
   CommittedPublish,
   ConnectedAppList,
   type CreateThreadRequest,
+  CustomDomainList,
+  CustomDomainRemoved,
+  CustomDomainView,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
   type DownloadKind,
   type EditMessageRequest,
   type ErrorCode,
+  FileDiff,
   LifecycleResult,
   PreparedPublish,
   type PublishRequest,
@@ -40,12 +47,24 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  ShareLinkCreated,
+  ShareLinkList,
+  ShareLinkRevoked,
   SignOutOthersResult,
   type UploadedPart,
+  VersionComparison,
   VersionDownload,
   VersionList,
   VersionManifest,
   ViewerInfo,
+  type WebhookCreate,
+  WebhookCreated,
+  WebhookDeliveries,
+  WebhookList,
+  WebhookRemoved,
+  WebhookTestQueued,
+  type WebhookUpdate,
+  WebhookView,
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
@@ -98,6 +117,13 @@ export interface DashboardApi {
   /** The defaults new artifacts start with. */
   accountSettings(): Promise<AccountSettings>;
   updateAccountSettings(update: AccountSettingsUpdate): Promise<AccountSettings>;
+  /** The brand of the account's space on the viewer's bar, and whether its plan includes it. */
+  brandSettings(): Promise<BrandSettings>;
+  updateBrand(update: BrandUpdate): Promise<BrandSettings>;
+  deleteBrand(): Promise<BrandSettings>;
+  /** Sends the logo file's bytes as they are; the server judges them. */
+  uploadBrandLogo(file: Blob): Promise<BrandSettings>;
+  removeBrandLogo(): Promise<BrandSettings>;
   /** Whether the artifact's owner has comment notices, and whether the caller muted it. */
   commentNoticeMute(artifactId: string): Promise<CommentNoticeMute>;
   /** Mutes or unmutes the artifact's comment notices for the caller. */
@@ -106,8 +132,37 @@ export interface DashboardApi {
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** The account's quotas, this month's traffic and what blocks it now. */
   usage(): Promise<AccountUsageView>;
+  /** The account's webhooks (decision 0009). */
+  webhooks(): Promise<WebhookList>;
+  /** Adds a webhook; the answer holds its signing secret once. */
+  createWebhook(webhook: WebhookCreate): Promise<WebhookCreated>;
+  updateWebhook(webhookId: string, update: WebhookUpdate): Promise<WebhookView>;
+  removeWebhook(webhookId: string): Promise<WebhookRemoved>;
+  testWebhook(webhookId: string): Promise<WebhookTestQueued>;
+  webhookDeliveries(webhookId: string): Promise<WebhookDeliveries>;
+  /** The artifact's share links that are not revoked, never with their URL. */
+  listShareLinks(artifactId: string): Promise<ShareLinkList>;
+  /** Creates a share link; the answer holds its URL, the only time it is ever shown. */
+  createShareLink(
+    artifactId: string,
+    input: { label: string; expiresAt?: string; password?: string },
+  ): Promise<ShareLinkCreated>;
+  revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
+  /** The artifact's custom domain and pending ones, with its owner's plan. */
+  artifactDomains(artifactId: string): Promise<CustomDomainList>;
+  /** Claims a hostname for the artifact; retrying with the same key answers the same claim. */
+  addDomain(
+    artifactId: string,
+    hostname: string,
+    idempotencyKey: string,
+  ): Promise<CustomDomainView>;
+  /** Checks a domain's DNS records and certificate again. */
+  verifyDomain(hostname: string): Promise<CustomDomainView>;
+  removeDomain(hostname: string): Promise<CustomDomainRemoved>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
+  /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
+  stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
   /** Starts a publish; retrying with the same key returns the same upload. */
   preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
@@ -129,6 +184,19 @@ export interface DashboardApi {
     request: RollbackRequest,
     idempotencyKey: string,
   ): Promise<RolledBack>;
+  compareVersions(
+    artifactId: string,
+    fromVersionId: string,
+    toVersionId: string,
+    cursor?: string,
+  ): Promise<VersionComparison>;
+  fileDiff(
+    artifactId: string,
+    fromVersionId: string,
+    toVersionId: string,
+    file: { kind: DownloadKind; path: string },
+    cursor?: number,
+  ): Promise<FileDiff>;
   previewDocument(request: DocumentPreviewRequest): Promise<DocumentPreview>;
   /**
    * What the viewer's bar shows about the artifact and who is looking; works without a session
@@ -186,6 +254,14 @@ export interface DashboardApi {
   setAnnotationMode(artifactId: string, mode: AnnotationsState): Promise<AnnotationModeView>;
 }
 
+/** The brand of the account's space (session only). */
+export const BRAND_PATH = "/api/v1/account/branding";
+
+/** The stored logo for the Branding page's preview, versioned by its hash for the cache. */
+export function brandLogoPreview(sha256: string): string {
+  return `${BRAND_PATH}/logo?v=${sha256}`;
+}
+
 /** The account's data as a JSON download (a plain link: the browser saves the attachment). */
 export const ACCOUNT_EXPORT_PATH = "/api/v1/account/export";
 
@@ -221,10 +297,17 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         credentials: "same-origin",
         headers: {
           accept: "application/json",
-          ...(payload === undefined ? {} : { "content-type": "application/json" }),
+          ...(payload === undefined
+            ? {}
+            : {
+                "content-type":
+                  payload instanceof Blob ? "application/octet-stream" : "application/json",
+              }),
           ...extraHeaders,
         },
-        ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+        ...(payload === undefined
+          ? {}
+          : { body: payload instanceof Blob ? payload : JSON.stringify(payload) }),
       });
     } catch {
       throw new ApiFailure("network", 0);
@@ -325,6 +408,51 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     updateAccountSettings(update) {
       return call("/api/v1/account/settings", AccountSettings, "PATCH", update);
     },
+    brandSettings() {
+      return call(BRAND_PATH, BrandSettings);
+    },
+    updateBrand(update) {
+      return call(BRAND_PATH, BrandSettings, "PUT", update);
+    },
+    deleteBrand() {
+      return call(BRAND_PATH, BrandSettings, "DELETE");
+    },
+    uploadBrandLogo(file) {
+      return call(`${BRAND_PATH}/logo`, BrandSettings, "PUT", file);
+    },
+    removeBrandLogo() {
+      return call(`${BRAND_PATH}/logo`, BrandSettings, "DELETE");
+    },
+    webhooks() {
+      return call("/api/v1/webhooks", WebhookList);
+    },
+    createWebhook(webhook) {
+      return call("/api/v1/webhooks", WebhookCreated, "POST", webhook);
+    },
+    updateWebhook(webhookId, update) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}`,
+        WebhookView,
+        "PATCH",
+        update,
+      );
+    },
+    removeWebhook(webhookId) {
+      return call(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, WebhookRemoved, "DELETE");
+    },
+    testWebhook(webhookId) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
+        WebhookTestQueued,
+        "POST",
+      );
+    },
+    webhookDeliveries(webhookId) {
+      return call(
+        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`,
+        WebhookDeliveries,
+      );
+    },
     commentNoticeMute(artifactId) {
       return call(
         `/api/v1/account/comment-notices/${encodeURIComponent(artifactId)}`,
@@ -345,6 +473,49 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     usage() {
       return call("/api/v1/usage", AccountUsageView);
     },
+    listShareLinks(artifactId) {
+      return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links`, ShareLinkList);
+    },
+    createShareLink(artifactId, input) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links`,
+        ShareLinkCreated,
+        "POST",
+        input,
+      );
+    },
+    revokeShareLink(artifactId, linkId) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links/${encodeURIComponent(linkId)}`,
+        ShareLinkRevoked,
+        "DELETE",
+      );
+    },
+    artifactDomains(artifactId) {
+      return call(
+        `/api/v1/domains?${new URLSearchParams({ artifactId }).toString()}`,
+        CustomDomainList,
+      );
+    },
+    addDomain(artifactId, hostname, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/domain`,
+        CustomDomainView,
+        "POST",
+        { hostname },
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    verifyDomain(hostname) {
+      return call(
+        `/api/v1/domains/${encodeURIComponent(hostname)}/verify`,
+        CustomDomainView,
+        "POST",
+      );
+    },
+    removeDomain(hostname) {
+      return call(`/api/v1/domains/${encodeURIComponent(hostname)}`, CustomDomainRemoved, "DELETE");
+    },
     accessLog(artifactId, cursor, limit) {
       const params = new URLSearchParams();
       if (cursor) params.set("cursor", cursor);
@@ -353,6 +524,13 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return call(
         `/api/v1/artifacts/${encodeURIComponent(artifactId)}/access-log${query}`,
         AccessLogView,
+      );
+    },
+    stats(artifactId, from) {
+      const query = from ? `?${new URLSearchParams({ from })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/stats${query}`,
+        ArtifactStatsView,
       );
     },
     preparePublish(request, idempotencyKey) {
@@ -403,6 +581,20 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         "POST",
         request,
         { "idempotency-key": idempotencyKey },
+      );
+    },
+    compareVersions(artifactId, fromVersionId, toVersionId, cursor) {
+      const query = cursor ? `?${new URLSearchParams({ cursor })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(fromVersionId)}/diff/${encodeURIComponent(toVersionId)}${query}`,
+        VersionComparison,
+      );
+    },
+    fileDiff(artifactId, fromVersionId, toVersionId, file, cursor = 0) {
+      const query = new URLSearchParams({ ...file, cursor: String(cursor) });
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/versions/${encodeURIComponent(fromVersionId)}/diff/${encodeURIComponent(toVersionId)}/file?${query}`,
+        FileDiff,
       );
     },
     previewDocument(request) {

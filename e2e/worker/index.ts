@@ -6,16 +6,23 @@
 //
 // The app Worker gets the two external boundaries of sign-in replaced, like the app tests do:
 // emails are kept in the local bucket for the control host to read (`/mail`), and siteverify
-// accepts only the fake Turnstile's token (../src/turnstile-fake.ts).
+// accepts only the fake Turnstile's token (../src/turnstile-fake.ts). Custom domains use the
+// in-memory Cloudflare and DNS of ./domains.ts, which the control host drives.
 
 import { workerDeps } from "../../apps/app/src/auth/deps.ts";
 import type { EmailSender } from "../../apps/app/src/auth/email.ts";
 import { createWorker } from "../../apps/app/src/index.ts";
-import { handle, isolateMeter, isolateOpenings } from "../../apps/content/src/index.ts";
+import {
+  handle,
+  isolateMeter,
+  isolateOpenings,
+  isolateViews,
+} from "../../apps/content/src/index.ts";
 import { SITE_HOST } from "../src/hosts.ts";
 import { TURNSTILE_PASS } from "../src/turnstile-fake.ts";
 import { contentNow } from "./clock.ts";
 import { CONTROL_HOST, control, type E2eEnv, MAIL_PREFIX } from "./control.ts";
+import { e2eDomains } from "./domains.ts";
 
 function capturedEmail(bucket: R2Bucket): EmailSender {
   return {
@@ -37,6 +44,7 @@ const app = createWorker((env) => ({
   ...workerDeps(env),
   email: capturedEmail(env.ARTIFACTS),
   siteverify: fakeSiteverify,
+  domains: e2eDomains,
 }));
 
 /**
@@ -68,7 +76,7 @@ export default {
       return siteCookies(await app.fetch(new Request(url, request), env, ctx));
     }
     if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) {
-      // Like the content Worker's own fetch: traffic and access log batches after the response.
+      // Like the content Worker's own fetch: traffic, access log and view batches after the response.
       const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
       return handle(
         request,
@@ -76,6 +84,7 @@ export default {
         contentNow(host),
         (charge) => isolateMeter(env).count(charge, waitUntil),
         (opening) => isolateOpenings(env).record(opening, waitUntil),
+        (view) => isolateViews(env).count(view, waitUntil),
       );
     }
     return app.fetch(request, env, ctx);

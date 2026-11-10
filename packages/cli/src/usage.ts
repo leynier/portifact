@@ -6,10 +6,20 @@ import { callApi } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { formatBytes, formatDate, messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import { chosenWorkspace, workspaceQuery } from "./workspaces.ts";
 
-export async function usage(io: Io, runtime: Runtime, options: OutputOptions): Promise<void> {
+export async function usage(
+  io: Io,
+  runtime: Runtime,
+  options: OutputOptions & { workspace?: string | undefined },
+): Promise<void> {
   const session = await openSession(io, runtime);
-  const view = await callApi(session, { method: "GET", path: "/usage", schema: AccountUsageView });
+  const workspace = await chosenWorkspace(session, options.workspace);
+  const view = await callApi(session, {
+    method: "GET",
+    path: `/usage${workspaceQuery(workspace)}`,
+    schema: AccountUsageView,
+  });
   if (options.json) {
     writeJson(io, view);
     return;
@@ -18,6 +28,7 @@ export async function usage(io: Io, runtime: Runtime, options: OutputOptions): P
   const bytes = (meter: UsageMeter) =>
     messages.usageMeter(formatBytes(meter.used), formatBytes(meter.limit));
   const lines: [string, string][] = [
+    ...(workspace ? ([["Workspace", workspace]] as [string, string][]) : []),
     ["Plan", messages.usagePlan(view.plan.name, view.plan.seats, view.plan.validUntil)],
     ["Active artifacts", count(view.activeArtifacts)],
     [

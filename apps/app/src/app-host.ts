@@ -2,6 +2,7 @@
 // resource metadata and the auth pages. Every path not listed here answers 404.
 import {
   ArtifactId,
+  SHARE_ENTRY_PATH,
   TokenPrincipal,
   TURNSTILE_ORIGIN,
   TURNSTILE_SITE_KEY_META,
@@ -18,7 +19,9 @@ import { r2Presigner } from "./api/presign.ts";
 import { reportRoutes } from "./api/reports.ts";
 import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
+import { shareOpenRoutes } from "./api/share-links.ts";
 import { tokenRoutes } from "./api/tokens.ts";
+import { workspaceRoutes } from "./api/workspaces.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
 import type { AuthDeps } from "./auth/deps.ts";
@@ -60,6 +63,8 @@ export const DASHBOARD_ROUTES = [
   "/profile",
   "/apps",
   "/usage",
+  "/webhooks",
+  "/branding",
   "/settings",
   // The old account page; the dashboard sends it on to the page that holds each section now.
   "/account",
@@ -103,6 +108,12 @@ export function withHumanCheck(policy: string): string {
 
 /** The login page's policy: the strict page policy plus the human check of new accounts. */
 export const LOGIN_CSP = withHumanCheck(PAGE_CSP);
+
+/** The share link entry page, built by apps/web as share.html and served at `/s`. */
+export const SHARE_PAGE = "/share";
+
+/** The share link entry's policy: the strict page policy plus the human check of passwords. */
+export const SHARE_CSP = withHumanCheck(PAGE_CSP);
 
 /** The S3 endpoint of the artifacts bucket, which the dashboard uploads to and downloads from. */
 export function storageOrigin(r2AccountId: string): string {
@@ -155,19 +166,23 @@ export async function dashboardCsp(
 
 /**
  * The viewer's policy: the dashboard's, with `frame-src` narrowed to the one artifact it shows
- * (and the human check), so its frame can never be navigated to another artifact or site. Its
+ * (and the human check), so its frame can never be navigated to another artifact or site, and
+ * `img-src` widened to that one origin for the owner's logo. Its
  * links to the dashboard load a new page, which gets the dashboard's own policy.
  */
 export async function viewerCsp(
   env: Pick<Env, "R2_ACCOUNT_ID" | "CONTENT_DOMAIN">,
   artifactId: string,
 ): Promise<string> {
+  const origin = `https://${artifactId}.${env.CONTENT_DOMAIN}`;
+  // The owner's logo on a branded bar comes from that same artifact origin
+  // (`/__portifact/brand/<sha256>`), so `img-src` adds exactly it and no host an owner chose.
   return dashboardPolicy(
     storageOrigin(env.R2_ACCOUNT_ID),
     await documentStylesheetSource(),
     env.CONTENT_DOMAIN,
-    `https://${artifactId}.${env.CONTENT_DOMAIN}`,
-  );
+    origin,
+  ).replace("img-src 'self'", `img-src 'self' ${origin}`);
 }
 
 export function createAppHost(depsFor: (env: Env) => AuthDeps) {
@@ -272,6 +287,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       presigner: presignerFor,
       siteverify: (env) => depsFor(env).siteverify,
       multipart: (env) => depsFor(env).multipart,
+      domains: (env) => depsFor(env).domains,
       now: () => Date.now(),
     }),
   );
@@ -293,7 +309,19 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       now: () => Date.now(),
     }),
   );
+  app.route(
+    "/",
+    workspaceRoutes({
+      session: sessionUserFor,
+      email: (env) => depsFor(env).email,
+      now: () => Date.now(),
+    }),
+  );
   app.route("/", reportRoutes({ now: () => Date.now() }));
+  app.route(
+    "/",
+    shareOpenRoutes({ siteverify: (env) => depsFor(env).siteverify, now: () => Date.now() }),
+  );
   app.route("/", noticeRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
   app.route(
@@ -326,6 +354,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       presigner: presignerFor,
       siteverify: (env) => depsFor(env).siteverify,
       multipart: (env) => depsFor(env).multipart,
+      domains: (env) => depsFor(env).domains,
       now: () => Date.now(),
     }),
   );
@@ -382,6 +411,17 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       return withSiteKey(trustedPage(asset, LOGIN_CSP), c.env.TURNSTILE_SITE_KEY);
     });
   }
+
+  // The entry of share links (decision 0008). The token is in the fragment, which never reaches
+  // this Worker; the page must never redirect, or the browser would carry the fragment along.
+  app.get(SHARE_ENTRY_PATH, async (c) => {
+    const page = withSiteKey(
+      trustedPage(await c.env.ASSETS.fetch(new Request(new URL(SHARE_PAGE, c.req.url))), SHARE_CSP),
+      c.env.TURNSTILE_SITE_KEY,
+    );
+    page.headers.set("X-Robots-Tag", "noindex");
+    return page;
+  });
 
   for (const file of STATIC_FILES) {
     app.get(file, (c) => c.env.ASSETS.fetch(c.req.raw));

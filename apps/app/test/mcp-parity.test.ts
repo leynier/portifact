@@ -6,6 +6,7 @@ import { PLANS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
 import { pastHumanCheck } from "./api-client.ts";
@@ -609,6 +610,213 @@ describe("API and MCP parity for versions", () => {
     );
   });
 
+  it("compares versions the same way: summary, file diff and every refusal", async () => {
+    const b = await both("parity-diff@example.test");
+    const stranger = await both("parity-diff-stranger@example.test");
+    const { id, v1, v2 } = await twoVersions(b, "Compared");
+    const theirs = await twoVersions(stranger, "Theirs");
+    const summary = (args: Record<string, unknown>, path: string) =>
+      Promise.all([
+        b.tool("diff_versions", { artifactId: id, ...args }).then(fromTool),
+        b.apiCall(path).then(fromApi),
+      ]);
+    const file = (args: Record<string, unknown>, path: string) =>
+      Promise.all([
+        b.tool("diff_version_file", { artifactId: id, ...args }).then(fromTool),
+        b.apiCall(path).then(fromApi),
+      ]);
+    const base = `/api/v1/artifacts/${id}/versions/${v1}/diff/${v2}`;
+
+    // Free: the same plan_required from both.
+    const [refusedTool, refusedApi] = await summary({ fromVersionId: v1, toVersionId: v2 }, base);
+    expect(refusedTool).toEqual(refusedApi);
+    expect(refusedApi.body).toMatchObject({ error: { code: "plan_required" } });
+
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({
+        ownerId: await ownerId(b),
+        plan: "pro",
+        seats: 1,
+        grantedBy: "test",
+        updatedAt: NOW,
+      });
+
+    const [tool, viaApi] = await summary({ fromVersionId: v1, toVersionId: v2 }, base);
+    expect(tool).toEqual(viaApi);
+    expect(viaApi.body).toMatchObject({
+      counts: { added: 0, removed: 0, changed: 1, unchanged: 0 },
+      files: [{ kind: "published", path: "index.md", change: "changed" }],
+    });
+    const [fileTool, fileApi] = await file(
+      { fromVersionId: v1, toVersionId: v2, path: "index.md" },
+      `${base}/file?path=index.md`,
+    );
+    expect(fileTool).toEqual(fileApi);
+    expect(fileApi.body).toMatchObject({ diff: { status: "text", added: 1, removed: 1 } });
+
+    for (const [args, path] of [
+      [
+        { fromVersionId: v1, toVersionId: theirs.v1 },
+        `/api/v1/artifacts/${id}/versions/${v1}/diff/${theirs.v1}`,
+      ],
+      [{ fromVersionId: v1, toVersionId: v2, cursor: "x" }, `${base}?cursor=x`],
+    ] as const) {
+      const [t, a] = await summary(args, path);
+      expect(t).toEqual(a);
+      expect(a.ok).toBe(false);
+    }
+    const [missingTool, missingApi] = await file(
+      { fromVersionId: v1, toVersionId: v2, path: "nope.md" },
+      `${base}/file?path=nope.md`,
+    );
+    expect(missingTool).toEqual(missingApi);
+    expect(missingApi.body).toMatchObject({ error: { code: "not_found" } });
+    // A file the same in both versions has no hunks: the tool says why, with sizes.
+    const [sameTool, sameApi] = await file(
+      { fromVersionId: v2, toVersionId: v2, path: "index.md" },
+      `/api/v1/artifacts/${id}/versions/${v2}/diff/${v2}/file?path=index.md`,
+    );
+    expect(sameTool).toEqual(sameApi);
+    expect(sameApi.body).toMatchObject({ change: "unchanged", diff: { status: "identical" } });
+    const same = await b.tool("diff_version_file", {
+      artifactId: id,
+      fromVersionId: v2,
+      toVersionId: v2,
+      path: "index.md",
+    });
+    expect((same.content[0] as { text: string }).text).toContain("unchanged, identical. Sizes:");
+    // Bad input is refused by the route before any service runs.
+    for (const path of [
+      `/api/v1/artifacts/${id}/versions/bad%20id/diff/${v2}`,
+      `/api/v1/artifacts/${id}/versions/bad%20id/diff/${v2}/file?path=index.md`,
+      `/api/v1/artifacts/${id}/versions/${v1}/diff/bad%20id`,
+      `/api/v1/artifacts/${id}/versions/${v1}/diff/bad%20id/file?path=index.md`,
+      `${base}?limit=0`,
+      `${base}/file`,
+      `${base}/file?path=index.md&kind=rendered`,
+    ]) {
+      const answer = await fromApi(await b.apiCall(path));
+      expect(answer, path).toMatchObject({ ok: false, body: { error: { code: "invalid_input" } } });
+    }
+
+    // A long diff comes in pages of hunks, and the tool says how to get the next one.
+    const lines = Array.from({ length: 4_000 }, (_, i) => `line ${i}`);
+    const long = fromTool(
+      await b.tool("publish_document", {
+        type: "text",
+        name: "Long",
+        content: `${lines.join("\n")}\n`,
+      }),
+    ).body as { artifactId: string; versionId: string };
+    const edited = fromTool(
+      await b.tool("publish_document", {
+        type: "text",
+        name: "Long",
+        content: `${lines.map((line, i) => (i % 10 === 0 ? `${line}!` : line)).join("\n")}\n`,
+        artifactId: long.artifactId,
+        baseVersionId: long.versionId,
+      }),
+    ).body as { versionId: string };
+    const manifest = fromTool(
+      await b.tool("get_version", { artifactId: long.artifactId, versionId: edited.versionId }),
+    ).body as { entrypoint: string };
+    const paged = await b.tool("diff_version_file", {
+      artifactId: long.artifactId,
+      fromVersionId: long.versionId,
+      toVersionId: edited.versionId,
+      path: manifest.entrypoint,
+    });
+    expect((paged.content[0] as { text: string }).text).toContain(
+      "More: call diff_version_file with cursor",
+    );
+    const listed = await b.tool("diff_versions", {
+      artifactId: long.artifactId,
+      fromVersionId: long.versionId,
+      limit: 1,
+    });
+    expect((listed.content[0] as { text: string }).text).toContain("1 changed");
+
+    // A site with several changed files pages them, and a new binary file has no "before".
+    const site = async (
+      files: Record<string, [string, string]>,
+      base?: { artifactId: string; versionId: string },
+    ) => {
+      const entries = await Promise.all(
+        Object.entries(files).map(async ([path, [content, contentType]]) => ({
+          path,
+          content,
+          sha: await sha256(content),
+          entry: { path, sha256: await sha256(content), size: content.length, contentType },
+        })),
+      );
+      const prepared = await b.apiCall("/api/v1/publishes", {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({
+          type: "site",
+          name: "Site",
+          entrypoint: "index.html",
+          files: entries.map((file) => file.entry),
+          ...(base ? { artifactId: base.artifactId, baseVersionId: base.versionId } : {}),
+        }),
+      });
+      const { uploadId } = await prepared.json<{ uploadId: string }>();
+      const me = await ownerId(b);
+      for (const file of entries) {
+        await env.ARTIFACTS.put(`objects/${me}/${file.sha}`, file.content, { sha256: file.sha });
+      }
+      const committed = await b.apiCall(`/api/v1/publishes/${uploadId}/commit`, { method: "POST" });
+      return committed.json<{ artifactId: string; versionId: string }>();
+    };
+    const s1 = await site({
+      "index.html": ["<p>1</p>", "text/html"],
+      "a.css": ["a{}", "text/css"],
+    });
+    const s2 = await site(
+      {
+        "index.html": ["<p>2</p>", "text/html"],
+        "a.css": ["b{}", "text/css"],
+        "data.bin": ["\u0001\u0002", "application/octet-stream"],
+      },
+      s1,
+    );
+    const pagedFiles = await b.tool("diff_versions", {
+      artifactId: s1.artifactId,
+      fromVersionId: s1.versionId,
+      toVersionId: s2.versionId,
+      limit: 1,
+    });
+    expect((pagedFiles.content[0] as { text: string }).text).toContain(
+      "More: call diff_versions with cursor",
+    );
+    const binary = await b.tool("diff_version_file", {
+      artifactId: s1.artifactId,
+      fromVersionId: s1.versionId,
+      toVersionId: s2.versionId,
+      path: "data.bin",
+    });
+    expect((binary.content[0] as { text: string }).text).toContain(
+      "added, binary. Sizes: none before, 2 after.",
+    );
+
+    // Another user's artifact answers exactly like a missing one, in both.
+    const otherBase = `/api/v1/artifacts/${theirs.id}/versions/${theirs.v1}/diff/${theirs.v2}`;
+    const [otherTool, otherApi] = await Promise.all([
+      b
+        .tool("diff_versions", {
+          artifactId: theirs.id,
+          fromVersionId: theirs.v1,
+          toVersionId: theirs.v2,
+        })
+        .then(fromTool),
+      b.apiCall(otherBase).then(fromApi),
+    ]);
+    expect(otherTool).toEqual(otherApi);
+    expect(otherApi.body).toEqual({ error: { code: "not_found", message: "Artifact not found." } });
+  });
+
   it("refuses the same way: missing, another user's, unknown version and bad cursor", async () => {
     const b = await both("parity-versions-errors@example.test");
     const stranger = await both("parity-versions-stranger@example.test");
@@ -893,6 +1101,152 @@ describe("API and MCP parity for usage and source origins", () => {
       sourceOrigin: { ...origin, remote: "https://ghp_secret@github.com/o/r.git" },
     });
     expect(refused).toMatchObject({ ok: false, body: { error: { code: "invalid_input" } } });
+  });
+});
+
+describe("API and MCP parity for artifact analytics", () => {
+  const DAY = 86_400_000;
+  const today = NOW - (NOW % DAY);
+
+  async function onPro(owner: string) {
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({ ownerId: owner, plan: "pro", seats: 1, grantedBy: "test", updatedAt: NOW });
+  }
+
+  async function seedViews(artifactId: string, owner: string) {
+    const insert = env.ACCESS_DB.prepare(
+      "insert into artifact_views (artifact_id, day, owner_id, views, signed_in_views, expires_at) values (?, ?, ?, ?, ?, ?)",
+    );
+    await insert.bind(artifactId, today, owner, 5, 2, today + 400 * DAY).run();
+    await insert.bind(artifactId, today - 2 * DAY, owner, 3, 0, today + 400 * DAY).run();
+    // Past its expiry: never shown, even before the prune reaches it.
+    await insert.bind(artifactId, today - DAY, owner, 9, 9, NOW - 1).run();
+  }
+
+  async function seedOpening(artifactId: string, owner: string, user: string, at: number) {
+    await env.ACCESS_DB.prepare(
+      "insert into access_events (artifact_id, window_start, user_id, owner_id, email, opened_at, expires_at) values (?, ?, ?, ?, ?, ?, ?)",
+    )
+      .bind(
+        artifactId,
+        at - (at % 1_800_000),
+        user,
+        owner,
+        `${user}@example.test`,
+        at,
+        at + 400 * DAY,
+      )
+      .run();
+  }
+
+  it("returns the same series and totals, with visitors only for restricted artifacts", async () => {
+    const b = await both("parity-stats@example.test");
+    const owner = await ownerId(b);
+    await onPro(owner);
+    const { artifactId } = fromTool(
+      await b.tool("publish_document", { type: "markdown", name: "Doc", content: "# Stats" }),
+    ).body as { artifactId: string };
+    await seedViews(artifactId, owner);
+    await seedOpening(artifactId, owner, "u_a", NOW - 60_000);
+    await seedOpening(artifactId, owner, "u_b", NOW - 60_000);
+    await seedOpening(artifactId, owner, "u_a", NOW - 2 * DAY);
+
+    const query = `from=${new Date(today - 2 * DAY).toISOString().slice(0, 10)}`;
+    const viaMcp = fromTool(
+      await b.tool("get_artifact_stats", {
+        artifactId,
+        from: new Date(today - 2 * DAY).toISOString().slice(0, 10),
+      }),
+    );
+    expect(viaMcp).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/artifacts/${artifactId}/stats?${query}`)),
+    );
+    const day = (offset: number) => new Date(today - offset * DAY).toISOString().slice(0, 10);
+    expect(viaMcp.body).toEqual({
+      artifactId,
+      from: day(2),
+      to: day(0),
+      days: [
+        { date: day(2), views: 3, signedInViews: 0, visitors: 1 },
+        { date: day(1), views: 0, signedInViews: 0, visitors: 0 },
+        { date: day(0), views: 5, signedInViews: 2, visitors: 2 },
+      ],
+      totals: { views: 8, signedInViews: 2, visitors: 2 },
+      retentionDays: 365,
+    });
+
+    // Public: the same counts, and no visitors at all even though old openings remain.
+    await regionsFromEnv(env)
+      .get("default")
+      .db.update(schema.artifacts)
+      .set({ accessMode: "public" })
+      .where(eq(schema.artifacts.id, artifactId));
+    const open = fromTool(await b.tool("get_artifact_stats", { artifactId }));
+    expect(open).toEqual(await fromApi(await b.apiCall(`/api/v1/artifacts/${artifactId}/stats`)));
+    const body = open.body as { days: { visitors: unknown }[]; totals: { visitors: unknown } };
+    expect(body.days).toHaveLength(30);
+    expect(body.days.every((entry) => entry.visitors === null)).toBe(true);
+    expect(body.totals.visitors).toBeNull();
+  });
+
+  it("refuses the same way: a stranger, a bad or reversed range", async () => {
+    const owner = await both("parity-stats-owner@example.test");
+    const stranger = await both("parity-stats-stranger@example.test");
+    await onPro(await ownerId(owner));
+    await onPro(await ownerId(stranger));
+    const { artifactId } = fromTool(
+      await owner.tool("publish_document", { type: "text", name: "Doc", content: "stats" }),
+    ).body as { artifactId: string };
+    for (const id of [artifactId, "zzzzzzzzzz"]) {
+      const viaApi = await fromApi(await stranger.apiCall(`/api/v1/artifacts/${id}/stats`));
+      expect(viaApi).toEqual({
+        ok: false,
+        body: { error: { code: "not_found", message: "Artifact not found." } },
+      });
+      expect(fromTool(await stranger.tool("get_artifact_stats", { artifactId: id }))).toEqual(
+        viaApi,
+      );
+    }
+    const reversed = await fromApi(
+      await owner.apiCall(`/api/v1/artifacts/${artifactId}/stats?from=2026-11-02&to=2026-11-01`),
+    );
+    expect(reversed).toEqual({
+      ok: false,
+      body: { error: { code: "invalid_input", message: "The range ends before it starts." } },
+    });
+    expect(
+      fromTool(
+        await owner.tool("get_artifact_stats", {
+          artifactId,
+          from: "2026-11-02",
+          to: "2026-11-01",
+        }),
+      ),
+    ).toEqual(reversed);
+    for (const q of ["from=yesterday", "to=2026-02-30", "from=2024-01-01&to=2026-11-02"]) {
+      const response = await owner.apiCall(`/api/v1/artifacts/${artifactId}/stats?${q}`);
+      expect(response.status, q).toBe(400);
+    }
+  });
+
+  it("needs artifacts:read at both", async () => {
+    const h = createHarness();
+    const email = "parity-stats-scope@example.test";
+    const apiDenied = await api(
+      h,
+      await apiToken(h, email, "annotations:read"),
+      "/api/v1/artifacts/zzzzzzzzzz/stats",
+    );
+    expect(apiDenied.status).toBe(403);
+    const mcpDenied = await rawCall(
+      h,
+      await mcpToken(h, email, "annotations:read"),
+      "get_artifact_stats",
+      { artifactId: "zzzzzzzzzz" },
+    );
+    expect(mcpDenied.status).toBe(403);
   });
 });
 
@@ -2380,5 +2734,83 @@ describe("API and MCP parity for reading content", () => {
     const denied = await rawCall(b.h, writeOnly, "read_artifact", { artifactId: doc.artifactId });
     expect(denied.status).toBe(403);
     expect(denied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
+  });
+});
+
+describe("API and MCP parity for webhooks", () => {
+  const READ = "artifacts:read offline_access";
+  const hook = {
+    url: "https://hooks.example.com/in?token=abc",
+    format: "generic",
+    events: ["comment.created", "artifact.published"],
+  };
+  const json = (method: string, body?: unknown): RequestInit => ({
+    method,
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+
+  it("lists webhooks and their deliveries with the same bodies, and only reads through MCP", async () => {
+    const b = await both("parity-webhooks@example.test", READ);
+    await env.DB.prepare(
+      "insert into owner_plans (owner_id, plan, seats, granted_by, updated_at) values (?, 'pro', 1, 'test', ?)",
+    )
+      .bind(await ownerId(b), NOW)
+      .run();
+    const cli = await apiToken(
+      b.h,
+      "parity-webhooks@example.test",
+      "artifacts:read credentials:manage",
+    );
+    const created = await api(b.h, cli, "/api/v1/webhooks", json("POST", hook));
+    expect(created.status).toBe(201);
+    const { webhook } = await created.json<{ webhook: { id: string } }>();
+
+    const listed = fromTool(await b.tool("list_webhooks", {}));
+    expect(listed).toEqual(await fromApi(await b.apiCall("/api/v1/webhooks")));
+    expect(listed.body).toMatchObject({
+      available: true,
+      serviceAvailable: true,
+      webhooks: [{ id: webhook.id, createdVia: "portifact-cli" }],
+    });
+    expect(JSON.stringify(listed.body)).not.toContain("token=abc");
+    expect(fromTool(await b.tool("list_webhook_deliveries", { webhookId: webhook.id }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/webhooks/${webhook.id}/deliveries`)),
+    );
+    const missing = `wh_${"0".repeat(32)}`;
+    expect(fromTool(await b.tool("list_webhook_deliveries", { webhookId: missing }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/webhooks/${missing}/deliveries`)),
+    );
+    // No MCP tool creates, changes, tests or removes a webhook.
+    for (const tool of ["create_webhook", "update_webhook", "test_webhook", "delete_webhook"]) {
+      await expect(b.tool(tool, {}), tool).rejects.toThrow(`Tool ${tool} not found`);
+    }
+  });
+
+  it("needs artifacts:read to list at both, and refuses management to every token without credentials:manage", async () => {
+    const b = await both("parity-webhooks-scope@example.test", READ);
+    const writer = await mcpToken(b.h, "parity-webhooks-scope@example.test", "artifacts:write");
+    for (const tool of ["list_webhooks", "list_webhook_deliveries"]) {
+      const denied = await rawCall(b.h, writer, tool, { webhookId: `wh_${"1".repeat(32)}` });
+      expect(denied.status, tool).toBe(403);
+      expect(denied.headers.get("www-authenticate"), tool).toContain('scope="artifacts:read"');
+    }
+    // Every product scope, sharing included, is not enough to manage webhooks.
+    const product = await apiToken(
+      b.h,
+      "parity-webhooks-scope@example.test",
+      "artifacts:read artifacts:write artifacts:share artifacts:delete annotations:read annotations:write annotations:moderate",
+    );
+    const id = `wh_${"1".repeat(32)}`;
+    for (const [path, init] of [
+      ["/api/v1/webhooks", json("POST", hook)],
+      [`/api/v1/webhooks/${id}`, json("PATCH", { enabled: false })],
+      [`/api/v1/webhooks/${id}`, json("DELETE")],
+      [`/api/v1/webhooks/${id}/test`, json("POST")],
+    ] as const) {
+      const denied = await api(b.h, product, path, init);
+      expect(denied.status, path).toBe(403);
+      expect(denied.headers.get("www-authenticate"), path).toContain('scope="credentials:manage"');
+    }
   });
 });

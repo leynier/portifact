@@ -1,6 +1,13 @@
 // Bindings of the portifact-app Worker. Non-secret values come from `vars` in wrangler.jsonc;
 // secrets are set with `wrangler secret put` (docs/releasing.md) and `.dev.vars` locally.
-export interface Env {
+import type { DomainEnv } from "@portifact/services";
+
+/**
+ * Custom domains (decision 0006) come from `DomainEnv`: `CUSTOM_DOMAINS_ENABLED` and
+ * `CF_CONTENT_ZONE_ID` in `vars`, and the secret `CF_HOSTNAMES_TOKEN`. Without all three the
+ * feature is unavailable and nothing calls Cloudflare.
+ */
+export interface Env extends DomainEnv {
   ASSETS: Fetcher;
   DB: D1Database;
   /** The access log database (`portifact-access`); the app only reads it, for the owner. */
@@ -33,6 +40,17 @@ export interface Env {
    * same secret. Without it the unsubscribe endpoint answers 503.
    */
   UNSUBSCRIBE_SECRET?: string | undefined;
+  /**
+   * Seals webhook URLs and signing secrets at creation (decision 0009); the jobs Worker opens them
+   * with the same secret. Without it creating a webhook answers 503.
+   */
+  WEBHOOK_KEY?: string | undefined;
+  /**
+   * Exactly `"true"` offers webhooks (decision 0009, "Switched off"): unset in the deployed
+   * configuration until the checks in docs/releasing.md pass. Without it, creating, enabling
+   * and testing a webhook answer 503.
+   */
+  WEBHOOKS_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

@@ -1,14 +1,16 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { axeViolations } from "../testing/axe.ts";
 import { ViewerShell } from "./viewer-shell.tsx";
 
 afterEach(cleanup);
 
-function shell(withSidebar = true, onClose = vi.fn()) {
+function shell(withSidebar = true, onClose = vi.fn(), notice?: React.ReactNode) {
   return render(
     <ViewerShell
+      notice={notice}
       skipLinkLabel="Skip to the artifact"
       brand={<a href="https://portifact.com">Portifact</a>}
       artifact={{ title: "Launch plan", details: <span>Version 3</span> }}
@@ -38,6 +40,20 @@ function shell(withSidebar = true, onClose = vi.fn()) {
 }
 
 describe("ViewerShell", () => {
+  it("shows a notice row in the bar, after its controls, only when given one", async () => {
+    const { container } = shell(true, vi.fn(), <p>Powered by Portifact</p>);
+    const bar = screen.getByRole("banner");
+    const notice = screen.getByText("Powered by Portifact");
+    // Inside the banner landmark, after the row of controls, never in the artifact.
+    expect(bar.contains(notice)).toBe(true);
+    expect(bar.lastElementChild).toBe(notice);
+    expect(screen.getByRole("main").contains(notice)).toBe(false);
+    expect(await axeViolations(container)).toEqual([]);
+    cleanup();
+    shell();
+    expect(screen.queryByText("Powered by Portifact")).toBeNull();
+  });
+
   it("names the artifact and its version in the bar, after the mark, as plain text", () => {
     shell();
     const bar = screen.getByRole("banner");

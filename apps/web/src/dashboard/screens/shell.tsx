@@ -11,7 +11,7 @@ import {
 } from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
-import { Cable, Gauge, Layers, Settings, Upload } from "lucide-react";
+import { Cable, Gauge, Layers, Palette, Settings, Upload, Webhook } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import symbol from "../../../../../assets/brand/symbol.svg";
 import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
@@ -78,7 +78,7 @@ function CapacityNotice() {
 }
 
 /**
- * Frame of every dashboard screen: the navigation (Artifacts, Publish, Apps, Usage, Settings),
+ * Frame of every dashboard screen: the navigation (Artifacts, Publish, Apps, Usage, Branding, Settings),
  * the signed-in account with its link to the profile and sign out, and announcements.
  */
 export function Shell() {
@@ -144,6 +144,18 @@ export function Shell() {
       label: t("shell.usageLink"),
       icon: <Gauge className="size-4" />,
       render: (props) => <Link to="/usage" {...props} />,
+    },
+    {
+      key: "webhooks",
+      label: t("shell.webhooksLink"),
+      icon: <Webhook className="size-4" />,
+      render: (props) => <Link to="/webhooks" {...props} />,
+    },
+    {
+      key: "branding",
+      label: t("shell.brandingLink"),
+      icon: <Palette className="size-4" />,
+      render: (props) => <Link to="/branding" {...props} />,
     },
     {
       key: "settings",

@@ -5,10 +5,14 @@ import {
   ArtifactContent,
   ContentQuery,
   DownloadQuery,
+  FileDiff,
+  FileDiffQuery,
   IdempotencyKey,
   ListQuery,
   RollbackRequest,
   RolledBack,
+  VersionComparison,
+  VersionComparisonQuery,
   VersionDownload,
   VersionList,
   VersionManifest,
@@ -17,7 +21,11 @@ import {
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
 import {
+  type ComparisonResult,
+  compareVersions,
   type DownloadPlan,
+  diffVersionFile,
+  type FileDiffResult,
   type FilePage,
   getVersionDownload,
   getVersionManifest,
@@ -61,7 +69,17 @@ export function versionList(artifactId: string, page: VersionPage): VersionList 
     artifactId,
     items: page.items.map(versionSummary),
     nextCursor: page.nextCursor,
+    retention: page.retention,
+    versionDiff: page.versionDiff,
   });
+}
+
+export function versionComparison(result: ComparisonResult): VersionComparison {
+  return VersionComparison.parse(result);
+}
+
+export function fileDiff(result: FileDiffResult): FileDiff {
+  return FileDiff.parse(result);
 }
 
 export function versionManifest(result: VersionManifestResult): VersionManifest {
@@ -230,6 +248,66 @@ export function versionRoutes(api: Hono<{ Bindings: Env }>, guarded: Guard, deps
       );
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(artifactContent(result.value));
+    }),
+  );
+
+  // Comparing two versions (premium plan P3): the files that differ, from the manifests.
+  api.get(
+    "/api/v1/artifacts/:artifactId/versions/:versionId/diff/:toVersionId",
+    guarded("artifacts:read", async (c, userId) => {
+      const from = versionRef(c);
+      const to = VersionRef.safeParse(c.req.param("toVersionId"));
+      const query = VersionComparisonQuery.safeParse({
+        cursor: c.req.query("cursor"),
+        limit: c.req.query("limit"),
+      });
+      if (!from.success || !to.success) return error(c, "invalid_input", "Invalid version id.");
+      if (!query.success) return error(c, "invalid_input", "Invalid cursor or limit.");
+      const artifactId = c.req.param("artifactId") as string;
+      const result = await compareVersions(await artifactDb(c.env, artifactId), {
+        userId,
+        artifactId,
+        fromVersionId: from.data,
+        toVersionId: to.data,
+        cursor: query.data.cursor,
+        limit: query.data.limit,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(versionComparison(result.value));
+    }),
+  );
+
+  // The line diff of one text file between two versions, a page of hunks at a time.
+  api.get(
+    "/api/v1/artifacts/:artifactId/versions/:versionId/diff/:toVersionId/file",
+    guarded("artifacts:read", async (c, userId) => {
+      const from = versionRef(c);
+      const to = VersionRef.safeParse(c.req.param("toVersionId"));
+      const query = FileDiffQuery.safeParse({
+        kind: c.req.query("kind"),
+        path: c.req.query("path"),
+        cursor: c.req.query("cursor"),
+      });
+      if (!from.success || !to.success) return error(c, "invalid_input", "Invalid version id.");
+      if (!query.success) {
+        return error(
+          c,
+          "invalid_input",
+          "Send path, kind published or source and cursor a hunk number.",
+        );
+      }
+      const artifactId = c.req.param("artifactId") as string;
+      const result = await diffVersionFile(await artifactDb(c.env, artifactId), c.env.ARTIFACTS, {
+        userId,
+        artifactId,
+        fromVersionId: from.data,
+        toVersionId: to.data,
+        ...query.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(fileDiff(result.value));
     }),
   );
 

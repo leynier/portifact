@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { hitRateLimit, pruneRateLimits } from "../src/index.ts";
+import { hitRateLimit, pruneRateLimits, releaseRateLimit } from "../src/index.ts";
 
 const minute = 60_000;
 const start = Date.UTC(2026, 10, 8, 12);
@@ -50,5 +50,20 @@ describe("rate limit counters", () => {
     expect(await pruneRateLimits(env.DB, start + minute)).toBe(1);
     const rows = await env.DB.prepare("select key from rate_limits").all<{ key: string }>();
     expect(rows.results.map((row) => row.key)).toEqual(["new"]);
+  });
+
+  it("gives a request back only in the window that counted it, never below zero", async () => {
+    const first = await hitRateLimit(env.DB, "share:fail:a", minute, start);
+    await hitRateLimit(env.DB, "share:fail:a", minute, start + 1);
+    await releaseRateLimit(env.DB, "share:fail:a", minute, first.resetAt);
+    expect((await hitRateLimit(env.DB, "share:fail:a", minute, start + 2)).count).toBe(2);
+    for (let i = 0; i < 4; i += 1)
+      await releaseRateLimit(env.DB, "share:fail:a", minute, first.resetAt);
+    expect((await hitRateLimit(env.DB, "share:fail:a", minute, start + 3)).count).toBe(1);
+    // A window that started again since keeps its count.
+    const next = await hitRateLimit(env.DB, "share:fail:a", minute, start + minute);
+    await releaseRateLimit(env.DB, "share:fail:a", minute, first.resetAt);
+    expect(next.count).toBe(1);
+    expect((await hitRateLimit(env.DB, "share:fail:a", minute, start + minute + 1)).count).toBe(2);
   });
 });

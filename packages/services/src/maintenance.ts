@@ -2,23 +2,29 @@
 // run concurrently: state changes are conditional on the lifecycle generation, and storage is
 // released only by the statement that actually deletes the object rows.
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { type Entitlements, purgeDate } from "@portifact/domain";
+import { type Entitlements, entitlements, purgeDate, versionRetention } from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
-import { and, eq, inArray, isNotNull, lte, ne, notExists, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lte, notExists, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
+import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneOperations } from "./idempotency.ts";
+import { pruneExpiredInvitations } from "./invitations.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { alignPlanLimits, ownerEntitlements, unpinLapsedPlans } from "./plans.ts";
 import { closeUploadSession } from "./publish.ts";
 import { pruneReadSessions } from "./read-access.ts";
+import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
+import { pruneShareLinks } from "./share-links.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
+import { maintainWebhooks } from "./webhooks.ts";
+import { processWorkspaceDeletions } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;
 const RELEASE_CHUNK = 40;
@@ -115,9 +121,16 @@ export async function expireUploads(
   return { processed: stale.length };
 }
 
+/** Owner plan rows the pruning scan reads per query. */
+const PLAN_PAGE = 100;
+
 /**
- * Deletes versions nobody can reach any more: previous versions past their seven days and
- * versions whose upload was abandoned. Then releases the objects only they referenced.
+ * Deletes versions nobody can reach any more: previous versions their owner's plan no longer
+ * keeps (past its days, or older than its number of previous versions), read at `now`, and
+ * versions whose upload was abandoned. Then releases the objects only they referenced. Owners
+ * without a plan row are pruned with the free plan's values in one query; each owner with a row
+ * gets its own, and each delete is conditioned on the plan row it was decided from, so a grant
+ * that lands meanwhile is never pruned with stale values. At most `limit` versions per run.
  */
 export async function pruneVersions(
   db: Db,
@@ -125,24 +138,67 @@ export async function pruneVersions(
   now: number,
   limit = DEFAULT_BATCH,
 ): Promise<JobResult> {
-  const closedUpload = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.versionId} = ${schema.versions.id} and ${schema.uploadSessions.state} in ('failed', 'aborted', 'expired'))`;
-  const victims = await db
-    .select({ id: schema.versions.id, artifactId: schema.versions.artifactId })
-    .from(schema.versions)
-    .innerJoin(schema.artifacts, eq(schema.artifacts.id, schema.versions.artifactId))
-    .where(
-      and(
-        or(
-          sql`${schema.artifacts.currentVersionId} is null`,
-          ne(schema.artifacts.currentVersionId, schema.versions.id),
-        ),
-        or(
-          and(isNotNull(schema.versions.expiresAt), lte(schema.versions.expiresAt, now)),
-          and(eq(schema.versions.state, "uploading"), closedUpload),
-        ),
-      ),
-    )
-    .limit(limit);
+  const v = schema.versions;
+  const a = schema.artifacts;
+  const p = schema.ownerPlans;
+  const closedUpload = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.versionId} = ${v.id} and ${schema.uploadSessions.state} in ('failed', 'aborted', 'expired'))`;
+  const victims: { id: string; guard: SQL }[] = (
+    await db
+      .select({ id: v.id })
+      .from(v)
+      .where(and(eq(v.state, "uploading"), closedUpload))
+      .limit(limit)
+  ).map(({ id }) => ({ id, guard: sql`1` }));
+
+  const free = versionRetention(entitlements(null, now).limits);
+  const noPlan = (ownerId: SQL) =>
+    sql`not exists (select 1 from ${p} where ${p.ownerId} = ${ownerId})`;
+  if (victims.length < limit) {
+    const rows = await db
+      .select({ id: v.id, ownerId: a.ownerId })
+      .from(v)
+      .innerJoin(a, eq(a.id, v.artifactId))
+      .where(and(previousPrunableSql(free, now), noPlan(sql`${a.ownerId}`)))
+      .limit(limit - victims.length);
+    for (const row of rows) {
+      victims.push({
+        id: row.id,
+        guard: sql`${previousPrunableSql(free, now)} and ${noPlan(sql`${row.ownerId}`)}`,
+      });
+    }
+  }
+
+  let cursor = "";
+  while (victims.length < limit) {
+    const plans = await db
+      .select({
+        ownerId: p.ownerId,
+        plan: p.plan,
+        seats: p.seats,
+        validUntil: p.validUntil,
+        overrides: p.overrides,
+        updatedAt: p.updatedAt,
+      })
+      .from(p)
+      .where(gt(p.ownerId, cursor))
+      .orderBy(asc(p.ownerId))
+      .limit(PLAN_PAGE);
+    if (plans.length === 0) break;
+    cursor = (plans.at(-1) as (typeof plans)[number]).ownerId;
+    for (const plan of plans) {
+      if (victims.length >= limit) break;
+      const retention = versionRetention(entitlements(plan, now).limits);
+      const prunable = previousPrunableSql(retention, now);
+      const rows = await db
+        .select({ id: v.id })
+        .from(v)
+        .innerJoin(a, eq(a.id, v.artifactId))
+        .where(and(eq(a.ownerId, plan.ownerId), prunable))
+        .limit(limit - victims.length);
+      const samePlan = sql`exists (select 1 from ${p} where ${p.ownerId} = ${plan.ownerId} and ${p.updatedAt} = ${plan.updatedAt})`;
+      for (const row of rows) victims.push({ id: row.id, guard: sql`${prunable} and ${samePlan}` });
+    }
+  }
 
   let processed = 0;
   for (const version of victims) {
@@ -151,10 +207,11 @@ export async function pruneVersions(
       .from(schema.versionFiles)
       .where(eq(schema.versionFiles.versionId, version.id));
     const deleted = await db
-      .delete(schema.versions)
+      .delete(v)
       .where(
         and(
-          eq(schema.versions.id, version.id),
+          eq(v.id, version.id),
+          version.guard,
           // Never delete the version an artifact points at, even if it changed meanwhile.
           notExists(
             db
@@ -164,7 +221,7 @@ export async function pruneVersions(
           ),
         ),
       )
-      .returning({ id: schema.versions.id });
+      .returning({ id: v.id });
     if (deleted.length === 0) continue;
     processed += 1;
     await releaseOrphans(db, bucket, owners, now);
@@ -232,6 +289,9 @@ export async function deleteArtifactData(
   artifactId: string,
   now: number,
 ) {
+  // Its custom domains are global: detached first, so the name stops serving and Cloudflare's
+  // hostname is deleted by its own job whatever happens to this batch.
+  await releaseArtifactDomains(domainDbsOf(db), artifactId, "purged", now);
   const files = await db
     .select({ ownerId: schema.versionFiles.ownerId, sha256: schema.versionFiles.sha256 })
     .from(schema.versionFiles)
@@ -318,7 +378,16 @@ export async function releaseOrphans(
         db.delete(o).where(orphan).returning({ r2Key: o.r2Key }),
       ]);
       if (removed.length === 0) continue;
-      await bucket.delete(removed.map((object) => object.r2Key));
+      // A transferred artifact's objects share their R2 key with the new owner's rows
+      // (transfer.ts): a key goes only once no row of any owner has it.
+      const keys = removed.map((object) => object.r2Key);
+      const kept = new Set(
+        (await db.select({ key: o.r2Key }).from(o).where(inArray(o.r2Key, keys))).map(
+          (row) => row.key,
+        ),
+      );
+      const gone = keys.filter((key) => !kept.has(key));
+      if (gone.length > 0) await bucket.delete(gone);
       const jobId = job[0]?.id;
       if (jobId !== undefined) {
         await db.delete(schema.outbox).where(eq(schema.outbox.id, jobId));
@@ -428,7 +497,7 @@ export async function rerenderDocuments(
           inArray(schema.versionFiles.kind, ["rendered", "block_map"]),
         ),
       );
-    await storeRenderings(bucket, version.ownerId, rendered.value.files);
+    await storeRenderings(db, bucket, version.ownerId, rendered.value.files);
     // Only the run that still sees the old renderer version applies its rendering.
     const unchanged = sql`exists (select 1 from ${schema.versions} where ${schema.versions.id} = ${version.versionId} and ${schema.versions.rendererVersion} is ${version.rendererVersion})`;
     const accountUpdates = rendered.value.files.map((file) =>
@@ -484,12 +553,16 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    shareLinks: (await pruneShareLinks(db, now)).processed,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
+    workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,
+    expiredInvitations: await pruneExpiredInvitations(db.global, now),
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
     prunedEmailCounters: await pruneEmailCounters(db, now),
     prunedEmailSuppressions: await pruneEmailSuppressions(db, now),
     alignedPlanLimits: (await alignPlanLimits(db, now)).processed,
     unpinned: (await unpinLapsedPlans(db, now)).processed,
+    webhooks: await maintainWebhooks(db, now),
   };
 }

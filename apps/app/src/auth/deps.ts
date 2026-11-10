@@ -1,5 +1,6 @@
 // External boundaries of the authorization server. Tests replace them with fakes.
 import type { MultipartConfig } from "@portifact/domain";
+import { type DomainDeps, domainDepsFromEnv } from "@portifact/services";
 import type { Env } from "../env.ts";
 import { cloudflareEmailSender, type EmailSender } from "./email.ts";
 
@@ -14,6 +15,11 @@ export interface AuthDeps {
   siteverify: FetchLike;
   /** Threshold and part size of multipart uploads; tests make them small. Defaults otherwise. */
   multipart?: MultipartConfig;
+  /**
+   * Cloudflare's custom hostnames and DNS over HTTPS for custom domains; null while the feature
+   * is switched off (no token or no `CUSTOM_DOMAINS_ENABLED`), when nothing calls them.
+   */
+  domains: DomainDeps | null;
 }
 
 // Fetch transport for Client ID Metadata Documents on Workers. The Worker runs with the
@@ -40,5 +46,6 @@ export function workerDeps(env: Env): AuthDeps {
     email: cloudflareEmailSender(env.EMAIL),
     fetchClientMetadata: createClientMetadataFetch((input, init) => fetch(input, init)),
     siteverify: (input, init) => fetch(input, init),
+    domains: domainDepsFromEnv(env, (input, init) => fetch(input, init)),
   };
 }

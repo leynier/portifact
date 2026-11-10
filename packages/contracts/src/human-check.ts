@@ -19,7 +19,11 @@ export const TURNSTILE_SCRIPT_URL = `${TURNSTILE_ORIGIN}/turnstile/v0/api.js?ren
 export const TURNSTILE_SITE_KEY_META = "portifact-turnstile-site-key";
 
 /** The `action` each widget declares, shown in Turnstile analytics. */
-export const HUMAN_CHECK_ACTIONS = { signUp: "sign-up", comment: "comment" } as const;
+export const HUMAN_CHECK_ACTIONS = {
+  signUp: "sign-up",
+  comment: "comment",
+  shareLink: "share-link",
+} as const;
 
 /** Turnstile tokens are at most 2,048 characters. */
 export const TURNSTILE_TOKEN_MAX_LENGTH = 2_048;

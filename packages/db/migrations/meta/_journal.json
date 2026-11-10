@@ -225,6 +225,48 @@
       "when": 1794292052845,
       "tag": "0031_comment_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1794293225635,
+      "tag": "0032_share_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1794296548513,
+      "tag": "0033_version_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1794299550247,
+      "tag": "0034_custom_domains",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1794302605687,
+      "tag": "0035_owner_brands",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1794305289616,
+      "tag": "0036_workspace_members_invitations",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1794307063234,
+      "tag": "0037_webhooks",
+      "breakpoints": true
     }
   ]
 }

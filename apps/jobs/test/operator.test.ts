@@ -293,7 +293,7 @@ describe("operator backup commands", () => {
       // Other tests in this file write artifacts without directory rows, so the count varies.
       output: expect.stringMatching(
         new RegExp(
-          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) deleted again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
+          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
         ),
       ),
     });
@@ -304,7 +304,7 @@ describe("operator backup commands", () => {
     expect(
       (await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files)).output,
     ).toBe(
-      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) deleted again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
+      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 share link(s) revoked again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
     );
     expect((await run("apply-tombstones")).exitCode).toBe(0);
   });
@@ -334,5 +334,138 @@ describe("operator backup commands", () => {
     expect((await run("apply-tombstones", "--file")).exitCode).toBe(2);
     await expect(run("export-tombstones", "--out", "x.jsonl")).rejects.toThrow("No file access.");
     await expect(run("apply-tombstones", "--file", "x.jsonl")).rejects.toThrow("No file access.");
+  });
+});
+
+describe("operator share link lookup", () => {
+  it("finds a reported link's artifact from standard input, never printing the token", async () => {
+    const { id: ownerId } = await owner();
+    const artifactId = await artifact(ownerId, "restricted");
+    const token = "Tk_".padEnd(43, "x");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+    const tokenHash = [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const linkId = `sl_${"a".repeat(32)}`;
+    await db().insert(schema.shareLinks).values({
+      id: linkId,
+      artifactId,
+      tokenHash,
+      label: "Board",
+      createdBy: ownerId,
+      createdAt: NOW,
+    });
+    const stdin = (text: string) => memoryFiles({ "/dev/stdin": text });
+    const found = await runOperator(
+      db(),
+      ["find-share-link"],
+      NOW,
+      stdin(`https://app.portifact.com/s#${token}\n`),
+    );
+    expect(found.exitCode).toBe(0);
+    expect(found.output).toContain(`artifact  ${artifactId}`);
+    expect(found.output).toContain(`link      ${linkId}  active`);
+    expect(found.output).not.toContain(token);
+    expect((await runOperator(db(), ["find-share-link"], NOW, stdin(token))).exitCode).toBe(0);
+    expect(await runOperator(db(), ["find-share-link"], NOW, stdin("B".repeat(43)))).toEqual({
+      exitCode: 1,
+      output: "No share link has this token.",
+    });
+    expect((await runOperator(db(), ["find-share-link"], NOW, stdin("not a token"))).exitCode).toBe(
+      2,
+    );
+  });
+});
+
+describe("brand commands", () => {
+  async function branded() {
+    const account = await owner();
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: account.id, plan: "pro", seats: 1, grantedBy: "test", updatedAt: NOW });
+    await db()
+      .insert(schema.ownerBrands)
+      .values({
+        ownerId: account.id,
+        name: 'Acme "Labs"\nnext line',
+        accentColor: "#1a2b3c",
+        link: "https://acme.example.com/",
+        logoSha256: "a".repeat(64),
+        logoType: "image/png",
+        logoWidth: 64,
+        logoHeight: 32,
+        logoBytes: 900,
+        updatedAt: NOW,
+      });
+    return account;
+  }
+
+  it("shows a brand with its text on one quoted line each, and whether it is shown", async () => {
+    const account = await branded();
+    const shown = await run("brand", account.email);
+    expect(shown.exitCode).toBe(0);
+    expect(shown.output).toBe(
+      [
+        `owner       ${account.id}`,
+        'name        "Acme \\"Labs\\" next line"',
+        'link        "https://acme.example.com/"',
+        "accent      #1a2b3c",
+        `logo        image/png 64x32 900 bytes ${"a".repeat(64)}`,
+        "suspended   no",
+        "shown       yes",
+      ].join("\n"),
+    );
+    const none = await owner();
+    expect(await run("brand", none.id)).toEqual({
+      exitCode: 0,
+      output: `${none.id} has no brand.`,
+    });
+    expect((await run("brand")).exitCode).toBe(2);
+    expect(await run("brand", "nobody@example.test")).toEqual({
+      exitCode: 1,
+      output: "Account not found.",
+    });
+  });
+
+  it("suspends a brand back to the default bar and reinstates it, once each", async () => {
+    const account = await branded();
+    expect(await run("suspend-brand", account.id, "--reason", "impersonation")).toEqual({
+      exitCode: 0,
+      output: `Suspended the brand of ${account.id}; its viewer shows the default bar.`,
+    });
+    expect((await run("suspend-brand", account.id, "--reason", "phishing")).output).toBe(
+      `The brand of ${account.id} was already suspended.`,
+    );
+    const [row] = await db()
+      .select()
+      .from(schema.ownerBrands)
+      .where(eq(schema.ownerBrands.ownerId, account.id));
+    expect(row).toMatchObject({ suspendedAt: NOW, suspensionReason: "impersonation" });
+    expect((await run("brand", account.id)).output).toContain(
+      `suspended   ${new Date(NOW).toISOString()} (impersonation)\nshown       no (default bar)`,
+    );
+    expect(await run("reinstate-brand", account.email)).toEqual({
+      exitCode: 0,
+      output: `Reinstated the brand of ${account.id}.`,
+    });
+    expect((await run("reinstate-brand", account.id)).output).toBe(
+      `The brand of ${account.id} was not suspended.`,
+    );
+    expect((await run("suspend-brand", account.id)).exitCode).toBe(2);
+    expect((await run("suspend-brand", account.id, "--reason", "nope")).exitCode).toBe(2);
+    expect((await run("reinstate-brand")).exitCode).toBe(2);
+    const none = await owner();
+    expect(await run("suspend-brand", none.id, "--reason", "spam")).toEqual({
+      exitCode: 1,
+      output: "This owner has no brand.",
+    });
+    expect(await run("reinstate-brand", none.id)).toEqual({
+      exitCode: 1,
+      output: "This owner has no brand.",
+    });
+    expect((await run("suspend-brand", "x@example.test", "--reason", "spam")).output).toBe(
+      "Account not found.",
+    );
+    expect((await run("reinstate-brand", "x@example.test")).output).toBe("Account not found.");
   });
 });

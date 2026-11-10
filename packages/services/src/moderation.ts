@@ -7,6 +7,7 @@ import { type Db, schema } from "@portifact/db";
 import { fail, ok, purgeDate, type Result } from "@portifact/domain";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { ownerEntitlements } from "./plans.ts";
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
@@ -135,7 +136,7 @@ export async function suspendArtifact(
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   if (!artifact) return fail("not_found", "Artifact not found.");
-  if (artifact.state === "suspended") return alreadySuspended(db, artifact.id);
+  if (artifact.state === "suspended") return alreadySuspended(db, artifact.id, input.now);
   if (artifact.state !== "active" && artifact.state !== "archived") {
     return fail("invalid_input", `A ${artifact.state} artifact cannot be suspended.`);
   }
@@ -162,22 +163,33 @@ export async function suspendArtifact(
           state: "suspended",
           suspensionReason: input.reason,
           lifecycleGeneration: artifact.lifecycleGeneration + 1,
+          // Its custom domain stops in the same batch; the domain is detached below.
+          customHost: null,
           updatedAt: input.now,
         })
         .where(and(eq(a.id, artifact.id), claimed)),
     ])) as unknown as [{ id: string }[]];
-    if (inserted.length === 0) return alreadySuspended(db, artifact.id);
+    if (inserted.length === 0) return alreadySuspended(db, artifact.id, input.now);
   } catch (error) {
-    if (uniqueFailed(error)) return alreadySuspended(db, artifact.id);
+    if (uniqueFailed(error)) return alreadySuspended(db, artifact.id, input.now);
     throw error;
   }
+  // The hostname and its certificate are withdrawn from Cloudflare; reinstating does not bring
+  // them back.
+  await releaseArtifactDomains(domainDbsOf(db), artifact.id, "suspended", input.now);
   return ok({ suspensionId: id, changed: true });
 }
 
 /** After a lost claim: fine if another suspension won, a conflict if anything else changed. */
-async function alreadySuspended(db: Db, artifactId: string): Promise<Result<SuspensionOutcome>> {
+async function alreadySuspended(
+  db: Db,
+  artifactId: string,
+  now: number,
+): Promise<Result<SuspensionOutcome>> {
   const open = await openSuspension(db, "artifact", artifactId);
   if (!open) return fail("version_conflict", "The artifact changed meanwhile. Try again.");
+  // A retry finishes what a suspension that stopped after its batch left undone.
+  await releaseArtifactDomains(domainDbsOf(db), artifactId, "suspended", now);
   return ok({ suspensionId: open.id, changed: false });
 }
 

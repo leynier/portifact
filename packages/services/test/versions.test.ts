@@ -474,6 +474,13 @@ describe("rollbackArtifact", () => {
     const objectsBefore = await count("objects");
     const [usageBefore] = await db().select().from(schema.accountUsage);
     const at = NOW + 3 * HOUR;
+    const v1Manifest = await getVersionManifest(db(), {
+      userId: OWNER,
+      artifactId: id,
+      versionId: v1.versionId,
+      now: at,
+    });
+    if (!v1Manifest.ok) throw new Error(v1Manifest.message);
 
     const result = await rollback(id, v1.versionId, v3.versionId, at);
     if (!result.ok) throw new Error(result.message);
@@ -504,7 +511,17 @@ describe("rollbackArtifact", () => {
       return m.value;
     };
     const restored = await manifestOf(result.value.versionId);
-    expect(restored.files).toEqual((await manifestOf(v1.versionId)).files);
+    expect(restored.files).toEqual(v1Manifest.value.files);
+    // Free keeps two previous versions: after the rollback they are v3 and v2, so v1 is no
+    // longer retained, while its files live on in the new version.
+    expect(
+      await getVersionManifest(db(), {
+        userId: OWNER,
+        artifactId: id,
+        versionId: v1.versionId,
+        now: at,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
     expect(restored.version).toMatchObject({
       number: 4,
       current: true,
@@ -516,17 +533,17 @@ describe("rollbackArtifact", () => {
     expect(await count("objects")).toBe(objectsBefore);
     const [usageAfter] = await db().select().from(schema.accountUsage);
     expect(usageAfter?.storedBytes).toBe(usageBefore?.storedBytes);
-    // The version it replaced is retained for seven days; the target keeps its own retention.
+    // The version it replaced is a previous version from now; the target keeps its own time.
     const [base] = await db()
       .select()
       .from(schema.versions)
       .where(eq(schema.versions.id, v3.versionId));
-    expect(base?.expiresAt).toBe(at + 7 * DAY);
+    expect(base?.supersededAt).toBe(at);
     const [target] = await db()
       .select()
       .from(schema.versions)
       .where(eq(schema.versions.id, v1.versionId));
-    expect(target?.expiresAt).toBe(NOW + HOUR + 7 * DAY);
+    expect(target?.supersededAt).toBe(NOW + HOUR);
     // It counts as a publish and is recorded.
     expect(await count("usage_events", "kind = 'publish' and at = ?", at)).toBe(1);
     const event = await env.DB.prepare(

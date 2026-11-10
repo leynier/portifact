@@ -41,6 +41,54 @@ const GATED: GatedCommand[] = [
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/pin$/,
   },
+  {
+    feature: "shareLinks",
+    args: (id) => ["share", "create", id, "--label", "Gate"],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/share-links$/,
+  },
+  {
+    feature: "analytics",
+    args: (id) => ["stats", id],
+    method: "GET",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/stats$/,
+  },
+  {
+    feature: "versionDiff",
+    args: (id) => ["diff", id, "current", "current"],
+    method: "GET",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current$/,
+  },
+  {
+    feature: "versionDiff",
+    args: (id) => ["diff", id, "current", "current", "--file", "index.html"],
+    method: "GET",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current\/file$/,
+  },
+  {
+    feature: "webhooks",
+    args: () => ["webhooks", "add", "https://hooks.example.com/in", "--events", "all"],
+    method: "POST",
+    path: /^\/api\/v1\/webhooks$/,
+  },
+  {
+    feature: "webhooks",
+    args: () => ["webhooks", "enable", `wh_${"a".repeat(32)}`],
+    method: "PATCH",
+    path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}$/,
+  },
+  {
+    feature: "webhooks",
+    args: () => ["webhooks", "test", `wh_${"a".repeat(32)}`],
+    method: "POST",
+    path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}\/test$/,
+  },
+  {
+    feature: "customDomains",
+    args: (id) => ["domains", "add", id, "docs.example.com"],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/domain$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {

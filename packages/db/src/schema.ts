@@ -96,9 +96,20 @@ export const artifacts = sqliteTable(
      * Kept last because `ALTER TABLE ADD COLUMN` appends it.
      */
     pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+    /**
+     * The artifact's active custom hostname (premium plan P7, decision 0006), or null. The
+     * authority for serving on a custom host: the content Worker serves a custom host only when
+     * this column holds it, attaching sets it last and detaching clears it first. On the artifact,
+     * not on a version, so a rollback keeps it. Kept last because `ALTER TABLE ADD COLUMN`
+     * appends it.
+     */
+    customHost: text("custom_host"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
+    uniqueIndex("artifacts_custom_host_idx")
+      .on(t.customHost)
+      .where(sql`${t.customHost} is not null`),
     // The scan that unpins the artifacts of owners whose plan no longer includes `pin`.
     index("artifacts_pinned_owner_idx").on(t.ownerId).where(sql`${t.pinned} = 1`),
     index("artifacts_state_expires_idx").on(t.state, t.expiresAt),
@@ -200,6 +211,92 @@ export const readSessions = sqliteTable(
 );
 
 /**
+ * Share links (premium plan P4, decision 0008): a link that lets anyone who holds it read one
+ * artifact without an account. Only the SHA-256 of its token is stored; the password, when there
+ * is one, as a PBKDF2 hash with its salt and iteration count. Revoked links stay until the
+ * artifact is purged: their label names old access log entries, and `exportTombstones` exports
+ * their revocation so a restore cannot bring them back.
+ */
+export const shareLinks = sqliteTable(
+  "share_links",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull(),
+    expiresAt: timestamp("expires_at"),
+    passwordHash: text("password_hash"),
+    passwordSalt: text("password_salt"),
+    passwordIterations: integer("password_iterations"),
+    /**
+     * The user who created it; no foreign key (the table is regional). Account deletion clears it
+     * (`advanceAccountDeletion`), so a deleted account's ID does not stay on links of artifacts it
+     * did not own.
+     */
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    revokedAt: timestamp("revoked_at"),
+    /** Start of the UTC day the link was last opened. */
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (t) => [
+    uniqueIndex("share_links_token_idx").on(t.tokenHash),
+    index("share_links_artifact_idx").on(t.artifactId, t.createdAt),
+    check(
+      "share_links_password_complete",
+      sql`(${t.passwordHash} is null) = (${t.passwordSalt} is null) and (${t.passwordHash} is null) = (${t.passwordIterations} is null)`,
+    ),
+  ],
+);
+
+/**
+ * One-use codes that carry a share link's visitor from the app's entry page to the artifact
+ * origin's `/__portifact/link`. Only the SHA-256 of the code is stored.
+ */
+export const shareHandoffs = sqliteTable(
+  "share_handoffs",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => shareLinks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    sessionId: text("session_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("share_handoffs_expires_idx").on(t.expiresAt)],
+);
+
+/**
+ * Link sessions behind the `__Host-pf_link` cookie of one artifact origin. They end with the
+ * link (revocation or expiry), never with a Better Auth session, and name no one.
+ */
+export const shareSessions = sqliteTable(
+  "share_sessions",
+  {
+    id: text("id").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => shareLinks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("share_sessions_expires_idx").on(t.expiresAt),
+    index("share_sessions_link_idx").on(t.linkId),
+  ],
+);
+
+/**
  * One-use codes that open review mode (plan section 4, "Modo revisión"): issued by the viewer's
  * API call on app.portifact.com and redeemed by the viewer's iframe on the artifact origin. Only
  * the SHA-256 of the code is stored. The code pins one version.
@@ -291,13 +388,19 @@ export const versions = sqliteTable(
     /** `RENDERER_VERSION` of the stored rendering of a document; null for sites. */
     rendererVersion: text("renderer_version"),
     committedAt: timestamp("committed_at"),
-    /** Previous versions expire seven days after they stop being current. */
-    expiresAt: timestamp("expires_at"),
+    /**
+     * When the version stopped being current (a publish or rollback replaced it); null while it
+     * is current or never committed. How long a previous version is kept is decided from this
+     * and the owner's plan when it is read or pruned (`previousVersionRetained` in
+     * packages/domain), so a plan change applies to versions already replaced.
+     */
+    supersededAt: timestamp("superseded_at"),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex("versions_artifact_number_idx").on(t.artifactId, t.number),
-    index("versions_state_expires_idx").on(t.state, t.expiresAt),
+    // Previous versions only, for the pruning scan.
+    index("versions_superseded_idx").on(t.supersededAt).where(sql`${t.supersededAt} is not null`),
     // An artifact's committed versions, counted for every row of the artifact list; without it
     // the planner may walk every committed version through `versions_state_expires_idx`.
     index("versions_artifact_state_idx").on(t.artifactId, t.state),
@@ -346,7 +449,9 @@ export const objects = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.ownerId, t.sha256] }),
-    uniqueIndex("objects_r2_key_idx").on(t.r2Key),
+    // Not unique: a transferred artifact's objects get rows for the new owner that point at the
+    // same R2 key (packages/services/src/transfer.ts). A key is deleted only once no row has it.
+    index("objects_r2_key_idx").on(t.r2Key),
     check("objects_sha256_format", sql`length(${t.sha256}) = 64`),
   ],
 );
@@ -539,6 +644,11 @@ export const OUTBOX_TOPICS = [
   "erase_access_events",
   "expiry_notice",
   "comment_notice",
+  "owner_retention",
+  "webhook_delivery",
+  "delete_custom_hostname",
+  "workspace_deletion",
+  "access_history_move",
 ] as const;
 
 /**
@@ -606,11 +716,20 @@ export const lifecycleEvents = sqliteTable(
   (t) => [index("lifecycle_events_artifact_at_idx").on(t.artifactId, t.at)],
 );
 
-/** Purged artifact IDs and deleted accounts: never reused, never restored from backups. */
+/**
+ * Purged artifact IDs, deleted accounts and deleted workspaces: never reused, never restored from
+ * backups.
+ */
 export const tombstones = sqliteTable(
   "tombstones",
   {
-    kind: text("kind", { enum: ["artifact", "account"] }).notNull(),
+    /**
+     * `share_link` marks a revoked share link (decision 0008) and `webhook` a removed webhook
+     * (decision 0009), so a restore cannot revive them; `workspace` a deleted workspace.
+     */
+    kind: text("kind", {
+      enum: ["artifact", "account", "share_link", "workspace", "webhook"],
+    }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
@@ -860,6 +979,113 @@ export const commentNotices = sqliteTable(
   ],
 );
 
+/** Formats a webhook delivers in (decision 0009). */
+export const WEBHOOK_FORMATS = ["generic", "slack", "discord"] as const;
+/** Why a webhook stopped: an admin, repeated failures, a 410 from the receiver, or a URL that no longer passes. */
+export const WEBHOOK_DISABLED_REASONS = [
+  "manual",
+  "failures",
+  "gone",
+  "invalid_url",
+  "key_unavailable",
+  "unavailable",
+] as const;
+
+/**
+ * Webhooks of an owner (decision 0009, packages/services/src/webhooks.ts): HTTPS destinations
+ * that receive events about every artifact of the owner. The URL and the signing secret are
+ * sealed with a key derived from `WEBHOOK_KEY` (`key_id` names it); only the host is kept in
+ * clear. `events` is a bit set of `WEBHOOK_EVENT_BITS`. `owner_id` has no foreign key (an owner
+ * is a user or a workspace): account deletion deletes the rows, and removing one writes a
+ * `webhook` tombstone so a restore cannot bring it back.
+ */
+export const webhooks = sqliteTable(
+  "webhooks",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    host: text("host").notNull(),
+    format: text("format", { enum: WEBHOOK_FORMATS }).notNull(),
+    events: integer("events").notNull(),
+    keyId: text("key_id").notNull(),
+    urlBox: text("url_box").notNull(),
+    secretBox: text("secret_box"),
+    createdAt: createdAt(),
+    disabledAt: timestamp("disabled_at"),
+    disabledReason: text("disabled_reason", { enum: WEBHOOK_DISABLED_REASONS }),
+    /** Failed attempts in a row; reset by a success and by enabling the webhook again. */
+    failures: integer("failures").notNull().default(0),
+    /** Enabled again after a disable: a few failures disable it again until one success. */
+    probation: integer("probation", { mode: "boolean" }).notNull().default(false),
+    /** Times it was enabled again on `reenable_day` (a UTC day start). */
+    reenables: integer("reenables").notNull().default(0),
+    reenableDay: timestamp("reenable_day"),
+    /** Who created it (no foreign key: cleared when the account is deleted). */
+    createdBy: text("created_by"),
+    /** `dashboard`, or the OAuth client that created it (the Portifact CLI). */
+    createdVia: text("created_via").notNull(),
+  },
+  (t) => [
+    index("webhooks_owner_idx").on(t.ownerId),
+    check("webhooks_events", sql`${t.events} between 1 and 31`),
+    check("webhooks_failures", sql`${t.failures} >= 0`),
+  ],
+);
+
+/**
+ * Events waiting for a webhook's next delivery: one row per webhook, artifact (empty for the test
+ * event) and type, written in the batch of the write that caused it and coalesced there. Counts,
+ * times and IDs only, never text. The delivery job claims rows by subtracting what it sent.
+ */
+export const webhookEvents = sqliteTable(
+  "webhook_events",
+  {
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id").notNull(),
+    type: text("type").notNull(),
+    count: integer("count").notNull(),
+    firstAt: timestamp("first_at").notNull(),
+    lastAt: timestamp("last_at").notNull(),
+    /** The user who acted, while every write of the row was by one person on the owner side. */
+    actorId: text("actor_id"),
+    version: integer("version"),
+    access: text("access"),
+    expiresAt: timestamp("expires_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.webhookId, t.artifactId, t.type] }),
+    index("webhook_events_first_idx").on(t.webhookId, t.firstAt),
+  ],
+);
+
+/**
+ * The delivery log of the last 7 days: one row per attempt (and per daily-cap deferral), with the
+ * outcome and the HTTP status, never the body or the response. Pruned by the maintenance run.
+ */
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    deliveryId: text("delivery_id").notNull(),
+    attempt: integer("attempt").notNull(),
+    at: timestamp("at").notNull(),
+    outcome: text("outcome", { enum: ["delivered", "failed", "skipped"] }).notNull(),
+    status: integer("status"),
+    error: text("error"),
+  },
+  (t) => [
+    index("webhook_deliveries_webhook_idx").on(t.webhookId, t.at),
+    index("webhook_deliveries_owner_idx").on(t.ownerId, t.at),
+    index("webhook_deliveries_at_idx").on(t.at),
+  ],
+);
+
 /** Artifacts whose comment notices a user turned off. Removed with the artifact, and with the account. */
 export const commentNoticeMutes = sqliteTable(
   "comment_notice_mutes",
@@ -1090,6 +1316,48 @@ export const ownerPlans = sqliteTable(
 );
 
 /**
+ * The owner's brand on the viewer's bar (premium plan P9, feature `branding`), one row per owner
+ * (a user's personal space or a workspace), so no foreign key, like `owner_plans`; account
+ * deletion removes it with its logo (`advanceAccountDeletion`). Four validated values and the
+ * logo's facts: never markup. The logo's bytes are in R2 at `brands/<owner>/<sha256>` and count in
+ * the owner's `account_usage.stored_bytes` while this row names them. `revision` guards changes.
+ * The operator suspends a brand (`suspended_at`), which brings back the default bar.
+ */
+export const ownerBrands = sqliteTable(
+  "owner_brands",
+  {
+    ownerId: text("owner_id").primaryKey(),
+    name: text("name").notNull(),
+    accentColor: text("accent_color"),
+    link: text("link"),
+    logoSha256: text("logo_sha256"),
+    logoType: text("logo_type", { enum: ["image/png", "image/jpeg", "image/webp"] }),
+    logoWidth: integer("logo_width"),
+    logoHeight: integer("logo_height"),
+    logoBytes: integer("logo_bytes"),
+    revision: integer("revision").notNull().default(1),
+    suspendedAt: timestamp("suspended_at"),
+    suspensionReason: text("suspension_reason", { enum: ABUSE_REASONS }),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    check(
+      "owner_brands_accent",
+      sql`${t.accentColor} is null or (length(${t.accentColor}) = 7 and ${t.accentColor} glob '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')`,
+    ),
+    check(
+      "owner_brands_logo",
+      sql`(${t.logoSha256} is null and ${t.logoType} is null and ${t.logoWidth} is null and ${t.logoHeight} is null and ${t.logoBytes} is null) or (length(${t.logoSha256}) = 64 and ${t.logoType} in ('image/png', 'image/jpeg', 'image/webp') and ${t.logoWidth} > 0 and ${t.logoHeight} > 0 and ${t.logoBytes} between 1 and 100000)`,
+    ),
+    check(
+      "owner_brands_suspension",
+      sql`(${t.suspendedAt} is null) = (${t.suspensionReason} is null)`,
+    ),
+  ],
+);
+
+/**
  * Workspaces (premium plan F3, decision 0004): an owner that is not a user. Changed only by
  * packages/services, in D1 batches; Better Auth never sees these tables. The region is fixed at
  * creation (decision 0005): a trigger in 0029_workspaces.sql refuses changing it.
@@ -1135,6 +1403,46 @@ export const workspaceMembers = sqliteTable(
 );
 
 /**
+ * Pending invitations to a workspace (premium plan T1). Only a SHA-256 of the token is stored;
+ * the token itself is only in the email. The address is lowercase and the invitation is accepted
+ * only by a signed-in account whose verified email is that address. Accepting, declining or
+ * revoking deletes the row; one pending invitation per workspace and address, which a new
+ * invitation replaces. A pending invitation holds a seat until it expires.
+ */
+export const workspaceInvitations = sqliteTable(
+  "workspace_invitations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role", { enum: WORKSPACE_ROLES }).notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** The admin who sent it; null once their account is deleted. */
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("workspace_invitations_token_idx").on(t.tokenHash),
+    uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email),
+    index("workspace_invitations_email_idx").on(t.email),
+    check("workspace_invitations_role", sql`${t.role} in ('admin', 'editor', 'member')`),
+  ],
+);
+
+/**
+ * Workspaces the operator deleted whose artifacts and data are still being purged
+ * (`advanceWorkspaceDeletion`). The `workspaces` row is already gone; this row goes once nothing
+ * is left and a `workspace` tombstone replaces it.
+ */
+export const workspaceDeletions = sqliteTable("workspace_deletions", {
+  workspaceId: text("workspace_id").primaryKey(),
+  requestedAt: timestamp("requested_at").notNull(),
+});
+
+/**
  * The global artifact directory (decision 0005, section 2): which region holds each artifact ID
  * ever handed out. No owner, no name. A row is claimed before the artifact is written in its
  * region and is never updated or deleted (triggers in 0029_workspaces.sql refuse both), so no ID
@@ -1145,5 +1453,74 @@ export const artifactDirectory = sqliteTable("artifact_directory", {
   region: text("region", { enum: REGIONS }).notNull(),
   createdAt: timestamp("created_at").notNull(),
 });
+
+/** States of a proven custom domain (decision 0006, "States and transitions"). */
+export const CUSTOM_DOMAIN_STATES = ["provisioning", "active", "detaching"] as const;
+
+/**
+ * Pending claims of custom hostnames (premium plan P7, decision 0006). Global: a hostname is
+ * unique across regions. A claim proves nothing: several owners may hold one for the same name,
+ * each with its own token, so a squatter's claim blocks nobody. The token is the value the owner
+ * publishes in the public TXT record `_portifact.<hostname>`; it proves control of DNS only by
+ * being found there, so it is no secret and is kept to show the record again. No foreign keys:
+ * the owner may be a workspace and the artifact lives in its region. Claims never reach
+ * Cloudflare; they last a week.
+ */
+export const domainClaims = sqliteTable(
+  "domain_claims",
+  {
+    hostname: text("hostname").notNull(),
+    ownerId: text("owner_id").notNull(),
+    artifactId: text("artifact_id").notNull(),
+    region: text("region", { enum: REGIONS }).notNull(),
+    token: text("token").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.hostname, t.ownerId] }),
+    index("domain_claims_owner_idx").on(t.ownerId),
+    index("domain_claims_artifact_idx").on(t.artifactId),
+    index("domain_claims_expires_idx").on(t.expiresAt),
+  ],
+);
+
+/**
+ * Custom hostnames that passed the TXT proof (decision 0006). Global, next to the artifact
+ * directory: the content Worker caches `hostname -> artifact, region` from active rows as a hint
+ * and checks it against `artifacts.custom_host` on every request. `cf_hostname_id` is
+ * Cloudflare's custom hostname, Portifact's resource, kept when the name changes hands. A row is
+ * deleted only by the `delete_custom_hostname` job after Cloudflare's delete, so a name is free
+ * again only then. No foreign keys, like `domain_claims`.
+ */
+export const customDomains = sqliteTable(
+  "custom_domains",
+  {
+    hostname: text("hostname").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    artifactId: text("artifact_id").notNull(),
+    region: text("region", { enum: REGIONS }).notNull(),
+    state: text("state", { enum: CUSTOM_DOMAIN_STATES }).notNull(),
+    /** The token of the claim that proved it, which the TXT record must keep holding. */
+    token: text("token").notNull(),
+    cfHostnameId: text("cf_hostname_id"),
+    verifiedAt: timestamp("verified_at").notNull(),
+    checkedAt: timestamp("checked_at").notNull(),
+    missedChecks: integer("missed_checks").notNull().default(0),
+    /** What the last check found wrong (contracts: CustomDomainProblem), or null. */
+    problem: text("problem", {
+      enum: ["txt_missing", "certificate_pending", "cloudflare_unavailable"],
+    }),
+    /** Why it was detached (domain: DetachReason); null unless `detaching`. */
+    detachReason: text("detach_reason"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("custom_domains_owner_idx").on(t.ownerId, t.verifiedAt),
+    index("custom_domains_artifact_idx").on(t.artifactId),
+    index("custom_domains_check_idx").on(t.state, t.checkedAt),
+    check("custom_domains_state", sql`${t.state} in ('provisioning', 'active', 'detaching')`),
+  ],
+);
 
 export * from "./auth-schema.ts";

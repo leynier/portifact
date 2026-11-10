@@ -22,8 +22,9 @@ import {
   runIdempotent,
   uploadProgress,
 } from "@portifact/services";
+import { failure as storedFailure } from "../api/http.ts";
 import { preparedPublish, prepareUpload } from "../api/uploads.ts";
-import { artifactDb, personalScope } from "../regions.ts";
+import { artifactDb, ownerScope } from "../regions.ts";
 import { committedPublish } from "./present.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
@@ -78,7 +79,7 @@ export function registerUploadTools(
       },
     },
     async (args: PrepareUploadInput) => {
-      const { idempotencyKey, ...rest } = args;
+      const { idempotencyKey, workspace, ...rest } = args;
       // The same validation and defaults as the API's body.
       const request = PublishRequest.safeParse(rest);
       if (!request.success) {
@@ -93,19 +94,31 @@ export function registerUploadTools(
           actorId: context.userId,
           key: idempotencyKey,
           operation: "mcp.prepare_upload",
-          requestHash: await hashRequest(request.data),
+          requestHash: await hashRequest(workspace ? { ...request.data, workspace } : request.data),
           now,
         },
-        async () =>
-          prepareUpload(
-            request.data.artifactId
-              ? await artifactDb(context.env, request.data.artifactId)
-              : (await personalScope(context.env, context.userId)).db,
+        async () => {
+          if (request.data.artifactId) {
+            return prepareUpload(
+              await artifactDb(context.env, request.data.artifactId),
+              uploadDeps(),
+              context.userId,
+              request.data,
+              now,
+            );
+          }
+          // A new artifact goes to the space the call names, the personal space without one.
+          const scope = await ownerScope(context.env, context.userId, workspace);
+          if (!scope.ok) return storedFailure(scope.code, scope.message);
+          return prepareUpload(
+            scope.value.db,
             uploadDeps(),
             context.userId,
             request.data,
             now,
-          ),
+            scope.value.actor.ownerId,
+          );
+        },
       );
       if (outcome.kind === "mismatch") {
         return failure("invalid_input", "This idempotency key was used for a different request.");

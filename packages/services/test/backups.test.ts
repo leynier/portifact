@@ -242,7 +242,14 @@ describe("tombstones after a restore", () => {
     expect((await artifactRow(purged.artifactId))?.state).toBe("active");
 
     const applied = await applyTombstones(db(), markers, NOW + DAY);
-    expect(applied).toEqual({ inserted: markers.length, artifacts: 2, accounts: 1 });
+    expect(applied).toEqual({
+      inserted: markers.length,
+      artifacts: 2,
+      accounts: 1,
+      workspaces: 0,
+      shareLinks: 0,
+      webhooks: 0,
+    });
     expect((await artifactRow(purged.artifactId))?.state).toBe("purging");
     expect((await artifactRow(leavingSite.artifactId))?.state).toBe("purging");
     expect((await artifactRow(kept.artifactId))?.state).toBe("active");
@@ -291,6 +298,9 @@ describe("tombstones after a restore", () => {
       inserted: 0,
       artifacts: 0,
       accounts: 0,
+      workspaces: 0,
+      shareLinks: 0,
+      webhooks: 0,
     });
     expect((await artifactRow(kept.artifactId))?.state).toBe("active");
   });

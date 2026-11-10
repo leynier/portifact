@@ -3,10 +3,12 @@
 // records what disagrees without deleting anything. The tombstone markers are exported before a
 // D1 Time Travel restore and applied after it, so purged artifacts and deleted accounts that the
 // restored database still holds are deleted again instead of coming back (docs/operations.md).
+
 import type { TombstoneMarker } from "@portifact/contracts";
 import { type Db, type GlobalDb, type Region, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { purgeJobs } from "./outbox.ts";
+import { revokedShareLinks } from "./share-links.ts";
 
 const IN_CHUNK = 80;
 const OBJECT_PREFIX = "objects/";
@@ -209,12 +211,17 @@ export async function exportTombstones(db: Db): Promise<TombstoneMarker[]> {
   for (const row of await db.select().from(schema.accountDeletions)) {
     add({ kind: "account", id: row.userId, deletedAt: row.requestedAt });
   }
+  for (const row of await db.select().from(schema.workspaceDeletions)) {
+    add({ kind: "workspace", id: row.workspaceId, deletedAt: row.requestedAt });
+  }
   for (const row of await db
     .select({ id: schema.artifacts.id, updatedAt: schema.artifacts.updatedAt })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.state, "purging"))) {
     add({ kind: "artifact", id: row.id, deletedAt: row.updatedAt });
   }
+  // A revocation is permanent too: a restore must not reopen a link (decision 0008).
+  for (const marker of await revokedShareLinks(db)) add(marker);
   return [...markers.values()].sort(
     (a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id),
   );
@@ -227,6 +234,12 @@ export interface ApplyTombstonesResult {
   artifacts: number;
   /** Accounts the restore brought back, deleted again. */
   accounts: number;
+  /** Workspaces the restore brought back, deleted again. */
+  workspaces: number;
+  /** Share links the restore brought back unrevoked, revoked again. */
+  shareLinks: number;
+  /** Webhooks removed before the restore that it brought back, removed again. */
+  webhooks: number;
 }
 
 /**
@@ -257,11 +270,17 @@ export async function applyTombstones(
   const a = schema.artifacts;
   const u = schema.users;
   const tombstonedAccounts = sql`select ${t.id} from ${t} where ${t.kind} = 'account'`;
-  const resurrectedArtifact = sql`${a.state} <> 'purging' and (${a.id} in (select ${t.id} from ${t} where ${t.kind} = 'artifact') or ${a.ownerId} in (${tombstonedAccounts}))`;
+  const tombstonedOwners = sql`select ${t.id} from ${t} where ${t.kind} in ('account', 'workspace')`;
+  const resurrectedArtifact = sql`${a.state} <> 'purging' and (${a.id} in (select ${t.id} from ${t} where ${t.kind} = 'artifact') or ${a.ownerId} in (${tombstonedOwners}))`;
+  const ws = schema.workspaces;
+  const wd = schema.workspaceDeletions;
+  // A workspace with anything left of it and no deletion in progress.
+  const resurrectedWorkspace = sql`${t.kind} = 'workspace' and not exists (select 1 from ${wd} where ${wd.workspaceId} = ${t.id}) and (exists (select 1 from ${ws} where ${ws.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
   // An account with anything left of it and no deletion in progress.
-  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
+  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}) or exists (select 1 from ${schema.ownerBrands} where ${schema.ownerBrands.ownerId} = ${t.id}))`;
 
-  const [, deletions, , artifacts] = await db.batch([
+  const l = schema.shareLinks;
+  const [, deletions, , workspaces, , artifacts, shareLinks, , , , , , webhooks] = await db.batch([
     db
       .insert(schema.outbox)
       .select(
@@ -272,6 +291,17 @@ export async function applyTombstones(
       .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedAccount}`)
       .onConflictDoNothing()
       .returning({ userId: schema.accountDeletions.userId }),
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'workspace_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedWorkspace}`,
+      ),
+    // Written before the workspace rows go, so the last-admin trigger lets their memberships go.
+    db
+      .insert(wd)
+      .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedWorkspace}`)
+      .onConflictDoNothing()
+      .returning({ id: wd.workspaceId }),
     purgeJobs(db, resurrectedArtifact, now),
     db
       .update(a)
@@ -284,6 +314,13 @@ export async function applyTombstones(
       .where(resurrectedArtifact)
       .returning({ id: a.id }),
     db
+      .update(l)
+      .set({ revokedAt: now })
+      .where(
+        sql`${l.revokedAt} is null and ${l.id} in (select ${t.id} from ${t} where ${t.kind} = 'share_link')`,
+      )
+      .returning({ id: l.id }),
+    db
       .update(schema.abuseReports)
       .set({ reporterEmail: null })
       .where(
@@ -292,10 +329,28 @@ export async function applyTombstones(
     db
       .delete(schema.deviceCodes)
       .where(sql`${schema.deviceCodes.userId} in (${tombstonedAccounts})`),
+    // Cascades to memberships and invitations.
+    db.delete(ws).where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
+    db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
+    // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
+    // never receive.
+    db
+      .delete(schema.webhooks)
+      .where(
+        sql`${schema.webhooks.id} in (select ${t.id} from ${t} where ${t.kind} = 'webhook') or ${schema.webhooks.ownerId} in (${tombstonedOwners})`,
+      )
+      .returning({ id: schema.webhooks.id }),
   ]);
-  return { inserted, artifacts: artifacts.length, accounts: deletions.length };
+  return {
+    inserted,
+    artifacts: artifacts.length,
+    accounts: deletions.length,
+    workspaces: workspaces.length,
+    shareLinks: shareLinks.length,
+    webhooks: webhooks.length,
+  };
 }
 
 /**

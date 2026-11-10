@@ -59,6 +59,7 @@ export function exitCodeFor(code: CliErrorCode): number {
     case "sole_workspace_admin":
       return EXIT.conflict;
     case "quota_exceeded":
+    case "seats_exhausted":
     case "traffic_exceeded":
     case "account_too_new_for_public":
     case "human_verification_required":

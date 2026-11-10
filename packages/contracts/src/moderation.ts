@@ -2,6 +2,7 @@
 // 5 and 13). Report text and the reporter's email are untrusted input from anyone on the web.
 import { z } from "zod";
 import { AccountSettings } from "./account.ts";
+import { Brand } from "./branding.ts";
 import { ArtifactId, Email } from "./core.ts";
 import { PlanView } from "./plans.ts";
 
@@ -142,6 +143,22 @@ export const ExportThread = z.object({
   messages: z.array(ExportMessage),
 });
 
+/** A share link of an exported artifact: never its token or the token's hash. */
+export const ExportShareLink = z.strictObject({
+  label: z.string(),
+  state: z.enum(["active", "expired", "revoked"]),
+  hasPassword: z.boolean(),
+  createdAt: Iso,
+  expiresAt: IsoOrNull,
+});
+
+/** A custom domain or pending claim of an exported artifact (decision 0006). */
+export const ExportCustomDomain = z.strictObject({
+  hostname: z.string(),
+  state: z.enum(["pending", "provisioning", "active", "removing"]),
+  verifiedAt: IsoOrNull,
+});
+
 export const ExportArtifact = z.object({
   id: z.string(),
   name: z.string(),
@@ -162,6 +179,8 @@ export const ExportArtifact = z.object({
   purgeAt: IsoOrNull,
   versions: z.array(ExportVersion),
   threads: z.array(ExportThread),
+  shareLinks: z.array(ExportShareLink),
+  customDomains: z.array(ExportCustomDomain),
 });
 
 /** The account's data as JSON (plan section 5): offered before deletion, at any time. */
@@ -182,8 +201,43 @@ export const AccountExport = z.object({
     plan: PlanView,
     /** Artifacts whose comment notices the account muted. */
     commentNoticeMutes: z.array(z.string()),
+    /** The account's webhooks (decision 0009): the host only, never the URL or the secret. */
+    webhooks: z.array(
+      z.object({
+        id: z.string(),
+        host: z.string(),
+        format: z.enum(["generic", "slack", "discord"]),
+        events: z.array(z.string()),
+        disabled: z.boolean(),
+        disabledReason: z.string().nullable(),
+        createdAt: z.iso.datetime(),
+      }),
+    ),
+    /**
+     * The brand of the account's space for the viewer's bar, kept whatever the plan, or null.
+     * The logo's bytes are on the Branding page; the export lists what it is.
+     */
+    brand: Brand.nullable(),
   }),
   artifacts: z.array(ExportArtifact),
+  /** The workspaces the account is a member of, with its role; not their artifacts. */
+  workspaces: z.array(
+    z.object({
+      slug: z.string(),
+      name: z.string(),
+      role: z.enum(["admin", "editor", "member"]),
+      joinedAt: Iso,
+    }),
+  ),
+  /** Pending invitations addressed to the account's email. */
+  invitations: z.array(
+    z.object({
+      workspace: z.object({ slug: z.string(), name: z.string() }),
+      role: z.enum(["admin", "editor", "member"]),
+      invitedBy: z.string().nullable(),
+      expiresAt: Iso,
+    }),
+  ),
   /**
    * Threads on other people's artifacts where the account wrote, with only its own messages.
    * A thread the account no longer sees (the owner narrowed who sees comments) has no `state`

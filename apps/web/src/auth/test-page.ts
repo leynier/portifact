@@ -8,13 +8,14 @@ import type { PageEnv } from "./login.ts";
 
 export const ORIGIN = "https://app.portifact.com";
 
-export type PageName = "login" | "device" | "consent" | "report" | "unsubscribe";
+export type PageName = "login" | "device" | "consent" | "report" | "unsubscribe" | "share";
 export const PAGE_NAMES: readonly PageName[] = [
   "login",
   "device",
   "consent",
   "report",
   "unsubscribe",
+  "share",
 ];
 
 export function loadPage(name: PageName): void {

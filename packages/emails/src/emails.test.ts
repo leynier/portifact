@@ -3,6 +3,7 @@ import { type DefaultTreeAdapterMap, parse } from "parse5";
 import { describe, expect, it } from "vitest";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { EXPIRY_TEXT, expiryNoticeEmail, formatExpiry } from "./expiry-notice.ts";
+import { INVITATION_TEXT, invitationEmail } from "./invitation.ts";
 import { escapeHtml, renderEmail } from "./layout.ts";
 import { previews } from "./previews.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
@@ -250,6 +251,72 @@ describe("budget alert email", () => {
   });
 });
 
+describe("invitation email", () => {
+  const AT = Date.UTC(2026, 10, 17, 12, 0);
+  const input = {
+    email: "grace@example.com",
+    inviterName: "Ada Lovelace",
+    workspaceName: "Analytical Engines",
+    role: "editor" as const,
+    acceptUrl: "https://app.portifact.com/invitations?token=abc",
+    expiresAt: AT,
+  };
+  const email = invitationEmail(input);
+
+  it("keeps names out of the subject and the preview text", () => {
+    expect(email.subject).toBe("You are invited to a workspace on Portifact");
+    for (const locale of LOCALE_CODES) {
+      const localized = invitationEmail({ ...input, locale });
+      expect(localized.subject).toBe(INVITATION_TEXT[locale].subject);
+      expect(localized.subject).not.toContain("Ada");
+      expect(localized.html).toContain(`lang="${locale}"`);
+      expect(localized.html).toContain("Analytical Engines");
+      expect(localized.text).toContain(input.acceptUrl);
+      expect(localized.text).not.toMatch(/[—–]/);
+    }
+  });
+
+  it("says who invited whom to what, links the acceptance and says when it expires", () => {
+    const visible = bodyText(email.html);
+    expect(visible).toContain(
+      "Ada Lovelace invited you to the workspace Analytical Engines as an editor.",
+    );
+    expect(visible).toContain("Sign in with grace@example.com to accept it.");
+    expect(visible).toContain(
+      "The invitation expires Tue, Nov 17, 2026, 12:00 UTC and works once.",
+    );
+    expect(visible).toContain("If you did not expect it, ignore this email.");
+    const links = elements(email.html)
+      .filter((e) => e.tagName === "a")
+      .map((e) => [textOf(e), attr(e, "href")]);
+    expect(links).toContainEqual(["Accept the invitation", input.acceptUrl]);
+    expect(email.text).toContain(`Accept the invitation: ${input.acceptUrl}`);
+  });
+
+  it("escapes names and keeps them on one line", () => {
+    const hostile = invitationEmail({
+      ...input,
+      inviterName: "<img src=x>\nFake line",
+      workspaceName: "<b>Team</b>",
+    });
+    expect(hostile.html).not.toContain("<img src=x>");
+    expect(hostile.html).toContain("&lt;b&gt;Team&lt;/b&gt;");
+    expect(hostile.text).toContain("<img src=x> Fake line invited you");
+    const nameless = invitationEmail({ ...input, inviterName: "  " });
+    expect(bodyText(nameless.html)).toContain("An admin invited you");
+  });
+
+  it("names each role in every language", () => {
+    for (const locale of LOCALE_CODES) {
+      const roles = INVITATION_TEXT[locale].roles;
+      expect(new Set(Object.values(roles)).size).toBe(3);
+      for (const role of ["admin", "editor", "member"] as const) {
+        expect(bodyText(invitationEmail({ ...input, role, locale }).html)).toContain(roles[role]);
+      }
+    }
+  });
+});
+
 describe("expiry notice email", () => {
   const AT = Date.UTC(2026, 10, 11, 9, 5);
   const artifact = (id: string, name: string, expiresAt = AT) => ({
@@ -494,6 +561,8 @@ describe("previews", () => {
       "comment-notice-without-names",
       ...translated.map((code) => `comment-notice-${code}`),
       ...translated.map((code) => `expiry-notice-${code}`),
+      "invitation",
+      ...translated.map((code) => `invitation-${code}`),
     ]);
     for (const { email } of previews()) {
       expect(email.html.startsWith("<!doctype html>")).toBe(true);

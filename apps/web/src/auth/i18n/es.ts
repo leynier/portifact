@@ -84,6 +84,20 @@ const messages = {
     failed: "No se pudo enviar la denuncia. Inténtalo de nuevo o escribe a abuse@portifact.com.",
     sent: "Denuncia enviada.",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "Comprobando el enlace.",
+    opening: "Abriendo el artifact.",
+    passwordRequired: "Escribe la contraseña.",
+    refused: "La contraseña es incorrecta, o el enlace venció o fue revocado.",
+    humanCheckShown:
+      "Confirma abajo que eres humano. La contraseña se vuelve a probar cuando termines.",
+    humanCheckUnavailable:
+      "No se pudo cargar la verificación humana. Permite challenges.cloudflare.com o inténtalo más tarde.",
+    rateLimited: "Demasiados intentos. Espera unos minutos e inténtalo de nuevo.",
+    network: "No se pudo conectar con Portifact. Revisa tu conexión e inténtalo de nuevo.",
+    failed: "No se pudo abrir el enlace. Inténtalo de nuevo.",
+  },
   /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
   unsubscribe: {
     missing:
@@ -210,6 +224,23 @@ export const es: AuthCatalog = {
     "report.doneHeading": "Gracias, recibimos tu denuncia",
     "report.doneBody":
       'Revisamos cada denuncia. También puedes escribir a <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>.',
+    // share.html
+    "share.title": "Abrir un artifact compartido",
+    "share.heading": "Abrir un artifact compartido",
+    "share.passwordIntro": "Quien compartió este artifact lo protegió con una contraseña.",
+    "share.passwordLabel": "Contraseña",
+    "share.humanCheckHint":
+      "Después de varias contraseñas incorrectas, confirma que eres humano para volver a intentarlo.",
+    "share.open": "Abrir",
+    "share.unavailableHeading": "Este enlace no funciona",
+    "share.unavailableBody":
+      "Puede haber vencido o haber sido revocado, o no es un enlace para compartir. Pide un enlace nuevo a quien lo compartió.",
+    "share.incompleteHeading": "Vuelve a abrir el enlace",
+    "share.incompleteBody":
+      "Esta página necesita el enlace completo, incluida la parte que sigue a #. Por seguridad quita esa parte de la barra de direcciones, así que después de recargar vuelve a abrir el enlace desde donde lo recibiste.",
+    "share.privacy":
+      "Lees el artifact sin una cuenta. Portifact no registra quién eres; el dueño solo ve que se usó el enlace. El artifact lo escribe su autor, no Portifact: no escribas contraseñas ni datos personales en él.",
+    "share.report": "Denunciar abuso",
 
     // unsubscribe.html
     "unsubscribe.title": "Desactivar los avisos de comentarios de Portifact",

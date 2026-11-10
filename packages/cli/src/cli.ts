@@ -15,9 +15,12 @@ import {
   type LifecycleAction,
   lifecycle,
   list,
+  parseArtifactId,
   showAccess,
 } from "./artifacts.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
+import { diff } from "./diff.ts";
+import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "./domains.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
 import { pullHistory } from "./history.ts";
 import { logs } from "./logs.ts";
@@ -25,10 +28,21 @@ import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
+import { createShare, listShares, revokeShare } from "./share.ts";
+import { stats } from "./stats.ts";
 import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
 import { listTokens, revokeToken } from "./tokens.ts";
 import { usage } from "./usage.ts";
 import { rollback, versions } from "./versions.ts";
+import {
+  addWebhook,
+  listWebhooks,
+  removeWebhook,
+  testWebhook,
+  updateWebhook,
+  webhookDeliveries,
+} from "./webhooks.ts";
+import { transfer, useWorkspace, workspaces } from "./workspaces.ts";
 
 export type { Io } from "./runtime.ts";
 
@@ -51,6 +65,22 @@ With --json, a failure prints {"error":{"code","message"}} on stdout.
 
 Portifact is free software under AGPL-3.0: https://github.com/leynier/portifact
 \`portifact licenses\` prints the notices of the open source software in this binary.
+`;
+
+const SHARE_HELP = `
+A share link lets anyone who has it read the artifact's current version without a Portifact
+account: no comments, and visitors are never identified. Treat the URL like a password: it is
+printed only by \`share create\`. Share links are part of a paid plan. Revoking ends the link and
+its sessions within a minute.
+`;
+
+const DOMAINS_HELP = `
+A custom domain serves one artifact from a hostname you control, such as docs.example.com (a
+subdomain; not a root domain or a wildcard). \`domains add\` prints a TXT record that proves you
+control the name and a CNAME to Portifact: create both, then run \`domains verify\` until the
+domain is active. Keep the TXT record: it is checked daily and the domain is removed after three
+misses. While the artifact's Portifact bar is on, visits open in the viewer; turn it off with
+\`portifact access bar <id> off\`. Custom domains are part of a paid plan.
 `;
 
 const PUBLISH_HELP = `
@@ -101,6 +131,24 @@ approval, like Disconnect in the dashboard; the app has to ask again to reconnec
 portifact-cli signs this device out too. Revoking asks you to type "revoke"; without a terminal
 pass --yes. These commands need a login made with this version or later: if they answer that
 the session does not allow it, run \`portifact login\` again.
+`;
+
+const WORKSPACES_HELP = `
+Artifacts live in your personal space or in a workspace you belong to. Workspaces are created by
+Portifact's operator; their admins invite members from the dashboard. publish, list and usage act
+on your personal space unless --workspace names a workspace (or personal) or \`portifact
+workspaces use <slug>\` made one this device's default. Updating an artifact with --artifact
+always keeps it where it is. Admins and editors of a workspace see and manage everything published
+there; members only read and comment on what is shared with them.
+`;
+
+const WEBHOOKS_HELP = `
+A webhook sends events about all your artifacts to an HTTPS URL you choose: comment.created,
+thread.resolved, artifact.published, artifact.expiring and artifact.access_changed (or "all").
+The generic format is signed JSON (Standard Webhooks: webhook-id, webhook-timestamp and
+webhook-signature headers); add shows its signing secret once. slack and discord need that
+service's incoming webhook URL. Webhooks are part of a paid plan. Removing asks you to type
+"remove"; without a terminal pass --yes.
 `;
 
 const LIST_MAX = 100;
@@ -196,6 +244,10 @@ export async function run(
     .option("--source <path>", "attach private sources: a folder, file or ZIP file (owner only)")
     .option("--ref <commit>", "with --source in a git repository: attach exactly this commit")
     .option("--assets <dir>", "folder of assets a Markdown document links to")
+    .option(
+      "--workspace <slug>",
+      "publish a new artifact to this workspace, or personal (default: `portifact workspaces use`)",
+    )
     .option("--dry-run", "print the manifest without uploading or signing in")
     .option("--json", "Print the result as JSON")
     .addHelpText("after", PUBLISH_HELP)
@@ -212,6 +264,7 @@ export async function run(
             source?: string;
             ref?: string;
             assets?: string;
+            workspace?: string;
             dryRun?: boolean;
             json?: boolean;
           },
@@ -225,6 +278,7 @@ export async function run(
             source: options.source,
             ref: options.ref,
             assets: options.assets,
+            workspace: options.workspace,
             dryRun: options.dryRun === true,
             json: options.json === true,
           }),
@@ -234,6 +288,7 @@ export async function run(
   program
     .command("list")
     .description("List your artifacts, most recently updated first")
+    .option("--workspace <slug>", "list this workspace's artifacts, or personal")
     .option("--limit <n>", `artifacts per page, 1 to ${LIST_MAX} (default: 50)`, parseLimit)
     .option("--cursor <cursor>", "continue from where the previous page ended")
     .option("--search <text>", "only artifacts whose name or ID contains this text", parseSearch)
@@ -262,9 +317,15 @@ export async function run(
         (
           io,
           runtime,
-          options: ArtifactListFilters & { limit?: number; cursor?: string; json?: boolean },
+          options: ArtifactListFilters & {
+            workspace?: string;
+            limit?: number;
+            cursor?: string;
+            json?: boolean;
+          },
         ) =>
           list(io, runtime, {
+            workspace: options.workspace,
             limit: options.limit,
             cursor: options.cursor,
             filters: {
@@ -445,6 +506,35 @@ export async function run(
     );
 
   program
+    .command("diff")
+    .description(
+      "Compare two versions of an artifact: the files that changed, or one file line by line (paid plans)",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("<from>", "earlier version: ID or number (3 or v3), from `portifact versions`")
+    .argument("<to>", "later version: ID, number or current")
+    .option("--file <path>", "Show a unified diff of this file instead of the file summary")
+    .option("--source", "With --file, the file is a private source rather than a published file")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { json?: boolean; file?: string; source?: boolean },
+          id: string,
+          from: string,
+          to: string,
+        ) =>
+          diff(io, runtime, id, from, to, {
+            json: options.json === true,
+            file: options.file,
+            source: options.source === true,
+          }),
+      ),
+    );
+
+  program
     .command("pull")
     .description("Download a version's published files or private sources into a new folder")
     .argument("<id>", "artifact ID")
@@ -499,7 +589,9 @@ export async function run(
 
   program
     .command("logs")
-    .description("Show who opened one of your artifacts in the last 30 days (signed-in visitors)")
+    .description(
+      "Show who opened one of your artifacts (signed-in visitors; 30 days on free, a year on paid plans)",
+    )
     .argument("<id>", "artifact ID")
     .option("--since <time>", "only openings since a duration ago (30m, 12h, 7d) or an ISO date")
     .option("--json", "Print the result as JSON")
@@ -510,12 +602,291 @@ export async function run(
     );
 
   program
+    .command("stats")
+    .description("Show page views per day of one of your artifacts (paid plans)")
+    .argument("<id>", "artifact ID")
+    .option("--days <n>", "the last n days, today included (default 30)")
+    .option("--from <date>", "first UTC day, YYYY-MM-DD")
+    .option("--to <date>", "last UTC day, YYYY-MM-DD (default today)")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { days?: string; from?: string; to?: string; json?: boolean },
+          id: string,
+        ) =>
+          stats(io, runtime, id, {
+            days: options.days,
+            from: options.from,
+            to: options.to,
+            json: options.json === true,
+          }),
+      ),
+    );
+
+  program
     .command("usage")
     .description("Show your account's quotas, current usage and anything blocking it")
+    .option("--workspace <slug>", "show this workspace's usage, or personal")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { workspace?: string; json?: boolean }) =>
+        usage(io, runtime, { workspace: options.workspace, json: options.json === true }),
+      ),
+    );
+
+  const workspaceCommand = program
+    .command("workspaces")
+    .description("List your workspaces, or choose where publish, list and usage go")
+    .enablePositionalOptions()
+    .option("--json", "Print the result as JSON")
+    .addHelpText("after", WORKSPACES_HELP)
+    .action(
+      execute((io, runtime, options: { json?: boolean }) =>
+        workspaces(io, runtime, { json: options.json === true }),
+      ),
+    );
+  workspaceCommand
+    .command("use")
+    .description("Remember a workspace, or personal, as this device's default space")
+    .argument("<slug>", "a workspace slug from `portifact workspaces`, or personal")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, slug: string) =>
+        useWorkspace(io, runtime, { json: options.json === true }, slug),
+      ),
+    );
+
+  program
+    .command("transfer")
+    .description("Move an artifact to a workspace or to your personal space")
+    .argument("<id>", "artifact ID")
+    .requiredOption("--to <slug>", "a workspace slug, or personal")
+    .addHelpText(
+      "after",
+      `
+Moving an artifact into a workspace takes an admin or editor there; moving it out of a workspace
+takes an admin of that workspace. It keeps its ID, URL, versions, readers and comments; the target
+must have room for it under its plan. Its access history moves too: the people who manage the
+target will see who opened it before the move. Open read, review and share link sessions end.
+`,
+    )
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { to: string; json?: boolean }, id: string) =>
+        transfer(io, runtime, { to: options.to, json: options.json === true }, parseArtifactId(id)),
+      ),
+    );
+
+  const share = program
+    .command("share")
+    .description("Create, list or revoke links that let anyone read an artifact without an account")
+    .enablePositionalOptions()
+    .addHelpText("after", SHARE_HELP);
+  share
+    .command("create")
+    .description("Create a share link; its URL is printed once")
+    .argument("<id>", "artifact ID")
+    .requiredOption("--label <label>", "a name for the link that only you see")
+    .option("--expires <time>", "when it stops working: a duration (12h, 7d) or an ISO date")
+    .option("--password-file <path>", "require the password on the first line of this file")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { label: string; expires?: string; passwordFile?: string; json?: boolean },
+          id: string,
+        ) =>
+          createShare(io, runtime, id, {
+            label: options.label,
+            expires: options.expires,
+            passwordFile: options.passwordFile,
+            json: options.json === true,
+          }),
+      ),
+    );
+  share
+    .command("list")
+    .description("List an artifact's share links, without their URLs")
+    .argument("<id>", "artifact ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        listShares(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  share
+    .command("revoke")
+    .description("Revoke a share link, after a confirmation")
+    .argument("<id>", "artifact ID")
+    .argument("<link-id>", "the link's ID from `portifact share list`")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string, link: string) =>
+        revokeShare(io, runtime, id, link, {
+          yes: options.yes === true,
+          json: options.json === true,
+        }),
+      ),
+    );
+
+  const domains = program
+    .command("domains")
+    .description("Serve an artifact from your own domain: add, verify, list, info or remove")
+    .enablePositionalOptions()
+    .addHelpText("after", DOMAINS_HELP);
+  domains
+    .command("add")
+    .description("Add a custom domain to an artifact and print the DNS records to create")
+    .argument("<id>", "artifact ID")
+    .argument("<hostname>", "the hostname, for example docs.example.com")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, hostname: string) =>
+        addDomain(io, runtime, id, hostname, { json: options.json === true }),
+      ),
+    );
+  domains
+    .command("verify")
+    .description("Check a domain's DNS records and certificate again")
+    .argument("<hostname>", "the hostname")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, hostname: string) =>
+        verifyDomain(io, runtime, hostname, { json: options.json === true }),
+      ),
+    );
+  domains
+    .command("list")
+    .description("List your custom domains and what your plan allows")
+    .option("--artifact <id>", "only this artifact's domain")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { artifact?: string; json?: boolean }) =>
+        listDomains(io, runtime, { artifact: options.artifact, json: options.json === true }),
+      ),
+    );
+  domains
+    .command("info")
+    .description("Show one domain's state and DNS records")
+    .argument("<hostname>", "the hostname")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, hostname: string) =>
+        domainInfo(io, runtime, hostname, { json: options.json === true }),
+      ),
+    );
+  domains
+    .command("remove")
+    .description("Stop serving an artifact on a domain, after a confirmation")
+    .argument("<hostname>", "the hostname")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, hostname: string) =>
+        removeDomain(io, runtime, hostname, {
+          yes: options.yes === true,
+          json: options.json === true,
+        }),
+      ),
+    );
+
+  const webhooks = program
+    .command("webhooks")
+    .description("Manage the webhooks that send your artifacts' events to your own systems")
+    .enablePositionalOptions()
+    .addHelpText("after", WEBHOOKS_HELP);
+  webhooks
+    .command("list")
+    .description("List your webhooks: host, format, state, events and last attempt")
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }) =>
-        usage(io, runtime, { json: options.json === true }),
+        listWebhooks(io, runtime, { json: options.json === true }),
+      ),
+    );
+  webhooks
+    .command("add")
+    .description("Add a webhook; prints its signing secret once")
+    .argument("<url>", "the HTTPS URL that receives the events")
+    .requiredOption("--events <list>", 'comma-separated event types, or "all"')
+    .option("--format <format>", "generic (signed JSON), slack or discord", "generic")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { events: string; format: "generic" | "slack" | "discord"; json?: boolean },
+          url: string,
+        ) =>
+          addWebhook(io, runtime, url, {
+            events: options.events,
+            format: options.format,
+            json: options.json === true,
+          }),
+      ),
+    );
+  webhooks
+    .command("remove")
+    .description("Remove a webhook and its delivery log, after a confirmation")
+    .argument("<id>", "webhook ID")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string) =>
+        removeWebhook(io, runtime, id, { yes: options.yes === true, json: options.json === true }),
+      ),
+    );
+  webhooks
+    .command("test")
+    .description("Send a test event to a webhook")
+    .argument("<id>", "webhook ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        testWebhook(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  webhooks
+    .command("deliveries")
+    .description("Show a webhook's delivery attempts of the last 7 days")
+    .argument("<id>", "webhook ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        webhookDeliveries(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  for (const [name, enabled, description] of [
+    ["enable", true, "Enable a webhook again; resets its failures"],
+    ["disable", false, "Stop a webhook without removing it"],
+  ] as const) {
+    webhooks
+      .command(name)
+      .description(description)
+      .argument("<id>", "webhook ID")
+      .option("--json", "Print the result as JSON")
+      .action(
+        execute((io, runtime, options: { json?: boolean }, id: string) =>
+          updateWebhook(io, runtime, id, { enabled }, { json: options.json === true }),
+        ),
+      );
+  }
+  webhooks
+    .command("events")
+    .description("Change which events a webhook receives")
+    .argument("<id>", "webhook ID")
+    .argument("<list>", 'comma-separated event types, or "all"')
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, list: string) =>
+        updateWebhook(io, runtime, id, { events: list }, { json: options.json === true }),
       ),
     );
 

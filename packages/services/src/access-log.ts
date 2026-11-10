@@ -1,23 +1,44 @@
 // The owner's access log (plan sections 2, 11, 13 and 14). The content Worker gathers openings
 // of artifacts by signed-in visitors in memory and hands them here in batches; they land in the
 // separate access log database (`portifact-access`), one row per artifact, visitor and 30-minute
-// window. Only the owner lists them, for 30 days. Purges and account deletions erase rows through
-// `erase_access_events` outbox jobs, because no D1 batch spans both databases.
+// window. Only the owner side lists them, for the owner plan's `accessLogRetentionDays` (30 days
+// on free, a year on paid plans), which each row's `expires_at` carries. Purges and account
+// deletions erase rows (and a purged artifact's view counters) through `erase_access_events`
+// outbox jobs, because no D1 batch spans both databases.
 import { ACCESS_LOG, type EraseAccessEventsPayload } from "@portifact/contracts";
 import { type AccessDb, accessSchema, type Db, type RegionalDb, schema } from "@portifact/db";
-import { accessLogCutoff, accessWindow, fail, ok, type Result } from "@portifact/domain";
-import { and, asc, desc, eq, gt, gte, inArray, lt, or, type SQL, sql } from "drizzle-orm";
+import {
+  accessLogCutoff,
+  accessWindow,
+  DAY_MS,
+  entitlements,
+  FREE_RETENTION_DAYS,
+  fail,
+  type OwnerPlanRecord,
+  ok,
+  type Result,
+  retentionExpiry,
+} from "@portifact/domain";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn, ownerSide } from "./actors.ts";
+import { eraseArtifactViews, keptOpenings, pruneArtifactViews } from "./analytics.ts";
+import { ownerEntitlements } from "./plans.ts";
+import { shareLinkLabels } from "./share-links.ts";
 
 const IN_CHUNK = 80;
 /** Rows one erase or prune statement deletes, so no statement runs long. */
 export const ACCESS_DELETE_BATCH = 1_000;
 
-/** One page load of an artifact by a signed-in visitor who is not its owner. */
+/**
+ * One page load of an artifact by a signed-in visitor who is not its owner, or through a share
+ * link (decision 0008): then `linkId` is set and `userId` holds the same link ID, the key of the
+ * link's row, because a link names no one.
+ */
 export interface Opening {
   artifactId: string;
   userId: string;
+  linkId?: string | undefined;
   at: number;
 }
 
@@ -27,7 +48,9 @@ export interface Opening {
  * active, by accounts that still exist and do not own them, are kept: so a batch that was waiting
  * in an isolate while the artifact was purged or the visitor deleted their account writes
  * nothing. Each statement is an upsert keyed by the window, so batches from other isolates, or a
- * retried one, keep one row with the earliest opening. Returns how many rows it wrote.
+ * retried one, keep one row with the earliest opening. Each row expires on the owner's plan at
+ * the time of the opening (`retentionExpiry`), read with the owner in the same query. Returns how
+ * many rows it wrote.
  */
 export async function recordOpenings(
   db: RegionalDb,
@@ -44,18 +67,30 @@ export async function recordOpenings(
   if (earliest.size === 0) return 0;
   const rows = [...earliest.values()];
   const owners = await activeOwners(db, [...new Set(rows.map((row) => row.artifactId))]);
-  const emails = await accountEmails(db.global, [...new Set(rows.map((row) => row.userId))]);
+  const people = rows.filter((row) => row.linkId === undefined);
+  const emails = await accountEmails(db.global, [...new Set(people.map((row) => row.userId))]);
+  const links = await knownLinks(
+    db,
+    rows.flatMap((row) => (row.linkId === undefined ? [] : [row.linkId])),
+  );
   // Visits of whoever acts for the owner (its admins and editors) are the owner's own visits.
   const sides = new Map<string, readonly string[]>();
-  for (const ownerId of new Set(owners.values())) {
+  for (const ownerId of new Set([...owners.values()].map((owner) => owner.ownerId))) {
     sides.set(ownerId, await ownerSide(db.global, ownerId));
   }
   const e = accessSchema.accessEvents;
   const statements = rows.flatMap((row) => {
-    const ownerId = owners.get(row.artifactId);
-    const email = emails.get(row.userId);
-    if (ownerId === undefined || email === undefined) return [];
-    if (sides.get(ownerId)?.includes(row.userId)) return [];
+    const owner = owners.get(row.artifactId);
+    if (owner === undefined) return [];
+    const { ownerId } = owner;
+    // A link's opening is kept only while the link still belongs to the artifact.
+    const linkId = row.linkId;
+    if (linkId !== undefined && (links.get(linkId) !== row.artifactId || linkId !== row.userId)) {
+      return [];
+    }
+    const email = linkId === undefined ? emails.get(row.userId) : "";
+    if (email === undefined) return [];
+    if (linkId === undefined && sides.get(ownerId)?.includes(row.userId)) return [];
     return [
       access
         .insert(e)
@@ -66,6 +101,9 @@ export async function recordOpenings(
           ownerId,
           email,
           openedAt: row.at,
+          linkId: linkId ?? null,
+          // Share-link openings follow the same retention as signed-in ones.
+          expiresAt: retentionExpiry(row.at, entitlements(owner.plan, row.at)),
         })
         .onConflictDoUpdate({
           target: [e.artifactId, e.windowStart, e.userId],
@@ -79,21 +117,59 @@ export async function recordOpenings(
   return statements.length;
 }
 
-async function activeOwners(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
-  const owners = new Map<string, string>();
+interface ActiveOwner {
+  ownerId: string;
+  plan: OwnerPlanRecord | null;
+}
+
+async function activeOwners(db: Db, ids: readonly string[]): Promise<Map<string, ActiveOwner>> {
+  const owners = new Map<string, ActiveOwner>();
   for (let i = 0; i < ids.length; i += IN_CHUNK) {
     const rows = await db
-      .select({ id: schema.artifacts.id, ownerId: schema.artifacts.ownerId })
+      .select({
+        id: schema.artifacts.id,
+        ownerId: schema.artifacts.ownerId,
+        plan: schema.ownerPlans.plan,
+        seats: schema.ownerPlans.seats,
+        validUntil: schema.ownerPlans.validUntil,
+        overrides: schema.ownerPlans.overrides,
+      })
       .from(schema.artifacts)
+      .leftJoin(schema.ownerPlans, eq(schema.ownerPlans.ownerId, schema.artifacts.ownerId))
       .where(
         and(
           inArray(schema.artifacts.id, ids.slice(i, i + IN_CHUNK)),
           eq(schema.artifacts.state, "active"),
         ),
       );
-    for (const row of rows) owners.set(row.id, row.ownerId);
+    for (const row of rows) {
+      const plan =
+        row.plan === null || row.seats === null
+          ? null
+          : {
+              plan: row.plan,
+              seats: row.seats,
+              validUntil: row.validUntil,
+              overrides: row.overrides,
+            };
+      owners.set(row.id, { ownerId: row.ownerId, plan });
+    }
   }
   return owners;
+}
+
+/** The artifact of each share link that still exists. */
+async function knownLinks(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids)];
+  const links = new Map<string, string>();
+  for (let i = 0; i < unique.length; i += IN_CHUNK) {
+    const rows = await db
+      .select({ id: schema.shareLinks.id, artifactId: schema.shareLinks.artifactId })
+      .from(schema.shareLinks)
+      .where(inArray(schema.shareLinks.id, unique.slice(i, i + IN_CHUNK)));
+    for (const row of rows) links.set(row.id, row.artifactId);
+  }
+  return links;
 }
 
 async function accountEmails(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
@@ -121,7 +197,11 @@ export interface AccessLogInput {
 
 export interface AccessLogPage {
   artifactId: string;
-  entries: { email: string; openedAt: number }[];
+  entries: {
+    email: string;
+    openedAt: number;
+    shareLink?: { id: string; label: string | null };
+  }[];
   nextCursor: string | null;
   windowMinutes: number;
   retentionDays: number;
@@ -166,15 +246,20 @@ export async function getAccessLog(
   if (!artifact || artifact.state === "purging" || artifact.state === "deleted") return missing();
   const allowed = await authorizeOn(db, input.userId, artifact.ownerId, "access_log", missing);
   if (!allowed.ok) return allowed;
+  const retentionDays = (await ownerEntitlements(db, artifact.ownerId, input.now)).limits
+    .accessLogRetentionDays;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
   if (input.cursor !== undefined && !after) return fail("invalid_input", "Invalid cursor.");
 
   const e = accessSchema.accessEvents;
-  const from = Math.max(accessLogCutoff(input.now), input.since ?? 0);
+  // The owner's retention now, and each row's own expiry until the prune or an `owner_retention`
+  // job reaches it, so a lower plan never shows more than it keeps.
+  const from = Math.max(accessLogCutoff(input.now, retentionDays), input.since ?? 0);
   const conditions: SQL[] = [
     eq(e.artifactId, input.artifactId),
     eq(e.ownerId, artifact.ownerId),
     gte(e.openedAt, from),
+    keptOpenings(input.now),
   ];
   if (after) {
     conditions.push(
@@ -190,6 +275,7 @@ export async function getAccessLog(
       userId: e.userId,
       email: e.email,
       openedAt: e.openedAt,
+      linkId: e.linkId,
     })
     .from(e)
     .where(and(...conditions))
@@ -197,12 +283,25 @@ export async function getAccessLog(
     .limit(input.limit + 1);
   const page = rows.slice(0, input.limit);
   const last = page.at(-1);
+  const labels = await shareLinkLabels(
+    db,
+    input.artifactId,
+    page.flatMap((row) => (row.linkId === null ? [] : [row.linkId])),
+  );
   return ok({
     artifactId: input.artifactId,
-    entries: page.map((row) => ({ email: row.email, openedAt: row.openedAt })),
+    entries: page.map((row) =>
+      row.linkId === null
+        ? { email: row.email, openedAt: row.openedAt }
+        : {
+            email: "",
+            openedAt: row.openedAt,
+            shareLink: { id: row.linkId, label: labels.get(row.linkId) ?? null },
+          },
+    ),
     nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null,
     windowMinutes: ACCESS_LOG.windowMinutes,
-    retentionDays: ACCESS_LOG.retentionDays,
+    retentionDays,
   });
 }
 
@@ -220,9 +319,9 @@ async function deleteSome(access: AccessDb, where: SQL): Promise<number> {
 }
 
 /**
- * Erases the access log of a purged artifact, or every opening by a deleted account, in bounded
- * statements. Returns `pending` when `rounds` statements did not reach the end, so the job runs
- * again; running it again after the end changes nothing.
+ * Erases the access log and the view counters of a purged artifact, or every opening by a
+ * deleted account, in bounded statements. Returns `pending` when `rounds` statements did not
+ * reach the end, so the job runs again; running it again after the end changes nothing.
  */
 export async function eraseAccessEvents(
   access: AccessDb,
@@ -232,26 +331,32 @@ export async function eraseAccessEvents(
 ): Promise<"done" | "pending"> {
   const e = accessSchema.accessEvents;
   const where = kind === "artifact" ? eq(e.artifactId, subject) : eq(e.userId, subject);
-  for (let round = 0; round < rounds; round += 1) {
-    if ((await deleteSome(access, where)) < ACCESS_DELETE_BATCH) return "done";
+  let finished = false;
+  for (let round = 0; round < rounds && !finished; round += 1) {
+    finished = (await deleteSome(access, where)) < ACCESS_DELETE_BATCH;
   }
-  return "pending";
+  if (!finished) return "pending";
+  return kind === "artifact" ? eraseArtifactViews(access, subject, rounds) : "done";
 }
 
 /**
- * Deletes openings past retention, at most `rounds` bounded statements per run; the next
- * scheduled run goes on where it stopped.
+ * Deletes openings and view counters past their expiry (legacy openings without one after the
+ * free 30 days), at most `rounds` bounded statements per table and run; the next scheduled run
+ * goes on where it stopped.
  */
 export async function pruneAccessEvents(access: AccessDb, now: number, rounds = 10) {
   const e = accessSchema.accessEvents;
-  const where = lt(e.openedAt, accessLogCutoff(now));
+  const where = or(
+    lt(e.expiresAt, now),
+    and(isNull(e.expiresAt), lt(e.openedAt, now - FREE_RETENTION_DAYS * DAY_MS)),
+  ) as SQL;
   let pruned = 0;
   for (let round = 0; round < rounds; round += 1) {
     const deleted = await deleteSome(access, where);
     pruned += deleted;
     if (deleted < ACCESS_DELETE_BATCH) break;
   }
-  return pruned;
+  return pruned + (await pruneArtifactViews(access, now, rounds));
 }
 
 /**
