@@ -129,6 +129,13 @@ export const messages = {
     everyone: "everyone (every reader sees every thread)",
   },
   readerSees: { all: "sees all comments", own: "sees own and yours" },
+  groupsOnlyWhenRestricted: (mode: string) =>
+    `Note: access is ${mode}, so groups let their members read only after \`portifact access set <id> restricted\`.`,
+  groupMembers: (members: number) => `${members} ${plural(members, "member", "members")}`,
+  groupsNone: (slug: string) =>
+    `${slug} has no groups. Its admins create them on the workspace's Groups page in the dashboard.`,
+  groupsLapsed:
+    "Note: the workspace's plan does not include workspace sharing now, so groups let nobody read until it does again.",
 
   // Versions.
   versionsEmpty: (id: string) => `${id} has no published versions.`,
@@ -371,6 +378,9 @@ export const messages = {
     invalidReaderCommentVisibility: (value: string) =>
       `${JSON.stringify(value)} is not a reader's comment visibility. Use all, own or inherit.`,
     invalidEmail: (value: string) => `${JSON.stringify(value)} is not a valid email address.`,
+    invalidGroup: (value: string) =>
+      `${JSON.stringify(value)} is not a group ID. Run \`portifact workspaces groups <slug>\` to see them.`,
+    tooManyGroups: (max: number) => `Add or remove at most ${max} groups at a time.`,
     tooManyReaders: (max: number) => `Add or remove at most ${max} readers at a time.`,
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,
     invalidSince: (value: string) =>

@@ -333,6 +333,43 @@ const GATED: GatedOperation[] = [
   ),
   {
     feature: "workspaces",
+    name: "add a group to an artifact",
+    space: "workspace",
+    // A group of the artifact's own workspace (groups are made through the dashboard session, so
+    // the row is written as that route writes it); each interface starts with none listed.
+    run: async (who, id) => {
+      const [row] = await db()
+        .select({ ownerId: schema.artifacts.ownerId })
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, id));
+      if (!row) throw new Error("The group line needs an artifact");
+      const groupId = `wg_${crypto.randomUUID().replaceAll("-", "")}`;
+      await db().insert(schema.workspaceGroups).values({
+        id: groupId,
+        workspaceId: row.ownerId,
+        name: groupId,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      const clear = () =>
+        db().delete(schema.artifactGroups).where(eq(schema.artifactGroups.artifactId, id));
+      const response = await who.apiCall(`/api/v1/artifacts/${id}/access`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ addGroups: [groupId] }),
+      });
+      const body = await response.json<unknown>();
+      await clear();
+      const result = await who.tool("add_group", { artifactId: id, groups: [groupId] });
+      await clear();
+      return {
+        api: { status: response.status, body },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
+  {
+    feature: "workspaces",
     name: "list a workspace's open feedback",
     space: "workspace",
     // The space is the artifact's workspace, named by slug; a personal space needs no feature.

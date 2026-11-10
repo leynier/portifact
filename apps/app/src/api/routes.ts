@@ -398,7 +398,7 @@ export function apiRoutes(deps: ApiDeps) {
   usageRoutes(api, guarded, deps.now);
   accessLogRoutes(api, guarded, deps.now);
   auditRoutes(api, guarded, deps.now);
-  workspaceReadRoutes(api, guarded);
+  workspaceReadRoutes(api, guarded, deps.now);
   shareLinkRoutes(api, guarded, deps.now);
   approvalReviewRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);

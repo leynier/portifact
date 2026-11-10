@@ -50,7 +50,7 @@ import {
   updateWebhook,
   webhookDeliveries,
 } from "./webhooks.ts";
-import { transfer, useWorkspace, workspaces } from "./workspaces.ts";
+import { transfer, useWorkspace, workspaceGroups, workspaces } from "./workspaces.ts";
 
 export type { Io } from "./runtime.ts";
 
@@ -537,6 +537,59 @@ export async function run(
       );
   }
 
+  const groups = access
+    .command("group")
+    .description(
+      "List a workspace group on a restricted artifact of that workspace, or unlist it (IDs from `portifact workspaces groups <slug>`)",
+    )
+    .enablePositionalOptions();
+  for (const kind of ["add", "remove"] as const) {
+    groups
+      .command(kind)
+      .description(
+        kind === "add"
+          ? "Let the members of these groups open the restricted artifact (Team plan and above)"
+          : "Remove these groups from the artifact",
+      )
+      .argument("<id>", "artifact ID")
+      .argument("<groups...>", "group IDs (wg_...)")
+      .option("--json", "Print the result as JSON")
+      .action(
+        execute((io, runtime, options: { json?: boolean }, id: string, ids: string[]) =>
+          changeAccess(
+            io,
+            runtime,
+            id,
+            kind === "add"
+              ? { kind: "group-add", groups: ids }
+              : { kind: "group-remove", groups: ids },
+            { json: options.json === true },
+          ),
+        ),
+      );
+  }
+  access
+    .command("group-comments")
+    .description(
+      "Make an exception for one listed group: all (every comment), own (their threads and yours) or inherit",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("<group>", "a group ID on the artifact")
+    .argument("<visibility>", "all, own or inherit")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (io, runtime, options: { json?: boolean }, id: string, group: string, visibility: string) =>
+          changeAccess(
+            io,
+            runtime,
+            id,
+            { kind: "group-comments", group, visibility },
+            { json: options.json === true },
+          ),
+      ),
+    );
+
   program
     .command("versions")
     .description("List the versions of an artifact you can still download or roll back to")
@@ -851,6 +904,17 @@ export async function run(
     .action(
       execute((io, runtime, options: { json?: boolean }, slug: string) =>
         useWorkspace(io, runtime, { json: options.json === true }, slug),
+      ),
+    );
+
+  workspaceCommand
+    .command("groups")
+    .description("List a workspace's groups (ID, name, member count) to use in artifacts' access")
+    .argument("<slug>", "a workspace slug from `portifact workspaces`")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, slug: string) =>
+        workspaceGroups(io, runtime, { json: options.json === true }, slug),
       ),
     );
 

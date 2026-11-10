@@ -17,6 +17,7 @@ import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx
 import { AuditScreen } from "./screens/audit.tsx";
 import { BrandingScreen } from "./screens/branding.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
+import { GroupsScreen } from "./screens/groups.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { InvitationFrame, InvitationScreen } from "./screens/invitations.tsx";
 import { MembersScreen } from "./screens/members.tsx";
@@ -148,6 +149,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/members",
     component: MembersScreen,
   });
+  const groups = createRoute({
+    getParentRoute: () => root,
+    path: "/groups",
+    component: GroupsScreen,
+  });
   const serviceTokens = createRoute({
     getParentRoute: () => root,
     path: "/service-tokens",
@@ -188,6 +194,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       branding,
       settings,
       members,
+      groups,
       audit,
       serviceTokens,
       invitations,

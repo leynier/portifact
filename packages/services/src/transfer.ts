@@ -222,6 +222,11 @@ export async function transferArtifact(
             sql`${schema.webhookEvents.artifactId} = ${artifact.id} and ${schema.webhookEvents.webhookId} in (select ${schema.webhooks.id} from ${schema.webhooks} where ${schema.webhooks.ownerId} = ${from})`,
           ),
         ),
+      // Groups name the source workspace's people: the artifact leaves them behind (decision
+      // 0014), in the same batch, so no target member is ever matched against them.
+      db
+        .delete(schema.artifactGroups)
+        .where(guarded(eq(schema.artifactGroups.artifactId, artifact.id))),
       // Reviewers were chosen under the old owner: the open approval review ends (decision 0013).
       cancelApprovalReviewOnTransfer(db, {
         artifactId: artifact.id,

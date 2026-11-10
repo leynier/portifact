@@ -555,6 +555,7 @@ describe("access control through the API", () => {
       readerCommentVisibility: [],
       policyGeneration: 1,
       audience: null,
+      groups: [],
     });
     const added = await c.call(path, patch({ addReaders: ["Ana@Example.test"] }));
     expect(added.status).toBe(200);

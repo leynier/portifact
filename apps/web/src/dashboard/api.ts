@@ -83,6 +83,9 @@ import {
   WebhookView,
   WorkspaceDomainList,
   WorkspaceDomainView,
+  WorkspaceGroupDetail,
+  WorkspaceGroupList,
+  WorkspaceGroupView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
@@ -182,6 +185,15 @@ export interface DashboardApi {
   /** Creates a service token; the answer holds its secret once. */
   createServiceToken(slug: string, body: ServiceTokenCreate): Promise<ServiceTokenCreated>;
   revokeServiceToken(slug: string, tokenId: string): Promise<void>;
+  /** A workspace's groups: names and member counts (admins and editors, decision 0014). */
+  groups(slug: string): Promise<WorkspaceGroupList>;
+  /** One group with its members, for admins (session only). */
+  group(slug: string, groupId: string): Promise<WorkspaceGroupDetail>;
+  createGroup(slug: string, name: string): Promise<WorkspaceGroupView>;
+  renameGroup(slug: string, groupId: string, name: string): Promise<WorkspaceGroupView>;
+  deleteGroup(slug: string, groupId: string): Promise<void>;
+  addGroupMember(slug: string, groupId: string, userId: string): Promise<WorkspaceGroupDetail>;
+  removeGroupMember(slug: string, groupId: string, userId: string): Promise<void>;
   changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
   removeMember(slug: string, userId: string): Promise<void>;
   leaveWorkspace(slug: string): Promise<void>;
@@ -616,6 +628,48 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     createServiceToken(slug, body) {
       return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenCreated, "POST", body);
+    },
+    groups(slug) {
+      return call(`${workspacePath(slug)}/groups`, WorkspaceGroupList);
+    },
+    group(slug, groupId) {
+      return call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}`,
+        WorkspaceGroupDetail,
+      );
+    },
+    createGroup(slug, name) {
+      return call(`${workspacePath(slug)}/groups`, WorkspaceGroupView, "POST", { name });
+    },
+    renameGroup(slug, groupId, name) {
+      return call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}`,
+        WorkspaceGroupView,
+        "PATCH",
+        { name },
+      );
+    },
+    async deleteGroup(slug, groupId) {
+      await call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    addGroupMember(slug, groupId, userId) {
+      return call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}/members`,
+        WorkspaceGroupDetail,
+        "POST",
+        { userId },
+      );
+    },
+    async removeGroupMember(slug, groupId, userId) {
+      await call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+        z.null(),
+        "DELETE",
+      );
     },
     async revokeServiceToken(slug, tokenId) {
       await call(

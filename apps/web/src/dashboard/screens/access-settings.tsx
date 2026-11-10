@@ -15,6 +15,7 @@ import {
   lowestPlanWith,
   PLAN_LABELS,
   type ReaderCommentVisibility,
+  WORKSPACE_GROUPS,
 } from "@portifact/contracts";
 import { Button, Callout, ConfirmDialog, LoadingState, Panel, Select } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
@@ -36,6 +37,7 @@ import { threadsQuery } from "../review/use-threads.ts";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { CommentNoticeToggle } from "./comment-notices.tsx";
 import { CustomDomainPanel } from "./custom-domain.tsx";
+import { groupsQuery } from "./groups.tsx";
 import { ShareLinksPanel } from "./share-links.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
 
@@ -240,6 +242,14 @@ export function SharingSettings({ artifact }: { artifact: ArtifactSummary }) {
           ) : null}
           <AccessModePanel artifact={artifact} policy={policy} disabled={suspended} />
           <ReadersPanel artifact={artifact} policy={policy} disabled={suspended} />
+          {artifact.owner.kind === "workspace" ? (
+            <GroupsPanel
+              artifact={artifact}
+              slug={artifact.owner.slug}
+              policy={policy}
+              disabled={suspended}
+            />
+          ) : null}
           <ShareLinksPanel artifact={artifact} disabled={suspended} />
           <CustomDomainPanel artifact={artifact} policy={policy} disabled={suspended} />
           <LinkSettingsPanel artifact={artifact} policy={policy} disabled={suspended} />
@@ -757,6 +767,232 @@ function ReadersPanel({ artifact, policy, disabled }: GroupProps) {
         </div>
       </div>
     </Panel>
+  );
+}
+
+/**
+ * The groups of the artifact's workspace it lists (decision 0014): their members read it in
+ * restricted mode like listed readers, each with an exception to who sees comments. Groups are
+ * picked from the workspace's, by name; only admins make them, on the Groups page.
+ */
+function GroupsPanel({ artifact, slug, policy, disabled }: GroupProps & { slug: string }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const describeError = useAccessError();
+  const { api } = useDashboard();
+  const change = useAccessChange(artifact.id);
+  const workspaceGroups = useQuery({
+    queryKey: groupsQuery(slug),
+    queryFn: () => api.groups(slug),
+  });
+  const [choice, setChoice] = useState("");
+  const pending = change.isPending ? change.variables : undefined;
+  const max = WORKSPACE_GROUPS.perArtifact;
+  const full = policy.groups.length >= max;
+  const listed = new Set(policy.groups.map((group) => group.id));
+  const candidates = (workspaceGroups.data?.items ?? []).filter((group) => !listed.has(group.id));
+  const available = workspaceGroups.data?.available ?? true;
+  const onChange: ReadersChange["onChange"] = (update, done) =>
+    change.mutateAsync(update).then(
+      () => {
+        announce(done);
+        return true;
+      },
+      () => false,
+    );
+  const choiceName = candidates.find((group) => group.id === choice)?.name ?? "";
+  return (
+    <Panel
+      headingLevel={3}
+      title={t("groupAccess.title")}
+      description={
+        <>
+          <span className="block">{t("groupAccess.hint")}</span>
+          {policy.mode === "restricted" ? null : (
+            <span className="mt-1 block">{t("groupAccess.onlyRestricted")}</span>
+          )}
+        </>
+      }
+      actions={
+        <p className="text-sm font-medium tabular-nums">
+          {t("groupAccess.count", { count: policy.groups.length, max })}
+        </p>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {workspaceGroups.data && !available ? (
+          <Callout
+            tone="info"
+            title={t("groupAccess.planTitle")}
+            icon={<Info className="size-5" />}
+          >
+            {t("groupAccess.planRequired", { plan: PLAN_LABELS[lowestPlanWith("workspaces")] })}
+          </Callout>
+        ) : null}
+        <SaveError
+          title={t("groupAccess.failed.title")}
+          message={change.isError ? describeError(change.error) : undefined}
+        />
+        {policy.groups.length === 0 ? (
+          <p className="flex items-center gap-2 rounded-md border border-dashed border-border-strong px-4 py-3 text-sm text-text-muted">
+            <UsersRound aria-hidden="true" className="size-4 shrink-0" />
+            {t("groupAccess.empty")}
+          </p>
+        ) : (
+          <ul
+            aria-label={t("groupAccess.list")}
+            className="divide-y divide-border rounded-md border border-border"
+          >
+            {policy.groups.map((group) => (
+              <li
+                key={group.id}
+                className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-3 sm:py-2"
+              >
+                <span className="min-w-0 flex-1 text-sm">
+                  <span className="font-medium break-words">{group.name}</span>{" "}
+                  <span className="text-text-muted">
+                    {t("groups.memberCount", { count: group.members })}
+                  </span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1 sm:w-56 sm:flex-none">
+                    <GroupComments
+                      group={group}
+                      policy={policy}
+                      disabled={disabled || pending !== undefined}
+                      onChange={onChange}
+                    />
+                  </div>
+                  <Button
+                    intent="ghost"
+                    size="sm"
+                    icon={<UserMinus className="size-4" />}
+                    aria-label={t("groupAccess.removeLabel", { name: group.name })}
+                    busy={pending?.removeGroups?.includes(group.id) ?? false}
+                    disabled={disabled || pending !== undefined}
+                    onClick={() =>
+                      onChange(
+                        { removeGroups: [group.id] },
+                        t("groupAccess.removed", { name: group.name }),
+                      )
+                    }
+                  >
+                    {t("readers.remove")}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="border-t border-border pt-4">
+          {full ? (
+            <p className="mb-3 text-sm font-medium">{t("groupAccess.full", { max })}</p>
+          ) : null}
+          {workspaceGroups.data && workspaceGroups.data.items.length === 0 ? (
+            <p className="text-sm text-text-muted">{t("groupAccess.none")}</p>
+          ) : (
+            <form
+              className="flex flex-col gap-2 sm:flex-row sm:items-end"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!choice) return;
+                void onChange(
+                  { addGroups: [choice] },
+                  t("groupAccess.added", { name: choiceName }),
+                ).then((done) => {
+                  if (done) setChoice("");
+                });
+              }}
+            >
+              <div className="min-w-0 flex-1">
+                <Select
+                  label={t("groupAccess.pick")}
+                  value={choice}
+                  disabled={disabled || full || !available || candidates.length === 0}
+                  options={[
+                    { value: "", label: t("groupAccess.choose") },
+                    ...candidates.map((group) => ({
+                      value: group.id,
+                      label: t("groupAccess.option", { name: group.name, count: group.members }),
+                    })),
+                  ]}
+                  onChange={setChoice}
+                />
+              </div>
+              <Button
+                type="submit"
+                icon={<UserPlus className="size-4" />}
+                busy={pending?.addGroups !== undefined}
+                disabled={disabled || full || !available || choice === ""}
+              >
+                {t("groupAccess.add")}
+              </Button>
+            </form>
+          )}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** One group's exception to who sees comments, sent as soon as it changes. */
+function GroupComments({
+  group,
+  policy,
+  disabled,
+  onChange,
+}: {
+  group: AccessPolicyView["groups"][number];
+  policy: AccessPolicyView;
+  disabled: boolean;
+  onChange: ReadersChange["onChange"];
+}) {
+  const t = useT();
+  const [widening, setWidening] = useState<ReaderCommentVisibility | null>(null);
+  const current: ReaderCommentVisibility = group.commentVisibility ?? "inherit";
+  const label = (choice: ReaderCommentVisibility) =>
+    choice === "inherit"
+      ? t(`readers.comments.inherit.${policy.commentVisibility}`)
+      : t(`readers.comments.${choice}`);
+  const sees = (choice: ReaderCommentVisibility) =>
+    choice === "inherit" ? (policy.commentVisibility === "everyone" ? "all" : "own") : choice;
+  const send = (choice: ReaderCommentVisibility) =>
+    onChange(
+      { groupCommentVisibility: [{ group: group.id, commentVisibility: choice }] },
+      t("groupAccess.comments.changed", { name: group.name, choice: label(choice) }),
+    );
+  return (
+    <>
+      <Select<ReaderCommentVisibility>
+        label={t("groupAccess.comments.label", { name: group.name })}
+        labelVisible={false}
+        value={current}
+        options={(["inherit", "all", "own"] as const).map((value) => ({
+          value,
+          label: label(value),
+        }))}
+        disabled={disabled}
+        onChange={(choice) => {
+          if (sees(choice) === "all" && sees(current) === "own") setWidening(choice);
+          else void send(choice);
+        }}
+      />
+      <ConfirmDialog
+        open={widening !== null}
+        title={t("groupAccess.comments.confirm.title", { name: group.name })}
+        confirmLabel={t("accessSettings.comments.confirm.action")}
+        cancelLabel={t("accessSettings.cancel")}
+        confirmIcon={<Eye className="size-4" />}
+        onConfirm={() => {
+          const choice = widening;
+          setWidening(null);
+          if (choice) void send(choice);
+        }}
+        onCancel={() => setWidening(null)}
+      >
+        {t("groupAccess.comments.confirm.body", { name: group.name })}
+      </ConfirmDialog>
+    </>
   );
 }
 

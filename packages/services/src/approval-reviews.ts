@@ -967,7 +967,11 @@ export async function approvalAccessStatements(
   db: RegionalDb,
   input: {
     artifact: Pick<ArtifactRow, "id" | "ownerId" | "accessMode">;
-    policy: { mode: ArtifactRow["accessMode"]; readers: readonly string[] };
+    policy: {
+      mode: ArtifactRow["accessMode"];
+      readers: readonly string[];
+      groups?: readonly string[] | undefined;
+    };
     owner: Entitlements;
     condition: SQL;
     now: number;
@@ -999,13 +1003,14 @@ export async function approvalAccessStatements(
 
 /**
  * The scan's budget. One request costs at most `RECHECK_CALLS_PER_REQUEST` D1 calls: its
- * reviewers, the owner's plan (once per owner and run), two participation reads (the owner's
- * people, and the reader list or the email domains), its verdicts and their authors, and one
+ * reviewers, the owner's plan (once per owner and run), four participation reads (the owner's
+ * people, the reader list or the email domains, and for a restricted workspace artifact its
+ * listed groups and their memberships, decision 0014), its verdicts and their authors, and one
  * write batch. A run adds three: the cursor, the page of requests and the cursor's write. So a
- * run takes at most `floor((RECHECK_BUDGET.calls - 3) / RECHECK_CALLS_PER_REQUEST)` requests (30)
+ * run takes at most `floor((RECHECK_BUDGET.calls - 3) / RECHECK_CALLS_PER_REQUEST)` requests (24)
  * and makes at most 243 calls, whatever the backlog, and stops early past `RECHECK_BUDGET.ms`.
  */
-export const RECHECK_CALLS_PER_REQUEST = 8;
+export const RECHECK_CALLS_PER_REQUEST = 10;
 export const RECHECK_BUDGET = { calls: 250, ms: 5_000 } as const;
 const RECHECK_CURSOR = "approval_reviewers";
 

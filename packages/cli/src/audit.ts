@@ -171,9 +171,25 @@ export function auditSummary(event: AuditEventView): string {
       return d.reason === "removed"
         ? `Removed the email domain ${d.domain}`
         : `The email domain ${d.domain} was removed (${d.reason === "claimed" ? "another workspace proved it" : "its DNS record is missing"})`;
+    case "group.created":
+      return `Created the group ${groupName(event)}`;
+    case "group.renamed":
+      return `Renamed the group ${groupName(event)}`;
+    case "group.deleted":
+      return `Deleted the group ${groupName(event)}`;
+    case "group.member_added":
+      return `Added ${member} to the group ${groupName(event)}`;
+    case "group.member_removed":
+      return `Removed ${member} from the group ${groupName(event)}`;
     case "audit.exported":
       return `Exported the audit log as ${String(d.format).toUpperCase()}${d.from || d.to ? ` (${d.from ?? "start"} to ${d.to ?? "now"})` : ""}`;
   }
+}
+
+/** A group by its current name, or as deleted: the event never stores the name. */
+function groupName(event: AuditEventView): string {
+  if (!event.group) return "(unknown)";
+  return event.group.name === null ? "(deleted)" : `"${plain(event.group.name)}"`;
 }
 
 function accessParts(d: Record<string, unknown>): string[] {
@@ -185,6 +201,9 @@ function accessParts(d: Record<string, unknown>): string[] {
     parts.push(`at ${d.readerDomains.join(", ")}`);
   }
   if (d.readerExceptions) parts.push(`${d.readerExceptions} comment exception(s)`);
+  if (d.groupsAdded) parts.push(`${d.groupsAdded} group(s) added`);
+  if (d.groupsRemoved) parts.push(`${d.groupsRemoved} group(s) removed`);
+  if (d.groupExceptions) parts.push(`${d.groupExceptions} group comment exception(s)`);
   if (d.bar !== undefined) parts.push(`bar ${d.bar ? "on" : "off"}`);
   if (d.commentVisibility) parts.push(`comments visible to ${d.commentVisibility}`);
   if (d.indexable !== undefined) parts.push(`indexing ${d.indexable ? "on" : "off"}`);

@@ -69,6 +69,7 @@ describe("access policy", () => {
         readerCommentVisibility: [],
         policyGeneration: 1,
         audience: null,
+        groups: [],
       },
     });
 
@@ -105,6 +106,7 @@ describe("access policy", () => {
       readerCommentVisibility: [],
       policyGeneration: 3,
       audience: null,
+      groups: [],
     });
   });
 

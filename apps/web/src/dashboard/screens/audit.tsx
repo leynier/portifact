@@ -91,6 +91,13 @@ export const AUDIT_GROUPS = {
     "service_token.created",
     "service_token.revoked",
   ],
+  groups: [
+    "group.created",
+    "group.renamed",
+    "group.deleted",
+    "group.member_added",
+    "group.member_removed",
+  ],
 } as const satisfies Record<string, readonly AuditKind[]>;
 type Group = "all" | keyof typeof AUDIT_GROUPS;
 
@@ -307,6 +314,7 @@ function AuditFilters(props: {
     { value: "lifecycle", label: t("audit.group.lifecycle") },
     { value: "integrations", label: t("audit.group.integrations") },
     { value: "members", label: t("audit.group.members") },
+    { value: "groups", label: t("audit.group.groups") },
   ];
   const periods: SelectOption<Period>[] = [
     { value: "all", label: t("audit.period.all") },
@@ -418,6 +426,8 @@ function targetName(t: T, event: AuditEventView): string {
       return t("audit.target.invitation");
     case "service_token":
       return event.target.serviceToken ? actorName(t, event.target.serviceToken) : "";
+    case "group":
+      return groupName(t, event);
     case "brand":
     case "plan":
     case "email_domain":
@@ -429,6 +439,8 @@ function targetName(t: T, event: AuditEventView): string {
 }
 
 const role = (t: T, value: unknown) => t(ROLE_LABELS[value as WorkspaceRole]);
+/** A group by its current name; events never store it (decision 0014). */
+const groupName = (t: T, event: AuditEventView) => event.group?.name ?? t("audit.target.groupGone");
 const flag = (value: unknown) => (value === true ? "true" : "false");
 
 /** What happened, in the dashboard's language. */
@@ -527,6 +539,16 @@ export function describeAuditEvent(
         domain: String(d.domain),
         reason: String(d.reason),
       });
+    case "group.created":
+      return t("audit.kind.groupCreated", { group: groupName(t, event) });
+    case "group.renamed":
+      return t("audit.kind.groupRenamed", { group: groupName(t, event) });
+    case "group.deleted":
+      return t("audit.kind.groupDeleted", { group: groupName(t, event) });
+    case "group.member_added":
+      return t("audit.kind.groupMemberAdded", { member, group: groupName(t, event) });
+    case "group.member_removed":
+      return t("audit.kind.groupMemberRemoved", { member, group: groupName(t, event) });
     case "audit.exported":
       return t("audit.kind.exported", { format: String(d.format) });
     case "plan.granted": {
@@ -552,6 +574,13 @@ function accessChanges(t: T, d: Record<string, unknown>, locale: string | undefi
   }
   if (d.readerExceptions) {
     parts.push(t("audit.access.exceptions", { count: Number(d.readerExceptions) }));
+  }
+  if (d.groupsAdded) parts.push(t("audit.access.groupsAdded", { count: Number(d.groupsAdded) }));
+  if (d.groupsRemoved) {
+    parts.push(t("audit.access.groupsRemoved", { count: Number(d.groupsRemoved) }));
+  }
+  if (d.groupExceptions) {
+    parts.push(t("audit.access.groupExceptions", { count: Number(d.groupExceptions) }));
   }
   if (d.bar !== undefined) parts.push(t("audit.access.bar", { on: flag(d.bar) }));
   if (d.commentVisibility) {

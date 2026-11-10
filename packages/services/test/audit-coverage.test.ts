@@ -52,6 +52,11 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   operatorRevokeServiceToken: ["service_token.revoked"],
   // The workspaces the account was in each record that the member is gone.
   requestAccountDeletion: ["member.left"],
+  createWorkspaceGroup: ["group.created"],
+  renameWorkspaceGroup: ["group.renamed"],
+  deleteWorkspaceGroup: ["group.deleted"],
+  addGroupMember: ["group.member_added"],
+  removeGroupMember: ["group.member_removed"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
 };
@@ -160,6 +165,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sweepOrphanObjects",
   "rerenderDocuments",
   "runMaintenance",
+  "pruneArtifactGroups",
+  "pruneGroupTombstones",
   "relayOutbox",
   "runJob",
   "maintainWebhooks",
@@ -224,6 +231,10 @@ const READ_NAMES = new Set([
   "withActivity",
   "authorizeUploadOn",
   "policyDomains",
+  "viewerGroups",
+  "viewerGroupIds",
+  "groupMembershipsOf",
+  "groupSummaries",
   "scoped",
   "checkReadAccess",
   "checkSignInEmail",

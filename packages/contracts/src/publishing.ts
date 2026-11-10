@@ -14,6 +14,7 @@ import {
   type ErrorCode,
 } from "./core.ts";
 import { AccessAudience } from "./email-domains.ts";
+import { ArtifactGroupView, WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { LIMITS } from "./limits.ts";
 import { SuspensionView } from "./moderation.ts";
 import { PublishKey } from "./service-tokens.ts";
@@ -286,6 +287,12 @@ export const AccessPolicyView = z.object({
    * for a personal artifact, where neither mode exists.
    */
   audience: AccessAudience.nullable(),
+  /**
+   * Groups of the owning workspace on the artifact (decision 0014): their members read it in
+   * `restricted` mode like listed readers, and each may carry a comment visibility exception.
+   * Empty for a personal artifact, and for a service token without `artifacts:share`.
+   */
+  groups: z.array(ArtifactGroupView),
 });
 export type AccessPolicyView = z.infer<typeof AccessPolicyView>;
 
@@ -311,6 +318,14 @@ export const AccessUpdate = z
       .array(z.object({ email: Email, commentVisibility: ReaderCommentVisibility }))
       .max(LIMITS.readersPerChange)
       .optional(),
+    /** Groups of the artifact's workspace to list or unlist, by ID (decision 0014). */
+    addGroups: z.array(WorkspaceGroupId).max(WORKSPACE_GROUPS.perArtifact).optional(),
+    removeGroups: z.array(WorkspaceGroupId).max(WORKSPACE_GROUPS.perArtifact).optional(),
+    /** Exceptions for groups on the artifact, like `readerCommentVisibility`. One per group. */
+    groupCommentVisibility: z
+      .array(z.object({ group: WorkspaceGroupId, commentVisibility: ReaderCommentVisibility }))
+      .max(WORKSPACE_GROUPS.perArtifact)
+      .optional(),
   })
   .refine((update) => Object.values(update).some((value) => value !== undefined), {
     message: "Send at least one change.",
@@ -321,6 +336,13 @@ export const AccessUpdate = z
       return new Set(emails).size === emails.length;
     },
     { message: "Send one comment visibility per reader.", path: ["readerCommentVisibility"] },
+  )
+  .refine(
+    (update) => {
+      const groups = (update.groupCommentVisibility ?? []).map((entry) => entry.group);
+      return new Set(groups).size === groups.length;
+    },
+    { message: "Send one comment visibility per group.", path: ["groupCommentVisibility"] },
   );
 export type AccessUpdate = z.infer<typeof AccessUpdate>;
 

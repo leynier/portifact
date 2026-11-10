@@ -603,7 +603,7 @@ describe("invitations", () => {
     const { invitee } = await invited(t, "member");
     const exported = value(await exportAccount(db(), { userId: t.editor.id, now: NOW }));
     expect(exported.workspaces).toEqual([
-      { slug: t.slug, name: "Team", role: "editor", joinedAt: expect.any(String) },
+      { slug: t.slug, name: "Team", role: "editor", joinedAt: expect.any(String), groups: [] },
     ]);
     const theirs = value(await exportAccount(db(), { userId: invitee.id, now: NOW }));
     expect(theirs.workspaces).toEqual([]);

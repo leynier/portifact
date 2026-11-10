@@ -57,6 +57,8 @@ import {
   type WebhookAttempt,
   type WebhookView,
   type WorkspaceDomainView,
+  WorkspaceGroupCreate,
+  type WorkspaceGroupView,
   type WorkspaceMemberView,
   type WorkspaceView,
 } from "@portifact/contracts";
@@ -357,6 +359,8 @@ export interface FakeWorkspace {
   dns: Record<string, string[]>;
   /** The plan includes workspace sharing. */
   domainsAvailable: boolean;
+  /** Its groups (decision 0014), with their members' user IDs. */
+  groups: (WorkspaceGroupView & { memberIds: string[] })[];
 }
 
 export function workspace(
@@ -398,6 +402,7 @@ export function workspace(
     domains: [],
     dns: {},
     domainsAvailable: true,
+    groups: [],
     ...rest,
   };
 }
@@ -1020,6 +1025,9 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
     server.workspaces[target.slug] = workspace(target.slug, role, { name: target.name });
     return json(server.workspaces[target.slug]?.view);
   }
+  const groups =
+    /^\/api\/v1\/workspaces\/([^/]+)\/groups(?:\/([^/]+))?(?:\/members(?:\/([^/]+))?)?$/.exec(path);
+  if (groups) return groupRoute(server, groups, path, method, body);
   const tokens = /^\/api\/v1\/workspaces\/([^/]+)\/service-tokens(?:\/([^/]+))?$/.exec(path);
   if (tokens) return serviceTokenRoute(server, tokens, method, body);
   const scoped = /^\/api\/v1\/workspaces\/([^/]+)\/(members|invitations|leave)(?:\/([^/]+))?$/.exec(
@@ -1569,6 +1577,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       commentVisibility: "owner",
       readerCommentVisibility: [],
       policyGeneration: 1,
+      groups: [],
       audience:
         owned.owner.kind === "workspace"
           ? {
@@ -1582,7 +1591,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     };
     server.access[owned.id] = policy;
     if (method === "GET") return Response.json(policy);
-    return applyAccess(owned, policy, server.bodies.at(-1));
+    return applyAccess(owned, policy, server.bodies.at(-1), space);
   }
   if (path === "/api/auth/sign-out" && method === "POST") return Response.json({ success: true });
   if (path === "/api/v1/artifacts" && method === "GET") {
@@ -1961,7 +1970,12 @@ function reviewRoute(
 }
 
 /** What PATCH /access does in the Worker, minus the account-age rule. */
-function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: unknown): Response {
+function applyAccess(
+  artifact: ArtifactSummary,
+  policy: AccessPolicyView,
+  body: unknown,
+  space?: FakeWorkspace,
+): Response {
   const change = AccessUpdate.safeParse(body);
   if (!change.success) {
     return Response.json({ error: { code: "invalid_input", message: "x" } }, { status: 400 });
@@ -1975,7 +1989,29 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
     addReaders = [],
     removeReaders = [],
     readerCommentVisibility = [],
+    addGroups = [],
+    removeGroups = [],
+    groupCommentVisibility = [],
   } = change.data;
+  // Groups as the Worker checks them (decision 0014): only the workspace's, with its plan.
+  const groups = new Map(
+    policy.groups.filter((g) => !removeGroups.includes(g.id)).map((g) => [g.id, { ...g }]),
+  );
+  for (const id of addGroups) {
+    if (!space) return apiError("invalid_input", 400);
+    if (!space.domainsAvailable) return apiError("plan_required", 403);
+    const group = space.groups.find((g) => g.id === id);
+    if (!group) return apiError("invalid_input", 400);
+    if (!groups.has(id)) {
+      groups.set(id, { id, name: group.name, members: group.members, commentVisibility: null });
+    }
+  }
+  for (const entry of groupCommentVisibility) {
+    const group = groups.get(entry.group);
+    if (!group) return apiError("invalid_input", 400);
+    group.commentVisibility =
+      entry.commentVisibility === "inherit" ? null : entry.commentVisibility;
+  }
   const readers = new Set(policy.readers.filter((email) => !removeReaders.includes(email)));
   for (const email of addReaders) readers.add(email);
   if (readers.size > LIMITS.readersPerArtifact) {
@@ -2003,6 +2039,7 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
     readerCommentVisibility: [...exceptions]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([email, scope]) => ({ email, commentVisibility: scope })),
+    groups: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name)),
     policyGeneration: policy.policyGeneration + 1,
   });
   artifact.accessMode = policy.mode;
@@ -2086,6 +2123,76 @@ export function selectOptions(name: string): { options: string[]; chosen: string
   };
   fireEvent.keyDown(trigger, { key: "Escape" });
   return result;
+}
+
+/** The group routes of a workspace, as apps/app/src/api/workspaces.ts answers them. */
+function groupRoute(
+  server: FakeServer,
+  match: RegExpExecArray,
+  path: string,
+  method: string,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  const id = match[2] ? decodeURIComponent(match[2]) : undefined;
+  const membersPath = path.includes("/members");
+  const memberId = match[3] ? decodeURIComponent(match[3]) : undefined;
+  const view = ({ memberIds: _, ...group }: FakeWorkspace["groups"][number]) => group;
+  if (!id && method === "GET") {
+    if (w.view.role === "member") return apiError("forbidden", 403);
+    return json({ items: w.groups.map(view), available: w.domainsAvailable, limit: 50 });
+  }
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  if (!id && method === "POST") {
+    if (!w.domainsAvailable) return apiError("plan_required", 403);
+    const parsed = WorkspaceGroupCreate.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    const group = {
+      id: `wg_${String(w.groups.length + 1).padStart(32, "0")}`,
+      name: parsed.data.name,
+      members: 0,
+      createdAt: NOW,
+      memberIds: [],
+    };
+    w.groups.push(group);
+    return json(view(group), 201);
+  }
+  const group = w.groups.find((g) => g.id === id);
+  if (!group) return apiError("not_found", 404);
+  const detail = () => ({
+    group: view(group),
+    items: group.memberIds.flatMap((userId) => {
+      const m = w.members.find((one) => one.userId === userId);
+      return m ? [{ userId, name: m.name, email: m.email, role: m.role, addedAt: NOW }] : [];
+    }),
+    limit: 500,
+  });
+  if (membersPath && method === "POST") {
+    if (!w.domainsAvailable) return apiError("plan_required", 403);
+    const userId = String(body?.userId ?? "");
+    if (!w.members.some((m) => m.userId === userId)) return apiError("not_found", 404);
+    if (!group.memberIds.includes(userId)) group.memberIds.push(userId);
+    group.members = group.memberIds.length;
+    return json(detail(), 201);
+  }
+  if (membersPath && memberId && method === "DELETE") {
+    group.memberIds = group.memberIds.filter((userId) => userId !== memberId);
+    group.members = group.memberIds.length;
+    return new Response(null, { status: 204 });
+  }
+  if (method === "GET") return json(detail());
+  if (method === "PATCH") {
+    const parsed = WorkspaceGroupCreate.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    group.name = parsed.data.name;
+    return json(view(group));
+  }
+  if (method === "DELETE") {
+    w.groups = w.groups.filter((g) => g !== group);
+    return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
 }
 
 /** The service token routes of a workspace, as apps/app/src/api/workspaces.ts answers them. */

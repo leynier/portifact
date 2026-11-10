@@ -163,6 +163,32 @@ export const artifactReaders = sqliteTable(
 );
 
 /**
+ * Groups of the owning workspace a `restricted` artifact lists (decision 0014), with their
+ * exception to who sees the comments. Regional, with the artifact; the group is global, so there
+ * is no foreign key to it: a row whose group is gone grants nothing (reading checks the global
+ * membership) and the maintenance scan removes it, oldest `checked_at` first.
+ */
+export const artifactGroups = sqliteTable(
+  "artifact_groups",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    groupId: text("group_id").notNull(),
+    /** Like `artifact_readers.comment_visibility`; null inherits the artifact's setting. */
+    commentVisibility: text("comment_visibility", { enum: ["all", "own"] }),
+    createdAt: timestamp("created_at").notNull(),
+    /** When the scan last found the group alive; null until the first scan. */
+    checkedAt: timestamp("checked_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.groupId] }),
+    index("artifact_groups_group_idx").on(t.groupId),
+    index("artifact_groups_checked_idx").on(t.checkedAt),
+  ],
+);
+
+/**
  * One-use codes that carry a sign-in from app.portifact.com to an artifact origin. Only the
  * SHA-256 of the code and of the origin's transaction nonce are stored. Redeeming sets
  * `used_at` and the read session it created, in the same guarded update.
@@ -764,7 +790,8 @@ export const tombstones = sqliteTable(
      * `share_link` marks a revoked share link (decision 0008), `webhook` a removed webhook
      * (decision 0009) and `service_token` a revoked service token (decision 0011), so a restore
      * cannot revive them; `workspace` a deleted workspace; `workspace_domain` a removed or lapsed
-     * verified email domain by its row ID (decision 0010).
+     * verified email domain by its row ID (decision 0010); `workspace_group` a deleted group and
+     * `workspace_group_member` a removed group membership by its row ID (decision 0014).
      */
     kind: text("kind", {
       enum: [
@@ -775,6 +802,8 @@ export const tombstones = sqliteTable(
         "webhook",
         "service_token",
         "workspace_domain",
+        "workspace_group",
+        "workspace_group_member",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1649,6 +1678,63 @@ export const workspaceDomains = sqliteTable(
     uniqueIndex("workspace_domains_verified_idx").on(t.domain).where(sql`${t.state} = 'verified'`),
     index("workspace_domains_state_checked_idx").on(t.state, t.checkedAt),
     check("workspace_domains_state", sql`${t.state} in ('pending', 'verified')`),
+  ],
+);
+
+/**
+ * Groups of a workspace (premium plan T3, decision 0014): a named set of its members that
+ * `restricted` artifacts of the workspace can list. Global, like the workspace and its members.
+ * Names are unique in the workspace without regard to ASCII case. Rows go with the workspace;
+ * deleting one writes a `workspace_group` tombstone so a restore cannot bring it back.
+ */
+export const workspaceGroups = sqliteTable(
+  "workspace_groups",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    // The parent key of the memberships' composite foreign key.
+    uniqueIndex("workspace_groups_workspace_id_idx").on(t.workspaceId, t.id),
+    uniqueIndex("workspace_groups_workspace_name_idx").on(t.workspaceId, sql`lower(${t.name})`),
+    check("workspace_groups_name_length", sql`length(${t.name}) between 1 and 80`),
+  ],
+);
+
+/**
+ * Who is in a group. Both composite foreign keys hold a membership to its workspace: the group
+ * must be the workspace's, and the person must be a member of it, so leaving or being removed
+ * from the workspace (or deleting the account) removes them from its groups by cascade. Each row
+ * has its own ID, which a `workspace_group_member` tombstone names when it is removed, so a later
+ * membership of the same person survives a restore.
+ */
+export const workspaceGroupMembers = sqliteTable(
+  "workspace_group_members",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.workspaceId, t.groupId],
+      foreignColumns: [workspaceGroups.workspaceId, workspaceGroups.id],
+      name: "workspace_group_members_group_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.workspaceId, t.userId],
+      foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId],
+      name: "workspace_group_members_member_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("workspace_group_members_group_user_idx").on(t.groupId, t.userId),
+    index("workspace_group_members_member_idx").on(t.workspaceId, t.userId),
   ],
 );
 

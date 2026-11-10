@@ -5,6 +5,7 @@
 import {
   type AccessAudience,
   type AccessMode,
+  type ArtifactGroupView,
   type CommentScope,
   type CommentVisibility,
   isWorkspaceAccessMode,
@@ -16,6 +17,7 @@ import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   checkAccessChange,
+  checkArtifactGroups,
   checkCommentVisibilityChange,
   emailDomains,
   entitlements,
@@ -32,6 +34,7 @@ import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { accessAudience } from "./workspace-domains.ts";
+import { artifactGroupRows, groupSummaries } from "./workspace-groups.ts";
 
 export interface AccessPolicyState {
   mode: AccessMode;
@@ -45,6 +48,8 @@ export interface AccessPolicyState {
   policyGeneration: number;
   /** Who the workspace modes reach on the owner; null for a personal artifact. */
   audience: AccessAudience | null;
+  /** Groups of the owning workspace the artifact lists (decision 0014). */
+  groups: ArtifactGroupView[];
 }
 
 export interface AccessChange {
@@ -59,6 +64,13 @@ export interface AccessChange {
   /** Exceptions for readers on the list after this change; `inherit` drops one. */
   readerCommentVisibility?:
     | readonly { email: string; commentVisibility: ReaderCommentVisibility }[]
+    | undefined;
+  /** Groups of the artifact's workspace, by ID (decision 0014). */
+  addGroups?: readonly string[] | undefined;
+  removeGroups?: readonly string[] | undefined;
+  /** Exceptions for groups on the artifact after this change; `inherit` drops one. */
+  groupCommentVisibility?:
+    | readonly { group: string; commentVisibility: ReaderCommentVisibility }[]
     | undefined;
 }
 
@@ -75,7 +87,9 @@ function changesAccess(change: AccessChange): boolean {
     change.indexable !== undefined ||
     change.embeddable !== undefined ||
     (change.addReaders?.length ?? 0) > 0 ||
-    (change.removeReaders?.length ?? 0) > 0
+    (change.removeReaders?.length ?? 0) > 0 ||
+    (change.addGroups?.length ?? 0) > 0 ||
+    (change.removeGroups?.length ?? 0) > 0
   );
 }
 
@@ -166,8 +180,10 @@ export async function getAccess(
   const loaded = await loadManaged(db, input.userId, input.artifactId);
   if (!loaded.ok) return loaded;
   const { artifact, actor } = loaded.value;
-  // A token without `artifacts:share` reads the policy without the readers' addresses.
-  const rows = seesReaders(actor.token) ? await readerRows(db, artifact.id) : [];
+  // A token without `artifacts:share` reads the policy without the readers' addresses or groups.
+  const sees = seesReaders(actor.token);
+  const rows = sees ? await readerRows(db, artifact.id) : [];
+  const groups = sees ? await groupViews(db, artifact.ownerId, artifact.id) : [];
   const audience = await accessAudience(
     db.global,
     artifact.ownerId,
@@ -187,7 +203,96 @@ export async function getAccess(
     ),
     policyGeneration: artifact.policyGeneration,
     audience,
+    groups,
   });
+}
+
+/**
+ * The groups an artifact lists, with their current names and member counts (global) and their
+ * exceptions (regional), by name. A listed group that was deleted is left out: it grants nothing
+ * and the maintenance scan removes its row.
+ */
+async function groupViews(
+  db: RegionalDb,
+  ownerId: string,
+  artifactId: string,
+): Promise<ArtifactGroupView[]> {
+  if (!isWorkspaceId(ownerId)) return [];
+  const rows = await artifactGroupRows(db, artifactId);
+  const summaries = await groupSummaries(
+    db.global,
+    ownerId,
+    rows.map((row) => row.groupId),
+  );
+  return rows
+    .flatMap((row) => {
+      const summary = summaries.get(row.groupId);
+      return summary
+        ? [
+            {
+              id: row.groupId,
+              name: summary.name,
+              members: summary.members,
+              commentVisibility: row.commentVisibility,
+            },
+          ]
+        : [];
+    })
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+}
+
+/**
+ * Checks the groups of a change against the artifact (decision 0014): only a workspace artifact
+ * lists groups, adding one needs `workspaces` in the owner's plan and a group of that workspace,
+ * at most `WORKSPACE_GROUPS.perArtifact` stay listed, and an exception names a group that is
+ * listed after the change. Removing never needs the plan. Returns the groups to add and remove.
+ */
+async function checkGroupChange(
+  db: RegionalDb,
+  artifact: { id: string; ownerId: string },
+  change: AccessChange,
+  owner: ReturnType<typeof entitlements>,
+): Promise<
+  Result<{ add: string[]; remove: string[]; stale: string[]; after: string[] | undefined }>
+> {
+  const add = [...new Set(change.addGroups ?? [])];
+  const remove = [...new Set(change.removeGroups ?? [])].filter((id) => !add.includes(id));
+  const exceptions = change.groupCommentVisibility ?? [];
+  if (add.length === 0 && remove.length === 0 && exceptions.length === 0) {
+    return ok({ add, remove, stale: [], after: undefined });
+  }
+  // Rows whose group was deleted grant nothing and are not shown: they do not count toward the
+  // cap, and this change removes them (decision 0014, "Data and regions").
+  const listed = (await artifactGroupRows(db, artifact.id)).map((row) => row.groupId);
+  const alive = isWorkspaceId(artifact.ownerId)
+    ? await groupSummaries(db.global, artifact.ownerId, listed)
+    : new Map();
+  const current = listed.filter((id) => alive.has(id));
+  const stale = listed.filter((id) => !alive.has(id) && !add.includes(id));
+  const adding = add.filter((id) => !current.includes(id));
+  const after = new Set([...current.filter((id) => !remove.includes(id)), ...add]);
+  const allowed = checkArtifactGroups({
+    ownerId: artifact.ownerId,
+    adding: adding.length > 0,
+    after: after.size,
+  });
+  if (!allowed.ok) return allowed;
+  if (adding.length > 0) {
+    const gate = requireFeature(owner, "workspaces");
+    if (!gate.ok) return gate;
+    const known = await groupSummaries(db.global, artifact.ownerId, adding);
+    const unknown = adding.find((id) => !known.has(id));
+    if (unknown) return fail("invalid_input", `${unknown} is not a group of this workspace.`);
+  }
+  // An exception belongs to a group on the artifact; it never adds one.
+  const unlisted = exceptions.find((entry) => !after.has(entry.group));
+  if (unlisted) {
+    return fail(
+      "invalid_input",
+      `${unlisted.group} is not on the artifact. Add the group before choosing what it sees.`,
+    );
+  }
+  return ok({ add, remove, stale, after: [...after] });
 }
 
 /**
@@ -251,12 +356,22 @@ export async function updateAccess(
     }
   }
 
+  const groupChange = await checkGroupChange(db, artifact, change, owner);
+  if (!groupChange.ok) return groupChange;
+  const {
+    add: addGroups,
+    remove: removeGroups,
+    stale: staleGroups,
+    after: groupsAfter,
+  } = groupChange.value;
+  const groupExceptions = change.groupCommentVisibility ?? [];
+
   const unchangedPolicy = sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifact.id} and ${schema.artifacts.ownerId} = ${artifact.ownerId} and ${schema.artifacts.policyGeneration} = ${artifact.policyGeneration})`;
   // Approval reviewers who would no longer take part stop counting with this change, in its
   // batch and on its condition (decision 0013).
   const modeChanges = change.mode !== undefined && change.mode !== artifact.accessMode;
   const reviewDrops =
-    remove.length > 0 || modeChanges
+    remove.length > 0 || modeChanges || removeGroups.length > 0
       ? await approvalAccessStatements(db, {
           artifact,
           policy: {
@@ -265,6 +380,9 @@ export async function updateAccess(
               ...(await readers(db, artifact.id)).filter((email) => !remove.includes(email)),
               ...add,
             ],
+            // A group removed with this change stops admitting its members as reviewers in the
+            // same batch, like a removed reader (decision 0014).
+            ...(groupsAfter === undefined ? {} : { groups: groupsAfter }),
           },
           owner,
           condition: unchangedPolicy,
@@ -312,6 +430,42 @@ export async function updateAccess(
           ),
         ),
     ),
+    // Groups (decision 0014), like readers: removals, inserts, then exceptions.
+    ...(removeGroups.length + staleGroups.length > 0
+      ? [
+          db
+            .delete(schema.artifactGroups)
+            .where(
+              and(
+                eq(schema.artifactGroups.artifactId, artifact.id),
+                inArray(schema.artifactGroups.groupId, [...removeGroups, ...staleGroups]),
+                unchanged,
+              ),
+            ),
+        ]
+      : []),
+    ...addGroups.map((groupId) =>
+      db
+        .insert(schema.artifactGroups)
+        // Columns in schema order: artifact, group, comment visibility (inherited), created,
+        // checked.
+        .select(sql`select ${artifact.id}, ${groupId}, null, ${input.now}, null where ${unchanged}`)
+        .onConflictDoNothing(),
+    ),
+    ...groupExceptions.map((entry) =>
+      db
+        .update(schema.artifactGroups)
+        .set({
+          commentVisibility: entry.commentVisibility === "inherit" ? null : entry.commentVisibility,
+        })
+        .where(
+          and(
+            eq(schema.artifactGroups.artifactId, artifact.id),
+            eq(schema.artifactGroups.groupId, entry.group),
+            unchanged,
+          ),
+        ),
+    ),
     // Before the guarded update and on the same old state: the event exists exactly when the
     // change does. Only changes that move the generation are access changes for webhooks.
     ...(changesAccess(change)
@@ -334,6 +488,9 @@ export async function updateAccess(
       added: add,
       removed: remove,
       exceptions: exceptions.length,
+      groupsAdded: addGroups.length,
+      groupsRemoved: removeGroups.length,
+      groupExceptions: groupExceptions.length,
       now: input.now,
       condition: unchanged,
     }),
@@ -375,6 +532,9 @@ export async function updateAccess(
       removed: remove.length,
       ...(change.commentVisibility ? { commentVisibility: change.commentVisibility } : {}),
       ...(exceptions.length > 0 ? { readerExceptions: exceptions.length } : {}),
+      ...(addGroups.length > 0 ? { groupsAdded: addGroups.length } : {}),
+      ...(removeGroups.length > 0 ? { groupsRemoved: removeGroups.length } : {}),
+      ...(groupExceptions.length > 0 ? { groupExceptions: groupExceptions.length } : {}),
     },
     at: input.now,
   });
@@ -403,6 +563,9 @@ function accessAuditEvent(
     added: string[];
     removed: string[];
     exceptions: number;
+    groupsAdded: number;
+    groupsRemoved: number;
+    groupExceptions: number;
     now: number;
     condition: SQL;
   },
@@ -423,6 +586,9 @@ function accessAuditEvent(
       ? { readerDomains: emailDomains([...input.added, ...input.removed]) }
       : {}),
     ...(input.exceptions > 0 ? { readerExceptions: input.exceptions } : {}),
+    ...(input.groupsAdded > 0 ? { groupsAdded: input.groupsAdded } : {}),
+    ...(input.groupsRemoved > 0 ? { groupsRemoved: input.groupsRemoved } : {}),
+    ...(input.groupExceptions > 0 ? { groupExceptions: input.groupExceptions } : {}),
     ...(bar ? { bar: bar.value } : {}),
     ...(commentVisibility ? { commentVisibility: commentVisibility.value } : {}),
     ...(indexable ? { indexable: indexable.value } : {}),

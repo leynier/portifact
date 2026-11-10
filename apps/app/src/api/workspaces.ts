@@ -23,10 +23,18 @@ import {
   ServiceTokenId,
   ServiceTokenList,
   WORKSPACE_DOMAINS,
+  WORKSPACE_GROUPS,
   WorkspaceDomainCreate,
   WorkspaceDomainId,
   WorkspaceDomainList,
   WorkspaceDomainView,
+  WorkspaceGroupCreate,
+  WorkspaceGroupDetail,
+  WorkspaceGroupId,
+  WorkspaceGroupList,
+  WorkspaceGroupMemberAdd,
+  WorkspaceGroupRename,
+  WorkspaceGroupView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
@@ -37,11 +45,18 @@ import { domainRecord } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
   acceptInvitation,
+  addGroupMember,
   addWorkspaceDomain,
   changeMemberRole,
   createServiceToken,
+  createWorkspaceGroup,
   declineInvitation,
+  deleteWorkspaceGroup,
   type EmailDomainDeps,
+  type GroupList,
+  type GroupMemberRow,
+  type GroupRow,
+  getWorkspaceGroup,
   type InvitationKey,
   type InvitationRow,
   type InvitationSender,
@@ -53,10 +68,13 @@ import {
   listServiceTokens,
   listUserWorkspaces,
   listWorkspaceDomains,
+  listWorkspaceGroups,
   lookupInvitation,
   type MemberRow,
+  removeGroupMember,
   removeMember,
   removeWorkspaceDomain,
+  renameWorkspaceGroup,
   revokeInvitation,
   revokeServiceToken,
   type UserWorkspace,
@@ -167,13 +185,51 @@ export function invitationSender(
   };
 }
 
+export function groupView(row: GroupRow): WorkspaceGroupView {
+  return WorkspaceGroupView.parse({
+    id: row.id,
+    name: row.name,
+    members: row.members,
+    createdAt: iso(row.createdAt),
+  });
+}
+
+/** A workspace's groups: names and counts only, never members (decision 0014). */
+export function groupListView(list: GroupList): WorkspaceGroupList {
+  return WorkspaceGroupList.parse({
+    items: list.groups.map(groupView),
+    available: list.available,
+    limit: WORKSPACE_GROUPS.perWorkspace,
+  });
+}
+
 /** The read routes, behind the API's bearer-or-session gate. */
-export function workspaceReadRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded) {
+export function workspaceReadRoutes(
+  api: Hono<{ Bindings: Env }>,
+  guarded: Guarded,
+  now: () => number,
+) {
   api.get(
     "/api/v1/workspaces",
     guarded("artifacts:read", async (c, userId) =>
       c.json(workspaceListView(await listUserWorkspaces(regionsOf(c.env).global, userId))),
     ),
+  );
+  // Group IDs, names and member counts, to use them in artifacts' access: admins and editors,
+  // and a service token with `artifacts:share` (the service decides). Never the members.
+  api.get(
+    "/api/v1/workspaces/:slug/groups",
+    guarded("artifacts:read", async (c, userId) => {
+      const slug = WorkspaceSlug.safeParse(c.req.param("slug"));
+      if (!slug.success) return error(c, "not_found", "Workspace not found.");
+      const result = await listWorkspaceGroups(regionsOf(c.env).global, {
+        userId,
+        slug: slug.data,
+        now: now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(groupListView(result.value));
+    }),
   );
 }
 
@@ -518,6 +574,110 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json({ id: id.data, removed: true });
+    }),
+  );
+
+  // Groups (decision 0014): admins manage them through the dashboard session only, like the
+  // members they hold. Listing names and counts is the read route above.
+  const detailView = (detail: { group: GroupRow; members: GroupMemberRow[] }) =>
+    WorkspaceGroupDetail.parse({
+      group: groupView(detail.group),
+      items: detail.members.map((row) => ({ ...row, addedAt: iso(row.addedAt) })),
+      limit: WORKSPACE_GROUPS.membersPerGroup,
+    });
+  /** Answers a service result: the error's status and body, or `done` with the value. */
+  const reply = <T>(
+    c: WorkspaceContext,
+    result: { ok: true; value: T } | { ok: false; code: ErrorCode; message: string },
+    done: (value: T) => Response,
+  ) => (result.ok ? done(result.value) : error(c, result.code, result.message));
+  /**
+   * A group route: the session check, then the slug and (unless `list`) the group ID from the
+   * path, each answering like a missing one when malformed.
+   */
+  const groupRoute = (
+    handler: (
+      c: WorkspaceContext,
+      ids: { userId: string; slug: string; groupId: string },
+    ) => Promise<Response>,
+    list = false,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const groupId = list ? "" : WorkspaceGroupId.safeParse(c.req.param("groupId")).data;
+      if (groupId === undefined) return error(c, "not_found", "Group not found.");
+      return handler(c, { userId, slug, groupId });
+    }, "Groups are managed from the dashboard.");
+
+  routes.post(
+    "/api/v1/workspaces/:slug/groups",
+    groupRoute(async (c, { userId, slug }) => {
+      const body = await readJson(c, WorkspaceGroupCreate);
+      if (!body.ok) return body.response;
+      const result = await createWorkspaceGroup(global(c), {
+        userId,
+        slug,
+        name: body.value.name,
+        now: deps.now(),
+      });
+      return reply(c, result, (group) => c.json(groupView(group), 201));
+    }, true),
+  );
+
+  routes.get(
+    "/api/v1/workspaces/:slug/groups/:groupId",
+    groupRoute(async (c, ids) =>
+      reply(c, await getWorkspaceGroup(global(c), ids), (detail) => c.json(detailView(detail))),
+    ),
+  );
+
+  routes.patch(
+    "/api/v1/workspaces/:slug/groups/:groupId",
+    groupRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspaceGroupRename);
+      if (!body.ok) return body.response;
+      const result = await renameWorkspaceGroup(global(c), {
+        ...ids,
+        name: body.value.name,
+        now: deps.now(),
+      });
+      return reply(c, result, (group) => c.json(groupView(group)));
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/groups/:groupId",
+    groupRoute(async (c, ids) =>
+      reply(c, await deleteWorkspaceGroup(global(c), { ...ids, now: deps.now() }), () =>
+        c.body(null, 204),
+      ),
+    ),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/groups/:groupId/members",
+    groupRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspaceGroupMemberAdd);
+      if (!body.ok) return body.response;
+      const input = { ...ids, memberId: body.value.userId, now: deps.now() };
+      const added = await addGroupMember(global(c), input);
+      if (!added.ok) return error(c, added.code, added.message);
+      return reply(c, await getWorkspaceGroup(global(c), input), (detail) =>
+        c.json(detailView(detail), 201),
+      );
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/groups/:groupId/members/:userId",
+    groupRoute(async (c, ids) => {
+      const result = await removeGroupMember(global(c), {
+        ...ids,
+        memberId: c.req.param("userId") as string,
+        now: deps.now(),
+      });
+      return reply(c, result, () => c.body(null, 204));
     }),
   );
 
