@@ -7,7 +7,8 @@
 // The app Worker gets the two external boundaries of sign-in replaced, like the app tests do:
 // emails are kept in the local bucket for the control host to read (`/mail`), and siteverify
 // accepts only the fake Turnstile's token (../src/turnstile-fake.ts). Custom domains use the
-// in-memory Cloudflare and DNS of ./domains.ts, which the control host drives.
+// in-memory Cloudflare and DNS of ./domains.ts, which the control host drives. Single sign-on
+// talks to the fake identity provider of ./sso.ts, whose authorize page this Worker serves too.
 
 import { workerDeps } from "../../apps/app/src/auth/deps.ts";
 import type { EmailSender } from "../../apps/app/src/auth/email.ts";
@@ -18,11 +19,12 @@ import {
   isolateOpenings,
   isolateViews,
 } from "../../apps/content/src/index.ts";
-import { SITE_HOST } from "../src/hosts.ts";
+import { IDP_HOST, SITE_HOST } from "../src/hosts.ts";
 import { TURNSTILE_PASS } from "../src/turnstile-fake.ts";
 import { contentNow } from "./clock.ts";
 import { CONTROL_HOST, control, type E2eEnv, MAIL_PREFIX } from "./control.ts";
 import { e2eDomains } from "./domains.ts";
+import { e2eIdp, idpPage } from "./sso.ts";
 
 function capturedEmail(bucket: R2Bucket): EmailSender {
   return {
@@ -47,6 +49,7 @@ const app = createWorker((env) => ({
   domains: e2eDomains,
   // Workspace email domain proofs read the same in-memory DNS; never the real resolver.
   emailDomains: { txt: e2eDomains.txt },
+  ssoFetch: e2eIdp.fetch,
 }));
 
 /**
@@ -71,6 +74,7 @@ export default {
   async fetch(request, env, ctx) {
     const host = new URL(request.url).hostname;
     if (host === CONTROL_HOST) return control(request, env);
+    if (host === IDP_HOST) return idpPage(request);
     // The site host plays portifact.com, which the app Worker serves by that exact name.
     if (host === SITE_HOST) {
       const url = new URL(request.url);

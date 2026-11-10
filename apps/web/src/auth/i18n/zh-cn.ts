@@ -27,6 +27,8 @@ const messages = {
   methodConnected: "已关联",
   methodNotUsed: "尚未使用",
   redirecting: "正在为你登录。",
+  ssoFor: (email: string) => `${email} 通过你所在组织的身份提供方登录。`,
+  ssoShown: "你所在的组织使用单点登录。继续使用它，或改为获取邮箱验证码。",
   termsUpdateFor: (email: string) => `已以 ${email} 的身份登录`,
   providerErrors: {
     human_verification_required:
@@ -42,6 +44,17 @@ const messages = {
     artifact_unavailable:
       "此 artifact 不存在、已不可用，或无法用此账号打开。如需使用其他账号，请退出登录后重新打开链接。",
     read_rate_limited: "此账号在短时间内打开了过多 artifact。请等待几分钟后重新打开链接。",
+    sso_unavailable: "此地址目前无法使用单点登录。请用其他方式登录，或联系你的工作区管理员。",
+    sso_email_outside_domain:
+      "你所在组织的身份提供方返回了不在其已验证域名内的地址，因此 Portifact 无法使用。请联系你的工作区管理员。",
+    sso_failed: "单点登录未完成。请重试；如果仍然失败，请用邮箱验证码登录并告知你的工作区管理员。",
+    sso_workspace_full:
+      "你所在组织的工作区没有空余席位，因此你无法加入。请向管理员申请席位，然后重新登录。",
+    sso_email_unverified:
+      "你所在组织的身份提供方未验证此地址，因此 Portifact 无法使用。请联系你的工作区管理员。",
+    sso_link_required:
+      "此地址已有 Portifact 账户。请先用邮箱验证码或常用方式登录一次，然后在此页面选择“关联单点登录”。",
+    sso_removed: "工作区管理员已将你移除，因此你无法通过单点登录重新加入。请让管理员再次邀请你。",
   },
   providerErrorFallback: "登录未完成。请重试。",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -146,6 +159,12 @@ export const zhCN: AuthCatalog = {
     "login.termsUpdateNotice": `选择“同意并继续”，${termsConditions}`,
     "login.agreeAndContinue": "同意并继续",
     "login.termsNotice": `继续使用 Google、GitHub 或邮箱验证码登录，${termsConditions}`,
+    "login.termsNoticeSso": `继续使用 Google、GitHub、邮箱验证码或单点登录，${termsConditions}`,
+    "login.ssoHeading": "你所在的组织使用单点登录",
+    "login.ssoContinue": "使用单点登录继续",
+    "login.ssoUseCode": "改为获取邮箱验证码",
+    "login.ssoLinkHint": "你所在的组织使用单点登录。将其与此账户关联一次，下次即可使用。",
+    "login.ssoLink": "关联单点登录",
     "login.google": "使用 Google 继续",
     "login.github": "使用 GitHub 继续",
     "login.orEmail": "或使用邮箱",

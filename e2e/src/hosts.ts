@@ -38,9 +38,18 @@ export function artifactOrigin(id: string): string {
   return `https://${id}.${CONTENT_SITE}`;
 }
 
+/**
+ * A workspace's identity provider for single sign-on (decision 0016), played by the e2e Worker
+ * with the fake OpenID Connect provider (worker/sso.ts). A public-looking name: the app refuses
+ * reserved ones as an issuer.
+ */
+export const IDP_HOST = "login.sso-e2e.example.com";
+export const IDP_ISSUER = `https://${IDP_HOST}`;
+
 export function isStackHost(host: string): boolean {
   return (
     host === APP_HOST ||
+    host === IDP_HOST ||
     host === SITE_HOST ||
     host === REDIRECT_HOST ||
     host.endsWith(`.${CONTENT_SITE}`) ||

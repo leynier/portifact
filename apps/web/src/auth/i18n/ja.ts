@@ -29,6 +29,9 @@ const messages = {
   methodConnected: "連携済み",
   methodNotUsed: "未使用",
   redirecting: "サインインしています。",
+  ssoFor: (email: string) => `${email} は組織の ID プロバイダーでサインインします。`,
+  ssoShown:
+    "あなたの組織はシングルサインオンを使っています。そのまま続行するか、メールのコードを受け取ってください。",
   termsUpdateFor: (email: string) => `${email}としてサインイン中`,
   providerErrors: {
     human_verification_required:
@@ -47,6 +50,20 @@ const messages = {
       "このartifactは存在しないか、利用できなくなったか、このアカウントでは開けません。別のアカウントを使用するには、サインアウトしてからリンクをもう一度開いてください。",
     read_rate_limited:
       "このアカウントは短時間に多くのartifactを開きすぎました。数分待ってから、リンクをもう一度開いてください。",
+    sso_unavailable:
+      "このアドレスでは現在シングルサインオンを使えません。別の方法でサインインするか、ワークスペースの管理者に問い合わせてください。",
+    sso_email_outside_domain:
+      "組織の ID プロバイダーが確認済みドメイン以外のアドレスを返したため、Portifact では使えません。ワークスペースの管理者に問い合わせてください。",
+    sso_failed:
+      "シングルサインオンが完了しませんでした。もう一度お試しください。失敗が続く場合は、メールのコードでサインインし、ワークスペースの管理者に知らせてください。",
+    sso_workspace_full:
+      "組織のワークスペースに空きシートがないため、参加できませんでした。管理者にシートを依頼してから、もう一度サインインしてください。",
+    sso_email_unverified:
+      "組織の ID プロバイダーがこのアドレスを確認していないため、Portifact では使えません。ワークスペースの管理者に問い合わせてください。",
+    sso_link_required:
+      "このアドレスにはすでに Portifact のアカウントがあります。メールのコードかいつもの方法で一度サインインしてから、このページで「シングルサインオンをリンク」を選んでください。",
+    sso_removed:
+      "ワークスペースの管理者があなたを削除したため、シングルサインオンで再参加できません。管理者にもう一度招待を依頼してください。",
   },
   providerErrorFallback: "サインインが完了しませんでした。もう一度お試しください。",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -162,6 +179,13 @@ export const ja: AuthCatalog = {
     "login.termsUpdateNotice": `「同意して続行」を選択することで、${termsConditions}`,
     "login.agreeAndContinue": "同意して続行",
     "login.termsNotice": `Google、GitHub、またはメールのコードで続行することで、${termsConditions}`,
+    "login.termsNoticeSso": `Google、GitHub、メールのコード、またはシングルサインオンで続行することで、${termsConditions}`,
+    "login.ssoHeading": "あなたの組織はシングルサインオンを使っています",
+    "login.ssoContinue": "シングルサインオンで続行",
+    "login.ssoUseCode": "代わりにメールでコードを受け取る",
+    "login.ssoLinkHint":
+      "あなたの組織はシングルサインオンを使っています。一度このアカウントにリンクすると、次回から使えます。",
+    "login.ssoLink": "シングルサインオンをリンク",
     "login.google": "Googleで続行",
     "login.github": "GitHubで続行",
     "login.orEmail": "またはメールアドレスを使用",

@@ -350,6 +350,9 @@ describe("plain words for every kind", () => {
     "group.deleted": {},
     "group.member_added": { group: "wg_11111111111111111111111111111111" },
     "group.member_removed": { group: "wg_11111111111111111111111111111111" },
+    "sso.created": { issuerHost: "login.corp.example", domains: 2 },
+    "sso.changed": { fields: ["clientSecret", "domains"] },
+    "sso.removed": {},
     "audit.exported": { format: "csv", kinds: 0, from: "2026-01-01" },
     "policy.changed": {
       fields: ["publicAccess", "readerDomains", "shareLinks", "shareLinkMaxDays"],
@@ -409,6 +412,9 @@ describe("plain words for every kind", () => {
     "group.deleted": 'Deleted the group "Design"',
     "group.member_added": 'Added Grace to the group "Design"',
     "group.member_removed": 'Removed Grace from the group "Design"',
+    "sso.created": "Set up single sign-on with login.corp.example for 2 domains",
+    "sso.changed": "Changed single sign-on (client secret, domains)",
+    "sso.removed": "Removed single sign-on",
     "audit.exported": "Exported the audit log as CSV (2026-01-01 to now)",
     "policy.changed":
       "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days (existing artifacts changed)",
@@ -451,6 +457,15 @@ describe("plain words for every kind", () => {
       ),
     ).toBe("Deleted the group (deleted)");
     expect(auditSummary(event(0, { kind: "group.created" }))).toBe("Created the group (unknown)");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "member.joined",
+          detail: { role: "member", via: "sso" },
+          target: { type: "member", id: "u1" },
+        }),
+      ),
+    ).toContain("joined as member through single sign-on");
     expect(
       auditSummary(
         event(0, {

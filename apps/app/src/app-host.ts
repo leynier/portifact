@@ -364,6 +364,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       session: sessionUserFor,
       email: (env) => depsFor(env).email,
       dns: (env) => depsFor(env).emailDomains ?? null,
+      ssoFetch: (env) => (input, init) => depsFor(env).ssoFetch(input, init),
       now: () => Date.now(),
     }),
   );

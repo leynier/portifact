@@ -80,6 +80,8 @@ const ADMIN: readonly RoleAction[] = [
   "audit",
   // Service tokens of a workspace (decision 0011).
   "tokens",
+  // The workspace's single sign-on provider (decision 0016): it decides who signs in as its people.
+  "sso",
 ];
 
 /**

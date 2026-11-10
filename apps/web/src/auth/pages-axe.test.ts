@@ -95,6 +95,26 @@ describe("login page accessibility", () => {
     await expectAccessible();
   });
 
+  it.each(["light", "dark"])(
+    "has no violations on the single sign-on step, with an error, in the %s theme",
+    async (theme) => {
+      open("login");
+      document.documentElement.dataset.theme = theme;
+      api.on("POST", "/sso/lookup", { status: 200, body: { sso: true } });
+      api.on("POST", "/sign-in/sso", { status: 404, body: { code: "sso_unavailable" } });
+      await setupLogin(document, pageEnv(api, fakeLocation("?error=sso_workspace_full")));
+      element<HTMLInputElement>("email").value = "ada@corp.example";
+      submit(element<HTMLFormElement>("email-form"));
+      await settle();
+      expect(element("sso-step").hidden).toBe(false);
+      await expectAccessible();
+      element("sso-continue").click();
+      await settle();
+      await expectAccessible();
+      delete document.documentElement.dataset.theme;
+    },
+  );
+
   it("has no violations for a signed-in account and for the terms review", async () => {
     api.on("GET", "/get-session", session("ada@example.test"));
     api.on("GET", "/list-accounts", { status: 200, body: [{ providerId: "github" }] });

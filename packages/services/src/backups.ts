@@ -10,6 +10,7 @@ import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 import { eraseAuditEventsOf } from "./audit.ts";
 import { purgeJobs } from "./outbox.ts";
 import { revokedShareLinks } from "./share-links.ts";
+import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
 const OBJECT_PREFIX = "objects/";
@@ -249,6 +250,7 @@ export interface ApplyTombstonesResult {
   groups: number;
   /** Group memberships removed before the restore that it brought back. */
   groupMembers: number;
+  ssoProviders: number;
 }
 
 /**
@@ -309,6 +311,9 @@ export async function applyTombstones(
     domains,
     groups,
     groupMembers,
+    ,
+    ,
+    ssoProviders,
   ] = await db.batch([
     db
       .insert(schema.outbox)
@@ -405,6 +410,21 @@ export async function applyTombstones(
       .returning({ id: schema.workspaceGroupMembers.id }),
     // The audit log of deleted accounts and workspaces (the restore brought it back).
     eraseAuditEventsOf(db, tombstonedOwners),
+    // A removed single sign-on provider must never sign anyone in again (decision 0016), nor
+    // its linked identities; providers of deleted workspaces went with the workspace above.
+    db
+      .delete(schema.accounts)
+      .where(
+        sql`${schema.accounts.providerId} in (select 'sso:' || ${t.id} from ${t} where ${t.kind} = 'workspace_sso')`,
+      ),
+    db
+      .delete(schema.workspaceSso)
+      .where(
+        sql`${schema.workspaceSso.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_sso')`,
+      )
+      .returning({ id: schema.workspaceSso.id }),
+    // Identities of providers that went above, removed or with a deleted workspace.
+    deleteOrphanSsoIdentities(db),
   ]);
   return {
     inserted,
@@ -417,6 +437,7 @@ export async function applyTombstones(
     domains: domains.length,
     groups: groups.length,
     groupMembers: groupMembers.length,
+    ssoProviders: ssoProviders.length,
   };
 }
 

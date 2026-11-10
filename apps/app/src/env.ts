@@ -51,6 +51,19 @@ export interface Env extends DomainEnv {
    * and testing a webhook answer 503.
    */
   WEBHOOKS_ENABLED?: string | undefined;
+  /**
+   * Exactly `"true"` offers single sign-on for workspaces (decision 0016, "Switched off"): unset
+   * in the deployed configuration until the checks in docs/releasing.md ("SSO") pass. Without
+   * it the sign-in endpoints and the login page's lookup answer 404 and the provider routes
+   * `capacity_unavailable`.
+   */
+  SSO_ENABLED?: string | undefined;
+  /**
+   * Seals single sign-on client secrets (decision 0016), and `SSO_KEY_PREVIOUS` opens those
+   * sealed before a rotation. Without it saving a provider answers 503 and sign-ins stop.
+   */
+  SSO_KEY?: string | undefined;
+  SSO_KEY_PREVIOUS?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

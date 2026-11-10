@@ -51,6 +51,8 @@ import {
   type ShareLinkCreated,
   type ShareLinkList,
   type ShareLinkView,
+  type SsoProviderView,
+  type SsoSettings,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
@@ -364,6 +366,11 @@ export interface FakeWorkspace {
   domainsAvailable: boolean;
   /** Its groups (decision 0014), with their members' user IDs. */
   groups: (WorkspaceGroupView & { memberIds: string[] })[];
+  /**
+   * Single sign-on (decision 0016): switched on for the deployment, in the plan, and the provider.
+   * Off by default, as deployed: the routes answer `capacity_unavailable`.
+   */
+  sso: { enabled: boolean; available: boolean; provider: SsoProviderView | null };
   /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
   policyRevision: number;
   policiesAvailable: boolean;
@@ -422,6 +429,7 @@ export function workspace(
     dns: {},
     domainsAvailable: true,
     groups: [],
+    sso: { enabled: false, available: true, provider: null },
     policyRevision: 0,
     policiesAvailable: true,
     policyImpact: NO_IMPACT,
@@ -1060,6 +1068,8 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
   );
   const domains = /^\/api\/v1\/workspaces\/([^/]+)\/domains(?:\/([^/]+))?(\/verify)?$/.exec(path);
   if (domains) return domainRoute(server, method, domains, body);
+  const sso = /^\/api\/v1\/workspaces\/([^/]+)\/sso(\/test)?$/.exec(path);
+  if (sso) return ssoRoute(server, method, sso, body);
   if (!scoped) return undefined;
   const w = server.workspaces[decodeURIComponent(scoped[1] ?? "")];
   if (!w) return apiError("not_found", 404);
@@ -1122,6 +1132,71 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
 }
 
 /** The email domain routes, answered like the Worker: admins only, a missing slug is missing. */
+/** Single sign-on settings as the API answers them (decision 0016). */
+function ssoSettings(w: FakeWorkspace): SsoSettings {
+  const verified = w.domains.filter((d) => d.state === "verified").map((d) => d.domain);
+  const provider = w.sso.provider;
+  const lapsed = provider ? provider.domains.filter((d) => !verified.includes(d)) : [];
+  const state = !provider
+    ? "off"
+    : !w.sso.available
+      ? "plan"
+      : lapsed.length === provider.domains.length
+        ? "domains"
+        : "on";
+  return {
+    state,
+    provider: provider ? { ...provider, lapsedDomains: lapsed } : null,
+    available: w.sso.available,
+    verifiedDomains: verified,
+    redirectUriPattern: "https://app.portifact.com/api/auth/sso/callback/<id>",
+  };
+}
+
+function ssoRoute(
+  server: FakeServer,
+  method: string,
+  match: RegExpExecArray,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (!w.sso.enabled) return apiError("capacity_unavailable", 503);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  if (match[2] && method === "POST") {
+    if (!w.sso.available) return apiError("plan_required", 403);
+    const issuer = String(body?.issuer ?? "");
+    if (issuer.includes("broken")) return json({ ok: false, problem: "issuer_mismatch" });
+    const host = new URL(issuer).hostname;
+    return json({ ok: true, hosts: { authorization: host, token: host, keys: host } });
+  }
+  if (method === "GET") return json(ssoSettings(w));
+  if (method === "PUT") {
+    if (!w.sso.available) return apiError("plan_required", 403);
+    const issuer = String(body?.issuer ?? "");
+    if (issuer.includes("broken")) return apiError("invalid_input", 400);
+    const id = `sso_${"5".repeat(32)}`;
+    w.sso.provider = {
+      id,
+      issuer,
+      clientId: String(body?.clientId ?? ""),
+      domains: (body?.domains as string[]) ?? [],
+      lapsedDomains: [],
+      hasClientSecret: true,
+      redirectUri: `https://app.portifact.com/api/auth/sso/callback/${id}`,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    return json(ssoSettings(w));
+  }
+  if (method === "DELETE") {
+    if (!w.sso.provider) return apiError("not_found", 404);
+    w.sso.provider = null;
+    return json({ removed: true });
+  }
+  return apiError("not_found", 404);
+}
+
 function domainRoute(
   server: FakeServer,
   method: string,

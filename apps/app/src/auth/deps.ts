@@ -31,6 +31,11 @@ export interface AuthDeps {
    * out.
    */
   emailDomains?: EmailDomainDeps | undefined;
+  /**
+   * Calls workspaces' identity providers for single sign-on (decision 0016): discovery, keys and
+   * the token endpoint. Tests and the e2e stack inject a fake provider; never a real one.
+   */
+  ssoFetch: FetchLike;
 }
 
 // Fetch transport for Client ID Metadata Documents on Workers. The Worker runs with the
@@ -59,5 +64,6 @@ export function workerDeps(env: Env): AuthDeps {
     siteverify: (input, init) => fetch(input, init),
     domains: domainDepsFromEnv(env, (input, init) => fetch(input, init)),
     emailDomains: { txt: dohTxt((input, init) => fetch(input, init)) },
+    ssoFetch: (input, init) => fetch(input, init),
   };
 }

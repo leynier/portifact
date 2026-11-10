@@ -2011,6 +2011,91 @@ export const en = {
   "audit.access.groupsRemoved": "{count, plural, one {removed # group} other {removed # groups}}",
   "audit.access.groupExceptions":
     "{count, plural, one {changed # group's comment visibility} other {changed # groups' comment visibility}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Single sign-on",
+  "sso.description":
+    "People with an address at the workspace's verified email domains can sign in through your organization's identity provider with OpenID Connect.",
+  "sso.loadFailed": "Single sign-on could not be loaded",
+  "sso.stateLabel": "State",
+  "sso.state.off": "Not set up",
+  "sso.state.on": "On",
+  "sso.state.plan": "Paused: not on this plan",
+  "sso.state.domains": "Paused: no verified domain",
+  "sso.planTitle": "Not on this plan",
+  "sso.plan":
+    "Single sign-on is part of the {plan} plan. A provider already set up stays, and you can still remove it.",
+  "sso.lapsedTitle": "A domain is no longer verified",
+  "sso.lapsed":
+    "{domains} is no longer verified, so its addresses cannot sign in this way until the domain is verified again.",
+  "sso.membership":
+    "People who sign in this way join the workspace as members, or with the role of a pending invitation, while it has a free seat. Existing members keep their role.",
+  "sso.removalNote":
+    "Someone an admin removes cannot rejoin through single sign-on until an admin invites them again. Someone who leaves by themselves can.",
+  "sso.redirectUri": "Redirect URI",
+  "sso.redirectPending":
+    "Save the provider to get its redirect URI to register at your identity provider. It looks like {pattern}.",
+  "sso.saveFailed": "The change was not saved",
+  "sso.testOkTitle": "Discovery works",
+  "sso.testOk": "Sign-in goes to {authorization}, tokens come from {token} and keys from {keys}.",
+  "sso.testOkShort": "Discovery works.",
+  "sso.testFailed": "Discovery failed",
+  "sso.formLabel": "Single sign-on provider",
+  "sso.issuer": "Issuer URL",
+  "sso.issuerHint":
+    "Your identity provider's issuer, for example https://login.example.com. Portifact reads its discovery document. It cannot change once saved.",
+  "sso.clientId": "Client ID",
+  "sso.clientSecret": "Client secret",
+  "sso.secretHint": "Stored sealed and never shown again.",
+  "sso.secretKeep": "Leave it empty to keep the stored secret.",
+  "sso.domains": "Domains it signs in",
+  "sso.domainsHint":
+    "Only the workspace's verified email domains. An address at another domain cannot sign in this way.",
+  "sso.noDomains": "Verify an email domain above first.",
+  "sso.issuerRequired": "Enter the issuer URL.",
+  "sso.clientIdRequired": "Enter the client ID.",
+  "sso.secretRequired": "Enter the client secret.",
+  "sso.domainsRequired": "Choose at least one domain.",
+  "sso.save": "Save",
+  "sso.saveChanges": "Save changes",
+  "sso.test": "Check the issuer",
+  "sso.remove": "Remove single sign-on",
+  "sso.saved": "Single sign-on saved.",
+  "sso.removed": "Single sign-on removed.",
+  "sso.scim":
+    "Removing someone at your identity provider does not remove them here: remove them from the members list.",
+  "sso.confirmRemove.title": "Remove single sign-on?",
+  "sso.confirmRemove.body":
+    "Nobody can sign in through this provider any more. Members stay members and keep their accounts; they sign in with an email code, Google or GitHub. A new provider gets a new redirect URI.",
+  "sso.confirmRemove.action": "Remove",
+  "sso.problem.invalid_issuer":
+    "The issuer must be a public https URL without a query or a fragment.",
+  "sso.problem.unreachable": "The identity provider could not be reached.",
+  "sso.problem.timeout": "The identity provider took too long to answer.",
+  "sso.problem.redirect":
+    "The identity provider answered with a redirect, which Portifact does not follow. Use the issuer it redirects to.",
+  "sso.problem.http_error": "The identity provider answered with an error.",
+  "sso.problem.too_large": "The identity provider's answer is too large.",
+  "sso.problem.not_json": "The discovery document is not valid JSON.",
+  "sso.problem.issuer_mismatch":
+    "The discovery document names a different issuer. Use the issuer exactly as the document says it.",
+  "sso.problem.missing_endpoint":
+    "The discovery document lacks an authorization, token or key set endpoint.",
+  "sso.problem.invalid_endpoint":
+    "An endpoint in the discovery document is not a public https URL.",
+  "sso.problem.no_code_flow": "The identity provider does not offer the authorization code flow.",
+  "sso.problem.no_pkce": "The identity provider does not support PKCE with S256.",
+  "sso.problem.no_signing_algorithm":
+    "The identity provider signs ID tokens with no algorithm Portifact accepts (RS256, PS256, ES256 or EdDSA families).",
+  "sso.error.invalid_input":
+    "Check the issuer, the client and the domains. Check the issuer shows what failed in discovery.",
+  "sso.error.capacity_unavailable": "Single sign-on is not available right now.",
+  "sso.error.version_conflict": "Single sign-on changed meanwhile. Reload and try again.",
+  "sso.error.not_found": "Single sign-on is not set up.",
+  "audit.kind.memberJoinedSso": "{member} joined as {role} through single sign-on",
+  "audit.kind.ssoCreated":
+    "Set up single sign-on with {host} for {count, plural, one {# domain} other {# domains}}",
+  "audit.kind.ssoChanged": "Changed single sign-on",
+  "audit.kind.ssoRemoved": "Removed single sign-on",
   "shell.policiesLink": "Policies",
   "policies.title": "Policies",
   "policies.description":

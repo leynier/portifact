@@ -47,6 +47,10 @@
             <p id="signed-in-email" class="font-medium break-words"></p>
             <p class="mt-1 text-sm text-text-muted" data-i18n="login.signedInHint">You can open your dashboard, close this page, or sign out on this browser.</p>
             <a href="/" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse no-underline transition-opacity hover:opacity-85 motion-reduce:transition-none" data-i18n="login.openDashboard">Open your dashboard</a>
+            <div id="sso-link-group" class="mt-4" hidden>
+              <p id="sso-link-hint" class="text-sm text-text-muted" data-i18n="login.ssoLinkHint">Your organization signs in with single sign-on. Link it to this account once, and use it next time.</p>
+              <button id="sso-link" type="button" aria-describedby="sso-link-hint" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.ssoLink">Link single sign-on</button>
+            </div>
             <h2 id="methods-heading" class="mt-8 text-sm font-semibold" data-i18n="login.methodsHeading">Sign-in methods</h2>
             <p class="mt-1 text-sm text-text-muted" data-i18n="login.methodsHint">A Google or GitHub account with this verified email joins this account the first time you use it.</p>
             <ul class="mt-3 divide-y divide-border rounded-md border border-border" aria-labelledby="methods-heading">
@@ -73,6 +77,7 @@
 
           <div id="sign-in" class="mt-6" hidden>
             <p id="terms-notice" class="rounded-md border border-border-strong bg-surface p-4 text-sm leading-relaxed" data-i18n="login.termsNotice">By continuing with Google, GitHub or an email code, you confirm that you are 18 or older, you agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>, and you have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>. The links open in a new tab.</p>
+            <p id="terms-notice-sso" class="rounded-md border border-border-strong bg-surface p-4 text-sm leading-relaxed" data-i18n="login.termsNoticeSso" hidden>By continuing with Google, GitHub, an email code or single sign-on, you confirm that you are 18 or older, you agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>, and you have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>. The links open in a new tab.</p>
 
             <div id="methods" class="mt-6">
               <div class="space-y-3">
@@ -111,6 +116,16 @@
                 <button id="change-email" type="button" class="underline underline-offset-4" data-i18n="login.changeEmail">Use a different email</button>
               </div>
             </form>
+
+            <section id="sso-step" class="mt-6" aria-labelledby="sso-heading" hidden>
+              <h2 id="sso-heading" tabindex="-1" class="text-lg font-semibold focus:outline-none" data-i18n="login.ssoHeading">Your organization uses single sign-on</h2>
+              <p id="sso-for" class="mt-1 text-sm text-text-muted break-words"></p>
+              <button id="sso-continue" type="button" aria-describedby="terms-notice-sso" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.ssoContinue">Continue with single sign-on</button>
+              <button id="sso-code" type="button" aria-describedby="terms-notice-sso" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.ssoUseCode">Email me a code instead</button>
+              <div class="mt-4 text-sm">
+                <button id="sso-change-email" type="button" class="underline underline-offset-4" data-i18n="login.changeEmail">Use a different email</button>
+              </div>
+            </section>
 
             <div id="human-check">
               <div id="human-check-copy" class="mb-3 rounded-md border border-border-strong bg-surface p-4 text-sm" hidden>

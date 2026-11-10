@@ -2025,6 +2025,92 @@ export const ja = {
     "{count, plural, one {グループを # 個外す} other {グループを # 個外す}}",
   "audit.access.groupExceptions":
     "{count, plural, one {# 個のグループのコメント表示を変更} other {# 個のグループのコメント表示を変更}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "シングルサインオン",
+  "sso.description":
+    "workspace の確認済みメールドメインのアドレスを持つ人は、組織の ID プロバイダーから OpenID Connect でサインインできます。",
+  "sso.loadFailed": "シングルサインオンを読み込めませんでした",
+  "sso.stateLabel": "状態",
+  "sso.state.off": "未設定",
+  "sso.state.on": "有効",
+  "sso.state.plan": "一時停止中：このプランに含まれていません",
+  "sso.state.domains": "一時停止中：確認済みドメインがありません",
+  "sso.planTitle": "このプランに含まれていません",
+  "sso.plan":
+    "シングルサインオンは {plan} プランに含まれます。設定済みのプロバイダーは残り、削除もできます。",
+  "sso.lapsedTitle": "確認済みでなくなったドメインがあります",
+  "sso.lapsed":
+    "{domains} は確認済みでなくなったため、ドメインを再確認するまでそのアドレスはこの方法でサインインできません。",
+  "sso.membership":
+    "この方法でサインインした人は、空きシートがある間、メンバーとして（保留中の招待があればそのロールで）workspace に参加します。既存のメンバーはロールを維持します。",
+  "sso.removalNote":
+    "管理者が削除した人は、管理者が再度招待するまでシングルサインオンで再参加できません。自分で退出した人は再参加できます。",
+  "sso.redirectUri": "リダイレクト URI",
+  "sso.redirectPending":
+    "プロバイダーを保存すると、ID プロバイダーに登録するリダイレクト URI が発行されます。形式は {pattern} です。",
+  "sso.saveFailed": "変更は保存されませんでした",
+  "sso.testOkTitle": "ディスカバリーは正常です",
+  "sso.testOk": "サインインは {authorization}、トークンは {token}、鍵は {keys} から取得します。",
+  "sso.testOkShort": "ディスカバリーは正常です。",
+  "sso.testFailed": "ディスカバリーに失敗しました",
+  "sso.formLabel": "シングルサインオンのプロバイダー",
+  "sso.issuer": "発行者 URL",
+  "sso.issuerHint":
+    "ID プロバイダーの発行者（例：https://login.example.com）。Portifact はそのディスカバリードキュメントを読み込みます。保存後は変更できません。",
+  "sso.clientId": "クライアント ID",
+  "sso.clientSecret": "クライアントシークレット",
+  "sso.secretHint": "暗号化して保存され、二度と表示されません。",
+  "sso.secretKeep": "保存済みのシークレットを使う場合は空欄のままにしてください。",
+  "sso.domains": "サインインできるドメイン",
+  "sso.domainsHint":
+    "workspace の確認済みメールドメインのみです。ほかのドメインのアドレスはこの方法でサインインできません。",
+  "sso.noDomains": "先に上でメールドメインを確認してください。",
+  "sso.issuerRequired": "発行者 URL を入力してください。",
+  "sso.clientIdRequired": "クライアント ID を入力してください。",
+  "sso.secretRequired": "クライアントシークレットを入力してください。",
+  "sso.domainsRequired": "ドメインを1つ以上選んでください。",
+  "sso.save": "保存",
+  "sso.saveChanges": "変更を保存",
+  "sso.test": "発行者を確認",
+  "sso.remove": "シングルサインオンを削除",
+  "sso.saved": "シングルサインオンを保存しました。",
+  "sso.removed": "シングルサインオンを削除しました。",
+  "sso.scim":
+    "ID プロバイダーで削除しても、ここでは削除されません。メンバー一覧から削除してください。",
+  "sso.confirmRemove.title": "シングルサインオンを削除しますか？",
+  "sso.confirmRemove.body":
+    "このプロバイダーでは誰もサインインできなくなります。メンバーはメンバーのままでアカウントも残り、メールのコード、Google、GitHub でサインインします。新しいプロバイダーには新しいリダイレクト URI が発行されます。",
+  "sso.confirmRemove.action": "削除",
+  "sso.problem.invalid_issuer":
+    "発行者はクエリやフラグメントのない公開 https URL である必要があります。",
+  "sso.problem.unreachable": "ID プロバイダーに接続できませんでした。",
+  "sso.problem.timeout": "ID プロバイダーの応答に時間がかかりすぎました。",
+  "sso.problem.redirect":
+    "ID プロバイダーがリダイレクトで応答しましたが、Portifact はリダイレクトをたどりません。リダイレクト先の発行者を使ってください。",
+  "sso.problem.http_error": "ID プロバイダーがエラーを返しました。",
+  "sso.problem.too_large": "ID プロバイダーの応答が大きすぎます。",
+  "sso.problem.not_json": "ディスカバリードキュメントが有効な JSON ではありません。",
+  "sso.problem.issuer_mismatch":
+    "ディスカバリードキュメントに別の発行者が記載されています。ドキュメントのとおりに発行者を入力してください。",
+  "sso.problem.missing_endpoint":
+    "ディスカバリードキュメントに認可、トークン、または鍵のエンドポイントがありません。",
+  "sso.problem.invalid_endpoint":
+    "ディスカバリードキュメントのエンドポイントが公開 https URL ではありません。",
+  "sso.problem.no_code_flow": "ID プロバイダーが認可コードフローに対応していません。",
+  "sso.problem.no_pkce": "ID プロバイダーが S256 の PKCE に対応していません。",
+  "sso.problem.no_signing_algorithm":
+    "ID プロバイダーが Portifact の受け付けないアルゴリズムで ID トークンに署名しています（RS256、PS256、ES256、EdDSA の各系統のみ）。",
+  "sso.error.invalid_input":
+    "発行者、クライアント、ドメインを確認してください。「発行者を確認」でディスカバリーの失敗箇所がわかります。",
+  "sso.error.capacity_unavailable": "現在シングルサインオンは利用できません。",
+  "sso.error.version_conflict":
+    "その間にシングルサインオンが変更されました。再読み込みしてもう一度お試しください。",
+  "sso.error.not_found": "シングルサインオンは設定されていません。",
+  "audit.kind.memberJoinedSso": "{member} がシングルサインオンで {role} として参加しました",
+  "audit.kind.ssoCreated":
+    "{host} で {count, plural, one {# 件のドメイン} other {# 件のドメイン}} のシングルサインオンを設定しました",
+  "audit.kind.ssoChanged": "シングルサインオンを変更しました",
+  "audit.kind.ssoRemoved": "シングルサインオンを削除しました",
   "shell.policiesLink": "ポリシー",
   "policies.title": "ポリシー",
   "policies.description":

@@ -29,6 +29,10 @@ const messages = {
   methodConnected: "Connectée",
   methodNotUsed: "Pas encore utilisée",
   redirecting: "Connexion en cours.",
+  ssoFor: (email: string) =>
+    `${email} se connecte avec le fournisseur d’identité de votre organisation.`,
+  ssoShown:
+    "Votre organisation utilise l’authentification unique. Continuez avec elle, ou recevez plutôt un code par e-mail.",
   termsUpdateFor: (email: string) => `Connecté en tant que ${email}`,
   providerErrors: {
     human_verification_required:
@@ -47,6 +51,20 @@ const messages = {
       "Cet artifact n’existe pas, n’est plus disponible ou ne peut pas être ouvert avec ce compte. Pour utiliser un autre compte, déconnectez-vous et ouvrez de nouveau le lien.",
     read_rate_limited:
       "Ce compte a ouvert trop d’artifacts en peu de temps. Patientez quelques minutes et ouvrez de nouveau le lien.",
+    sso_unavailable:
+      "L’authentification unique n’est pas disponible pour cette adresse pour le moment. Connectez-vous autrement, ou contactez l’admin de votre workspace.",
+    sso_email_outside_domain:
+      "Le fournisseur d’identité de votre organisation a donné une adresse hors de ses domaines vérifiés, donc Portifact ne peut pas l’utiliser. Contactez l’admin de votre workspace.",
+    sso_failed:
+      "L’authentification unique n’a pas abouti. Réessayez ; si l’échec persiste, connectez-vous avec un code par e-mail et prévenez l’admin de votre workspace.",
+    sso_workspace_full:
+      "Le workspace de votre organisation n’a plus de place libre, vous n’avez donc pas pu le rejoindre. Demandez une place à son admin, puis reconnectez-vous.",
+    sso_email_unverified:
+      "Le fournisseur d’identité de votre organisation n’a pas vérifié cette adresse, donc Portifact ne peut pas l’utiliser. Contactez l’admin de votre workspace.",
+    sso_link_required:
+      "Cette adresse a déjà un compte Portifact. Connectez-vous une fois avec un code par e-mail ou comme d’habitude, puis choisissez Lier l’authentification unique sur cette page.",
+    sso_removed:
+      "Un admin du workspace vous a retiré, vous ne pouvez donc pas le rejoindre à nouveau par l’authentification unique. Demandez à un admin de vous inviter à nouveau.",
   },
   providerErrorFallback: "La connexion n’a pas abouti. Réessayez.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -165,6 +183,13 @@ export const fr: AuthCatalog = {
     "login.termsUpdateNotice": `En sélectionnant Accepter et continuer, ${termsConditions}`,
     "login.agreeAndContinue": "Accepter et continuer",
     "login.termsNotice": `En continuant avec Google, GitHub ou un code par e-mail, ${termsConditions}`,
+    "login.termsNoticeSso": `En continuant avec Google, GitHub, un code par e-mail ou l’authentification unique, ${termsConditions}`,
+    "login.ssoHeading": "Votre organisation utilise l’authentification unique",
+    "login.ssoContinue": "Continuer avec l’authentification unique",
+    "login.ssoUseCode": "Recevoir plutôt un code par e-mail",
+    "login.ssoLinkHint":
+      "Votre organisation utilise l’authentification unique. Liez-la une fois à ce compte et utilisez-la la prochaine fois.",
+    "login.ssoLink": "Lier l’authentification unique",
     "login.google": "Continuer avec Google",
     "login.github": "Continuer avec GitHub",
     "login.orEmail": "ou utilisez votre e-mail",

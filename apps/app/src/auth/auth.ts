@@ -18,6 +18,7 @@ import type { AuthDeps } from "./deps.ts";
 import { deliverSignInCode, emailLocale } from "./email.ts";
 import { humanHooks } from "./human.ts";
 import { inProcessIntrospection } from "./introspection.ts";
+import { workspaceSso } from "./sso.ts";
 import { termsHooks } from "./terms.ts";
 
 /** Session cookies are `__Host-pf.<name>`: Secure, Path=/, no Domain (docs/security.md). */
@@ -180,6 +181,9 @@ export function createAuth(env: Env, deps: AuthDeps) {
         metadataProfile: "mcp-2026-07-28",
       }),
       inProcessIntrospection(provider.options),
+      // Single sign-on for workspaces (decision 0016); its endpoints are reachable only with
+      // SSO_ENABLED (routes.ts).
+      workspaceSso({ env, fetch: (input, init) => deps.ssoFetch(input, init), now: Date.now }),
     ],
   });
 }

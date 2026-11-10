@@ -28,6 +28,10 @@ const messages = {
   methodConnected: "Conectado",
   methodNotUsed: "Sin usar todavía",
   redirecting: "Iniciando sesión.",
+  ssoFor: (email: string) =>
+    `${email} inicia sesión con el proveedor de identidad de tu organización.`,
+  ssoShown:
+    "Tu organización usa inicio de sesión único. Continúa con él, o pide un código por correo.",
   termsUpdateFor: (email: string) => `Sesión iniciada como ${email}`,
   providerErrors: {
     human_verification_required:
@@ -46,6 +50,20 @@ const messages = {
       "Este artifact no existe, ya no está disponible o no se puede abrir con esta cuenta. Para usar otra cuenta, cierra la sesión y abre el enlace de nuevo.",
     read_rate_limited:
       "Esta cuenta abrió demasiados artifacts en poco tiempo. Espera unos minutos y abre el enlace de nuevo.",
+    sso_unavailable:
+      "El inicio de sesión único no está disponible para esta dirección en este momento. Inicia sesión de otra forma, o consulta al admin de tu workspace.",
+    sso_email_outside_domain:
+      "El proveedor de identidad de tu organización te identificó con una dirección fuera de sus dominios verificados, así que Portifact no puede usarla. Consulta al admin de tu workspace.",
+    sso_failed:
+      "El inicio de sesión único no terminó. Inténtalo de nuevo; si sigue fallando, inicia sesión con un código por correo y avisa al admin de tu workspace.",
+    sso_workspace_full:
+      "El workspace de tu organización no tiene un puesto libre, así que no pudiste unirte. Pide un puesto a su admin y vuelve a iniciar sesión.",
+    sso_email_unverified:
+      "El proveedor de identidad de tu organización no verificó esta dirección, así que Portifact no puede usarla. Consulta al admin de tu workspace.",
+    sso_link_required:
+      "Esta dirección ya tiene una cuenta de Portifact. Inicia sesión una vez con un código por correo o como lo haces siempre, y luego elige Vincular el inicio de sesión único en esta página.",
+    sso_removed:
+      "Un admin del workspace te quitó, así que no puedes volver a unirte con el inicio de sesión único. Pide a un admin que te invite de nuevo.",
   },
   providerErrorFallback: "El inicio de sesión no terminó. Inténtalo de nuevo.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -161,6 +179,13 @@ export const es: AuthCatalog = {
     "login.termsUpdateNotice": `Al seleccionar Aceptar y continuar, ${termsConditions}`,
     "login.agreeAndContinue": "Aceptar y continuar",
     "login.termsNotice": `Al continuar con Google, GitHub o un código por correo, ${termsConditions}`,
+    "login.termsNoticeSso": `Al continuar con Google, GitHub, un código por correo o el inicio de sesión único, ${termsConditions}`,
+    "login.ssoHeading": "Tu organización usa inicio de sesión único",
+    "login.ssoContinue": "Continuar con inicio de sesión único",
+    "login.ssoUseCode": "Prefiero un código por correo",
+    "login.ssoLinkHint":
+      "Tu organización usa inicio de sesión único. Vincúlalo a esta cuenta una vez y úsalo la próxima vez.",
+    "login.ssoLink": "Vincular el inicio de sesión único",
     "login.google": "Continuar con Google",
     "login.github": "Continuar con GitHub",
     "login.orEmail": "o usa tu correo",

@@ -88,6 +88,10 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   "group.deleted",
   "group.member_added",
   "group.member_removed",
+  // The workspace's single sign-on provider is a global row (decision 0016).
+  "sso.created",
+  "sso.changed",
+  "sso.removed",
   // A workspace's policies are columns of its global row (decision 0015).
   "policy.changed",
 ];

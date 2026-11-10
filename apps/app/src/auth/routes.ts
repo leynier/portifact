@@ -1,8 +1,9 @@
 // HTTP surface of Better Auth on the app host. Only the endpoints Portifact uses are reachable;
 // everything else under /api/auth answers 404, including Better Auth's admin, password,
 // first-party device token and client management endpoints.
-import { createDb } from "@portifact/db";
-import { checkSignInEmail } from "@portifact/services";
+import { SSO_LIMITS, SsoLookupInput, SsoProviderId } from "@portifact/contracts";
+import { createDb, regionsFromEnv } from "@portifact/db";
+import { checkSignInEmail, ssoProviderForEmail } from "@portifact/services";
 import { Hono } from "hono";
 import type { Env } from "../env.ts";
 import { humanCheck } from "../turnstile.ts";
@@ -11,6 +12,7 @@ import { AUTH_BASE_PATH, authUrls } from "./config.ts";
 import type { FetchLike } from "./deps.ts";
 import { VERIFY_HUMAN_PATH, verifyHuman } from "./human.ts";
 import { checkLimits, ENDPOINT_LIMITS, otpSendChecks, pruneOldCounters } from "./limits.ts";
+import { ssoEnabled } from "./sso.ts";
 import { ACCEPT_TERMS_PATH, acceptTerms } from "./terms.ts";
 
 /**
@@ -46,12 +48,44 @@ const ENDPOINTS: Record<string, { method: "GET" | "POST"; kind: EndpointKind }> 
   "/device/code": { method: "POST", kind: "client" },
 };
 
+/** Portifact's own endpoint: whether an address signs in through a workspace's provider. */
+export const SSO_LOOKUP_PATH = "/sso/lookup";
+
+/**
+ * Single sign-on for workspaces (decision 0016), reachable only with `SSO_ENABLED="true"`:
+ * the login page's lookup, starting the flow and each provider's callback (a top-level GET
+ * from the identity provider, so the `SameSite=Lax` terms and human-check cookies arrive). No
+ * SAML endpoint exists (decision 0016, "SAML").
+ */
+const SSO_ENDPOINTS: Record<string, { method: "GET" | "POST"; kind: EndpointKind }> = {
+  [SSO_LOOKUP_PATH]: { method: "POST", kind: "browser" },
+  "/sign-in/sso": { method: "POST", kind: "browser" },
+};
+const SSO_CALLBACK = /^\/sso\/callback\/([^/]+)$/;
+
+/** The endpoint a path names, or undefined: every other path under the base answers 404. */
+export function authEndpoint(
+  path: string,
+  sso: boolean,
+): { method: "GET" | "POST"; kind: EndpointKind } | undefined {
+  const fixed = ENDPOINTS[path];
+  if (fixed) return fixed;
+  if (!sso) return undefined;
+  const callback = SSO_CALLBACK.exec(path);
+  if (callback) {
+    return SsoProviderId.safeParse(callback[1]).success
+      ? { method: "GET", kind: "browser" }
+      : undefined;
+  }
+  return SSO_ENDPOINTS[path];
+}
+
 export function authRoutes(authFor: (env: Env) => Auth, siteverifyFor: (env: Env) => FetchLike) {
   const routes = new Hono<{ Bindings: Env }>();
 
   routes.all(`${AUTH_BASE_PATH}/*`, async (c) => {
     const path = new URL(c.req.url).pathname.slice(AUTH_BASE_PATH.length);
-    const endpoint = ENDPOINTS[path];
+    const endpoint = authEndpoint(path, ssoEnabled(c.env));
     if (!endpoint || endpoint.method !== c.req.method) {
       return authHeaders(apiError(404, "not_found", "Not found."));
     }
@@ -79,6 +113,19 @@ export function authRoutes(authFor: (env: Env) => Auth, siteverifyFor: (env: Env
           now: Date.now(),
         }),
       );
+    }
+
+    if (path === SSO_LOOKUP_PATH) {
+      const body = SsoLookupInput.safeParse(await readBody(request));
+      if (!body.success)
+        return authHeaders(apiError(400, "invalid_input", "Enter an email address."));
+      // Only whether the domain uses single sign-on: never which workspace (decision 0016).
+      const provider = await ssoProviderForEmail(
+        regionsFromEnv(c.env).global,
+        body.data.email,
+        Date.now(),
+      );
+      return authHeaders(Response.json({ sso: provider !== null }));
     }
 
     if (path === VERIFY_HUMAN_PATH) {
@@ -136,9 +183,14 @@ async function refuseRequest(
     );
   }
 
-  const limit = ENDPOINT_LIMITS[path];
+  // The lookup and starting single sign-on answer the same question: one budget for both.
+  const sso = path === SSO_LOOKUP_PATH || path === "/sign-in/sso";
+  const limit = sso
+    ? { max: SSO_LIMITS.lookupsPerIpPerHour, windowSeconds: 3_600 }
+    : ENDPOINT_LIMITS[path];
   if (limit) {
-    const decision = await checkLimits(env.DB, [{ key: `${path}:ip:${ip}`, limit }], now);
+    const key = sso ? `sso-lookup:ip:${ip}` : `${path}:ip:${ip}`;
+    const decision = await checkLimits(env.DB, [{ key, limit }], now);
     if (!decision.ok) return tooManyRequests(decision.retryAfterSeconds);
   }
   return undefined;

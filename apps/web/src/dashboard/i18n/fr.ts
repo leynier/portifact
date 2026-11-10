@@ -2085,6 +2085,96 @@ export const fr = {
     "{count, plural, one {a retiré # groupe} other {a retiré # groupes}}",
   "audit.access.groupExceptions":
     "{count, plural, one {a changé la visibilité des commentaires de # groupe} other {a changé la visibilité des commentaires de # groupes}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Authentification unique",
+  "sso.description":
+    "Les personnes ayant une adresse dans les domaines e-mail vérifiés du workspace peuvent se connecter avec le fournisseur d’identité de votre organisation via OpenID Connect.",
+  "sso.loadFailed": "Impossible de charger l’authentification unique",
+  "sso.stateLabel": "État",
+  "sso.state.off": "Non configurée",
+  "sso.state.on": "Active",
+  "sso.state.plan": "En pause : hors de ce forfait",
+  "sso.state.domains": "En pause : aucun domaine vérifié",
+  "sso.planTitle": "Hors de ce forfait",
+  "sso.plan":
+    "L’authentification unique fait partie du forfait {plan}. Un fournisseur déjà configuré reste en place, et vous pouvez toujours le retirer.",
+  "sso.lapsedTitle": "Un domaine n’est plus vérifié",
+  "sso.lapsed":
+    "{domains} n’est plus vérifié, donc ses adresses ne peuvent plus se connecter ainsi tant que le domaine n’est pas vérifié à nouveau.",
+  "sso.membership":
+    "Les personnes qui se connectent ainsi rejoignent le workspace comme membres, ou avec le rôle d’une invitation en attente, tant qu’il reste une place. Les membres actuels gardent leur rôle.",
+  "sso.removalNote":
+    "Une personne retirée par un admin ne peut pas revenir par l’authentification unique tant qu’un admin ne l’invite pas à nouveau. Une personne partie d’elle-même le peut.",
+  "sso.redirectUri": "URI de redirection",
+  "sso.redirectPending":
+    "Enregistrez le fournisseur pour obtenir l’URI de redirection à déclarer chez votre fournisseur d’identité. Elle ressemble à {pattern}.",
+  "sso.saveFailed": "La modification n’a pas été enregistrée",
+  "sso.testOkTitle": "La découverte fonctionne",
+  "sso.testOk":
+    "La connexion passe par {authorization}, les jetons viennent de {token} et les clés de {keys}.",
+  "sso.testOkShort": "La découverte fonctionne.",
+  "sso.testFailed": "La découverte a échoué",
+  "sso.formLabel": "Fournisseur d’authentification unique",
+  "sso.issuer": "URL de l’émetteur",
+  "sso.issuerHint":
+    "L’émetteur de votre fournisseur d’identité, par exemple https://login.example.com. Portifact lit son document de découverte. Il ne peut plus changer une fois enregistré.",
+  "sso.clientId": "ID client",
+  "sso.clientSecret": "Secret client",
+  "sso.secretHint": "Conservé chiffré et jamais réaffiché.",
+  "sso.secretKeep": "Laissez vide pour garder le secret enregistré.",
+  "sso.domains": "Domaines pris en charge",
+  "sso.domainsHint":
+    "Seulement les domaines e-mail vérifiés du workspace. Une adresse d’un autre domaine ne peut pas se connecter ainsi.",
+  "sso.noDomains": "Vérifiez d’abord un domaine e-mail ci-dessus.",
+  "sso.issuerRequired": "Saisissez l’URL de l’émetteur.",
+  "sso.clientIdRequired": "Saisissez l’ID client.",
+  "sso.secretRequired": "Saisissez le secret client.",
+  "sso.domainsRequired": "Choisissez au moins un domaine.",
+  "sso.save": "Enregistrer",
+  "sso.saveChanges": "Enregistrer les modifications",
+  "sso.test": "Vérifier l’émetteur",
+  "sso.remove": "Retirer l’authentification unique",
+  "sso.saved": "Authentification unique enregistrée.",
+  "sso.removed": "Authentification unique retirée.",
+  "sso.scim":
+    "Retirer quelqu’un chez votre fournisseur d’identité ne le retire pas ici : retirez-le de la liste des membres.",
+  "sso.confirmRemove.title": "Retirer l’authentification unique ?",
+  "sso.confirmRemove.body":
+    "Plus personne ne pourra se connecter avec ce fournisseur. Les membres restent membres et gardent leur compte ; ils se connectent avec un code par e-mail, Google ou GitHub. Un nouveau fournisseur reçoit une nouvelle URI de redirection.",
+  "sso.confirmRemove.action": "Retirer",
+  "sso.problem.invalid_issuer":
+    "L’émetteur doit être une URL https publique sans requête ni fragment.",
+  "sso.problem.unreachable": "Impossible de joindre le fournisseur d’identité.",
+  "sso.problem.timeout": "Le fournisseur d’identité a mis trop de temps à répondre.",
+  "sso.problem.redirect":
+    "Le fournisseur d’identité a répondu par une redirection, que Portifact ne suit pas. Utilisez l’émetteur vers lequel il redirige.",
+  "sso.problem.http_error": "Le fournisseur d’identité a répondu par une erreur.",
+  "sso.problem.too_large": "La réponse du fournisseur d’identité est trop volumineuse.",
+  "sso.problem.not_json": "Le document de découverte n’est pas un JSON valide.",
+  "sso.problem.issuer_mismatch":
+    "Le document de découverte indique un autre émetteur. Utilisez l’émetteur exactement comme le document l’indique.",
+  "sso.problem.missing_endpoint":
+    "Il manque au document de découverte le point de terminaison d’autorisation, de jetons ou de clés.",
+  "sso.problem.invalid_endpoint":
+    "Un point de terminaison du document de découverte n’est pas une URL https publique.",
+  "sso.problem.no_code_flow":
+    "Le fournisseur d’identité ne propose pas le flux du code d’autorisation.",
+  "sso.problem.no_pkce": "Le fournisseur d’identité ne prend pas en charge PKCE avec S256.",
+  "sso.problem.no_signing_algorithm":
+    "Le fournisseur d’identité signe les jetons d’identité avec un algorithme que Portifact n’accepte pas (familles RS256, PS256, ES256 ou EdDSA).",
+  "sso.error.invalid_input":
+    "Vérifiez l’émetteur, le client et les domaines. « Vérifier l’émetteur » montre ce qui a échoué dans la découverte.",
+  "sso.error.capacity_unavailable":
+    "L’authentification unique n’est pas disponible pour le moment.",
+  "sso.error.version_conflict":
+    "L’authentification unique a changé entre-temps. Rechargez et réessayez.",
+  "sso.error.not_found": "L’authentification unique n’est pas configurée.",
+  "audit.kind.memberJoinedSso":
+    "{member} a rejoint en tant que {role} par l’authentification unique",
+  "audit.kind.ssoCreated":
+    "A configuré l’authentification unique avec {host} pour {count, plural, one {# domaine} other {# domaines}}",
+  "audit.kind.ssoChanged": "A modifié l’authentification unique",
+  "audit.kind.ssoRemoved": "A retiré l’authentification unique",
   "shell.policiesLink": "Règles",
   "policies.title": "Règles",
   "policies.description":

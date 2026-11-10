@@ -57,6 +57,9 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   deleteWorkspaceGroup: ["group.deleted"],
   addGroupMember: ["group.member_added"],
   removeGroupMember: ["group.member_removed"],
+  saveSsoProvider: ["sso.created", "sso.changed"],
+  removeSsoProvider: ["sso.removed"],
+  joinWorkspaceThroughSso: ["member.joined"],
   // Workspace policies (decision 0015): a change records which fields and values, and each step
   // that applies one to existing artifacts records its counts and each changed artifact's own
   // access change, as the system.
@@ -75,6 +78,20 @@ const NOT_RECORDED: Record<string, string> = {};
 const reason = (why: string, names: string[]) => {
   for (const name of names) NOT_RECORDED[name] = why;
 };
+reason(
+  "single sign-on protocol steps and lookups: they change nothing an owner has (decision 0016)",
+  [
+    "fetchSsoJson",
+    "discoverSso",
+    "testSsoIssuer",
+    "ssoProviderForEmail",
+    "ssoProviderForCallback",
+    "checkSsoIdentity",
+    "unlinkSsoIdentity",
+    "ssoKeys",
+    "openSsoSecret",
+  ],
+);
 reason("approval reviews: who can still open the artifact counts again; nobody's choice changed", [
   "recheckApprovalReviewers",
 ]);
@@ -236,6 +253,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  "seatLimit",
   "accessAudience",
   "approvalSummaries",
   "participation",
