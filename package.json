@@ -38,6 +38,7 @@
     "spike:review-cookies": "bun run --cwd spikes/review-cookies spike",
     "spike:regions": "bun run --cwd spikes/regions test",
     "spike:workspace-model": "bun run --cwd spikes/workspace-model test",
+    "spike:artifact-analytics": "bun run --cwd spikes/artifact-analytics test",
     "test:e2e": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && bun run --cwd e2e e2e",
     "landing:shots": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && bun run --cwd e2e shots",
     "test:load": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && node scripts/load-test.ts",
