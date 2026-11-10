@@ -255,11 +255,52 @@ const GATED: GatedOperation[] = [
     },
   },
   {
+    feature: "contentSearch",
+    name: "search inside the space's artifacts",
+    scope: "owner",
+    run: async (who) => {
+      const response = await who.apiCall("/api/v1/search?q=gate");
+      const result = await who.tool("search_content", { query: "gate" });
+      return {
+        api: { status: response.status, body: await response.json<unknown>() },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
+  {
     feature: "serviceTokens",
     name: "use a service token",
     scope: "owner",
     run: (who) => withServiceToken(who),
   },
+  route(
+    "reviews",
+    "request an approval review",
+    (id) => [
+      `/api/v1/artifacts/${id}/review/request`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ reviewers: ["gate@example.com"] }),
+      },
+    ],
+    "request_review",
+    (id) => ({ artifactId: id, reviewers: ["gate@example.com"] }),
+  ),
+  route(
+    "reviews",
+    "change an approval review",
+    (id) => [
+      `/api/v1/artifacts/${id}/review/request`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+        body: JSON.stringify({ showStatus: true }),
+      },
+    ],
+    "request_review",
+    (id) => ({ artifactId: id, action: "change", showStatus: true }),
+  ),
   probe("workspaces"),
   ...(["workspace", "domain"] as const).map(
     (mode): GatedOperation => ({

@@ -203,6 +203,8 @@ export const AVAILABLE_PLAN_FEATURES = [
   "branding",
   "workspaces",
   "serviceTokens",
+  "reviews",
+  "contentSearch",
   "audit",
   "auditExport",
 ] as const satisfies readonly PlanFeature[];

@@ -685,6 +685,7 @@ export const OUTBOX_TOPICS = [
   "workspace_deletion",
   "access_history_move",
   "domain_notice",
+  "search_index",
 ] as const;
 
 /**
@@ -1024,6 +1025,102 @@ export const commentNotices = sqliteTable(
       "comment_notices_counts",
       sql`${t.created} in (0, 1) and ${t.resolved} in (0, 1) and ${t.replies} between 0 and 200`,
     ),
+  ],
+);
+
+/**
+ * Approval reviews (premium plan T6, decision 0013; not review mode, which is the commenting
+ * session): an admin or editor of the owner asks named people to review the artifact's current
+ * version. At most one open request per artifact (partial unique index); a cancelled one stays,
+ * with its verdicts, as history. `version_id` is the version under review: publish and rollback
+ * move it to the new version in the batch of their switch, so verdicts given on the old one stay
+ * its history and the request starts again with none. `announced` is the completed status already
+ * told for that version, so a notice goes once. Rows go with their artifact by the foreign key.
+ */
+export const reviewRequests = sqliteTable(
+  "review_requests",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** No foreign key: an expired version is deleted, and its verdicts keep pointing at it. */
+    versionId: text("version_id").notNull(),
+    /** Approvals that decide it; null means every reviewer. */
+    required: integer("required"),
+    /** Whether other people who can open the artifact see the overall status. */
+    showStatus: integer("show_status", { mode: "boolean" }).notNull().default(false),
+    /** Who asked (a user or a service token); no foreign key, cleared by account deletion. */
+    requestedBy: text("requested_by"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+    /** Bumped by every change, verdicts included, for optimistic concurrency. */
+    revision: integer("revision").notNull().default(1),
+    cancelledAt: timestamp("cancelled_at"),
+    cancelReason: text("cancel_reason", { enum: ["cancelled", "transferred"] }),
+    announced: text("announced", { enum: ["approved", "changes_requested"] }),
+    /** When the maintenance scan last re-checked who can still open the artifact. */
+    checkedAt: timestamp("checked_at").notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex("review_requests_open_idx").on(t.artifactId).where(sql`${t.cancelledAt} is null`),
+    index("review_requests_artifact_idx").on(t.artifactId, t.createdAt),
+    index("review_requests_checked_idx").on(t.cancelledAt, t.checkedAt),
+    index("review_requests_requested_by_idx").on(t.requestedBy),
+    check("review_requests_required", sql`${t.required} is null or ${t.required} between 1 and 10`),
+    check(
+      "review_requests_cancelled",
+      sql`(${t.cancelledAt} is null) = (${t.cancelReason} is null)`,
+    ),
+  ],
+);
+
+/**
+ * The people a request names, by email address (lowercase), matched to accounts by verified
+ * address like the reader list. `dropped_at` is set while the address can no longer open the
+ * artifact (checked when it is added, on every verdict and by the maintenance scan); a dropped
+ * reviewer does not count toward the status.
+ */
+export const reviewReviewers = sqliteTable(
+  "review_reviewers",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => reviewRequests.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    addedAt: timestamp("added_at").notNull(),
+    droppedAt: timestamp("dropped_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.requestId, t.email] }),
+    index("review_reviewers_email_idx").on(t.email),
+  ],
+);
+
+/**
+ * Verdicts, one per reviewer and version: the current one decides the status, earlier ones are
+ * history. `author_id` is the account that gave it (no foreign key: users are global); account
+ * deletion deletes the account's verdicts. The note is untrusted plain text, never logged.
+ */
+export const reviewVerdicts = sqliteTable(
+  "review_verdicts",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => reviewRequests.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    versionId: text("version_id").notNull(),
+    authorId: text("author_id").notNull(),
+    verdict: text("verdict", { enum: ["approve", "changes"] }).notNull(),
+    note: text("note"),
+    noteBytes: integer("note_bytes").notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.requestId, t.email, t.versionId] }),
+    index("review_verdicts_author_idx").on(t.authorId),
+    check("review_verdicts_note_bytes", sql`${t.noteBytes} between 0 and 4096`),
   ],
 );
 
@@ -1698,4 +1795,51 @@ export const auditEvents = sqliteTable(
     index("audit_events_owner_at_idx").on(t.ownerId, t.at, t.id),
     index("audit_events_at_idx").on(t.at),
   ],
+);
+
+/**
+ * Content search (premium plan T8, decision 0012): which version of an artifact the index holds.
+ * One row per indexed artifact, written only by the `search_index` job in one batch with its
+ * files, while that version is current and the artifact active. It goes with the artifact (the
+ * foreign key), and triggers of the `content_search` migration delete it when the artifact stops
+ * being active or changes owner. Deleting it deletes its `search_chunks`, whose trigger deletes
+ * their rows of the `search_text` FTS5 table (raw SQL in that migration; Drizzle never sees it).
+ */
+export const searchArtifacts = sqliteTable(
+  "search_artifacts",
+  {
+    artifactId: text("artifact_id")
+      .primaryKey()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    versionId: text("version_id").notNull(),
+    /** UTF-8 bytes of the text indexed for this artifact, counted against the owner's cap. */
+    textBytes: integer("text_bytes").notNull(),
+    /** Some text was over a cap and is not searchable. */
+    partial: integer("partial", { mode: "boolean" }).notNull(),
+    indexedAt: timestamp("indexed_at").notNull(),
+    /**
+     * The index of the next file a continuation job reads, while one job's read budget did not
+     * cover the version; null once every file was read (`SEARCH_LIMITS.jobReadBytes`).
+     */
+    nextFile: integer("next_file"),
+  },
+  (t) => [index("search_artifacts_owner_idx").on(t.ownerId)],
+);
+
+/**
+ * One chunk of an indexed file's text (about 4,000 characters, `chunkText` in packages/domain), so
+ * a snippet is always built from a small row; its `id` is the rowid of its `search_text` row.
+ */
+export const searchChunks = sqliteTable(
+  "search_chunks",
+  {
+    id: integer("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => searchArtifacts.artifactId, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    seq: integer("seq").notNull(),
+  },
+  (t) => [uniqueIndex("search_chunks_artifact_path_seq_idx").on(t.artifactId, t.path, t.seq)],
 );

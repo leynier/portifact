@@ -10,7 +10,7 @@ import {
   planRequiredMessage,
   type WorkspaceRole,
 } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { hitRateLimit, schema } from "@portifact/db";
 import { type Actor, auditCsvHeader, auditCsvRow, personalActor } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -282,7 +282,7 @@ describe("exporting the audit log", () => {
     expect(next.text).not.toContain(owner.email);
   });
 
-  it("limits starting exports per person and per owner, but not resumed parts", async () => {
+  it("limits starting exports per person and per owner, and resumed parts apart from them", async () => {
     const owner = await enterprise();
     await insert(owner.id, mixed("l"));
     const actor = personalActor(owner.id);
@@ -319,16 +319,27 @@ describe("exporting the audit log", () => {
           )
       ).length;
     expect(await recorded()).toBe(AUDIT_EXPORT.perActor.max);
-    // A resumed part neither counts nor records.
+    // A resumed part does not count as a start and records nothing.
     expect(first).not.toBeNull();
-    const resumed = await exportAuditLog(db(), {
-      actor,
-      format: "csv",
-      filters: {},
-      cursor: first ?? "",
-      now: LATER,
+    const resume = () =>
+      exportAuditLog(db(), { actor, format: "csv", filters: {}, cursor: first ?? "", now: LATER });
+    expect((await resume()).ok).toBe(true);
+    expect(await recorded()).toBe(AUDIT_EXPORT.perActor.max);
+    // Parts have their own limit per owner, so a made-up cursor cannot read without end.
+    const parts = AUDIT_EXPORT.partsPerOwner;
+    for (let i = 1; i < parts.max; i += 1) {
+      await hitRateLimit(
+        global().$client,
+        `audit-export-part:owner:${owner.id}`,
+        parts.windowSeconds * 1000,
+        LATER,
+      );
+    }
+    expect(await resume()).toEqual({
+      ok: false,
+      code: "rate_limited",
+      message: "Too many audit log exports. Try again later.",
     });
-    expect(resumed.ok).toBe(true);
     expect(await recorded()).toBe(AUDIT_EXPORT.perActor.max);
     // The window ends: a new hour starts again.
     expect(

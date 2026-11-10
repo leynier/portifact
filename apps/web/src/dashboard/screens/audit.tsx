@@ -51,6 +51,10 @@ export const AUDIT_GROUPS = {
     "access.changed",
     "share_link.created",
     "share_link.revoked",
+    "review.requested",
+    "review.changed",
+    "review.cancelled",
+    "review.verdict",
     "email_domain.verified",
     "email_domain.removed",
   ],
@@ -444,6 +448,8 @@ export function describeAuditEvent(
     "artifact.pinned": "audit.kind.pinned",
     "artifact.unpinned": "audit.kind.unpinned",
     "share_link.revoked": "audit.kind.shareLinkRevoked",
+    "review.changed": "audit.kind.reviewChanged",
+    "review.cancelled": "audit.kind.reviewCancelled",
     "webhook.removed": "audit.kind.webhookRemoved",
     "member.invitation_revoked": "audit.kind.invitationRevoked",
     "plan.removed": "audit.kind.planRemoved",
@@ -468,6 +474,13 @@ export function describeAuditEvent(
       return t("audit.kind.shareLinkCreated", {
         password: flag(d.password),
         expires: flag(d.expires),
+      });
+    case "review.requested":
+      return t("audit.kind.reviewRequested", { reviewers: Number(d.reviewers) });
+    case "review.verdict":
+      return t("audit.kind.reviewVerdict", {
+        verdict: String(d.verdict),
+        version: Number(d.version),
       });
     case "domain.attached":
       return t("audit.kind.domainAttached", { hostname: String(d.hostname) });

@@ -11,7 +11,7 @@ import {
 } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { auditCsvHeader, auditCsvRow } from "@portifact/domain";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness } from "./harness.ts";
 import { api, apiToken } from "./mcp-helpers.ts";
@@ -135,6 +135,42 @@ describe("the export route", () => {
     const csv = await exportAll(owner, "format=csv");
     expect(csv[0]?.text.startsWith(auditCsvHeader())).toBe(true);
     expect(csv[1]?.text.startsWith("ae_")).toBe(true);
+  });
+
+  it("answers a malformed or unknown workspace like a missing one, reading and exporting", async () => {
+    const owner = await client();
+    await onPlan(owner.userId, "enterprise");
+    for (const path of ["/api/v1/audit", "/api/v1/audit/export?format=csv"]) {
+      const join = path.includes("?") ? "&" : "?";
+      for (const slug of ["Not%20A%20Slug", "no-such-team"]) {
+        const response = await owner.call(`${path}${join}workspace=${slug}`);
+        expect(response.status, `${path} ${slug}`).toBe(404);
+        expect((await response.json<{ error: { code: string } }>()).error.code).toBe("not_found");
+      }
+    }
+  });
+
+  it("stops reading when the download is cancelled", async () => {
+    const owner = await client();
+    await onPlan(owner.userId, "enterprise");
+    await many(owner.userId, 1200, "artifact.renewed", "ae_cancel");
+    const response = await owner.call("/api/v1/audit/export?format=jsonl");
+    expect(response.status).toBe(200);
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    await reader.cancel();
+    // The export was started and recorded once, whatever became of the download.
+    const recorded = await db()
+      .select({ id: schema.auditEvents.id })
+      .from(schema.auditEvents)
+      .where(
+        and(
+          eq(schema.auditEvents.ownerId, owner.userId),
+          eq(schema.auditEvents.kind, "audit.exported"),
+        ),
+      );
+    expect(recorded).toHaveLength(1);
   });
 
   it("validates the format, filters and cursor, and needs artifacts:read", async () => {

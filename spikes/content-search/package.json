@@ -1,0 +1,20 @@
+{
+  "name": "@portifact/spike-content-search",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike: content search with SQLite FTS5 on D1, in workerd with local D1 only. Never deployed.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.6.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "drizzle-orm": "^0.45.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

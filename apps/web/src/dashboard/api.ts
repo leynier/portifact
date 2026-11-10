@@ -19,6 +19,10 @@ import {
   AnnotationThreadView,
   type AnnotationVersionFilter,
   ApiError,
+  type ApprovalChangeInput,
+  type ApprovalRequestInput,
+  ApprovalReviewView,
+  type ApprovalVerdictInput,
   ArtifactList,
   type ArtifactListFilters,
   ArtifactStatsView,
@@ -55,6 +59,7 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  SearchResults,
   type ServiceTokenCreate,
   ServiceTokenCreated,
   ServiceTokenList,
@@ -140,6 +145,8 @@ export interface DashboardApi {
     workspace?: string,
   ): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
+  /** Searches inside the text of a space's artifacts (premium plan T8). */
+  searchContent(query: string, cursor?: string, workspace?: string): Promise<SearchResults>;
   lifecycle(artifactId: string, action: LifecycleAction): Promise<LifecycleResult>;
   getAccess(artifactId: string): Promise<AccessPolicyView>;
   updateAccess(artifactId: string, change: AccessUpdate): Promise<AccessPolicyView>;
@@ -221,6 +228,25 @@ export interface DashboardApi {
     input: { label: string; expiresAt?: string; password?: string },
   ): Promise<ShareLinkCreated>;
   revokeShareLink(artifactId: string, linkId: string): Promise<ShareLinkRevoked>;
+  /** The approval review as the caller may see it (decision 0013). */
+  getReview(artifactId: string): Promise<ApprovalReviewView>;
+  requestReview(
+    artifactId: string,
+    input: ApprovalRequestInput,
+    idempotencyKey: string,
+  ): Promise<ApprovalReviewView>;
+  changeReview(
+    artifactId: string,
+    input: ApprovalChangeInput,
+    idempotencyKey: string,
+  ): Promise<ApprovalReviewView>;
+  cancelReview(artifactId: string): Promise<ApprovalReviewView>;
+  /** A requested reviewer's verdict on the version they saw. */
+  submitVerdict(
+    artifactId: string,
+    input: ApprovalVerdictInput,
+    idempotencyKey: string,
+  ): Promise<ApprovalReviewView>;
   /** The artifact's custom domain and pending ones, with its owner's plan. */
   artifactDomains(artifactId: string): Promise<CustomDomainList>;
   /** Claims a hostname for the artifact; retrying with the same key answers the same claim. */
@@ -465,6 +491,12 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     getArtifact(artifactId) {
       return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}`, ArtifactSummary);
     },
+    searchContent(query, cursor, workspace) {
+      const params = new URLSearchParams({ q: query });
+      if (workspace) params.set("workspace", workspace);
+      if (cursor) params.set("cursor", cursor);
+      return call(`/api/v1/search?${params}`, SearchResults);
+    },
     lifecycle(artifactId, action) {
       const base = `/api/v1/artifacts/${encodeURIComponent(artifactId)}`;
       return action === "delete"
@@ -683,6 +715,46 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         `/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links/${encodeURIComponent(linkId)}`,
         ShareLinkRevoked,
         "DELETE",
+      );
+    },
+    getReview(artifactId) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/status`,
+        ApprovalReviewView,
+      );
+    },
+    requestReview(artifactId, input, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/request`,
+        ApprovalReviewView,
+        "POST",
+        input,
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    changeReview(artifactId, input, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/request`,
+        ApprovalReviewView,
+        "PATCH",
+        input,
+        { "idempotency-key": idempotencyKey },
+      );
+    },
+    cancelReview(artifactId) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/request`,
+        ApprovalReviewView,
+        "DELETE",
+      );
+    },
+    submitVerdict(artifactId, input, idempotencyKey) {
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/review/verdict`,
+        ApprovalReviewView,
+        "POST",
+        input,
+        { "idempotency-key": idempotencyKey },
       );
     },
     artifactDomains(artifactId) {

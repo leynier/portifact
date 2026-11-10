@@ -20,6 +20,10 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   updateAccess: ["access.changed"],
   createShareLink: ["share_link.created"],
   revokeShareLink: ["share_link.revoked"],
+  requestApprovalReview: ["review.requested"],
+  changeApprovalReview: ["review.changed"],
+  cancelApprovalReview: ["review.cancelled"],
+  submitApprovalVerdict: ["review.verdict"],
   verifyCustomDomain: ["domain.attached"],
   removeCustomDomain: ["domain.removed"],
   detachDomain: ["domain.removed"],
@@ -57,6 +61,12 @@ const NOT_RECORDED: Record<string, string> = {};
 const reason = (why: string, names: string[]) => {
   for (const name of names) NOT_RECORDED[name] = why;
 };
+reason("approval reviews: who can still open the artifact counts again; nobody's choice changed", [
+  "recheckApprovalReviewers",
+]);
+reason("statements for an access change's own batch, which records access.changed", [
+  "approvalAccessStatements",
+]);
 reason("upload steps: the publish is recorded when it commits", [
   "preparePublish",
   "abortPublish",
@@ -165,6 +175,10 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sendDomainNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
+  // Content search (decision 0012): the index is derived data, kept by a job and two scans.
+  "runSearchIndex",
+  "scheduleSearchIndexing",
+  "dropLapsedSearchIndexes",
   "applyOwnerRetention",
   "moveAccessHistory",
   "eraseAccessEvents",
@@ -205,6 +219,9 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  */
 const READ_NAMES = new Set([
   "accessAudience",
+  "approvalSummaries",
+  "participation",
+  "withActivity",
   "authorizeUploadOn",
   "policyDomains",
   "scoped",
@@ -217,6 +234,8 @@ const READ_NAMES = new Set([
   "openUnsubscribeToken",
   "resolveActor",
   "resolveOwnerScope",
+  // Content search is a read (decision 0012): it records nothing.
+  "searchContent",
   "signUnsubscribeToken",
   "signWebhook",
 ]);

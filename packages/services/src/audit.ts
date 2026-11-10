@@ -421,8 +421,9 @@ export interface AuditExport {
  * one event written outside the batch of its change: an export is a read with no batch, and the
  * event records that it was asked for, so it is written unconditionally once the request passed
  * authorization, the plan gate, validation and the rate limit. The part ends just before `now`,
- * so it never lists its own event. A resumed part records nothing and is not limited again: it
- * reads only what reading the log page by page would.
+ * so it never lists its own event. A resumed part records nothing more, and counts against the
+ * owner's own limit on parts: a cursor is only a position, so anyone who may export could make
+ * one up, and without a limit could keep the database busy without ever starting an export.
  */
 export async function exportAuditLog(
   db: RegionalDb,
@@ -444,6 +445,16 @@ export async function exportAuditLog(
     const decoded = decodeAuditCursor(input.cursor);
     if (!decoded.ok) return decoded;
     after = decoded.value;
+    const part = AUDIT_EXPORT.partsPerOwner;
+    const hit = await hitRateLimit(
+      db.global.$client,
+      `audit-export-part:owner:${ownerId}`,
+      part.windowSeconds * 1000,
+      input.now,
+    );
+    if (hit.count > part.max) {
+      return fail("rate_limited", "Too many audit log exports. Try again later.");
+    }
   } else {
     const limited = await exportRateLimited(db.global, ownerId, input.actor.userId, input.now);
     if (limited) return fail("rate_limited", "Too many audit log exports. Try again later.");
