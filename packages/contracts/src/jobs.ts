@@ -13,6 +13,8 @@ export const OutboxTopic = z.enum([
   "comment_notice",
   "owner_retention",
   "delete_custom_hostname",
+  "workspace_deletion",
+  "access_history_move",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -98,7 +100,7 @@ export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
  * not bring back.
  */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account", "share_link"]),
+  kind: z.enum(["artifact", "account", "share_link", "workspace"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

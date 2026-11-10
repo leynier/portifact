@@ -4,6 +4,7 @@ import {
   type ErrorCode,
   IdempotencyKey,
   type OAuthScope,
+  WorkspaceParam,
 } from "@portifact/contracts";
 import { hashRequest, runIdempotent, type StoredResponse } from "@portifact/services";
 import type { Context } from "hono";
@@ -99,4 +100,19 @@ export async function idempotent(
     return error(c, "version_conflict", "A request with this Idempotency-Key is still running.");
   }
   return c.json(outcome.response.body, outcome.response.status as 201);
+}
+
+/**
+ * The space an owner-scoped route acts on (`?workspace=<slug>`; absent for the personal space).
+ * Routes that name an artifact take none: the artifact's owner decides.
+ */
+export function workspaceParam(c: ApiContext):
+  | { ok: true; slug: string | undefined }
+  | {
+      ok: false;
+    } {
+  const raw = c.req.query("workspace");
+  if (raw === undefined || raw === "") return { ok: true, slug: undefined };
+  const parsed = WorkspaceParam.safeParse(raw);
+  return parsed.success ? { ok: true, slug: parsed.data } : { ok: false };
 }

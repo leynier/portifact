@@ -88,10 +88,10 @@ describe("operator plan commands", () => {
   it("refuses bad input without writing anything", async () => {
     const owner = await account();
     const cases: [string[], string][] = [
-      [["plan"], "plan needs a user ID or email."],
-      [["remove-plan"], "remove-plan needs a user ID or email."],
-      [["set-plan", owner.id], "set-plan needs a user ID or email and a plan."],
-      [["set-plan", owner.id, "gold"], "set-plan needs a user ID or email and a plan."],
+      [["plan"], "plan needs an owner."],
+      [["remove-plan"], "remove-plan needs an owner."],
+      [["set-plan", owner.id], "set-plan needs an owner and a plan."],
+      [["set-plan", owner.id, "gold"], "set-plan needs an owner and a plan."],
       [
         ["set-plan", owner.id, "pro", "--until", "next year"],
         "--until must be an ISO date, like 2027-01-31.",
@@ -114,10 +114,10 @@ describe("operator plan commands", () => {
         ["set-plan", owner.id, "pro", "--overrides", '{"limits":{"activeArtifacts":-1}}'],
         "The overrides are not valid.",
       ],
-      [["set-plan", "nobody@example.test", "pro"], "Account not found."],
-      [["set-plan", "u_missing", "pro"], "Account not found."],
-      [["plan", "nobody@example.test"], "Account not found."],
-      [["remove-plan", "nobody@example.test"], "Account not found."],
+      [["set-plan", "nobody@example.test", "pro"], "Account or workspace not found."],
+      [["set-plan", "u_missing", "pro"], "Account or workspace not found."],
+      [["plan", "nobody@example.test"], "Account or workspace not found."],
+      [["remove-plan", "nobody@example.test"], "Account or workspace not found."],
     ];
     for (const [argv, output] of refused) {
       expect(await run(...argv)).toEqual({ exitCode: 1, output });
@@ -176,7 +176,8 @@ describe("operator plan commands", () => {
   });
 
   it("lists the plan commands in the usage", () => {
-    expect(OPERATOR_USAGE).toContain("set-plan <user-id|email> <plan>");
+    expect(OPERATOR_USAGE).toContain("set-plan <owner> <plan>");
+    expect(OPERATOR_USAGE).toContain("workspace:<slug>");
     expect(OPERATOR_USAGE).toContain("Plans: free, pro, team, enterprise");
   });
 });

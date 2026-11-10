@@ -19,6 +19,7 @@ export { type PreviewInput, previewDocument } from "./documents.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";
 export * from "./idempotency.ts";
+export * from "./invitations.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";
 export * from "./moderation.ts";
@@ -37,6 +38,7 @@ export * from "./read-file.ts";
 export * from "./review-access.ts";
 export * from "./share-links.ts";
 export * from "./traffic.ts";
+export * from "./transfer.ts";
 export * from "./usage.ts";
 export * from "./version-diff.ts";
 export {
@@ -53,3 +55,4 @@ export {
   type VersionPage,
 } from "./versions.ts";
 export * from "./viewer.ts";
+export * from "./workspaces.ts";

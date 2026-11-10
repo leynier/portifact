@@ -253,6 +253,13 @@
       "when": 1794302605687,
       "tag": "0035_owner_brands",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1794305289616,
+      "tag": "0036_workspace_members_invitations",
+      "breakpoints": true
     }
   ]
 }

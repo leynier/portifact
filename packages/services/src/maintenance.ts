@@ -14,6 +14,7 @@ import { renderDocument, renderingStatements, storeRenderings } from "./document
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneOperations } from "./idempotency.ts";
+import { pruneExpiredInvitations } from "./invitations.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { alignPlanLimits, ownerEntitlements, unpinLapsedPlans } from "./plans.ts";
 import { closeUploadSession } from "./publish.ts";
@@ -22,6 +23,7 @@ import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneShareLinks } from "./share-links.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
+import { processWorkspaceDeletions } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;
 const RELEASE_CHUNK = 40;
@@ -375,7 +377,16 @@ export async function releaseOrphans(
         db.delete(o).where(orphan).returning({ r2Key: o.r2Key }),
       ]);
       if (removed.length === 0) continue;
-      await bucket.delete(removed.map((object) => object.r2Key));
+      // A transferred artifact's objects share their R2 key with the new owner's rows
+      // (transfer.ts): a key goes only once no row of any owner has it.
+      const keys = removed.map((object) => object.r2Key);
+      const kept = new Set(
+        (await db.select({ key: o.r2Key }).from(o).where(inArray(o.r2Key, keys))).map(
+          (row) => row.key,
+        ),
+      );
+      const gone = keys.filter((key) => !kept.has(key));
+      if (gone.length > 0) await bucket.delete(gone);
       const jobId = job[0]?.id;
       if (jobId !== undefined) {
         await db.delete(schema.outbox).where(eq(schema.outbox.id, jobId));
@@ -485,7 +496,7 @@ export async function rerenderDocuments(
           inArray(schema.versionFiles.kind, ["rendered", "block_map"]),
         ),
       );
-    await storeRenderings(bucket, version.ownerId, rendered.value.files);
+    await storeRenderings(db, bucket, version.ownerId, rendered.value.files);
     // Only the run that still sees the old renderer version applies its rendering.
     const unchanged = sql`exists (select 1 from ${schema.versions} where ${schema.versions.id} = ${version.versionId} and ${schema.versions.rendererVersion} is ${version.rendererVersion})`;
     const accountUpdates = rendered.value.files.map((file) =>
@@ -543,6 +554,8 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     readSessions: (await pruneReadSessions(db, now)).processed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
     accountDeletions: (await processAccountDeletions(db, bucket, now)).finished,
+    workspaceDeletions: (await processWorkspaceDeletions(db, bucket, now)).finished,
+    expiredInvitations: await pruneExpiredInvitations(db.global, now),
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
     prunedEmailCounters: await pruneEmailCounters(db, now),

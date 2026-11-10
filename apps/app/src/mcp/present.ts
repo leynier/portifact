@@ -5,6 +5,7 @@ import {
   ArtifactSummary,
   CommittedPublish,
   LifecycleResult,
+  type OwnerView,
 } from "@portifact/contracts";
 import type {
   ArtifactRow,
@@ -14,7 +15,8 @@ import type {
 } from "@portifact/services";
 import type { Env } from "../env.ts";
 
-export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
+/** An artifact's summary, with where it lives (`ownerView` in the services). */
+export function artifactSummary(env: Env, row: ArtifactRow, owner: OwnerView): ArtifactSummary {
   return ArtifactSummary.parse({
     id: row.id,
     name: row.name,
@@ -24,6 +26,7 @@ export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
     annotations: row.annotations,
     currentVersionId: row.currentVersionId,
     url: contentUrl(env, row.id),
+    owner,
     expiresAt: isoOrNull(row.expiresAt),
     archivedAt: isoOrNull(row.archivedAt),
     purgeAt: isoOrNull(row.purgeAt),
@@ -37,10 +40,14 @@ export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
 }
 
 /** An artifact of the list, with its activity; `GET /api/v1/artifacts` and `list_artifacts`. */
-export function artifactListItem(env: Env, row: ListedArtifact): ArtifactListItem {
+export function artifactListItem(
+  env: Env,
+  row: ListedArtifact,
+  owner: OwnerView,
+): ArtifactListItem {
   const { activity } = row;
   return ArtifactListItem.parse({
-    ...artifactSummary(env, row),
+    ...artifactSummary(env, row, owner),
     activity: {
       versions: activity.versions,
       currentBytes: activity.currentBytes,

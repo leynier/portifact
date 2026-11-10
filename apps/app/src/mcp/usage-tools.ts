@@ -4,7 +4,7 @@ import { AccountUsageView, GetUsageInput, type OAuthScope } from "@portifact/con
 import type { RegionalDb } from "@portifact/db";
 import { getAccountUsage } from "@portifact/services";
 import { usageView } from "../api/usage.ts";
-import { personalScope } from "../regions.ts";
+import { ownerScope } from "../regions.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
 export const USAGE_TOOL_SCOPES: [string, OAuthScope][] = [["get_usage", "artifacts:read"]];
@@ -19,13 +19,15 @@ export function registerUsageTools(
     {
       title: "Get account usage",
       description:
-        "Get the user's account usage: active artifacts, storage (with bytes reserved by uploads in progress), publishes, new files and new bytes in the last 24 hours, new files this month, open uploads, and the requests and bytes the user's artifacts served this month (traffic), each with its limit; the per-version limits; when the account may make artifacts public; and blocks, the reasons the account cannot do something right now, each with when it lifts by itself (null when the user must free capacity). A traffic block (stops serving) means every artifact of the user answers 429 traffic_exceeded until it lifts at the next month. Call it before a large publish, or to explain a quota_exceeded or traffic_exceeded error.",
+        "Get the usage of the user's personal space, or of a workspace with workspace (its slug from list_workspaces; admins and editors only): active artifacts, storage (with bytes reserved by uploads in progress), publishes, new files and new bytes in the last 24 hours, new files this month, open uploads, and the requests and bytes the user's artifacts served this month (traffic), each with its limit; the per-version limits; when the account may make artifacts public; and blocks, the reasons the account cannot do something right now, each with when it lifts by itself (null when the user must free capacity). A traffic block (stops serving) means every artifact of the user answers 429 traffic_exceeded until it lifts at the next month. Call it before a large publish, or to explain a quota_exceeded or traffic_exceeded error.",
       inputSchema: GetUsageInput,
       outputSchema: AccountUsageView,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async () => {
-      const { actor, db: owned } = await personalScope(context.env, context.userId);
+    async (args: GetUsageInput) => {
+      const scope = await ownerScope(context.env, context.userId, args.workspace);
+      if (!scope.ok) return failure(scope.code, scope.message);
+      const { actor, db: owned } = scope.value;
       const report = await getAccountUsage(owned, { actor, now: context.now() });
       if (!report.ok) return failure(report.code, report.message);
       const body = usageView(report.value);

@@ -19,6 +19,15 @@ import {
   SourceOrigin,
   UploadedPart,
 } from "./publishing.ts";
+import { WorkspaceSlug } from "./workspaces.ts";
+
+/**
+ * The `workspace` argument of the tools that create or list: a workspace's slug from
+ * list_workspaces, or omitted for the user's personal space.
+ */
+export const workspaceArg = WorkspaceSlug.optional().describe(
+  "The slug of a workspace from list_workspaces to act in that workspace. Omit it for the user's personal space. When the user belongs to any workspace and did not say where, ask them which space to use before creating anything.",
+);
 
 const artifactId = ArtifactId.describe(
   "The artifact ID, as list_artifacts or get_artifact return it.",
@@ -28,6 +37,7 @@ export const ArtifactRef = z.object({ artifactId });
 export type ArtifactRef = z.infer<typeof ArtifactRef>;
 
 export const ListArtifactsInput = z.object({
+  workspace: workspaceArg,
   cursor: z
     .string()
     .max(200)
@@ -65,6 +75,9 @@ export type ListArtifactsInput = z.infer<typeof ListArtifactsInput>;
  * length bound here is a cheap upper bound, because every UTF-16 code unit takes at least a byte.
  */
 export const PublishDocumentInput = z.object({
+  workspace: workspaceArg.describe(
+    "Where a new artifact goes: the slug of a workspace from list_workspaces, or omitted for the user's personal space. Ignored with artifactId (an update stays where the artifact is). When the user belongs to any workspace and did not say where to publish, ask them first: a workspace's admins and editors can see and manage what is published there.",
+  ),
   type: ArtifactType.describe(
     "markdown for a Markdown document, text for plain text, site for one self-contained HTML page. It cannot change after the first publish.",
   ),
@@ -187,6 +200,9 @@ const manifestFile = z.object({
 
 /** A publish of several or large files: the API's `PublishRequest` with a required key. */
 export const PrepareUploadInput = z.object({
+  workspace: workspaceArg.describe(
+    "Where a new artifact goes: the slug of a workspace from list_workspaces, or omitted for the user's personal space. Ignored with artifactId. When the user belongs to any workspace and did not say where to publish, ask them first: a workspace's admins and editors can see and manage what is published there.",
+  ),
   type: PublishRequest.shape.type.describe(
     "site for HTML with its assets, markdown or text for one document. It cannot change after the first publish.",
   ),
@@ -248,3 +264,14 @@ export const CommitUploadInput = z.object({
     ),
 });
 export type CommitUploadInput = z.infer<typeof CommitUploadInput>;
+
+export const ListWorkspacesInput = z.object({});
+export type ListWorkspacesInput = z.infer<typeof ListWorkspacesInput>;
+
+export const TransferArtifactInput = z.object({
+  artifactId,
+  workspace: WorkspaceSlug.nullable().describe(
+    "The slug of the workspace to move the artifact to, from list_workspaces, or null to move it to the user's personal space.",
+  ),
+});
+export type TransferArtifactInput = z.infer<typeof TransferArtifactInput>;

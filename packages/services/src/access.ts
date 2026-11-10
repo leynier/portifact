@@ -176,7 +176,8 @@ export async function updateAccess(
   // Reader writes run first, conditioned on the generation this request read, and the guarded
   // update runs last in the same transaction. A concurrent change that committed first moved the
   // generation, so this one skips its reader writes and its update matches no row.
-  const unchanged = sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifact.id} and ${schema.artifacts.policyGeneration} = ${artifact.policyGeneration})`;
+  // The same owner too: a transfer in between means the role was decided on another owner.
+  const unchanged = sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifact.id} and ${schema.artifacts.ownerId} = ${artifact.ownerId} and ${schema.artifacts.policyGeneration} = ${artifact.policyGeneration})`;
   const statements: BatchItem<"sqlite">[] = [
     ...(remove.length > 0
       ? [

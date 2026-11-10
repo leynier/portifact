@@ -1073,7 +1073,9 @@ export const en = {
   "error.account_too_new_for_public": "New accounts cannot make artifacts public yet.",
   "error.capacity_unavailable": "Portifact is at capacity right now. Try again later.",
   "error.sole_workspace_admin":
-    "You are the only admin of a workspace. Make another member an admin or delete the workspace before deleting your account.",
+    "A workspace must keep an admin, and you are its only one. Make another member an admin first, or ask Portifact at hello@portifact.com to delete the workspace.",
+  "error.seats_exhausted":
+    "The workspace uses all of its seats. Remove a member or revoke an invitation, or ask for more seats.",
   "error.rate_limited": "Too many requests. Wait a moment and try again.",
   "error.reauthentication_required": "Sign in again to do that.",
   "error.human_verification_required":
