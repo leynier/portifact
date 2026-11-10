@@ -1314,4 +1314,206 @@ export const fr = {
   "viewer.brandNewTab": "(s’ouvre dans un nouvel onglet)",
   "viewer.hosting.poweredBy": "Propulsé par Portifact",
   "viewer.hosting.origin": "Publié sur",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "Espace",
+  "space.personal": "Personnel",
+  "space.personalDetail": "Votre propre espace",
+  "space.invitations":
+    "{count, plural, one {# invitation en attente} other {# invitations en attente}}",
+  "space.missing.title": "Workspace introuvable",
+  "space.missing.body":
+    "Ce workspace n’existe pas, ou vous n’en êtes pas membre. Demandez à l’un de ses admins de vous inviter.",
+  "space.missing.personal": "Aller à votre espace personnel",
+  "space.notAllowed.title": "Indisponible avec votre rôle",
+  "space.notAllowed.back": "Retour aux artifacts",
+  "space.notAllowed.list":
+    "En tant que membre de {workspace}, vous lisez et commentez les artifacts partagés avec vous, depuis leurs liens. Voir et gérer tous les artifacts du workspace demande le rôle d’éditeur ou d’admin : demandez-le à l’un de ses admins.",
+  "space.notAllowed.publish":
+    "Publier dans {workspace} demande le rôle d’éditeur ou d’admin. Demandez-le à l’un de ses admins.",
+  "space.notAllowed.usage":
+    "L’utilisation de {workspace} est visible par ses éditeurs et ses admins.",
+  "space.notAllowed.branding": "Seuls les admins de {workspace} définissent sa marque.",
+  "role.admin": "Admin",
+  "role.editor": "Éditeur",
+  "role.member": "Membre",
+  "role.admin.hint":
+    "gère les membres, la marque et tous les artifacts, et peut sortir des artifacts du workspace",
+  "role.editor.hint": "publie et gère les artifacts du workspace",
+  "role.member.hint": "lit et commente ce qui est partagé avec lui",
+  "shell.membersLink": "Membres",
+  "list.descriptionWorkspace":
+    "Tout ce qui est publié dans {workspace}, avec son état, son accès et son activité.",
+  "publish.descriptionWorkspace":
+    "Publiez dans {workspace} : un fichier HTML, un dossier, un ZIP ou un document. Rien n’est envoyé avant votre relecture.",
+  "publish.review.accessNewWorkspace":
+    "Les admins et les éditeurs de {workspace}. Après la publication, vous pouvez le partager depuis la page de l’artifact.",
+  "usage.descriptionWorkspace":
+    "Les quotas de {workspace}, partagés par tous ceux qui y publient, et le trafic de ce mois.",
+  "branding.descriptionWorkspace":
+    "La marque que la barre de la visionneuse affiche sur les artifacts de {workspace}.",
+  "detail.section.space": "Espace",
+  "transfer.title": "Déplacer vers un autre espace",
+  "transfer.description":
+    "Cet artifact se trouve dans {space}. Déplacez-le vers votre espace personnel ou vers un workspace où vous êtes éditeur ou admin.",
+  "transfer.destination": "Destination",
+  "transfer.move": "Déplacer l’artifact",
+  "transfer.blocked": "Cet artifact ne peut pas être déplacé pour l’instant",
+  "transfer.notAdmin": "Seul un admin de {workspace} peut en sortir ses artifacts.",
+  "transfer.domain":
+    "Cet artifact a un domaine personnalisé, actif ou en attente. Retirez-le dans Partage, puis déplacez l’artifact.",
+  "transfer.none":
+    "Il n’y a aucun autre espace où le déplacer. Vous pouvez déplacer des artifacts vers votre espace personnel et vers les workspaces où vous êtes éditeur ou admin.",
+  "transfer.confirm.title": "Déplacer {name} vers {space} ?",
+  "transfer.confirm.stays":
+    "Ne change pas : son ID, son lien, ses versions, les personnes que vous avez ajoutées et les commentaires.",
+  "transfer.confirm.changes":
+    "Change : les admins et les éditeurs de {space} le gèrent et voient qui l’a ouvert, y compris avant le déplacement, et il compte dans l’utilisation de {space}.",
+  "transfer.confirm.plan":
+    "Les épinglages et les liens de partage suivent le forfait de {space} : s’il ne les inclut pas, ils cessent de fonctionner.",
+  "transfer.confirm.blocks":
+    "Il n’est pas déplacé si {space} n’a pas de place pour lui ou si un envoi est encore ouvert.",
+  "transfer.confirm.action": "Déplacer",
+  "transfer.done": "{name} a été déplacé vers {space}.",
+  "transfer.failed": "L’artifact n’a pas été déplacé",
+  "transfer.error.quota_exceeded":
+    "{space} n’a pas de place pour cet artifact. Libérez d’abord un emplacement actif ou du stockage.",
+  "transfer.error.version_conflict":
+    "Un envoi vers cet artifact est encore ouvert, ou il a changé entre-temps. Terminez ou annulez l’envoi, rechargez et réessayez.",
+  "transfer.error.invalid_input":
+    "Cet artifact a un domaine personnalisé, ou il est déjà dans cet espace. Retirez d’abord le domaine.",
+  "transfer.error.forbidden":
+    "Votre rôle ne permet pas de sortir cet artifact de son espace ni de le déplacer vers celui-ci.",
+  "transfer.error.artifact_archived": "Seul un artifact actif ou archivé peut être déplacé.",
+  "transfer.error.not_found": "Cet espace ou cet artifact ne vous est plus accessible.",
+  "members.title": "Membres",
+  "members.description":
+    "Les personnes de {workspace} et ce que chacune peut faire. Les admins gèrent les membres et les invitations.",
+  "members.personal.title": "Votre espace personnel n’a pas de membres",
+  "members.personal.body":
+    "Les membres appartiennent aux workspaces. Choisissez un workspace dans le menu des espaces pour voir ses membres.",
+  "members.loading": "Chargement des membres",
+  "members.loadFailed": "Les membres n’ont pas pu être chargés",
+  "members.seats": "Places",
+  "members.seatsUsed": "Places utilisées",
+  "members.seatsValue": "{used} sur {limit} ({percent})",
+  "members.seatsHint":
+    "Chaque membre et chaque invitation en attente occupe une place. Le forfait du workspace en fixe le nombre.",
+  "members.listTitle": "Personnes",
+  "members.count": "{count, plural, one {# membre} other {# membres}}",
+  "members.caption": "Membres de {workspace}",
+  "members.you": "Vous",
+  "members.joined": "Membre depuis le {date}",
+  "members.roleLabel": "Rôle de {name}",
+  "members.remove": "Retirer",
+  "members.removeNamed": "Retirer {name}",
+  "members.leave": "Quitter le workspace",
+  "members.lastAdmin":
+    "Seul admin : nommez un autre membre admin avant de changer ce rôle, de retirer cette personne ou de partir.",
+  "members.confirmRemove.title": "Retirer {name} de {workspace} ?",
+  "members.confirmRemove.body":
+    "La personne perd aussitôt l’accès aux artifacts du workspace. Ce qu’elle a publié reste dans le workspace.",
+  "members.confirmRemove.action": "Retirer le membre",
+  "members.confirmLeave.title": "Quitter {workspace} ?",
+  "members.confirmLeave.body":
+    "Vous perdez aussitôt l’accès à ses artifacts. Pour revenir, un admin doit vous inviter à nouveau.",
+  "members.roleChanged": "{name} est maintenant {role}.",
+  "members.removed": "{name} a été retiré.",
+  "members.left": "Vous avez quitté {workspace}.",
+  "members.actionFailed": "La modification n’a pas été enregistrée",
+  "members.error.forbidden":
+    "Votre rôle a changé entre-temps : seuls les admins gèrent les membres et les invitations. Rechargez la page.",
+  "members.error.version_conflict": "Le membre a changé entre-temps. Rechargez et réessayez.",
+  "members.error.not_found": "Cette personne ne fait plus partie du workspace.",
+  "invite.title": "Inviter quelqu’un",
+  "invite.description":
+    "Nous envoyons par e-mail un lien valable 7 jours. La personne rejoint le workspace en se connectant avec cette adresse.",
+  "invite.email": "E-mail",
+  "invite.role": "Rôle",
+  "invite.send": "Envoyer l’invitation",
+  "invite.sent": "Invitation envoyée à {email}.",
+  "invite.emailInvalid": "Saisissez une adresse e-mail, comme nom@exemple.com.",
+  "invite.alreadyMember": "{email} est déjà membre.",
+  "invite.full.title": "Aucune place libre",
+  "invite.failed": "L’invitation n’a pas été envoyée",
+  "invite.error.invalid_input":
+    "Cette adresse appartient déjà à un membre, ou ce n’est pas une adresse e-mail valide.",
+  "invite.error.rate_limited": "Trop d’invitations pour l’instant. Patientez un peu et réessayez.",
+  "invite.error.capacity_unavailable":
+    "Portifact a envoyé tous les e-mails d’invitation possibles ce mois-ci. Réessayez le mois prochain.",
+  "invite.error.not_found": "Cette invitation n’existe plus. Rechargez la page.",
+  "pending.title": "Invitations en attente",
+  "pending.description":
+    "Chacune occupe une place jusqu’à ce qu’elle soit acceptée, refusée, révoquée ou expirée.",
+  "pending.loading": "Chargement des invitations",
+  "pending.loadFailed": "Les invitations n’ont pas pu être chargées",
+  "pending.empty": "Aucune invitation en attente.",
+  "pending.detail": "{role}, invité par {inviter}, expire le {date}",
+  "pending.unknownInviter": "un ancien membre",
+  "pending.resend": "Inviter à nouveau",
+  "pending.resendNamed": "Inviter à nouveau : {email}",
+  "pending.revoke": "Révoquer",
+  "pending.revokeNamed": "Révoquer : {email}",
+  "pending.confirmRevoke.title": "Révoquer l’invitation de {email} ?",
+  "pending.confirmRevoke.body": "Son lien cesse de fonctionner et sa place est de nouveau libre.",
+  "pending.confirmRevoke.action": "Révoquer l’invitation",
+  "pending.revoked": "L’invitation de {email} a été révoquée.",
+  "pending.resent":
+    "Une nouvelle invitation a été envoyée à {email}. L’ancien lien ne fonctionne plus.",
+  "invitation.title": "Invitation à un workspace",
+  "invitation.signedOut.body":
+    "Quelqu’un vous a invité dans un workspace sur Portifact. Connectez-vous avec l’adresse e-mail qui a reçu l’invitation, puis acceptez-la ou refusez-la ici.",
+  "invitations.signedOut.body":
+    "Connectez-vous pour voir les invitations à des workspaces envoyées à votre adresse e-mail.",
+  "invitation.signIn": "Se connecter pour répondre",
+  "invitation.loading": "Chargement de l’invitation",
+  "invitation.loadFailed": "L’invitation n’a pas pu être chargée",
+  "invitation.invited.body": "{inviter} vous a invité dans {workspace} en tant que {role}.",
+  "invitation.invited.bodyNoInviter": "Vous êtes invité dans {workspace} en tant que {role}.",
+  "invitation.expiresTerm": "Expire",
+  "invitation.accept": "Accepter",
+  "invitation.acceptNamed": "Accepter l’invitation à {workspace}",
+  "invitation.decline": "Refuser",
+  "invitation.declineNamed": "Refuser l’invitation à {workspace}",
+  "invitation.confirmDecline.title": "Refuser l’invitation à {workspace} ?",
+  "invitation.confirmDecline.body":
+    "Le lien cesse de fonctionner. Un admin pourra vous inviter à nouveau plus tard.",
+  "invitation.confirmDecline.action": "Refuser l’invitation",
+  "invitation.accepted": "Vous avez rejoint {workspace}.",
+  "invitation.declined": "Vous avez refusé l’invitation à {workspace}.",
+  "invitation.failed": "Votre réponse n’a pas été enregistrée",
+  "invitation.other.title": "Cette invitation est destinée à une autre adresse",
+  "invitation.other.body":
+    "Elle a été envoyée à {email}, et vous êtes connecté en tant que {current}. Connectez-vous avec {email} pour y répondre.",
+  "invitation.other.unverified":
+    "Elle a été envoyée à {email}, l’adresse de ce compte, qui n’est pas encore vérifiée. Déconnectez-vous et reconnectez-vous avec un code envoyé à {email}.",
+  "invitation.switch": "Se connecter avec un autre compte",
+  "invitation.missing.title": "Cette invitation ne fonctionne plus",
+  "invitation.missing.body":
+    "Elle a expiré, a été révoquée ou a déjà servi. Demandez à un admin du workspace de vous inviter à nouveau.",
+  "invitations.title": "Invitations",
+  "invitations.description":
+    "Les invitations à des workspaces envoyées à votre adresse e-mail vérifiée.",
+  "invitations.loading": "Chargement des invitations",
+  "invitations.loadFailed": "Les invitations n’ont pas pu être chargées",
+  "invitations.empty.title": "Aucune invitation en attente",
+  "invitations.empty.body":
+    "Quand un admin invite votre adresse dans un workspace, l’invitation apparaît ici et dans vos e-mails.",
+  "invitations.others": "Autres invitations",
+  "invitations.notice.title": "Vous êtes invité dans un workspace",
+  "invitations.notice.body":
+    "{count, plural, one {Vous avez # invitation en attente.} other {Vous avez # invitations en attente.}}",
+  "invitations.notice.link": "Voir les invitations",
+  "workspaces.title": "Workspaces",
+  "workspaces.description":
+    "Les workspaces dont vous faites partie et votre rôle dans chacun. Les admins invitent des personnes et changent les rôles sur la page Membres de chaque workspace.",
+  "workspaces.loading": "Chargement des workspaces",
+  "workspaces.loadFailed": "Les workspaces n’ont pas pu être chargés",
+  "workspaces.none":
+    "Vous ne faites partie d’aucun workspace. Portifact crée des workspaces pour les équipes, et un admin vous invite par e-mail.",
+  "workspaces.leave": "Quitter",
+  "workspaces.leaveNamed": "Quitter {workspace}",
+  "account.delete.soleAdmin.title": "Vous êtes le seul admin d’un workspace",
+  "account.delete.soleAdmin.body":
+    "Un workspace doit garder un admin. Nommez un autre membre admin dans chacun de ces workspaces, ou demandez à Portifact à hello@portifact.com de les supprimer, puis supprimez votre compte.",
+  "account.delete.soleAdmin.members": "Membres de {workspace}",
 } satisfies Catalog;

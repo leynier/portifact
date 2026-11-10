@@ -7,6 +7,7 @@ import type {
   ArtifactSummary,
   ArtifactType,
   CommittedPublish,
+  OwnerView,
   PreparedPublish,
   PublishRequest,
 } from "@portifact/contracts";
@@ -62,10 +63,12 @@ import {
   UploadCancelled,
   type UploadProgress,
 } from "../publish/upload.ts";
+import { type Space, spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { artifactQuery } from "./artifact-detail.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
-import { USAGE_QUERY } from "./usage.tsx";
+import { RoleNotice, SpaceBadge } from "./space-parts.tsx";
+import { usageQuery } from "./usage.tsx";
 
 /** Where a pasted document is published, by type. */
 export const PASTED_FILE: Record<Exclude<ArtifactType, "site">, string> = {
@@ -120,10 +123,27 @@ function useThrottled<T>(update: (value: T) => void): (value: T, force?: boolean
 export function PublishScreen() {
   const t = useT();
   useDocumentTitle(t("publish.title"));
+  const space = useReadySpace();
   return (
     <>
-      <PageHeader title={t("publish.title")} description={t("publish.description")} />
-      <PublishFlow />
+      <PageHeader
+        title={t("publish.title")}
+        meta={<SpaceBadge owner={space} />}
+        description={
+          space.kind === "workspace"
+            ? t("publish.descriptionWorkspace", { workspace: space.name })
+            : t("publish.description")
+        }
+      />
+      {spaceCan(space, "publish") ? (
+        <PublishFlow />
+      ) : (
+        <RoleNotice>
+          {t("space.notAllowed.publish", {
+            workspace: space.kind === "workspace" ? space.name : "",
+          })}
+        </RoleNotice>
+      )}
     </>
   );
 }
@@ -233,6 +253,10 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api, manifests, storage } = useDashboard();
+  const space = useReadySpace();
+  // A new artifact goes to the space shown; a new version stays with its artifact's owner.
+  const owner: OwnerView | Space = base?.owner ?? space;
+  const ownerSlug = owner.kind === "workspace" ? owner.slug : undefined;
   const [stage, setStage] = useState<Stage>({ step: "choose" });
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
@@ -273,7 +297,7 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
     try {
       // The plan's per-artifact size, checked before hashing; the API checks the plan again.
       const usage = await queryClient
-        .fetchQuery({ queryKey: USAGE_QUERY, queryFn: () => api.usage() })
+        .fetchQuery({ queryKey: usageQuery(ownerSlug), queryFn: () => api.usage(ownerSlug) })
         .catch(() => undefined);
       const maxBytes = usage?.plan.limits.artifactBytes;
       const manifest = await manifests.build(
@@ -374,6 +398,7 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
         transport: storage,
         request,
         idempotencyKey: key,
+        workspace: base ? undefined : ownerSlug,
         objects: new Map(manifest.files.map((file) => [file.sha256, file])),
         resume,
         signal: abort.signal,
@@ -455,6 +480,7 @@ function PublishFlow({ base }: { base?: ArtifactSummary }) {
         <Review
           stage={stage}
           base={base}
+          owner={owner}
           onPublish={() => void publish(stage)}
           onResume={() =>
             stage.step === "failed" ? void publish(stage, stage.prepared) : undefined
@@ -670,6 +696,7 @@ type ReviewStage = Extract<Stage, { step: "review" | "uploading" | "failed" }>;
 function Review({
   stage,
   base,
+  owner,
   onPublish,
   onResume,
   onCancel,
@@ -677,6 +704,7 @@ function Review({
 }: {
   stage: ReviewStage;
   base: ArtifactSummary | undefined;
+  owner: OwnerView | Space;
   onPublish(): void;
   onResume(): void;
   onCancel(): void;
@@ -708,11 +736,14 @@ function Review({
               size: formatBytes(manifest.totalBytes),
             }),
           },
+          { term: t("space.label"), detail: <SpaceBadge owner={owner} /> },
           {
             term: t("publish.review.access"),
             detail: base
               ? t("publish.review.accessVersion", { mode: t(`access.${base.accessMode}`) })
-              : t("publish.review.accessNew"),
+              : owner.kind === "workspace"
+                ? t("publish.review.accessNewWorkspace", { workspace: owner.name })
+                : t("publish.review.accessNew"),
           },
         ]}
       />

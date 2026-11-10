@@ -1296,4 +1296,206 @@ export const ru = {
   "viewer.brandNewTab": "(откроется в новой вкладке)",
   "viewer.hosting.poweredBy": "Работает на Portifact",
   "viewer.hosting.origin": "Опубликовано на",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "Пространство",
+  "space.personal": "Личное",
+  "space.personalDetail": "Ваше собственное пространство",
+  "space.invitations":
+    "{count, plural, one {# ожидающее приглашение} few {# ожидающих приглашения} many {# ожидающих приглашений} other {# ожидающего приглашения}}",
+  "space.missing.title": "Workspace не найден",
+  "space.missing.body":
+    "Такого workspace нет, или вы не его участник. Попросите одного из его администраторов пригласить вас.",
+  "space.missing.personal": "Перейти в личное пространство",
+  "space.notAllowed.title": "Недоступно для вашей роли",
+  "space.notAllowed.back": "К списку artifacts",
+  "space.notAllowed.list":
+    "Как участник {workspace}, вы читаете и комментируете artifacts, которыми с вами поделились, по их ссылкам. Видеть и вести все artifacts этого workspace могут только редакторы и администраторы: обратитесь к одному из администраторов.",
+  "space.notAllowed.publish":
+    "Для публикации в {workspace} нужна роль редактора или администратора. Обратитесь к одному из администраторов.",
+  "space.notAllowed.usage": "Использование {workspace} видят его редакторы и администраторы.",
+  "space.notAllowed.branding": "Бренд {workspace} задают только его администраторы.",
+  "role.admin": "Администратор",
+  "role.editor": "Редактор",
+  "role.member": "Участник",
+  "role.admin.hint":
+    "управляет участниками, брендом и всеми artifacts и может выносить artifacts из workspace",
+  "role.editor.hint": "публикует artifacts workspace и управляет ими",
+  "role.member.hint": "читает и комментирует то, чем с ним поделились",
+  "shell.membersLink": "Участники",
+  "list.descriptionWorkspace":
+    "Всё, что опубликовано в {workspace}, с состоянием, доступом и активностью.",
+  "publish.descriptionWorkspace":
+    "Публикация в {workspace}: HTML-файл, папка, ZIP или документ. Ничего не загружается, пока вы не проверите.",
+  "publish.review.accessNewWorkspace":
+    "Администраторы и редакторы {workspace}. После публикации вы сможете поделиться им на странице artifact.",
+  "usage.descriptionWorkspace":
+    "Квоты {workspace}, общие для всех, кто там публикует, и трафик за этот месяц.",
+  "branding.descriptionWorkspace":
+    "Бренд, который панель просмотрщика показывает на artifacts {workspace}.",
+  "detail.section.space": "Пространство",
+  "transfer.title": "Перенести в другое пространство",
+  "transfer.description":
+    "Этот artifact находится в {space}. Перенесите его в личное пространство или в workspace, где вы редактор или администратор.",
+  "transfer.destination": "Куда",
+  "transfer.move": "Перенести artifact",
+  "transfer.blocked": "Этот artifact сейчас нельзя перенести",
+  "transfer.notAdmin": "Выносить artifacts из {workspace} может только его администратор.",
+  "transfer.domain":
+    "У этого artifact есть собственный домен, действующий или ожидающий. Удалите его в разделе «Доступ», затем перенесите artifact.",
+  "transfer.none":
+    "Нет другого пространства, куда его можно перенести. Переносить artifacts можно в личное пространство и в workspaces, где вы редактор или администратор.",
+  "transfer.confirm.title": "Перенести «{name}» в {space}?",
+  "transfer.confirm.stays":
+    "Не меняется: его ID, ссылка, версии, добавленные вами люди и комментарии.",
+  "transfer.confirm.changes":
+    "Меняется: им управляют администраторы и редакторы {space}, они видят, кто его открывал, в том числе до переноса, и он учитывается в использовании {space}.",
+  "transfer.confirm.plan":
+    "Закрепления и ссылки для доступа следуют тарифу {space}: если он их не включает, они перестают работать.",
+  "transfer.confirm.blocks":
+    "Перенос не выполнится, если в {space} нет для него места или ещё открыта загрузка.",
+  "transfer.confirm.action": "Перенести",
+  "transfer.done": "«{name}» перенесён в {space}.",
+  "transfer.failed": "Artifact не перенесён",
+  "transfer.error.quota_exceeded":
+    "В {space} нет места для этого artifact. Сначала освободите там активный слот или хранилище.",
+  "transfer.error.version_conflict":
+    "Загрузка в этот artifact ещё открыта, или он тем временем изменился. Завершите или отмените загрузку, обновите страницу и попробуйте снова.",
+  "transfer.error.invalid_input":
+    "У этого artifact есть собственный домен, или он уже в этом пространстве. Сначала удалите домен.",
+  "transfer.error.forbidden":
+    "Ваша роль не позволяет выносить этот artifact из его пространства или переносить в это.",
+  "transfer.error.artifact_archived": "Перенести можно только активный или архивный artifact.",
+  "transfer.error.not_found": "Это пространство или этот artifact вам больше недоступны.",
+  "members.title": "Участники",
+  "members.description":
+    "Люди в {workspace} и что может каждый. Администраторы управляют участниками и приглашениями.",
+  "members.personal.title": "В личном пространстве нет участников",
+  "members.personal.body":
+    "Участники есть у workspaces. Выберите workspace в меню пространств, чтобы увидеть его участников.",
+  "members.loading": "Загрузка участников",
+  "members.loadFailed": "Не удалось загрузить участников",
+  "members.seats": "Места",
+  "members.seatsUsed": "Занятые места",
+  "members.seatsValue": "{used} из {limit} ({percent})",
+  "members.seatsHint":
+    "Каждый участник и каждое ожидающее приглашение занимают место. Сколько их, определяет тариф workspace.",
+  "members.listTitle": "Люди",
+  "members.count":
+    "{count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
+  "members.caption": "Участники {workspace}",
+  "members.you": "Вы",
+  "members.joined": "С нами с {date}",
+  "members.roleLabel": "Роль: {name}",
+  "members.remove": "Удалить",
+  "members.removeNamed": "Удалить: {name}",
+  "members.leave": "Покинуть workspace",
+  "members.lastAdmin":
+    "Единственный администратор: сначала назначьте администратором другого участника, затем меняйте эту роль, удаляйте или уходите.",
+  "members.confirmRemove.title": "Удалить {name} из {workspace}?",
+  "members.confirmRemove.body":
+    "Человек сразу теряет доступ к artifacts этого workspace. Опубликованное им остаётся в workspace.",
+  "members.confirmRemove.action": "Удалить участника",
+  "members.confirmLeave.title": "Покинуть {workspace}?",
+  "members.confirmLeave.body":
+    "Вы сразу потеряете доступ к его artifacts. Чтобы вернуться, администратор должен пригласить вас снова.",
+  "members.roleChanged": "Теперь у {name} роль «{role}».",
+  "members.removed": "{name} удалён(а).",
+  "members.left": "Вы покинули {workspace}.",
+  "members.actionFailed": "Изменение не сохранено",
+  "members.error.forbidden":
+    "Ваша роль тем временем изменилась: участниками и приглашениями управляют только администраторы. Обновите страницу.",
+  "members.error.version_conflict":
+    "Участник тем временем изменился. Обновите страницу и попробуйте снова.",
+  "members.error.not_found": "Этого человека больше нет в workspace.",
+  "invite.title": "Пригласить",
+  "invite.description":
+    "Мы отправим по почте ссылку, действующую 7 дней. Человек присоединится, войдя с этим адресом.",
+  "invite.email": "Электронная почта",
+  "invite.role": "Роль",
+  "invite.send": "Отправить приглашение",
+  "invite.sent": "Приглашение отправлено на {email}.",
+  "invite.emailInvalid": "Введите адрес электронной почты, например name@example.com.",
+  "invite.alreadyMember": "{email} уже участник.",
+  "invite.full.title": "Нет свободных мест",
+  "invite.failed": "Приглашение не отправлено",
+  "invite.error.invalid_input":
+    "Этот адрес уже принадлежит участнику или это неверный адрес электронной почты.",
+  "invite.error.rate_limited": "Слишком много приглашений. Подождите немного и попробуйте снова.",
+  "invite.error.capacity_unavailable":
+    "Portifact уже отправил все письма с приглашениями, возможные в этом месяце. Попробуйте в следующем месяце.",
+  "invite.error.not_found": "Этого приглашения больше нет. Обновите страницу.",
+  "pending.title": "Ожидающие приглашения",
+  "pending.description":
+    "Каждое занимает место, пока его не примут, не отклонят, не отзовут или пока не истечёт срок.",
+  "pending.loading": "Загрузка приглашений",
+  "pending.loadFailed": "Не удалось загрузить приглашения",
+  "pending.empty": "Ожидающих приглашений нет.",
+  "pending.detail": "{role}, пригласил(а) {inviter}, истекает {date}",
+  "pending.unknownInviter": "бывший участник",
+  "pending.resend": "Пригласить снова",
+  "pending.resendNamed": "Пригласить снова: {email}",
+  "pending.revoke": "Отозвать",
+  "pending.revokeNamed": "Отозвать: {email}",
+  "pending.confirmRevoke.title": "Отозвать приглашение для {email}?",
+  "pending.confirmRevoke.body": "Ссылка перестанет работать, а место снова освободится.",
+  "pending.confirmRevoke.action": "Отозвать приглашение",
+  "pending.revoked": "Приглашение для {email} отозвано.",
+  "pending.resent": "Новое приглашение отправлено на {email}. Прежняя ссылка больше не работает.",
+  "invitation.title": "Приглашение в workspace",
+  "invitation.signedOut.body":
+    "Вас пригласили в workspace на Portifact. Войдите с адресом электронной почты, на который пришло приглашение, и примите или отклоните его здесь.",
+  "invitations.signedOut.body":
+    "Войдите, чтобы увидеть приглашения в workspaces, отправленные на ваш адрес.",
+  "invitation.signIn": "Войти, чтобы ответить",
+  "invitation.loading": "Загрузка приглашения",
+  "invitation.loadFailed": "Не удалось загрузить приглашение",
+  "invitation.invited.body": "{inviter} приглашает вас в {workspace} с ролью «{role}».",
+  "invitation.invited.bodyNoInviter": "Вас пригласили в {workspace} с ролью «{role}».",
+  "invitation.expiresTerm": "Истекает",
+  "invitation.accept": "Принять",
+  "invitation.acceptNamed": "Принять приглашение в {workspace}",
+  "invitation.decline": "Отклонить",
+  "invitation.declineNamed": "Отклонить приглашение в {workspace}",
+  "invitation.confirmDecline.title": "Отклонить приглашение в {workspace}?",
+  "invitation.confirmDecline.body":
+    "Ссылка перестанет работать. Администратор сможет пригласить вас снова позже.",
+  "invitation.confirmDecline.action": "Отклонить приглашение",
+  "invitation.accepted": "Вы присоединились к {workspace}.",
+  "invitation.declined": "Вы отклонили приглашение в {workspace}.",
+  "invitation.failed": "Ваш ответ не сохранён",
+  "invitation.other.title": "Это приглашение для другого адреса",
+  "invitation.other.body":
+    "Оно отправлено на {email}, а вы вошли как {current}. Войдите с {email}, чтобы ответить.",
+  "invitation.other.unverified":
+    "Оно отправлено на {email}, адрес этого аккаунта, который ещё не подтверждён. Выйдите и снова войдите с кодом, отправленным на {email}.",
+  "invitation.switch": "Войти с другим аккаунтом",
+  "invitation.missing.title": "Это приглашение больше не работает",
+  "invitation.missing.body":
+    "Срок истёк, его отозвали или уже использовали. Попросите администратора workspace пригласить вас снова.",
+  "invitations.title": "Приглашения",
+  "invitations.description":
+    "Приглашения в workspaces, отправленные на ваш подтверждённый адрес электронной почты.",
+  "invitations.loading": "Загрузка приглашений",
+  "invitations.loadFailed": "Не удалось загрузить приглашения",
+  "invitations.empty.title": "Ожидающих приглашений нет",
+  "invitations.empty.body":
+    "Когда администратор пригласит ваш адрес в workspace, приглашение появится здесь и в вашей почте.",
+  "invitations.others": "Другие приглашения",
+  "invitations.notice.title": "Вас пригласили в workspace",
+  "invitations.notice.body":
+    "{count, plural, one {У вас # ожидающее приглашение.} few {У вас # ожидающих приглашения.} many {У вас # ожидающих приглашений.} other {У вас # ожидающего приглашения.}}",
+  "invitations.notice.link": "Открыть приглашения",
+  "workspaces.title": "Workspaces",
+  "workspaces.description":
+    "Workspaces, в которых вы состоите, и ваша роль в каждом. Администраторы приглашают людей и меняют роли на странице «Участники» каждого workspace.",
+  "workspaces.loading": "Загрузка workspaces",
+  "workspaces.loadFailed": "Не удалось загрузить workspaces",
+  "workspaces.none":
+    "Вы не состоите ни в одном workspace. Portifact создаёт workspaces для команд, а администратор приглашает вас по почте.",
+  "workspaces.leave": "Покинуть",
+  "workspaces.leaveNamed": "Покинуть {workspace}",
+  "account.delete.soleAdmin.title": "Вы единственный администратор workspace",
+  "account.delete.soleAdmin.body":
+    "У workspace должен остаться администратор. Назначьте администратором другого участника в каждом из этих workspaces или попросите Portifact по адресу hello@portifact.com удалить их, а затем удалите аккаунт.",
+  "account.delete.soleAdmin.members": "Участники {workspace}",
 } satisfies Catalog;

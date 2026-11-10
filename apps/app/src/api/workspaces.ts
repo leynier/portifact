@@ -14,6 +14,7 @@ import {
   InvitationCreate,
   InvitationId,
   InvitationList,
+  InvitationLookup,
   InvitationTokenInput,
   InvitationView,
   MemberRoleUpdate,
@@ -37,6 +38,7 @@ import {
   listInvitations,
   listMembers,
   listUserWorkspaces,
+  lookupInvitation,
   type MemberRow,
   removeMember,
   revokeInvitation,
@@ -92,9 +94,13 @@ function invitationView(row: InvitationRow): InvitationView {
   });
 }
 
-/** Where the invitation email's link leads: the dashboard's invitation page with the token. */
+/**
+ * Where the invitation email's link leads: the dashboard's invitation page with the token in the
+ * fragment, which browsers never send, so it reaches no request line, log or `Referer`; the page
+ * reads it once and removes it from the address bar.
+ */
 export function invitationUrl(appOrigin: string, token: string): string {
-  return `${appOrigin}/invitations?${new URLSearchParams({ token })}`;
+  return `${appOrigin}/invitations#${new URLSearchParams({ token })}`;
 }
 
 /** Sends invitation emails through the same sender as sign-in codes. */
@@ -307,6 +313,36 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         ? c.json(workspaceView(result.value))
         : error(c, result.code, result.message);
     })();
+
+  // The invitation page: what the link's token names, for the signed-in account. POST keeps the
+  // token in the body, out of request lines and logs.
+  routes.post(
+    "/api/v1/invitations/lookup",
+    sessionOnly(async (c, userId) => {
+      const body = await readJson(c, InvitationTokenInput);
+      if (!body.ok) return body.response;
+      const result = await lookupInvitation(global(c), {
+        userId,
+        token: body.value.token,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      const standing = result.value;
+      return c.json(
+        InvitationLookup.parse(
+          standing.status === "invited"
+            ? {
+                status: "invited",
+                invitation: {
+                  ...standing.invitation,
+                  expiresAt: iso(standing.invitation.expiresAt),
+                },
+              }
+            : standing,
+        ),
+      );
+    }),
+  );
 
   for (const decision of ["accept", "decline"] as const) {
     // From the email's link: the token names the invitation.

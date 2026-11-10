@@ -47,6 +47,11 @@ export interface AppShellProps {
   /** The symbol alone, linking home, for the collapsed sidebar. */
   compactBrand: ReactNode;
   navigation: AppShellNavItem[];
+  /**
+   * A control above the navigation in the sidebar and the drawer, such as the `SpaceSwitcher`.
+   * It reads `useSidebarCollapsed` to fit the rail.
+   */
+  switcher?: ReactNode;
   /** The signed-in account and its controls, at the bottom of the sidebar (`SidebarAccount`). */
   account: ReactNode;
   /**
@@ -147,6 +152,7 @@ export function AppShell({
   brand,
   compactBrand,
   navigation,
+  switcher,
   account,
   storageKey,
   children,
@@ -222,10 +228,15 @@ export function AppShell({
           </div>
         </div>
         <Placement.Provider value={{ collapsed }}>
+          {switcher ? (
+            <div className={`hidden md:mt-5 md:block ${collapsed ? "md:px-2" : "md:px-3"}`}>
+              {switcher}
+            </div>
+          ) : null}
           <nav
             id={navId}
             aria-label={labels.navigation}
-            className={`hidden md:mt-6 md:block ${collapsed ? "md:px-3" : "md:px-4"}`}
+            className={`hidden md:block ${switcher ? "md:mt-4" : "md:mt-6"} ${collapsed ? "md:px-3" : "md:px-4"}`}
           >
             <NavList items={navigation} />
           </nav>
@@ -259,6 +270,7 @@ export function AppShell({
         header={brand}
       >
         <Placement.Provider value={{ collapsed: false }}>
+          {switcher ? <div className="px-3 pt-4">{switcher}</div> : null}
           <nav aria-label={labels.navigation} className="px-3 py-4">
             <NavList items={navigation} />
           </nav>

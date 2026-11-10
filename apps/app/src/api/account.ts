@@ -22,6 +22,7 @@ import {
   ERROR_STATUS,
   type ErrorCode,
   SignOutOthersResult,
+  WorkspaceParam,
 } from "@portifact/contracts";
 import {
   type ConnectedAppRow,
@@ -45,7 +46,7 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import type { Env } from "../env.ts";
-import { artifactDb, defaultDb, personalScope, regionsOf } from "../regions.ts";
+import { artifactDb, defaultDb, ownerScope, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
 
@@ -223,16 +224,27 @@ export function accountRoutes(deps: AccountDeps) {
   // The brand of the account's space on the viewer's bar (premium plan P9). Session only, like
   // the other account settings: a leaked token must never be able to dress the bar as someone
   // else, and agents have no use for it (decision 0003 keeps credentials-like powers narrow).
-  // Every space is the personal one until a workspace can be chosen; the services decide the
-  // role (`brand`, admins only) and the plan (the owner's).
+  // `?workspace=<slug>` names a workspace, as on the other owner-scoped routes; without it the
+  // personal space. The services decide the role (`brand`, admins only) and the plan (the
+  // owner's), and a workspace the user is not in answers like a missing one.
   const brandRoute = "/api/v1/account/branding";
+  const brandScope = async (c: AccountContext, session: AccountSession) => {
+    const raw = c.req.query("workspace");
+    const slug = raw === undefined || raw === "" ? undefined : WorkspaceParam.safeParse(raw);
+    if (slug && !slug.success) {
+      return { ok: false as const, code: "not_found" as const, message: "Workspace not found." };
+    }
+    return ownerScope(c.env, session.userId, slug?.data);
+  };
   const brandAnswer = (c: AccountContext, result: Awaited<ReturnType<typeof getBrandSettings>>) =>
     result.ok ? c.json(BrandSettings.parse(result.value)) : error(c, result.code, result.message);
 
   routes.get(
     brandRoute,
     sessionOnly(async (c, session) => {
-      const { actor, db } = await personalScope(c.env, session.userId);
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
       return brandAnswer(c, await getBrandSettings(db, { actor, now: deps.now() }));
     }),
   );
@@ -242,7 +254,9 @@ export function accountRoutes(deps: AccountDeps) {
     sessionOnly(async (c, session) => {
       const body = await readJson(c, BrandUpdate, 4096);
       if (!body.ok) return body.response;
-      const { actor, db } = await personalScope(c.env, session.userId);
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
       return brandAnswer(
         c,
         await updateBrand(db, {
@@ -258,7 +272,9 @@ export function accountRoutes(deps: AccountDeps) {
   routes.delete(
     brandRoute,
     sessionOnly(async (c, session) => {
-      const { actor, db } = await personalScope(c.env, session.userId);
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
       return brandAnswer(c, await deleteBrand(db, { actor, now: deps.now() }));
     }),
   );
@@ -276,7 +292,9 @@ export function accountRoutes(deps: AccountDeps) {
           `logo: Use an image of at most ${BRAND_LIMITS.logoMaxBytes / 1000} KB.`,
         );
       }
-      const { actor, db } = await personalScope(c.env, session.userId);
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
       return brandAnswer(
         c,
         await setBrandLogo(db, c.env.ARTIFACTS, { actor, bytes, now: deps.now() }),
@@ -287,7 +305,9 @@ export function accountRoutes(deps: AccountDeps) {
   routes.delete(
     `${brandRoute}/logo`,
     sessionOnly(async (c, session) => {
-      const { actor, db } = await personalScope(c.env, session.userId);
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
       return brandAnswer(c, await removeBrandLogo(db, { actor, now: deps.now() }));
     }),
   );
@@ -297,7 +317,9 @@ export function accountRoutes(deps: AccountDeps) {
   routes.get(
     `${brandRoute}/logo`,
     sessionOnly(async (c, session) => {
-      const { actor, db } = await personalScope(c.env, session.userId);
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
       const logo = await readBrandLogo(db, c.env.ARTIFACTS, { actor });
       if (!logo.ok) return error(c, logo.code, logo.message);
       return new Response(logo.value.body, {

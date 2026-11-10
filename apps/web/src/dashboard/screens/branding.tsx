@@ -26,11 +26,16 @@ import symbol from "../../../../../assets/brand/symbol.svg";
 import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import { ApiFailure, brandLogoPreview } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatBytes, useT } from "../context.tsx";
+import { spaceCan, useReadySpace, useSpaceSlug } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
+import { RoleNotice, SpaceBadge } from "./space-parts.tsx";
 
 export const BRAND_QUERY = ["account", "branding"] as const;
+
+/** The brand of a space: a workspace by slug, the personal space without one. */
+const brandQuery = (workspace: string | undefined) => [...BRAND_QUERY, workspace ?? null] as const;
 
 interface BrandValues {
   name: string;
@@ -63,13 +68,36 @@ export function BrandingScreen() {
   const t = useT();
   useDocumentTitle(t("branding.title"));
   const { api } = useDashboard();
-  const settings = useQuery({ queryKey: BRAND_QUERY, queryFn: () => api.brandSettings() });
+  const space = useReadySpace();
+  // Only admins set a space's brand; in a personal space the user is its admin.
+  const allowed = spaceCan(space, "brand");
+  const settings = useQuery({
+    queryKey: brandQuery(space.slug),
+    queryFn: () => api.brandSettings(space.slug),
+    enabled: allowed,
+  });
   return (
     <>
-      <PageHeader title={t("branding.title")} description={t("branding.description")} />
-      <Loaded query={settings} loading={t("branding.loading")} error={t("branding.error")}>
-        {(data) => <Branding settings={data} />}
-      </Loaded>
+      <PageHeader
+        title={t("branding.title")}
+        meta={<SpaceBadge owner={space} />}
+        description={
+          space.kind === "workspace"
+            ? t("branding.descriptionWorkspace", { workspace: space.name })
+            : t("branding.description")
+        }
+      />
+      {allowed ? (
+        <Loaded query={settings} loading={t("branding.loading")} error={t("branding.error")}>
+          {(data) => <Branding settings={data} />}
+        </Loaded>
+      ) : (
+        <RoleNotice>
+          {t("space.notAllowed.branding", {
+            workspace: space.kind === "workspace" ? space.name : "",
+          })}
+        </RoleNotice>
+      )}
     </>
   );
 }
@@ -119,14 +147,15 @@ function Branding({ settings }: { settings: BrandSettings }) {
 }
 
 function BrandForm({ saved, logo }: { saved: BrandValues; logo: BrandSettings }) {
+  const slug = useSpaceSlug();
   const t = useT();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const save = useMutation({
-    mutationFn: (update: BrandUpdate) => api.updateBrand(update),
+    mutationFn: (update: BrandUpdate) => api.updateBrand(update, slug),
     onSuccess: (next) => {
-      queryClient.setQueryData(BRAND_QUERY, next);
+      queryClient.setQueryData(brandQuery(slug), next);
       announce(t("branding.form.saved"));
     },
   });
@@ -230,21 +259,22 @@ function BrandForm({ saved, logo }: { saved: BrandValues; logo: BrandSettings })
 }
 
 function Logo({ settings }: { settings: BrandSettings }) {
+  const slug = useSpaceSlug();
   const t = useT();
   const announce = useAnnounce();
   const formatBytes = useFormatBytes();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const done = (message: string) => (next: BrandSettings) => {
-    queryClient.setQueryData(BRAND_QUERY, next);
+    queryClient.setQueryData(brandQuery(slug), next);
     announce(message);
   };
   const upload = useMutation({
-    mutationFn: (file: File) => api.uploadBrandLogo(file),
+    mutationFn: (file: File) => api.uploadBrandLogo(file, slug),
     onSuccess: done(t("branding.logo.uploaded")),
   });
   const remove = useMutation({
-    mutationFn: () => api.removeBrandLogo(),
+    mutationFn: () => api.removeBrandLogo(slug),
     onSuccess: done(t("branding.logo.removed")),
   });
   const failed = upload.error ?? remove.error;
@@ -309,6 +339,7 @@ function Logo({ settings }: { settings: BrandSettings }) {
 
 /** The bar as visitors will see it, in both themes, from the form's values. */
 function Preview({ values, logo }: { values: BrandValues; logo: BrandSettings }) {
+  const slug = useSpaceSlug();
   const t = useT();
   const update = brandUpdate(values);
   const stored = logo.brand?.logo ?? null;
@@ -334,7 +365,7 @@ function Preview({ values, logo }: { values: BrandValues; logo: BrandSettings })
                 logo={
                   stored
                     ? {
-                        src: brandLogoPreview(stored.sha256),
+                        src: brandLogoPreview(stored.sha256, slug),
                         width: stored.width,
                         height: stored.height,
                       }
@@ -366,16 +397,17 @@ function Preview({ values, logo }: { values: BrandValues; logo: BrandSettings })
 }
 
 function DeleteBrand({ suspended }: { suspended: boolean }) {
+  const slug = useSpaceSlug();
   const t = useT();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const [confirming, setConfirming] = useState(false);
   const remove = useMutation({
-    mutationFn: () => api.deleteBrand(),
+    mutationFn: () => api.deleteBrand(slug),
     onSuccess: (next) => {
       setConfirming(false);
-      queryClient.setQueryData(BRAND_QUERY, next);
+      queryClient.setQueryData(brandQuery(slug), next);
       announce(t("branding.delete.done"));
     },
     onError: () => setConfirming(false),

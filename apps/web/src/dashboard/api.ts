@@ -40,6 +40,10 @@ import {
   type EditMessageRequest,
   type ErrorCode,
   FileDiff,
+  IncomingInvitationList,
+  InvitationList,
+  InvitationLookup,
+  InvitationView,
   LifecycleResult,
   PreparedPublish,
   type PublishRequest,
@@ -57,6 +61,11 @@ import {
   VersionList,
   VersionManifest,
   ViewerInfo,
+  WorkspaceList,
+  WorkspaceMemberList,
+  WorkspaceMemberView,
+  type WorkspaceRole,
+  WorkspaceView,
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
@@ -95,8 +104,15 @@ export interface DashboardApi {
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
   signOut(): Promise<void>;
-  /** A page of the account's artifacts that match `filters`; the API applies them. */
-  listArtifacts(cursor?: string, filters?: ArtifactListFilters): Promise<ArtifactList>;
+  /**
+   * A page of the space's artifacts that match `filters`; the API applies them. `workspace` names
+   * a workspace by slug, the personal space without it.
+   */
+  listArtifacts(
+    cursor?: string,
+    filters?: ArtifactListFilters,
+    workspace?: string,
+  ): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
   lifecycle(artifactId: string, action: LifecycleAction): Promise<LifecycleResult>;
   getAccess(artifactId: string): Promise<AccessPolicyView>;
@@ -109,21 +125,48 @@ export interface DashboardApi {
   /** The defaults new artifacts start with. */
   accountSettings(): Promise<AccountSettings>;
   updateAccountSettings(update: AccountSettingsUpdate): Promise<AccountSettings>;
-  /** The brand of the account's space on the viewer's bar, and whether its plan includes it. */
-  brandSettings(): Promise<BrandSettings>;
-  updateBrand(update: BrandUpdate): Promise<BrandSettings>;
-  deleteBrand(): Promise<BrandSettings>;
+  /** The brand of a space on the viewer's bar, and whether its plan includes it. */
+  brandSettings(workspace?: string): Promise<BrandSettings>;
+  updateBrand(update: BrandUpdate, workspace?: string): Promise<BrandSettings>;
+  deleteBrand(workspace?: string): Promise<BrandSettings>;
   /** Sends the logo file's bytes as they are; the server judges them. */
-  uploadBrandLogo(file: Blob): Promise<BrandSettings>;
-  removeBrandLogo(): Promise<BrandSettings>;
+  uploadBrandLogo(file: Blob, workspace?: string): Promise<BrandSettings>;
+  removeBrandLogo(workspace?: string): Promise<BrandSettings>;
   /** Whether the artifact's owner has comment notices, and whether the caller muted it. */
   commentNoticeMute(artifactId: string): Promise<CommentNoticeMute>;
   /** Mutes or unmutes the artifact's comment notices for the caller. */
   setCommentNoticeMute(artifactId: string, muted: boolean): Promise<CommentNoticeMute>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
-  /** The account's quotas, this month's traffic and what blocks it now. */
-  usage(): Promise<AccountUsageView>;
+  /** A space's quotas, this month's traffic and what blocks it now. */
+  usage(workspace?: string): Promise<AccountUsageView>;
+  /** The caller's workspaces and role in each. */
+  workspaces(): Promise<WorkspaceList>;
+  /** A workspace's members and seats (session only). */
+  members(slug: string): Promise<WorkspaceMemberList>;
+  changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
+  removeMember(slug: string, userId: string): Promise<void>;
+  leaveWorkspace(slug: string): Promise<void>;
+  /** A workspace's pending invitations, for its admins. */
+  invitations(slug: string): Promise<InvitationList>;
+  /** Invites an address, or invites it again: a new invitation replaces the pending one. */
+  invite(slug: string, email: string, role: WorkspaceRole): Promise<InvitationView>;
+  revokeInvitation(slug: string, invitationId: string): Promise<void>;
+  /** The invitations addressed to the signed-in account. */
+  incomingInvitations(): Promise<IncomingInvitationList>;
+  /** Accepts (answering the workspace joined) or declines one of them. */
+  answerInvitation(
+    invitationId: string,
+    decision: "accept" | "decline",
+  ): Promise<WorkspaceView | null>;
+  /** What an invitation link's token names, for the signed-in account. */
+  lookupInvitation(token: string): Promise<InvitationLookup>;
+  answerInvitationLink(
+    token: string,
+    decision: "accept" | "decline",
+  ): Promise<WorkspaceView | null>;
+  /** Moves an artifact to a workspace, or to the personal space with `null`. */
+  transferArtifact(artifactId: string, workspace: string | null): Promise<ArtifactSummary>;
   /** The artifact's share links that are not revoked, never with their URL. */
   listShareLinks(artifactId: string): Promise<ShareLinkList>;
   /** Creates a share link; the answer holds its URL, the only time it is ever shown. */
@@ -147,8 +190,15 @@ export interface DashboardApi {
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
-  /** Starts a publish; retrying with the same key returns the same upload. */
-  preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
+  /**
+   * Starts a publish; retrying with the same key returns the same upload. A new artifact goes to
+   * `workspace`, or the personal space without it; a new version stays where its artifact is.
+   */
+  preparePublish(
+    request: PublishRequest,
+    idempotencyKey: string,
+    workspace?: string,
+  ): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
   uploadProgress(uploadId: string): Promise<PreparedPublish>;
   /** A part of a multipart object reached storage, with the ETag storage answered. */
@@ -238,13 +288,21 @@ export interface DashboardApi {
   setAnnotationMode(artifactId: string, mode: AnnotationsState): Promise<AnnotationModeView>;
 }
 
-/** The brand of the account's space (session only). */
+/** The brand of a space (session only). */
 export const BRAND_PATH = "/api/v1/account/branding";
 
-/** The stored logo for the Branding page's preview, versioned by its hash for the cache. */
-export function brandLogoPreview(sha256: string): string {
-  return `${BRAND_PATH}/logo?v=${sha256}`;
+/** `?workspace=<slug>` for an owner-scoped path, or nothing for the personal space. */
+function inSpace(path: string, workspace: string | undefined): string {
+  if (!workspace) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}${new URLSearchParams({ workspace })}`;
 }
+
+/** The stored logo for the Branding page's preview, versioned by its hash for the cache. */
+export function brandLogoPreview(sha256: string, workspace?: string): string {
+  return inSpace(`${BRAND_PATH}/logo?v=${sha256}`, workspace);
+}
+
+const workspacePath = (slug: string) => `/api/v1/workspaces/${encodeURIComponent(slug)}`;
 
 /** The account's data as a JSON download (a plain link: the browser saves the attachment). */
 export const ACCOUNT_EXPORT_PATH = "/api/v1/account/export";
@@ -337,8 +395,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       }
       if (!response.ok) throw new ApiFailure("unexpected", response.status);
     },
-    listArtifacts(cursor, filters = {}) {
+    listArtifacts(cursor, filters = {}, workspace) {
       const params = new URLSearchParams();
+      if (workspace) params.set("workspace", workspace);
       if (cursor) params.set("cursor", cursor);
       for (const [name, value] of Object.entries(filters)) {
         if (typeof value === "string" && value !== "") params.set(name, value);
@@ -392,20 +451,20 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     updateAccountSettings(update) {
       return call("/api/v1/account/settings", AccountSettings, "PATCH", update);
     },
-    brandSettings() {
-      return call(BRAND_PATH, BrandSettings);
+    brandSettings(workspace) {
+      return call(inSpace(BRAND_PATH, workspace), BrandSettings);
     },
-    updateBrand(update) {
-      return call(BRAND_PATH, BrandSettings, "PUT", update);
+    updateBrand(update, workspace) {
+      return call(inSpace(BRAND_PATH, workspace), BrandSettings, "PUT", update);
     },
-    deleteBrand() {
-      return call(BRAND_PATH, BrandSettings, "DELETE");
+    deleteBrand(workspace) {
+      return call(inSpace(BRAND_PATH, workspace), BrandSettings, "DELETE");
     },
-    uploadBrandLogo(file) {
-      return call(`${BRAND_PATH}/logo`, BrandSettings, "PUT", file);
+    uploadBrandLogo(file, workspace) {
+      return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "PUT", file);
     },
-    removeBrandLogo() {
-      return call(`${BRAND_PATH}/logo`, BrandSettings, "DELETE");
+    removeBrandLogo(workspace) {
+      return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "DELETE");
     },
     commentNoticeMute(artifactId) {
       return call(
@@ -424,8 +483,69 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     deleteAccount(confirmEmail) {
       return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });
     },
-    usage() {
-      return call("/api/v1/usage", AccountUsageView);
+    usage(workspace) {
+      return call(inSpace("/api/v1/usage", workspace), AccountUsageView);
+    },
+    workspaces() {
+      return call("/api/v1/workspaces", WorkspaceList);
+    },
+    members(slug) {
+      return call(`${workspacePath(slug)}/members`, WorkspaceMemberList);
+    },
+    changeMemberRole(slug, userId, role) {
+      return call(
+        `${workspacePath(slug)}/members/${encodeURIComponent(userId)}`,
+        WorkspaceMemberView,
+        "PATCH",
+        { role },
+      );
+    },
+    async removeMember(slug, userId) {
+      await call(
+        `${workspacePath(slug)}/members/${encodeURIComponent(userId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    async leaveWorkspace(slug) {
+      await call(`${workspacePath(slug)}/leave`, z.null(), "POST");
+    },
+    invitations(slug) {
+      return call(`${workspacePath(slug)}/invitations`, InvitationList);
+    },
+    invite(slug, email, role) {
+      return call(`${workspacePath(slug)}/invitations`, InvitationView, "POST", { email, role });
+    },
+    async revokeInvitation(slug, invitationId) {
+      await call(
+        `${workspacePath(slug)}/invitations/${encodeURIComponent(invitationId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    incomingInvitations() {
+      return call("/api/v1/account/invitations", IncomingInvitationList);
+    },
+    answerInvitation(invitationId, decision) {
+      return call(
+        `/api/v1/account/invitations/${encodeURIComponent(invitationId)}/${decision}`,
+        decision === "accept" ? WorkspaceView : z.null(),
+        "POST",
+      );
+    },
+    lookupInvitation(token) {
+      return call("/api/v1/invitations/lookup", InvitationLookup, "POST", { token });
+    },
+    answerInvitationLink(token, decision) {
+      return call(
+        `/api/v1/invitations/${decision}`,
+        decision === "accept" ? WorkspaceView : z.null(),
+        "POST",
+        { token },
+      );
+    },
+    transferArtifact(artifactId, workspace) {
+      return call(`${artifactPath(artifactId)}/transfer`, ArtifactSummary, "POST", { workspace });
     },
     listShareLinks(artifactId) {
       return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links`, ShareLinkList);
@@ -487,8 +607,8 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         ArtifactStatsView,
       );
     },
-    preparePublish(request, idempotencyKey) {
-      return call("/api/v1/publishes", PreparedPublish, "POST", request, {
+    preparePublish(request, idempotencyKey, workspace) {
+      return call(inSpace("/api/v1/publishes", workspace), PreparedPublish, "POST", request, {
         "idempotency-key": idempotencyKey,
       });
     },

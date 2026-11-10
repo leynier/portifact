@@ -1262,6 +1262,203 @@ export const en = {
   "viewer.brandNewTab": "(opens in a new tab)",
   "viewer.hosting.poweredBy": "Powered by Portifact",
   "viewer.hosting.origin": "Published at",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "Space",
+  "space.personal": "Personal",
+  "space.personalDetail": "Your own space",
+  "space.invitations": "{count, plural, one {# pending invitation} other {# pending invitations}}",
+  "space.missing.title": "Workspace not found",
+  "space.missing.body":
+    "This workspace does not exist, or you are not one of its members. Ask one of its admins to invite you.",
+  "space.missing.personal": "Go to your personal space",
+  "space.notAllowed.title": "Not available with your role",
+  "space.notAllowed.back": "Back to artifacts",
+  "space.notAllowed.list":
+    "As a member of {workspace}, you read and comment on the artifacts shared with you, from their links. Seeing and managing every artifact of the workspace needs the editor or admin role: ask one of its admins.",
+  "space.notAllowed.publish":
+    "Publishing to {workspace} needs the editor or admin role. Ask one of its admins.",
+  "space.notAllowed.usage": "The usage of {workspace} is shown to its editors and admins.",
+  "space.notAllowed.branding": "Only the admins of {workspace} set its brand.",
+  "role.admin": "Admin",
+  "role.editor": "Editor",
+  "role.member": "Member",
+  "role.admin.hint":
+    "manages members, the brand and every artifact, and can move artifacts out of the workspace",
+  "role.editor.hint": "publishes and manages the workspace's artifacts",
+  "role.member.hint": "reads and comments on what is shared with them",
+  "shell.membersLink": "Members",
+  "list.descriptionWorkspace":
+    "Everything published in {workspace}, with its state, access and activity.",
+  "publish.descriptionWorkspace":
+    "Publish to {workspace}: an HTML file, a folder, a ZIP or a document. Nothing is uploaded until you review it.",
+  "publish.review.accessNewWorkspace":
+    "The admins and editors of {workspace}. After publishing, you can share it from the artifact page.",
+  "usage.descriptionWorkspace":
+    "The quotas of {workspace}, shared by everyone who publishes there, and this month's traffic.",
+  "branding.descriptionWorkspace":
+    "The brand the viewer's bar shows on the artifacts of {workspace}.",
+  "detail.section.space": "Space",
+  "transfer.title": "Move to another space",
+  "transfer.description":
+    "This artifact lives in {space}. Move it to your personal space or to a workspace where you are an editor or admin.",
+  "transfer.destination": "Destination",
+  "transfer.move": "Move artifact",
+  "transfer.blocked": "This artifact cannot move now",
+  "transfer.notAdmin": "Only an admin of {workspace} can move its artifacts out of it.",
+  "transfer.domain":
+    "This artifact has a custom domain or a pending one. Remove it under Sharing, then move the artifact.",
+  "transfer.none":
+    "There is no other space you can move it to. You can move artifacts to your personal space and to workspaces where you are an editor or admin.",
+  "transfer.confirm.title": "Move {name} to {space}?",
+  "transfer.confirm.stays":
+    "Stays the same: its ID, its link, its versions, the people you added and the comments.",
+  "transfer.confirm.changes":
+    "Changes: the admins and editors of {space} manage it and see who opened it, also before the move, and it counts in the usage of {space}.",
+  "transfer.confirm.plan":
+    "Pins and share links follow the plan of {space}: if it does not include them, they stop working.",
+  "transfer.confirm.blocks":
+    "It does not move if {space} has no room for it or an upload to it is still open.",
+  "transfer.confirm.action": "Move",
+  "transfer.done": "{name} moved to {space}.",
+  "transfer.failed": "The artifact did not move",
+  "transfer.error.quota_exceeded":
+    "{space} has no room for this artifact. Free an active slot or storage there first.",
+  "transfer.error.version_conflict":
+    "An upload to this artifact is still open, or it changed meanwhile. Finish or cancel the upload, reload and try again.",
+  "transfer.error.invalid_input":
+    "This artifact has a custom domain, or it is already in that space. Remove the domain first.",
+  "transfer.error.forbidden":
+    "Your role does not allow moving this artifact out of its space or into that one.",
+  "transfer.error.artifact_archived": "Only an active or archived artifact can move.",
+  "transfer.error.not_found": "That space or this artifact is no longer available to you.",
+  "members.title": "Members",
+  "members.description":
+    "The people of {workspace} and what each can do. Admins manage members and invitations.",
+  "members.personal.title": "Your personal space has no members",
+  "members.personal.body":
+    "Members belong to workspaces. Choose a workspace in the space menu to see its members.",
+  "members.loading": "Loading members",
+  "members.loadFailed": "Members did not load",
+  "members.seats": "Seats",
+  "members.seatsUsed": "Seats in use",
+  "members.seatsValue": "{used} of {limit} ({percent})",
+  "members.seatsHint":
+    "Each member and each pending invitation takes a seat. The workspace's plan sets how many there are.",
+  "members.listTitle": "People",
+  "members.count": "{count, plural, one {# member} other {# members}}",
+  "members.caption": "Members of {workspace}",
+  "members.you": "You",
+  "members.joined": "Joined on {date}",
+  "members.roleLabel": "Role of {name}",
+  "members.remove": "Remove",
+  "members.removeNamed": "Remove {name}",
+  "members.leave": "Leave workspace",
+  "members.lastAdmin":
+    "The only admin: make another member an admin before changing this role, removing them or leaving.",
+  "members.confirmRemove.title": "Remove {name} from {workspace}?",
+  "members.confirmRemove.body":
+    "They lose access to the workspace's artifacts at once. What they published stays in the workspace.",
+  "members.confirmRemove.action": "Remove member",
+  "members.confirmLeave.title": "Leave {workspace}?",
+  "members.confirmLeave.body":
+    "You lose access to its artifacts at once. To come back, an admin has to invite you again.",
+  "members.roleChanged": "{name} is now {role}.",
+  "members.removed": "{name} was removed.",
+  "members.left": "You left {workspace}.",
+  "members.actionFailed": "The change was not saved",
+  "members.error.forbidden":
+    "Your role changed meanwhile: only admins manage members and invitations. Reload the page.",
+  "members.error.version_conflict": "The member changed meanwhile. Reload and try again.",
+  "members.error.not_found": "That person is no longer in the workspace.",
+  "invite.title": "Invite someone",
+  "invite.description":
+    "We email a link that works for 7 days. They join by signing in with that address.",
+  "invite.email": "Email",
+  "invite.role": "Role",
+  "invite.send": "Send invitation",
+  "invite.sent": "Invitation sent to {email}.",
+  "invite.emailInvalid": "Enter an email address, like name@example.com.",
+  "invite.alreadyMember": "{email} is already a member.",
+  "invite.full.title": "No free seat",
+  "invite.failed": "The invitation was not sent",
+  "invite.error.invalid_input":
+    "That address already belongs to a member, or it is not a valid email address.",
+  "invite.error.rate_limited": "Too many invitations for now. Wait a while and try again.",
+  "invite.error.capacity_unavailable":
+    "Portifact sent all the invitation emails it can this month. Try again next month.",
+  "invite.error.not_found": "That invitation no longer exists. Reload the page.",
+  "pending.title": "Pending invitations",
+  "pending.description":
+    "Each one holds a seat until it is accepted, declined, revoked or expires.",
+  "pending.loading": "Loading invitations",
+  "pending.loadFailed": "Invitations did not load",
+  "pending.empty": "No pending invitations.",
+  "pending.detail": "{role}, invited by {inviter}, expires on {date}",
+  "pending.unknownInviter": "a former member",
+  "pending.resend": "Invite again",
+  "pending.resendNamed": "Invite again: {email}",
+  "pending.revoke": "Revoke",
+  "pending.revokeNamed": "Revoke: {email}",
+  "pending.confirmRevoke.title": "Revoke the invitation of {email}?",
+  "pending.confirmRevoke.body": "Its link stops working and its seat is free again.",
+  "pending.confirmRevoke.action": "Revoke invitation",
+  "pending.revoked": "The invitation of {email} was revoked.",
+  "pending.resent": "A new invitation was sent to {email}. The earlier link no longer works.",
+  "invitation.title": "Workspace invitation",
+  "invitation.signedOut.body":
+    "Someone invited you to a workspace on Portifact. Sign in with the email address the invitation was sent to, then accept or decline it here.",
+  "invitations.signedOut.body":
+    "Sign in to see the invitations to workspaces sent to your email address.",
+  "invitation.signIn": "Sign in to answer",
+  "invitation.loading": "Loading the invitation",
+  "invitation.loadFailed": "The invitation did not load",
+  "invitation.invited.body": "{inviter} invited you to {workspace} as {role}.",
+  "invitation.invited.bodyNoInviter": "You are invited to {workspace} as {role}.",
+  "invitation.expiresTerm": "Expires",
+  "invitation.accept": "Accept",
+  "invitation.acceptNamed": "Accept the invitation to {workspace}",
+  "invitation.decline": "Decline",
+  "invitation.declineNamed": "Decline the invitation to {workspace}",
+  "invitation.confirmDecline.title": "Decline the invitation to {workspace}?",
+  "invitation.confirmDecline.body": "The link stops working. An admin can invite you again later.",
+  "invitation.confirmDecline.action": "Decline invitation",
+  "invitation.accepted": "You joined {workspace}.",
+  "invitation.declined": "You declined the invitation to {workspace}.",
+  "invitation.failed": "Your answer was not saved",
+  "invitation.other.title": "This invitation is for another address",
+  "invitation.other.body":
+    "It was sent to {email}, and you are signed in as {current}. Sign in with {email} to answer it.",
+  "invitation.other.unverified":
+    "It was sent to {email}, the address of this account, which is not verified yet. Sign out and sign in again with a code sent to {email}.",
+  "invitation.switch": "Sign in with another account",
+  "invitation.missing.title": "This invitation no longer works",
+  "invitation.missing.body":
+    "It expired, was revoked or was already used. Ask an admin of the workspace to invite you again.",
+  "invitations.title": "Invitations",
+  "invitations.description": "Invitations to workspaces sent to your verified email address.",
+  "invitations.loading": "Loading invitations",
+  "invitations.loadFailed": "Invitations did not load",
+  "invitations.empty.title": "No pending invitations",
+  "invitations.empty.body":
+    "When an admin invites your address to a workspace, the invitation shows here and in your email.",
+  "invitations.others": "Other invitations",
+  "invitations.notice.title": "You are invited to a workspace",
+  "invitations.notice.body":
+    "{count, plural, one {You have # pending invitation.} other {You have # pending invitations.}}",
+  "invitations.notice.link": "See invitations",
+  "workspaces.title": "Workspaces",
+  "workspaces.description":
+    "The workspaces you belong to and your role in each. Admins invite people and change roles on a workspace's Members page.",
+  "workspaces.loading": "Loading workspaces",
+  "workspaces.loadFailed": "Workspaces did not load",
+  "workspaces.none":
+    "You do not belong to any workspace. Portifact creates workspaces for teams, and an admin invites you by email.",
+  "workspaces.leave": "Leave",
+  "workspaces.leaveNamed": "Leave {workspace}",
+  "account.delete.soleAdmin.title": "You are the only admin of a workspace",
+  "account.delete.soleAdmin.body":
+    "A workspace must keep an admin. Make another member an admin of each of these workspaces, or ask Portifact at hello@portifact.com to delete them, then delete your account.",
+  "account.delete.soleAdmin.members": "Members of {workspace}",
 } as const;
 
 export type MessageId = keyof typeof en;

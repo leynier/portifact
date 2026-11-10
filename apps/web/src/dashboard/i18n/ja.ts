@@ -1284,4 +1284,201 @@ export const ja = {
   "viewer.brandNewTab": "（新しいタブで開きます）",
   "viewer.hosting.poweredBy": "Powered by Portifact",
   "viewer.hosting.origin": "公開先",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "スペース",
+  "space.personal": "個人",
+  "space.personalDetail": "あなた専用のスペース",
+  "space.invitations": "{count, plural, one {保留中の招待#件} other {保留中の招待#件}}",
+  "space.missing.title": "workspaceが見つかりません",
+  "space.missing.body":
+    "このworkspaceは存在しないか、あなたはメンバーではありません。管理者に招待を依頼してください。",
+  "space.missing.personal": "個人スペースへ移動",
+  "space.notAllowed.title": "あなたのロールでは利用できません",
+  "space.notAllowed.back": "artifact一覧に戻る",
+  "space.notAllowed.list":
+    "{workspace}のメンバーは、共有されたartifactをそのリンクから閲覧・コメントできます。workspaceのすべてのartifactを表示・管理するには編集者または管理者のロールが必要です。管理者に依頼してください。",
+  "space.notAllowed.publish":
+    "{workspace}に公開するには編集者または管理者のロールが必要です。管理者に依頼してください。",
+  "space.notAllowed.usage": "{workspace}の使用状況は編集者と管理者に表示されます。",
+  "space.notAllowed.branding": "{workspace}のブランドを設定できるのは管理者だけです。",
+  "role.admin": "管理者",
+  "role.editor": "編集者",
+  "role.member": "メンバー",
+  "role.admin.hint":
+    "メンバー、ブランド、すべてのartifactを管理し、artifactをworkspaceの外へ移動できます",
+  "role.editor.hint": "workspaceのartifactを公開・管理します",
+  "role.member.hint": "共有されたものを閲覧・コメントします",
+  "shell.membersLink": "メンバー",
+  "list.descriptionWorkspace":
+    "{workspace}で公開されたすべてのもの。状態、アクセス、アクティビティを表示します。",
+  "publish.descriptionWorkspace":
+    "{workspace}に公開します。HTMLファイル、フォルダー、ZIP、ドキュメントを選べます。確認するまで何もアップロードされません。",
+  "publish.review.accessNewWorkspace":
+    "{workspace}の管理者と編集者。公開後、artifactのページから共有できます。",
+  "usage.descriptionWorkspace":
+    "{workspace}で公開する全員が共有するクォータと、今月のトラフィックです。",
+  "branding.descriptionWorkspace":
+    "{workspace}のartifactでビューアーのバーに表示するブランドです。",
+  "detail.section.space": "スペース",
+  "transfer.title": "別のスペースへ移動",
+  "transfer.description":
+    "このartifactは{space}にあります。個人スペース、または編集者か管理者であるworkspaceへ移動できます。",
+  "transfer.destination": "移動先",
+  "transfer.move": "artifactを移動",
+  "transfer.blocked": "このartifactは今は移動できません",
+  "transfer.notAdmin": "{workspace}からartifactを移動できるのは管理者だけです。",
+  "transfer.domain":
+    "このartifactには独自ドメイン（有効または保留中）があります。共有で削除してから移動してください。",
+  "transfer.none":
+    "移動できる別のスペースがありません。artifactは個人スペースと、編集者か管理者であるworkspaceへ移動できます。",
+  "transfer.confirm.title": "{name}を{space}へ移動しますか？",
+  "transfer.confirm.stays": "変わらないもの：ID、リンク、バージョン、追加したユーザー、コメント。",
+  "transfer.confirm.changes":
+    "変わるもの：{space}の管理者と編集者が管理し、移動前を含めて誰が開いたかを確認できます。{space}の使用状況に計上されます。",
+  "transfer.confirm.plan":
+    "固定と共有リンクは{space}のプランに従います。プランに含まれない場合は機能しなくなります。",
+  "transfer.confirm.blocks":
+    "{space}に空きがない場合や、アップロードが開いたままの場合は移動しません。",
+  "transfer.confirm.action": "移動",
+  "transfer.done": "{name}を{space}へ移動しました。",
+  "transfer.failed": "artifactは移動されませんでした",
+  "transfer.error.quota_exceeded":
+    "{space}にこのartifactの空きがありません。先に有効な枠かストレージを空けてください。",
+  "transfer.error.version_conflict":
+    "このartifactへのアップロードが開いたままか、その間に変更されました。アップロードを完了またはキャンセルし、再読み込みしてもう一度お試しください。",
+  "transfer.error.invalid_input":
+    "このartifactには独自ドメインがあるか、すでにそのスペースにあります。先にドメインを削除してください。",
+  "transfer.error.forbidden":
+    "あなたのロールでは、このartifactを現在のスペースから出すことも、そのスペースへ移すこともできません。",
+  "transfer.error.artifact_archived": "移動できるのは有効またはアーカイブ済みのartifactだけです。",
+  "transfer.error.not_found": "そのスペースまたはこのartifactは利用できなくなりました。",
+  "members.title": "メンバー",
+  "members.description":
+    "{workspace}のメンバーと、それぞれができること。メンバーと招待は管理者が管理します。",
+  "members.personal.title": "個人スペースにはメンバーがいません",
+  "members.personal.body":
+    "メンバーはworkspaceに属します。スペースのメニューでworkspaceを選ぶと、そのメンバーが表示されます。",
+  "members.loading": "メンバーを読み込んでいます",
+  "members.loadFailed": "メンバーを読み込めませんでした",
+  "members.seats": "シート",
+  "members.seatsUsed": "使用中のシート",
+  "members.seatsValue": "{used}/{limit}（{percent}）",
+  "members.seatsHint":
+    "メンバーと保留中の招待はそれぞれシートを1つ使います。シート数はworkspaceのプランで決まります。",
+  "members.listTitle": "ユーザー",
+  "members.count": "{count, plural, one {メンバー#人} other {メンバー#人}}",
+  "members.caption": "{workspace}のメンバー",
+  "members.you": "あなた",
+  "members.joined": "{date}に参加",
+  "members.roleLabel": "{name}のロール",
+  "members.remove": "削除",
+  "members.removeNamed": "削除：{name}",
+  "members.leave": "workspaceから退出",
+  "members.lastAdmin":
+    "唯一の管理者です。このロールの変更、削除、退出の前に、別のメンバーを管理者にしてください。",
+  "members.confirmRemove.title": "{name}を{workspace}から削除しますか？",
+  "members.confirmRemove.body":
+    "workspaceのartifactにすぐアクセスできなくなります。公開したものはworkspaceに残ります。",
+  "members.confirmRemove.action": "メンバーを削除",
+  "members.confirmLeave.title": "{workspace}から退出しますか？",
+  "members.confirmLeave.body":
+    "artifactにすぐアクセスできなくなります。戻るには管理者に再度招待してもらう必要があります。",
+  "members.roleChanged": "{name}のロールを{role}にしました。",
+  "members.removed": "{name}を削除しました。",
+  "members.left": "{workspace}から退出しました。",
+  "members.actionFailed": "変更は保存されませんでした",
+  "members.error.forbidden":
+    "その間にあなたのロールが変わりました。メンバーと招待を管理できるのは管理者だけです。ページを再読み込みしてください。",
+  "members.error.version_conflict":
+    "その間にメンバーが変更されました。再読み込みしてもう一度お試しください。",
+  "members.error.not_found": "そのユーザーはもうworkspaceにいません。",
+  "invite.title": "招待する",
+  "invite.description":
+    "7日間有効なリンクをメールで送ります。そのアドレスでサインインすると参加できます。",
+  "invite.email": "メールアドレス",
+  "invite.role": "ロール",
+  "invite.send": "招待を送信",
+  "invite.sent": "{email}に招待を送りました。",
+  "invite.emailInvalid": "name@example.comのようなメールアドレスを入力してください。",
+  "invite.alreadyMember": "{email}はすでにメンバーです。",
+  "invite.full.title": "空きシートがありません",
+  "invite.failed": "招待は送信されませんでした",
+  "invite.error.invalid_input":
+    "そのアドレスはすでにメンバーのものか、有効なメールアドレスではありません。",
+  "invite.error.rate_limited": "招待が多すぎます。しばらく待ってからもう一度お試しください。",
+  "invite.error.capacity_unavailable":
+    "Portifactは今月送信できる招待メールをすべて送りました。来月もう一度お試しください。",
+  "invite.error.not_found": "その招待はもう存在しません。ページを再読み込みしてください。",
+  "pending.title": "保留中の招待",
+  "pending.description":
+    "承諾、辞退、取り消し、期限切れのいずれかになるまで、各招待がシートを1つ使います。",
+  "pending.loading": "招待を読み込んでいます",
+  "pending.loadFailed": "招待を読み込めませんでした",
+  "pending.empty": "保留中の招待はありません。",
+  "pending.detail": "{role}、招待者：{inviter}、{date}に期限切れ",
+  "pending.unknownInviter": "以前のメンバー",
+  "pending.resend": "再招待",
+  "pending.resendNamed": "再招待：{email}",
+  "pending.revoke": "取り消す",
+  "pending.revokeNamed": "取り消す：{email}",
+  "pending.confirmRevoke.title": "{email}への招待を取り消しますか？",
+  "pending.confirmRevoke.body": "リンクは使えなくなり、シートが空きます。",
+  "pending.confirmRevoke.action": "招待を取り消す",
+  "pending.revoked": "{email}への招待を取り消しました。",
+  "pending.resent": "{email}に新しい招待を送りました。以前のリンクは使えません。",
+  "invitation.title": "workspaceへの招待",
+  "invitation.signedOut.body":
+    "Portifactのworkspaceに招待されています。招待が届いたメールアドレスでサインインし、ここで承諾または辞退してください。",
+  "invitations.signedOut.body":
+    "サインインすると、あなたのメールアドレス宛てのworkspaceへの招待を確認できます。",
+  "invitation.signIn": "サインインして回答",
+  "invitation.loading": "招待を読み込んでいます",
+  "invitation.loadFailed": "招待を読み込めませんでした",
+  "invitation.invited.body": "{inviter}があなたを{role}として{workspace}に招待しました。",
+  "invitation.invited.bodyNoInviter": "{role}として{workspace}に招待されています。",
+  "invitation.expiresTerm": "有効期限",
+  "invitation.accept": "承諾",
+  "invitation.acceptNamed": "承諾：{workspace}への招待",
+  "invitation.decline": "辞退",
+  "invitation.declineNamed": "辞退：{workspace}への招待",
+  "invitation.confirmDecline.title": "{workspace}への招待を辞退しますか？",
+  "invitation.confirmDecline.body": "リンクは使えなくなります。管理者は後で再度招待できます。",
+  "invitation.confirmDecline.action": "招待を辞退",
+  "invitation.accepted": "{workspace}に参加しました。",
+  "invitation.declined": "{workspace}への招待を辞退しました。",
+  "invitation.failed": "回答は保存されませんでした",
+  "invitation.other.title": "この招待は別のアドレス宛てです",
+  "invitation.other.body":
+    "{email}宛てに送られましたが、{current}でサインインしています。回答するには{email}でサインインしてください。",
+  "invitation.other.unverified":
+    "このアカウントのアドレス{email}宛てに送られましたが、アドレスはまだ確認されていません。サインアウトし、{email}に送られるコードで再度サインインしてください。",
+  "invitation.switch": "別のアカウントでサインイン",
+  "invitation.missing.title": "この招待はもう使えません",
+  "invitation.missing.body":
+    "期限切れ、取り消し済み、または使用済みです。workspaceの管理者に再度招待を依頼してください。",
+  "invitations.title": "招待",
+  "invitations.description": "確認済みのメールアドレス宛てに届いたworkspaceへの招待です。",
+  "invitations.loading": "招待を読み込んでいます",
+  "invitations.loadFailed": "招待を読み込めませんでした",
+  "invitations.empty.title": "保留中の招待はありません",
+  "invitations.empty.body":
+    "管理者があなたのアドレスをworkspaceに招待すると、こことメールに表示されます。",
+  "invitations.others": "その他の招待",
+  "invitations.notice.title": "workspaceに招待されています",
+  "invitations.notice.body":
+    "{count, plural, one {保留中の招待が#件あります。} other {保留中の招待が#件あります。}}",
+  "invitations.notice.link": "招待を見る",
+  "workspaces.title": "workspace",
+  "workspaces.description":
+    "所属しているworkspaceと、それぞれでのロールです。管理者は各workspaceのメンバーページでユーザーを招待し、ロールを変更します。",
+  "workspaces.loading": "workspaceを読み込んでいます",
+  "workspaces.loadFailed": "workspaceを読み込めませんでした",
+  "workspaces.none":
+    "所属しているworkspaceはありません。Portifactがチーム向けにworkspaceを作成し、管理者がメールで招待します。",
+  "workspaces.leave": "退出",
+  "workspaces.leaveNamed": "退出：{workspace}",
+  "account.delete.soleAdmin.title": "あなたはworkspaceの唯一の管理者です",
+  "account.delete.soleAdmin.body":
+    "workspaceには管理者が必要です。これらのworkspaceでそれぞれ別のメンバーを管理者にするか、hello@portifact.comでPortifactに削除を依頼してから、アカウントを削除してください。",
+  "account.delete.soleAdmin.members": "{workspace}のメンバー",
 } satisfies Catalog;

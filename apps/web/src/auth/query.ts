@@ -26,13 +26,16 @@ export function singleParam(query: string, name: string): string | undefined {
 
 /**
  * Pages a sign-in may return to: the device page, the dashboard routes, the entry to a
- * protected artifact, which continues to the artifact after signing in, and the viewer.
+ * protected artifact, which continues to the artifact after signing in, the viewer, a
+ * workspace's members and the invitation page (whose token stays in the tab, never in `next`).
  */
 const NEXT_PATHS = [
   /^\/device$/,
   /^\/$/,
   /^\/artifacts\/[A-Za-z0-9_-]+$/,
   /^\/account$/,
+  /^\/members$/,
+  /^\/invitations$/,
   /^\/read\/[a-z2-7]{10}$/,
   /^\/view\/[a-z2-7]{10}$/,
 ];

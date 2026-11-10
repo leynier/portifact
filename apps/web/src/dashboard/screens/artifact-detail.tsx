@@ -43,6 +43,8 @@ import { CommentSettings, SharingSettings } from "./access-settings.tsx";
 import { Analytics } from "./analytics.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
+import { SpaceBadge } from "./space-parts.tsx";
+import { TransferArtifact } from "./transfer.tsx";
 import { useUsage } from "./usage.tsx";
 
 export const artifactQuery = (artifactId: string) => ["artifact", artifactId] as const;
@@ -143,7 +145,7 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   const { api } = useDashboard();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   // Pinning is part of the owner's plan; the API decides, this only explains it ahead of time.
-  const usage = useUsage();
+  const usage = useUsage(artifact.owner.kind === "workspace" ? artifact.owner.slug : undefined);
   const pinOffered = usage.isError || (usage.data?.plan.features.includes("pin") ?? false);
   const pinUnavailable = usage.data !== undefined && !usage.data.plan.features.includes("pin");
 
@@ -220,6 +222,7 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
     { id: "sharing", label: t("detail.section.sharing") },
     { id: "comments", label: t("detail.section.comments") },
     { id: "activity", label: t("detail.section.activity") },
+    { id: "space", label: t("detail.section.space") },
     { id: "danger", label: t("detail.section.danger") },
   ];
 
@@ -229,6 +232,7 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
         title={artifact.name}
         meta={
           <>
+            <SpaceBadge owner={artifact.owner} />
             <StateBadge state={artifact.state} />
             <AccessBadge mode={artifact.accessMode} />
           </>
@@ -320,6 +324,13 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
                   layout="stacked"
                   framed={false}
                   items={[
+                    {
+                      term: t("space.label"),
+                      detail:
+                        artifact.owner.kind === "workspace"
+                          ? artifact.owner.name
+                          : t("space.personal"),
+                    },
                     { term: t("detail.type"), detail: t(`type.${artifact.type}`) },
                     { term: t("detail.state"), detail: <StateBadge state={artifact.state} /> },
                     { term: t("detail.access"), detail: t(`access.${artifact.accessMode}`) },
@@ -396,6 +407,10 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
             <Analytics artifactId={artifact.id} />
             <AccessLog artifact={artifact} />
           </div>
+        </PageSection>
+
+        <PageSection id="space" title={t("detail.section.space")}>
+          <TransferArtifact artifact={artifact} />
         </PageSection>
 
         <PageSection
