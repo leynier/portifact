@@ -341,6 +341,17 @@
         "vitest": "catalog:",
       },
     },
+    "spikes/custom-domains": {
+      "name": "@portifact/spike-custom-domains",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "^1.6.0",
+        "@cloudflare/workers-types": "^5.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "spikes/oauth-server": {
       "name": "@portifact/spike-oauth-server",
       "version": "0.0.0",
@@ -851,6 +862,8 @@
     "@portifact/services": ["@portifact/services@workspace:packages/services"],
 
     "@portifact/spike-artifact-analytics": ["@portifact/spike-artifact-analytics@workspace:spikes/artifact-analytics"],
+
+    "@portifact/spike-custom-domains": ["@portifact/spike-custom-domains@workspace:spikes/custom-domains"],
 
     "@portifact/spike-oauth-server": ["@portifact/spike-oauth-server@workspace:spikes/oauth-server"],
 
