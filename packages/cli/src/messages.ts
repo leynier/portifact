@@ -155,6 +155,11 @@ export const messages = {
     return `${path} (${change}) ${reason}. Size before: ${size(before)}, after: ${size(after)}.`;
   },
 
+  // A space's open feedback.
+  feedbackEmpty: "No open feedback: no unresolved thread you can see on the current versions.",
+  feedbackMore: (cursor: string, flags = "") =>
+    `More feedback: run \`portifact feedback --cursor ${cursor}${flags}\`.`,
+
   // Access logs.
   logsEmpty: (id: string, days: number) =>
     `No signed-in visitor opened ${id} in the last ${days} days.`,

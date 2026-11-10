@@ -55,6 +55,7 @@ import { annotationRoutes } from "./annotations.ts";
 import { auditRoutes } from "./audit.ts";
 import { documentRoutes } from "./documents.ts";
 import { domainRoutes } from "./domains.ts";
+import { feedbackRoutes } from "./feedback.ts";
 import {
   type AccountGuarded,
   type ApiContext,
@@ -398,6 +399,7 @@ export function apiRoutes(deps: ApiDeps) {
   workspaceReadRoutes(api, guarded);
   shareLinkRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  feedbackRoutes(api, guarded, deps.now);
   webhookRoutes(api, guarded, accountGuarded, deps.now);
   domainRoutes(api, guarded, deps.domains, deps.now);
 

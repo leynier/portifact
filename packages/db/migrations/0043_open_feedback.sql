@@ -1,0 +1,1 @@
+CREATE INDEX `annotation_threads_owner_state_updated_idx` ON `annotation_threads` (`owner_id`,`state`,`updated_at`,`id`);
