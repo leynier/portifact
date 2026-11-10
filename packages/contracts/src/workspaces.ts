@@ -68,6 +68,8 @@ export const ROLE_ACTIONS = [
   "access_log",
   "usage",
   // Admins only.
+  /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */
+  "transfer_out",
   "members",
   "plan",
   "policies",

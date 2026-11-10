@@ -206,7 +206,7 @@ describe("transferring an artifact", () => {
     expect(counts?.messages).toBe(1);
   });
 
-  it("needs an admin or editor on both sides; anyone else learns nothing", async () => {
+  it("needs an admin or editor of the target, and an admin of a source workspace", async () => {
     const [alice, bob, outsider] = [await user(), await user(), await user()];
     const source = await workspace(alice, [[bob, "member"]]);
     const target = await workspace(alice, [[bob, "editor"]]);
@@ -229,7 +229,22 @@ describe("transferring an artifact", () => {
     const mine = await publish(bob.id, bob.id, { "index.html": "<p>b</p>" });
     expect(await move(bob.id, mine, source.slug)).toMatchObject({ ok: false, code: "forbidden" });
     expect(value(await move(bob.id, mine, target.slug)).ownerId).toBe(target.id);
-    expect(value(await move(bob.id, mine, null)).ownerId).toBe(bob.id);
+    // Once in the workspace, only its admin takes it out again.
+    expect(await move(bob.id, mine, null)).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("takes an admin to move an artifact out of a workspace; an editor cannot", async () => {
+    const [alice, eddie] = [await user(), await user()];
+    const team = await workspace(alice, [[eddie, "editor"]]);
+    const id = await publish(eddie.id, team.id, { "index.html": "<p>team asset</p>" });
+    expect(await move(eddie.id, id, null)).toEqual({
+      ok: false,
+      code: "forbidden",
+      message: "Your role on this workspace does not allow this.",
+    });
+    const other = await workspace(alice, [[eddie, "admin"]]);
+    expect(await move(eddie.id, id, other.slug)).toMatchObject({ ok: false, code: "forbidden" });
+    expect(value(await move(alice.id, id, null)).ownerId).toBe(alice.id);
   });
 
   it("refuses a target without room and changes nothing", async () => {

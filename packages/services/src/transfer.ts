@@ -77,6 +77,10 @@ export async function transferArtifact(
   if (!target.ok) return target;
   // Already there: a retried move, or nothing to do.
   if (artifact.ownerId === target.value.ownerId) return ok(artifact);
+  // Out of a workspace only with an admin of it, so an editor cannot take its content along; in
+  // a personal space the user is its admin.
+  const leaving = authorize(source.value, "transfer_out");
+  if (!leaving.ok) return leaving;
   const allowed = checkTransfer(artifact, source.value, target.value);
   if (!allowed.ok) return allowed;
 

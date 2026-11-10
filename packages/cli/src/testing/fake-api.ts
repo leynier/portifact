@@ -899,6 +899,10 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     if (target !== null && !state.workspaces.some((w) => w.slug === target)) {
       return error("not_found", "Workspace not found.");
     }
+    const from = state.workspaces.find((w) => w.slug === artifact.workspace);
+    if (from && (target ?? undefined) !== artifact.workspace && from.role !== "admin") {
+      return error("forbidden", "Your role on this workspace does not allow this.");
+    }
     artifact.workspace = target ?? undefined;
     return { status: 200, body: summary(artifact, state.workspaces) };
   }

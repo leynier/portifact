@@ -118,8 +118,9 @@ describe("--workspace", () => {
 });
 
 describe("portifact transfer", () => {
-  it("moves an artifact to a workspace and back to the personal space", async () => {
+  it("moves an artifact to a workspace and back to the personal space, as its admin", async () => {
     h.signIn();
+    server.api.workspaces = [{ slug: "acme", name: "Acme Docs", role: "admin" }];
     const artifact = server.api.seed();
     const moved = await h.invoke("transfer", artifact.id, "--to", "acme");
     expect(moved.code).toBe(0);
@@ -130,5 +131,13 @@ describe("portifact transfer", () => {
     expect(unknown.code).toBe(5);
     const bad = await h.invoke("transfer", "nope", "--to", "acme");
     expect(bad.code).toBe(2);
+  });
+
+  it("cannot move an artifact out of a workspace where the user is only an editor", async () => {
+    h.signIn();
+    const artifact = server.api.seed({ workspace: "acme" });
+    const refused = await h.invoke("transfer", artifact.id, "--to", "personal");
+    expect(refused.code).toBe(5);
+    expect(refused.stderr).toContain("Your role on this workspace does not allow this.");
   });
 });

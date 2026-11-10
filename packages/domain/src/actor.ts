@@ -29,7 +29,14 @@ const EDITOR: readonly RoleAction[] = [
   "access_log",
   "usage",
 ];
-const ADMIN: readonly RoleAction[] = [...EDITOR, "members", "plan", "policies", "delete_workspace"];
+const ADMIN: readonly RoleAction[] = [
+  ...EDITOR,
+  "transfer_out",
+  "members",
+  "plan",
+  "policies",
+  "delete_workspace",
+];
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {
   admin: new Set(ADMIN),

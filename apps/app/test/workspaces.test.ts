@@ -257,7 +257,7 @@ describe("naming a workspace in the API and MCP", () => {
     expect(artifact?.ownerId).toBe(t.id);
   });
 
-  it("moves an artifact between spaces, the same through both, for admins and editors only", async () => {
+  it("moves an artifact between spaces, the same through both: in for editors, out for admins", async () => {
     const t = await team("wst");
     const mine = await viaMcp(t.editor, "publish_document", {
       type: "markdown",
@@ -280,6 +280,17 @@ describe("naming a workspace in the API and MCP", () => {
       await viaMcp(t.editor, "transfer_artifact", { artifactId, workspace: t.slug }),
     ).toMatchObject({ ok: true, body: { id: artifactId, owner: { kind: "workspace" } } });
 
+    // An editor moved it in, but only an admin takes it out of the workspace.
+    const editorOut = await viaApi(
+      t.editor,
+      `/api/v1/artifacts/${artifactId}/transfer`,
+      json("POST", { workspace: null }),
+    );
+    expect(editorOut).toEqual({ status: 403, body: forbidden });
+    expect(await viaMcp(t.editor, "transfer_artifact", { artifactId, workspace: null })).toEqual({
+      ok: false,
+      body: forbidden,
+    });
     const notMine = await viaApi(
       t.member,
       `/api/v1/artifacts/${artifactId}/transfer`,

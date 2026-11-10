@@ -21,6 +21,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   comment: { admin: true, editor: true, member: true },
   manage: { admin: true, editor: true, member: false },
   transfer: { admin: true, editor: true, member: false },
+  transfer_out: { admin: true, editor: false, member: false },
   list: { admin: true, editor: true, member: false },
   publish: { admin: true, editor: true, member: false },
   update: { admin: true, editor: true, member: false },
