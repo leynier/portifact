@@ -1,0 +1,52 @@
+name: cla
+
+# A pull request into develop passes only when its authors have signed the contributor license
+# agreement (cla.md, contributing.md). It runs on pull_request_target so the workflow and the
+# check (scripts/cla.ts) always come from the base branch: a pull request cannot edit the check
+# it is judged by. Nothing from the pull request is checked out or run; its signers file and its
+# commit list are read as data through the API, with a read-only token and no secrets.
+on:
+  pull_request_target:
+    branches: [develop]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cla-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  cla:
+    name: cla
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - name: Read the pull request's commits and signers file
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
+            --jq '.[] | {sha: .sha, login: .author.login}' > "$RUNNER_TEMP/commits.jsonl"
+          # A missing file (or a failed read) leaves no file, which the check refuses.
+          if ! gh api -H "Accept: application/vnd.github.raw" \
+            "repos/$REPO/contents/cla-signers.md?ref=$HEAD_SHA" > "$RUNNER_TEMP/head-signers.md"; then
+            rm -f "$RUNNER_TEMP/head-signers.md"
+          fi
+      - name: Check the signatures
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: bun scripts/cla-main.ts "$AUTHOR" "$RUNNER_TEMP/commits.jsonl" cla-signers.md "$RUNNER_TEMP/head-signers.md"
