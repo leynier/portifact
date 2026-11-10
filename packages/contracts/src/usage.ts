@@ -2,6 +2,7 @@
 // section 12 with the account's current counters, the 24-hour windows and what blocks it now.
 // The MCP tool get_usage returns the same body.
 import { z } from "zod";
+import { PlanView } from "./plans.ts";
 
 const count = z.number().int().min(0);
 
@@ -42,6 +43,8 @@ export const UsageBlock = z.object({
 export type UsageBlock = z.infer<typeof UsageBlock>;
 
 export const AccountUsageView = z.object({
+  /** The owner's plan: its name, end, seats, effective limits and features. */
+  plan: PlanView,
   activeArtifacts: UsageMeter,
   /** Bytes of the unique objects the account keeps, plus `reserved` by uploads in progress. */
   storage: UsageMeter.extend({ reserved: count }),

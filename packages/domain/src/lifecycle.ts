@@ -1,4 +1,4 @@
-import { LIMITS } from "@portifact/contracts";
+import { LIMITS, type PlanLimits } from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -52,19 +52,23 @@ export function effectiveArchivedAt(record: LifecycleRecord, now: Date): Date | 
   return null;
 }
 
-/** Only the owner may restore, only before the purge date, and only with a free active slot. */
+/**
+ * Only the owner may restore, only before the purge date, and only with a free active slot of
+ * the owner's plan.
+ */
 export function checkRestore(
   record: LifecycleRecord,
   now: Date,
   activeArtifacts: number,
+  limits: Pick<PlanLimits, "activeArtifacts">,
 ): Result<{ expiresAt: Date }> {
   const archivedAt = effectiveArchivedAt(record, now);
   if (!archivedAt) return fail("invalid_input", "Only archived artifacts can be restored.");
   if (now >= purgeDate(archivedAt)) {
     return fail("not_found", "The archive has expired and the artifact was deleted.");
   }
-  if (activeArtifacts >= LIMITS.activeArtifacts) {
-    return fail("quota_exceeded", `You already have ${LIMITS.activeArtifacts} active artifacts.`);
+  if (activeArtifacts >= limits.activeArtifacts) {
+    return fail("quota_exceeded", `You already have ${limits.activeArtifacts} active artifacts.`);
   }
   return ok({ expiresAt: nextExpiry(now) });
 }

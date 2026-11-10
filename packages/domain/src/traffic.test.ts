@@ -1,7 +1,14 @@
 import { TRAFFIC_LIMITS } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { chargedBytes, trafficCycle, trafficExhausted } from "./traffic.ts";
+import {
+  chargedBytes,
+  trafficExhausted as exhaustedWith,
+  type TrafficUsage,
+  trafficCycle,
+} from "./traffic.ts";
+
+const trafficExhausted = (usage: TrafficUsage) => exhaustedWith(usage, TRAFFIC_LIMITS);
 
 describe("trafficCycle", () => {
   it("is the UTC calendar month around the instant", () => {

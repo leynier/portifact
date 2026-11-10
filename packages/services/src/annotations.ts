@@ -69,6 +69,7 @@ import {
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { platformProtection } from "./budget.ts";
+import { ownerEntitlements } from "./plans.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -529,7 +530,13 @@ async function checkLimits(
   // Budget protection pauses new comments (plan section 12); moderation never passes through here.
   const capacity = checkAnnotationCapacity((await platformProtection(db, now)).actions);
   if (!capacity.ok) return capacity;
-  return checkAnnotationWrite(await usage(db, loaded, actorId, now, threadMessages), write);
+  // The quota is the artifact owner's, so it follows the owner's plan, whoever writes.
+  const owner = await ownerEntitlements(db, loaded.artifact.ownerId, now);
+  return checkAnnotationWrite(
+    await usage(db, loaded, actorId, now, threadMessages),
+    write,
+    owner.limits,
+  );
 }
 
 // Mode

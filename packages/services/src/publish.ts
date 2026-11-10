@@ -41,6 +41,7 @@ import {
   openMultipartUploads,
 } from "./multipart.ts";
 import { hex, objectKey } from "./objects.ts";
+import { ownerEntitlements } from "./plans.ts";
 
 export { objectKey } from "./objects.ts";
 
@@ -295,6 +296,7 @@ export async function preparePublish(
   const since = input.now - DAY_MS;
   const sameMonth = usageRow && usageRow.monthStartedAt === monthStart(input.now);
   const newBytes = uploads.reduce((sum, upload) => sum + upload.size, 0);
+  const owner = await ownerEntitlements(db, input.ownerId, input.now);
   const admission = checkPublish(
     {
       activeArtifacts: usageRow?.activeArtifacts ?? 0,
@@ -314,6 +316,7 @@ export async function preparePublish(
       newBytes,
       newFiles: uploads.length,
     },
+    owner.limits,
   );
   if (!admission.ok) return admission;
 

@@ -28,6 +28,7 @@ import {
   type SQL,
   sql,
 } from "drizzle-orm";
+import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
 
@@ -425,6 +426,7 @@ export async function rollbackArtifact(
     .from(schema.accountUsage)
     .where(eq(schema.accountUsage.ownerId, input.ownerId))
     .limit(1);
+  const owner = await ownerEntitlements(db, input.ownerId, input.now);
   const admission = checkPublish(
     {
       activeArtifacts: usageRow?.activeArtifacts ?? 0,
@@ -442,6 +444,7 @@ export async function rollbackArtifact(
       newBytes: 0,
       newFiles: 0,
     },
+    owner.limits,
   );
   if (!admission.ok) return admission;
 

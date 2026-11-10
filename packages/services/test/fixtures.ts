@@ -117,3 +117,34 @@ export function racing(before: () => Promise<unknown>) {
     },
   }) as ReturnType<typeof db>;
 }
+
+/**
+ * Gives an owner a plan by writing its `owner_plans` row directly: nothing in the product grants
+ * plans yet, and the database CHECK constraints still hold the free limits.
+ */
+export async function grantPlan(
+  ownerId: string,
+  plan: "free" | "pro" | "team" | "enterprise",
+  options: { seats?: number; validUntil?: number | null; overrides?: unknown } = {},
+): Promise<void> {
+  await db()
+    .insert(schema.ownerPlans)
+    .values({
+      ownerId,
+      plan,
+      seats: options.seats ?? 1,
+      validUntil: options.validUntil ?? null,
+      overrides: options.overrides ?? null,
+      grantedBy: "test",
+      updatedAt: NOW,
+    })
+    .onConflictDoUpdate({
+      target: schema.ownerPlans.ownerId,
+      set: {
+        plan,
+        seats: options.seats ?? 1,
+        validUntil: options.validUntil ?? null,
+        overrides: options.overrides ?? null,
+      },
+    });
+}

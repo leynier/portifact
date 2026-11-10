@@ -1,6 +1,7 @@
 // What blocks an account right now (plan sections 6 "Uso" and 12): the same limits checkPublish
 // and checkAccessChange apply, read from the account's counters, with when each block lifts.
-import { LIMITS } from "@portifact/contracts";
+import { LIMITS, type PlanLimits } from "@portifact/contracts";
+import { formatCount, formatSize } from "./plans.ts";
 import { type TrafficUsage, trafficCycle, trafficExhausted } from "./traffic.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -84,23 +85,25 @@ export function publicAccessFrom(accountCreatedAt: number): number {
   return accountCreatedAt + LIMITS.publicAccessMinAccountAgeMinutes * 60_000;
 }
 
-/** Every limit that stops the account now, in the order checkPublish applies them. */
-export function usageBlocks(usage: UsageSnapshot): Block[] {
+/**
+ * Every limit that stops the account now, in the order checkPublish applies them, with `limits`
+ * from the owner's plan.
+ */
+export function usageBlocks(usage: UsageSnapshot, limits: PlanLimits): Block[] {
   const blocks: Block[] = [];
-  if (usage.activeArtifacts >= LIMITS.activeArtifacts) {
+  if (usage.activeArtifacts >= limits.activeArtifacts) {
     blocks.push({
       reason: "active_artifacts",
       stops: "new_artifacts",
-      message: `You have ${LIMITS.activeArtifacts} active artifacts. Archive or delete one to create another; updates still work.`,
+      message: `You have ${limits.activeArtifacts} active artifacts. Archive or delete one to create another; updates still work.`,
       until: null,
     });
   }
-  if (usage.storedBytes + usage.reservedBytes >= LIMITS.accountBytes) {
+  if (usage.storedBytes + usage.reservedBytes >= limits.accountBytes) {
     blocks.push({
       reason: "storage",
       stops: "publishing",
-      message:
-        "Your 2.5 GB of storage is full. Delete artifacts or wait for previous versions to expire to upload new files.",
+      message: `Your ${formatSize(limits.accountBytes)} of storage is full. Delete artifacts or wait for previous versions to expire to upload new files.`,
       until: null,
     });
   }
@@ -156,12 +159,11 @@ export function usageBlocks(usage: UsageSnapshot): Block[] {
       until: publicFrom,
     });
   }
-  if (trafficExhausted(usage.traffic)) {
+  if (trafficExhausted(usage.traffic, limits)) {
     blocks.push({
       reason: "traffic",
       stops: "serving",
-      message:
-        "Your artifacts served this month's traffic (1 million requests or 25 GB). They answer 429 until the next month; publishing still works.",
+      message: `Your artifacts served this month's traffic (${formatCount(limits.requestsPerMonth)} requests or ${formatSize(limits.bytesPerMonth)}). They answer 429 until the next month; publishing still works.`,
       until: trafficCycle(usage.now).resetsAt,
     });
   }

@@ -117,7 +117,7 @@ Deletions need no operator action: the request removes the user at once and the 
 
 ## Traffic quota
 
-An account whose artifacts served 1 million requests or 25 GB in the current UTC month gets 429 on all of them until the next month (`TRAFFIC_LIMITS`; see "Access control" in [security.md](security.md)). Its counters are in `traffic_counters`, one row per account and month, for example `select owner_id, requests, bytes from traffic_counters where cycle_start = <month start in ms> order by bytes desc limit 20` to see the largest consumers during a budget review. There is no operator command to raise or reset a counter: a quota exception is a product decision, not an operation. Counters older than the previous month are pruned by the maintenance job.
+An account whose artifacts served its plan's traffic in the current UTC month (1 million requests or 25 GB on `free`, the plan of every account without an `owner_plans` row; `PLANS` in `packages/contracts/src/plans.ts`) gets 429 on all of them until the next month ( see "Access control" in [security.md](security.md)). Its counters are in `traffic_counters`, one row per account and month, for example `select owner_id, requests, bytes from traffic_counters where cycle_start = <month start in ms> order by bytes desc limit 20` to see the largest consumers during a budget review. There is no operator command to raise or reset a counter, and none yet to grant a plan: a quota exception is a product decision, not an operation. Counters older than the previous month are pruned by the maintenance job.
 
 ## Maintenance and the outbox
 

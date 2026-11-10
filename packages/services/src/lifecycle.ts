@@ -14,6 +14,7 @@ import {
 import { and, eq, type SQL } from "drizzle-orm";
 import { deleteArtifactData } from "./maintenance.ts";
 import { OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
+import { ownerEntitlements } from "./plans.ts";
 
 export interface LifecycleInput {
   ownerId: string;
@@ -122,7 +123,8 @@ export async function restoreArtifact(
     .limit(1);
   // An active artifact past its expiry already holds its slot, so it does not need a free one.
   const used = (usage?.active ?? 0) - (artifact.state === "active" ? 1 : 0);
-  const check = checkRestore(record(artifact), new Date(input.now), used);
+  const owner = await ownerEntitlements(db, input.ownerId, input.now);
+  const check = checkRestore(record(artifact), new Date(input.now), used, owner.limits);
   if (!check.ok) return check;
   const expiresAt = check.value.expiresAt.getTime();
 

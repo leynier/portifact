@@ -1,9 +1,9 @@
-// Account usage in the dashboard (`/usage`, plan sections 6 "Uso" and 12): every quota with its
+// Account usage in the dashboard (`/usage`, plan sections 6 "Uso" and 12): the plan, every quota with its
 // value, limit and share, this month's traffic and its reset, the per-version limits, when a new
 // account may publish in public, and what blocks the account now. Traffic is counted per account,
 // never per artifact. When the traffic quota is used up, every artifact of the account answers
 // 429, and the dashboard says so on the artifact list and here.
-import type { AccountUsageView, UsageBlock, UsageMeter } from "@portifact/contracts";
+import type { AccountUsageView, PlanView, UsageBlock, UsageMeter } from "@portifact/contracts";
 import { LIMITS } from "@portifact/contracts";
 import { buttonClasses, Callout, DetailList, Meter, PageHeader } from "@portifact/ui";
 import { useQuery } from "@tanstack/react-query";
@@ -77,6 +77,23 @@ function MeterGrid({ wide = false, children }: { wide?: boolean; children: React
   );
 }
 
+/** The owner's plan, which sets every limit below; seats and the end only when they apply. */
+function PlanSection({ plan }: { plan: PlanView }) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  const formatNumber = useFormatNumber();
+  const items = [{ term: t("usage.plan.name"), detail: t(`usage.plan.${plan.name}`) }];
+  if (plan.seats > 1) items.push({ term: t("usage.plan.seats"), detail: formatNumber(plan.seats) });
+  if (plan.validUntil !== null) {
+    items.push({ term: t("usage.plan.until"), detail: formatDate(plan.validUntil, true) });
+  }
+  return (
+    <Section id="plan" title={t("usage.plan.section")} hint={t("usage.plan.hint")}>
+      <DetailList framed={false} items={items} />
+    </Section>
+  );
+}
+
 /** Every quota of the account, grouped by what it limits. */
 export function UsageDetails({ usage }: { usage: AccountUsageView }) {
   const t = useT();
@@ -140,6 +157,7 @@ export function UsageDetails({ usage }: { usage: AccountUsageView }) {
           </ul>
         </Callout>
       ) : null}
+      <PlanSection plan={usage.plan} />
       {/* On wide screens traffic sits beside storage and the version limits, and publishing spans
           both columns with room for three meters a row. */}
       <div className="grid items-start gap-6 xl:grid-cols-2">

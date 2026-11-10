@@ -472,6 +472,15 @@ export const es = {
   "usage.description":
     "Tus cuotas y lo que tus artifacts sirvieron este mes. El tráfico se cuenta cada pocos segundos, así que puede ir un poco atrasado.",
   "usage.meterPercent": "{used} de {limit} ({percent})",
+  "usage.plan.section": "Plan",
+  "usage.plan.hint": "Tu plan fija los límites de esta página.",
+  "usage.plan.name": "Plan actual",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Puestos",
+  "usage.plan.until": "Válido hasta",
   "usage.traffic.section": "Tráfico de este mes",
   "usage.traffic.hint":
     "Se cuenta para toda tu cuenta, en todos tus artifacts. Alcanzar cualquiera de los dos límites pausa todos los artifacts hasta el reinicio.",

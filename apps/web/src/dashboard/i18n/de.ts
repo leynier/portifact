@@ -478,6 +478,15 @@ export const de = {
   "usage.description":
     "Deine Kontingente und was deine Artifacts in diesem Monat ausgeliefert haben. Traffic wird alle paar Sekunden gezählt und kann daher etwas hinterherhinken.",
   "usage.meterPercent": "{used} von {limit} ({percent})",
+  "usage.plan.section": "Tarif",
+  "usage.plan.hint": "Dein Tarif legt die Grenzen auf dieser Seite fest.",
+  "usage.plan.name": "Aktueller Tarif",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Plätze",
+  "usage.plan.until": "Gültig bis",
   "usage.traffic.section": "Traffic in diesem Monat",
   "usage.traffic.hint":
     "Gezählt für dein ganzes Konto, über alle deine Artifacts. Wird eines der Limits erreicht, sind alle Artifacts bis zum Zurücksetzen pausiert.",

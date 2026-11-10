@@ -461,6 +461,15 @@ export const ja = {
   "usage.description":
     "あなたの上限と、今月artifactが配信した量です。トラフィックは数秒ごとに集計されるため、少し遅れて反映されることがあります。",
   "usage.meterPercent": "{used}/{limit}（{percent}）",
+  "usage.plan.section": "プラン",
+  "usage.plan.hint": "このページの上限はプランで決まります。",
+  "usage.plan.name": "現在のプラン",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "シート数",
+  "usage.plan.until": "有効期限",
   "usage.traffic.section": "今月のトラフィック",
   "usage.traffic.hint":
     "すべてのartifactを合わせて、アカウント全体で集計されます。どちらかの上限に達すると、リセットされるまですべてのartifactが一時停止します。",

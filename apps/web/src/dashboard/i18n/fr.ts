@@ -478,6 +478,15 @@ export const fr = {
   "usage.description":
     "Vos quotas et ce que vos artifacts ont servi ce mois-ci. Le trafic est compté toutes les quelques secondes, il peut donc avoir un léger retard.",
   "usage.meterPercent": "{used} sur {limit} ({percent})",
+  "usage.plan.section": "Formule",
+  "usage.plan.hint": "Votre formule fixe les limites de cette page.",
+  "usage.plan.name": "Formule actuelle",
+  "usage.plan.free": "Free",
+  "usage.plan.pro": "Pro",
+  "usage.plan.team": "Team",
+  "usage.plan.enterprise": "Enterprise",
+  "usage.plan.seats": "Places",
+  "usage.plan.until": "Valable jusqu’au",
   "usage.traffic.section": "Trafic ce mois-ci",
   "usage.traffic.hint":
     "Compté pour tout votre compte, sur l’ensemble de vos artifacts. Atteindre l’une des limites suspend tous les artifacts jusqu’à la réinitialisation.",
