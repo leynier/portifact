@@ -247,6 +247,26 @@ describe("transferring an artifact", () => {
     expect(value(await move(alice.id, id, null)).ownerId).toBe(alice.id);
   });
 
+  it("holds the current version to the target plan's per-artifact size, like a publish there", async () => {
+    const alice = await user();
+    const ws = await workspace(alice);
+    await db()
+      .update(schema.ownerPlans)
+      .set({ overrides: { limits: { artifactBytes: 10 } } })
+      .where(eq(schema.ownerPlans.ownerId, ws.id));
+    const big = await publish(alice.id, alice.id, { "index.html": "<p>eleven bytes or more</p>" });
+    expect(await move(alice.id, big, ws.slug)).toEqual({
+      ok: false,
+      code: "quota_exceeded",
+      message: "An artifact version can be at most 10 bytes.",
+    });
+    const small = await publish(alice.id, alice.id, { "index.html": "<p>tiny</p>" });
+    expect(await move(alice.id, small, ws.slug)).toMatchObject({ ok: false });
+    // Exactly at the limit it fits.
+    const fits = await publish(alice.id, alice.id, { "index.html": "<p>abc</p>" });
+    expect(value(await move(alice.id, fits, ws.slug)).ownerId).toBe(ws.id);
+  });
+
   it("refuses a target without room and changes nothing", async () => {
     const alice = await user();
     const ws = await workspace(alice);

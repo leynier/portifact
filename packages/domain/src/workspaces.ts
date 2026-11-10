@@ -9,6 +9,7 @@ import {
   WorkspaceSlug,
 } from "@portifact/contracts";
 import { normalizeEmail } from "./email.ts";
+import { formatSize } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -105,6 +106,20 @@ export function checkNewWorkspace(input: {
   const name = WorkspaceName.safeParse(input.name);
   if (!name.success) return fail("invalid_input", "The name must be 1 to 100 characters.");
   return ok({ slug: slug.data, name: name.data });
+}
+
+/**
+ * Whether the artifact's current version fits the target plan's per-artifact size, the same
+ * limit and message a publish there would meet.
+ */
+export function checkTransferSize(versionBytes: number, artifactBytes: number): Result<true> {
+  if (versionBytes > artifactBytes) {
+    return fail(
+      "quota_exceeded",
+      `An artifact version can be at most ${formatSize(artifactBytes)}.`,
+    );
+  }
+  return ok(true);
 }
 
 /** States an artifact can be moved in: not while it is drafted, suspended or being purged. */

@@ -10,7 +10,14 @@
 // rows while other artifacts reference them; rows nothing references any more are released after
 // the batch (`releaseOrphans`), and an R2 key is deleted only once no row of any owner has it.
 import { type GlobalDb, type RegionalDb, schema } from "@portifact/db";
-import { authorize, checkTransfer, fail, ok, type Result } from "@portifact/domain";
+import {
+  authorize,
+  checkTransfer,
+  checkTransferSize,
+  fail,
+  ok,
+  type Result,
+} from "@portifact/domain";
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import type { ArtifactRow } from "./artifacts.ts";
@@ -129,6 +136,12 @@ export async function transferArtifact(
   const [incoming] = await db.all<{ bytes: number }>(
     sql`select coalesce(sum(${o.size}), 0) as bytes from ${o} where ${missingInTarget} and ${o.state} = 'verified'`,
   );
+  // The current version must fit the target's per-artifact size, as a publish there would.
+  const [current] = await db.all<{ bytes: number }>(
+    sql`select coalesce(sum(${vf.size}), 0) as bytes from ${vf} where ${vf.versionId} = ${artifact.currentVersionId} and ${vf.kind} = 'published'`,
+  );
+  const size = checkTransferSize(Number(current?.bytes ?? 0), owner.limits.artifactBytes);
+  if (!size.ok) return size;
   const activeAfter = (usage?.active ?? 0) + (artifact.state === "active" ? 1 : 0);
   const bytesAfter = Number(usage?.bytes ?? 0) + Number(incoming?.bytes ?? 0);
   if (

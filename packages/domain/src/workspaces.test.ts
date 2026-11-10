@@ -7,6 +7,7 @@ import {
   checkRoleChange,
   checkSeat,
   checkTransfer,
+  checkTransferSize,
   invitationExpiry,
   MISSING_INVITATION,
   RESERVED_SLUGS,
@@ -168,5 +169,16 @@ describe("transfers", () => {
         code: "artifact_archived",
       });
     }
+  });
+});
+
+describe("transfer size", () => {
+  it("lets a version up to the target's per-artifact size through", () => {
+    expect(checkTransferSize(10, 10)).toEqual({ ok: true, value: true });
+    expect(checkTransferSize(11, 10)).toEqual({
+      ok: false,
+      code: "quota_exceeded",
+      message: "An artifact version can be at most 10 bytes.",
+    });
   });
 });
