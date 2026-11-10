@@ -42,6 +42,10 @@
     // SCIM provisioning, driven by the test as the directory; the deployed app Worker leaves it
     // unset (decision 0017).
     "SCIM_ENABLED": "true",
+    // Issue integrations against the fake GitHub and Linear of worker/integrations.ts; the
+    // deployed Workers leave them unset (decision 0018).
+    "INTEGRATIONS_ENABLED": "true",
+    "INTEGRATIONS_KEY": "e2e-only-integrations-sealing-key-0123456789abcdef",
     // The human check runs against a fake Turnstile: the test front end serves the script at its
     // real URL (src/turnstile-fake.ts) and the e2e Worker fakes siteverify (worker/index.ts), so
     // nothing leaves the machine. Not secrets.

@@ -42,6 +42,7 @@ import { actorOn } from "./actors.ts";
 import { type AuditActor, auditEvent, eraseOwnerAuditEvents } from "./audit.ts";
 import { eraseOwnerBrand } from "./branding.ts";
 import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
+import { deleteOwnerConnections } from "./integrations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { closeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -795,6 +796,8 @@ function claimOwnerStatements(db: Db, ownerId: string, now: number) {
   return [
     ...claimArtifacts(db, ownerId, now),
     db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, ownerId)),
+    // Its issue connections and their sealed credentials (decision 0018), the same way.
+    deleteOwnerConnections(db, ownerId),
   ] as const;
 }
 
@@ -977,6 +980,7 @@ export async function advanceWorkspaceDeletion(
       eraseOwnerAuditEvents(db, workspaceId, nothingLeft),
       // Any webhook a restore or a race brought back since the deletion was requested.
       db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
+      deleteOwnerConnections(db, workspaceId, nothingLeft),
       db
         .delete(schema.accountUsage)
         .where(

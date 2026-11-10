@@ -25,6 +25,17 @@ export * from "./email.ts";
 export * from "./expiry-notices.ts";
 export * from "./feedback.ts";
 export * from "./idempotency.ts";
+export {
+  type CallOptions,
+  type CredentialCheck,
+  checkCredential,
+  createIssue,
+  findIssue,
+  type IntegrationFetch,
+  type IssueCallOutcome,
+} from "./integration-clients.ts";
+export * from "./integration-keys.ts";
+export * from "./integrations.ts";
 export * from "./invitation-lookup.ts";
 export * from "./invitations.ts";
 export * from "./lifecycle.ts";
@@ -50,6 +61,8 @@ export * from "./service-tokens.ts";
 export * from "./share-links.ts";
 export * from "./sso.ts";
 export * from "./sso-keys.ts";
+export * from "./thread-issue-views.ts";
+export * from "./thread-issues.ts";
 export * from "./traffic.ts";
 export * from "./transfer.ts";
 export * from "./usage.ts";

@@ -7,6 +7,13 @@ import { z } from "zod";
 import { APPROVALS } from "./approval-reviews.ts";
 import { AccessMode, CommentVisibility } from "./core.ts";
 import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
+import {
+  GitHubRepo,
+  INTEGRATION_LIMITS,
+  IntegrationAttention,
+  IntegrationService,
+  LinearTeamId,
+} from "./integrations.ts";
 import { LIMITS } from "./limits.ts";
 import { PlanName } from "./plans.ts";
 import {
@@ -186,6 +193,34 @@ export const AUDIT_DETAILS = {
     events: z.array(WebhookEventType).optional(),
   }),
   "webhook.removed": empty,
+  /** An issue integration (decision 0018): the service and how many targets, never the credential. */
+  "integration.connected": z.strictObject({
+    service: IntegrationService,
+    targets: z.number().int().min(1).max(INTEGRATION_LIMITS.targetsPerConnection),
+  }),
+  "integration.changed": z.strictObject({
+    label: z.literal(true).optional(),
+    credential: z.literal(true).optional(),
+    targets: z.number().int().min(1).max(INTEGRATION_LIMITS.targetsPerConnection).optional(),
+  }),
+  "integration.removed": z.strictObject({ service: IntegrationService }),
+  /** The service refused the credential, or no key opens it: issues stop until an admin acts. */
+  "integration.failing": z.strictObject({
+    service: IntegrationService,
+    reason: IntegrationAttention,
+  }),
+  /**
+   * An issue created from a thread: the service, the repository or Linear team ID, and which
+   * parts left Portifact, never the title, the issue's text or its URL.
+   */
+  "issue.created": z.strictObject({
+    service: IntegrationService,
+    target: z.union([GitHubRepo, LinearTeamId]),
+    link: z.boolean(),
+    artifactName: z.boolean(),
+    quote: z.boolean(),
+    message: z.boolean(),
+  }),
   "brand.changed": z.strictObject({
     fields: z.array(z.enum(["name", "accent", "link", "logo"])).min(1),
   }),
@@ -325,6 +360,7 @@ export const AUDIT_TARGET_TYPES = [
   "policy",
   "scim_token",
   "scim",
+  "integration",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -353,6 +389,11 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "webhook.created": "webhook",
   "webhook.changed": "webhook",
   "webhook.removed": "webhook",
+  "integration.connected": "integration",
+  "integration.changed": "integration",
+  "integration.removed": "integration",
+  "integration.failing": "integration",
+  "issue.created": "artifact",
   "brand.changed": "brand",
   "brand.removed": "brand",
   "member.invited": "invitation",

@@ -1,6 +1,7 @@
 // Test support for the dashboard: an in-memory /api/v1 and session endpoint behind the real
 // API client, and a renderer with memory history. Only used by tests.
 import type { I18n } from "@lingui/core";
+import { I18nProvider } from "@lingui/react";
 import {
   type AccessLogEntry,
   type AccessLogView,
@@ -32,6 +33,7 @@ import {
   type ErrorCode,
   type FileChange,
   type IncomingInvitationView,
+  type IntegrationConnectionView,
   type InvitationLookup,
   type InvitationView,
   LIMITS,
@@ -75,11 +77,14 @@ import {
   diffText,
   textDiffEligibility,
 } from "@portifact/domain";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
 import { dashboardApi } from "./api.ts";
 import { DashboardApp } from "./app.tsx";
+import { DashboardContext } from "./context.tsx";
 import { createI18n } from "./i18n/i18n.ts";
 import type { LocaleOptions } from "./locale.tsx";
 import { inProcessBuilder } from "./publish/builder.ts";
@@ -512,6 +517,18 @@ export interface FakeServer {
   };
   /** Webhooks a test event was queued for. */
   webhookTests: string[];
+  /**
+   * The space's issue connections (decision 0018), as /api/v1/integrations keeps them, and the
+   * issues asked for from threads with their Idempotency-Key.
+   */
+  integrations: {
+    connections: IntegrationConnectionView[];
+    available: boolean;
+    /** Whether the deployment offers integrations (`INTEGRATIONS_ENABLED`). */
+    offered: boolean;
+    euResidency: boolean;
+    issues: { artifactId: string; threadId: string; key: string; body: unknown }[];
+  };
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
   /**
@@ -605,6 +622,13 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     usage: usageView(),
     webhooks: { list: [], available: true, attempts: {} },
     webhookTests: [],
+    integrations: {
+      connections: [],
+      available: true,
+      offered: false,
+      euResidency: false,
+      issues: [],
+    },
     accessLogs: {},
     search: {},
     audit: {},
@@ -1381,6 +1405,8 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     server.approvals[artifactId] = next;
     return json(next, method === "POST" && approval[2] === "request" ? 201 : 200);
   }
+  const integrations = integrationRoute(server, method, path, headers);
+  if (integrations) return integrations;
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
@@ -1980,6 +2006,127 @@ function viewerRoute(server: FakeServer, id: string): Response {
   return Response.json(info);
 }
 
+/** Issue integrations (decision 0018): the choices, the admins' connections and issue requests. */
+function integrationRoute(
+  server: FakeServer,
+  method: string,
+  path: string,
+  headers: Headers,
+): Response | null {
+  const store = server.integrations;
+  const issue = /^\/api\/v1\/artifacts\/([^/]+)\/annotations\/threads\/([^/]+)\/issue$/.exec(path);
+  if (issue && method === "POST") {
+    const body = server.bodies.at(-1) as { target: string };
+    store.issues.push({
+      artifactId: issue[1] as string,
+      threadId: issue[2] as string,
+      key: headers.get("idempotency-key") ?? "",
+      body,
+    });
+    return Response.json(
+      {
+        id: `ti_${"1".repeat(32)}`,
+        service: "github",
+        target: body.target,
+        state: "pending",
+        key: null,
+        url: null,
+        failure: null,
+        own: true,
+        createdAt: NOW,
+      },
+      { status: 202 },
+    );
+  }
+  if (path === "/api/v1/integrations" && method === "GET") {
+    return Response.json({
+      connections: store.offered
+        ? store.connections.map(({ id, service, label, targets, usable }) => ({
+            id,
+            service,
+            label,
+            targets,
+            usable,
+          }))
+        : [],
+      available: store.available,
+      serviceAvailable: store.offered,
+      euResidency: store.euResidency,
+    });
+  }
+  if (!path.startsWith("/api/v1/integrations/connections")) return null;
+  if (path === "/api/v1/integrations/connections" && method === "GET") {
+    return Response.json({
+      connections: store.connections,
+      available: store.available,
+      serviceAvailable: store.offered,
+      limit: 5,
+      targetLimit: 10,
+    });
+  }
+  if (path === "/api/v1/integrations/connections" && method === "POST") {
+    const body = server.bodies.at(-1) as {
+      service: "github" | "linear";
+      label: string;
+      credential: string;
+      targets: string[];
+    };
+    if (body.credential.length < 20) {
+      return Response.json(
+        {
+          error: {
+            code: "invalid_input",
+            message: "GitHub refused the token: it is wrong, expired or revoked.",
+          },
+        },
+        { status: 400 },
+      );
+    }
+    const created: IntegrationConnectionView = {
+      id: `ic_${String(store.connections.length + 1).repeat(32)}`,
+      service: body.service,
+      label: body.label,
+      targets: body.targets.map((id) => ({ id, name: id })),
+      usable: true,
+      identity: "octo-bot",
+      credentialHint: `\u2026${body.credential.slice(-4)}`,
+      attention: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+      createdBy: "Ada",
+    };
+    store.connections = [...store.connections, created];
+    return Response.json(created, { status: 201 });
+  }
+  const one = /^\/api\/v1\/integrations\/connections\/([^/]+)(\/test)?$/.exec(path);
+  const connection = one && store.connections.find((c) => c.id === one[1]);
+  if (!one || !connection) return apiError("not_found", 404);
+  if (one[2] && method === "POST") {
+    return Response.json(
+      connection.attention
+        ? {
+            ok: false,
+            identity: null,
+            problem: "credential_rejected",
+            target: null,
+            message: "GitHub refused the token.",
+          }
+        : { ok: true, identity: connection.identity, problem: null, target: null, message: "ok" },
+    );
+  }
+  if (method === "DELETE") {
+    store.connections = store.connections.filter((c) => c.id !== connection.id);
+    return Response.json({ connectionId: connection.id, removed: true });
+  }
+  if (method === "PATCH") {
+    const body = server.bodies.at(-1) as { label?: string };
+    const next = { ...connection, ...(body.label ? { label: body.label } : {}) };
+    store.connections = store.connections.map((c) => (c.id === connection.id ? next : c));
+    return Response.json(next);
+  }
+  return apiError("not_found", 404);
+}
+
 /** The review code and annotations endpoints, with the rules the viewer depends on. */
 /**
  * Which threads a version filter covers, like the Worker: `current`, `all` or one version, and
@@ -2307,6 +2454,32 @@ export function renderDashboard(
     />,
   );
   return { ...view, left, saved, router, queryClient };
+}
+
+/**
+ * Renders one part of the dashboard (a dialog, a list) with the dashboard's providers and the
+ * fake API, outside any route, for tests of that part alone.
+ */
+export function renderInDashboard(node: ReactNode, server: FakeServer) {
+  const i18n = createI18n();
+  const env = {
+    api: dashboardApi({
+      fetch: (input, init) => server.fetch(input, init),
+      onUnauthenticated: () => {},
+    }),
+    leave: () => {},
+    manifests: inProcessBuilder,
+    storage: server.storage,
+    save: () => {},
+    humanCheck: null,
+  };
+  return render(
+    <I18nProvider i18n={i18n}>
+      <QueryClientProvider client={createQueryClient()}>
+        <DashboardContext.Provider value={env}>{node}</DashboardContext.Provider>
+      </QueryClientProvider>
+    </I18nProvider>,
+  );
 }
 
 /** Opens the select named `name` and chooses the option labelled `option`, as a pointer would. */

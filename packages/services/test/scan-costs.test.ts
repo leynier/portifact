@@ -40,7 +40,8 @@ const DEVELOP = {
   dropLapsedSearchIndexes: 4,
   pruneAuditEvents: 2,
   applyTombstones: 3,
-  runMaintenance: 52,
+  // 52 measured on develop before issue integrations, plus their one requeue scan (`requeueThreadIssues`).
+  runMaintenance: 53,
 };
 
 describe("D1 calls of the scans and plan paths, one region", () => {

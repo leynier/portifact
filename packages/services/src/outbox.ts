@@ -27,6 +27,7 @@ import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
 import { applyOwnerPlanRegion } from "./plans.ts";
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
+import { runThreadIssue, type ThreadIssueDeps } from "./thread-issues.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
 import { runWorkspacePolicyJob } from "./workspace-policies.ts";
 import { advanceWorkspaceDeletion, type DeletionRegions, singleRegion } from "./workspaces.ts";
@@ -155,6 +156,8 @@ export interface JobDeps {
   reviewNotifier?: ReviewNotifier | undefined;
   /** Sends `directory_notice` emails (decision 0017). */
   directoryNotifier?: DirectoryNotifier | undefined;
+  /** Creates issues from threads for `thread_issue` jobs (decision 0018). */
+  issues?: ThreadIssueDeps | undefined;
   /** Every region, for the deletions that reach all of them; only the job's own without it. */
   regions?: DeletionRegions | undefined;
 }
@@ -191,6 +194,7 @@ async function runRow(
     domainNotifier,
     reviewNotifier,
     directoryNotifier,
+    issues,
     regions = singleRegion(db, bucket),
   }: JobDeps,
 ): Promise<JobOutcome> {
@@ -253,6 +257,10 @@ async function runRow(
     case "workspace_policy":
       // Written in the global batch that saved the policy (one database with one region).
       return runWorkspacePolicyJob(db, row, now);
+    case "thread_issue":
+      // Thrown, not reported done: the row stays and the job runs again where the network is.
+      if (!issues) throw new Error("thread_issue needs the integration deps");
+      return runThreadIssue(db, row, now, issues);
   }
 }
 

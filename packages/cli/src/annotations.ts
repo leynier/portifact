@@ -650,5 +650,10 @@ export function formatThread(thread: AnnotationThreadView): string {
     const body = message.body === null ? text.noBody(message.state) : plain(message.body);
     for (const line of body.split("\n")) lines.push(`    ${line}`);
   }
+  for (const issue of thread.issues ?? []) {
+    lines.push(
+      `  ${text.issue(issue.state, issue.key, plain(issue.target), issue.url, issue.failure)}`,
+    );
+  }
   return `${lines.join("\n")}\n`;
 }

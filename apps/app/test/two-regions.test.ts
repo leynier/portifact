@@ -5,12 +5,13 @@
 import { env } from "cloudflare:workers";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { createWorkspace } from "@portifact/services";
+import { FakeIssueTrackers } from "@portifact/services/testing";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { r2Presigner, storageEndpoint } from "../src/api/presign.ts";
 import { dashboardCsp, storageOrigins } from "../src/app-host.ts";
 import { tokenClient } from "./api-client.ts";
-import { createHarness } from "./harness.ts";
+import { createHarness, ORIGIN } from "./harness.ts";
 
 const EU_BUCKET = "portifact-artifacts-eu";
 
@@ -115,5 +116,58 @@ describe("publishing to an EU workspace through the API", () => {
     expect(audit.status).toBe(200);
     const events = (await audit.json<{ events: { kind: string }[] }>()).events;
     expect(events.map((event) => event.kind)).toContain("artifact.published");
+  });
+});
+
+describe("issue integrations for an EU workspace", () => {
+  it("connects and lists through the EU database, and says the text leaves the EU", async () => {
+    const token = "github_pat_eu_app_suite_0123456789abcdef";
+    const fake = new FakeIssueTrackers().github(token, "eu-bot", ["acme/site"]);
+    const h = createHarness({ integrationFetch: fake.fetch });
+    const admin = await tokenClient(h, `eu-${crypto.randomUUID()}@example.com`);
+    const regions = regionsFromEnv(env);
+    const slug = `eu-${crypto.randomUUID().slice(0, 8)}`;
+    const created = await createWorkspace(regions.global, {
+      slug,
+      name: "EU",
+      adminUserId: admin.userId,
+      now: Date.now(),
+      region: "eu",
+    });
+    if (!created.ok) throw new Error(created.message);
+    const workspaceId = created.value.id;
+    await regions.global
+      .insert(schema.ownerPlans)
+      .values({ ownerId: workspaceId, plan: "team", grantedBy: "test", updatedAt: 0 });
+    const session = (path: string, init: RequestInit = {}) =>
+      h.request(path, {
+        ...init,
+        headers: {
+          "content-type": "application/json",
+          cookie: admin.cookie,
+          "sec-fetch-site": "same-origin",
+          origin: ORIGIN,
+        },
+      });
+    const connected = await session(`/api/v1/integrations/connections?workspace=${slug}`, {
+      method: "POST",
+      body: JSON.stringify({
+        service: "github",
+        label: "EU",
+        credential: token,
+        targets: ["acme/site"],
+      }),
+    });
+    expect(connected.status).toBe(201);
+    const { id } = await connected.json<{ id: string }>();
+    const rows = (db: ReturnType<typeof regions.get>["db"]) =>
+      db
+        .select({ id: schema.integrationConnections.id })
+        .from(schema.integrationConnections)
+        .where(eq(schema.integrationConnections.ownerId, workspaceId));
+    expect(await rows(regions.get("eu").db)).toEqual([{ id }]);
+    expect(await rows(regions.get("default").db)).toEqual([]);
+    const listed = await admin.call(`/api/v1/integrations?workspace=${slug}`);
+    expect(await listed.json()).toMatchObject({ euResidency: true, connections: [{ id }] });
   });
 });

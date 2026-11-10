@@ -70,6 +70,7 @@ import {
   readJson,
   workspaceParam,
 } from "./http.ts";
+import { integrationApiRoutes } from "./integrations.ts";
 import type { Presigner } from "./presign.ts";
 import { searchRoutes } from "./search.ts";
 import { shareLinkRoutes } from "./share-links.ts";
@@ -415,6 +416,7 @@ export function apiRoutes(deps: ApiDeps) {
   searchRoutes(api, guarded, deps.now);
   feedbackRoutes(api, guarded, deps.now);
   webhookRoutes(api, guarded, accountGuarded, deps.now);
+  integrationApiRoutes(api, guarded, deps.now);
   domainRoutes(api, guarded, deps.domains, deps.now);
 
   return api;

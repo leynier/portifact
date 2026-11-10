@@ -44,6 +44,7 @@ import {
 } from "@portifact/domain";
 import {
   accountSuspension,
+  applyIntegrationTombstones,
   applyOwnerPlans,
   applyTombstones,
   applyWorkspacePolicies,
@@ -959,6 +960,8 @@ export async function runOperator(
       const chosen = restoreRegions(regions, regionOption);
       if (typeof chosen === "string") return usage(chosen);
       const result = await applyTombstones(chosen, markers, now);
+      // Issue connections, per region from the stored markers (decision 0018).
+      const { integrations } = await applyIntegrationTombstones(chosen);
       // A restore of the global database rewinds the artifact directory too (decision 0005).
       let directory = 0;
       for (const handles of chosen.all()) {
@@ -966,7 +969,7 @@ export async function runOperator(
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${result.groups} group(s) and ${result.groupMembers} group membership(s) removed again, ${result.ssoProviders} single sign-on provider(s) removed again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${result.groups} group(s) and ${result.groupMembers} group membership(s) removed again, ${result.ssoProviders} single sign-on provider(s) removed again, ${integrations} issue connection(s) removed again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {

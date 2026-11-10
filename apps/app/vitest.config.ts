@@ -64,6 +64,10 @@ export default defineConfig(async () => {
             SSO_KEY: "test-only single sign-on sealing key for the app suite",
             // SCIM is offered in tests; the deployed configuration leaves it unset (decision 0017).
             SCIM_ENABLED: "true",
+            // Issue integrations are offered in tests; the deployed configuration leaves them
+            // unset (decision 0018). GitHub and Linear are fakes (FakeIssueTrackers).
+            INTEGRATIONS_ENABLED: "true",
+            INTEGRATIONS_KEY: "test-only integrations sealing key for the app suite",
             TEST_MIGRATIONS: migrations,
             TEST_ACCESS_MIGRATIONS: accessMigrations,
           },

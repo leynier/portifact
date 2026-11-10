@@ -36,6 +36,7 @@ import {
   type ErrorCode,
   type FeedbackItem,
   IdempotencyKey,
+  type IntegrationChoiceList,
   type ManifestFile,
   NO_APPROVAL_REVIEW,
   PLANS,
@@ -208,6 +209,8 @@ export interface FakeApiState {
   feedback: Map<string, FeedbackItem[]>;
   /** Share links by artifact, newest first, without their tokens. */
   shareLinks: Map<string, ShareLinkView[]>;
+  /** What GET /integrations answers, by space (`personal` or a slug); missing means none. */
+  integrations: Map<string, IntegrationChoiceList>;
   /** Approval reviews by artifact (decision 0013), as GET /artifacts/:id/review returns them. */
   approvals: Map<string, ApprovalReviewView>;
   /** Every review request the CLI sent: method, path, Idempotency-Key and body. */
@@ -297,6 +300,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     searchQueries: [],
     feedback: new Map(),
     shareLinks: new Map(),
+    integrations: new Map(),
     approvals: new Map(),
     approvalCalls: [],
     shareTokens: [],
@@ -1670,6 +1674,21 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     if (route === "GET /artifacts") return listArtifacts(url, workspace);
     if (route === "GET /usage") return { status: 200, body: state.usage };
     if (route === "GET /feedback") return feedbackPageOf(state, url, workspace);
+    if (route === "GET /integrations") {
+      const space = workspace ?? "personal";
+      if (workspace !== undefined && !state.workspaces.some((w) => w.slug === workspace)) {
+        return error("not_found", "Workspace not found.");
+      }
+      return {
+        status: 200,
+        body: state.integrations.get(space) ?? {
+          connections: [],
+          available: false,
+          serviceAvailable: false,
+          euResidency: false,
+        },
+      };
+    }
     const statsPath = /^\/artifacts\/([^/]+)\/stats$/.exec(path);
     if (statsPath && method === "GET") {
       const id = decodeURIComponent(statsPath[1] as string);

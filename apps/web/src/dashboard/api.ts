@@ -49,6 +49,12 @@ import {
   type ErrorCode,
   FileDiff,
   IncomingInvitationList,
+  IntegrationChoiceList,
+  IntegrationConnectionList,
+  IntegrationConnectionView,
+  type IntegrationCreate,
+  IntegrationTestResult,
+  type IntegrationUpdate,
   InvitationList,
   InvitationLookup,
   InvitationView,
@@ -75,6 +81,8 @@ import {
   type SsoProviderInput,
   SsoSettings,
   SsoTestResult,
+  type ThreadIssueCreate,
+  ThreadIssueView,
   type UploadedPart,
   VersionComparison,
   VersionDownload,
@@ -269,6 +277,31 @@ export interface DashboardApi {
   removeWebhook(webhookId: string, workspace: string | undefined): Promise<WebhookRemoved>;
   testWebhook(webhookId: string, workspace: string | undefined): Promise<WebhookTestQueued>;
   webhookDeliveries(webhookId: string, workspace: string | undefined): Promise<WebhookDeliveries>;
+  /** A space's connections as the owner side picks one (decision 0018): never a credential. */
+  integrations(workspace: string | undefined): Promise<IntegrationChoiceList>;
+  /** A space's connections as its admins manage them (dashboard session only). */
+  integrationConnections(workspace: string | undefined): Promise<IntegrationConnectionList>;
+  createIntegration(
+    connection: IntegrationCreate,
+    workspace: string | undefined,
+  ): Promise<IntegrationConnectionView>;
+  updateIntegration(
+    connectionId: string,
+    update: IntegrationUpdate,
+    workspace: string | undefined,
+  ): Promise<IntegrationConnectionView>;
+  testIntegration(
+    connectionId: string,
+    workspace: string | undefined,
+  ): Promise<IntegrationTestResult>;
+  removeIntegration(connectionId: string, workspace: string | undefined): Promise<unknown>;
+  /** Asks for an issue from a thread; the jobs Worker creates it. */
+  createThreadIssue(
+    artifactId: string,
+    threadId: string,
+    request: ThreadIssueCreate,
+    idempotencyKey: string,
+  ): Promise<ThreadIssueView>;
   /** The artifact's share links that are not revoked, never with their URL. */
   listShareLinks(artifactId: string): Promise<ShareLinkList>;
   /** Creates a share link; the answer holds its URL, the only time it is ever shown. */
@@ -630,6 +663,57 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`, workspace),
         WebhookTestQueued,
         "POST",
+      );
+    },
+    integrations(workspace) {
+      return call(inSpace("/api/v1/integrations", workspace), IntegrationChoiceList);
+    },
+    integrationConnections(workspace) {
+      return call(
+        inSpace("/api/v1/integrations/connections", workspace),
+        IntegrationConnectionList,
+      );
+    },
+    createIntegration(connection, workspace) {
+      return call(
+        inSpace("/api/v1/integrations/connections", workspace),
+        IntegrationConnectionView,
+        "POST",
+        connection,
+      );
+    },
+    updateIntegration(connectionId, update, workspace) {
+      return call(
+        inSpace(`/api/v1/integrations/connections/${encodeURIComponent(connectionId)}`, workspace),
+        IntegrationConnectionView,
+        "PATCH",
+        update,
+      );
+    },
+    testIntegration(connectionId, workspace) {
+      return call(
+        inSpace(
+          `/api/v1/integrations/connections/${encodeURIComponent(connectionId)}/test`,
+          workspace,
+        ),
+        IntegrationTestResult,
+        "POST",
+      );
+    },
+    removeIntegration(connectionId, workspace) {
+      return call(
+        inSpace(`/api/v1/integrations/connections/${encodeURIComponent(connectionId)}`, workspace),
+        z.unknown(),
+        "DELETE",
+      );
+    },
+    createThreadIssue(artifactId, threadId, request, idempotencyKey) {
+      return call(
+        `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/issue`,
+        ThreadIssueView,
+        "POST",
+        request,
+        { "idempotency-key": idempotencyKey },
       );
     },
     webhookDeliveries(webhookId, workspace) {

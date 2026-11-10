@@ -10,6 +10,11 @@ import type {
 import { type RegionalDb, schema } from "@portifact/db";
 import { type AnnotationRole, messageBodyVisible } from "@portifact/domain";
 import { asc, inArray, sql } from "drizzle-orm";
+import {
+  type ThreadIssueRecord,
+  threadIssueRecord,
+  threadIssuesQuery,
+} from "./thread-issue-views.ts";
 
 /** D1 binds at most 100 parameters per statement. */
 const IN_CHUNK = 90;
@@ -43,14 +48,23 @@ export async function threadViews(
   if (threads.length === 0) return [];
   const m = schema.annotationMessages;
   const messages: MessageRow[] = [];
+  const issues = new Map<string, ThreadIssueRecord[]>();
   for (const ids of chunks(threads.map((thread) => thread.id))) {
-    messages.push(
-      ...(await db
+    // The thread's issues ride in the messages' call (decision 0018): no round trip of their own.
+    const [rows, issueRows] = await db.batch([
+      db
         .select()
         .from(m)
         .where(inArray(m.threadId, ids))
-        .orderBy(asc(m.createdAt), sql`${m}.rowid`)),
-    );
+        .orderBy(asc(m.createdAt), sql`${m}.rowid`),
+      threadIssuesQuery(db, ids, viewerId),
+    ]);
+    messages.push(...rows);
+    for (const row of issueRows) {
+      const list = issues.get(row.threadId) ?? [];
+      list.push(threadIssueRecord(row, viewerId));
+      issues.set(row.threadId, list);
+    }
   }
   const authorIds = [
     ...new Set([...threads.map((t) => t.authorId), ...messages.map((x) => x.authorId)]),
@@ -94,5 +108,13 @@ export async function threadViews(
     updatedAt: iso(thread.updatedAt),
     resolvedAt: thread.resolvedAt === null ? null : iso(thread.resolvedAt),
     messages: byThread.get(thread.id) as AnnotationMessageView[],
+    ...(issues.has(thread.id)
+      ? {
+          issues: (issues.get(thread.id) ?? []).map((issue) => ({
+            ...issue,
+            createdAt: iso(issue.createdAt),
+          })),
+        }
+      : {}),
   }));
 }
