@@ -1,7 +1,6 @@
 // Maintenance jobs (plan section 10). Each job takes a small batch, is idempotent and safe to
 // run concurrently: state changes are conditional on the lifecycle generation, and storage is
 // released only by the statement that actually deletes the object rows.
-import { LIMITS } from "@portifact/contracts";
 import { type Db, schema } from "@portifact/db";
 import { purgeDate } from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
@@ -419,7 +418,7 @@ export async function rerenderDocuments(
       db
         .update(schema.accountUsage)
         .set({
-          storedBytes: sql`min(${schema.accountUsage.storedBytes} + ${file.bytes.byteLength}, ${LIMITS.accountBytes} - ${schema.accountUsage.reservedBytes})`,
+          storedBytes: sql`min(${schema.accountUsage.storedBytes} + ${file.bytes.byteLength}, ${schema.accountUsage.bytesLimit} - ${schema.accountUsage.reservedBytes})`,
           updatedAt: now,
         })
         .where(
