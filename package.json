@@ -36,6 +36,7 @@
     "build:cli": "bun scripts/build-cli.ts",
     "notices": "bun scripts/third-party-notices.ts",
     "spike:review-cookies": "bun run --cwd spikes/review-cookies spike",
+    "spike:regions": "bun run --cwd spikes/regions test",
     "test:e2e": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && bun run --cwd e2e e2e",
     "landing:shots": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && bun run --cwd e2e shots",
     "test:load": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && node scripts/load-test.ts",
