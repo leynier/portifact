@@ -343,6 +343,18 @@
         "vitest": "catalog:",
       },
     },
+    "spikes/content-search": {
+      "name": "@portifact/spike-content-search",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "^1.6.0",
+        "@cloudflare/workers-types": "^5.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "drizzle-orm": "^0.45.0",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "spikes/custom-domains": {
       "name": "@portifact/spike-custom-domains",
       "version": "0.0.0",
@@ -864,6 +876,8 @@
     "@portifact/services": ["@portifact/services@workspace:packages/services"],
 
     "@portifact/spike-artifact-analytics": ["@portifact/spike-artifact-analytics@workspace:spikes/artifact-analytics"],
+
+    "@portifact/spike-content-search": ["@portifact/spike-content-search@workspace:spikes/content-search"],
 
     "@portifact/spike-custom-domains": ["@portifact/spike-custom-domains@workspace:spikes/custom-domains"],
 
