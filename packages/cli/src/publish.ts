@@ -84,7 +84,7 @@ export async function publish(
       });
       workspace = base.owner.kind === "workspace" ? base.owner.slug : undefined;
     } else {
-      workspace = await chosenWorkspace(runtime, options.workspace);
+      workspace = await chosenWorkspace(session, options.workspace);
     }
     // The plan's sizes of that space, checked before hashing or uploading; the API checks them
     // again.

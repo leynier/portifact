@@ -14,7 +14,7 @@ export async function usage(
   options: OutputOptions & { workspace?: string | undefined },
 ): Promise<void> {
   const session = await openSession(io, runtime);
-  const workspace = await chosenWorkspace(runtime, options.workspace);
+  const workspace = await chosenWorkspace(session, options.workspace);
   const view = await callApi(session, {
     method: "GET",
     path: `/usage${workspaceQuery(workspace)}`,

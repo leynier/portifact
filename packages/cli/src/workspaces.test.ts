@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type FakeServer, startFakeServer } from "./testing/fake-server.ts";
@@ -50,9 +50,10 @@ describe("portifact workspaces", () => {
     const used = await h.invoke("workspaces", "use", "acme");
     expect(used.code).toBe(0);
     expect(used.stdout).toContain("now use the workspace acme");
-    expect(JSON.parse(await readFile(join(h.configDir, WORKSPACE_FILE), "utf8"))).toEqual({
-      version: 1,
+    expect(JSON.parse(await readFile(join(h.configDir, WORKSPACE_FILE), "utf8"))).toMatchObject({
+      version: 2,
       workspace: "acme",
+      userId: expect.any(String),
     });
     expect((await h.invoke("workspaces")).stdout).toContain("*  acme");
 
@@ -140,5 +141,27 @@ describe("portifact transfer", () => {
     const refused = await h.invoke("transfer", artifact.id, "--to", "personal");
     expect(refused.code).toBe(5);
     expect(refused.stderr).toContain("Your role on this workspace does not allow this.");
+  });
+});
+
+describe("the default workspace", () => {
+  it("belongs to the account that chose it: another account on the device never uses it", async () => {
+    h.signIn();
+    await h.invoke("workspaces", "use", "acme");
+    const path = join(h.configDir, WORKSPACE_FILE);
+    const stored = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(path, JSON.stringify({ ...stored, userId: "u_someone_else" }));
+    await h.invoke("list");
+    expect(server.api.workspaceParams.at(-1)).toBe("GET /artifacts personal");
+    expect((await h.invoke("workspaces")).stdout).toContain("*  personal");
+  });
+
+  it("is forgotten on logout", async () => {
+    h.signIn();
+    await h.invoke("workspaces", "use", "acme");
+    const path = join(h.configDir, WORKSPACE_FILE);
+    await readFile(path, "utf8");
+    expect((await h.invoke("logout")).code).toBe(0);
+    await expect(readFile(path, "utf8")).rejects.toThrow();
   });
 });

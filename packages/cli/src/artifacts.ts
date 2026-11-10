@@ -58,7 +58,7 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
   for (const [name, value] of Object.entries(options.filters ?? {})) {
     if (typeof value === "string") query.set(name, value);
   }
-  const workspace = await chosenWorkspace(runtime, options.workspace);
+  const workspace = await chosenWorkspace(session, options.workspace);
   const search = workspaceQuery(workspace, query);
   const page = await callApi(session, {
     method: "GET",

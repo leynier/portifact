@@ -10,11 +10,13 @@ import {
   WorkspaceList,
   WorkspaceSlug,
 } from "@portifact/contracts";
+import { z } from "zod";
 import { callApi } from "./api.ts";
 import { table } from "./artifacts.ts";
-import { type OutputOptions, openSession, writeJson } from "./commands.ts";
+import { type OutputOptions, openSession, signedInPrincipal, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import type { Session } from "./session.ts";
 
 /** The device's default space, next to the credentials file. */
 export const WORKSPACE_FILE = "workspace.json";
@@ -33,37 +35,62 @@ function parseSlug(value: string): string {
   return parsed.data;
 }
 
-/** The workspace this device uses when no flag names one; undefined for the personal space. */
-export async function defaultWorkspace(runtime: Runtime): Promise<string | undefined> {
+/**
+ * The default workspace is the signed-in account's choice on this device: stored with the server
+ * and the account's user ID, so another account signing in here never acts on it, and removed
+ * on logout (`forgetDefaultWorkspace`).
+ */
+const StoredDefault = z.object({
+  version: z.literal(2),
+  server: z.string(),
+  userId: z.string(),
+  workspace: WorkspaceSlug,
+});
+
+/** The workspace the signed-in account chose on this device; undefined for the personal space. */
+export async function defaultWorkspace(session: Session): Promise<string | undefined> {
+  let stored: z.infer<typeof StoredDefault>;
   try {
-    const parsed = JSON.parse(await readFile(join(runtime.configDir, WORKSPACE_FILE), "utf8"));
-    const slug = WorkspaceSlug.safeParse(parsed?.workspace);
-    return slug.success ? slug.data : undefined;
+    const parsed = StoredDefault.safeParse(
+      JSON.parse(await readFile(join(session.runtime.configDir, WORKSPACE_FILE), "utf8")),
+    );
+    if (!parsed.success) return undefined;
+    stored = parsed.data;
   } catch {
     return undefined;
   }
+  if (stored.server !== session.server.origin) return undefined;
+  const { userId } = await signedInPrincipal(session);
+  return stored.userId === userId ? stored.workspace : undefined;
 }
 
-async function saveDefault(runtime: Runtime, slug: string | undefined): Promise<void> {
-  const path = join(runtime.configDir, WORKSPACE_FILE);
+async function saveDefault(session: Session, slug: string | undefined): Promise<void> {
+  const { configDir } = session.runtime;
   if (slug === undefined) {
-    await rm(path, { force: true });
+    await forgetDefaultWorkspace(configDir);
     return;
   }
-  await mkdir(runtime.configDir, { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify({ version: 1, workspace: slug })}\n`, { mode: 0o600 });
+  const { userId } = await signedInPrincipal(session);
+  await mkdir(configDir, { recursive: true, mode: 0o700 });
+  const body = { version: 2, server: session.server.origin, userId, workspace: slug };
+  await writeFile(join(configDir, WORKSPACE_FILE), `${JSON.stringify(body)}\n`, { mode: 0o600 });
+}
+
+/** Removes the stored default; `logout` calls it so the next account starts in its own space. */
+export async function forgetDefaultWorkspace(configDir: string): Promise<void> {
+  await rm(join(configDir, WORKSPACE_FILE), { force: true });
 }
 
 /**
- * The space a command acts on: the flag (`personal` for the personal space), else the device's
- * default. Undefined means the personal space.
+ * The space a command acts on: the flag (`personal` for the personal space), else the signed-in
+ * account's default. Undefined means the personal space.
  */
 export async function chosenWorkspace(
-  runtime: Runtime,
+  session: Session,
   flag: string | undefined,
 ): Promise<string | undefined> {
   if (flag !== undefined) return flag.trim() === PERSONAL ? undefined : parseSlug(flag);
-  return defaultWorkspace(runtime);
+  return defaultWorkspace(session);
 }
 
 /** `?workspace=<slug>` for the API, or an empty string for the personal space. */
@@ -85,7 +112,7 @@ export async function workspaces(io: Io, runtime: Runtime, options: OutputOption
     path: "/workspaces",
     schema: WorkspaceList,
   });
-  const current = await defaultWorkspace(runtime);
+  const current = await defaultWorkspace(session);
   if (options.json) {
     writeJson(io, { ...list, default: current ?? null });
     return;
@@ -108,8 +135,8 @@ export async function useWorkspace(
   value: string,
 ): Promise<void> {
   const slug = value.trim() === PERSONAL ? undefined : parseSlug(value);
+  const session = await openSession(io, runtime);
   if (slug !== undefined) {
-    const session = await openSession(io, runtime);
     const list = await callApi(session, {
       method: "GET",
       path: "/workspaces",
@@ -122,7 +149,7 @@ export async function useWorkspace(
       );
     }
   }
-  await saveDefault(runtime, slug);
+  await saveDefault(session, slug);
   if (options.json) {
     writeJson(io, { default: slug ?? null });
     return;
