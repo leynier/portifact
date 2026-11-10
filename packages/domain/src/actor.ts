@@ -49,6 +49,10 @@ const EDITOR: readonly RoleAction[] = [
   "access_log",
   "usage",
   "domains",
+  // Asking for, changing and cancelling approval reviews (decision 0013).
+  "approvals",
+  // Content search reads every artifact of the owner, so only roles that read them all (decision 0012).
+  "search",
 ];
 const ADMIN: readonly RoleAction[] = [
   ...EDITOR,
@@ -83,6 +87,11 @@ export const TOKEN_ACTIONS: ReadonlySet<RoleAction> = new Set<RoleAction>([
   "versions",
   "rollback",
   "usage",
+  // An approval review asks people to review the artifact: managing the artifact's workflow, which
+  // grants nobody access (decision 0013). A verdict needs a person and is never a role action.
+  "approvals",
+  // A token already downloads every version it reaches; its search is limited to the same reach.
+  "search",
 ]);
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {

@@ -30,6 +30,7 @@ import {
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn } from "./actors.ts";
+import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { accessAudience } from "./workspace-domains.ts";
@@ -358,6 +359,26 @@ export async function updateAccess(
   const { add: addGroups, remove: removeGroups, stale: staleGroups } = groupChange.value;
   const groupExceptions = change.groupCommentVisibility ?? [];
 
+  const unchangedPolicy = sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifact.id} and ${schema.artifacts.ownerId} = ${artifact.ownerId} and ${schema.artifacts.policyGeneration} = ${artifact.policyGeneration})`;
+  // Approval reviewers who would no longer take part stop counting with this change, in its
+  // batch and on its condition (decision 0013).
+  const modeChanges = change.mode !== undefined && change.mode !== artifact.accessMode;
+  const reviewDrops =
+    remove.length > 0 || modeChanges
+      ? await approvalAccessStatements(db, {
+          artifact,
+          policy: {
+            mode: change.mode ?? artifact.accessMode,
+            readers: [
+              ...(await readers(db, artifact.id)).filter((email) => !remove.includes(email)),
+              ...add,
+            ],
+          },
+          owner,
+          condition: unchangedPolicy,
+          now: input.now,
+        })
+      : [];
   // Reader writes run first, conditioned on the generation this request read, and the guarded
   // update runs last in the same transaction. A concurrent change that committed first moved the
   // generation, so this one skips its reader writes and its update matches no row.
@@ -449,6 +470,7 @@ export async function updateAccess(
           condition: unchanged,
         })
       : []),
+    ...reviewDrops,
     ...accessAuditEvent(db, {
       artifact,
       actorId: actor.userId,

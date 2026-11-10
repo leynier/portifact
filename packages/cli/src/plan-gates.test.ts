@@ -90,6 +90,18 @@ const GATED: GatedCommand[] = [
     path: /^\/api\/v1\/audit$/,
   },
   {
+    feature: "auditExport",
+    args: () => ["audit", "export", "--format", "csv"],
+    method: "GET",
+    path: /^\/api\/v1\/audit\/export$/,
+  },
+  {
+    feature: "contentSearch",
+    args: () => ["search", "roadmap"],
+    method: "GET",
+    path: /^\/api\/v1\/search$/,
+  },
+  {
     feature: "workspaces",
     args: (id) => ["access", "set", id, "workspace"],
     method: "PATCH",
@@ -118,6 +130,18 @@ const GATED: GatedCommand[] = [
     args: (id) => ["domains", "add", id, "docs.example.com"],
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/domain$/,
+  },
+  {
+    feature: "reviews",
+    args: (id) => ["review", "request", id, "--reviewer", "ana@example.com"],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/review\/request$/,
+  },
+  {
+    feature: "reviews",
+    args: (id) => ["review", "change", id, "--show-status"],
+    method: "PATCH",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/review\/request$/,
   },
   // A service token of a workspace whose plan lost the feature (decision 0011) is refused on
   // every request; with PORTIFACT_TOKEN set it goes through the same error path

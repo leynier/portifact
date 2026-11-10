@@ -14,12 +14,19 @@ import {
   type AccessPolicyView,
   AccessUpdate,
   type AccountUsageView,
+  ApprovalChangeInput,
+  ApprovalRequestInput,
+  type ApprovalReviewView,
+  ApprovalVerdictInput,
   ARTIFACT_ID_ALPHABET,
   ArtifactListFilters,
+  type ArtifactListItem,
   type ArtifactStatsView,
   type ArtifactSummary,
   type ArtifactType,
+  AUDIT_EXPORT_CURSOR_HEADER,
   type AuditEventView,
+  AuditExportFormat,
   type CommentScope,
   type CommentVisibility,
   CustomDomainAdd,
@@ -29,11 +36,13 @@ import {
   type FeedbackItem,
   IdempotencyKey,
   type ManifestFile,
+  NO_APPROVAL_REVIEW,
   PLANS,
   type PlanFeature,
   PublishRequest,
   planRequiredMessage,
   RollbackRequest,
+  type SearchResults,
   ShareLinkCreate,
   type ShareLinkView,
   type SourceOrigin,
@@ -46,7 +55,15 @@ import {
   type WebhookView,
   type WorkspaceGroupView,
 } from "@portifact/contracts";
-import { decodeUtf8, diffText, pageHunks, textDiffEligibility } from "@portifact/domain";
+import {
+  auditExportContentType,
+  auditExportLine,
+  auditExportPreamble,
+  decodeUtf8,
+  diffText,
+  pageHunks,
+  textDiffEligibility,
+} from "@portifact/domain";
 
 export interface Reply {
   status: number;
@@ -170,8 +187,16 @@ export interface FakeApiState {
   audit: Map<string, AuditEventView[]>;
   /** The query strings GET /audit received, in order. */
   auditQueries: string[];
+  /** The query strings GET /audit/export received, in order. */
+  auditExportQueries: string[];
+  /** Events per export part, so tests follow the cursor through several parts. */
+  auditExportPart: number;
   /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
   stats: Map<string, ArtifactStatsView>;
+  /** Search pages by space (`personal` or a slug), as GET /search returns them for any query. */
+  search: Map<string, SearchResults>;
+  /** The query strings GET /search received, in order. */
+  searchQueries: string[];
   /**
    * Open feedback by space (`personal` or a workspace slug), newest first, as GET /feedback pages
    * it; a workspace's needs `workspaces` in `usage.plan.features`.
@@ -179,6 +204,10 @@ export interface FakeApiState {
   feedback: Map<string, FeedbackItem[]>;
   /** Share links by artifact, newest first, without their tokens. */
   shareLinks: Map<string, ShareLinkView[]>;
+  /** Approval reviews by artifact (decision 0013), as GET /artifacts/:id/review returns them. */
+  approvals: Map<string, ApprovalReviewView>;
+  /** Every review request the CLI sent: method, path, Idempotency-Key and body. */
+  approvalCalls: { method: string; path: string; key: string | undefined; body: unknown }[];
   /** Tokens of the links created, which the CLI may print only once, at creation. */
   shareTokens: string[];
   /** Whether the owner's plan includes share links. */
@@ -257,9 +286,15 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     accessLogs: new Map(),
     audit: new Map(),
     auditQueries: [],
+    auditExportQueries: [],
+    auditExportPart: 2,
     stats: new Map(),
+    search: new Map(),
+    searchQueries: [],
     feedback: new Map(),
     shareLinks: new Map(),
+    approvals: new Map(),
+    approvalCalls: [],
     shareTokens: [],
     shareLinksEnabled: true,
     domains: new Map(),
@@ -1149,6 +1184,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const items = all.slice(offset, offset + limit).map((artifact) => ({
       ...summary(artifact, state.workspaces),
       activity: activityOf(artifact),
+      review: state.approvals.get(artifact.id)?.review ?? NO_APPROVAL_REVIEW,
     }));
     const nextCursor = offset + limit < all.length ? `c${offset + limit}` : null;
     return { status: 200, body: { items, nextCursor } };
@@ -1242,6 +1278,111 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         links.filter((link) => link.id !== linkId),
       );
       return { status: 200, body: { id: linkId, revoked: true } };
+    }
+    return error("not_found", "Not found.");
+  }
+
+  /**
+   * Approval reviews, kept simple: the CLI only sends and prints, the services decide. A request
+   * names its reviewers, a verdict is the signed-in person's, and every write needs a key.
+   */
+  function approvalReview(
+    method: string,
+    id: string,
+    verdict: string | undefined,
+    key: string | undefined,
+    raw: string,
+  ): Reply {
+    const artifact = state.artifacts.get(id);
+    if (!artifact || artifact.state === "deleted") return error("not_found", "Artifact not found.");
+    const body = raw === "" ? undefined : parseJson(raw);
+    if (method !== "GET")
+      state.approvalCalls.push({
+        method,
+        path: `/artifacts/${id}/review${verdict ?? ""}`,
+        key,
+        body,
+      });
+    const none: ApprovalReviewView = {
+      artifactId: id,
+      role: "owner",
+      available: true,
+      review: NO_APPROVAL_REVIEW,
+      request: null,
+    };
+    const current = state.approvals.get(id) ?? none;
+    if (method === "GET" && !verdict) return { status: 200, body: current };
+    if (method !== "DELETE" && key === undefined) {
+      return error("invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
+    }
+    if (method === "DELETE" && !verdict) {
+      if (current.request === null)
+        return error("not_found", "This artifact has no open review request.");
+      state.approvals.delete(id);
+      return { status: 200, body: none };
+    }
+    if (method === "POST" && verdict) {
+      const parsed = ApprovalVerdictInput.safeParse(body);
+      if (!parsed.success || current.request === null) {
+        return error("forbidden", "You are not one of this artifact's reviewers.");
+      }
+      const approvals = parsed.data.verdict === "approve" ? 1 : 0;
+      const next: ApprovalReviewView = {
+        ...current,
+        role: "reviewer",
+        review: {
+          ...current.review,
+          status: approvals === 1 ? "approved" : "changes_requested",
+          approvals,
+          changesRequested: 1 - approvals,
+        },
+      };
+      state.approvals.set(id, next);
+      return { status: 200, body: next };
+    }
+    if (method === "POST") {
+      const parsed = ApprovalRequestInput.safeParse(body);
+      if (!parsed.success) return error("invalid_input", "Invalid review request.");
+      const reviewers = parsed.data.reviewers.length;
+      const view: ApprovalReviewView = {
+        ...none,
+        review: {
+          status: "pending",
+          reviewers,
+          required: parsed.data.requiredApprovals ?? reviewers,
+          approvals: 0,
+          changesRequested: 0,
+        },
+        request: {
+          id: `ar_${"0".repeat(32)}`,
+          versionId: artifact.currentVersionId ?? "ver_none",
+          requiredApprovals: parsed.data.requiredApprovals ?? null,
+          showStatus: parsed.data.showStatus ?? false,
+          requestedAt: new Date(clock()).toISOString(),
+          updatedAt: new Date(clock()).toISOString(),
+          requestedBy: "Owner",
+          reviewers: parsed.data.reviewers.map((email, i) => ({
+            id: `rvw_${String(i).padStart(24, "0")}`,
+            name: null,
+            email,
+            active: true,
+            you: false,
+            verdict: null,
+            note: null,
+            decidedAt: null,
+          })),
+          history: [],
+        },
+      };
+      state.approvals.set(id, view);
+      return { status: 201, body: view };
+    }
+    if (method === "PATCH") {
+      const parsed = ApprovalChangeInput.safeParse(body);
+      if (!parsed.success) return error("invalid_input", "Say what to change.");
+      if (current.request === null)
+        return error("not_found", "This artifact has no open review request.");
+      return { status: 200, body: current };
     }
     return error("not_found", "Not found.");
   }
@@ -1539,6 +1680,35 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     const hooks = webhookRoute(method, path, raw);
     if (hooks) return hooks;
+    if (route === "GET /audit/export") {
+      state.auditExportQueries.push(url.search);
+      const space = url.searchParams.get("workspace") ?? "personal";
+      const all = state.audit.get(space);
+      if (!all) return error("not_found", "Workspace not found.");
+      const format = AuditExportFormat.parse(url.searchParams.get("format"));
+      const cursor = url.searchParams.get("cursor");
+      const offset = Number(cursor ?? "0");
+      const next = offset + state.auditExportPart;
+      const text =
+        (cursor === null ? auditExportPreamble(format) : "") +
+        all
+          .slice(offset, next)
+          .map((event) => auditExportLine(format, event))
+          .join("");
+      return {
+        status: 200,
+        body: text,
+        headers: {
+          "content-type": auditExportContentType(format),
+          ...(next < all.length ? { [AUDIT_EXPORT_CURSOR_HEADER]: String(next) } : {}),
+        },
+      };
+    }
+    if (route === "GET /search") {
+      state.searchQueries.push(url.search);
+      const body = state.search.get(url.searchParams.get("workspace") ?? "personal");
+      return body ? { status: 200, body } : error("not_found", "Workspace not found.");
+    }
     if (route === "GET /audit") {
       state.auditQueries.push(url.search);
       const space = url.searchParams.get("workspace") ?? "personal";
@@ -1557,6 +1727,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
           events: all.slice(offset, next),
           nextCursor: next < all.length ? String(next) : null,
           retentionDays: 90,
+          exportable: true,
         },
       };
     }
@@ -1568,6 +1739,18 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const named = /^\/domains\/([^/]+)(\/verify)?$/.exec(path);
     if (named)
       return domain(method, decodeURIComponent(named[1] as string), named[2] !== undefined);
+    const reviewed = /^\/artifacts\/([^/]+)\/review\/(request|status|verdict)$/.exec(path);
+    if (reviewed) {
+      const part = reviewed[2] as string;
+      if ((part === "status") !== (method === "GET")) return error("not_found", "Not found.");
+      return approvalReview(
+        method,
+        reviewed[1] as string,
+        part === "verdict" ? "/verdict" : undefined,
+        key,
+        raw,
+      );
+    }
     const shares = /^\/artifacts\/([^/]+)\/share-links(?:\/([^/]+))?$/.exec(path);
     if (shares) return shareLinks(method, shares[1] as string, shares[2], raw);
     const versions = versionRoute(method, path, url, key, raw);
@@ -1626,10 +1809,22 @@ export function scopeFor(method: string, path: string): string {
   if (path.startsWith("/api/v1/publishes")) return "artifacts:write";
   if (/\/access$/.test(path)) return method === "PATCH" ? "artifacts:share" : "artifacts:read";
   if (/\/share-links(\/|$)/.test(path)) return "artifacts:share";
+  if (/\/review\/verdict$/.test(path)) return "annotations:write";
+  if (/\/review\/status$/.test(path)) return "artifacts:read";
+  if (/\/review\/request$/.test(path)) return "artifacts:write";
   if (/\/domain$|^\/api\/v1\/domains\//.test(path) && method !== "GET") return "artifacts:share";
   if (method === "DELETE") return "artifacts:delete";
   if (method === "POST") return "artifacts:write";
   return "artifacts:read";
+}
+
+/** An artifact as the list (and the search results) show it, in the personal space. */
+export function listItemOf(artifact: FakeArtifact): ArtifactListItem {
+  return {
+    ...summary(artifact),
+    review: NO_APPROVAL_REVIEW,
+    activity: { versions: 1, currentBytes: null, openThreads: 0, lastAnnotationAt: null },
+  };
 }
 
 function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): ArtifactSummary {

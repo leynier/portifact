@@ -63,6 +63,7 @@ test("option cards choose on a press anywhere, and each settings group saves on 
     "Overview",
     "Sharing",
     "Comments",
+    "Reviews",
     "Activity",
     "Space",
     "Danger zone",

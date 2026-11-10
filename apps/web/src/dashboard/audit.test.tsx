@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type { AuditEventView } from "@portifact/contracts";
+import { auditCsvHeader, auditCsvRow, auditJsonLine } from "@portifact/domain";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -212,11 +213,110 @@ describe("audit log page", () => {
     expect(await screen.findByText("Only admins can read the audit log")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Audit log" })).toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
   });
 });
 
+describe("exporting the audit log", () => {
+  it("offers admins CSV and JSON Lines on a plan with the export, axe clean in both themes", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    server.audit.acme = EVENTS;
+    server.auditExportable.add("acme");
+    const view = renderDashboard("/audit?workspace=acme", server);
+    await table();
+    const region = await screen.findByRole("region", { name: "Export the audit log" });
+    expect(within(region).getByText(/never by address/)).toBeTruthy();
+    expect(await axeViolations(view.container)).toEqual([]);
+    document.documentElement.dataset.theme = "dark";
+    expect(await axeViolations(view.container)).toEqual([]);
+
+    fireEvent.click(within(region).getByRole("button", { name: "Export as CSV" }));
+    await waitFor(() => expect(view.saved).toHaveLength(1));
+    expect(view.saved[0]?.fileName).toBe("portifact-audit.csv");
+    // Two parts of two events, joined in order, with the header once.
+    expect(await view.saved[0]?.blob.text()).toBe(
+      auditCsvHeader() + EVENTS.map(auditCsvRow).join(""),
+    );
+    expect(exports().map((path) => new URL(path, "https://x").searchParams.get("cursor"))).toEqual([
+      null,
+      "2",
+    ]);
+    expect(exports()[0]).toContain("workspace=acme");
+    expect(await screen.findByText("The audit log was exported as CSV.")).toBeTruthy();
+
+    fireEvent.click(within(region).getByRole("button", { name: "Export as JSON Lines" }));
+    await waitFor(() => expect(view.saved).toHaveLength(2));
+    expect(view.saved[1]?.fileName).toBe("portifact-audit.jsonl");
+    expect(await view.saved[1]?.blob.text()).toBe(EVENTS.map(auditJsonLine).join(""));
+  });
+
+  it("exports what the kind filter keeps", async () => {
+    server.audit[""] = EVENTS;
+    server.auditExportable.add("");
+    const view = renderDashboard("/audit", server);
+    await table();
+    const filters = screen.getByRole("region", { name: "Filter the audit log" });
+    fireEvent.click(within(filters).getAllByRole("combobox")[0] as HTMLElement);
+    fireEvent.click(screen.getByRole("option", { name: "Members, tokens and plan" }));
+    await waitFor(() => expect(requested().at(-1)).toContain("kind=member.invited"));
+    fireEvent.click(await screen.findByRole("button", { name: "Export as CSV" }));
+    await waitFor(() => expect(view.saved).toHaveLength(1));
+    expect(exports()[0]).toContain("kind=member.invited");
+    const members = EVENTS.filter(
+      (e) => e.kind === "member.role_changed" || e.kind === "plan.granted",
+    );
+    expect(await view.saved[0]?.blob.text()).toBe(
+      auditCsvHeader() + members.map(auditCsvRow).join(""),
+    );
+  });
+
+  it("says why an export failed", async () => {
+    server.audit[""] = EVENTS;
+    server.auditExportable.add("");
+    renderDashboard("/audit", server);
+    await table();
+    // The plan changes after the page loaded.
+    server.auditExportable.delete("");
+    fireEvent.click(await screen.findByRole("button", { name: "Export as CSV" }));
+    expect(await screen.findByText("The audit log could not be exported")).toBeTruthy();
+  });
+
+  it("names the plan that includes the export, with no button, when the plan lacks it", async () => {
+    server.audit[""] = EVENTS;
+    const { container } = renderDashboard("/audit", server);
+    await table();
+    expect(
+      screen.getByText("Exporting the audit log is part of the Enterprise plan."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /upgrade|buy|checkout/i })).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("says how long the plan keeps events, from the API", async () => {
+    server.audit[""] = EVENTS;
+    server.auditRetentionDays = 2557;
+    renderDashboard("/audit", server);
+    await table();
+    expect(
+      screen.getByText("Who changed what in this space. Changes are kept 2557 days."),
+    ).toBeTruthy();
+  });
+});
+
+function exports(): string[] {
+  return server.requests
+    .filter((r) => r.method === "GET" && r.path.startsWith("/api/v1/audit/export"))
+    .map((r) => r.path);
+}
+
 function requested(): string[] {
   return server.requests
-    .filter((r) => r.method === "GET" && r.path.startsWith("/api/v1/audit"))
+    .filter(
+      (r) =>
+        r.method === "GET" &&
+        r.path.startsWith("/api/v1/audit") &&
+        !r.path.startsWith("/api/v1/audit/export"),
+    )
     .map((r) => r.path);
 }

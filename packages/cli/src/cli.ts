@@ -7,6 +7,7 @@ import {
   LIST_SEARCH_MAX,
   ListedArtifactState,
   PublishKey,
+  SEARCH_LIMITS,
 } from "@portifact/contracts";
 import { Command, CommanderError, InvalidArgumentError, Option } from "commander";
 import packageJson from "../package.json" with { type: "json" };
@@ -21,7 +22,7 @@ import {
   parseArtifactId,
   showAccess,
 } from "./artifacts.ts";
-import { audit } from "./audit.ts";
+import { audit, auditExport } from "./audit.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { diff } from "./diff.ts";
 import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "./domains.ts";
@@ -32,7 +33,9 @@ import { logs } from "./logs.ts";
 import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
+import { cancelReview, changeReview, giveVerdict, requestReview, reviewStatus } from "./review.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
+import { search } from "./search.ts";
 import { createShare, listShares, revokeShare } from "./share.ts";
 import { stats } from "./stats.ts";
 import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
@@ -82,6 +85,17 @@ account: no comments, and visitors are never identified. Treat the URL like a pa
 printed only by \`share create\`. Share links are part of a paid plan. Revoking ends the link and
 its sessions within a minute.
 `;
+
+const REVIEW_HELP = `
+An approval review asks named people to review an artifact's current version. Reviewers must
+already be able to open the artifact and comment on it (readers on its list, or members of its
+workspace): asking gives nobody access. Each reviewer approves or requests changes, with an
+optional note. A new version starts the review again with no verdicts. Requesting and changing
+a review are part of the Team plan; reading, giving a verdict and cancelling never are.
+`;
+
+/** A repeatable option: every value given. */
+const many = (value: string, previous: string[] = []) => [...previous, value];
 
 const DOMAINS_HELP = `
 A custom domain serves one artifact from a hostname you control, such as docs.example.com (a
@@ -155,8 +169,8 @@ the session does not allow it, run \`portifact login\` again.
 
 const WORKSPACES_HELP = `
 Artifacts live in your personal space or in a workspace you belong to. Workspaces are created by
-Portifact's operator; their admins invite members from the dashboard. publish, list and usage act
-on your personal space unless --workspace names a workspace (or personal) or \`portifact
+Portifact's operator; their admins invite members from the dashboard. publish, list, search and
+usage act on your personal space unless --workspace names a workspace (or personal) or \`portifact
 workspaces use <slug>\` made one this device's default. Updating an artifact with --artifact
 always keeps it where it is. Admins and editors of a workspace see and manage everything published
 there; members only read and comment on what is shared with them.
@@ -739,9 +753,11 @@ export async function run(
       ),
     );
 
-  program
+  const auditCommand = program
     .command("audit")
     .description("Show who changed what in your space or a workspace (admins, Team plan and above)")
+    // Options after `export` belong to it.
+    .enablePositionalOptions()
     .option("--workspace <slug>", "this workspace's audit log, or personal")
     .option("--kind <kind...>", "only these event kinds (repeat or separate with commas)")
     .option("--actor <id>", "only events by this account ID")
@@ -768,6 +784,39 @@ export async function run(
         ) => audit(io, runtime, { ...options, json: options.json === true }),
       ),
     );
+  auditCommand
+    .command("export")
+    .description(
+      "Export the audit log as CSV or JSON Lines, every page of it (admins, Enterprise plan)",
+    )
+    .requiredOption("--format <format>", "csv or jsonl")
+    .option("--out <file>", "write to this new file instead of standard output")
+    .option("--workspace <slug>", "this workspace's audit log, or personal")
+    .option("--kind <kind...>", "only these event kinds (repeat or separate with commas)")
+    .option("--actor <id>", "only events by this account ID")
+    .option("--target <id>", "only events about this artifact, member, link or webhook ID")
+    .option("--since <time>", "only events since a duration ago (30m, 12h, 7d) or an ISO date")
+    .option("--until <time>", "only events before a duration ago or an ISO date")
+    .option("--json", "Print a summary as JSON (with --out)")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: {
+            format?: string;
+            out?: string;
+            workspace?: string;
+            kind?: string[];
+            actor?: string;
+            target?: string;
+            since?: string;
+            until?: string;
+            json?: boolean;
+          },
+        ) => auditExport(io, runtime, { ...options, json: options.json === true }),
+      ),
+    );
 
   program
     .command("stats")
@@ -789,6 +838,37 @@ export async function run(
             days: options.days,
             from: options.from,
             to: options.to,
+            json: options.json === true,
+          }),
+      ),
+    );
+
+  program
+    .command("search")
+    .description(
+      "Find artifacts whose text contains every word of a query (admins and editors, Team plan and above)",
+    )
+    .argument("<query>", "words to find; quotes and operators are plain characters", parseQuery)
+    .option("--workspace <slug>", "search this workspace, or personal")
+    .option(
+      "--limit <n>",
+      `results per page, 1 to ${SEARCH_LIMITS.pageMax} (default: ${SEARCH_LIMITS.pageDefault})`,
+      parseSearchLimit,
+    )
+    .option("--cursor <cursor>", "continue from where the previous page ended")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { workspace?: string; limit?: number; cursor?: string; json?: boolean },
+          query: string,
+        ) =>
+          search(io, runtime, query, {
+            workspace: options.workspace,
+            limit: options.limit,
+            cursor: options.cursor,
             json: options.json === true,
           }),
       ),
@@ -857,6 +937,114 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .action(
       execute((io, runtime, options: { to: string; json?: boolean }, id: string) =>
         transfer(io, runtime, { to: options.to, json: options.json === true }, parseArtifactId(id)),
+      ),
+    );
+
+  const review = program
+    .command("review")
+    .description("Ask people to approve an artifact's current version, or give your verdict")
+    .enablePositionalOptions()
+    .addHelpText("after", REVIEW_HELP);
+  review
+    .command("request")
+    .description("Ask people to review the current version")
+    .argument("<id>", "artifact ID")
+    .requiredOption("--reviewer <email>", "a reviewer's email address; repeat for each", many)
+    .option("--required <n>", 'approvals that decide it: a number, or "all" (the default)')
+    .option("--show-status", "let everyone who can open it see the overall status")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { reviewer: string[]; required?: string; showStatus?: boolean; json?: boolean },
+          id: string,
+        ) =>
+          requestReview(io, runtime, id, {
+            reviewers: options.reviewer,
+            required: options.required,
+            showStatus: options.showStatus,
+            json: options.json === true,
+          }),
+      ),
+    );
+  review
+    .command("change")
+    .description("Add or remove reviewers, or change the required approvals")
+    .argument("<id>", "artifact ID")
+    .option("--add <email>", "add a reviewer; repeat for each", many, [])
+    .option("--remove <email>", "remove a reviewer; repeat for each", many, [])
+    .option("--required <n>", 'approvals that decide it: a number, or "all"')
+    .option("--show-status", "let everyone who can open it see the overall status")
+    .option("--hide-status", "show the status only to you and the reviewers")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: {
+            add: string[];
+            remove: string[];
+            required?: string;
+            showStatus?: boolean;
+            hideStatus?: boolean;
+            json?: boolean;
+          },
+          id: string,
+        ) =>
+          changeReview(io, runtime, id, {
+            add: options.add,
+            remove: options.remove,
+            required: options.required,
+            showStatus: options.hideStatus ? false : options.showStatus ? true : undefined,
+            json: options.json === true,
+          }),
+      ),
+    );
+  review
+    .command("status")
+    .description("Show the review of the current version and the verdicts you may see")
+    .argument("<id>", "artifact ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        reviewStatus(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  for (const [name, verdict, description] of [
+    ["approve", "approve", "Approve the current version as a requested reviewer"],
+    [
+      "request-changes",
+      "changes",
+      "Ask for changes to the current version as a requested reviewer",
+    ],
+  ] as const) {
+    review
+      .command(name)
+      .description(description)
+      .argument("<id>", "artifact ID")
+      .option("--note <text>", "a short note for the people who asked (plain text)")
+      .option("--json", "Print the result as JSON")
+      .action(
+        execute((io, runtime, options: { note?: string; json?: boolean }, id: string) =>
+          giveVerdict(io, runtime, id, verdict, {
+            note: options.note,
+            json: options.json === true,
+          }),
+        ),
+      );
+  }
+  review
+    .command("cancel")
+    .description("Cancel the open review request, after a confirmation")
+    .argument("<id>", "artifact ID")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string) =>
+        cancelReview(io, runtime, id, { yes: options.yes === true, json: options.json === true }),
       ),
     );
 
@@ -1375,6 +1563,22 @@ function parseSearch(value: string): string {
     throw new InvalidArgumentError(messages.errors.invalidSearch(LIST_SEARCH_MAX));
   }
   return search;
+}
+
+function parseQuery(value: string): string {
+  const query = value.trim();
+  if (query.length === 0 || query.length > SEARCH_LIMITS.queryChars) {
+    throw new InvalidArgumentError(messages.errors.invalidSearch(SEARCH_LIMITS.queryChars));
+  }
+  return query;
+}
+
+function parseSearchLimit(value: string): number {
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > SEARCH_LIMITS.pageMax) {
+    throw new InvalidArgumentError(messages.errors.invalidLimit(SEARCH_LIMITS.pageMax));
+  }
+  return limit;
 }
 
 function parseLimit(value: string): number {

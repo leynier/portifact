@@ -5,7 +5,12 @@ import { env } from "cloudflare:workers";
 import { PLANS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
-import { clearBudgetOverride, setBudgetOverride, suspendArtifact } from "@portifact/services";
+import {
+  clearBudgetOverride,
+  runJob,
+  setBudgetOverride,
+  suspendArtifact,
+} from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
@@ -2966,5 +2971,388 @@ describe("API and MCP parity for webhooks", () => {
       expect(denied.status, path).toBe(403);
       expect(denied.headers.get("www-authenticate"), path).toContain('scope="credentials:manage"');
     }
+  });
+});
+
+describe("API and MCP parity for approval reviews", () => {
+  const EVERY =
+    "artifacts:read artifacts:write artifacts:share artifacts:delete annotations:read annotations:write annotations:moderate offline_access";
+  const json = (method: string, body: unknown) => ({
+    method,
+    headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+    body: JSON.stringify(body),
+  });
+
+  /** Drops what names a different artifact, request, version or reviewer, keeping the shape. */
+  function normalized(answer: { ok: boolean; body: unknown }) {
+    const text = JSON.stringify(answer.body)
+      .replace(/"[a-z2-7]{10}"/g, '"<artifact>"')
+      .replace(/ar_[0-9a-f]{32}/g, "<request>")
+      .replace(/ver_[A-Za-z0-9_-]+/g, "<version>")
+      .replace(/rvw_[0-9a-f]{24}/g, "<reviewer>");
+    return { ok: answer.ok, body: JSON.parse(text) };
+  }
+
+  async function setup() {
+    const owner = await both("parity-review-owner@example.test", EVERY);
+    const reviewer = await both("parity-review-ana@example.test", EVERY);
+    await reviewer.apiCall("/api/v1/me");
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({
+        ownerId: await ownerId(owner),
+        plan: "team",
+        seats: 1,
+        grantedBy: "test",
+        updatedAt: NOW,
+      })
+      .onConflictDoNothing();
+    const publish = async (name: string) =>
+      (
+        fromTool(await owner.tool("publish_document", { type: "text", name, content: name }))
+          .body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const viaApi = await publish("api");
+    const viaMcp = await publish("mcp");
+    for (const id of [viaApi, viaMcp]) {
+      const shared = await owner.apiCall(`/api/v1/artifacts/${id}/access`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ addReaders: ["parity-review-ana@example.test"] }),
+      });
+      expect(shared.status, await shared.clone().text()).toBe(200);
+    }
+    return { owner, reviewer, viaApi, viaMcp };
+  }
+
+  it("requests, reads, gives verdicts, changes and cancels with the same bodies", async () => {
+    const { owner, reviewer, viaApi, viaMcp } = await setup();
+    const reviewers = ["parity-review-ana@example.test"];
+    const same = async (
+      apiAnswer: Promise<Response>,
+      toolAnswer: Promise<ToolResult>,
+      label: string,
+    ) => {
+      const a = normalized(await fromApi(await apiAnswer));
+      const m = normalized(fromTool(await toolAnswer));
+      expect(m, label).toEqual(a);
+      return a;
+    };
+
+    const asked = await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, json("POST", { reviewers })),
+      owner.tool("request_review", { artifactId: viaMcp, reviewers }),
+      "request",
+    );
+    expect(asked.body).toMatchObject({
+      role: "owner",
+      review: { status: "pending", reviewers: 1 },
+    });
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, json("POST", { reviewers })),
+      owner.tool("request_review", { artifactId: viaMcp, reviewers }),
+      "a second request",
+    );
+    await same(
+      reviewer.apiCall(`/api/v1/artifacts/${viaApi}/review/status`),
+      reviewer.tool("get_review_status", { artifactId: viaMcp }),
+      "the reviewer's view",
+    );
+    const approved = await same(
+      reviewer.apiCall(
+        `/api/v1/artifacts/${viaApi}/review/verdict`,
+        json("POST", { verdict: "approve", note: "Fine by me" }),
+      ),
+      reviewer.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        note: "Fine by me",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+      "verdict",
+    );
+    expect(approved.body).toMatchObject({ role: "reviewer", review: { status: "approved" } });
+    await same(
+      owner.apiCall(
+        `/api/v1/artifacts/${viaApi}/review/verdict`,
+        json("POST", { verdict: "approve" }),
+      ),
+      owner.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        idempotencyKey: crypto.randomUUID(),
+      }),
+      "a verdict by someone not listed",
+    );
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/status`),
+      owner.tool("get_review_status", { artifactId: viaMcp }),
+      "the owner's view",
+    );
+    await same(
+      owner.apiCall(
+        `/api/v1/artifacts/${viaApi}/review/request`,
+        json("PATCH", { showStatus: true }),
+      ),
+      owner.tool("request_review", { artifactId: viaMcp, action: "change", showStatus: true }),
+      "change",
+    );
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, { method: "DELETE" }),
+      owner.tool("request_review", { artifactId: viaMcp, action: "cancel" }),
+      "cancel",
+    );
+    await same(
+      owner.apiCall(`/api/v1/artifacts/${viaApi}/review/request`, { method: "DELETE" }),
+      owner.tool("request_review", { artifactId: viaMcp, action: "cancel" }),
+      "cancel again",
+    );
+    // The list and the artifact carry the same block.
+    const listed = (await fromApi(await owner.apiCall("/api/v1/artifacts"))).body as {
+      items: { id: string; review: unknown }[];
+    };
+    const tool = fromTool(await owner.tool("list_artifacts", {})).body as typeof listed;
+    expect(tool.items.find((i) => i.id === viaMcp)?.review).toEqual(
+      listed.items.find((i) => i.id === viaApi)?.review,
+    );
+  });
+
+  it("replays a request with the same key at both, refuses another body, and needs reviewers", async () => {
+    const { owner, viaMcp } = await setup();
+    const key = crypto.randomUUID();
+    const reviewers = ["parity-review-ana@example.test"];
+    const first = fromTool(
+      await owner.tool("request_review", { artifactId: viaMcp, reviewers, idempotencyKey: key }),
+    );
+    expect(first.ok).toBe(true);
+    // The API's operation and body hash: the same key there replays the same answer.
+    const replayed = await fromApi(
+      await owner.apiCall(`/api/v1/artifacts/${viaMcp}/review/request`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "idempotency-key": key },
+        body: JSON.stringify({ reviewers }),
+      }),
+    );
+    expect(replayed).toEqual(first);
+    expect(
+      fromTool(
+        await owner.tool("request_review", {
+          artifactId: viaMcp,
+          reviewers,
+          showStatus: true,
+          idempotencyKey: key,
+        }),
+      ).body,
+    ).toMatchObject({ error: { code: "invalid_input" } });
+    expect(fromTool(await owner.tool("request_review", { artifactId: viaMcp })).body).toMatchObject(
+      { error: { code: "invalid_input" } },
+    );
+    const changed = fromTool(
+      await owner.tool("request_review", {
+        artifactId: viaMcp,
+        action: "change",
+        add: ["parity-review-owner@example.test"],
+        requiredApprovals: 1,
+        idempotencyKey: crypto.randomUUID(),
+      }),
+    );
+    expect(changed.body).toMatchObject({ review: { reviewers: 2, required: 1 } });
+    expect(
+      fromTool(
+        await owner.tool("request_review", {
+          artifactId: viaMcp,
+          action: "change",
+          remove: ["parity-review-owner@example.test"],
+        }),
+      ).body,
+    ).toMatchObject({ review: { reviewers: 1 } });
+    expect(
+      fromTool(await owner.tool("request_review", { artifactId: "abcdefghij", action: "cancel" }))
+        .body,
+    ).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("answers a retry while the first call still runs the same way as the API", async () => {
+    const { owner, viaMcp } = await setup();
+    const key = crypto.randomUUID();
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.operations)
+      .values({
+        actorId: await ownerId(owner),
+        idempotencyKey: key,
+        operation: "review.verdict",
+        requestHash: "running",
+        createdAt: Date.now(),
+      });
+    const answer = fromTool(
+      await owner.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        idempotencyKey: key,
+      }),
+    );
+    expect(answer.body).toMatchObject({ error: { code: "invalid_input" } });
+    const key2 = crypto.randomUUID();
+    const { hashRequest } = await import("@portifact/services");
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.operations)
+      .values({
+        actorId: await ownerId(owner),
+        idempotencyKey: key2,
+        operation: "review.verdict",
+        requestHash: await hashRequest({ artifactId: viaMcp, verdict: "approve" }),
+        createdAt: Date.now(),
+      });
+    const running = fromTool(
+      await owner.tool("submit_review", {
+        artifactId: viaMcp,
+        verdict: "approve",
+        idempotencyKey: key2,
+      }),
+    );
+    expect(running.body).toMatchObject({ error: { code: "version_conflict" } });
+  });
+
+  it("answers a stranger like a missing artifact and refuses the same scopes", async () => {
+    const { owner, viaApi, viaMcp } = await setup();
+    const stranger = await both("parity-review-stranger@example.test", EVERY);
+    for (const id of [viaMcp, "abcdefghij"]) {
+      const apiAnswer = await fromApi(
+        await stranger.apiCall(`/api/v1/artifacts/${id === viaMcp ? viaApi : id}/review/status`),
+      );
+      expect(apiAnswer.body).toMatchObject({ error: { code: "not_found" } });
+      expect(fromTool(await stranger.tool("get_review_status", { artifactId: id }))).toEqual(
+        apiAnswer,
+      );
+    }
+    const reader = await mcpToken(owner.h, "parity-review-owner@example.test", "artifacts:read");
+    const asked = await rawCall(owner.h, reader, "request_review", {
+      artifactId: viaMcp,
+      reviewers: ["x@example.test"],
+    });
+    expect(asked.status).toBe(403);
+    expect(asked.headers.get("www-authenticate")).toContain('scope="artifacts:write"');
+    const verdict = await rawCall(owner.h, reader, "submit_review", {
+      artifactId: viaMcp,
+      verdict: "approve",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(verdict.status).toBe(403);
+    expect(verdict.headers.get("www-authenticate")).toContain('scope="annotations:write"');
+    const apiDenied = await api(
+      owner.h,
+      await apiToken(owner.h, "parity-review-owner@example.test", "artifacts:read"),
+      `/api/v1/artifacts/${viaApi}/review/request`,
+      json("POST", { reviewers: ["x@example.test"] }),
+    );
+    expect(apiDenied.status).toBe(403);
+    expect(apiDenied.headers.get("www-authenticate")).toContain('scope="artifacts:write"');
+  });
+});
+
+describe("API and MCP parity for content search", () => {
+  const db = () => regionsFromEnv(env).get("default").db;
+
+  /** Runs the search jobs the commits wrote, as the jobs Worker would. */
+  async function runSearchJobs() {
+    const jobs = await db()
+      .select({ id: schema.outbox.id })
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "search_index"));
+    for (const job of jobs) {
+      await runJob(db(), env.ARTIFACTS, { id: job.id, topic: "search_index" }, NOW);
+    }
+  }
+
+  it("answers the same results, cursor, refusals and missing workspace", async () => {
+    const b = await both("parity-search@example.test");
+    const owner = await ownerId(b);
+    const refused = fromTool(await b.tool("search_content", { query: "roadmap" }));
+    expect(refused).toEqual(await fromApi(await b.apiCall("/api/v1/search?q=roadmap")));
+    expect(refused).toMatchObject({ ok: false, body: { error: { code: "plan_required" } } });
+
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: owner, plan: "team", seats: 1, grantedBy: "test", updatedAt: NOW });
+    for (const name of ["One", "Two"]) {
+      await b.tool("publish_document", {
+        type: "markdown",
+        name,
+        content: `# ${name}\n\nThe quarterly roadmap for ${name}.`,
+      });
+    }
+    await runSearchJobs();
+    const first = fromTool(await b.tool("search_content", { query: "roadmap", limit: 1 }));
+    expect(first).toEqual(await fromApi(await b.apiCall("/api/v1/search?q=roadmap&limit=1")));
+    const page = first.body as {
+      items: {
+        artifact: { name: string };
+        path: string;
+        snippet: { text: string; highlights: number[][] };
+      }[];
+      nextCursor: string;
+    };
+    expect(page.items).toHaveLength(1);
+    const firstName = page.items[0]?.artifact.name;
+    expect(page.items[0]?.snippet.highlights).toHaveLength(1);
+    const second = fromTool(
+      await b.tool("search_content", { query: "roadmap", limit: 1, cursor: page.nextCursor }),
+    );
+    expect(second).toEqual(
+      await fromApi(
+        await b.apiCall(
+          `/api/v1/search?q=roadmap&limit=1&cursor=${encodeURIComponent(page.nextCursor)}`,
+        ),
+      ),
+    );
+    // Both were published at the same moment, so the ID orders them: the pages cover each once.
+    expect([firstName, (second.body as typeof page).items[0]?.artifact.name].sort()).toEqual([
+      "One",
+      "Two",
+    ]);
+
+    const missing = fromTool(
+      await b.tool("search_content", { query: "x", workspace: "no-such-team" }),
+    );
+    expect(missing).toEqual(
+      await fromApi(await b.apiCall("/api/v1/search?q=x&workspace=no-such-team")),
+    );
+    expect(missing).toMatchObject({ ok: false, body: { error: { code: "not_found" } } });
+
+    // Quotes and operators are plain characters at both, never an error.
+    const hostile = 'say "NEAR(x" OR {owner}:';
+    const viaTool = fromTool(await b.tool("search_content", { query: hostile }));
+    expect(viaTool).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/search?q=${encodeURIComponent(hostile)}`)),
+    );
+    expect(viaTool).toMatchObject({ ok: true, body: { items: [] } });
+    for (const q of ["", " ", "x".repeat(201)]) {
+      expect((await b.apiCall(`/api/v1/search?q=${encodeURIComponent(q)}`)).status, q).toBe(400);
+    }
+  });
+
+  it("needs artifacts:read at both", async () => {
+    const h = createHarness();
+    const email = "parity-search-scope@example.test";
+    const apiDenied = await api(
+      h,
+      await apiToken(h, email, "annotations:read"),
+      "/api/v1/search?q=x",
+    );
+    expect(apiDenied.status).toBe(403);
+    const mcpDenied = await rawCall(
+      h,
+      await mcpToken(h, email, "annotations:read"),
+      "search_content",
+      {
+        query: "x",
+      },
+    );
+    expect(mcpDenied.status).toBe(403);
   });
 });

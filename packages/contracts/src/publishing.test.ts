@@ -213,6 +213,7 @@ describe("publishing contracts", () => {
         openThreads: 3,
         lastAnnotationAt: "2026-11-08T01:00:00.000Z",
       },
+      review: { status: "pending", reviewers: 2, required: 2, approvals: 1, changesRequested: 0 },
     };
     expect(ArtifactList.parse({ items: [item], nextCursor: null }).items[0]?.activity).toEqual(
       item.activity,

@@ -1,4 +1,4 @@
-import { PLANS, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
+import { NO_APPROVAL_REVIEW, PLANS, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { ApiFailure, dashboardApi, type FetchLike } from "./api.ts";
 import { artifact, DEFAULT_ACTIVITY } from "./test-support.tsx";
@@ -27,7 +27,9 @@ async function failure(promise: Promise<unknown>): Promise<ApiFailure> {
 describe("dashboard API client", () => {
   it("lists artifacts with the cursor, same-origin credentials and validated output", async () => {
     const page = {
-      items: [{ ...artifact("k7d2qm4xab"), activity: DEFAULT_ACTIVITY }],
+      items: [
+        { ...artifact("k7d2qm4xab"), activity: DEFAULT_ACTIVITY, review: NO_APPROVAL_REVIEW },
+      ],
       nextCursor: "c2",
     };
     const { api, calls } = client(() => Response.json(page));

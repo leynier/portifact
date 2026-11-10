@@ -32,12 +32,15 @@ import {
   type AnnotationVersionFilter,
   type ArtifactState,
   type CommentScope,
+  DEFAULT_REGION,
   isServiceTokenId,
+  isWorkspaceId,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   utf8Length,
 } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  type Actor,
   type AnnotationAction,
   type AnnotationRole,
   type AnnotationUsageSnapshot,
@@ -1546,4 +1549,131 @@ export async function annotationReader(
 ): Promise<Result<{ entitlements: Entitlements }>> {
   const authorized = await authorize(db, input, "read");
   return authorized.ok ? ok({ entitlements: authorized.value.entitlements }) : authorized;
+}
+
+/**
+ * The caller's standing in the artifact's comments, as every annotation path decides it: the
+ * artifact, its effective state, the role (owner side, participant or nobody), the verified
+ * address, the comment scope, the owner side and the owner's entitlements. Approval reviews
+ * (./approval-reviews.ts) decide who sees what with it, so they never reimplement the rule.
+ * Undefined for an artifact that does not exist.
+ */
+export type CommentStanding = Loaded;
+
+export function commentStanding(
+  db: RegionalDb,
+  input: AnnotationActor,
+): Promise<CommentStanding | undefined> {
+  return load(db, input);
+}
+
+/** How one listed address stands with an artifact (approval reviews, decision 0013). */
+export interface Participant {
+  /** Whether the access rules let a signed-in person with this verified address take part. */
+  takesPart: boolean;
+  /**
+   * The account, only when the address is the owner side or a member of the owning workspace:
+   * people an admin or editor already works with. Null for anyone else, account or not.
+   */
+  knownUserId: string | null;
+  side: "owner" | "member" | null;
+}
+
+/**
+ * Whether people with these verified addresses would take part in the artifact's comments, by
+ * the access rules that decide every caller's role (`canRead`, and the owner side), batched: one
+ * read of the owner side and members among the addresses, one of the reader list (restricted
+ * artifacts) and one of the verified email domains (`domain` artifacts), whatever the addresses
+ * are. Whether an address belongs to an account outside the owner's people never changes the
+ * reads or the answer: the decision comes from the listed data, so it reveals no account. Never a
+ * new way in: it only asks the access rules about someone else. `policy` decides it for an
+ * access change about to be written (its mode and its whole reader list).
+ */
+export async function participation(
+  db: RegionalDb,
+  artifact: Pick<ArtifactRow, "id" | "ownerId" | "accessMode">,
+  emails: readonly string[],
+  owner: Entitlements,
+  policy?: { mode: ArtifactRow["accessMode"]; readers: readonly string[] },
+): Promise<Map<string, Participant>> {
+  const result = new Map<string, Participant>();
+  const addresses = [...new Set(emails)];
+  if (addresses.length === 0) return result;
+  const mode = policy?.mode ?? artifact.accessMode;
+  const u = schema.users;
+  const m = schema.workspaceMembers;
+  const known = new Map<string, { userId: string; role: "admin" | "editor" | "member" }>();
+  if (isWorkspaceId(artifact.ownerId)) {
+    const rows = await db.global
+      .select({ userId: m.userId, role: m.role, email: u.email })
+      .from(m)
+      .innerJoin(u, eq(u.id, m.userId))
+      .where(
+        and(
+          eq(m.workspaceId, artifact.ownerId),
+          inArray(u.email, addresses),
+          eq(u.emailVerified, true),
+        ),
+      );
+    for (const row of rows) known.set(row.email, { userId: row.userId, role: row.role });
+  } else {
+    const rows = await db.global
+      .select({ userId: u.id, email: u.email })
+      .from(u)
+      .where(
+        and(eq(u.id, artifact.ownerId), inArray(u.email, addresses), eq(u.emailVerified, true)),
+      );
+    for (const row of rows) known.set(row.email, { userId: row.userId, role: "admin" });
+  }
+  let readers: Set<string> = new Set();
+  if (mode === "restricted") {
+    if (policy) readers = new Set(policy.readers);
+    else {
+      const r = schema.artifactReaders;
+      readers = new Set(
+        (
+          await db
+            .select({ email: r.email })
+            .from(r)
+            .where(and(eq(r.artifactId, artifact.id), inArray(r.email, addresses)))
+        ).map((row) => row.email),
+      );
+    }
+  }
+  const domains = await policyDomains(db.global, {
+    mode,
+    ownerId: artifact.ownerId,
+    actor: null,
+    verifiedEmails: addresses,
+    entitlements: owner,
+  });
+  for (const email of addresses) {
+    const person = known.get(email);
+    const actor: Actor | null = person
+      ? {
+          userId: person.userId,
+          ownerId: artifact.ownerId,
+          role: person.role,
+          region: DEFAULT_REGION,
+        }
+      : null;
+    const decision = canRead(
+      {
+        mode,
+        ownerId: artifact.ownerId,
+        readers: readers.has(email) ? [email] : [],
+        domains,
+      },
+      // Nobody outside the owner's people is told apart from an address with no account.
+      { userId: person?.userId ?? "", verifiedEmails: [email] },
+      actor,
+    );
+    const side = actsForOwner(actor, artifact.ownerId) ? "owner" : person ? "member" : null;
+    result.set(email, {
+      takesPart: decision.ok,
+      knownUserId: person?.userId ?? null,
+      side,
+    });
+  }
+  return result;
 }

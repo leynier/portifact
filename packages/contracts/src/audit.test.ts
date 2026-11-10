@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_ACTOR_TYPES,
+  AUDIT_CSV_COLUMNS,
   AUDIT_DETAILS,
+  AUDIT_EXPORT_CURSOR_HEADER,
   AUDIT_KINDS,
   AUDIT_LIMITS,
   AUDIT_TARGETS,
   AuditActorView,
   AuditEventView,
+  AuditExportQuery,
   AuditLogView,
   AuditQuery,
   DOMAIN_DETACH_REASONS,
@@ -115,6 +118,10 @@ describe("the catalog's exact shapes", () => {
       "access.changed": "artifact",
       "share_link.created": "share_link",
       "share_link.revoked": "share_link",
+      "review.requested": "review",
+      "review.changed": "review",
+      "review.cancelled": "review",
+      "review.verdict": "review",
       "domain.attached": "artifact",
       "domain.removed": "artifact",
       "webhook.created": "webhook",
@@ -139,6 +146,7 @@ describe("the catalog's exact shapes", () => {
       "group.deleted": "group",
       "group.member_added": "member",
       "group.member_removed": "member",
+      "audit.exported": "audit_log",
     });
   });
 
@@ -191,6 +199,36 @@ describe("the catalog's exact shapes", () => {
     expect([...EMAIL_DOMAIN_REMOVAL_REASONS]).toEqual(["removed", "record_missing", "claimed"]);
     expect(removed.safeParse({ domain: "corp.example", reason: "expired" }).success).toBe(false);
     expect(removed.safeParse({ domain: "corp.example" }).success).toBe(false);
+  });
+
+  it("keeps an export's event to its format, kinds count and dates", () => {
+    const detail = AUDIT_DETAILS["audit.exported"];
+    expect(detail.safeParse({ format: "csv", kinds: 0 }).success).toBe(true);
+    expect(
+      detail.safeParse({ format: "jsonl", kinds: 10, from: "2026-01-01", to: "2026-02-01" })
+        .success,
+    ).toBe(true);
+    for (const bad of [
+      { format: "xlsx", kinds: 0 },
+      { format: "csv", kinds: 11 },
+      { format: "csv", kinds: 0, from: "2026-01-01T00:00:00Z" },
+      { format: "csv", kinds: 0, actor: "u_ada" },
+      { format: "csv", kinds: 0, rows: 10 },
+    ]) {
+      expect(detail.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
+  it("reads an export's query with a required format and no page size", () => {
+    expect(AuditExportQuery.parse({ format: "csv", kind: "plan.granted,plan.removed" })).toEqual({
+      format: "csv",
+      kind: ["plan.granted", "plan.removed"],
+    });
+    expect(AuditExportQuery.safeParse({}).success).toBe(false);
+    expect(AuditExportQuery.safeParse({ format: "pdf" }).success).toBe(false);
+    expect(AuditExportQuery.parse({ format: "jsonl", limit: "5" })).toEqual({ format: "jsonl" });
+    expect(AUDIT_CSV_COLUMNS).toHaveLength(11);
+    expect(AUDIT_EXPORT_CURSOR_HEADER).toBe("Portifact-Next-Cursor");
   });
 
   it("knows a service token as an actor and as a target", () => {
@@ -252,14 +290,30 @@ describe("the catalog's exact shapes", () => {
         events: [],
         nextCursor: null,
         retentionDays: 90,
+        exportable: false,
       }),
-    ).toEqual({ owner: { kind: "personal" }, events: [], nextCursor: null, retentionDays: 90 });
+    ).toEqual({
+      owner: { kind: "personal" },
+      events: [],
+      nextCursor: null,
+      retentionDays: 90,
+      exportable: false,
+    });
+    expect(
+      AuditLogView.safeParse({
+        owner: { kind: "personal" },
+        events: [],
+        nextCursor: null,
+        retentionDays: 90,
+      }).success,
+    ).toBe(false);
     expect(
       AuditLogView.safeParse({
         owner: { kind: "personal" },
         events: [],
         nextCursor: null,
         retentionDays: -1,
+        exportable: false,
       }).success,
     ).toBe(false);
     expect(AuditActorView.parse({ type: "member", id: "u", name: "Ada" })).toEqual({

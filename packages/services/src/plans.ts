@@ -10,6 +10,7 @@
 // triggers) finds it and keeps its limits. `alignPlanLimits`, a maintenance scan, brings the
 // columns back in line when a plan expires or usage falls; a column never drops below usage.
 import {
+  AUDIT_RETENTION_BOUNDS,
   OwnerPlanExport,
   type PlanFeature,
   type PlanName,
@@ -273,7 +274,17 @@ export function checkGrant(input: SetOwnerPlanInput): Result<PlanOverrides | nul
   }
   if (input.overrides === null || input.overrides === undefined) return ok(null);
   const overrides = PlanOverrides.safeParse(input.overrides);
-  if (!overrides.success) return fail("invalid_input", "The overrides are not valid.");
+  if (!overrides.success) {
+    const retention = overrides.error.issues.some(
+      (issue) => issue.path.join(".") === "limits.auditRetentionDays",
+    );
+    return fail(
+      "invalid_input",
+      retention
+        ? `The overrides are not valid: auditRetentionDays must be a whole number of days from ${AUDIT_RETENTION_BOUNDS.minDays} to ${AUDIT_RETENTION_BOUNDS.maxDays}.`
+        : "The overrides are not valid.",
+    );
+  }
   return ok(overrides.data);
 }
 

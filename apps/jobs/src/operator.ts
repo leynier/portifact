@@ -383,6 +383,7 @@ function planLines(ownerId: string, state: OwnerPlanState): string[] {
     ),
     meter("comment B", annotations?.bytes ?? 0, e.limits.annotationBytes, annotations?.bytesLimit),
     `per version ${count(e.limits.artifactBytes)} bytes; traffic ${count(e.limits.requestsPerMonth)} requests and ${count(e.limits.bytesPerMonth)} bytes a month`,
+    `audit log   kept ${count(e.limits.auditRetentionDays)} days`,
   );
   return lines;
 }

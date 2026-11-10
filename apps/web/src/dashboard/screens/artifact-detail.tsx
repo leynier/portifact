@@ -41,6 +41,7 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { AccessLog } from "./access-log.tsx";
 import { CommentSettings, SharingSettings } from "./access-settings.tsx";
 import { Analytics } from "./analytics.tsx";
+import { ApprovalReviewPanel, ApprovalStatusBadge } from "./approval-review.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
@@ -221,6 +222,7 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
     { id: "overview", label: t("detail.section.overview") },
     { id: "sharing", label: t("detail.section.sharing") },
     { id: "comments", label: t("detail.section.comments") },
+    { id: "reviews", label: t("detail.section.reviews") },
     { id: "activity", label: t("detail.section.activity") },
     { id: "space", label: t("detail.section.space") },
     { id: "danger", label: t("detail.section.danger") },
@@ -235,6 +237,9 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
             <SpaceBadge owner={artifact.owner} />
             <StateBadge state={artifact.state} />
             <AccessBadge mode={artifact.accessMode} />
+            {artifact.review && artifact.review.status !== "none" ? (
+              <ApprovalStatusBadge review={artifact.review} />
+            ) : null}
           </>
         }
         actions={
@@ -400,6 +405,10 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
           description={servable ? t("detail.comments.body") : t("detail.comments.unavailable")}
         >
           <CommentSettings artifact={artifact} />
+        </PageSection>
+
+        <PageSection id="reviews" title={t("detail.section.reviews")}>
+          <ApprovalReviewPanel artifact={artifact} disabled={!servable} />
         </PageSection>
 
         <PageSection id="activity" title={t("detail.section.activity")}>
