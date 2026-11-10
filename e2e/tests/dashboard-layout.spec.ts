@@ -64,6 +64,7 @@ test("option cards choose on a press anywhere, and each settings group saves on 
     "Sharing",
     "Comments",
     "Activity",
+    "Space",
     "Danger zone",
   ]);
 
