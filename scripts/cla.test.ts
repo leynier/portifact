@@ -208,7 +208,7 @@ describe("checkCla", () => {
 
   it("does not exempt other bots", () => {
     expect(
-      checkCla({ author: "imgbot[bot]", commits: [], baseSigners: "", headSigners: "" }).problems,
+      checkCla({ author: "renovate[bot]", commits: [], baseSigners: "", headSigners: "" }).problems,
     ).toHaveLength(1);
   });
 });

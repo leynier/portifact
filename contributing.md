@@ -22,7 +22,7 @@ The `cla` check on the pull request passes when:
 
 You sign once: later pull requests pass as long as your line is on `develop`. If several people author one pull request, each adds their own line in a commit they author. Contributions through `Co-authored-by` trailers are not checked automatically, so co-authors sign the same way in a pull request of their own or ask the maintainer.
 
-The maintainer and GitHub's automation accounts (`dependabot[bot]`, `github-actions[bot]`) are exempt. If you contribute on behalf of a company, ask at hello@portifact.com before signing: a corporate agreement may be needed.
+The maintainer and the repository's automation accounts (`dependabot[bot]`, `github-actions[bot]`, `imgbot[bot]`) are exempt. If you contribute on behalf of a company, ask at hello@portifact.com before signing: a corporate agreement may be needed.
 
 ## Before you open a pull request
 

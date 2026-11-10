@@ -12,12 +12,14 @@ export const SIGNERS_FILE = "cla-signers.md";
 
 /**
  * Accounts that never sign: the maintainer, who owns the copyright and offers the commercial
- * license, and GitHub's automation. Compared in lowercase, like GitHub logins.
+ * license, and the automation the repository uses. Compared in lowercase, like GitHub logins.
  */
 export const EXEMPT_LOGINS: ReadonlySet<string> = new Set([
   "leynier",
   "dependabot[bot]",
   "github-actions[bot]",
+  // The image optimizer the repository uses: its commits recompress existing images.
+  "imgbot[bot]",
 ]);
 
 // `- @login, Full Name, YYYY-MM-DD: statement`. GitHub logins are 1 to 39 characters of
