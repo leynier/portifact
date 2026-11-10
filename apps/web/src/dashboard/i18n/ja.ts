@@ -1581,4 +1581,69 @@ export const ja = {
   "webhooks.personalOnly.title": "webhookは個人スペースで設定します",
   "webhooks.personalOnly.body":
     "現在、webhookは個人スペースのartifactのイベントだけを送信します。管理するには個人スペースに切り替えてください。",
+  "access.workspace": "ワークスペース全員",
+  "access.domain": "ワークスペースとそのメールドメイン",
+  "list.access.workspace": "ワークスペース",
+  "list.access.domain": "メールドメイン",
+  "accessSettings.mode.workspace":
+    "このワークスペースのメンバー {count, plural, one {# 人} other {# 人}}全員(ロールを問わず、サインイン後)。",
+  "accessSettings.mode.domain":
+    "このワークスペースのメンバー {count, plural, one {# 人} other {# 人}}と、{domains} の確認済みアドレスでサインインした人。",
+  "accessSettings.mode.domainNone":
+    "このワークスペースのメンバー {count, plural, one {# 人} other {# 人}}と、ワークスペースのメールドメインの確認済みアドレスでサインインした人。確認済みのドメインはまだありません。管理者がメンバーのページで追加します。",
+  "accessSettings.mode.listOnlyRestricted": "下のリストの人は、制限付きのあいだだけ開けます。",
+  "accessSettings.mode.workspacePlan": "{plan} プランに含まれます。",
+  "accessSettings.lapsed.title": "現在はメンバーだけがこの artifact を開けます",
+  "accessSettings.lapsed.body":
+    "ワークスペースのプランには現在メールドメインとの共有が含まれていないため、プランが再び含むまで、この artifact を開けるのはメンバーだけです。何も変更されていません。",
+  "emailDomains.title": "メールドメイン",
+  "emailDomains.description":
+    "これらのドメインの確認済みアドレスで Portifact にサインインした人は、メールドメインと共有されたワークスペースの artifact を開けます。数えるのは完全に一致するドメインだけで、サブドメインは含みません。",
+  "emailDomains.loading": "メールドメインを読み込んでいます",
+  "emailDomains.loadFailed": "メールドメインを読み込めませんでした",
+  "emailDomains.rules":
+    "各ドメインは DNS レコードで証明します。公開メールサービス(gmail.com など)、共有サフィックス、Portifact のドメインは拒否されます。Portifact は毎日レコードを確認し、3 回続けて見つからないとドメインを削除します。",
+  "emailDomains.addFailed": "ドメインは追加されませんでした",
+  "emailDomains.add": "ドメインを追加",
+  "emailDomains.domain": "ドメイン",
+  "emailDomains.domainHint": "組織の独自ドメイン(example.com など)。最大 {limit} 件。",
+  "emailDomains.domainRequired": "ドメインを入力してください。",
+  "emailDomains.empty": "メールドメインはまだありません。",
+  "emailDomains.added": "{domain} を追加しました。TXT レコードを作成してから確認してください。",
+  "emailDomains.planTitle": "メールドメインは有料プランの機能です",
+  "emailDomains.plan":
+    "メールドメインの確認は {plan} プランに含まれます。すでに一覧にあるドメインは残り、削除もできます。",
+  "emailDomains.state.verified": "確認済み",
+  "emailDomains.state.pending": "DNS レコード待ち",
+  "emailDomains.verifiedOn": "{date} に確認しました。",
+  "emailDomains.pendingUntil":
+    "{date} までにレコードを作成してください。過ぎると申請は取り消されます。",
+  "emailDomains.failing.title": "DNS レコードが見つかりません",
+  "emailDomains.failing.body":
+    "{count, plural, one {直近 # 回の毎日の確認でレコードが見つかりませんでした。} other {直近 # 回の毎日の確認でレコードが見つかりませんでした。}}{left, plural, one {あと # 回見つからないとドメインは削除されます。} other {あと # 回見つからないとドメインは削除されます。}}",
+  "emailDomains.actionFailed": "変更は保存されませんでした",
+  "emailDomains.recordHint":
+    "DNS プロバイダーでこのレコードを作成してください。反映まで時間がかかることがあります。",
+  "emailDomains.verify": "確認",
+  "emailDomains.verifyNamed": "{domain} を確認",
+  "emailDomains.remove": "削除",
+  "emailDomains.removeNamed": "{domain} を削除",
+  "emailDomains.verified": "{domain} を確認しました。",
+  "emailDomains.removed": "{domain} を削除しました。",
+  "emailDomains.confirmRemove.title": "{domain} を削除しますか?",
+  "emailDomains.confirmRemove.body":
+    "このドメインだけで artifact を開いている人は 1 分以内にアクセスを失います。あとで新しいレコードで再び追加できます。",
+  "emailDomains.confirmRemove.action": "ドメインを削除",
+  "emailDomains.error.quota_exceeded": "このワークスペースのメールドメインは上限に達しています。",
+  "emailDomains.error.version_conflict":
+    "その間にドメインが変わったか、別のワークスペースがまだ DNS で証明しています。再読み込みしてもう一度お試しください。",
+  "emailDomains.error.capacity_unavailable":
+    "現在 DNS を確認できません。しばらくしてからもう一度お試しください。",
+  "emailDomains.error.not_found": "そのドメインはもう一覧にありません。",
+  "emailDomains.error.refused":
+    "このドメインは追加できません。組織の独自ドメインを使ってください。公開メールサービス、共有サフィックス、予約名、Portifact のドメインは拒否されます。",
+  "emailDomains.error.recordMissing":
+    "このドメインの値を持つ TXT レコードはまだ見つかりません。DNS の変更は反映まで時間がかかることがあります。しばらくしてからもう一度お試しください。7 日を過ぎた申請は追加し直す必要があります。",
+  "transfer.confirm.accessReset":
+    "現在ワークスペースまたはメールドメインと共有されているため、制限付きになります。引き続き読めるのは閲覧者リストの人だけです。",
 } satisfies Catalog;

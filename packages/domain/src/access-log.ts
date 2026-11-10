@@ -1,8 +1,9 @@
 // Access log rules (plan sections 2, 11 and 13): which openings are recorded, the 30-minute
 // window that deduplicates them and how long they are kept (30 days on free, the owner's
 // `accessLogRetentionDays` otherwise). Only signed-in visitors are ever
-// identified, and only on `restricted` artifacts; public and `authenticated` ones are never recorded.
-import { ACCESS_LOG } from "@portifact/contracts";
+// identified, and only on `restricted` artifacts; public, `authenticated`, `workspace` and `domain`
+// ones are never recorded.
+import { ACCESS_LOG, type AccessMode } from "@portifact/contracts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -34,15 +35,17 @@ export interface ServedRequest {
    * The artifact's access mode. Only `restricted` artifacts are logged: their readers are the
    * addresses the owner listed. Public and `authenticated` artifacts open for anyone signed in
    * (in the viewer, or through the read handoff without a click), so any site could send a
-   * visitor there and hand the owner their email.
+   * visitor there and hand the owner their email; `workspace` and `domain` artifacts open the
+   * same way for a whole workspace or email domain the owner never listed person by person
+   * (decision 0010).
    */
-  accessMode: "public" | "authenticated" | "restricted";
+  accessMode: AccessMode;
 }
 
 /**
  * An opening is a page load of a `restricted` artifact by a signed-in visitor who is not the
- * owner. Subresources (each asset), anonymous visits, every visit of a public or `authenticated`
- * artifact and the owner's own visits are never recorded.
+ * owner. Subresources (each asset), anonymous visits, every visit of a public, `authenticated`,
+ * `workspace` or `domain` artifact and the owner's own visits are never recorded.
  */
 export function isLoggedOpening(request: ServedRequest): boolean {
   return (
@@ -54,8 +57,7 @@ export function isLoggedOpening(request: ServedRequest): boolean {
 }
 
 /**
- * A page load through a share link (decision 0008) of an `authenticated` or `restricted`
- * artifact is recorded for the link, never for a person: the link names no one, so recording it
+ * A page load through a share link (decision 0008) of any artifact that is not public is recorded for the link, never for a person: the link names no one, so recording it
  * hands the owner no identity. Public artifacts are never recorded, as above.
  */
 export function isLoggedLinkOpening(request: {

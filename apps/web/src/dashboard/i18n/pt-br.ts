@@ -1594,4 +1594,70 @@ export const ptBR = {
   "webhooks.personalOnly.title": "Os webhooks ficam no seu espaço pessoal",
   "webhooks.personalOnly.body":
     "Por enquanto, os webhooks só enviam eventos dos artifacts do seu espaço pessoal. Mude para ele para gerenciá-los.",
+  "access.workspace": "Todo o workspace",
+  "access.domain": "O workspace e seus domínios de e-mail",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Domínio de e-mail",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {O # membro deste workspace} other {Os # membros deste workspace}}, depois de entrar, com qualquer função.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {O # membro deste workspace} other {Os # membros deste workspace}} e qualquer pessoa conectada com um endereço verificado em {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {O # membro deste workspace} other {Os # membros deste workspace}} e qualquer pessoa conectada com um endereço verificado nos domínios de e-mail do workspace. Ainda não há domínio verificado: um admin adiciona um na página Membros.",
+  "accessSettings.mode.listOnlyRestricted":
+    "As pessoas listadas abaixo só podem abri-lo enquanto ele estiver restrito.",
+  "accessSettings.mode.workspacePlan": "Faz parte do plano {plan}.",
+  "accessSettings.lapsed.title": "Por enquanto só os membros podem abrir este artifact",
+  "accessSettings.lapsed.body":
+    "O plano do workspace não inclui agora o compartilhamento com domínios de e-mail, então só os membros podem abrir este artifact até que o plano volte a incluí-lo. Nada foi alterado.",
+  "emailDomains.title": "Domínios de e-mail",
+  "emailDomains.description":
+    "Qualquer pessoa conectada ao Portifact com um endereço verificado em um destes domínios pode abrir os artifacts do workspace compartilhados com seus domínios de e-mail. Só conta o domínio exato, não os subdomínios.",
+  "emailDomains.loading": "Carregando domínios de e-mail",
+  "emailDomains.loadFailed": "Os domínios de e-mail não carregaram",
+  "emailDomains.rules":
+    "Comprove cada domínio com um registro DNS. Provedores de e-mail públicos (como gmail.com), sufixos compartilhados e os domínios do Portifact são recusados. O Portifact verifica o registro todo dia e remove um domínio depois de 3 verificações falhas seguidas.",
+  "emailDomains.addFailed": "O domínio não foi adicionado",
+  "emailDomains.add": "Adicionar domínio",
+  "emailDomains.domain": "Domínio",
+  "emailDomains.domainHint":
+    "O domínio próprio da sua organização, como example.com. Até {limit} domínios.",
+  "emailDomains.domainRequired": "Digite um domínio.",
+  "emailDomains.empty": "Ainda não há domínios de e-mail.",
+  "emailDomains.added": "{domain} foi adicionado. Crie o registro TXT e depois verifique.",
+  "emailDomains.planTitle": "Domínios de e-mail fazem parte de um plano pago",
+  "emailDomains.plan":
+    "Verificar domínios de e-mail faz parte do plano {plan}. Os domínios já listados ficam, e você ainda pode removê-los.",
+  "emailDomains.state.verified": "Verificado",
+  "emailDomains.state.pending": "Aguardando o registro DNS",
+  "emailDomains.verifiedOn": "Verificado em {date}.",
+  "emailDomains.pendingUntil": "Crie o registro antes de {date}, ou a solicitação é descartada.",
+  "emailDomains.failing.title": "O registro DNS está faltando",
+  "emailDomains.failing.body":
+    "{count, plural, one {O registro estava faltando na última verificação diária.} other {O registro estava faltando nas últimas # verificações diárias seguidas.}} {left, plural, one {Depois de mais # verificação falha o domínio é removido.} other {Depois de mais # verificações falhas o domínio é removido.}}",
+  "emailDomains.actionFailed": "A alteração não foi salva",
+  "emailDomains.recordHint":
+    "Crie este registro no seu provedor de DNS. Pode demorar um pouco para aparecer.",
+  "emailDomains.verify": "Verificar",
+  "emailDomains.verifyNamed": "Verificar {domain}",
+  "emailDomains.remove": "Remover",
+  "emailDomains.removeNamed": "Remover {domain}",
+  "emailDomains.verified": "{domain} está verificado.",
+  "emailDomains.removed": "{domain} foi removido.",
+  "emailDomains.confirmRemove.title": "Remover {domain}?",
+  "emailDomains.confirmRemove.body":
+    "Quem abre artifacts só por causa deste domínio perde o acesso em um minuto. Você pode adicioná-lo de novo depois com um registro novo.",
+  "emailDomains.confirmRemove.action": "Remover domínio",
+  "emailDomains.error.quota_exceeded": "O workspace já tem o máximo de domínios de e-mail.",
+  "emailDomains.error.version_conflict":
+    "O domínio mudou nesse meio-tempo, ou outro workspace ainda o comprova no DNS. Recarregue e tente de novo.",
+  "emailDomains.error.capacity_unavailable":
+    "Não foi possível verificar o DNS agora. Tente de novo em instantes.",
+  "emailDomains.error.not_found": "Esse domínio não está mais na lista.",
+  "emailDomains.error.refused":
+    "Este domínio não pode ser adicionado. Use o domínio próprio da sua organização: provedores de e-mail públicos, sufixos compartilhados, nomes reservados e os domínios do Portifact são recusados.",
+  "emailDomains.error.recordMissing":
+    "O registro TXT ainda não foi encontrado com o valor deste domínio. Mudanças de DNS podem demorar a aparecer; tente de novo mais tarde. Uma solicitação com mais de 7 dias precisa ser adicionada de novo.",
+  "transfer.confirm.accessReset":
+    "Agora ele é compartilhado com o workspace ou um domínio de e-mail, então passa a ser restrito: só as pessoas da lista de leitores continuam lendo.",
 } satisfies Catalog;

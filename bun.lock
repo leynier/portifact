@@ -285,6 +285,7 @@
         "@portifact/domain": "workspace:*",
         "@portifact/render": "workspace:*",
         "drizzle-orm": "^0.45.0",
+        "tldts": "^7.4.19",
       },
       "devDependencies": {
         "@cloudflare/vitest-plugin": "^1.6.0",

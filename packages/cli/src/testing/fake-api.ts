@@ -79,6 +79,8 @@ export interface FakeArtifact {
   suspensionReason?: AbuseReason;
   /** The workspace it lives in; absent for the personal space. */
   workspace?: string | undefined;
+  /** Who the workspace modes reach, as the access view shows it; absent means null. */
+  audience?: AccessPolicyView["audience"];
 }
 
 export interface FakeWorkspace {
@@ -1298,6 +1300,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const view: AccessPolicyView = {
       ...artifact.access,
       policyGeneration: artifact.policyGeneration,
+      audience: artifact.audience ?? null,
     };
     return { status: 200, body: view };
   }

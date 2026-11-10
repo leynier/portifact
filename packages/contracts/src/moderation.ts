@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { AccountSettings } from "./account.ts";
 import { Brand } from "./branding.ts";
-import { ArtifactId, Email } from "./core.ts";
+import { AccessMode, ArtifactId, Email } from "./core.ts";
 import { PlanView } from "./plans.ts";
 
 /** Categories of the Acceptable Use Policy, used by reports and by suspensions. */
@@ -164,7 +164,7 @@ export const ExportArtifact = z.object({
   name: z.string(),
   type: z.enum(["site", "markdown", "text"]),
   state: z.string(),
-  accessMode: z.enum(["public", "authenticated", "restricted"]),
+  accessMode: AccessMode,
   readers: z.array(z.string()),
   annotations: z.enum(["off", "open", "locked"]),
   indexable: z.boolean(),
@@ -220,13 +220,25 @@ export const AccountExport = z.object({
     brand: Brand.nullable(),
   }),
   artifacts: z.array(ExportArtifact),
-  /** The workspaces the account is a member of, with its role; not their artifacts. */
+  /**
+   * The workspaces the account is a member of, with its role; not their artifacts. For a
+   * workspace the account is an admin of, its email domains (decision 0010), never their tokens.
+   */
   workspaces: z.array(
     z.object({
       slug: z.string(),
       name: z.string(),
       role: z.enum(["admin", "editor", "member"]),
       joinedAt: Iso,
+      domains: z
+        .array(
+          z.strictObject({
+            domain: z.string(),
+            state: z.enum(["pending", "verified"]),
+            verifiedAt: IsoOrNull,
+          }),
+        )
+        .optional(),
     }),
   ),
   /** Pending invitations addressed to the account's email. */

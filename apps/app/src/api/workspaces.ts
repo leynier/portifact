@@ -18,17 +18,25 @@ import {
   InvitationTokenInput,
   InvitationView,
   MemberRoleUpdate,
+  WORKSPACE_DOMAINS,
+  WorkspaceDomainCreate,
+  WorkspaceDomainId,
+  WorkspaceDomainList,
+  WorkspaceDomainView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
+import { domainRecord } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
   acceptInvitation,
+  addWorkspaceDomain,
   changeMemberRole,
   declineInvitation,
+  type EmailDomainDeps,
   type InvitationKey,
   type InvitationRow,
   type InvitationSender,
@@ -38,11 +46,15 @@ import {
   listInvitations,
   listMembers,
   listUserWorkspaces,
+  listWorkspaceDomains,
   lookupInvitation,
   type MemberRow,
   removeMember,
+  removeWorkspaceDomain,
   revokeInvitation,
   type UserWorkspace,
+  verifyWorkspaceDomain,
+  type WorkspaceDomainRow,
 } from "@portifact/services";
 import { type Context, Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
@@ -81,6 +93,28 @@ function memberView(row: MemberRow, userId: string): WorkspaceMemberView {
     joinedAt: iso(row.joinedAt),
     you: row.userId === userId,
   });
+}
+
+/** A domain as admins see it: the record to publish, never another workspace's anything. */
+export function domainView(row: WorkspaceDomainRow): WorkspaceDomainView {
+  return WorkspaceDomainView.parse({
+    id: row.id,
+    domain: row.domain,
+    unicode: row.display,
+    state: row.state,
+    record: domainRecord(row.domain, row.token),
+    createdAt: iso(row.createdAt),
+    verifiedAt: row.verifiedAt === null ? null : iso(row.verifiedAt),
+    checkedAt: row.checkedAt === null ? null : iso(row.checkedAt),
+    expiresAt: row.state === "pending" ? iso(row.expiresAt) : null,
+    failedChecks: row.failedChecks,
+    problem: row.problem,
+  });
+}
+
+/** The deployment's own hosts, which no workspace can verify as an email domain. */
+function ownHosts(env: Env): string[] {
+  return [new URL(env.APP_ORIGIN).hostname, env.CONTENT_DOMAIN];
 }
 
 function invitationView(row: InvitationRow): InvitationView {
@@ -140,6 +174,8 @@ export interface WorkspaceDeps {
   /** The dashboard session's user; a session without the current terms counts as none. */
   session(env: Env): SessionLookup;
   email(env: Env): EmailSender;
+  /** DNS over HTTPS for email domain proofs; null answers `capacity_unavailable`. */
+  dns(env: Env): EmailDomainDeps | null;
   now(): number;
 }
 
@@ -341,6 +377,82 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
             : standing,
         ),
       );
+    }),
+  );
+
+  // Verified email domains (decision 0010): admins only, through the dashboard's session only,
+  // like the members they widen.
+  routes.get(
+    "/api/v1/workspaces/:slug/domains",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const result = await listWorkspaceDomains(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(
+        WorkspaceDomainList.parse({
+          items: result.value.domains.map(domainView),
+          available: result.value.available,
+          limit: WORKSPACE_DOMAINS.perWorkspace,
+        }),
+      );
+    }),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/domains",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const body = await readJson(c, WorkspaceDomainCreate);
+      if (!body.ok) return body.response;
+      const result = await addWorkspaceDomain(global(c), {
+        userId,
+        slug,
+        domain: body.value.domain,
+        now: deps.now(),
+        ownHosts: ownHosts(c.env),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(domainView(result.value), 201);
+    }),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/domains/:domainId/verify",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      const id = WorkspaceDomainId.safeParse(c.req.param("domainId"));
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      if (!id.success) return error(c, "not_found", "Domain not found.");
+      const dns = deps.dns(c.env);
+      if (!dns) return error(c, "capacity_unavailable", "DNS checks are unavailable right now.");
+      const result = await verifyWorkspaceDomain(global(c), dns, {
+        userId,
+        slug,
+        domainId: id.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(domainView(result.value));
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/domains/:domainId",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      const id = WorkspaceDomainId.safeParse(c.req.param("domainId"));
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      if (!id.success) return error(c, "not_found", "Domain not found.");
+      const result = await removeWorkspaceDomain(global(c), {
+        userId,
+        slug,
+        domainId: id.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json({ id: id.data, removed: true });
     }),
   );
 

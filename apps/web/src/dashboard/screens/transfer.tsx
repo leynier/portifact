@@ -161,6 +161,9 @@ export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
           <li>{t("transfer.confirm.changes", { space: destinationName })}</li>
           <li>{t("transfer.confirm.plan", { space: destinationName })}</li>
           <li>{t("transfer.confirm.blocks", { space: destinationName })}</li>
+          {artifact.accessMode === "workspace" || artifact.accessMode === "domain" ? (
+            <li>{t("transfer.confirm.accessReset")}</li>
+          ) : null}
         </ul>
       </ConfirmDialog>
     </Panel>

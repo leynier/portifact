@@ -2,12 +2,12 @@
 // service for every client), the expiry notice emails, the data export and, in the danger zone,
 // account deletion.
 import {
-  type AccessMode,
   type AccountSettings,
   type AccountSettingsUpdate,
   type CommentVisibility,
   type DefaultAnnotations,
   LIMITS,
+  type PersonalAccessMode,
 } from "@portifact/contracts";
 import { Callout, PageHeader, SectionedPage, ThemeSwitcher } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
@@ -25,7 +25,7 @@ import { ACCOUNT_QUERY, themeLabels } from "./shell.tsx";
 
 export { SETTINGS_QUERY } from "./language.tsx";
 
-const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
+const MODES: readonly PersonalAccessMode[] = ["restricted", "authenticated", "public"];
 const ANNOTATIONS: readonly DefaultAnnotations[] = ["off", "open"];
 const VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
 

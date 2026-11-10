@@ -1464,4 +1464,65 @@ export const zhCN = {
   "webhooks.personalOnly.title": "Webhook 在你的个人空间中设置",
   "webhooks.personalOnly.body":
     "目前，webhook 只发送你个人空间中 artifact 的事件。请切换到个人空间来管理它们。",
+  "access.workspace": "工作区所有成员",
+  "access.domain": "工作区及其邮箱域名",
+  "list.access.workspace": "工作区",
+  "list.access.domain": "邮箱域名",
+  "accessSettings.mode.workspace":
+    "此工作区的 {count, plural, one {# 名} other {# 名}}成员(任何角色,登录后)。",
+  "accessSettings.mode.domain":
+    "此工作区的 {count, plural, one {# 名} other {# 名}}成员,以及使用 {domains} 的已验证地址登录的任何人。",
+  "accessSettings.mode.domainNone":
+    "此工作区的 {count, plural, one {# 名} other {# 名}}成员,以及使用工作区邮箱域名的已验证地址登录的任何人。尚未验证任何域名:由管理员在成员页面添加。",
+  "accessSettings.mode.listOnlyRestricted": "下方列出的人只能在受限期间打开它。",
+  "accessSettings.mode.workspacePlan": "属于 {plan} 方案。",
+  "accessSettings.lapsed.title": "目前只有成员可以打开此 artifact",
+  "accessSettings.lapsed.body":
+    "工作区的方案目前不包含与邮箱域名共享,因此在方案重新包含之前,只有其成员可以打开此 artifact。未做任何更改。",
+  "emailDomains.title": "邮箱域名",
+  "emailDomains.description":
+    "使用这些域名之一的已验证地址登录 Portifact 的任何人,都可以打开与工作区邮箱域名共享的 artifact。只计算完全相同的域名,不包括其子域名。",
+  "emailDomains.loading": "正在加载邮箱域名",
+  "emailDomains.loadFailed": "邮箱域名未能加载",
+  "emailDomains.rules":
+    "请用 DNS 记录证明每个域名。公共邮箱服务(如 gmail.com)、共享后缀和 Portifact 自己的域名会被拒绝。Portifact 每天检查记录,连续 3 次检查失败后会移除该域名。",
+  "emailDomains.addFailed": "域名未添加",
+  "emailDomains.add": "添加域名",
+  "emailDomains.domain": "域名",
+  "emailDomains.domainHint": "你所在组织自己的域名,例如 example.com。最多 {limit} 个。",
+  "emailDomains.domainRequired": "请输入域名。",
+  "emailDomains.empty": "还没有邮箱域名。",
+  "emailDomains.added": "已添加 {domain}。请创建其 TXT 记录,然后进行验证。",
+  "emailDomains.planTitle": "邮箱域名属于付费方案",
+  "emailDomains.plan": "验证邮箱域名属于 {plan} 方案。已列出的域名会保留,你仍可以移除它们。",
+  "emailDomains.state.verified": "已验证",
+  "emailDomains.state.pending": "等待 DNS 记录",
+  "emailDomains.verifiedOn": "于 {date} 验证。",
+  "emailDomains.pendingUntil": "请在 {date} 之前创建记录,否则申请将被取消。",
+  "emailDomains.failing.title": "缺少 DNS 记录",
+  "emailDomains.failing.body":
+    "{count, plural, one {最近连续 # 次每日检查都未找到记录。} other {最近连续 # 次每日检查都未找到记录。}}{left, plural, one {再失败 # 次,该域名将被移除。} other {再失败 # 次,该域名将被移除。}}",
+  "emailDomains.actionFailed": "更改未保存",
+  "emailDomains.recordHint": "请在你的 DNS 服务商处创建此记录。可能需要一段时间才会生效。",
+  "emailDomains.verify": "验证",
+  "emailDomains.verifyNamed": "验证 {domain}",
+  "emailDomains.remove": "移除",
+  "emailDomains.removeNamed": "移除 {domain}",
+  "emailDomains.verified": "{domain} 已验证。",
+  "emailDomains.removed": "已移除 {domain}。",
+  "emailDomains.confirmRemove.title": "移除 {domain}?",
+  "emailDomains.confirmRemove.body":
+    "仅通过此域名打开 artifact 的人会在一分钟内失去访问权限。之后可以用新记录再次添加。",
+  "emailDomains.confirmRemove.action": "移除域名",
+  "emailDomains.error.quota_exceeded": "此工作区的邮箱域名已达上限。",
+  "emailDomains.error.version_conflict":
+    "域名在此期间已更改,或另一个工作区仍在其 DNS 中证明它。请重新加载后重试。",
+  "emailDomains.error.capacity_unavailable": "暂时无法检查 DNS。请稍后再试。",
+  "emailDomains.error.not_found": "该域名已不在列表中。",
+  "emailDomains.error.refused":
+    "无法添加此域名。请使用你所在组织自己的域名:公共邮箱服务、共享后缀、保留名称和 Portifact 的域名会被拒绝。",
+  "emailDomains.error.recordMissing":
+    "尚未找到带有此域名值的 TXT 记录。DNS 更改可能需要一段时间才会生效;请稍后再试。超过 7 天的申请需要重新添加。",
+  "transfer.confirm.accessReset":
+    "它目前与工作区或邮箱域名共享,因此将变为受限:只有读者列表中的人可以继续阅读。",
 } satisfies Catalog;

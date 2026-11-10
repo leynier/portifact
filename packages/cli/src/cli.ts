@@ -401,10 +401,10 @@ export async function run(
   access
     .command("set")
     .description(
-      "Set the access mode: restricted (you and listed readers), authenticated or public",
+      "Set the access mode: restricted (you and listed readers), authenticated, public, workspace (every member of the artifact's workspace) or domain (members and verified addresses at the workspace's verified email domains)",
     )
     .argument("<id>", "artifact ID")
-    .argument("<mode>", "restricted, authenticated or public")
+    .argument("<mode>", "restricted, authenticated, public, workspace or domain")
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string, mode: string) =>
@@ -671,6 +671,7 @@ Moving an artifact into a workspace takes an admin or editor there; moving it ou
 takes an admin of that workspace. It keeps its ID, URL, versions, readers and comments; the target
 must have room for it under its plan. Its access history moves too: the people who manage the
 target will see who opened it before the move. Open read, review and share link sessions end.
+An artifact shared with its workspace or an email domain becomes restricted when it moves.
 `,
     )
     .option("--json", "Print the result as JSON")

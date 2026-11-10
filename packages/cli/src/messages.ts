@@ -111,6 +111,10 @@ export const messages = {
   readersOnlyWhenRestricted: (mode: string) =>
     `Note: access is ${mode}, so the reader list applies only after \`portifact access set <id> restricted\`.`,
   accessChanged: (id: string) => `Updated access to ${id}.`,
+  audience: (members: number, domains: readonly string[]) =>
+    `${members} ${plural(members, "member", "members")}${domains.length > 0 ? `; verified domains ${domains.join(", ")}` : "; no verified email domain"}`,
+  domainModeLapsed:
+    "Note: the workspace's plan does not include workspace sharing now, so only its members read this artifact until it does again.",
   commentVisibility: {
     owner: "owner (each reader sees their own threads and yours)",
     everyone: "everyone (every reader sees every thread)",
@@ -303,7 +307,7 @@ export const messages = {
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
     invalidMode: (value: string) =>
-      `${JSON.stringify(value)} is not an access mode. Use restricted, authenticated or public.`,
+      `${JSON.stringify(value)} is not an access mode. Use restricted, authenticated, public, workspace or domain.`,
     invalidBarState: (value: string) =>
       `${JSON.stringify(value)} is not a Portifact bar state. Use on or off.`,
     invalidCommentVisibility: (value: string) =>

@@ -186,7 +186,7 @@ async function members(global: GlobalDb, workspaceId: string): Promise<MemberRow
 }
 
 /** The workspace a request names, with the caller's actor allowed to do `action` there. */
-async function scoped(
+export async function scoped(
   global: GlobalDb,
   userId: string,
   slug: string,

@@ -10,8 +10,26 @@ export type ArtifactId = z.infer<typeof ArtifactId>;
 export const ArtifactType = z.enum(["site", "markdown", "text"]);
 export type ArtifactType = z.infer<typeof ArtifactType>;
 
-export const AccessMode = z.enum(["public", "authenticated", "restricted"]);
+/**
+ * Who may open an artifact. `workspace` (every member of the owning workspace) and `domain`
+ * (members plus verified addresses at the workspace's verified email domains) exist only for
+ * artifacts a workspace owns (premium plan T2, decision 0010).
+ */
+export const AccessMode = z.enum(["public", "authenticated", "restricted", "workspace", "domain"]);
 export type AccessMode = z.infer<typeof AccessMode>;
+
+/** The modes that name a workspace's people; a transfer to another owner resets them. */
+export const WORKSPACE_ACCESS_MODES = ["workspace", "domain"] as const;
+export type WorkspaceAccessMode = (typeof WORKSPACE_ACCESS_MODES)[number];
+
+/** Whether a mode exists only for workspace artifacts. */
+export function isWorkspaceAccessMode(mode: AccessMode): mode is WorkspaceAccessMode {
+  return (WORKSPACE_ACCESS_MODES as readonly string[]).includes(mode);
+}
+
+/** The modes a personal space can use, also the choices of the account's default. */
+export const PersonalAccessMode = z.enum(["public", "authenticated", "restricted"]);
+export type PersonalAccessMode = z.infer<typeof PersonalAccessMode>;
 
 export const AnnotationsState = z.enum(["off", "open", "locked"]);
 export type AnnotationsState = z.infer<typeof AnnotationsState>;
