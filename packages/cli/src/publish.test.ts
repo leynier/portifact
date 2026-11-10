@@ -52,6 +52,48 @@ function expectNoSecrets(output: { stdout: string; stderr: string }) {
     expect(output.stdout + output.stderr).not.toContain(token);
 }
 
+describe("portifact publish with the owner's plan", () => {
+  // Injected small limits stand in for real sizes: a free plan whose versions hold 20 bytes and
+  // a Pro plan whose versions hold 100, with a single 60-byte file between them.
+  const file = () => h.files("big", { "data.txt": "x".repeat(60) });
+
+  it("checks a single file against the plan's per-artifact size before uploading", async () => {
+    h.signIn();
+    server.api.usage.plan.limits.artifactBytes = 20;
+    const refused = await h.invoke("publish", join(await file(), "data.txt"));
+    expect(refused.code).not.toBe(0);
+    expect(refused.stderr).toContain("An artifact can hold at most 20 B.");
+    expect(apiRequests(/^\/api\/v1\/publishes$/, "POST")).toHaveLength(0);
+  });
+
+  it("publishes a single file above the free size within a Pro plan", async () => {
+    h.signIn();
+    server.api.usage.plan = { ...server.api.usage.plan, name: "pro" };
+    server.api.usage.plan.limits.artifactBytes = 100;
+    const result = await h.invoke("publish", join(await file(), "data.txt"));
+    expect(result.code).toBe(0);
+    expect(prepareBody()?.files).toEqual([expect.objectContaining({ path: "data.txt", size: 60 })]);
+    expect(apiRequests(/^\/api\/v1\/usage$/, "GET")).toHaveLength(1);
+  });
+
+  it("checks private sources against the plan's storage", async () => {
+    h.signIn();
+    server.api.usage.plan.limits.accountBytes = 30;
+    const folder = await site();
+    const sources = await h.files("src", { "main.ts": "y".repeat(40) });
+    const refused = await h.invoke("publish", folder, "--source", sources);
+    expect(refused.code).not.toBe(0);
+    expect(refused.stderr).toContain("An artifact can hold at most 30 B.");
+  });
+
+  it("checks only the safety caps in a dry run, which does not know the plan", async () => {
+    server.api.usage.plan.limits.artifactBytes = 20;
+    const result = await h.invoke("publish", join(await file(), "data.txt"), "--dry-run");
+    expect(result.code).toBe(0);
+    expect(apiRequests(/./)).toHaveLength(0);
+  });
+});
+
 describe("portifact publish", () => {
   it("publishes a folder, leaving out version control, dependencies, caches and secrets", async () => {
     h.signIn();

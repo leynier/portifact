@@ -20,6 +20,7 @@ import {
   setAnnotationMode,
   setAnnotationThreadState,
 } from "../src/annotations.ts";
+import { setOwnerPlan } from "../src/plans.ts";
 import { grantPlan } from "./fixtures.ts";
 
 const db = () => createDb(env.DB);
@@ -1342,6 +1343,64 @@ function racing(before: () => Promise<unknown>, after: () => Promise<unknown> = 
     },
   }) as ReturnType<typeof db>;
 }
+
+describe("annotations on a granted plan", () => {
+  const setPlan = (ownerId: string, annotationMessages?: number) =>
+    setOwnerPlan(db(), {
+      ownerId,
+      plan: "pro",
+      seats: 1,
+      validUntil: null,
+      overrides: annotationMessages === undefined ? null : { limits: { annotationMessages } },
+      grantedBy: "operator",
+      note: null,
+      now: NOW,
+    });
+
+  it("keeps the plan's columns when comments create the usage row, and a lower plan keeps every comment", async () => {
+    const w = await world({ comments: "everyone" });
+    await db().delete(schema.annotationUsage).where(eq(schema.annotationUsage.ownerId, w.owner));
+    expect(await setPlan(w.owner)).toMatchObject({ ok: true });
+    const first = await started(w, w.reader, "First");
+    await started(w, w.reader, "Second", NOW + MINUTE);
+    const [usage] = await db()
+      .select()
+      .from(schema.annotationUsage)
+      .where(eq(schema.annotationUsage.ownerId, w.owner));
+    expect(usage).toMatchObject({ messages: 2, messagesLimit: 25_000 });
+
+    // Lowered to one message: the column stays at the two in use and nothing is removed.
+    await setPlan(w.owner, 1);
+    const [lowered] = await db()
+      .select()
+      .from(schema.annotationUsage)
+      .where(eq(schema.annotationUsage.ownerId, w.owner));
+    expect(lowered).toMatchObject({ messages: 2, messagesLimit: 2 });
+    expect(await start(w, w.reader, "Third", NOW + 2 * MINUTE)).toMatchObject({
+      ok: false,
+      code: "quota_exceeded",
+    });
+    const listed = await list(w, w.owner);
+    expect(listed.ok && listed.value.threads).toHaveLength(2);
+    const exported = await exportAnnotations(db(), {
+      userId: w.owner,
+      artifactId: w.id,
+      version: "all",
+      now: NOW,
+    });
+    expect(exported.ok).toBe(true);
+    expect(
+      code(
+        await deleteOwnAnnotationMessage(db(), {
+          userId: w.reader,
+          artifactId: w.id,
+          messageId: first.messages[0]?.id ?? "",
+          now: NOW + 2 * MINUTE,
+        }),
+      ),
+    ).toBe("ok");
+  });
+});
 
 describe("concurrency", () => {
   it("applies exactly one of two edits based on the same revision", async () => {

@@ -109,7 +109,7 @@ export type RolledBack = z.infer<typeof RolledBack>;
  */
 export const ContentQuery = DownloadQuery.extend({
   /** Byte offset of the page: 0, or the `nextOffset` of the previous page. */
-  offset: z.coerce.number().int().min(0).max(LIMITS.artifactBytes).default(0),
+  offset: z.coerce.number().int().min(0).max(LIMITS.fileBytesCap).default(0),
 });
 export type ContentQuery = z.infer<typeof ContentQuery>;
 
@@ -209,7 +209,7 @@ export const ReadArtifactInput = z.object({
     .number()
     .int()
     .min(0)
-    .max(LIMITS.artifactBytes)
+    .max(LIMITS.fileBytesCap)
     .default(0)
     .describe(
       `Byte offset to start at: 0 for the first page, then the nextOffset of the previous page. Each page holds at most ${LIMITS.inlineMcpBytes} bytes.`,

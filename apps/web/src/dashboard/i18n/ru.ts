@@ -638,7 +638,7 @@ export const ru = {
 
   "manifest.empty": "Публиковать нечего: все файлы исключены или источник пуст.",
   "manifest.too_many_files": "В версии может быть не больше {detail} файлов.",
-  "manifest.too_large": "Версия может занимать не больше 250 МБ.",
+  "manifest.too_large": "Версия может занимать не больше {detail}.",
   "manifest.invalid_path": "Недопустимый путь к файлу: {detail}",
   "manifest.missing_entry":
     "Начальной страницы {detail} нет среди файлов. Измените начальную страницу или добавьте её.",

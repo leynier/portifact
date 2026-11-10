@@ -647,7 +647,7 @@ export const fr = {
   "manifest.empty":
     "Il n’y a rien à publier : tous les fichiers ont été exclus ou la source est vide.",
   "manifest.too_many_files": "Une version peut contenir au maximum {detail} fichiers.",
-  "manifest.too_large": "Une version peut contenir au maximum 250 Mo.",
+  "manifest.too_large": "Une version peut contenir au maximum {detail}.",
   "manifest.invalid_path": "Un chemin de fichier n’est pas autorisé : {detail}",
   "manifest.missing_entry":
     "La page d’entrée {detail} ne fait pas partie des fichiers. Changez la page d’entrée ou ajoutez-la.",

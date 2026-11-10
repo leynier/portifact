@@ -5,7 +5,7 @@
 import { mkdtemp, open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { LIMITS, type SourceOrigin } from "@portifact/contracts";
+import { LIMITS, PLANS, type SourceOrigin } from "@portifact/contracts";
 import { CliError } from "./errors.ts";
 import {
   archiveTree,
@@ -46,6 +46,11 @@ export interface SourceManifest {
 
 export interface SourceOptions {
   ref?: string | undefined;
+  /**
+   * The owner's storage (`plan.limits.accountBytes` of the usage endpoint), which sources can
+   * never exceed; the free plan's when not given.
+   */
+  maxBytes?: number | undefined;
   /** Runs git; injected by tests. */
   git?: Git | undefined;
 }
@@ -59,6 +64,7 @@ export async function buildSourceManifest(
   options: SourceOptions = {},
 ): Promise<SourceManifest> {
   const root = resolve(input);
+  const maxBytes = options.maxBytes ?? PLANS.free.limits.accountBytes;
   const info = await lstatOrFail(root, input);
   if (info.isSymbolicLink()) throw new CliError("invalid_input", messages.errors.symlink(input));
   if (!info.isFile() && !info.isDirectory()) {
@@ -81,7 +87,7 @@ export async function buildSourceManifest(
     if (reason) throw new CliError("invalid_input", messages.errors.excludedFile(input, reason));
     if (isZipPath(root)) {
       const zip = await extractZip(root, input, {
-        maxBytes: LIMITS.accountBytes,
+        maxBytes,
         exclude: (path) => excludedPrefix(path, "all"),
       });
       temporary = zip.directory;
@@ -104,7 +110,7 @@ export async function buildSourceManifest(
       }
       // Git chose the files, so only the secret filter applies.
       const zip = await extractZip(archive, `${input} at ${options.ref}`, {
-        maxBytes: LIMITS.accountBytes,
+        maxBytes,
         exclude: (path) => excludedPrefix(path, "secret"),
       });
       temporary = zip.directory;
@@ -147,7 +153,7 @@ export async function buildSourceManifest(
     if (found.length > LIMITS.filesPerVersion) {
       throw new CliError("quota_exceeded", messages.errors.tooManyFiles(LIMITS.filesPerVersion));
     }
-    const hashed = await hashCandidates(found, LIMITS.accountBytes, contentTypeOf);
+    const hashed = await hashCandidates(found, maxBytes, contentTypeOf);
     const lfsPointers: string[] = [];
     for (const file of hashed.files) {
       if (file.size < LFS_POINTER_MAX && (await startsWith(file.source, LFS_POINTER))) {

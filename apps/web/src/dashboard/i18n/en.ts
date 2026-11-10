@@ -619,7 +619,7 @@ export const en = {
 
   "manifest.empty": "There is nothing to publish: every file was left out or the source is empty.",
   "manifest.too_many_files": "A version can hold at most {detail} files.",
-  "manifest.too_large": "A version can hold at most 250 MB.",
+  "manifest.too_large": "A version can hold at most {detail}.",
   "manifest.invalid_path": "A file path is not allowed: {detail}",
   "manifest.missing_entry":
     "The entry page {detail} is not among the files. Change the entry page or add it.",

@@ -634,7 +634,7 @@ export const ptBR = {
   "manifest.empty":
     "Não há nada para publicar: todos os arquivos foram deixados de fora ou a origem está vazia.",
   "manifest.too_many_files": "Uma versão pode ter no máximo {detail} arquivos.",
-  "manifest.too_large": "Uma versão pode ter no máximo 250 MB.",
+  "manifest.too_large": "Uma versão pode ter no máximo {detail}.",
   "manifest.invalid_path": "Um caminho de arquivo não é permitido: {detail}",
   "manifest.missing_entry":
     "A página de entrada {detail} não está entre os arquivos. Altere a página de entrada ou adicione-a.",

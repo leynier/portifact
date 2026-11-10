@@ -635,6 +635,7 @@ export async function commitPublish(
       name: artifact.name,
       entrypoint: version.entrypoint,
       publishedBytes: version.publishedBytes,
+      artifactBytes: (await ownerEntitlements(db, input.ownerId, input.now)).limits.artifactBytes,
       guard: sessionOpen,
       now: input.now,
     });
@@ -798,6 +799,8 @@ interface RenderVersionInput {
   name: string;
   entrypoint: string;
   publishedBytes: number;
+  /** The owner's per-artifact size (their plan), which the rendering counts toward. */
+  artifactBytes: number;
   guard: SQL;
   now: number;
 }
@@ -837,7 +840,9 @@ async function renderVersion(
     sourceSha256: source.sha256,
   });
   if (!rendered.ok) return rendered;
-  const fits = checkRenderedVersion(input.publishedBytes, rendered.value.bytes);
+  const fits = checkRenderedVersion(input.publishedBytes, rendered.value.bytes, {
+    artifactBytes: input.artifactBytes,
+  });
   if (!fits.ok) return fits;
   // Rows first: the version references the objects before their bytes exist, so the orphan
   // sweep never deletes them, and a failed commit leaves them to the abandoned-version cleanup.

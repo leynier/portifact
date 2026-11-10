@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { basename, resolve } from "node:path";
 import {
+  AccountUsageView,
   ArtifactSummary,
   type ArtifactType,
   CommittedPublish,
@@ -40,6 +41,17 @@ export interface PublishOptions extends OutputOptions {
 
 const NAME_MAX_LENGTH = 200;
 
+/** The sizes checked before uploading: the owner's plan, or the safety caps in a dry run. */
+interface ClientLimits {
+  artifactBytes: number;
+  accountBytes: number;
+}
+
+const DRY_RUN_LIMITS: ClientLimits = {
+  artifactBytes: LIMITS.fileBytesCap,
+  accountBytes: Number.MAX_SAFE_INTEGER,
+};
+
 export async function publish(
   io: Io,
   runtime: Runtime,
@@ -51,11 +63,20 @@ export async function publish(
     throw new CliError("invalid_input", messages.errors.refNeedsSource);
   }
 
-  // A dry run never contacts the server, so it works before signing in.
+  // A dry run never contacts the server, so it works before signing in. Without the server it
+  // does not know the plan, so it checks only the largest sizes any plan allows.
   let session: Session | undefined;
   let base: ArtifactSummary | undefined;
+  let limits: ClientLimits = DRY_RUN_LIMITS;
   if (!options.dryRun) {
     session = await openSession(io, runtime);
+    // The plan's sizes, checked before hashing or uploading; the API checks them again.
+    const { plan } = await callApi(session, {
+      method: "GET",
+      path: "/usage",
+      schema: AccountUsageView,
+    });
+    limits = { artifactBytes: plan.limits.artifactBytes, accountBytes: plan.limits.accountBytes };
     if (artifactId) {
       base = await callApi(session, {
         method: "GET",
@@ -72,11 +93,16 @@ export async function publish(
     type: options.type ?? base?.type,
     entry: options.entry,
     assets: options.assets,
+    maxBytes: limits.artifactBytes,
   });
   let sources: SourceManifest | undefined;
   try {
     if (options.source !== undefined) {
-      sources = await buildSourceManifest(options.source, { ref: options.ref, git: runtime.git });
+      sources = await buildSourceManifest(options.source, {
+        ref: options.ref,
+        git: runtime.git,
+        maxBytes: limits.accountBytes,
+      });
     }
     await publishBuilt(io, runtime, {
       manifest,

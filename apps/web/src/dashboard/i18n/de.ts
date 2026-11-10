@@ -647,7 +647,7 @@ export const de = {
   "manifest.empty":
     "Es gibt nichts zu veröffentlichen: Alle Dateien wurden ausgelassen oder die Quelle ist leer.",
   "manifest.too_many_files": "Eine Version kann höchstens {detail} Dateien enthalten.",
-  "manifest.too_large": "Eine Version kann höchstens 250 MB enthalten.",
+  "manifest.too_large": "Eine Version kann höchstens {detail} enthalten.",
   "manifest.invalid_path": "Ein Dateipfad ist nicht erlaubt: {detail}",
   "manifest.missing_entry":
     "Die Startseite {detail} ist nicht unter den Dateien. Ändere die Startseite oder füge sie hinzu.",

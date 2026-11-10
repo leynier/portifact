@@ -203,6 +203,15 @@ describe("buildManifest for sites", () => {
     ).toHaveLength(LIMITS.filesPerVersion);
   });
 
+  it("applies the plan's per-artifact size it is given", async () => {
+    const one = (size: number) =>
+      buildManifest(folder({ "s/index.html": "x".repeat(size) }), { type: "site", maxBytes: 10 });
+    expect((await one(10)).totalBytes).toBe(10);
+    const error = await failure(one(11));
+    expect(error.reason).toBe("too_large");
+    expect(error.detail).toBe("10");
+  });
+
   it("refuses a ZIP that declares more than a version holds before expanding it", async () => {
     const bytes = zipSync({ "index.html": strToU8("x") });
     const view = new DataView(bytes.buffer);

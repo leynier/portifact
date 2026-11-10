@@ -22,7 +22,7 @@ export const ManifestFile = z.object({
   path: z.string().min(1).max(LIMITS.pathMaxLength),
   kind: z.enum(["published", "source"]).default("published"),
   sha256: Sha256Hex,
-  size: z.number().int().min(0).max(LIMITS.artifactBytes),
+  size: z.number().int().min(0).max(LIMITS.fileBytesCap),
   contentType: z.string().min(1).max(255),
 });
 export type ManifestFile = z.infer<typeof ManifestFile>;

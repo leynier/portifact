@@ -96,3 +96,37 @@ export function formatCount(value: number): string {
   if (value >= 1e6 && value % 1e6 === 0) return `${value / 1e6} million`;
   return value.toLocaleString("en-US");
 }
+
+/**
+ * The limit columns the database compares usage against (`account_usage.active_limit` and
+ * `bytes_limit`, `annotation_usage.messages_limit` and `bytes_limit`), for one owner's
+ * entitlements. The CHECK constraints are the safety net against races; the rules that refuse new
+ * work read the entitlements, not these.
+ */
+export interface LimitColumns {
+  activeLimit: number;
+  bytesLimit: number;
+  messagesLimit: number;
+  annotationBytesLimit: number;
+}
+
+export function limitColumns(owner: Entitlements): LimitColumns {
+  return {
+    activeLimit: owner.limits.activeArtifacts,
+    bytesLimit: owner.limits.accountBytes,
+    messagesLimit: owner.limits.annotationMessages,
+    annotationBytesLimit: owner.limits.annotationBytes,
+  };
+}
+
+/**
+ * The value a limit column should hold: the plan's limit, or the usage when that is higher. The
+ * column never drops below what is already used, because the CHECK would refuse the update; the
+ * rules refuse new work above the plan's limit, and later scans lower the column as usage falls.
+ */
+export function alignedLimit(planLimit: number, used: number): number {
+  return Math.max(planLimit, used);
+}
+
+/** The limit columns of an owner on `free`: the database's column defaults. */
+export const FREE_LIMIT_COLUMNS: LimitColumns = limitColumns(entitlements(null, 0));
