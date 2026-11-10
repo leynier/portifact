@@ -20,7 +20,7 @@ import {
   shareSessionExpiry,
   shareUsedDay,
 } from "@portifact/domain";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import { activeCustomHost } from "./custom-domains.ts";
 import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
@@ -147,6 +147,15 @@ async function loadManaged(db: RegionalDb, userId: string, artifactId: string) {
   return ok(artifact);
 }
 
+/**
+ * The artifact still belongs to the owner the request was authorized on; a transfer in between
+ * makes the write a no-op.
+ */
+function stillOwned(artifact: { id: string; ownerId: string }): SQL {
+  const a = schema.artifacts;
+  return sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${artifact.ownerId})`;
+}
+
 /** Active links of an artifact: neither revoked nor expired at `now`. */
 function activeLinks(artifactId: string, now: number) {
   const l = schema.shareLinks;
@@ -185,11 +194,19 @@ export async function createShareLink(
   const inserted = await db
     .insert(l)
     .select(
-      sql`select ${id}, ${input.artifactId}, ${await hashSecret(token)}, ${input.label}, ${expiry.value}, ${password?.hash ?? null}, ${password?.salt ?? null}, ${password?.iterations ?? null}, ${input.userId}, ${input.now}, null, null where ${activeLinks(input.artifactId, input.now)} < ${SHARE_LINKS.activePerArtifact}`,
+      sql`select ${id}, ${input.artifactId}, ${await hashSecret(token)}, ${input.label}, ${expiry.value}, ${password?.hash ?? null}, ${password?.salt ?? null}, ${password?.iterations ?? null}, ${input.userId}, ${input.now}, null, null where ${activeLinks(input.artifactId, input.now)} < ${SHARE_LINKS.activePerArtifact} and ${stillOwned(artifact.value)}`,
     )
     .returning();
   const row = inserted[0];
   if (!row) {
+    const [now] = await db
+      .select({ ownerId: schema.artifacts.ownerId })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, input.artifactId))
+      .limit(1);
+    if (now?.ownerId !== artifact.value.ownerId) {
+      return fail("version_conflict", "The artifact moved meanwhile. Try again.");
+    }
     return fail(
       "quota_exceeded",
       `An artifact can have at most ${SHARE_LINKS.activePerArtifact} active share links. Revoke one first.`,
@@ -251,7 +268,13 @@ export async function revokeShareLink(
   const artifact = await loadManaged(db, input.userId, input.artifactId);
   if (!artifact.ok) return artifact;
   const l = schema.shareLinks;
-  const live = and(eq(l.id, input.linkId), eq(l.artifactId, input.artifactId), isNull(l.revokedAt));
+  const owned = stillOwned(artifact.value);
+  const live = and(
+    eq(l.id, input.linkId),
+    eq(l.artifactId, input.artifactId),
+    isNull(l.revokedAt),
+    owned,
+  );
   // Sessions of an already revoked link ended with it, so deleting them again changes nothing.
   const [, revoked] = await db.batch([
     db
@@ -260,6 +283,7 @@ export async function revokeShareLink(
         and(
           eq(schema.shareSessions.linkId, input.linkId),
           eq(schema.shareSessions.artifactId, input.artifactId),
+          owned,
         ),
       ),
     db.update(l).set({ revokedAt: input.now }).where(live).returning({ id: l.id }),

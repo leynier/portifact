@@ -444,11 +444,14 @@ describe("purging archives", () => {
       reviewSessions: 0,
       rerendered: 0,
       accountDeletions: 0,
+      workspaceDeletions: 0,
+      expiredInvitations: 0,
       prunedTrafficCounters: 0,
       prunedEmailCounters: 0,
       prunedEmailSuppressions: 0,
       alignedPlanLimits: 0,
       unpinned: 0,
+      webhooks: { prunedDeliveries: 0, requeued: 0 },
     });
   });
 });

@@ -22,6 +22,7 @@ import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
 import { shareOpenRoutes } from "./api/share-links.ts";
 import { tokenRoutes } from "./api/tokens.ts";
+import { workspaceRoutes } from "./api/workspaces.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
 import type { AuthDeps } from "./auth/deps.ts";
@@ -64,6 +65,7 @@ export const DASHBOARD_ROUTES = [
   "/profile",
   "/apps",
   "/usage",
+  "/webhooks",
   "/branding",
   "/settings",
   // The old account page; the dashboard sends it on to the page that holds each section now.
@@ -338,6 +340,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     tokenRoutes({
       introspect: introspectFor,
       resource: (env) => resources(env).api,
+      now: () => Date.now(),
+    }),
+  );
+  app.route(
+    "/",
+    workspaceRoutes({
+      session: sessionUserFor,
+      email: (env) => depsFor(env).email,
       now: () => Date.now(),
     }),
   );

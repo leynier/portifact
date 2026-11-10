@@ -4,12 +4,15 @@
 // for the budget (plan section 12): show the state and the alerts, and override the automatic
 // protection; for email delivery (plan section 17): list and lift suppressed addresses; and for
 // paid plans (premium plan section 3, F1): show, grant, change and remove an owner's plan, the
-// only way a plan is ever granted; and for custom domains (decision 0006): show one, detach one
+// only way a plan is ever granted; for workspaces (premium plan T1): create one with its first
+// admin and plan, show, list and delete them, the only way a workspace is created or deleted
+// while there is no billing; and for custom domains (decision 0006): show one, detach one
 // (abuse on a customer's domain) and reconcile with Cloudflare after a restore. They run only from `scripts/operator.ts` on the operator's machine, with the deploy
 // credentials, against the D1 binding; no web route reaches them. Each command calls the same
 // services the tests cover, and prints plain text without secrets.
 import {
   AbuseReason,
+  isWorkspaceId,
   OpaqueToken,
   OwnerPlanExport,
   PLAN_NAMES,
@@ -31,17 +34,22 @@ import {
   applyTombstones,
   type BudgetState,
   blockHostname,
+  checkGrant,
   clearBudgetOverride,
+  createWorkspace,
   type DomainDeps,
+  deleteWorkspace,
   detachDomain,
   domainDbsOf,
   exportOwnerPlans,
   exportTombstones,
   getBudgetState,
   getOwnerPlan,
+  getWorkspaceDetail,
   hashSecret,
   liftEmailSuppression,
   listAbuseReports,
+  listAllWorkspaces,
   listBlockedHostnames,
   listBudgetAlerts,
   listEmailSuppressions,
@@ -61,6 +69,7 @@ import {
   suspendArtifact,
   suspendBrand,
   unblockHostname,
+  type WorkspaceDetail,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
 
@@ -97,12 +106,19 @@ Commands:
   unblock-domain <name>
   blocked-domains
   reconcile-domains            (needs CF_CONTENT_ZONE_ID and CF_HOSTNAMES_TOKEN in the environment)
-  plan <user-id|email>
-  set-plan <user-id|email> <plan> [--seats N] [--until <ISO date>] [--note <text>]
+  plan <owner>
+  set-plan <owner> <plan> [--seats N] [--until <ISO date>] [--note <text>]
            [--overrides <json>]
-  remove-plan <user-id|email>
+  remove-plan <owner>
   export-plans --out <file>
   apply-plans --file <file>
+  workspaces
+  workspace <slug|workspace-id>
+  workspace-create <slug> --name <name> --admin <user-id|email>
+                   [--plan team|enterprise --seats N [--until <ISO date>] [--note <text>]]
+  workspace-delete <slug|workspace-id> --confirm <slug>
+
+Owners: <user-id|email> for a personal space, workspace:<slug> or a workspace ID for a workspace.
 
 Reasons: ${AbuseReason.options.join(", ")}
 Plans: ${PLAN_NAMES.join(", ")} (--overrides: {"limits":{...},"features":{...}}, totals after seats)
@@ -231,6 +247,20 @@ async function userIdFor(db: Db, value: string): Promise<string | undefined> {
     .where(sql`lower(${schema.users.email}) = ${value.toLowerCase()}`)
     .limit(1);
   return row?.id;
+}
+
+/** The owner a plan command names: an account by ID or email, or a workspace by slug or ID. */
+async function ownerIdFor(db: Db, value: string): Promise<string | undefined> {
+  if (value.startsWith("workspace:") || isWorkspaceId(value)) {
+    const key = value.startsWith("workspace:") ? value.slice("workspace:".length) : value;
+    const [row] = await db
+      .select({ id: schema.workspaces.id })
+      .from(schema.workspaces)
+      .where(isWorkspaceId(key) ? eq(schema.workspaces.id, key) : eq(schema.workspaces.slug, key))
+      .limit(1);
+    return row?.id;
+  }
+  return userIdFor(db, value);
 }
 
 function oneLine(text: string | null): string {
@@ -368,7 +398,7 @@ async function setPlan(
 ): Promise<OperatorResult> {
   const [who, plan] = args;
   const name = PlanName.safeParse(plan);
-  if (!who || !name.success) return usage("set-plan needs a user ID or email and a plan.");
+  if (!who || !name.success) return usage("set-plan needs an owner and a plan.");
   const seats = options.has("seats") ? Number(options.get("seats")) : 1;
   const validUntil = parseUntil(options.get("until"));
   if (validUntil === "invalid") return usage("--until must be an ISO date, like 2027-01-31.");
@@ -380,8 +410,8 @@ async function setPlan(
       return usage("--overrides must be JSON.");
     }
   }
-  const userId = await userIdFor(db, who);
-  if (!userId) return { exitCode: 1, output: "Account not found." };
+  const userId = await ownerIdFor(db, who);
+  if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
   const result = await setOwnerPlan(db, {
     ownerId: userId,
     plan: name.data,
@@ -399,6 +429,109 @@ async function setPlan(
       "\n",
     ),
   };
+}
+
+function workspaceLines(detail: WorkspaceDetail, plan: OwnerPlanState): string {
+  return [
+    `workspace   ${detail.slug} (${detail.id})`,
+    `name        ${oneLine(detail.name)}`,
+    `region      ${detail.region}`,
+    `created     ${iso(detail.createdAt)} by ${detail.createdBy}`,
+    `seats       ${detail.seats.used} of ${detail.seats.limit} (members and pending invitations)`,
+    `artifacts   ${detail.artifacts}`,
+    "members",
+    ...detail.members.map(
+      (member) => `  ${member.role.padEnd(7)} ${member.userId}  ${emailHint(member.email)}`,
+    ),
+    "invitations",
+    ...(detail.invitations.length === 0
+      ? ["  none"]
+      : detail.invitations.map(
+          (invitation) =>
+            `  ${invitation.role.padEnd(7)} ${invitation.id}  ${emailHint(invitation.email)}  until ${iso(invitation.expiresAt)}`,
+        )),
+    ...planLines(detail.id, plan),
+  ].join("\n");
+}
+
+async function createWorkspaceCommand(
+  db: Db,
+  args: string[],
+  options: Map<string, string>,
+  now: number,
+): Promise<OperatorResult> {
+  const [slug] = args;
+  const name = options.get("name")?.trim();
+  const admin = options.get("admin");
+  if (!slug || !name || !admin) {
+    return usage("workspace-create needs a slug, --name and --admin.");
+  }
+  const planOption = options.get("plan");
+  const plan = planOption === undefined ? null : PlanName.safeParse(planOption);
+  if (plan && (!plan.success || (plan.data !== "team" && plan.data !== "enterprise"))) {
+    return usage("--plan must be team or enterprise.");
+  }
+  if (!plan && (options.has("seats") || options.has("until"))) {
+    return usage("--seats and --until go with --plan.");
+  }
+  const seats = options.has("seats") ? Number(options.get("seats")) : 1;
+  const validUntil = parseUntil(options.get("until"));
+  if (validUntil === "invalid") return usage("--until must be an ISO date, like 2027-01-31.");
+  const note = options.get("note")?.trim() || null;
+  const userId = await userIdFor(db, admin);
+  if (!userId) return { exitCode: 1, output: "Account not found." };
+  // The plan is checked before the workspace exists, so a bad value creates nothing.
+  if (plan?.success) {
+    const checked = checkGrant({
+      ownerId: "ws_check",
+      plan: plan.data,
+      seats,
+      validUntil,
+      overrides: null,
+      grantedBy: "operator",
+      note,
+      now,
+    });
+    if (!checked.ok) return { exitCode: 1, output: checked.message };
+  }
+  const regions = regionsFromEnv({ DB: db.$client });
+  const created = await createWorkspace(regions.global, { slug, name, adminUserId: userId, now });
+  if (!created.ok) return { exitCode: 1, output: created.message };
+  const lines = [
+    `Created workspace ${created.value.slug} (${created.value.id}) with ${userId} as its admin.`,
+  ];
+  if (plan?.success) {
+    const granted = await setOwnerPlan(db, {
+      ownerId: created.value.id,
+      plan: plan.data,
+      seats,
+      validUntil,
+      overrides: null,
+      grantedBy: "operator",
+      note,
+      now,
+    });
+    if (!granted.ok) {
+      return {
+        exitCode: 1,
+        output: [
+          ...lines,
+          `The plan was not granted: ${granted.message} Run set-plan workspace:${created.value.slug}.`,
+        ].join("\n"),
+      };
+    }
+    lines.push(`Granted ${plan.data} with ${seats} seat(s).`);
+  } else {
+    lines.push("No plan: it is on free, with one seat, until set-plan grants one.");
+  }
+  const detail = await getWorkspaceDetail(
+    regions.global,
+    regions.get("default").db,
+    created.value.id,
+    now,
+  );
+  if (detail) lines.push(workspaceLines(detail, await getOwnerPlan(db, detail.id, now)));
+  return { exitCode: 0, output: lines.join("\n") };
 }
 
 /** Runs one operator command against the database. */
@@ -656,7 +789,7 @@ export async function runOperator(
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {
@@ -711,9 +844,9 @@ export async function runOperator(
     }
     case "plan": {
       const [who] = args;
-      if (!who) return usage("plan needs a user ID or email.");
-      const userId = await userIdFor(db, who);
-      if (!userId) return { exitCode: 1, output: "Account not found." };
+      if (!who) return usage("plan needs an owner.");
+      const userId = await ownerIdFor(db, who);
+      if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
       return {
         exitCode: 0,
         output: planLines(userId, await getOwnerPlan(db, userId, now)).join("\n"),
@@ -723,9 +856,9 @@ export async function runOperator(
       return setPlan(db, args, options, now);
     case "remove-plan": {
       const [who] = args;
-      if (!who) return usage("remove-plan needs a user ID or email.");
-      const userId = await userIdFor(db, who);
-      if (!userId) return { exitCode: 1, output: "Account not found." };
+      if (!who) return usage("remove-plan needs an owner.");
+      const userId = await ownerIdFor(db, who);
+      if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
       const result = await removeOwnerPlan(db, { ownerId: userId, now });
       if (!result.ok) return { exitCode: 1, output: result.message };
       const head = result.value.removed
@@ -752,7 +885,7 @@ export async function runOperator(
       }
       const result = await applyOwnerPlans(db, parsed.items, now);
       const lines = [
-        `Applied ${result.applied} plan(s); skipped ${result.skipped} (ended, or the account is gone).`,
+        `Applied ${result.applied} plan(s); skipped ${result.skipped} (ended, or the account or workspace is gone).`,
       ];
       if (result.extra.length > 0) {
         lines.push(
@@ -761,6 +894,53 @@ export async function runOperator(
         );
       }
       return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "workspaces": {
+      const rows = await listAllWorkspaces(regionsFromEnv({ DB: db.$client }).global);
+      if (rows.length === 0) return { exitCode: 0, output: "No workspaces." };
+      return {
+        exitCode: 0,
+        output: rows
+          .map(
+            (row) =>
+              `${row.slug}  ${row.id}  ${row.members} member(s)  created ${iso(row.createdAt)}  ${oneLine(row.name)}`,
+          )
+          .join("\n"),
+      };
+    }
+    case "workspace": {
+      const [key] = args;
+      if (!key) return usage("workspace needs a slug or workspace ID.");
+      const regions = regionsFromEnv({ DB: db.$client });
+      const detail = await getWorkspaceDetail(regions.global, regions.get("default").db, key, now);
+      if (!detail) return { exitCode: 1, output: "Workspace not found." };
+      return {
+        exitCode: 0,
+        output: workspaceLines(detail, await getOwnerPlan(db, detail.id, now)),
+      };
+    }
+    case "workspace-create":
+      return createWorkspaceCommand(db, args, options, now);
+    case "workspace-delete": {
+      const [key] = args;
+      if (!key) return usage("workspace-delete needs a slug or workspace ID.");
+      const regions = regionsFromEnv({ DB: db.$client });
+      const detail = await getWorkspaceDetail(regions.global, regions.get("default").db, key, now);
+      if (!detail) return { exitCode: 1, output: "Workspace not found." };
+      if (options.get("confirm") !== detail.slug) {
+        return usage(
+          `workspace-delete needs --confirm ${detail.slug} to delete it and its artifacts.`,
+        );
+      }
+      const result = await deleteWorkspace(regions.get("default").db, {
+        workspaceId: detail.id,
+        now,
+      });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      return {
+        exitCode: 0,
+        output: `Deleted workspace ${detail.slug} (${detail.id}): ${detail.members.length} membership(s) and its invitations removed, ${detail.artifacts} artifact(s) claimed for purging. The jobs Worker purges them and its storage on its next runs.`,
+      };
     }
     case "show-domain": {
       const [hostname] = args;

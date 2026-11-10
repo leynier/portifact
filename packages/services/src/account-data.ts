@@ -25,9 +25,11 @@ import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
+import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
+import { exportWebhooks } from "./webhooks.ts";
 
 const IN_CHUNK = 80;
 
@@ -219,6 +221,8 @@ export async function exportAccount(
       settings: await loadSettings(db, input.userId),
       plan: planView(owner),
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
+      // Destinations only by host: never the URL or the signing secret.
+      webhooks: await exportWebhooks(db, input.userId),
       brand: await exportedBrand(db, input.userId),
     },
     artifacts: artifacts.map((artifact) => ({
@@ -275,6 +279,25 @@ export async function exportAccount(
       threads: ownThreads
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
+    })),
+    workspaces: (
+      await db.global
+        .select({
+          slug: schema.workspaces.slug,
+          name: schema.workspaces.name,
+          role: schema.workspaceMembers.role,
+          joinedAt: schema.workspaceMembers.createdAt,
+        })
+        .from(schema.workspaceMembers)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
+        .where(eq(schema.workspaceMembers.userId, input.userId))
+        .orderBy(asc(schema.workspaces.slug))
+    ).map((row) => ({ ...row, joinedAt: iso(row.joinedAt) })),
+    invitations: (await listIncomingInvitations(db.global, input)).map((invitation) => ({
+      workspace: invitation.workspace,
+      role: invitation.role,
+      invitedBy: invitation.invitedBy,
+      expiresAt: iso(invitation.expiresAt),
     })),
     // A thread the account no longer sees keeps only where it points and the account's words.
     commentsElsewhere: elsewhere.map((thread) => {
@@ -408,7 +431,7 @@ export async function requestAccountDeletion(
 const soleAdmin = () =>
   fail<never>(
     "sole_workspace_admin",
-    "You are the only admin of a workspace. Make another member an admin or delete the workspace before deleting your account.",
+    "You are the only admin of a workspace. Make another member its admin first, or ask Portifact at hello@portifact.com to delete the workspace, then delete your account.",
   );
 
 function causeIncludes(error: unknown, text: string): boolean {
@@ -453,6 +476,13 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, input.userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, input.userId)),
     closeJobs(db, "comment_notice", input.userId, sql`1`),
+    // The account's webhooks stop at once; no foreign key (an owner may be a workspace).
+    db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, input.userId)),
+    // A workspace's webhooks stay; who created them goes with the account.
+    db
+      .update(schema.webhooks)
+      .set({ createdBy: null })
+      .where(eq(schema.webhooks.createdBy, input.userId)),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
@@ -602,6 +632,11 @@ export async function advanceAccountDeletion(
       .delete(schema.commentNoticeMutes)
       .where(and(eq(schema.commentNoticeMutes.userId, userId), nothingLeft)),
     closeJobs(db, "comment_notice", userId, nothingLeft),
+    db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, userId), nothingLeft)),
+    db
+      .update(schema.webhooks)
+      .set({ createdBy: null })
+      .where(eq(schema.webhooks.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
     db

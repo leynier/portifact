@@ -17,6 +17,7 @@ const MEMBER: readonly RoleAction[] = ["read", "comment"];
 const EDITOR: readonly RoleAction[] = [
   ...MEMBER,
   "manage",
+  "transfer",
   "list",
   "publish",
   "update",
@@ -30,10 +31,13 @@ const EDITOR: readonly RoleAction[] = [
 ];
 const ADMIN: readonly RoleAction[] = [
   ...EDITOR,
+  "transfer_out",
   "members",
   "plan",
   "policies",
   "delete_workspace",
+  // Webhooks send the owner's activity to a destination outside Portifact (decision 0009).
+  "webhooks",
   // The owner's brand on the viewer's bar (premium plan P9): what visitors see as the owner.
   "brand",
 ];

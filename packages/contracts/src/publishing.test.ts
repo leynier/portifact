@@ -199,6 +199,7 @@ describe("publishing contracts", () => {
       annotations: "open",
       currentVersionId: "ver_1",
       url: "https://k7d2qm4xab.portifact.dev/",
+      owner: { kind: "personal" },
       expiresAt: null,
       archivedAt: null,
       purgeAt: null,

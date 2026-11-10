@@ -14,6 +14,7 @@ import {
   DEFAULT_MULTIPART,
   DOCUMENT_CONTENT_TYPES,
   type DocumentType,
+  entitlements,
   fail,
   isDocumentType,
   type MultipartConfig,
@@ -45,6 +46,7 @@ import {
 } from "./multipart.ts";
 import { hex, objectKey } from "./objects.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { markWebhookEvent } from "./webhook-activity.ts";
 
 export { objectKey } from "./objects.ts";
 
@@ -674,11 +676,19 @@ export async function commitPublish(
     .from(schema.versions)
     .where(eq(schema.versions.id, session.versionId))
     .limit(1);
+  const p = schema.ownerPlans;
   const [artifact] = await db
-    .select({ type: schema.artifacts.type, name: schema.artifacts.name })
+    .select({
+      type: schema.artifacts.type,
+      name: schema.artifacts.name,
+      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+    })
     .from(schema.artifacts)
+    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, session.artifactId))
     .limit(1);
+  // The owner's plan comes with the artifact, so the webhook events below cost no read.
+  const owner = entitlements(artifact?.plan ?? null, input.now);
   const sessionOpen = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.id} = ${session.id} and ${schema.uploadSessions.state} in ('uploading', 'ready'))`;
   let rendering: DocumentRendering | null = null;
   if (version && artifact && isDocumentType(artifact.type)) {
@@ -689,7 +699,7 @@ export async function commitPublish(
       name: artifact.name,
       entrypoint: version.entrypoint,
       publishedBytes: version.publishedBytes,
-      artifactBytes: (await ownerEntitlements(db, ownerId, input.now)).limits.artifactBytes,
+      artifactBytes: owner.limits.artifactBytes,
       guard: sessionOpen,
       now: input.now,
     });
@@ -798,6 +808,17 @@ export async function commitPublish(
     db
       .insert(schema.usageEvents)
       .select(sql`select null, ${ownerId}, 'publish', 1, ${input.now} where ${switched}`),
+    ...markWebhookEvent(db, {
+      entitlements: owner,
+      ownerId,
+      artifactId: session.artifactId,
+      type: "artifact.published",
+      // Only an admin or editor of the owner publishes, so the publisher acts for the owner.
+      actorId: input.userId,
+      version: version?.number,
+      now: input.now,
+      condition: switched,
+    }),
     db
       .insert(schema.usageEvents)
       .select(
@@ -910,7 +931,7 @@ async function renderVersion(
   });
   // A rendering always has its page, so there is a first statement.
   if (first) await db.batch([first, ...rest]);
-  await storeRenderings(bucket, input.ownerId, rendered.value.files);
+  await storeRenderings(db, bucket, input.ownerId, rendered.value.files);
   return rendered;
 }
 

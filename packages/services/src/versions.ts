@@ -27,6 +27,7 @@ import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
 import { retainedVersionSql } from "./retention.ts";
+import { markWebhookEvent } from "./webhook-activity.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -407,6 +408,12 @@ export async function getVersionDownload(
       sha256: schema.versionFiles.sha256,
       size: schema.versionFiles.size,
       contentType: schema.versionFiles.contentType,
+      // The object row's key, not one built from the owner: a transferred artifact's objects
+      // keep the key they were stored under (transfer.ts).
+      // Columns named with their tables: Drizzle leaves select fields unqualified.
+      r2Key: sql<
+        string | null
+      >`(select "objects"."r2_key" from "objects" where "objects"."owner_id" = "version_files"."owner_id" and "objects"."sha256" = "version_files"."sha256")`,
     })
     .from(schema.versionFiles)
     .where(
@@ -431,7 +438,7 @@ export async function getVersionDownload(
       sha256: file.sha256,
       size: file.size,
       contentType: file.contentType,
-      r2Key: objectKey(file.ownerId, file.sha256),
+      r2Key: file.r2Key ?? objectKey(file.ownerId, file.sha256),
     })),
   });
 }
@@ -616,6 +623,17 @@ export async function rollbackArtifact(
       .select(
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'rolled_back', ${JSON.stringify({ fromVersionId: target.id, versionId })}, ${input.now} where ${switched}`,
       ),
+    // A rollback is a new version for the owner's webhooks, numbered by the insert above.
+    ...markWebhookEvent(db, {
+      entitlements: owner,
+      ownerId,
+      artifactId: artifact.id,
+      type: "artifact.published",
+      actorId: input.userId,
+      version: sql`(select ${v.number} from ${v} where ${v.id} = ${versionId})`,
+      now: input.now,
+      condition: switched,
+    }),
   ]);
 
   if (switchedRows.length === 0) {

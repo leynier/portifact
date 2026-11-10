@@ -47,7 +47,7 @@ export interface AccountUsageReport {
 type WindowKind = "publish" | "new_files" | "new_bytes";
 
 /** Upload states that hold a slot until they are committed, aborted or expire. */
-const OPEN_UPLOAD_STATES: ("uploading" | "verifying" | "ready")[] = [
+export const OPEN_UPLOAD_STATES: ("uploading" | "verifying" | "ready")[] = [
   "uploading",
   "verifying",
   "ready",

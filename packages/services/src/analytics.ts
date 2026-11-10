@@ -308,6 +308,64 @@ export async function applyOwnerRetention(
 }
 
 /**
+ * Gives an artifact's access log and view rows to the owner it has now, kept by that owner's plan
+ * (the `access_history_move` job a transfer writes): the history follows the artifact, so the
+ * people who manage it now see who opened it before the move. It always converges on the current
+ * owner, so a stale or repeated job changes nothing; a purged artifact has nothing left to move.
+ * Bounded statements; `pending` asks the job to run again.
+ */
+export async function moveAccessHistory(
+  db: Db,
+  access: AccessDb,
+  artifactId: string,
+  now: number,
+  rounds = 10,
+): Promise<"done" | "pending"> {
+  const [artifact] = await db
+    .select({ ownerId: schema.artifacts.ownerId })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, artifactId))
+    .limit(1);
+  if (!artifact) return "done";
+  const owner = artifact.ownerId;
+  const plan = await ownerEntitlements(db, owner, now);
+  const v = accessSchema.artifactViews;
+  const e = accessSchema.accessEvents;
+  const viewsExpiry = expirySql(sql`${v.day} + ${DAY_MS}`, plan);
+  const openingsExpiry = expirySql(sql`${e.openedAt}`, plan);
+  let done = 0;
+  for (let round = 0; round < rounds && done < 2; round += 1) {
+    done = 0;
+    const views = await access
+      .update(v)
+      .set({ ownerId: owner, expiresAt: viewsExpiry })
+      .where(
+        sql`(${v.artifactId}, ${v.day}) in (select ${v.artifactId}, ${v.day} from ${v} where ${v.artifactId} = ${artifactId} and (${v.ownerId} <> ${owner} or ${v.expiresAt} <> ${viewsExpiry}) limit ${ANALYTICS_ROW_BATCH})`,
+      )
+      .returning({ day: v.day });
+    if (views.length < ANALYTICS_ROW_BATCH) done += 1;
+    const openings = await access
+      .update(e)
+      .set({ ownerId: owner, expiresAt: openingsExpiry })
+      .where(
+        sql`rowid in (select rowid from ${e} where ${e.artifactId} = ${artifactId} and (${e.ownerId} <> ${owner} or ${e.expiresAt} is not ${openingsExpiry}) limit ${ANALYTICS_ROW_BATCH})`,
+      )
+      .returning({ userId: e.userId });
+    if (openings.length < ANALYTICS_ROW_BATCH) done += 1;
+  }
+  return done === 2 ? "done" : "pending";
+}
+
+/** Inserts an `access_history_move` job for an artifact when `condition` holds. */
+export function accessHistoryMoveJob(db: Db, artifactId: string, condition: SQL, now: number) {
+  return db
+    .insert(schema.outbox)
+    .select(
+      sql`select null, 'access_history_move', '{}', ${now}, null, 0, ${now}, ${artifactId}, null where ${condition}`,
+    );
+}
+
+/**
  * Inserts an `owner_retention` job for an owner when `condition` holds. Put it in the batch that
  * changes the owner's plan, on the same condition.
  */

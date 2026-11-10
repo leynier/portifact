@@ -201,6 +201,18 @@ export const AccountExport = z.object({
     plan: PlanView,
     /** Artifacts whose comment notices the account muted. */
     commentNoticeMutes: z.array(z.string()),
+    /** The account's webhooks (decision 0009): the host only, never the URL or the secret. */
+    webhooks: z.array(
+      z.object({
+        id: z.string(),
+        host: z.string(),
+        format: z.enum(["generic", "slack", "discord"]),
+        events: z.array(z.string()),
+        disabled: z.boolean(),
+        disabledReason: z.string().nullable(),
+        createdAt: z.iso.datetime(),
+      }),
+    ),
     /**
      * The brand of the account's space for the viewer's bar, kept whatever the plan, or null.
      * The logo's bytes are on the Branding page; the export lists what it is.
@@ -208,6 +220,24 @@ export const AccountExport = z.object({
     brand: Brand.nullable(),
   }),
   artifacts: z.array(ExportArtifact),
+  /** The workspaces the account is a member of, with its role; not their artifacts. */
+  workspaces: z.array(
+    z.object({
+      slug: z.string(),
+      name: z.string(),
+      role: z.enum(["admin", "editor", "member"]),
+      joinedAt: Iso,
+    }),
+  ),
+  /** Pending invitations addressed to the account's email. */
+  invitations: z.array(
+    z.object({
+      workspace: z.object({ slug: z.string(), name: z.string() }),
+      role: z.enum(["admin", "editor", "member"]),
+      invitedBy: z.string().nullable(),
+      expiresAt: Iso,
+    }),
+  ),
   /**
    * Threads on other people's artifacts where the account wrote, with only its own messages.
    * A thread the account no longer sees (the owner narrowed who sees comments) has no `state`

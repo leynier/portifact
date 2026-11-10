@@ -14,6 +14,7 @@ import {
 } from "./core.ts";
 import { LIMITS } from "./limits.ts";
 import { SuspensionView } from "./moderation.ts";
+import { OwnerView } from "./workspaces.ts";
 
 export const Sha256Hex = z.string().regex(/^[0-9a-f]{64}$/, "Invalid SHA-256");
 
@@ -153,6 +154,8 @@ export const ArtifactSummary = z.object({
   annotations: AnnotationsState,
   currentVersionId: z.string().nullable(),
   url: z.url(),
+  /** Where the artifact lives: the caller's personal space or a workspace. */
+  owner: OwnerView,
   /** When it is archived unless renewed; null while it is pinned or not active. */
   expiresAt: z.iso.datetime().nullable(),
   archivedAt: z.iso.datetime().nullable(),
@@ -318,5 +321,6 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   human_verification_required: 403,
   capacity_unavailable: 503,
   sole_workspace_admin: 409,
+  seats_exhausted: 409,
   plan_required: 403,
 };

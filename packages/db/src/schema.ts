@@ -467,7 +467,9 @@ export const objects = sqliteTable(
   },
   (t) => [
     primaryKey({ columns: [t.ownerId, t.sha256] }),
-    uniqueIndex("objects_r2_key_idx").on(t.r2Key),
+    // Not unique: a transferred artifact's objects get rows for the new owner that point at the
+    // same R2 key (packages/services/src/transfer.ts). A key is deleted only once no row has it.
+    index("objects_r2_key_idx").on(t.r2Key),
     check("objects_sha256_format", sql`length(${t.sha256}) = 64`),
   ],
 );
@@ -661,7 +663,10 @@ export const OUTBOX_TOPICS = [
   "expiry_notice",
   "comment_notice",
   "owner_retention",
+  "webhook_delivery",
   "delete_custom_hostname",
+  "workspace_deletion",
+  "access_history_move",
   "domain_notice",
 ] as const;
 
@@ -730,12 +735,20 @@ export const lifecycleEvents = sqliteTable(
   (t) => [index("lifecycle_events_artifact_at_idx").on(t.artifactId, t.at)],
 );
 
-/** Purged artifact IDs and deleted accounts: never reused, never restored from backups. */
+/**
+ * Purged artifact IDs, deleted accounts and deleted workspaces: never reused, never restored from
+ * backups.
+ */
 export const tombstones = sqliteTable(
   "tombstones",
   {
-    /** `share_link` marks a revoked share link (decision 0008), so a restore cannot revive it. */
-    kind: text("kind", { enum: ["artifact", "account", "share_link"] }).notNull(),
+    /**
+     * `share_link` marks a revoked share link (decision 0008) and `webhook` a removed webhook
+     * (decision 0009), so a restore cannot revive them; `workspace` a deleted workspace.
+     */
+    kind: text("kind", {
+      enum: ["artifact", "account", "share_link", "workspace", "webhook"],
+    }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
@@ -982,6 +995,113 @@ export const commentNotices = sqliteTable(
       "comment_notices_counts",
       sql`${t.created} in (0, 1) and ${t.resolved} in (0, 1) and ${t.replies} between 0 and 200`,
     ),
+  ],
+);
+
+/** Formats a webhook delivers in (decision 0009). */
+export const WEBHOOK_FORMATS = ["generic", "slack", "discord"] as const;
+/** Why a webhook stopped: an admin, repeated failures, a 410 from the receiver, or a URL that no longer passes. */
+export const WEBHOOK_DISABLED_REASONS = [
+  "manual",
+  "failures",
+  "gone",
+  "invalid_url",
+  "key_unavailable",
+  "unavailable",
+] as const;
+
+/**
+ * Webhooks of an owner (decision 0009, packages/services/src/webhooks.ts): HTTPS destinations
+ * that receive events about every artifact of the owner. The URL and the signing secret are
+ * sealed with a key derived from `WEBHOOK_KEY` (`key_id` names it); only the host is kept in
+ * clear. `events` is a bit set of `WEBHOOK_EVENT_BITS`. `owner_id` has no foreign key (an owner
+ * is a user or a workspace): account deletion deletes the rows, and removing one writes a
+ * `webhook` tombstone so a restore cannot bring it back.
+ */
+export const webhooks = sqliteTable(
+  "webhooks",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    host: text("host").notNull(),
+    format: text("format", { enum: WEBHOOK_FORMATS }).notNull(),
+    events: integer("events").notNull(),
+    keyId: text("key_id").notNull(),
+    urlBox: text("url_box").notNull(),
+    secretBox: text("secret_box"),
+    createdAt: createdAt(),
+    disabledAt: timestamp("disabled_at"),
+    disabledReason: text("disabled_reason", { enum: WEBHOOK_DISABLED_REASONS }),
+    /** Failed attempts in a row; reset by a success and by enabling the webhook again. */
+    failures: integer("failures").notNull().default(0),
+    /** Enabled again after a disable: a few failures disable it again until one success. */
+    probation: integer("probation", { mode: "boolean" }).notNull().default(false),
+    /** Times it was enabled again on `reenable_day` (a UTC day start). */
+    reenables: integer("reenables").notNull().default(0),
+    reenableDay: timestamp("reenable_day"),
+    /** Who created it (no foreign key: cleared when the account is deleted). */
+    createdBy: text("created_by"),
+    /** `dashboard`, or the OAuth client that created it (the Portifact CLI). */
+    createdVia: text("created_via").notNull(),
+  },
+  (t) => [
+    index("webhooks_owner_idx").on(t.ownerId),
+    check("webhooks_events", sql`${t.events} between 1 and 31`),
+    check("webhooks_failures", sql`${t.failures} >= 0`),
+  ],
+);
+
+/**
+ * Events waiting for a webhook's next delivery: one row per webhook, artifact (empty for the test
+ * event) and type, written in the batch of the write that caused it and coalesced there. Counts,
+ * times and IDs only, never text. The delivery job claims rows by subtracting what it sent.
+ */
+export const webhookEvents = sqliteTable(
+  "webhook_events",
+  {
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id").notNull(),
+    type: text("type").notNull(),
+    count: integer("count").notNull(),
+    firstAt: timestamp("first_at").notNull(),
+    lastAt: timestamp("last_at").notNull(),
+    /** The user who acted, while every write of the row was by one person on the owner side. */
+    actorId: text("actor_id"),
+    version: integer("version"),
+    access: text("access"),
+    expiresAt: timestamp("expires_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.webhookId, t.artifactId, t.type] }),
+    index("webhook_events_first_idx").on(t.webhookId, t.firstAt),
+  ],
+);
+
+/**
+ * The delivery log of the last 7 days: one row per attempt (and per daily-cap deferral), with the
+ * outcome and the HTTP status, never the body or the response. Pruned by the maintenance run.
+ */
+export const webhookDeliveries = sqliteTable(
+  "webhook_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => webhooks.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    deliveryId: text("delivery_id").notNull(),
+    attempt: integer("attempt").notNull(),
+    at: timestamp("at").notNull(),
+    outcome: text("outcome", { enum: ["delivered", "failed", "skipped"] }).notNull(),
+    status: integer("status"),
+    error: text("error"),
+  },
+  (t) => [
+    index("webhook_deliveries_webhook_idx").on(t.webhookId, t.at),
+    index("webhook_deliveries_owner_idx").on(t.ownerId, t.at),
+    index("webhook_deliveries_at_idx").on(t.at),
   ],
 );
 
@@ -1300,6 +1420,46 @@ export const workspaceMembers = sqliteTable(
     check("workspace_members_role", sql`${t.role} in ('admin', 'editor', 'member')`),
   ],
 );
+
+/**
+ * Pending invitations to a workspace (premium plan T1). Only a SHA-256 of the token is stored;
+ * the token itself is only in the email. The address is lowercase and the invitation is accepted
+ * only by a signed-in account whose verified email is that address. Accepting, declining or
+ * revoking deletes the row; one pending invitation per workspace and address, which a new
+ * invitation replaces. A pending invitation holds a seat until it expires.
+ */
+export const workspaceInvitations = sqliteTable(
+  "workspace_invitations",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    role: text("role", { enum: WORKSPACE_ROLES }).notNull(),
+    tokenHash: text("token_hash").notNull(),
+    /** The admin who sent it; null once their account is deleted. */
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("workspace_invitations_token_idx").on(t.tokenHash),
+    uniqueIndex("workspace_invitations_workspace_email_idx").on(t.workspaceId, t.email),
+    index("workspace_invitations_email_idx").on(t.email),
+    check("workspace_invitations_role", sql`${t.role} in ('admin', 'editor', 'member')`),
+  ],
+);
+
+/**
+ * Workspaces the operator deleted whose artifacts and data are still being purged
+ * (`advanceWorkspaceDeletion`). The `workspaces` row is already gone; this row goes once nothing
+ * is left and a `workspace` tombstone replaces it.
+ */
+export const workspaceDeletions = sqliteTable("workspace_deletions", {
+  workspaceId: text("workspace_id").primaryKey(),
+  requestedAt: timestamp("requested_at").notNull(),
+});
 
 /**
  * The global artifact directory (decision 0005, section 2): which region holds each artifact ID

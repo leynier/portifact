@@ -49,6 +49,9 @@ export default defineConfig(async () => {
             TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
             // Signs and checks comment notice unsubscribe links (test/comment-notices.test.ts).
             UNSUBSCRIBE_SECRET: "test-only-unsubscribe-secret",
+            WEBHOOK_KEY: "test-only webhook sealing key for the app suite",
+            // Offered in tests; the deployed configuration leaves it unset (decision 0009).
+            WEBHOOKS_ENABLED: "true",
             TEST_MIGRATIONS: migrations,
             TEST_ACCESS_MIGRATIONS: accessMigrations,
           },

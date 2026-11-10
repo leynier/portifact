@@ -3,11 +3,14 @@
   "name": "portifact-jobs",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
-  "compatibility_flags": ["nodejs_compat"],
+  // `global_fetch_strictly_public`: webhook deliveries (decision 0009) reach every host exactly as
+  // an outside client would, never another zone's origin or a Worker of this account directly.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "workers_dev": false,
   "preview_urls": false,
-  // No routes: this Worker only runs on its schedule and its queue.
-  "triggers": { "crons": ["*/15 * * * *"] },
+  // No routes: this Worker only runs on its schedule and its queue. Maintenance every 15 minutes;
+  // the outbox relay every minute, so webhook deliveries go within minutes (decision 0009).
+  "triggers": { "crons": ["*/15 * * * *", "* * * * *"] },
   // Both queues must exist before the first deploy that binds them (docs/releasing.md):
   // `wrangler queues create portifact-jobs` and `wrangler queues create portifact-email-events`.
   // The schedule relays outbox rows to `portifact-jobs` and the consumer runs them; Cloudflare

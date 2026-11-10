@@ -49,6 +49,7 @@ const TOOLS = [
     "remove_custom_domain",
   ],
   ...["prepare_upload", "get_upload_status", "commit_upload", "read_artifact"],
+  ...["list_workspaces", "transfer_artifact"],
   ...[
     "create_annotation",
     "delete_annotation",
@@ -63,6 +64,7 @@ const TOOLS = [
     "resolve_annotation",
     "set_annotations",
   ],
+  ...["list_webhooks", "list_webhook_deliveries"],
 ].sort();
 
 interface Committed {
@@ -145,6 +147,12 @@ describe("the MCP endpoint", () => {
     expect(byName.get("list_share_links")?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get("revoke_share_link")?.annotations?.destructiveHint).toBe(true);
     expect(client.getInstructions()).toContain("creating a share link");
+    // Webhooks are only read through MCP (decision 0003, addendum).
+    for (const name of ["list_webhooks", "list_webhook_deliveries"]) {
+      expect(TOOL_SCOPES.get(name), name).toBe("artifacts:read");
+      expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
+      expect(byName.get(name)?.description, name).toContain("never through MCP");
+    }
     for (const name of ["add_custom_domain", "verify_custom_domain", "remove_custom_domain"]) {
       expect(TOOL_SCOPES.get(name), name).toBe("artifacts:share");
     }

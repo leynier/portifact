@@ -13,7 +13,10 @@ import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   checkNoticeCapacity,
   EXPIRY_NOTICE,
+  entitlements,
+  eventBit,
   groupNotices,
+  hasFeature,
   noticeWindowEnd,
   stillExpiring,
 } from "@portifact/domain";
@@ -29,6 +32,7 @@ import {
 } from "./email.ts";
 import type { JobOutcome } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { markWebhookExpiring, WEBHOOK_FEATURE } from "./webhook-activity.ts";
 
 /** One artifact as the notice lists it. */
 export interface ExpiringArtifact {
@@ -71,6 +75,12 @@ function dueCondition(now: number): SQL {
  */
 const optedIn = sql`not exists (select 1 from "account_settings" where "account_settings"."user_id" = "artifacts"."owner_id" and "account_settings"."expiry_notices" = 0)`;
 
+/**
+ * The owner has an enabled webhook for expiring artifacts, so the scan marks the expiry even when
+ * the owner turned the emails off (the notice job then skips the email).
+ */
+const expiryWebhook = sql`exists (select 1 from "webhooks" where "webhooks"."owner_id" = "artifacts"."owner_id" and "webhooks"."disabled_at" is null and ("webhooks"."events" & ${eventBit("artifact.expiring")}) <> 0)`;
+
 /** The owner got no notice within the cooldown (`ownerInCooldown`). */
 const notCooling = (now: number) =>
   sql`not exists (select 1 from "artifacts" as "noticed" where "noticed"."owner_id" = "artifacts"."owner_id" and "noticed"."expiry_notice_at" > ${now - EXPIRY_NOTICE.ownerCooldownMs})`;
@@ -91,7 +101,7 @@ export async function scheduleExpiryNotices(db: Db, now: number): Promise<Schedu
     await db
       .selectDistinct({ ownerId: a.ownerId })
       .from(a)
-      .where(and(due, optedIn, notCooling(now)))
+      .where(and(due, or(optedIn, expiryWebhook), notCooling(now)))
       .limit(EXPIRY_NOTICE.ownersPerRun)
   ).map((row) => row.ownerId);
   if (owners.length === 0) return { owners: 0, artifacts: 0 };
@@ -101,6 +111,16 @@ export async function scheduleExpiryNotices(db: Db, now: number): Promise<Schedu
     .from(a)
     .where(and(due, inArray(a.ownerId, owners)));
   const groups = groupNotices(candidates);
+  // Owners whose plan includes webhooks get `artifact.expiring` events in the same batch.
+  const p = schema.ownerPlans;
+  const plans = new Map(
+    (
+      await db
+        .select()
+        .from(p)
+        .where(inArray(p.ownerId, [...groups.keys()]))
+    ).map((row) => [row.ownerId, row]),
+  );
 
   const statements = [...groups].flatMap(([ownerId, entries]) => {
     const where = and(
@@ -118,6 +138,9 @@ export async function scheduleExpiryNotices(db: Db, now: number): Promise<Schedu
         .select(
           sql`select null, 'expiry_notice', json_object('artifacts', json("list")), ${now}, null, 0, ${now}, ${ownerId}, null from (select json_group_array(json_object('id', "id", 'expiresAt', "expires_at")) as "list", count(*) as "n" from ${a} where ${where}) where "n" > 0`,
         ),
+      ...(hasFeature(entitlements(plans.get(ownerId) ?? null, now), WEBHOOK_FEATURE)
+        ? markWebhookExpiring(db, { ownerId, artifacts: where as SQL, now })
+        : []),
       db
         .update(a)
         .set({ expiryNoticeFor: sql`${a.expiresAt}`, expiryNoticeAt: now })

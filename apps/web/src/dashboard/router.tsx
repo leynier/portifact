@@ -23,6 +23,7 @@ import { SettingsScreen } from "./screens/settings.tsx";
 import { Shell } from "./screens/shell.tsx";
 import { UsageScreen } from "./screens/usage.tsx";
 import { parseViewerSearch, ViewerScreen } from "./screens/viewer.tsx";
+import { WebhooksScreen } from "./screens/webhooks.tsx";
 
 /**
  * Every dashboard screen sits in the shell (navigation and account); the viewer draws its own
@@ -100,6 +101,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/usage",
     component: UsageScreen,
   });
+  const webhooks = createRoute({
+    getParentRoute: () => root,
+    path: "/webhooks",
+    component: WebhooksScreen,
+  });
   const settings = createRoute({
     getParentRoute: () => root,
     path: "/settings",
@@ -135,6 +141,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       profile,
       apps,
       usage,
+      webhooks,
       branding,
       settings,
       account,

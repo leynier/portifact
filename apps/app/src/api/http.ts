@@ -4,6 +4,7 @@ import {
   type ErrorCode,
   IdempotencyKey,
   type OAuthScope,
+  WorkspaceParam,
 } from "@portifact/contracts";
 import { hashRequest, runIdempotent, type StoredResponse } from "@portifact/services";
 import type { Context } from "hono";
@@ -12,6 +13,11 @@ import type { Env } from "../env.ts";
 import { defaultDb } from "../regions.ts";
 
 export type ApiContext = Context<{ Bindings: Env }>;
+
+/** Runs a handler for the dashboard session or a `credentials:manage` CLI token. */
+export type AccountGuarded = (
+  handler: (c: ApiContext, caller: { userId: string; via: string }) => Promise<Response>,
+) => (c: ApiContext) => Promise<Response>;
 
 /** Runs a handler for the calling user once the token or session allows `scope`. */
 export type Guarded = (
@@ -99,4 +105,19 @@ export async function idempotent(
     return error(c, "version_conflict", "A request with this Idempotency-Key is still running.");
   }
   return c.json(outcome.response.body, outcome.response.status as 201);
+}
+
+/**
+ * The space an owner-scoped route acts on (`?workspace=<slug>`; absent for the personal space).
+ * Routes that name an artifact take none: the artifact's owner decides.
+ */
+export function workspaceParam(c: ApiContext):
+  | { ok: true; slug: string | undefined }
+  | {
+      ok: false;
+    } {
+  const raw = c.req.query("workspace");
+  if (raw === undefined || raw === "") return { ok: true, slug: undefined };
+  const parsed = WorkspaceParam.safeParse(raw);
+  return parsed.success ? { ok: true, slug: parsed.data } : { ok: false };
 }
