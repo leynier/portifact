@@ -7,8 +7,14 @@
 // queue records the bounces and
 // complaints Cloudflare Email Service reports. Every job is idempotent and guards every
 // transition, so overlapping runs, retries and duplicate deliveries are safe.
-import { EmailSendingEvent, JobMessage } from "@portifact/contracts";
-import { createAccessDb, type Db, regionsFromEnv } from "@portifact/db";
+import { DEFAULT_REGION, EmailSendingEvent, JobMessage } from "@portifact/contracts";
+import {
+  createAccessDb,
+  type GlobalDb,
+  type Region,
+  type RegionHandles,
+  regionsFromEnv,
+} from "@portifact/db";
 import {
   checkCustomDomains,
   type DomainDeps,
@@ -26,6 +32,7 @@ import {
   rewrapWebhookKeys,
   runJob,
   runMaintenance,
+  runRegionalMaintenance,
   stopWebhooksWhileOff,
   webhookKeys,
 } from "@portifact/services";
@@ -76,13 +83,31 @@ export const RELAY_CRON = "* * * * *";
 
 /** Relays pending outbox rows to the queue; a failure is logged and the rows wait for the next run. */
 export async function runRelay(env: Env, now: number): Promise<number | "failed"> {
-  const db = personalHandles(regionsFromEnv(env)).db;
-  try {
-    return (await relayOutbox(db, env.JOBS, now)).relayed;
-  } catch (error) {
-    console.error(JSON.stringify({ event: "outbox_relay_failed", error: errorName(error) }));
-    return "failed";
+  // One outbox per database, never per region twice (decision 0005): the default region's is
+  // also the global database's, and each other region's messages name their region.
+  let relayed = 0;
+  let failed = false;
+  for (const handles of regionsFromEnv(env).all()) {
+    try {
+      relayed += (await relayOutbox(handles.db, env.JOBS, now, 5, handles.region)).relayed;
+    } catch (error) {
+      failed = true;
+      console.error(
+        JSON.stringify({
+          event: "outbox_relay_failed",
+          region: handles.region,
+          error: errorName(error),
+        }),
+      );
+    }
   }
+  return failed ? "failed" : relayed;
+}
+
+/** The bucket of a region, which every Worker that runs its jobs is bound to. */
+function bucketOf(handles: RegionHandles): R2Bucket {
+  if (!handles.bucket) throw new Error(`Region ${handles.region} has no bucket binding`);
+  return handles.bucket;
 }
 
 /**
@@ -99,10 +124,16 @@ export async function runScheduled(
     emailDomains?: EmailDomainDeps | null;
   } = {},
 ) {
-  // One region for now; with a second (E5) the scans run once per region (decision 0005).
+  // The scans run once per region, each on its own database and bucket; the global ones once,
+  // with the default region, whose database is also the global one (decision 0005).
   const regions = regionsFromEnv(env);
   const db = personalHandles(regions).db;
   const maintenance = await runMaintenance(db, env.ARTIFACTS, now);
+  const otherRegions: Record<string, Awaited<ReturnType<typeof runRegionalMaintenance>>> = {};
+  for (const handles of regions.all()) {
+    if (handles.region === DEFAULT_REGION) continue;
+    otherRegions[handles.region] = await runRegionalMaintenance(handles.db, bucketOf(handles), now);
+  }
   // Custom domains call Cloudflare and DNS: a failure must not hide the rest of the run.
   let customDomains: Awaited<ReturnType<typeof checkCustomDomains>> | "failed";
   try {
@@ -131,17 +162,36 @@ export async function runScheduled(
     db,
     await webhookKeys({ current: env.WEBHOOK_KEY, previous: env.WEBHOOK_KEY_PREVIOUS }),
   );
+  // Each bucket against its own database, findings in that region's table.
   const storage = await reconcileStorage(db, env.ARTIFACTS, now);
-  // A separate database: its failure must not hide the rest of the run's result.
-  let prunedAccessEvents: number | "failed";
-  try {
-    prunedAccessEvents = await pruneAccessEvents(createAccessDb(env.ACCESS_DB), now);
-  } catch (error) {
-    prunedAccessEvents = "failed";
-    console.error(JSON.stringify({ event: "access_log_prune_failed", error: errorName(error) }));
+  for (const handles of regions.all()) {
+    if (handles.region === DEFAULT_REGION) continue;
+    const found = await reconcileStorage(handles.db, bucketOf(handles), now);
+    for (const key of Object.keys(storage) as (keyof typeof storage)[]) {
+      storage[key] += found[key];
+    }
+  }
+  // Separate databases: a failure must not hide the rest of the run's result.
+  let prunedAccessEvents: number | "failed" = 0;
+  for (const handles of regions.all()) {
+    try {
+      const access = handles.accessDb ?? createAccessDb(env.ACCESS_DB);
+      const pruned = await pruneAccessEvents(access, now);
+      if (prunedAccessEvents !== "failed") prunedAccessEvents += pruned;
+    } catch (error) {
+      prunedAccessEvents = "failed";
+      console.error(
+        JSON.stringify({
+          event: "access_log_prune_failed",
+          region: handles.region,
+          error: errorName(error),
+        }),
+      );
+    }
   }
   const result = {
     ...maintenance,
+    ...(Object.keys(otherRegions).length > 0 ? { regions: otherRegions } : {}),
     relayed,
     storage,
     prunedAccessEvents,
@@ -161,7 +211,7 @@ export async function runScheduledBudget(
   now: number,
   fetcher: Fetcher = (input, init) => fetch(input, init),
 ) {
-  const result = await runBudget(regionsFromEnv(env).global, now, {
+  const result = await runBudget(regionsFromEnv(env), now, {
     analytics: analyticsFromEnv(env, fetcher),
     notifier: notifierFromEnv(env),
   });
@@ -173,7 +223,7 @@ export async function runScheduledBudget(
  * Records bounces and complaints. The event carries the recipient's address, so only the event
  * ID and the outcome are logged.
  */
-export async function runEmailEvents(db: Db, batch: MessageBatch<unknown>, now: number) {
+export async function runEmailEvents(db: GlobalDb, batch: MessageBatch<unknown>, now: number) {
   for (const message of batch.messages) {
     const body = typeof message.body === "string" ? safeJson(message.body) : message.body;
     const parsed = EmailSendingEvent.safeParse(body);
@@ -215,12 +265,15 @@ export async function runQueue(
   domains = domainsFromEnv(env),
   fetcher?: Fetch,
 ) {
-  const db = personalHandles(regionsFromEnv(env)).db;
-  const access = createAccessDb(env.ACCESS_DB);
-  if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
-  const notifier = expiryNotifierFromEnv(env);
-  const commentNotifier = commentNotifierFromEnv(env);
-  const reviewNotifier = reviewNotifierFromEnv(env);
+  const regions = regionsFromEnv(env);
+  if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(regions.global, batch, now);
+  // Notices name artifacts only in the default region (decision 0005), so each job gets the
+  // notifiers of its own region.
+  const notifiers = (region: Region) => ({
+    notifier: expiryNotifierFromEnv(env, region),
+    commentNotifier: commentNotifierFromEnv(env, region),
+    reviewNotifier: reviewNotifierFromEnv(env, region),
+  });
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
@@ -233,15 +286,16 @@ export async function runQueue(
       return;
     }
     try {
-      const outcome = await runJob(db, env.ARTIFACTS, parsed.data, now, {
-        access,
-        notifier,
-        commentNotifier,
+      // The job runs on the database its row is in, with that region's bucket and access log.
+      const handles = regions.get(parsed.data.region ?? DEFAULT_REGION);
+      const outcome = await runJob(handles.db, bucketOf(handles), parsed.data, now, {
+        access: handles.accessDb ?? createAccessDb(env.ACCESS_DB),
+        ...notifiers(handles.region),
         webhooks,
         domains,
         domainNotifier,
-        reviewNotifier,
         directoryNotifier,
+        regions,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

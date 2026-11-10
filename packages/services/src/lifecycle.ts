@@ -174,7 +174,7 @@ export async function archiveArtifact(
   // An artifact past its expiry is already archived from the expiry date.
   const archivedAt =
     effectiveArchivedAt(record(artifact), new Date(input.now))?.getTime() ?? input.now;
-  const owner = await ownerEntitlements(db, artifact.ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, artifact.ownerId, input.now);
   const purgeAt = purgeDate(new Date(archivedAt), owner.limits.archiveMonths).getTime();
   const [, updated] = await db.batch([
     lifecycleEvent(db, artifact, input, "artifact.archived"),
@@ -211,7 +211,7 @@ export async function restoreArtifact(
     .limit(1);
   // An active artifact past its expiry already holds its slot, so it does not need a free one.
   const used = (usage?.active ?? 0) - (artifact.state === "active" ? 1 : 0);
-  const owner = await ownerEntitlements(db, artifact.ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, artifact.ownerId, input.now);
   const check = checkRestore(record(artifact), new Date(input.now), used, owner.limits);
   if (!check.ok) return check;
   const expiresAt = check.value.expiresAt.getTime();
@@ -305,7 +305,10 @@ export async function pinArtifact(
   const loaded = await load(db, input);
   if (!loaded.ok) return loaded;
   const artifact = loaded.value;
-  const gate = requireFeature(await ownerEntitlements(db, artifact.ownerId, input.now), "pin");
+  const gate = requireFeature(
+    await ownerEntitlements(db.global, artifact.ownerId, input.now),
+    "pin",
+  );
   if (!gate.ok) return gate;
   const check = checkPin(record(artifact), new Date(input.now));
   if (!check.ok) return check;

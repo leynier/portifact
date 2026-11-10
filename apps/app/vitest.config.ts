@@ -26,6 +26,10 @@ export default defineConfig(async () => {
       cloudflareTest({
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
+          // The second region (decision 0005): its own control and access log databases and its
+          // own bucket, bound only in tests and the e2e Worker, never in wrangler.jsonc.
+          d1Databases: ["DB_EU", "ACCESS_DB_EU"],
+          r2Buckets: ["ARTIFACTS_EU"],
           // highlight.js's grammars (packages/render) load from disk as plain ES modules instead
           // of through Vite: the pool sends every module Vite transformed for a test file in one
           // WebSocket message, which workerd caps at 32 MiB, and this suite's graph is close to it.
@@ -37,6 +41,8 @@ export default defineConfig(async () => {
             { type: "CommonJS", include: ["**/highlight.js/lib/core.js"] },
           ],
           bindings: {
+            // Every handle refuses the other side's tables (packages/db/src/region-guard.ts).
+            REGION_GUARD: process.env.REGION_GUARD ?? "strict",
             // Fixed values that only exist in local tests. Real secrets use wrangler secret.
             BETTER_AUTH_SECRET: "test-only-secret-not-used-anywhere-else-0123456789",
             GOOGLE_CLIENT_SECRET: "test-google-secret",

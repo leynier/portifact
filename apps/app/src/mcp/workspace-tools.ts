@@ -13,7 +13,7 @@ import {
 import { describePolicy } from "@portifact/domain";
 import { listUserWorkspaces, listWorkspaceGroups, transferArtifact } from "@portifact/services";
 import { groupListView, workspaceListView } from "../api/workspaces.ts";
-import { artifactDb, ownerOf, regionsOf } from "../regions.ts";
+import { artifactStorage, ownerOf, regionsOf } from "../regions.ts";
 import { artifactSummary } from "./present.ts";
 import { failure, type RegisterTool, success, type ToolContext } from "./tools.ts";
 
@@ -109,8 +109,7 @@ export function registerWorkspaceTools(register: RegisterTool, context: ToolCont
     },
     async (args: TransferArtifactInput) => {
       const result = await transferArtifact(
-        await artifactDb(context.env, args.artifactId),
-        context.env.ARTIFACTS,
+        ...(await artifactStorage(context.env, args.artifactId)),
         {
           userId: context.userId,
           artifactId: args.artifactId,

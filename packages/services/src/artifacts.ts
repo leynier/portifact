@@ -211,7 +211,7 @@ export async function listArtifacts(
   const t = schema.artifacts;
   // Every listed artifact has the actor's owner, so one plan decides their retention.
   const retention = versionRetention(
-    (await ownerEntitlements(db, input.actor.ownerId, input.now)).limits,
+    (await ownerEntitlements(db.global, input.actor.ownerId, input.now)).limits,
   );
   const rows = await db
     .select({ ...getTableColumns(t), ...activityColumns(retention, input.now) })

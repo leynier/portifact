@@ -4,7 +4,7 @@
 // in Portifact's own list (docs/security.md, "Identity").
 import { OTP_LIMITS } from "@portifact/contracts";
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
-import type { Db } from "@portifact/db";
+import type { GlobalDb } from "@portifact/db";
 import { negotiateLocale, parseAcceptLanguage } from "@portifact/domain/locale";
 import { signInCodeEmail as renderSignInCode } from "@portifact/emails";
 import {
@@ -57,7 +57,7 @@ export function cloudflareEmailSender(binding: SendEmail): EmailSender {
  * Better Auth swallows the error (it answers the same either way), so it must hold no secret.
  */
 export async function deliverSignInCode(
-  db: Db,
+  db: GlobalDb,
   sender: EmailSender,
   input: { email: string; code: string; now: () => number; locale?: LocaleCode | undefined },
 ): Promise<void> {

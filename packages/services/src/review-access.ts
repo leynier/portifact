@@ -8,7 +8,7 @@ import { type Db, type RegionalDb, schema } from "@portifact/db";
 import { customHostWithoutClick, devHost, fail, ok, type Result } from "@portifact/domain";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { activeCustomHost } from "./custom-domains.ts";
-import { checkReadAccess, hashSecret, liveAppSession, randomToken } from "./read-access.ts";
+import { appSessionLive, checkReadAccess, hashSecret, randomToken } from "./read-access.ts";
 
 const SECOND_MS = 1000;
 const PRUNE_BATCH = 500;
@@ -144,7 +144,7 @@ export async function issueReviewHandoff(
  * redemption creates nothing.
  */
 export async function redeemReviewHandoff(
-  db: Db,
+  db: RegionalDb,
   input: {
     code: string;
     artifactId: string;
@@ -172,13 +172,13 @@ export async function redeemReviewHandoff(
           sql`coalesce(${handoff.host}, ${input.devHost}) = ${input.host}`,
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
-          liveAppSession(db, handoff.authSessionId, input.now),
         ),
       )
       .returning({
         userId: handoff.userId,
         versionId: handoff.versionId,
         policyGeneration: handoff.policyGeneration,
+        authSessionId: handoff.authSessionId,
       }),
     db.insert(schema.reviewSessions).select(
       db
@@ -195,8 +195,16 @@ export async function redeemReviewHandoff(
         .where(and(eq(handoff.codeHash, codeHash), eq(handoff.sessionId, sessionId))),
     ),
   ]);
-  const row = claimed[0];
-  if (!row) return fail("invalid_input", "This review link has expired or was already used.");
+  const claimedRow = claimed[0];
+  const spent = () =>
+    fail<never>("invalid_input", "This review link has expired or was already used.");
+  if (!claimedRow) return spent();
+  // A session whose app session ended gets nothing; the code is spent (decision 0005).
+  const { authSessionId, ...row } = claimedRow;
+  if (!(await appSessionLive(db.global, authSessionId, input.now))) {
+    await db.delete(schema.reviewSessions).where(eq(schema.reviewSessions.id, sessionId));
+    return spent();
+  }
   return ok({ ...row, sessionId, expiresAt, sessionTag: await reviewSessionTag(input.code) });
 }
 
@@ -215,6 +223,7 @@ export async function refreshReviewSession(
       userId: sessions.userId,
       versionId: sessions.versionId,
       expiresAt: sessions.expiresAt,
+      authSessionId: sessions.authSessionId,
     })
     .from(sessions)
     .where(
@@ -222,15 +231,20 @@ export async function refreshReviewSession(
         eq(sessions.id, input.sessionId),
         eq(sessions.artifactId, input.artifactId),
         gt(sessions.expiresAt, input.now),
-        liveAppSession(db, sessions.authSessionId, input.now),
       ),
     )
     .limit(1);
   if (!session) return unavailable();
-  const access = await checkReadAccess(db, { ...input, userId: session.userId });
+  const { authSessionId, ...grant } = session;
+  // The app session is global: checked alongside the access check, adding no round trip.
+  const [live, access] = await Promise.all([
+    appSessionLive(db.global, authSessionId, input.now),
+    checkReadAccess(db, { ...input, userId: session.userId }),
+  ]);
+  if (!live) return unavailable();
   if (!access.ok) return access;
   return ok({
-    ...session,
+    ...grant,
     policyGeneration: access.value.policyGeneration,
     sessionId: input.sessionId,
   });

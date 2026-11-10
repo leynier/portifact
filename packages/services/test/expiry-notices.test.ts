@@ -148,13 +148,13 @@ describe("scheduleExpiryNotices", () => {
   it("skips owners who turned the notices off, and includes them again when turned on", async () => {
     const ada = await user();
     await expiring(ada.id, DAY);
-    await updateAccountSettings(db(), {
+    await updateAccountSettings(db().global, {
       userId: ada.id,
       update: { expiryNotices: false },
       now: NOW,
     });
     expect(await scheduleExpiryNotices(db(), NOW)).toEqual({ owners: 0, artifacts: 0 });
-    await updateAccountSettings(db(), {
+    await updateAccountSettings(db().global, {
       userId: ada.id,
       update: { expiryNotices: true },
       now: NOW,
@@ -194,7 +194,7 @@ describe("the expiry_notice job", () => {
         archiveMonths: 6,
       },
     ]);
-    expect(await emailsSentInCycle(db(), NOW + HOUR)).toBe(1);
+    expect(await emailsSentInCycle(db().global, NOW + HOUR)).toBe(1);
     expect(await jobsFor(owner.id)).toHaveLength(0);
   });
 
@@ -208,7 +208,7 @@ describe("the expiry_notice job", () => {
     expect(outcomes).toEqual(["done", "done"]);
     expect(await runJob(db(), env.ARTIFACTS, message(job), NOW, { notifier })).toBe("done");
     expect(sent).toHaveLength(1);
-    expect(await emailsSentInCycle(db(), NOW)).toBe(1);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(1);
   });
 
   it("leaves out artifacts renewed or archived since, and sends nothing when none is left", async () => {
@@ -237,7 +237,11 @@ describe("the expiry_notice job", () => {
 
   it("passes on the owner's language, as chosen when the job runs", async () => {
     const { owner, job } = await scheduled();
-    await updateAccountSettings(db(), { userId: owner.id, update: { locale: "ja" }, now: NOW });
+    await updateAccountSettings(db().global, {
+      userId: owner.id,
+      update: { locale: "ja" },
+      now: NOW,
+    });
     const { notifier, sent } = fakeNotifier();
     expect(await runJob(db(), env.ARTIFACTS, message(job), NOW, { notifier })).toBe("done");
     expect(sent.map((notice) => notice.locale)).toEqual(["ja"]);
@@ -245,7 +249,7 @@ describe("the expiry_notice job", () => {
 
   it("respects an opt-out made after the notice was scheduled", async () => {
     const { owner, job } = await scheduled();
-    await updateAccountSettings(db(), {
+    await updateAccountSettings(db().global, {
       userId: owner.id,
       update: { expiryNotices: false },
       now: NOW,
@@ -266,29 +270,29 @@ describe("the expiry_notice job", () => {
 
   it("skips a suppressed address without counting an email", async () => {
     const { owner, job } = await scheduled();
-    await suppressEmail(db(), { email: owner.email, reason: "hard_bounce", now: NOW });
+    await suppressEmail(db().global, { email: owner.email, reason: "hard_bounce", now: NOW });
     const { notifier, sent } = fakeNotifier();
     expect(await runJob(db(), env.ARTIFACTS, message(job), NOW, { notifier })).toBe("stale");
     expect(sent).toHaveLength(0);
-    expect(await emailsSentInCycle(db(), NOW)).toBe(0);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(0);
   });
 
   it("records the provider's suppression when it refuses the address", async () => {
     const { owner, job } = await scheduled();
     const { notifier } = fakeNotifier(new RecipientSuppressedError());
     expect(await runJob(db(), env.ARTIFACTS, message(job), NOW, { notifier })).toBe("stale");
-    expect(await isEmailSuppressed(db(), owner.email, NOW)).toBe(true);
-    expect(await emailsSentInCycle(db(), NOW)).toBe(0);
+    expect(await isEmailSuppressed(db().global, owner.email, NOW)).toBe(true);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(0);
     expect(await jobsFor(owner.id)).toHaveLength(0);
   });
 
   it("stops when the cycle's notice emails are spent, keeping the sign-in reserve", async () => {
     const { job } = await scheduled();
-    await recordEmailsSent(db(), NOW, NOTICE_EMAILS_PER_CYCLE);
+    await recordEmailsSent(db().global, NOW, NOTICE_EMAILS_PER_CYCLE);
     const { notifier, sent } = fakeNotifier();
     expect(await runJob(db(), env.ARTIFACTS, message(job), NOW, { notifier })).toBe("stale");
     expect(sent).toHaveLength(0);
-    expect(await emailsSentInCycle(db(), NOW)).toBe(NOTICE_EMAILS_PER_CYCLE);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(NOTICE_EMAILS_PER_CYCLE);
   });
 
   it("puts the job back when the send fails, and the next delivery sends it", async () => {
@@ -307,7 +311,7 @@ describe("the expiry_notice job", () => {
     expect(await scheduleExpiryNotices(db(), NOW + DAY)).toEqual({ owners: 0, artifacts: 0 });
     expect(await runJob(db(), env.ARTIFACTS, message(back), NOW, { notifier })).toBe("done");
     expect(sent[0]?.artifacts.map((artifact) => artifact.id)).toEqual([ids[1], ids[0]]);
-    expect(await emailsSentInCycle(db(), NOW)).toBe(1);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(1);
   });
 
   it("needs the notifier, and keeps the job when it is missing", async () => {

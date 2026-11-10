@@ -12,10 +12,10 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { sessions, users } from "./auth-schema.ts";
+import { users } from "./auth-schema.ts";
 
 /** Regions and roles, as in @portifact/contracts (packages/db does not depend on it). */
-export const REGIONS = ["default"] as const;
+export const REGIONS = ["default", "eu"] as const;
 export const WORKSPACE_ROLES = ["admin", "editor", "member"] as const;
 
 /** Categories of the Acceptable Use Policy, for reports and suspensions (contracts: AbuseReason). */
@@ -200,17 +200,14 @@ export const readHandoffs = sqliteTable(
     artifactId: text("artifact_id")
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     stateHash: text("state_hash").notNull(),
     /**
-     * The app.portifact.com session that asked for the code. Signing out deletes it, which
-     * deletes the code and every read session that came from it.
+     * The app.portifact.com session that asked for the code. Users and sessions are global and
+     * this row is regional (decision 0005), so there is no foreign key: redeeming checks that the
+     * session is still live in the global database, so a signed-out session redeems nothing.
      */
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    authSessionId: text("auth_session_id").notNull(),
     /** Policy generation the access check passed against; the read session starts from it. */
     policyGeneration: integer("policy_generation").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
@@ -238,16 +235,12 @@ export const readSessions = sqliteTable(
     artifactId: text("artifact_id")
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     /**
      * The app.portifact.com session the reader signed in with. Claims are renewed only while it
      * exists and has not expired, so signing out of the app ends the read session too.
      */
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    authSessionId: text("auth_session_id").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     createdAt: createdAt(),
   },
@@ -366,13 +359,12 @@ export const reviewHandoffs = sqliteTable(
     versionId: text("version_id")
       .notNull()
       .references(() => versions.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    /** The app.portifact.com session that asked for the code; signing out deletes the code. */
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    /**
+     * The app.portifact.com session that asked for the code. No foreign key (decision 0005):
+     * redeeming checks the session in the global database.
+     */
+    authSessionId: text("auth_session_id").notNull(),
     policyGeneration: integer("policy_generation").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     usedAt: timestamp("used_at"),
@@ -413,12 +405,9 @@ export const reviewSessions = sqliteTable(
     versionId: text("version_id")
       .notNull()
       .references(() => versions.id, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    authSessionId: text("auth_session_id")
-      .notNull()
-      .references(() => sessions.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    /** No foreign key (decision 0005): renewing checks the session in the global database. */
+    authSessionId: text("auth_session_id").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     createdAt: createdAt(),
   },

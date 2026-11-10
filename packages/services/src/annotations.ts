@@ -75,9 +75,10 @@ import {
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { actorOn, ownerSide } from "./actors.ts";
+import { actorAndPlanOn, actorOn, ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
+import { ownerPlanRecord } from "./plans.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
@@ -159,18 +160,12 @@ const changed = () =>
 // Loading and authorization
 
 async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | undefined> {
-  const p = schema.ownerPlans;
-  const [row] = await db
-    .select({
-      artifact: schema.artifacts,
-      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
-    })
+  const [artifact] = await db
+    .select()
     .from(schema.artifacts)
-    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (!row) return undefined;
-  const { artifact } = row;
+  if (!artifact) return undefined;
   const state = effectiveState(
     {
       state: artifact.state,
@@ -179,11 +174,20 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     },
     new Date(input.now),
   );
-  const owner = entitlements(row.plan, input.now);
+  // The owner's plan and owner side are global (decision 0005): the plan comes in the
+  // membership's own batch and the owner side alongside it, so neither adds a round trip.
+  const [{ actor, plan }, side] = await Promise.all([
+    isServiceTokenId(input.userId)
+      ? ownerPlanRecord(db.global, artifact.ownerId).then((found) => ({ actor: null, plan: found }))
+      : actorAndPlanOn(db.global, input.userId, artifact.ownerId),
+    ownerSide(db.global, artifact.ownerId),
+  ]);
+  const owner = entitlements(plan, input.now);
   const { role, verifiedEmail, exception, groups } = await roleOf(
     db,
     artifact,
     input.userId,
+    actor,
     owner,
   );
   const scope = commentScope(
@@ -201,7 +205,7 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     scope,
     groupIds: groups.map((group) => group.id),
     // A personal space needs no read.
-    ownerSide: await ownerSide(db.global, artifact.ownerId),
+    ownerSide: side,
     entitlements: owner,
   };
 }
@@ -225,17 +229,18 @@ async function roleOf(
   db: RegionalDb,
   artifact: ArtifactRow,
   userId: string,
+  /** The caller's actor on the artifact's owner (`actorAndPlanOn`), or null for none. */
+  actor: Actor | null,
   owner: Entitlements,
 ): Promise<Caller> {
   // Comments are people's words: a service token takes no part, whatever its role (decision
   // 0011), and gets what a missing artifact gives.
   if (isServiceTokenId(userId))
     return { role: null, verifiedEmail: null, exception: null, groups: [] };
-  const actor = await actorOn(db.global, userId, artifact.ownerId);
   if (actsForOwner(actor, artifact.ownerId)) {
     return { role: "owner", verifiedEmail: null, exception: null, groups: [] };
   }
-  const [user] = await db
+  const [user] = await db.global
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
@@ -667,7 +672,7 @@ async function checkLimits(
   threadMessages = 0,
 ): Promise<Result<true>> {
   // Budget protection pauses new comments (plan section 12); moderation never passes through here.
-  const capacity = checkAnnotationCapacity((await platformProtection(db, now)).actions);
+  const capacity = checkAnnotationCapacity((await platformProtection(db.global, now)).actions);
   if (!capacity.ok) return capacity;
   // The quota is the artifact owner's, so it follows the owner's plan, whoever writes.
   return checkAnnotationWrite(

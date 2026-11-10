@@ -49,7 +49,7 @@ import {
   openMultipartUploads,
 } from "./multipart.ts";
 import { hex, objectKey } from "./objects.ts";
-import { ownerEntitlements } from "./plans.ts";
+import { ownerEntitlements, ownerPlanRecord } from "./plans.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 
 export { objectKey } from "./objects.ts";
@@ -343,7 +343,7 @@ export async function preparePublish(
   const createsArtifact = !artifactId;
   // Budget protection (plan section 12): the brake stops new artifacts, the first step every upload.
   const capacity = checkPublishCapacity(
-    (await platformProtection(db, input.now)).actions,
+    (await platformProtection(db.global, input.now)).actions,
     createsArtifact,
   );
   if (!capacity.ok) return capacity;
@@ -363,7 +363,7 @@ export async function preparePublish(
   const since = input.now - DAY_MS;
   const sameMonth = usageRow && usageRow.monthStartedAt === monthStart(input.now);
   const newBytes = uploads.reduce((sum, upload) => sum + upload.size, 0);
-  const owner = await ownerEntitlements(db, ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, ownerId, input.now);
   const admission = checkPublish(
     {
       activeArtifacts: usageRow?.activeArtifacts ?? 0,
@@ -389,7 +389,9 @@ export async function preparePublish(
 
   // A new artifact starts with the owner's defaults (access, comments, the bar); updates keep
   // the artifact's own policy.
-  const policy = createsArtifact ? await newArtifactDefaults(db, actor, input.now, owner) : null;
+  const policy = createsArtifact
+    ? await newArtifactDefaults(db.global, actor, input.now, owner)
+    : null;
   if (!artifactId) {
     // The ID is claimed in the global directory before the regional batch (decision 0005).
     const claimed = await claimNewArtifactId(db.global, actor.region, input.now, drawArtifactId);
@@ -730,28 +732,26 @@ export async function commitPublish(
     return fail("upload_incomplete", `Some files are missing or invalid: ${problems.join("; ")}.`);
   }
 
-  const [version] = await db
-    .select({
-      number: schema.versions.number,
-      entrypoint: schema.versions.entrypoint,
-      publishedBytes: schema.versions.publishedBytes,
-    })
-    .from(schema.versions)
-    .where(eq(schema.versions.id, session.versionId))
-    .limit(1);
-  const p = schema.ownerPlans;
-  const [artifact] = await db
-    .select({
-      type: schema.artifacts.type,
-      name: schema.artifacts.name,
-      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
-    })
-    .from(schema.artifacts)
-    .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))
-    .where(eq(schema.artifacts.id, session.artifactId))
-    .limit(1);
-  // The owner's plan comes with the artifact, so the webhook events below cost no read.
-  const owner = entitlements(artifact?.plan ?? null, input.now);
+  // The version, the artifact and the owner's plan (global, decision 0005) in parallel: one round
+  // trip, so the webhook events below cost no read.
+  const [[version], [artifact], plan] = await Promise.all([
+    db
+      .select({
+        number: schema.versions.number,
+        entrypoint: schema.versions.entrypoint,
+        publishedBytes: schema.versions.publishedBytes,
+      })
+      .from(schema.versions)
+      .where(eq(schema.versions.id, session.versionId))
+      .limit(1),
+    db
+      .select({ type: schema.artifacts.type, name: schema.artifacts.name })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, session.artifactId))
+      .limit(1),
+    ownerPlanRecord(db.global, ownerId),
+  ]);
+  const owner = entitlements(plan, input.now);
   const sessionOpen = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.id} = ${session.id} and ${schema.uploadSessions.state} in ('uploading', 'ready'))`;
   let rendering: DocumentRendering | null = null;
   if (version && artifact && isDocumentType(artifact.type)) {

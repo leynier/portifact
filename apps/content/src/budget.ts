@@ -7,7 +7,7 @@
 // visitor IP and kind of traffic, not by Workers Rate Limiting: that binding is approximate per
 // location, and in production a 240-a-minute binding refused none of 1,200 protected requests
 // a minute from one IP (docs/operations.md).
-import type { Db } from "@portifact/db";
+import type { GlobalDb } from "@portifact/db";
 import {
   PROTECTION_TRAFFIC_LIMITS,
   type ProtectionAction,
@@ -48,7 +48,7 @@ export function resetProtectionCache(options: { maxRefusals?: number } = {}): vo
 
 const errorName = (error: unknown) => (error instanceof Error ? error.name : typeof error);
 
-async function protectionActions(db: Db, now: number): Promise<ProtectionAction[]> {
+async function protectionActions(db: GlobalDb, now: number): Promise<ProtectionAction[]> {
   if (cached && now - cached.readAt < PROTECTION_TTL_MS) return cached.actions;
   let actions: ProtectionAction[] = [];
   try {
@@ -79,7 +79,7 @@ function remember(key: string, resetAt: number, now: number): void {
 export async function overTrafficLimit(
   request: Request,
   env: BudgetEnv,
-  db: Db,
+  db: GlobalDb,
   isPublic: boolean,
   now: number,
 ): Promise<number | null> {

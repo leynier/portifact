@@ -370,7 +370,7 @@ describe("authenticating with a service token", () => {
     expect((await t.h.request("/api/v1/artifacts", bearer(created.secret))).status).toBe(401);
 
     const second = await createToken(t, { ...TOKEN, label: "Second" });
-    const deleted = await deleteWorkspace(db(), { workspaceId: t.id, now: NOW });
+    const deleted = await deleteWorkspace(regionsFromEnv(env), { workspaceId: t.id, now: NOW });
     expect(deleted.ok).toBe(true);
     expect((await t.h.request("/api/v1/artifacts", bearer(second.secret))).status).toBe(401);
   });

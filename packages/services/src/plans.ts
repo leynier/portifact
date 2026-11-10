@@ -18,7 +18,7 @@ import {
   PlanOverrides,
   type PlanView,
 } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type Db, type GlobalDb, schema } from "@portifact/db";
 import {
   alignedLimit,
   type Entitlements,
@@ -39,13 +39,12 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { ownerRetentionJob } from "./analytics.ts";
 import { auditEvent } from "./audit.ts";
 
-/** What the owner's plan grants at `now`; `free` without a row or once it expired. */
-export async function ownerEntitlements(
-  db: Db,
-  ownerId: string,
-  now: number,
-): Promise<Entitlements> {
-  const [row] = await db
+/**
+ * The query for the owner's plan row, for a batch of the global database (plans are global,
+ * decision 0005: no regional query may join them).
+ */
+export function ownerPlanQuery(db: GlobalDb, ownerId: string) {
+  return db
     .select({
       plan: schema.ownerPlans.plan,
       seats: schema.ownerPlans.seats,
@@ -55,7 +54,24 @@ export async function ownerEntitlements(
     .from(schema.ownerPlans)
     .where(eq(schema.ownerPlans.ownerId, ownerId))
     .limit(1);
-  return entitlements(row ?? null, now);
+}
+
+/** The owner's plan row, or null for an owner on `free` without one. */
+export async function ownerPlanRecord(
+  db: GlobalDb,
+  ownerId: string,
+): Promise<OwnerPlanRecord | null> {
+  const [row] = await ownerPlanQuery(db, ownerId);
+  return row ?? null;
+}
+
+/** What the owner's plan grants at `now`; `free` without a row or once it expired. */
+export async function ownerEntitlements(
+  db: GlobalDb,
+  ownerId: string,
+  now: number,
+): Promise<Entitlements> {
+  return entitlements(await ownerPlanRecord(db, ownerId), now);
 }
 
 /**
@@ -67,7 +83,7 @@ export async function ownerEntitlements(
  * that already holds the owner's entitlements calls `requireFeature` instead.
  */
 export async function requireOwnerFeature(
-  db: Db,
+  db: GlobalDb,
   owner: { ownerId: string },
   feature: PlanFeature,
   now: number,

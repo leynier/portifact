@@ -169,7 +169,9 @@ describe("a transfer racing a write authorized on the old owner", () => {
     expect(after?.policyGeneration).toBe((before?.policyGeneration ?? 0) + 1);
   });
 
-  it("does not move an artifact that got a custom domain claim meanwhile", async () => {
+  // Claims are global and the move regional (decision 0005): no batch holds both, so a claim that
+  // lands between the check and the move is released after it, never left with the old owner.
+  it("releases a custom domain claim that landed while the artifact moved", async () => {
     const t = await setup();
     const raced = raceBeforeFirstWrite(async () => {
       await db()
@@ -189,7 +191,13 @@ describe("a transfer racing a write authorized on the old owner", () => {
       workspace: t.w2.slug,
       now: NOW,
     });
-    expect(result.ok).toBe(false);
-    expect(await artifact(t.artifactId)).toMatchObject({ ownerId: t.w1.id });
+    expect(result.ok).toBe(true);
+    expect(await artifact(t.artifactId)).toMatchObject({ ownerId: t.w2.id });
+    expect(
+      await db()
+        .global.select()
+        .from(schema.domainClaims)
+        .where(eq(schema.domainClaims.artifactId, t.artifactId)),
+    ).toEqual([]);
   });
 });

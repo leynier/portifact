@@ -1,5 +1,5 @@
 import { env } from "cloudflare:test";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { type PlatformMetrics, PROTECTION_ACTIONS, personalActor } from "@portifact/domain";
 import { beforeEach, describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -54,7 +54,7 @@ const metrics = (overrides: Partial<PlatformMetrics> = {}): PlatformMetrics => (
 const spending = (usd: number) => metrics({ d1RowsWritten: (50_000_000 + (usd - 9) * 1e6) / 2 });
 
 async function measure(usd: number, now = MID) {
-  return recordBudgetMeasurement(db(), { metrics: spending(usd), analytics: "ok", now });
+  return recordBudgetMeasurement(db().global, { metrics: spending(usd), analytics: "ok", now });
 }
 
 beforeEach(async () => {
@@ -74,16 +74,18 @@ describe("measuring and recording the budget", () => {
         { ownerId: owner.id, sha256: "b".repeat(64), size: 2 * GB, r2Key: "k2", createdAt: NOW },
         { ownerId: owner.id, sha256: "c".repeat(64), size: 5, r2Key: "k3", createdAt: NOW },
       ]);
-    expect(await measurePlatformUsage(db(), NOW)).toEqual(
+    expect(await measurePlatformUsage(regionsFromEnv(env), NOW)).toEqual(
       metrics({ storedBytes: 5 * GB + 5, r2ClassA: 2, emails: 0 }),
     );
     await db().delete(schema.objects);
-    expect(await measurePlatformUsage(db(), NOW)).toEqual(metrics({ r2ClassA: 0, emails: 0 }));
+    expect(await measurePlatformUsage(regionsFromEnv(env), NOW)).toEqual(
+      metrics({ r2ClassA: 0, emails: 0 }),
+    );
   });
 
   it("applies no protection before anything was measured", async () => {
-    expect(await getBudgetState(db(), NOW)).toBeNull();
-    expect(await platformProtection(db(), NOW)).toEqual({
+    expect(await getBudgetState(db().global, NOW)).toBeNull();
+    expect(await platformProtection(db().global, NOW)).toEqual({
       level: "none",
       actions: [],
       overridden: false,
@@ -116,23 +118,24 @@ describe("measuring and recording the budget", () => {
       overridden: false,
     });
 
-    const next = await recordBudgetMeasurement(db(), {
+    const next = await recordBudgetMeasurement(db().global, {
       metrics: metrics({ d1RowsWritten: (50_000_000 + 21e6) / 2 }),
       analytics: "ok",
       now: NEXT_CYCLE,
     });
     expect(next.newAlerts.map((a) => a.kind)).toEqual(["spend_25"]);
-    const all = await listBudgetAlerts(db(), { limit: 10 });
+    const all = await listBudgetAlerts(db().global, { limit: 10 });
     expect(all.map((a) => a.kind)).toEqual(["spend_25", "spend_75", "spend_50", "spend_25"]);
     expect(
-      (await listBudgetAlerts(db(), { cycleStart: Date.UTC(2026, 11, 1), limit: 10 })).length,
+      (await listBudgetAlerts(db().global, { cycleStart: Date.UTC(2026, 11, 1), limit: 10 }))
+        .length,
     ).toBe(1);
   });
 
   it("keeps when the level last changed while it stays the same", async () => {
     await measure(60);
     await measure(65, MID + 60_000);
-    const state = await getBudgetState(db(), MID + 120_000);
+    const state = await getBudgetState(db().global, MID + 120_000);
     expect(state).toMatchObject({
       automatic: { level: "alert50", actions: [] },
       projectedUsd: 65,
@@ -145,15 +148,15 @@ describe("measuring and recording the budget", () => {
 
   it("carries counters a source missed forward within the cycle only", async () => {
     await measure(130);
-    const missing = await recordBudgetMeasurement(db(), {
+    const missing = await recordBudgetMeasurement(db().global, {
       metrics: metrics(),
       analytics: "failed",
       now: MID + 60_000,
     });
     // The failed analytics query does not lift protection.
     expect(missing.assessment.level).toBe("protect100");
-    expect((await getBudgetState(db(), MID + 60_000))?.analytics).toBe("failed");
-    const nextCycle = await recordBudgetMeasurement(db(), {
+    expect((await getBudgetState(db().global, MID + 60_000))?.analytics).toBe("failed");
+    const nextCycle = await recordBudgetMeasurement(db().global, {
       metrics: metrics(),
       analytics: "failed",
       now: NEXT_CYCLE,
@@ -178,36 +181,36 @@ describe("measuring and recording the budget", () => {
   it("tracks which alerts were emailed", async () => {
     const { newAlerts } = await measure(60);
     const cycle = Date.UTC(2026, 10, 1);
-    expect((await pendingBudgetAlerts(db(), cycle)).map((a) => a.kind)).toEqual([
+    expect((await pendingBudgetAlerts(db().global, cycle)).map((a) => a.kind)).toEqual([
       "spend_25",
       "spend_50",
     ]);
-    await markBudgetAlertsNotified(db(), [], MID);
+    await markBudgetAlertsNotified(db().global, [], MID);
     await markBudgetAlertsNotified(
-      db(),
+      db().global,
       newAlerts.map((a) => a.id),
       MID + 1,
     );
-    await markBudgetAlertsNotified(db(), [newAlerts[0]?.id ?? 0], MID + 2);
-    expect(await pendingBudgetAlerts(db(), cycle)).toEqual([]);
-    const listed = await listBudgetAlerts(db(), { limit: 5 });
+    await markBudgetAlertsNotified(db().global, [newAlerts[0]?.id ?? 0], MID + 2);
+    expect(await pendingBudgetAlerts(db().global, cycle)).toEqual([]);
+    const listed = await listBudgetAlerts(db().global, { limit: 5 });
     expect(listed.map((a) => a.notifiedAt)).toEqual([MID + 1, MID + 1]);
   });
 
   it("ignores malformed stored actions and metrics", async () => {
     await measure(60);
     await db().update(schema.platformBudget).set({ actions: "{", metrics: "null" });
-    const state = await getBudgetState(db(), MID);
+    const state = await getBudgetState(db().global, MID);
     expect(state?.automatic.actions).toEqual([]);
     expect(state?.metrics).toBeNull();
     await db().update(schema.platformBudget).set({ actions: '"x"', metrics: "{" });
-    expect((await getBudgetState(db(), MID))?.automatic.actions).toEqual([]);
+    expect((await getBudgetState(db().global, MID))?.automatic.actions).toEqual([]);
   });
 });
 
 describe("operator override", () => {
   it("protects before any measurement and clears back to automatic", async () => {
-    const state = await setBudgetOverride(db(), {
+    const state = await setBudgetOverride(db().global, {
       level: "protect100",
       steps: 2,
       until: null,
@@ -232,36 +235,38 @@ describe("operator override", () => {
     });
     // A measurement keeps the override.
     await measure(30);
-    expect((await platformProtection(db(), MID)).overridden).toBe(true);
-    const cleared = await clearBudgetOverride(db(), MID);
+    expect((await platformProtection(db().global, MID)).overridden).toBe(true);
+    const cleared = await clearBudgetOverride(db().global, MID);
     expect(cleared?.override).toBeNull();
     expect(cleared?.effective).toEqual({ level: "alert25", actions: [], overridden: false });
   });
 
   it("lifts automatic protection until it expires", async () => {
     await measure(160);
-    await setBudgetOverride(db(), {
+    await setBudgetOverride(db().global, {
       level: "none",
       steps: 1,
       until: MID + DAY,
       note: null,
       now: MID,
     });
-    expect(await platformProtection(db(), MID + 1)).toEqual({
+    expect(await platformProtection(db().global, MID + 1)).toEqual({
       level: "none",
       actions: [],
       overridden: true,
     });
-    expect((await platformProtection(db(), MID + DAY)).actions).toEqual([...PROTECTION_ACTIONS]);
+    expect((await platformProtection(db().global, MID + DAY)).actions).toEqual([
+      ...PROTECTION_ACTIONS,
+    ]);
   });
 
   it("clearing without a state does nothing", async () => {
-    expect(await clearBudgetOverride(db(), NOW)).toBeNull();
+    expect(await clearBudgetOverride(db().global, NOW)).toBeNull();
   });
 });
 
 async function protect(level: "slow75" | "protect100", steps = 1) {
-  await setBudgetOverride(db(), { level, steps, until: null, note: null, now: NOW });
+  await setBudgetOverride(db().global, { level, steps, until: null, note: null, now: NOW });
 }
 
 async function siteFiles(body: string) {

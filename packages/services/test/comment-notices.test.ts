@@ -3,7 +3,7 @@
 // the unsubscribe link and the erasure of pending activity, against the real D1 schema in workerd.
 import { env } from "cloudflare:test";
 import type { AnnotationTarget, CommentNoticePayload, JobMessage } from "@portifact/contracts";
-import { globalDb, regionalDb, schema } from "@portifact/db";
+import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { COMMENT_NOTICE_EMAILS_PER_CYCLE } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -571,7 +571,7 @@ describe("sendCommentNotice", () => {
       },
     ]);
     expect(await jobsFor(owner.id)).toEqual([]);
-    expect(await emailsSentInCycle(db(), LATER)).toBe(1);
+    expect(await emailsSentInCycle(db().global, LATER)).toBe(1);
   });
 
   it("is sent once when the job is delivered twice", async () => {
@@ -600,7 +600,7 @@ describe("sendCommentNotice", () => {
     ).rejects.toThrow("email delivery failed");
     const back = await onlyJob(owner.id);
     expect(back.payload).toEqual(job.payload);
-    expect(await emailsSentInCycle(db(), LATER)).toBe(0);
+    expect(await emailsSentInCycle(db().global, LATER)).toBe(0);
 
     const { notifier, sent } = fakeNotifier();
     await runJob(db(), env.ARTIFACTS, message(back), LATER, { commentNotifier: notifier });
@@ -618,10 +618,10 @@ describe("sendCommentNotice", () => {
 
   it("skips a suppressed address", async () => {
     const { owner, reader, a } = await proWorld();
-    await suppressEmail(db(), { email: owner.email, reason: "hard_bounce", now: NOW });
+    await suppressEmail(db().global, { email: owner.email, reason: "hard_bounce", now: NOW });
     await thread(a, reader.id);
     expect(await deliver(owner.id)).toEqual([]);
-    expect(await emailsSentInCycle(db(), LATER)).toBe(0);
+    expect(await emailsSentInCycle(db().global, LATER)).toBe(0);
     expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "suppressed", threads: 1 }]);
   });
 
@@ -635,7 +635,7 @@ describe("sendCommentNotice", () => {
         commentNotifier: refusing.notifier,
       }),
     ).toBe("stale");
-    expect(await isEmailSuppressed(db(), owner.email, LATER)).toBe(true);
+    expect(await isEmailSuppressed(db().global, owner.email, LATER)).toBe(true);
     expect(await jobsFor(owner.id)).toEqual([]);
     expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "suppressed", threads: 1 }]);
   });
@@ -699,9 +699,9 @@ describe("sendCommentNotice", () => {
   it("stops when the cycle's comment notice capacity is spent", async () => {
     const { owner, reader, a } = await proWorld();
     await thread(a, reader.id);
-    await recordEmailsSent(db(), LATER, COMMENT_NOTICE_EMAILS_PER_CYCLE);
+    await recordEmailsSent(db().global, LATER, COMMENT_NOTICE_EMAILS_PER_CYCLE);
     expect(await deliver(owner.id)).toEqual([]);
-    expect(await emailsSentInCycle(db(), LATER)).toBe(COMMENT_NOTICE_EMAILS_PER_CYCLE);
+    expect(await emailsSentInCycle(db().global, LATER)).toBe(COMMENT_NOTICE_EMAILS_PER_CYCLE);
     expect(logged).toEqual([{ event: "comment_notice_skipped", reason: "capacity", threads: 1 }]);
   });
 
@@ -1079,7 +1079,7 @@ describe("the unsubscribe link", () => {
 async function finishDeletion(userId: string, now: number) {
   let state = "pending";
   for (let round = 0; round < 10 && state === "pending"; round += 1) {
-    state = await advanceAccountDeletion(db(), env.ARTIFACTS, userId, now);
+    state = await advanceAccountDeletion(regionsFromEnv(env), userId, now);
   }
   return state;
 }
@@ -1149,7 +1149,7 @@ describe("erasure of pending activity", () => {
     };
 
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: leaving.id,
         sessionId: await session(leaving.id),
         confirmEmail: leaving.email,

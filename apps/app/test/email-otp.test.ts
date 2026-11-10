@@ -314,7 +314,7 @@ describe("email quota and suppression", () => {
     const h = createHarness();
     await sendCode(h, "count-1@example.test");
     await sendCode(h, "count-2@example.test");
-    expect(await emailsSentInCycle(db(), now)).toBe(2);
+    expect(await emailsSentInCycle(db().global, now)).toBe(2);
   });
 
   it("stops sending codes once the month's sign-in emails are spent", async () => {
@@ -330,7 +330,7 @@ describe("email quota and suppression", () => {
 
   it("refuses a suppressed address with an explanation and sends nothing", async () => {
     const h = createHarness();
-    await suppressEmail(db(), { email: "bounced@example.test", reason: "hard_bounce", now });
+    await suppressEmail(db().global, { email: "bounced@example.test", reason: "hard_bounce", now });
     const response = await sendCode(h, "Bounced@Example.test");
     expect(response.status).toBe(403);
     const body = await response.json<{ error: { code: string; message: string } }>();
@@ -342,7 +342,7 @@ describe("email quota and suppression", () => {
 
   it("checks the rate limits before the suppression list", async () => {
     const h = createHarness();
-    await suppressEmail(db(), { email: "limited@example.test", reason: "complaint", now });
+    await suppressEmail(db().global, { email: "limited@example.test", reason: "complaint", now });
     for (let index = 0; index < OTP_LIMITS.perIp.max; index += 1) {
       await sendCode(h, `filler-${index}@example.test`, "192.0.2.50");
     }
@@ -361,8 +361,8 @@ describe("email quota and suppression", () => {
     });
     // Better Auth answers the same whatever the delivery, so the first request cannot tell.
     expect((await sendCode(h, "refused@example.test")).status).toBe(200);
-    expect(await isEmailSuppressed(db(), "refused@example.test", now)).toBe(true);
-    expect(await emailsSentInCycle(db(), now)).toBe(0);
+    expect(await isEmailSuppressed(db().global, "refused@example.test", now)).toBe(true);
+    expect(await emailsSentInCycle(db().global, now)).toBe(0);
     advance(61);
     const next = await sendCode(h, "refused@example.test");
     expect(next.status).toBe(403);
@@ -379,7 +379,7 @@ describe("email quota and suppression", () => {
       },
     });
     expect((await sendCode(h, "flaky@example.test")).status).toBe(200);
-    expect(await isEmailSuppressed(db(), "flaky@example.test", now)).toBe(false);
-    expect(await emailsSentInCycle(db(), now)).toBe(0);
+    expect(await isEmailSuppressed(db().global, "flaky@example.test", now)).toBe(false);
+    expect(await emailsSentInCycle(db().global, now)).toBe(0);
   });
 });

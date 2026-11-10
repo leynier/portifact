@@ -10,6 +10,7 @@ import {
   type RegionHandles,
   type Regions,
   regionsFromEnv,
+  schema,
 } from "@portifact/db";
 import type { Actor, Result } from "@portifact/domain";
 import {
@@ -18,6 +19,7 @@ import {
   personalHandles,
   resolveOwnerScope,
 } from "@portifact/services";
+import { eq } from "drizzle-orm";
 
 /** The regions this Worker is bound to. */
 export function regionsOf(env: RegionEnv): Regions {
@@ -36,6 +38,41 @@ export async function artifactDb(env: RegionEnv, artifactId: string): Promise<Re
 export async function artifactRegion(env: RegionEnv, artifactId: string): Promise<RegionHandles> {
   const regions = regionsFromEnv(env);
   return (await artifactHandles(regions, artifactId)) ?? personalHandles(regions);
+}
+
+/**
+ * The region that holds an upload session. Upload IDs carry no region, so with more than one
+ * region every region is asked at once (one round trip, in parallel); with one region nothing is
+ * read. An unknown ID is looked up in the default region, where it is missing too.
+ */
+export async function uploadRegion(env: RegionEnv, sessionId: string): Promise<RegionHandles> {
+  const regions = regionsFromEnv(env);
+  const all = regions.all();
+  if (all.length === 1) return personalHandles(regions);
+  const u = schema.uploadSessions;
+  const found = await Promise.all(
+    all.map(
+      async (handles) =>
+        (await handles.db.select({ id: u.id }).from(u).where(eq(u.id, sessionId)).limit(1)).length >
+        0,
+    ),
+  );
+  return all[found.indexOf(true)] ?? personalHandles(regions);
+}
+
+/** The database and bucket of the region that holds an artifact, for services that take both. */
+export async function artifactStorage(
+  env: RegionEnv,
+  artifactId: string,
+): Promise<[RegionalDb, R2Bucket]> {
+  const handles = await artifactRegion(env, artifactId);
+  return [handles.db, bucketOf(handles)];
+}
+
+/** The region's bucket; the app Worker is bound to every region's bucket. */
+export function bucketOf(handles: RegionHandles): R2Bucket {
+  if (!handles.bucket) throw new Error(`Region ${handles.region} has no bucket binding`);
+  return handles.bucket;
 }
 
 /** The region's access log database; the app Worker is always bound to it. */

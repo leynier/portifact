@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import type { JobMessage } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { requestAccountDeletion } from "../src/account-data.ts";
@@ -315,7 +315,7 @@ describe("outbox jobs for account deletions", () => {
     const first = await publishSite(owner.id);
     const second = await publishSite(owner.id);
     const sessionId = await session(owner.id);
-    const result = await requestAccountDeletion(db(), {
+    const result = await requestAccountDeletion(regionsFromEnv(env), {
       userId: owner.id,
       sessionId,
       confirmEmail: owner.email,

@@ -2,6 +2,8 @@
 // serves per account in memory and writes it to D1 once per window, after the response, through
 // `waitUntil`: delivery never waits for or pays a D1 write per request. The counters therefore lag
 // by up to one window per isolate, which is the accepted overshoot of the quota.
+
+import type { Region } from "@portifact/db";
 import type { TrafficDelta } from "@portifact/services";
 
 /** How long an isolate gathers traffic before writing it; well under the 30 s of waitUntil. */
@@ -14,8 +16,11 @@ export interface TrafficCharge {
   bytes: number;
 }
 
-/** Charges one served request; delivery calls it once per authorized request it answers. */
-export type CountTraffic = (charge: TrafficCharge) => void;
+/**
+ * Charges one served request; delivery calls it once per authorized request it answers, with the
+ * artifact's region (decision 0005), the default one when absent.
+ */
+export type CountTraffic = (charge: TrafficCharge, region?: Region) => void;
 
 export type WriteTraffic = (deltas: TrafficDelta[]) => Promise<void>;
 

@@ -41,7 +41,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { auditEvent } from "./audit.ts";
 import { sha256Hex } from "./objects.ts";
 import { OUTBOX_INLINE_GRACE_MS } from "./outbox.ts";
-import { ownerEntitlements } from "./plans.ts";
+import { ownerEntitlements, ownerPlanRecord } from "./plans.ts";
 
 type BrandRow = typeof schema.ownerBrands.$inferSelect;
 
@@ -87,10 +87,14 @@ function settingsOf(row: BrandRow | null, owner: Entitlements): BrandSettings {
   };
 }
 
-async function currentSettings(db: Db, ownerId: string, now: number): Promise<BrandSettings> {
+async function currentSettings(
+  db: RegionalDb,
+  ownerId: string,
+  now: number,
+): Promise<BrandSettings> {
   const [row, owner] = await Promise.all([
     loadBrand(db, ownerId),
-    ownerEntitlements(db, ownerId, now),
+    ownerEntitlements(db.global, ownerId, now),
   ]);
   return settingsOf(row, owner);
 }
@@ -117,7 +121,7 @@ export async function updateBrand(
 ): Promise<Result<BrandSettings>> {
   const allowed = authorize(input.actor, "brand");
   if (!allowed.ok) return allowed;
-  const owner = await ownerEntitlements(db, input.actor.ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, input.actor.ownerId, input.now);
   const gate = requireFeature(owner, "branding");
   if (!gate.ok) return gate;
   const name = normalizeBrandName(input.update.name);
@@ -253,7 +257,7 @@ export async function setBrandLogo(
   const allowed = authorize(input.actor, "brand");
   if (!allowed.ok) return allowed;
   const ownerId = input.actor.ownerId;
-  const owner = await ownerEntitlements(db, ownerId, input.now);
+  const owner = await ownerEntitlements(db.global, ownerId, input.now);
   const gate = requireFeature(owner, "branding");
   if (!gate.ok) return gate;
   const logo = inspectLogo(input.bytes);
@@ -420,13 +424,12 @@ export function brandLogoUrl(artifactOrigin: string, sha256: string): string {
  * shown (the plan has `branding`, no suspension). Null for everything else.
  */
 export async function findBrandLogo(
-  db: Db,
+  db: RegionalDb,
   input: { artifactId: string; sha256: string; now: number },
 ): Promise<{ key: string; type: string } | null> {
   if (!/^[0-9a-f]{64}$/.test(input.sha256)) return null;
   const a = schema.artifacts;
   const b = schema.ownerBrands;
-  const p = schema.ownerPlans;
   const [row] = await db
     .select({
       ownerId: a.ownerId,
@@ -434,40 +437,26 @@ export async function findBrandLogo(
       expiresAt: a.expiresAt,
       logoType: b.logoType,
       suspendedAt: b.suspendedAt,
-      plan: p.plan,
-      seats: p.seats,
-      validUntil: p.validUntil,
-      overrides: p.overrides,
     })
     .from(a)
     .innerJoin(b, eq(b.ownerId, a.ownerId))
-    .leftJoin(p, eq(p.ownerId, a.ownerId))
     .where(and(eq(a.id, input.artifactId), eq(b.logoSha256, input.sha256)))
     .limit(1);
   if (!row?.logoType) return null;
   if (row.state !== "active" || (row.expiresAt !== null && row.expiresAt <= input.now)) {
     return null;
   }
-  const owner = entitlements(
-    row.plan === null
-      ? null
-      : {
-          plan: row.plan,
-          seats: row.seats ?? 1,
-          validUntil: row.validUntil,
-          overrides: row.overrides,
-        },
-    input.now,
-  );
+  // The plan is global (decision 0005): read only for a logo that exists and may be shown.
+  const owner = entitlements(await ownerPlanRecord(db.global, row.ownerId), input.now);
   if (!brandShown(row, owner)) return null;
   return { key: brandLogoKey(row.ownerId, input.sha256), type: row.logoType };
 }
 
 /** The operator's view of an owner's brand (`operator brand <owner>`). */
-export async function showBrand(db: Db, ownerId: string, now: number) {
+export async function showBrand(db: RegionalDb, ownerId: string, now: number) {
   const [row, owner] = await Promise.all([
     loadBrand(db, ownerId),
-    ownerEntitlements(db, ownerId, now),
+    ownerEntitlements(db.global, ownerId, now),
   ]);
   return {
     brand: row ? brandView(row) : null,

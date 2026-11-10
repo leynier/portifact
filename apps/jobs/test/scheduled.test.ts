@@ -69,7 +69,11 @@ describe("access log retention", () => {
     const result = await runScheduled({ ...env, ACCESS_DB: broken }, NOW);
     expect(result).toMatchObject({ prunedAccessEvents: "failed", storage: expect.anything() });
     expect(error).toHaveBeenCalledWith(
-      JSON.stringify({ event: "access_log_prune_failed", error: "access log unavailable" }),
+      JSON.stringify({
+        event: "access_log_prune_failed",
+        region: "default",
+        error: "access log unavailable",
+      }),
     );
     error.mockRestore();
   });

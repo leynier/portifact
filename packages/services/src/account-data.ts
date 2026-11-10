@@ -19,6 +19,7 @@ import {
   versionRetention,
 } from "@portifact/domain";
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
@@ -35,6 +36,7 @@ import { ownerEntitlements, planView } from "./plans.ts";
 import { exportServiceTokens } from "./service-tokens.ts";
 import { exportWebhooks } from "./webhooks.ts";
 import { viewerGroupIds } from "./workspace-groups.ts";
+import type { DeletionRegions } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
 
@@ -62,13 +64,13 @@ export async function exportAccount(
   db: RegionalDb,
   input: { userId: string; now: number },
 ): Promise<Result<AccountExport>> {
-  const [user] = await db
+  const [user] = await db.global
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, input.userId))
     .limit(1);
   if (!user) return fail("unauthenticated", "Sign in to export your data.");
-  const methods = await db
+  const methods = await db.global
     .select({ provider: schema.accounts.providerId, createdAt: schema.accounts.createdAt })
     .from(schema.accounts)
     .where(eq(schema.accounts.userId, input.userId))
@@ -85,7 +87,7 @@ export async function exportAccount(
     )
     .orderBy(asc(schema.artifacts.createdAt), asc(schema.artifacts.id));
   const artifactIds = artifacts.map((artifact) => artifact.id);
-  const owner = await ownerEntitlements(db, input.userId, input.now);
+  const owner = await ownerEntitlements(db.global, input.userId, input.now);
   const retention = versionRetention(owner.limits);
 
   const readers = new Map<string, string[]>();
@@ -180,7 +182,7 @@ export async function exportAccount(
   const authorIds = [...new Set([...messages.values()].flat().map((message) => message.authorId))];
   const names = new Map<string, string>();
   for (const ids of chunks(authorIds)) {
-    for (const row of await db
+    for (const row of await db.global
       .select({ id: schema.users.id, name: schema.users.name })
       .from(schema.users)
       .where(inArray(schema.users.id, ids))) {
@@ -223,7 +225,7 @@ export async function exportAccount(
         provider: method.provider,
         connectedAt: method.createdAt.toISOString(),
       })),
-      settings: await loadSettings(db, input.userId),
+      settings: await loadSettings(db.global, input.userId),
       plan: planView(owner),
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
       // Destinations only by host: never the URL or the signing secret.
@@ -391,7 +393,7 @@ async function threadsInScope(
     const member =
       !managed && actor !== null && actor.ownerId === ownerId && isWorkspaceId(ownerId);
     const groups =
-      member && requireFeature(await ownerEntitlements(db, ownerId, now), "workspaces").ok
+      member && requireFeature(await ownerEntitlements(db.global, ownerId, now), "workspaces").ok
         ? await viewerGroupIds(db.global, ownerId, user.id)
         : new Set<string>();
     owners.set(ownerId, { managed, side: await ownerSide(db.global, ownerId), groups });
@@ -432,10 +434,11 @@ export interface DeletionRequest {
  * nothing left to change.
  */
 export async function requestAccountDeletion(
-  db: RegionalDb,
+  regions: DeletionRegions,
   input: DeletionRequest,
 ): Promise<Result<{ deleted: true }>> {
-  const [found] = await db
+  const global = regions.global;
+  const [found] = await global
     .select({
       email: schema.users.email,
       sessionCreatedAt: schema.sessions.createdAt,
@@ -459,14 +462,28 @@ export async function requestAccountDeletion(
   }
   // A workspace never loses its last admin with an account (premium plan F3). A trigger on
   // `users` (0029_workspaces.sql) refuses the delete as well, so a race fails the whole batch.
-  if (await soleAdminOf(db.global, input.userId)) return soleAdmin();
+  if (await soleAdminOf(global, input.userId)) return soleAdmin();
   const email = found.email.toLowerCase();
   const userExists = sql`exists (select 1 from ${schema.users} where ${schema.users.id} = ${input.userId})`;
   try {
-    await deletionBatch(db, input, email, userExists);
+    await deletionBatch(global, input, email, userExists);
   } catch (error) {
     if (causeIncludes(error, "sole_workspace_admin")) return soleAdmin();
     throw error;
+  }
+  // Global first (decision 0005): the account is gone, so nothing can act as it any more. Then
+  // every region, each in its own batch; one that fails here is done by the deletion job.
+  for (const { db } of regions.all()) {
+    try {
+      await db.batch(regionalDeletion(db, input.userId, input.now, true));
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "account_deletion_region_deferred",
+          error: error instanceof Error ? error.name : typeof error,
+        }),
+      );
+    }
   }
   return ok({ deleted: true });
 }
@@ -501,7 +518,8 @@ export async function soleAdminOf(global: GlobalDb, userId: string): Promise<str
   return row?.workspaceId ?? null;
 }
 
-async function deletionBatch(db: Db, input: DeletionRequest, email: string, userExists: SQL) {
+/** The global half of a deletion request: one batch, the point of no return (decision 0005). */
+async function deletionBatch(db: GlobalDb, input: DeletionRequest, email: string, userExists: SQL) {
   await db.batch([
     // A concurrent request that already deleted the user writes no second job.
     accountDeletionJob(db, input.userId, userExists, input.now),
@@ -509,41 +527,67 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
       .insert(schema.accountDeletions)
       .values({ userId: input.userId, requestedAt: input.now })
       .onConflictDoNothing(),
-    ...claimArtifacts(db, input.userId, input.now),
     db
       .update(schema.abuseReports)
       .set({ reporterEmail: null })
       .where(sql`lower(${schema.abuseReports.reporterEmail}) = ${email}`),
     db.delete(schema.deviceCodes).where(eq(schema.deviceCodes.userId, input.userId)),
-    // Comment notices pending for the account and its mutes: keyed by user with no foreign key.
-    db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, input.userId)),
-    db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, input.userId)),
-    closeJobs(db, "comment_notice", input.userId, sql`1`),
-    // Review emails sent to the account and those waiting for it (decision 0013, "Emails").
-    db.delete(schema.reviewNotices).where(eq(schema.reviewNotices.recipientId, input.userId)),
-    closeJobs(db, "review_notice", input.userId, sql`1`),
-    // Verdicts the account gave and the requests it made (approval reviews, decision 0013).
-    ...eraseApprovalAuthor(db, input.userId),
-    // The account's webhooks stop at once; no foreign key (an owner may be a workspace).
-    db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, input.userId)),
-    // A workspace's webhooks stay; who created them goes with the account.
-    db
-      .update(schema.webhooks)
-      .set({ createdBy: null })
-      .where(eq(schema.webhooks.createdBy, input.userId)),
     // A workspace's service tokens stay with it (decision 0011); who created them goes.
     db
       .update(schema.serviceTokens)
       .set({ createdBy: null })
       .where(eq(schema.serviceTokens.createdBy, input.userId)),
-    // The account's openings of other people's artifacts are in the access log database.
-    eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Each workspace the account is in records that the member is gone, before the cascade.
     accountLeftEvents(db, input.userId, input.now),
-    // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
-    // and workspace memberships.
+    // Cascades to sessions, accounts, OAuth tokens and consents and workspace memberships.
     db.delete(schema.users).where(eq(schema.users.id, input.userId)),
   ]);
+}
+
+/**
+ * The regional half of a deletion, for every region: the account's artifacts claimed for
+ * purging (a personal space is in the default region, so elsewhere this finds none), what is
+ * keyed by the account without a foreign key, and a job that erases its openings from the
+ * region's access log. Idempotent, so the request and every run of the job repeat it.
+ */
+function regionalDeletion(
+  db: RegionalDb,
+  userId: string,
+  now: number,
+  /** The request writes the job that erases its openings; the job's runs leave it to the finish. */
+  eraseOpenings: boolean,
+): [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] {
+  return [
+    ...claimArtifacts(db, userId, now),
+    // Comment notices pending for the account and its mutes: keyed by user with no foreign key.
+    db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, userId)),
+    db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, userId)),
+    closeJobs(db, "comment_notice", userId, sql`1`),
+    // Review emails sent to the account and those waiting for it (decision 0013, "Emails").
+    db.delete(schema.reviewNotices).where(eq(schema.reviewNotices.recipientId, userId)),
+    closeJobs(db, "review_notice", userId, sql`1`),
+    // Verdicts the account gave and the requests it made (approval reviews, decision 0013).
+    ...eraseApprovalAuthor(db, userId),
+    // The account's webhooks stop at once; no foreign key (an owner may be a workspace).
+    db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, userId)),
+    // A workspace's webhooks stay; who created them goes with the account.
+    db
+      .update(schema.webhooks)
+      .set({ createdBy: null })
+      .where(eq(schema.webhooks.createdBy, userId)),
+    // Links the account created on artifacts it did not own (a workspace's) keep no trace of it.
+    db
+      .update(schema.shareLinks)
+      .set({ createdBy: null })
+      .where(eq(schema.shareLinks.createdBy, userId)),
+    // Its read and review codes and sessions: users are global, so no foreign key removes them.
+    db.delete(schema.readHandoffs).where(eq(schema.readHandoffs.userId, userId)),
+    db.delete(schema.readSessions).where(eq(schema.readSessions.userId, userId)),
+    db.delete(schema.reviewHandoffs).where(eq(schema.reviewHandoffs.userId, userId)),
+    db.delete(schema.reviewSessions).where(eq(schema.reviewSessions.userId, userId)),
+    // The account's openings of other people's artifacts are in the region's access log.
+    eraseAccessEventsJob(db, "user", userId, eraseOpenings ? sql`1` : sql`0`, now),
+  ];
 }
 
 /**
@@ -595,150 +639,133 @@ async function threadsToErase(db: Db, userId: string, limit: number): Promise<st
  * Advances pending account deletions, oldest first. See `advanceAccountDeletion`.
  */
 export async function processAccountDeletions(
-  db: RegionalDb,
-  bucket: R2Bucket,
+  regions: DeletionRegions,
   now: number,
   limit = 5,
   threadsPerAccount = 25,
 ): Promise<{ processed: number; finished: number }> {
-  const pending = await db
+  const pending = await regions.global
     .select({ userId: schema.accountDeletions.userId })
     .from(schema.accountDeletions)
     .orderBy(asc(schema.accountDeletions.requestedAt))
     .limit(limit);
   let finished = 0;
   for (const deletion of pending) {
-    const state = await advanceAccountDeletion(db, bucket, deletion.userId, now, threadsPerAccount);
+    const state = await advanceAccountDeletion(regions, deletion.userId, now, threadsPerAccount);
     if (state === "finished") finished += 1;
   }
   return { processed: pending.length, finished };
 }
 
+function regionBucket(handles: { bucket: R2Bucket | undefined; region: string }): R2Bucket {
+  if (!handles.bucket) throw new Error(`Region ${handles.region} has no bucket binding`);
+  return handles.bucket;
+}
+
 /**
- * Advances one pending account deletion. Each call claims artifacts that appeared after the
- * request (an upload already in flight), leaves the claimed ones to their purge jobs and
- * `purgeArchived`, erases a batch of the account's comments elsewhere, and finishes the account
- * once neither is left: its storage objects, counters (usage and traffic), plan row, brand and its logo, idempotency records and upload sessions
- * are deleted and an `account` tombstone replaces the deletion row. Every step is idempotent and
- * safe to run concurrently. Returns `absent` when no deletion is pending for the account.
+ * Advances one pending account deletion, in every region (decision 0005). Each call repeats the
+ * regional half of the request (artifacts that appeared after it, an upload already in flight,
+ * are claimed), leaves the claimed ones to their purge jobs and `purgeArchived`, erases a batch
+ * of the account's comments on other people's artifacts in each region, and finishes the
+ * account once no region has either left: each region's storage objects, counters (usage and
+ * traffic), brand and its logo, idempotency records and upload sessions are deleted, then one
+ * global batch deletes the plan row and replaces the deletion row with an `account` tombstone.
+ * Every step is idempotent and safe to run concurrently. `absent` when none is pending.
  */
 export async function advanceAccountDeletion(
-  db: RegionalDb,
-  bucket: R2Bucket,
+  regions: DeletionRegions,
   userId: string,
   now: number,
   threadsPerAccount = 25,
 ): Promise<"absent" | "pending" | "finished"> {
-  const [deletion] = await db
+  const global = regions.global;
+  const [deletion] = await global
     .select({ userId: schema.accountDeletions.userId })
     .from(schema.accountDeletions)
     .where(eq(schema.accountDeletions.userId, userId));
   if (!deletion) return "absent";
-  // The account's custom domains and claims go first: they are global, and its artifacts are
-  // being purged (each purge also releases its own).
-  await releaseOwnerDomains(domainDbsOf(db), userId, "account_deleted", now);
-  await db.batch([
-    ...claimArtifacts(db, userId, now),
-    // Links the account created on artifacts it did not own (a workspace's) keep no trace of it.
-    db
-      .update(schema.shareLinks)
-      .set({ createdBy: null })
-      .where(eq(schema.shareLinks.createdBy, userId)),
-    // Again as it goes on, which also covers a deletion a restore re-applied.
-    ...eraseApprovalAuthor(db, userId),
-  ]);
-  const threads = await threadsToErase(db, userId, threadsPerAccount);
-  for (const threadId of threads) {
-    await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
+  let pending = false;
+  for (const { db } of regions.all()) {
+    // The account's custom domains and claims go first: they are global, and its artifacts are
+    // being purged (each purge also releases its own).
+    await releaseOwnerDomains(domainDbsOf(db), userId, "account_deleted", now);
+    await db.batch(regionalDeletion(db, userId, now, false));
+    const threads = await threadsToErase(db, userId, threadsPerAccount);
+    for (const threadId of threads) {
+      await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
+    }
+    if (threads.length > 0) pending = true;
+    const [left] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.ownerId, userId));
+    if (Number(left?.count ?? 0) > 0) pending = true;
   }
-  if (threads.length > 0) return "pending";
-  const [left] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(schema.artifacts)
-    .where(eq(schema.artifacts.ownerId, userId));
-  if (Number(left?.count ?? 0) > 0) return "pending";
+  if (pending) return "pending";
 
-  // The account's events in the global database (its plan's) go before the batch that ends the
+  // The account's events in the global database (its plan's) go before the batches that end the
   // deletion, so a crash in between leaves a step that runs again, never events nothing erases.
-  await db.global.batch([eraseOwnerAuditEvents(db.global, userId)]);
-  // Objects only aborted uploads referenced; nothing references them any more.
-  const objects = await db
-    .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
-    .from(schema.objects)
-    .where(eq(schema.objects.ownerId, userId));
-  await releaseOrphans(db, bucket, objects, now);
-  // The brand of the account's space and its logo (no foreign key: an owner may be a workspace).
-  await eraseOwnerBrand(db, bucket, userId);
+  await global.batch([eraseOwnerAuditEvents(global, userId)]);
+  for (const handles of regions.all()) {
+    const db = handles.db;
+    const bucket = regionBucket(handles);
+    // Objects only aborted uploads referenced; nothing references them any more.
+    const objects = await db
+      .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
+      .from(schema.objects)
+      .where(eq(schema.objects.ownerId, userId));
+    await releaseOrphans(db, bucket, objects, now);
+    // The brand of the account's space and its logo (no foreign key: an owner may be a workspace).
+    await eraseOwnerBrand(db, bucket, userId);
+    const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${userId})`;
+    await db.batch([
+      db
+        .delete(schema.uploadSessions)
+        .where(and(eq(schema.uploadSessions.ownerId, userId), nothingLeft)),
+      db.delete(schema.usageEvents).where(and(eq(schema.usageEvents.ownerId, userId), nothingLeft)),
+      db
+        .delete(schema.trafficCounters)
+        .where(and(eq(schema.trafficCounters.ownerId, userId), nothingLeft)),
+      db.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
+      db
+        .delete(schema.annotationUsage)
+        .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
+      // The audit log goes with its owner (the global copy, the plan's events, above).
+      eraseOwnerAuditEvents(db, userId, nothingLeft),
+      db
+        .delete(schema.accountUsage)
+        .where(
+          and(
+            eq(schema.accountUsage.ownerId, userId),
+            nothingLeft,
+            sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${userId})`,
+          ),
+        ),
+      // Erases the account's openings once more as it finishes: this also covers a deletion
+      // that a restore re-applied (applyTombstones) and an opening recorded meanwhile.
+      eraseAccessEventsJob(db, "user", userId, nothingLeft, now),
+    ]);
+  }
 
-  const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${userId})`;
+  // Every region was empty just above, and nothing can act as the account any more (its user
+  // row is gone), so the global batch ends the deletion.
   const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'account' and ${schema.tombstones.id} = ${userId})`;
-  const results = (await db.batch([
-    db
-      .delete(schema.uploadSessions)
-      .where(and(eq(schema.uploadSessions.ownerId, userId), nothingLeft)),
-    db.delete(schema.usageEvents).where(and(eq(schema.usageEvents.ownerId, userId), nothingLeft)),
-    db
-      .delete(schema.trafficCounters)
-      .where(and(eq(schema.trafficCounters.ownerId, userId), nothingLeft)),
-    db.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
-    db
-      .delete(schema.annotationUsage)
-      .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
-    // Once more as it finishes, which also covers a deletion a restore re-applied.
-    db
-      .delete(schema.commentNotices)
-      .where(and(eq(schema.commentNotices.recipientId, userId), nothingLeft)),
-    db
-      .delete(schema.commentNoticeMutes)
-      .where(and(eq(schema.commentNoticeMutes.userId, userId), nothingLeft)),
-    closeJobs(db, "comment_notice", userId, nothingLeft),
-    db
-      .delete(schema.reviewNotices)
-      .where(and(eq(schema.reviewNotices.recipientId, userId), nothingLeft)),
-    closeJobs(db, "review_notice", userId, nothingLeft),
-    db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, userId), nothingLeft)),
-    db
-      .update(schema.webhooks)
-      .set({ createdBy: null })
-      .where(eq(schema.webhooks.createdBy, userId)),
-    db
+  const results = (await global.batch([
+    global
       .update(schema.serviceTokens)
       .set({ createdBy: null })
       .where(eq(schema.serviceTokens.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
-    db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
-    // The audit log goes with its owner (the global copy, the plan's events, below).
-    eraseOwnerAuditEvents(db, userId, nothingLeft),
-    db
-      .delete(schema.accountUsage)
-      .where(
-        and(
-          eq(schema.accountUsage.ownerId, userId),
-          nothingLeft,
-          sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${userId})`,
-        ),
-      ),
-    db
+    global.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, userId)),
+    global.delete(schema.operations).where(eq(schema.operations.actorId, userId)),
+    global
       .insert(schema.tombstones)
-      .select(sql`select 'account', ${userId}, ${now} where ${nothingLeft}`)
+      .values({ kind: "account", id: userId, deletedAt: now })
       .onConflictDoNothing(),
-    closeJobs(db, "account_deletion", userId, and(nothingLeft, tombstoned) as SQL),
-    // Erases the account's openings once more as it finishes: this also covers a deletion that
-    // a restore re-applied (applyTombstones) and an opening recorded while it was in progress.
-    eraseAccessEventsJob(
-      db,
-      "user",
-      userId,
-      and(
-        nothingLeft,
-        tombstoned,
-        sql`exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${userId})`,
-      ) as SQL,
-      now,
-    ),
-    db
+    closeJobs(global, "account_deletion", userId, tombstoned),
+    global
       .delete(schema.accountDeletions)
-      .where(and(eq(schema.accountDeletions.userId, userId), nothingLeft, tombstoned))
+      .where(and(eq(schema.accountDeletions.userId, userId), tombstoned))
       .returning({ userId: schema.accountDeletions.userId }),
   ])) as unknown[];
   return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";

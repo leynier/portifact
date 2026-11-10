@@ -219,6 +219,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sweepOrphanObjects",
   "rerenderDocuments",
   "runMaintenance",
+  "runRegionalMaintenance",
   "pruneArtifactGroups",
   "pruneGroupTombstones",
   "relayOutbox",
@@ -283,6 +284,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  "appSessionLive",
   "seatLimit",
   "accessAudience",
   "approvalSummaries",

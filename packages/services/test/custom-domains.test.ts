@@ -788,14 +788,14 @@ describe("lifecycle", () => {
     );
     const sessionId = await session(owner.id);
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: owner.id,
         sessionId,
         confirmEmail: owner.email,
         now: NOW,
       }),
     );
-    await advanceAccountDeletion(db(), env.ARTIFACTS, owner.id, NOW);
+    await advanceAccountDeletion(regionsFromEnv(env), owner.id, NOW);
     expect(await domainRow(hostname)).toMatchObject({ state: "detaching" });
     expect(await claims(pending.hostname)).toEqual([]);
   });
@@ -1179,7 +1179,7 @@ describe("exact outcomes", () => {
         status: async (id: string) => {
           // The domain is removed while Cloudflare answers.
           await db()
-            .update(schema.customDomains)
+            .global.update(schema.customDomains)
             .set({ state: "detaching" })
             .where(eq(schema.customDomains.hostname, b.hostname));
           return fake.hostnames.status(id);

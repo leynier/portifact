@@ -3,6 +3,8 @@
 // and writes them once per window, after the response, through `waitUntil`. Delivery never waits
 // for or pays a D1 write per request. The write goes to the access database (`recordViews`), as
 // one batch next to the traffic meter's batch to the control database.
+
+import type { Region } from "@portifact/db";
 import { utcDay } from "@portifact/domain";
 import type { ViewDelta } from "@portifact/services";
 
@@ -21,7 +23,8 @@ export interface ViewCharge {
 }
 
 /** Counts one view; delivery calls it only for a request `pageView` counts. */
-export type CountView = (charge: ViewCharge) => void;
+/** Counts a view; `region` is the artifact's (decision 0005), the default one when absent. */
+export type CountView = (charge: ViewCharge, region?: Region) => void;
 
 export type WriteViews = (deltas: ViewDelta[]) => Promise<unknown>;
 

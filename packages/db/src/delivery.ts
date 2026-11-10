@@ -31,7 +31,11 @@ export interface DeliveryArtifact {
   archivedAt: number | null;
   /** What the owner's artifacts served in the cycle asked for; zero without a counter yet. */
   traffic: { requests: number; bytes: number };
-  /** The owner's plan row, which decides its traffic quota; null when it has none (free). */
+  /**
+   * The owner's plan row, which decides its traffic quota; null when it has none (free). Plans
+   * are global and artifacts regional (decision 0005), so the lookup never joins it: the content
+   * Worker attaches it from its per-isolate cache of `findDeliveryPlan`.
+   */
   plan: DeliveryPlan | null;
 }
 
@@ -44,10 +48,11 @@ export interface DeliveryPlan {
 }
 
 /**
- * The artifact, its current version's entrypoint, the owner's traffic counter for the cycle
- * that starts at `cycleStart` and the owner's plan, in one lookup. With `customHost`, only an
- * artifact that holds exactly that custom host (decision 0006): the regional column decides what
- * a custom host serves, whatever any cached hint said.
+ * The artifact, its current version's entrypoint and the owner's traffic counter for the cycle
+ * that starts at `cycleStart`, in one lookup of the artifact's regional database. `plan` comes
+ * back null: the caller attaches the owner's plan from the global database (`findDeliveryPlan`).
+ * With `customHost`, only an artifact that holds exactly that custom host (decision 0006): the
+ * regional column decides what a custom host serves, whatever any cached hint said.
  */
 export async function findDeliveryArtifact(
   db: Db,
@@ -73,10 +78,6 @@ export async function findDeliveryArtifact(
       archivedAt: artifacts.archivedAt,
       requests: sql<number>`coalesce(${trafficCounters.requests}, 0)`,
       bytes: sql<number>`coalesce(${trafficCounters.bytes}, 0)`,
-      plan: ownerPlans.plan,
-      seats: ownerPlans.seats,
-      validUntil: ownerPlans.validUntil,
-      overrides: ownerPlans.overrides,
     })
     .from(artifacts)
     .leftJoin(versions, eq(versions.id, artifacts.currentVersionId))
@@ -87,7 +88,6 @@ export async function findDeliveryArtifact(
         eq(trafficCounters.cycleStart, cycleStart),
       ),
     )
-    .leftJoin(ownerPlans, eq(ownerPlans.ownerId, artifacts.ownerId))
     .where(
       customHost === undefined
         ? eq(artifacts.id, id)
@@ -95,15 +95,23 @@ export async function findDeliveryArtifact(
     )
     .limit(1);
   if (!row) return null;
-  const { requests, bytes, plan, seats, validUntil, overrides, ...artifact } = row;
-  return {
-    ...artifact,
-    traffic: { requests: Number(requests), bytes: Number(bytes) },
-    plan:
-      plan === null || seats === null
-        ? null
-        : { plan, seats, validUntil, overrides: overrides ?? null },
-  };
+  const { requests, bytes, ...artifact } = row;
+  return { ...artifact, traffic: { requests: Number(requests), bytes: Number(bytes) }, plan: null };
+}
+
+/** The owner's plan row for delivery, from the global database; null when it has none (free). */
+export async function findDeliveryPlan(global: Db, ownerId: string): Promise<DeliveryPlan | null> {
+  const [row] = await global
+    .select({
+      plan: ownerPlans.plan,
+      seats: ownerPlans.seats,
+      validUntil: ownerPlans.validUntil,
+      overrides: ownerPlans.overrides,
+    })
+    .from(ownerPlans)
+    .where(eq(ownerPlans.ownerId, ownerId))
+    .limit(1);
+  return row ? { ...row, overrides: row.overrides ?? null } : null;
 }
 
 export interface DeliveryFile {

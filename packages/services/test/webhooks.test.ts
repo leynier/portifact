@@ -11,7 +11,7 @@ import {
   type WebhookDeliveryBody,
   type WebhookEventType,
 } from "@portifact/contracts";
-import { globalDb, regionalDb, schema } from "@portifact/db";
+import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { type Actor, personalActor, utcDayStart } from "@portifact/domain";
 import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -530,11 +530,11 @@ describe("managing webhooks", () => {
     await grantPlan(admin.id, "pro");
     const { webhook } = await addHook(await actorIn(admin.id, ws));
     const mine = (await addHook(personalActor(admin.id))).webhook;
-    value(await deleteWorkspace(db(), { workspaceId: ws, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: ws, now: NOW }));
     expect(await hookRow(webhook.id)).toBeUndefined();
     expect(await hookRow(mine.id)).toBeDefined();
     // Finishing the deletion leaves the member's personal webhook alone too.
-    await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws, NOW + 1);
+    await advanceWorkspaceDeletion(regionsFromEnv(env), ws, NOW + 1);
     expect(await hookRow(mine.id)).toBeDefined();
   });
 
@@ -575,7 +575,7 @@ describe("managing webhooks", () => {
       ).webhooks,
     ).toEqual([]);
     expect(await hookRow(webhook.id)).toMatchObject({ disabledAt: null });
-    expect(await exportTombstones(db())).not.toContainEqual(
+    expect(await exportTombstones(regionsFromEnv(env))).not.toContainEqual(
       expect.objectContaining({ id: webhook.id }),
     );
   });
@@ -1381,7 +1381,7 @@ describe("delivering", () => {
 
   it("defers while protection blocks uploads or deliveries are paused, never refusing the write", async () => {
     const { webhook, owner, a } = await ready();
-    await setBudgetOverride(db(), {
+    await setBudgetOverride(db().global, {
       level: "protect100",
       steps: 1,
       until: null,
@@ -1398,7 +1398,7 @@ describe("delivering", () => {
       expect(blocked.sent).toHaveLength(0);
       expect((await jobsOf(webhook.id))[0]?.availableAt).toBe(later);
     } finally {
-      await clearBudgetOverride(db(), NOW);
+      await clearBudgetOverride(db().global, NOW);
     }
     // The override ended; the emergency stop still holds them.
     const paused = network();
@@ -1662,7 +1662,7 @@ describe("maintenance, keys and erasure", () => {
     ]);
     const sessionId = await session(owner.id);
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: owner.id,
         sessionId,
         confirmEmail: owner.email,
@@ -1684,7 +1684,7 @@ describe("maintenance, keys and erasure", () => {
         now: NOW,
       }),
     );
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers).toContainEqual({ kind: "webhook", id: webhook.id, deletedAt: NOW });
     // The restore rewinds the webhook and its tombstone.
     await db().delete(schema.tombstones).where(eq(schema.tombstones.id, webhook.id));
@@ -1826,7 +1826,7 @@ describe("review fixes", () => {
     await db().delete(schema.workspaceMembers).where(eq(schema.workspaceMembers.userId, admin.id));
     const sessionId = await session(admin.id);
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: admin.id,
         sessionId,
         confirmEmail: admin.email,

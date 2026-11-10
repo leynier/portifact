@@ -258,8 +258,13 @@ describe("review access", () => {
     await expect(
       refreshReviewSession(db(), { sessionId, artifactId: ID, now: NOW + 1000 + SESSION_MS }),
     ).resolves.toMatchObject({ ok: false });
-    await db().delete(schema.sessions).where(eq(schema.sessions.userId, READER));
-    expect(await sessionCount()).toBe(0);
+    // The app session is global and the review session regional (decision 0005): the row stays
+    // until it expires or the account is deleted, and renewing it fails at once.
+    await db().global.delete(schema.sessions).where(eq(schema.sessions.userId, READER));
+    expect(await sessionCount()).toBe(1);
+    await expect(
+      refreshReviewSession(db(), { sessionId, artifactId: ID, now: NOW + 1000 }),
+    ).resolves.toMatchObject({ ok: false });
   });
 
   it("redeems a tab code only as a tab session, which is shorter, and a frame code only in a frame", async () => {

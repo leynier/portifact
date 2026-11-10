@@ -231,8 +231,9 @@ export async function sendCommentNotice(
   );
   if (activity.length === 0) return skipped("nothing_visible", threads.length);
 
-  if (await isEmailSuppressed(db, user.email, now)) return skipped("suppressed", threads.length);
-  if (!checkCommentNoticeCapacity(await emailsSentInCycle(db, now)).ok) {
+  if (await isEmailSuppressed(db.global, user.email, now))
+    return skipped("suppressed", threads.length);
+  if (!checkCommentNoticeCapacity(await emailsSentInCycle(db.global, now)).ok) {
     return skipped("capacity", threads.length);
   }
   const listed = activity.slice(0, COMMENT_NOTICE.artifactsListed);
@@ -250,7 +251,7 @@ export async function sendCommentNotice(
     });
   } catch (error) {
     if (error instanceof RecipientSuppressedError) {
-      await suppressEmail(db, { email: user.email, reason: "provider", now });
+      await suppressEmail(db.global, { email: user.email, reason: "provider", now });
       return skipped("suppressed", threads.length);
     }
     // Back in the outbox for the next run, as it was scheduled.
@@ -264,7 +265,7 @@ export async function sendCommentNotice(
     });
     throw error;
   }
-  await recordEmailsSent(db, now);
+  await recordEmailsSent(db.global, now);
   return "done";
 }
 

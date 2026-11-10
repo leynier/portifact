@@ -88,8 +88,14 @@ function send(target: ServerResponse, raw: Raw, extraCookies: string[] = []) {
 
 export async function startStack(): Promise<Stack> {
   const persist = mkdtempSync(join(tmpdir(), "pf-e2e-state-"));
-  // The control database and the access log database, each with its own migrations.
-  for (const database of ["portifact-e2e", "portifact-e2e-access"]) {
+  // The control and access log databases of both regions (decision 0005), each with its
+  // migrations; every control database gets the same history.
+  for (const database of [
+    "portifact-e2e",
+    "portifact-e2e-access",
+    "portifact-e2e-eu",
+    "portifact-e2e-access-eu",
+  ]) {
     execFileSync(
       "npx",
       ["wrangler", "d1", "migrations", "apply", database, "--local", "--persist-to", persist],

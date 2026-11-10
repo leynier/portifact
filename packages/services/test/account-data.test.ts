@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { AccountExport, type AnnotationTarget, FRESH_SESSION_MS } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -20,6 +20,7 @@ import {
 import { purgeArchived, runMaintenance } from "../src/maintenance.ts";
 import { submitAbuseReport, suspendArtifact } from "../src/moderation.ts";
 import { checkReadAccess } from "../src/read-access.ts";
+import { singleRegion } from "../src/workspaces.ts";
 import {
   artifactRow,
   DAY,
@@ -29,6 +30,7 @@ import {
   NOW,
   publishSite,
   racing,
+  racingGlobally,
   session,
   sha256,
   user,
@@ -133,7 +135,7 @@ async function tombstone(kind: "account" | "artifact", id: string) {
 async function finishDeletions(now: number) {
   for (let i = 0; i < 10; i += 1) {
     await purgeArchived(db(), env.ARTIFACTS, now, 500);
-    const result = await processAccountDeletions(db(), env.ARTIFACTS, now, 100);
+    const result = await processAccountDeletions(regionsFromEnv(env), now, 100);
     if (result.processed === 0) return;
   }
 }
@@ -259,7 +261,7 @@ describe("requesting the deletion", () => {
     const fresh = await session(owner.id, NOW - FRESH_SESSION_MS);
     const stale = await session(owner.id, NOW - FRESH_SESSION_MS - 1);
     expect(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: owner.id,
         sessionId: fresh,
         confirmEmail: "someone-else@example.test",
@@ -267,7 +269,7 @@ describe("requesting the deletion", () => {
       }),
     ).toMatchObject({ ok: false, code: "invalid_input" });
     expect(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: owner.id,
         sessionId: stale,
         confirmEmail: owner.email,
@@ -275,7 +277,7 @@ describe("requesting the deletion", () => {
       }),
     ).toMatchObject({ ok: false, code: "reauthentication_required" });
     expect(await deletion(owner.id)).toBeUndefined();
-    const done = await requestAccountDeletion(db(), {
+    const done = await requestAccountDeletion(regionsFromEnv(env), {
       userId: owner.id,
       sessionId: fresh,
       confirmEmail: ` ${owner.email.toUpperCase()} `,
@@ -289,7 +291,7 @@ describe("requesting the deletion", () => {
     const attacker = await user();
     const theirs = await session(attacker.id);
     expect(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: owner.id,
         sessionId: theirs,
         confirmEmail: owner.email,
@@ -328,7 +330,7 @@ describe("requesting the deletion", () => {
       now: NOW,
     });
 
-    const result = await requestAccountDeletion(db(), {
+    const result = await requestAccountDeletion(regionsFromEnv(env), {
       userId: owner.id,
       sessionId,
       confirmEmail: owner.email,
@@ -362,14 +364,14 @@ describe("requesting the deletion", () => {
     await publishSite(owner.id);
     const input = { userId: owner.id, sessionId, confirmEmail: owner.email, now: NOW };
     const lost = await requestAccountDeletion(
-      racing(() => requestAccountDeletion(db(), input)),
+      racingGlobally(() => requestAccountDeletion(regionsFromEnv(env), input)),
       { ...input, now: NOW + 1 },
     );
     // The racing request read the user before the first one deleted it, and its batch then
     // finds nothing left to change.
     expect(lost.ok).toBe(true);
     expect(await deletion(owner.id)).toMatchObject({ requestedAt: NOW });
-    expect(await requestAccountDeletion(db(), input)).toMatchObject({
+    expect(await requestAccountDeletion(regionsFromEnv(env), input)).toMatchObject({
       ok: false,
       code: "unauthenticated",
     });
@@ -383,7 +385,7 @@ describe("finishing the deletion", () => {
     const first = await publishSite(owner.id, { "index.html": "<p>one</p>", "a.css": "body{}" });
     const second = await publishSite(owner.id, { "index.html": "<p>two</p>" });
     await suspendArtifact(db(), { artifactId: second.artifactId, reason: "spam", now: NOW });
-    await requestAccountDeletion(db(), {
+    await requestAccountDeletion(regionsFromEnv(env), {
       userId: owner.id,
       sessionId,
       confirmEmail: owner.email,
@@ -399,7 +401,7 @@ describe("finishing the deletion", () => {
     await grantPlan(owner.id, "pro");
     await grantPlan("u_bystander", "team");
     // Without the purge, the account cannot finish.
-    await processAccountDeletions(db(), env.ARTIFACTS, NOW + 1, 100);
+    await processAccountDeletions(regionsFromEnv(env), NOW + 1, 100);
     expect(await deletion(owner.id)).toBeDefined();
     expect(await tombstone("account", owner.id)).toBeUndefined();
 
@@ -464,7 +466,7 @@ describe("finishing the deletion", () => {
     });
     const markedBefore = await threadRow(marked.id);
 
-    const requested = await requestAccountDeletion(db(), {
+    const requested = await requestAccountDeletion(regionsFromEnv(env), {
       userId: leaving.id,
       sessionId: await session(leaving.id, clock),
       confirmEmail: leaving.email,
@@ -543,7 +545,7 @@ describe("finishing the deletion", () => {
   it("claims an artifact created by an upload that was in flight during the request", async () => {
     const owner = await user();
     const sessionId = await session(owner.id);
-    await requestAccountDeletion(db(), {
+    await requestAccountDeletion(regionsFromEnv(env), {
       userId: owner.id,
       sessionId,
       confirmEmail: owner.email,
@@ -563,7 +565,7 @@ describe("finishing the deletion", () => {
     const sessionId = await session(owner.id);
     const mine = await publishSite(owner.id);
     const theirs = await publishSite(other.id);
-    await requestAccountDeletion(db(), {
+    await requestAccountDeletion(regionsFromEnv(env), {
       userId: owner.id,
       sessionId,
       confirmEmail: owner.email,

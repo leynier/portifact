@@ -27,6 +27,7 @@ import { cancelApprovalReviewOnTransfer } from "./approval-reviews.ts";
 import type { ArtifactRow } from "./artifacts.ts";
 import { auditEvent } from "./audit.ts";
 import { searchIndexJob } from "./content-search.ts";
+import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
@@ -164,10 +165,12 @@ export async function transferArtifact(
   }
 
   // A custom domain belongs to its owner's quota and verification: the artifact moves only
-  // without one, attached, being set up or being removed.
+  // without one, attached, being set up or being removed. Domains and claims are global
+  // (decision 0005), so they are read from the global database; the batch below holds only while
+  // the regional `custom_host` is still empty, which attaching sets last.
   const domains = sql`(exists (select 1 from ${schema.customDomains} where ${schema.customDomains.artifactId} = ${artifact.id}) or exists (select 1 from ${schema.domainClaims} where ${schema.domainClaims.artifactId} = ${artifact.id}))`;
-  const [domain] = await db.all<{ found: number }>(sql`select ${domains} as found`);
-  if (Number(domain?.found ?? 0) === 1) {
+  const [domain] = await db.global.all<{ found: number }>(sql`select ${domains} as found`);
+  if (Number(domain?.found ?? 0) === 1 || artifact.customHost !== null) {
     return fail(
       "invalid_input",
       "This artifact has a custom domain or a pending one. Remove it before moving the artifact.",
@@ -188,7 +191,7 @@ export async function transferArtifact(
   ).map((row) => row.sha256);
 
   // Room in the target, checked first for a clear answer; the CHECK constraints repeat it.
-  const owner = await ownerEntitlements(db, to, input.now);
+  const owner = await ownerEntitlements(db.global, to, input.now);
   const [usage] = await db
     .select({
       active: schema.accountUsage.activeArtifacts,
@@ -217,7 +220,7 @@ export async function transferArtifact(
 
   // Every write holds only while the artifact is where and as the request read it; the move of
   // the artifact row itself runs last, so a concurrent change makes the whole batch a no-op.
-  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state}${policyHolds ? sql` and ${policyHolds}` : sql``}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying')) and not ${domains}`;
+  const unchanged = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.ownerId} = ${from} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration} and ${a.state} = ${artifact.state} and ${a.customHost} is null${policyHolds ? sql` and ${policyHolds}` : sql``}) and not exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.artifactId} = ${artifact.id} and ${schema.uploadSessions.state} in ('uploading', 'ready', 'verifying'))`;
   const guarded = (condition: SQL) => and(condition, unchanged) as SQL;
   let results: unknown[];
   try {
@@ -334,6 +337,15 @@ export async function transferArtifact(
     input.now,
   );
   const [moved] = await db.select().from(a).where(eq(a.id, artifact.id)).limit(1);
+  // A domain claim started between the global check and the move (domains are global, the move
+  // regional, decision 0005) belongs to the source, which no longer owns the artifact: it is
+  // released, so a moved artifact never keeps a name or a pending claim of its old owner.
+  if (moved && moved.ownerId === to) {
+    const [late] = await db.global.all<{ found: number }>(sql`select ${domains} as found`);
+    if (Number(late?.found ?? 0) === 1) {
+      await releaseArtifactDomains(domainDbsOf(db), artifact.id, "removed", input.now);
+    }
+  }
   return moved ? ok(moved) : missingArtifact();
 }
 

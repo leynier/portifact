@@ -2,7 +2,7 @@
 // everything else under /api/auth answers 404, including Better Auth's admin, password,
 // first-party device token and client management endpoints.
 import { SSO_LIMITS, SsoLookupInput, SsoProviderId } from "@portifact/contracts";
-import { createDb, regionsFromEnv } from "@portifact/db";
+import { regionsFromEnv } from "@portifact/db";
 import { checkSignInEmail, ssoProviderForEmail } from "@portifact/services";
 import { Hono } from "hono";
 import type { Env } from "../env.ts";
@@ -170,7 +170,7 @@ async function refuseRequest(
     ctx.waitUntil(pruneOldCounters(env.DB, now));
     if (!decision.ok) return tooManyRequests(decision.retryAfterSeconds);
     // After the rate limits, so the answer cannot be used to test many addresses quickly.
-    const check = await checkSignInEmail(createDb(env.DB), email, now);
+    const check = await checkSignInEmail(regionsFromEnv(env).global, email, now);
     if (check.ok) return undefined;
     return apiError(check.code === "capacity_unavailable" ? 503 : 403, check.code, check.message);
   }

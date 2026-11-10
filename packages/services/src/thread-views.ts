@@ -57,7 +57,8 @@ export async function threadViews(
   ];
   const authors = new Map<string, AnnotationAuthor>();
   for (const ids of chunks(authorIds)) {
-    const users = await db
+    // Authors are global accounts (decision 0005): their names come from the global database.
+    const users = await db.global
       .select({ id: schema.users.id, name: schema.users.name, image: schema.users.image })
       .from(schema.users)
       .where(inArray(schema.users.id, ids));

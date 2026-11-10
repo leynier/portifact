@@ -8,7 +8,7 @@
 // dispatcher Miniflare routes them through.
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { createDb } from "@portifact/db";
+import { type RegionEnv, regionsFromEnv } from "@portifact/db";
 import { domainDepsFromEnv } from "@portifact/services";
 import { getPlatformProxy } from "wrangler";
 import { OPERATOR_USAGE, operatorTarget, runOperator } from "../src/operator.ts";
@@ -25,7 +25,8 @@ if (args.length === 0 || args.includes("--help")) {
 }
 
 const here = (path: string) => resolve(import.meta.dirname, path);
-const proxy = await getPlatformProxy<{ DB: D1Database }>(
+// Every region the configuration binds (`DB`, and `DB_EU` once the EU region exists).
+const proxy = await getPlatformProxy<RegionEnv>(
   target.target === "local"
     ? {
         configPath: here("../wrangler.jsonc"),
@@ -54,7 +55,7 @@ try {
         )
       : null;
   const result = await runOperator(
-    createDb(proxy.env.DB),
+    regionsFromEnv(proxy.env),
     args,
     Date.now(),
     {

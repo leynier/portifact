@@ -103,6 +103,27 @@ export async function activeSlots(ownerId: string): Promise<number> {
  * Wraps the database so the next `batch` first lets a competing change commit, which is how a
  * race between a request's reads and its write batch is tested deterministically.
  */
+/**
+ * Every region, with the global database's first batch running `before` first: the race of a
+ * request that writes globally first (account and workspace deletion, decision 0005).
+ */
+export function racingGlobally(before: () => Promise<unknown>) {
+  const regions = regionsFromEnv(env);
+  const real = regions.global;
+  let raced = false;
+  const global = new Proxy(real, {
+    get(target, property, receiver) {
+      if (property !== "batch" || raced) return Reflect.get(target, property, receiver);
+      return async (statements: Parameters<typeof real.batch>[0]) => {
+        raced = true;
+        await before();
+        return target.batch(statements);
+      };
+    },
+  }) as typeof real;
+  return { global, all: () => regions.all() };
+}
+
 export function racing(before: () => Promise<unknown>) {
   const real = db();
   let raced = false;

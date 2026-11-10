@@ -21,8 +21,12 @@ describe("operator email suppression commands", () => {
   });
 
   it("lists suppressions with a masked hint, never the address", async () => {
-    await suppressEmail(db(), { email: "ana.lopez@example.test", reason: "complaint", now: NOW });
-    await suppressEmail(db(), {
+    await suppressEmail(db().global, {
+      email: "ana.lopez@example.test",
+      reason: "complaint",
+      now: NOW,
+    });
+    await suppressEmail(db().global, {
       email: "old@example.test",
       reason: "provider",
       now: NOW - 30 * 86_400_000,
@@ -35,12 +39,16 @@ describe("operator email suppression commands", () => {
   });
 
   it("lifts a suppression by address and says when there was none", async () => {
-    await suppressEmail(db(), { email: "lift@example.test", reason: "hard_bounce", now: NOW });
+    await suppressEmail(db().global, {
+      email: "lift@example.test",
+      reason: "hard_bounce",
+      now: NOW,
+    });
     const lifted = await run("lift-email-suppression", "Lift@Example.test");
     expect(lifted.exitCode).toBe(0);
     expect(lifted.output).toContain("Lifted the suppression of l***@example.test");
     expect(lifted.output).toContain("Email Service keeps its own list");
-    expect(await isEmailSuppressed(db(), "lift@example.test", NOW)).toBe(false);
+    expect(await isEmailSuppressed(db().global, "lift@example.test", NOW)).toBe(false);
     expect(await run("lift-email-suppression", "lift@example.test")).toEqual({
       exitCode: 1,
       output: "No suppression for l***@example.test.",

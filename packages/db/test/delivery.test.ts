@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createDb,
   findDeliveryArtifact,
+  findDeliveryPlan,
   findPublishedFile,
   findRenderedPage,
   schema,
@@ -95,12 +96,12 @@ describe("delivery queries", () => {
     });
   });
 
-  it("joins the owner's plan row, null without one, never another owner's", async () => {
-    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+  it("never joins the plan (global, decision 0005), which its own read finds, never another owner's", async () => {
+    expect(await findDeliveryPlan(db(), "u_owner")).toBeNull();
     await db()
       .insert(schema.ownerPlans)
       .values({ ownerId: "u_other", plan: "enterprise", grantedBy: "test", updatedAt: CYCLE });
-    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+    expect(await findDeliveryPlan(db(), "u_owner")).toBeNull();
     await db()
       .insert(schema.ownerPlans)
       .values({
@@ -112,7 +113,9 @@ describe("delivery queries", () => {
         grantedBy: "test",
         updatedAt: CYCLE,
       });
-    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toEqual({
+    // The artifact's lookup leaves the plan to the caller, whatever the plan row says.
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.plan).toBeNull();
+    expect(await findDeliveryPlan(db(), "u_owner")).toEqual({
       plan: "team",
       seats: 3,
       validUntil: CYCLE + 1,

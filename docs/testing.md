@@ -162,6 +162,10 @@ Local numbers measure the code paths, not production capacity: local D1 is SQLit
 
 Deterministic races in Vitest complement this run: the `racing` helper (see Layers) proves in `packages/services/test/publish.test.ts` that two prepares which both passed the checks cannot take the last active slot, the last stored bytes or a third open upload. The last of these found a real gap, now closed by the `account_usage_open_uploads_limit` trigger (migration 0016).
 
+## Two regions
+
+Every Workers test suite (services, app, content, jobs) and the e2e Worker bind a second region, `eu`, to its own control database, access log database and bucket (`DB_EU`, `ACCESS_DB_EU`, `ARTIFACTS_EU`, with the same migrations), and set `REGION_GUARD` to `strict` (decision 0005, "Two-region audit"). The guard (`packages/db/src/region-guard.ts`) throws when product code sends a statement that names the other side's tables through a handle, or a batch with statements from another handle; statements a test file prepares itself pass, so arranging rows through `db()` is fine, but read and write global rows through `db().global` anyway. A crossing still to fix is listed in `KNOWN_CROSS_DATABASE` with its reason; never add one to make a test pass, fix the code. `REGION_GUARD=collect bun run --cwd <package> test` records every crossing instead of failing and prints them at the end of each test file, for an inventory. Each package's `two-regions.test.ts` runs the flows with a workspace in the EU. A test that needs exactly one region builds its regions from `{ DB: env.DB }`.
+
 ## Fixtures
 
 - `@portifact/domain/testing/images` (`packages/domain/src/testing/images.ts`, excluded from coverage and mutation) builds PNG, JPEG and WebP files byte by byte for the brand logo's tests: `png()` is a real decodable image, and the options truncate it, append data, break a checksum, add an animation chunk or hide markup in a text chunk.

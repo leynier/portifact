@@ -90,7 +90,7 @@ const busy = (hostname: string) =>
  * (the artifact's `custom_host`).
  */
 export interface DomainDbs {
-  global: Db;
+  global: GlobalDb;
   regional(region: Region): Db;
 }
 
@@ -102,9 +102,8 @@ export function domainDbs(regions: Regions): DomainDbs {
  * For the paths that hold the artifact's own region (purges, suspensions): the artifact's
  * `custom_host` is in `db`, the domains in its deployment's global database.
  */
-export function domainDbsOf(db: Db | RegionalDb): DomainDbs {
-  const global = "global" in db ? db.global : db;
-  return { global, regional: () => db };
+export function domainDbsOf(db: RegionalDb): DomainDbs {
+  return { global: db.global, regional: () => db };
 }
 
 /** One domain or pending claim, as the services hand it to the adapters. */
@@ -159,7 +158,7 @@ function newToken(): string {
     .join("");
 }
 
-async function domainRow(global: Db, hostname: string): Promise<DomainRow | undefined> {
+async function domainRow(global: GlobalDb, hostname: string): Promise<DomainRow | undefined> {
   const [row] = await global.select().from(c).where(eq(c.hostname, hostname)).limit(1);
   return row;
 }
@@ -372,7 +371,7 @@ const dnsUnavailable = () =>
   fail<never>("capacity_unavailable", "DNS could not be checked right now. Try again in a minute.");
 
 /** The operator's block list: a small table read whole. */
-export async function blockedNames(global: Db): Promise<string[]> {
+export async function blockedNames(global: GlobalDb): Promise<string[]> {
   return (
     await global.select({ name: schema.blockedHostnames.name }).from(schema.blockedHostnames)
   ).map((row) => row.name);
@@ -383,7 +382,7 @@ export async function blockedNames(global: Db): Promise<string[]> {
  * (or a name above it), or it is the apex of its DNS zone. Null when it may be used.
  */
 async function refusedName(
-  global: Db,
+  global: GlobalDb,
   deps: DomainDeps,
   hostname: string,
 ): Promise<Result<never> | null> {
@@ -514,7 +513,7 @@ async function proveClaim(
 }
 
 /** The owner's domains that count toward the limit, other than `hostname`. */
-async function countOwned(global: Db, ownerId: string, hostname: string): Promise<number> {
+async function countOwned(global: GlobalDb, ownerId: string, hostname: string): Promise<number> {
   const [counted] = await global
     .select({ n: sql<number>`count(*)` })
     .from(c)
@@ -549,7 +548,12 @@ async function checkAgain(
   return ok(domainRecord((await domainRow(dbs.global, row.hostname)) ?? row));
 }
 
-async function setProblem(global: Db, row: DomainRow, problem: CustomDomainProblem, now: number) {
+async function setProblem(
+  global: GlobalDb,
+  row: DomainRow,
+  problem: CustomDomainProblem,
+  now: number,
+) {
   await global
     .update(c)
     .set({ problem, checkedAt: now })
@@ -822,7 +826,7 @@ export interface DomainListing {
 }
 
 async function listing(
-  global: Db,
+  global: GlobalDb,
   deps: DomainDeps | null,
   ownerId: string,
   owner: Entitlements,
@@ -894,7 +898,7 @@ export async function artifactCustomDomains(
   );
 }
 
-async function planRow(global: Db, ownerId: string) {
+async function planRow(global: GlobalDb, ownerId: string) {
   const [row] = await global
     .select({
       plan: schema.ownerPlans.plan,
@@ -1199,7 +1203,7 @@ export async function reconcileCustomDomains(
 
 /** An owner's domains and live claims per artifact, for the account export. */
 export async function exportOwnerDomains(
-  global: Db,
+  global: GlobalDb,
   ownerId: string,
   now: number,
 ): Promise<
@@ -1249,7 +1253,7 @@ export async function activeCustomHost(
 
 /** Where a custom host points, from the global table: the content Worker's hint. */
 export async function customHostHint(
-  global: Db,
+  global: GlobalDb,
   hostname: string,
 ): Promise<{ artifactId: string; region: Region } | null> {
   const [row] = await global
@@ -1299,7 +1303,7 @@ export async function blockHostname(
 }
 
 /** Operator: lifts a block. Domains it detached stay detached; their owners add them again. */
-export async function unblockHostname(global: Db, name: string): Promise<boolean> {
+export async function unblockHostname(global: GlobalDb, name: string): Promise<boolean> {
   const normalized = normalizeBlockName(name);
   if (normalized === null) return false;
   const deleted = await global
@@ -1310,7 +1314,7 @@ export async function unblockHostname(global: Db, name: string): Promise<boolean
 }
 
 /** Operator: the block list, oldest first. */
-export async function listBlockedHostnames(global: Db) {
+export async function listBlockedHostnames(global: GlobalDb) {
   return global
     .select()
     .from(schema.blockedHostnames)

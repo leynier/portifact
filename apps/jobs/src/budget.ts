@@ -1,7 +1,7 @@
 // The budget run of the scheduled Worker (plan section 12): measure the cycle's usage, record the
 // automatic protection and the alerts it earns, and email the operator when that is configured.
 // Collector and notifier are injected so every path is tested with fakes.
-import type { Db } from "@portifact/db";
+import type { Regions } from "@portifact/db";
 import { budgetCycle, type PlatformMetrics } from "@portifact/domain";
 import { budgetAlertEmail } from "@portifact/emails";
 import {
@@ -76,9 +76,14 @@ function merge(d1: PlatformMetrics, measured: Partial<PlatformMetrics>): Platfor
 }
 
 /** One budget run. Analytics failures fall back to D1 and carried-forward counters. */
-export async function runBudget(db: Db, now: number, deps: BudgetDeps): Promise<BudgetRunResult> {
+export async function runBudget(
+  regions: Regions,
+  now: number,
+  deps: BudgetDeps,
+): Promise<BudgetRunResult> {
   const cycle = budgetCycle(now);
-  let metrics = await measurePlatformUsage(db, now);
+  const db = regions.global;
+  let metrics = await measurePlatformUsage(regions, now);
   let analytics: AnalyticsStatus = "off";
   if (deps.analytics) {
     try {

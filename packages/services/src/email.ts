@@ -6,7 +6,7 @@ import {
   type EmailSendingEvent,
   type EmailSuppressionReason,
 } from "@portifact/contracts";
-import { type Db, schema } from "@portifact/db";
+import { type GlobalDb, schema } from "@portifact/db";
 import {
   budgetCycle,
   checkEmailCapacity,
@@ -51,7 +51,7 @@ export async function emailHash(email: string): Promise<string> {
 }
 
 /** Counts emails sent now in the day's counter, one upsert so concurrent sends add up. */
-export async function recordEmailsSent(db: Db, now: number, count = 1): Promise<void> {
+export async function recordEmailsSent(db: GlobalDb, now: number, count = 1): Promise<void> {
   if (count <= 0) return;
   await db
     .insert(schema.emailCounters)
@@ -63,7 +63,7 @@ export async function recordEmailsSent(db: Db, now: number, count = 1): Promise<
 }
 
 /** Emails sent in the cycle (the UTC calendar month) that contains `now`. */
-export async function emailsSentInCycle(db: Db, now: number): Promise<number> {
+export async function emailsSentInCycle(db: GlobalDb, now: number): Promise<number> {
   const { start, end } = budgetCycle(now);
   const c = schema.emailCounters;
   const [row] = await db
@@ -74,7 +74,7 @@ export async function emailsSentInCycle(db: Db, now: number): Promise<number> {
 }
 
 /** Deletes day counters older than the previous cycle; the budget only reads the current one. */
-export async function pruneEmailCounters(db: Db, now: number): Promise<number> {
+export async function pruneEmailCounters(db: GlobalDb, now: number): Promise<number> {
   const previous = budgetCycle(budgetCycle(now).start - 1).start;
   const rows = await db
     .delete(schema.emailCounters)
@@ -97,7 +97,11 @@ const rank = (reason: SQLWrapper) =>
   sql`(case ${reason} when 'complaint' then 3 when 'hard_bounce' then 2 else 1 end)`;
 
 /** Whether sign-in codes to this address are suppressed now. */
-export async function isEmailSuppressed(db: Db, email: string, now: number): Promise<boolean> {
+export async function isEmailSuppressed(
+  db: GlobalDb,
+  email: string,
+  now: number,
+): Promise<boolean> {
   const s = schema.emailSuppressions;
   const [row] = await db
     .select({ hash: s.emailHash })
@@ -113,7 +117,7 @@ export async function isEmailSuppressed(db: Db, email: string, now: number): Pro
  * refusal never hides why the address was suppressed.
  */
 export async function suppressEmail(
-  db: Db,
+  db: GlobalDb,
   input: { email: string; reason: EmailSuppressionReason; eventId?: string | null; now: number },
 ): Promise<void> {
   const s = schema.emailSuppressions;
@@ -147,7 +151,7 @@ export async function suppressEmail(
  * else is ignored. Safe to apply twice: a repeat only extends the same row.
  */
 export async function recordEmailEvent(
-  db: Db,
+  db: GlobalDb,
   event: EmailSendingEvent,
   now: number,
 ): Promise<"suppressed" | "ignored"> {
@@ -164,7 +168,7 @@ export async function recordEmailEvent(
 
 /** Suppressions in effect now, newest first. */
 export async function listEmailSuppressions(
-  db: Db,
+  db: GlobalDb,
   input: { now: number; limit: number },
 ): Promise<EmailSuppression[]> {
   const s = schema.emailSuppressions;
@@ -185,7 +189,7 @@ export async function listEmailSuppressions(
 }
 
 /** Lifts the suppression of an address; false when it had none. */
-export async function liftEmailSuppression(db: Db, email: string): Promise<boolean> {
+export async function liftEmailSuppression(db: GlobalDb, email: string): Promise<boolean> {
   const rows = await db
     .delete(schema.emailSuppressions)
     .where(eq(schema.emailSuppressions.emailHash, await emailHash(email)))
@@ -194,7 +198,7 @@ export async function liftEmailSuppression(db: Db, email: string): Promise<boole
 }
 
 /** Deletes suppressions that ended. */
-export async function pruneEmailSuppressions(db: Db, now: number): Promise<number> {
+export async function pruneEmailSuppressions(db: GlobalDb, now: number): Promise<number> {
   const rows = await db
     .delete(schema.emailSuppressions)
     .where(lte(schema.emailSuppressions.expiresAt, now))
@@ -212,7 +216,7 @@ export type SignInEmailCheck =
  * even when the cycle is full.
  */
 export async function checkSignInEmail(
-  db: Db,
+  db: GlobalDb,
   email: string,
   now: number,
 ): Promise<SignInEmailCheck> {

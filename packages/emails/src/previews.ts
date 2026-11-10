@@ -127,6 +127,17 @@ export function previews(): Preview[] {
       }),
     },
     {
+      name: "expiry-notice-without-names",
+      email: expiryNoticeEmail({
+        ...notice,
+        names: false,
+        artifacts: [
+          noticeArtifact("k7d2qm4xab", "Q3 launch plan", 50),
+          noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
+        ],
+      }),
+    },
+    {
       name: "comment-notice",
       email: commentNoticeEmail({
         ...comments,

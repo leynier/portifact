@@ -65,11 +65,11 @@ describe("email events consumer", () => {
     ]);
     expect(result.explicitAcks).toEqual(["m0", "m1", "m2", "m3", "m4"]);
     expect(result.retryMessages).toEqual([]);
-    expect(await isEmailSuppressed(db(), "hard@example.test", NOW)).toBe(true);
-    expect(await isEmailSuppressed(db(), "spam@example.test", NOW)).toBe(true);
-    expect(await isEmailSuppressed(db(), "text@example.test", NOW)).toBe(true);
-    expect(await isEmailSuppressed(db(), "soft@example.test", NOW)).toBe(false);
-    expect(await isEmailSuppressed(db(), "fine@example.test", NOW)).toBe(false);
+    expect(await isEmailSuppressed(db().global, "hard@example.test", NOW)).toBe(true);
+    expect(await isEmailSuppressed(db().global, "spam@example.test", NOW)).toBe(true);
+    expect(await isEmailSuppressed(db().global, "text@example.test", NOW)).toBe(true);
+    expect(await isEmailSuppressed(db().global, "soft@example.test", NOW)).toBe(false);
+    expect(await isEmailSuppressed(db().global, "fine@example.test", NOW)).toBe(false);
   });
 
   it("drops malformed events without retrying them", async () => {

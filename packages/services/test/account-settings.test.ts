@@ -1,5 +1,6 @@
+import { env } from "cloudflare:test";
 import { LIMITS } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { BUILT_IN_SETTINGS } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -37,7 +38,7 @@ async function settingsRow(userId: string) {
 describe("account settings", () => {
   it("answers the built-in defaults until the owner changes them", async () => {
     const { id } = await user();
-    expect(await getAccountSettings(db(), { userId: id })).toEqual({
+    expect(await getAccountSettings(db().global, { userId: id })).toEqual({
       ok: true,
       value: BUILT_IN_SETTINGS,
     });
@@ -46,13 +47,13 @@ describe("account settings", () => {
 
   it("saves a change, keeps what it does not name and is idempotent", async () => {
     const { id } = await user();
-    const first = await updateAccountSettings(db(), {
+    const first = await updateAccountSettings(db().global, {
       userId: id,
       update: { defaultBar: false },
       now: NOW,
     });
     expect(first).toEqual({ ok: true, value: { ...BUILT_IN_SETTINGS, defaultBar: false } });
-    const second = await updateAccountSettings(db(), {
+    const second = await updateAccountSettings(db().global, {
       userId: id,
       update: { defaultAnnotations: "open" },
       now: NOW + 1,
@@ -61,19 +62,19 @@ describe("account settings", () => {
       ok: true,
       value: { ...BUILT_IN_SETTINGS, defaultBar: false, defaultAnnotations: "open" },
     });
-    await updateAccountSettings(db(), {
+    await updateAccountSettings(db().global, {
       userId: id,
       update: { defaultAnnotations: "open" },
       now: NOW + 2,
     });
-    expect(await getAccountSettings(db(), { userId: id })).toEqual(second);
+    expect(await getAccountSettings(db().global, { userId: id })).toEqual(second);
     expect((await settingsRow(id))?.updatedAt).toBe(NOW + 2);
   });
 
   it("refuses a public default for an account in its first minutes, and allows it after", async () => {
     const id = await newAccount();
     expect(
-      await updateAccountSettings(db(), {
+      await updateAccountSettings(db().global, {
         userId: id,
         update: { defaultAccessMode: "public" },
         now: NOW,
@@ -82,7 +83,7 @@ describe("account settings", () => {
     expect(await settingsRow(id)).toBeUndefined();
     const later = NOW - MINUTE + LIMITS.publicAccessMinAccountAgeMinutes * MINUTE;
     expect(
-      await updateAccountSettings(db(), {
+      await updateAccountSettings(db().global, {
         userId: id,
         update: { defaultAccessMode: "public" },
         now: later,
@@ -91,12 +92,12 @@ describe("account settings", () => {
   });
 
   it("refuses an account that does not exist", async () => {
-    expect(await getAccountSettings(db(), { userId: "u_missing" })).toMatchObject({
+    expect(await getAccountSettings(db().global, { userId: "u_missing" })).toMatchObject({
       ok: false,
       code: "unauthenticated",
     });
     expect(
-      await updateAccountSettings(db(), {
+      await updateAccountSettings(db().global, {
         userId: "u_missing",
         update: { defaultBar: false },
         now: NOW,
@@ -119,7 +120,7 @@ describe("defaults on new artifacts", () => {
 
   it("applies the owner's defaults to an artifact the publish service creates", async () => {
     const { id } = await user();
-    await updateAccountSettings(db(), { userId: id, update: OPEN_DEFAULTS, now: NOW });
+    await updateAccountSettings(db().global, { userId: id, update: OPEN_DEFAULTS, now: NOW });
     const { artifactId } = await publishSite(id);
     expect(await artifactRow(artifactId)).toMatchObject({
       accessMode: "authenticated",
@@ -132,7 +133,7 @@ describe("defaults on new artifacts", () => {
   it("never changes existing artifacts, also when a new version is published", async () => {
     const { id } = await user();
     const first = await publishSite(id);
-    await updateAccountSettings(db(), {
+    await updateAccountSettings(db().global, {
       userId: id,
       update: { ...OPEN_DEFAULTS, defaultAccessMode: "public" },
       now: NOW,
@@ -168,26 +169,30 @@ describe("defaults on new artifacts", () => {
 describe("the account's language", () => {
   it("is saved, kept by later changes and cleared with null", async () => {
     const { id } = await user();
-    const saved = await updateAccountSettings(db(), {
+    const saved = await updateAccountSettings(db().global, {
       userId: id,
       update: { locale: "es" },
       now: NOW,
     });
     expect(saved).toEqual({ ok: true, value: { ...BUILT_IN_SETTINGS, locale: "es" } });
     expect((await settingsRow(id))?.locale).toBe("es");
-    await updateAccountSettings(db(), { userId: id, update: { defaultBar: false }, now: NOW });
-    expect(await getAccountSettings(db(), { userId: id })).toMatchObject({
+    await updateAccountSettings(db().global, {
+      userId: id,
+      update: { defaultBar: false },
+      now: NOW,
+    });
+    expect(await getAccountSettings(db().global, { userId: id })).toMatchObject({
       ok: true,
       value: { locale: "es", defaultBar: false },
     });
-    await updateAccountSettings(db(), { userId: id, update: { locale: null }, now: NOW });
+    await updateAccountSettings(db().global, { userId: id, update: { locale: null }, now: NOW });
     expect((await settingsRow(id))?.locale).toBeNull();
   });
 
   it("reads a stored language that is no longer offered as no choice", async () => {
     const { id } = await user();
     await db().insert(schema.accountSettings).values({ userId: id, locale: "xx", updatedAt: NOW });
-    expect(await getAccountSettings(db(), { userId: id })).toEqual({
+    expect(await getAccountSettings(db().global, { userId: id })).toEqual({
       ok: true,
       value: BUILT_IN_SETTINGS,
     });
@@ -195,7 +200,7 @@ describe("the account's language", () => {
 
   it("never changes the policy of new artifacts", async () => {
     const id = await newAccount();
-    await updateAccountSettings(db(), { userId: id, update: { locale: "es" }, now: NOW });
+    await updateAccountSettings(db().global, { userId: id, update: { locale: "es" }, now: NOW });
     const { artifactId } = await publishSite(id);
     expect((await artifactRow(artifactId))?.accessMode).toBe("restricted");
   });
@@ -206,10 +211,10 @@ describe("settings in the account's data", () => {
     const { id } = await user();
     const before = await exportAccount(db(), { userId: id, now: NOW });
     expect(before.ok && before.value.account.settings).toEqual(BUILT_IN_SETTINGS);
-    await updateAccountSettings(db(), { userId: id, update: OPEN_DEFAULTS, now: NOW });
+    await updateAccountSettings(db().global, { userId: id, update: OPEN_DEFAULTS, now: NOW });
     const after = await exportAccount(db(), { userId: id, now: NOW });
     expect(after.ok && after.value.account.settings).toEqual(OPEN_DEFAULTS);
-    await updateAccountSettings(db(), { userId: id, update: { locale: "es" }, now: NOW });
+    await updateAccountSettings(db().global, { userId: id, update: { locale: "es" }, now: NOW });
     const localized = await exportAccount(db(), { userId: id, now: NOW });
     expect(localized.ok && localized.value.account.settings).toEqual({
       ...OPEN_DEFAULTS,
@@ -219,9 +224,9 @@ describe("settings in the account's data", () => {
 
   it("go with the account when it is deleted", async () => {
     const { id, email } = await user();
-    await updateAccountSettings(db(), { userId: id, update: OPEN_DEFAULTS, now: NOW });
+    await updateAccountSettings(db().global, { userId: id, update: OPEN_DEFAULTS, now: NOW });
     const sessionId = await session(id, NOW);
-    const deleted = await requestAccountDeletion(db(), {
+    const deleted = await requestAccountDeletion(regionsFromEnv(env), {
       userId: id,
       sessionId,
       confirmEmail: email,

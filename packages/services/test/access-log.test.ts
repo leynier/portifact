@@ -1,7 +1,7 @@
 // The owner's access log: deduplicated recording from delivery batches, the owner-only listing,
 // retention pruning and the erasure jobs that purges and account deletions write.
 import { env } from "cloudflare:test";
-import { accessSchema, createAccessDb, schema } from "@portifact/db";
+import { accessSchema, createAccessDb, regionsFromEnv, schema } from "@portifact/db";
 import { ACCESS_RETENTION_MS, ACCESS_WINDOW_MS } from "@portifact/domain";
 import { and, asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -375,7 +375,7 @@ describe("erasure jobs", () => {
       { artifactId: theirs.artifactId, userId: owner.id, at: NOW },
     ]);
     const sessionId = await session(reader.id);
-    await requestAccountDeletion(db(), {
+    await requestAccountDeletion(regionsFromEnv(env), {
       userId: reader.id,
       sessionId,
       confirmEmail: reader.email,
@@ -384,7 +384,7 @@ describe("erasure jobs", () => {
     const [userJob] = await eraseJobs(reader.id);
     expect(userJob?.payload).toEqual({ kind: "user" });
     // Finishing the deletion purges the reader's artifact (its own job) and erases once more.
-    let state = await advanceAccountDeletion(db(), env.ARTIFACTS, reader.id, NOW);
+    let state = await advanceAccountDeletion(regionsFromEnv(env), reader.id, NOW);
     for (let i = 0; i < 5 && state !== "finished"; i += 1) {
       const purges = await db()
         .select()
@@ -400,10 +400,10 @@ describe("erasure jobs", () => {
           access: access(),
         });
       }
-      state = await advanceAccountDeletion(db(), env.ARTIFACTS, reader.id, NOW);
+      state = await advanceAccountDeletion(regionsFromEnv(env), reader.id, NOW);
     }
     expect(state).toBe("finished");
-    expect(await advanceAccountDeletion(db(), env.ARTIFACTS, reader.id, NOW)).toBe("absent");
+    expect(await advanceAccountDeletion(regionsFromEnv(env), reader.id, NOW)).toBe("absent");
     expect(await eraseJobs(reader.id)).toHaveLength(2);
     expect(await eraseJobs(theirs.artifactId)).toHaveLength(1);
     await runEraseJobs(reader.id);

@@ -21,6 +21,7 @@ import {
   type Actor,
   authorize,
   fail,
+  type OwnerPlanRecord,
   ok,
   personalActor,
   policyOf,
@@ -30,6 +31,7 @@ import {
   storedTokenScopes,
 } from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { ownerPlanQuery, ownerPlanRecord } from "./plans.ts";
 
 /**
  * Whether the workspace has a verified email domain, evaluated only when its policy's default
@@ -70,7 +72,13 @@ export async function actorOn(
   if (isServiceTokenId(userId)) return tokenActorOn(global, userId, target);
   const ownerId = ownerOfTarget(target);
   if (!isWorkspaceId(ownerId)) return ownerId === userId ? personalActor(userId) : null;
-  const [row] = await global
+  const [row] = await memberQuery(global, userId, ownerId);
+  return memberActor(userId, ownerId, row);
+}
+
+/** The membership read `actorOn` makes for a workspace, for a batch of the global database. */
+function memberQuery(global: GlobalDb, userId: string, ownerId: string) {
+  return global
     .select({
       role: schema.workspaceMembers.role,
       region: schema.workspaces.region,
@@ -87,6 +95,11 @@ export async function actorOn(
       ),
     )
     .limit(1);
+}
+
+type MemberRow = Awaited<ReturnType<typeof memberQuery>>[number];
+
+function memberActor(userId: string, ownerId: string, row: MemberRow | undefined): Actor | null {
   if (!row) return null;
   if (!isRegion(row.region)) throw new Error(`Workspace ${ownerId} is in an unknown region`);
   return {
@@ -97,6 +110,33 @@ export async function actorOn(
     policy: policyOf(row.policy),
     domainVerified: Number(row.domainVerified) === 1,
   };
+}
+
+/**
+ * The actor on an owner and the owner's plan row, for the services that need both while
+ * working on regional data (decision 0005: plans are global, so no regional query joins them).
+ * For a member of a workspace both come in one batch of the global database, the round trip the
+ * membership already took; a personal space needs no read for its actor, so it costs one for
+ * the plan.
+ */
+export async function actorAndPlanOn(
+  global: GlobalDb,
+  userId: string,
+  target: ActorTarget,
+): Promise<{ actor: Actor | null; plan: OwnerPlanRecord | null }> {
+  const ownerId = ownerOfTarget(target);
+  if (isServiceTokenId(userId) || !isWorkspaceId(ownerId)) {
+    const [actor, plan] = await Promise.all([
+      actorOn(global, userId, target),
+      ownerPlanRecord(global, ownerId),
+    ]);
+    return { actor, plan };
+  }
+  const [members, plans] = await global.batch([
+    memberQuery(global, userId, ownerId),
+    ownerPlanQuery(global, ownerId),
+  ]);
+  return { actor: memberActor(userId, ownerId, members[0]), plan: plans[0] ?? null };
 }
 
 async function tokenActorOn(

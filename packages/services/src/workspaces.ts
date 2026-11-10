@@ -14,7 +14,14 @@ import {
   type WorkspacePolicy,
   type WorkspaceRole,
 } from "@portifact/contracts";
-import { type Db, type GlobalDb, isRegion, type RegionalDb, schema } from "@portifact/db";
+import {
+  type Db,
+  type GlobalDb,
+  isRegion,
+  type RegionalDb,
+  type Regions,
+  schema,
+} from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -561,8 +568,17 @@ function activeUser(userId: string): SQL {
  */
 export async function createWorkspace(
   global: GlobalDb,
-  input: { slug: string; name: string; adminUserId: string; now: number; id?: string },
+  input: {
+    slug: string;
+    name: string;
+    adminUserId: string;
+    now: number;
+    id?: string;
+    /** Fixed at creation (decision 0005); the default region without one. */
+    region?: Region;
+  },
 ): Promise<Result<WorkspaceRow>> {
+  const region = input.region ?? DEFAULT_REGION;
   const checked = checkNewWorkspace(input);
   if (!checked.ok) return checked;
   const { slug, name } = checked.value;
@@ -577,7 +593,7 @@ export async function createWorkspace(
       // Columns in schema order: id, slug, name, region, created by, created at, updated at,
       // policy (the defaults), policy revision.
       .select(
-        sql`select ${id}, ${slug}, ${name}, ${DEFAULT_REGION}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0 where ${guard}`,
+        sql`select ${id}, ${slug}, ${name}, ${region}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0 where ${guard}`,
       )
       .onConflictDoNothing()
       .returning({ id: w.id }),
@@ -606,7 +622,7 @@ export async function createWorkspace(
     id,
     slug,
     name,
-    region: DEFAULT_REGION,
+    region,
     createdAt: input.now,
     policy: DEFAULT_POLICY,
   });
@@ -620,21 +636,22 @@ export interface WorkspaceDetail extends WorkspaceRow {
   artifacts: number;
 }
 
-/** One workspace by slug or ID, for the operator. */
+/** One workspace by slug or ID, for the operator; its artifacts are counted in its region. */
 export async function getWorkspaceDetail(
-  global: GlobalDb,
-  regional: RegionalDb,
+  regions: Regions,
   slugOrId: string,
   now: number,
 ): Promise<WorkspaceDetail | null> {
+  const global = regions.global;
   const [row] = await global
     .select()
     .from(w)
     .where(isWorkspaceId(slugOrId) ? eq(w.id, slugOrId) : eq(w.slug, slugOrId))
     .limit(1);
   if (!row) return null;
-  const [count] = await regional
-    .select({ count: sql<number>`count(*)` })
+  const [count] = await regions
+    .get(regionOf(row))
+    .db.select({ count: sql<number>`count(*)` })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.ownerId, row.id));
   return {
@@ -690,46 +707,63 @@ export function workspaceDeletionJob(db: Db, workspaceId: string, condition: SQL
 }
 
 /**
- * Deletes a workspace (operator only), the way an account is deleted: in one batch it records the
- * deletion with its job, claims every artifact for purging (they stop being served at once) and
- * deletes the workspace row, which removes its memberships and invitations. The jobs finish it
- * (`advanceWorkspaceDeletion`). A retry finds nothing left to change.
+ * Deletes a workspace (operator only), the way an account is deleted, global first (decision
+ * 0005): one global batch records the deletion with its job, removes the identities of its
+ * single sign-on and deletes the workspace row, which removes its memberships and invitations
+ * (no one can act on it after this); then one batch in the workspace's region claims every
+ * artifact for purging (they stop being served at once) and stops its webhooks. The job finishes
+ * it (`advanceWorkspaceDeletion`) and repeats the regional claim in every region, so a crash
+ * between the two batches only delays the purge. A retry finds nothing left to change.
  */
 export async function deleteWorkspace(
-  db: RegionalDb,
+  regions: Regions,
   input: { workspaceId: string; now: number },
 ): Promise<Result<{ deleted: boolean }>> {
-  const global = db.global;
+  const global = regions.global;
+  const [row] = await global
+    .select({ id: w.id, region: w.region })
+    .from(w)
+    .where(eq(w.id, input.workspaceId))
+    .limit(1);
   const exists = sql`exists (select 1 from ${w} where ${w.id} = ${input.workspaceId})`;
-  // One batch while the workspace and its artifacts share a database, as account deletion does;
-  // a second region (E5) splits it into the global claim and a regional job (decision 0005).
-  const results = (await db.batch([
-    workspaceDeletionJob(db, input.workspaceId, exists, input.now),
-    db
+  const results = (await global.batch([
+    workspaceDeletionJob(global, input.workspaceId, exists, input.now),
+    global
       .insert(schema.workspaceDeletions)
       .select(sql`select ${input.workspaceId}, ${input.now} where ${exists}`)
       .onConflictDoNothing(),
-    ...claimArtifacts(db, input.workspaceId, input.now),
-    // Its webhooks stop at once, as an account's do: no foreign key ties them to their owner,
-    // and their pending events and delivery log cascade from them.
-    db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, input.workspaceId), exists)),
     // The identities linked through its single sign-on: no foreign key ties them to the provider,
     // which the workspace row takes with it below (decision 0016).
-    db
+    global
       .delete(schema.accounts)
       .where(
         sql`${schema.accounts.providerId} in (select 'sso:' || ${schema.workspaceSso.id} from ${schema.workspaceSso} where ${schema.workspaceSso.workspaceId} = ${input.workspaceId})`,
       ),
-    db.delete(w).where(eq(w.id, input.workspaceId)).returning({ id: w.id }),
+    global.delete(w).where(eq(w.id, input.workspaceId)).returning({ id: w.id }),
   ])) as unknown[];
   const deleted = (results.at(-1) as unknown[]).length === 1;
-  if (deleted) return ok({ deleted: true });
+  if (deleted && row) {
+    await claimOwnerInRegion(regions.get(regionOf(row)).db, input.workspaceId, input.now);
+    return ok({ deleted: true });
+  }
   const [pending] = await global
     .select({ id: schema.workspaceDeletions.workspaceId })
     .from(schema.workspaceDeletions)
     .where(eq(schema.workspaceDeletions.workspaceId, input.workspaceId))
     .limit(1);
   return pending ? ok({ deleted: false }) : missingWorkspace();
+}
+
+/**
+ * The regional half of a workspace's deletion: claims its artifacts for purging and stops its
+ * webhooks (no foreign key ties them to their owner; their pending events and delivery log
+ * cascade from them). Idempotent.
+ */
+async function claimOwnerInRegion(db: RegionalDb, ownerId: string, now: number): Promise<void> {
+  await db.batch([
+    ...claimArtifacts(db, ownerId, now),
+    db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, ownerId)),
+  ]);
 }
 
 /**
@@ -744,21 +778,36 @@ export function deleteOrphanSsoIdentities(db: Db) {
     );
 }
 
+/** Every region a deletion has to reach, with its bucket. */
+export interface DeletionRegions {
+  global: GlobalDb;
+  all(): readonly { db: RegionalDb; bucket: R2Bucket | undefined; region: Region }[];
+}
+
+/** One region and its bucket as every region, for a deployment with one region and for tests. */
+export function singleRegion(db: RegionalDb, bucket: R2Bucket): DeletionRegions {
+  return { global: db.global, all: () => [{ db, bucket, region: DEFAULT_REGION }] };
+}
+
+function regionBucket(handles: { bucket: R2Bucket | undefined; region: Region }): R2Bucket {
+  if (!handles.bucket) throw new Error(`Region ${handles.region} has no bucket binding`);
+  return handles.bucket;
+}
+
 /** Advances pending workspace deletions, oldest first. */
 export async function processWorkspaceDeletions(
-  db: RegionalDb,
-  bucket: R2Bucket,
+  regions: DeletionRegions,
   now: number,
   limit = 5,
 ): Promise<{ processed: number; finished: number }> {
-  const pending = await db.global
+  const pending = await regions.global
     .select({ workspaceId: schema.workspaceDeletions.workspaceId })
     .from(schema.workspaceDeletions)
     .orderBy(asc(schema.workspaceDeletions.requestedAt))
     .limit(limit);
   let finished = 0;
   for (const deletion of pending) {
-    if ((await advanceWorkspaceDeletion(db, bucket, deletion.workspaceId, now)) === "finished") {
+    if ((await advanceWorkspaceDeletion(regions, deletion.workspaceId, now)) === "finished") {
       finished += 1;
     }
   }
@@ -766,83 +815,95 @@ export async function processWorkspaceDeletions(
 }
 
 /**
- * Advances one workspace deletion: claims artifacts that appeared since (an upload in flight),
- * leaves the claimed ones to their purge jobs, and once none is left deletes the stored objects,
- * counters, plan row and upload sessions and replaces the deletion row with a `workspace`
- * tombstone. Idempotent and safe to run concurrently. `absent` when none is pending.
+ * Advances one workspace deletion, in every region (the workspace row, and with it its region,
+ * is gone; claiming in a region where it never had anything costs one read): claims artifacts
+ * that appeared since (an upload in flight), leaves the claimed ones to their purge jobs, and
+ * once no region has any left deletes each region's stored objects, counters and upload
+ * sessions, then, in one global batch, the plan row, and replaces the deletion row with a
+ * `workspace` tombstone. Idempotent and safe to run concurrently. `absent` when none is pending.
  */
 export async function advanceWorkspaceDeletion(
-  db: RegionalDb,
-  bucket: R2Bucket,
+  regions: DeletionRegions,
   workspaceId: string,
   now: number,
 ): Promise<"absent" | "pending" | "finished"> {
-  const [deletion] = await db.global
+  const global = regions.global;
+  const [deletion] = await global
     .select({ id: schema.workspaceDeletions.workspaceId })
     .from(schema.workspaceDeletions)
     .where(eq(schema.workspaceDeletions.workspaceId, workspaceId));
   if (!deletion) return "absent";
-  // Its custom domains and claims go first, as an account's do: they are global, and its
-  // artifacts are being purged (each purge also releases its own).
-  await releaseOwnerDomains(domainDbsOf(db), workspaceId, "operator", now);
-  await db.batch([...claimArtifacts(db, workspaceId, now)]);
-  const [left] = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(schema.artifacts)
-    .where(eq(schema.artifacts.ownerId, workspaceId));
-  if (Number(left?.count ?? 0) > 0) return "pending";
-  // Its member and plan events in the global database go before the batch that ends the
+  let left = 0;
+  for (const { db } of regions.all()) {
+    // Its custom domains and claims go first, as an account's do: they are global, and its
+    // artifacts are being purged (each purge also releases its own).
+    await releaseOwnerDomains(domainDbsOf(db), workspaceId, "operator", now);
+    await claimOwnerInRegion(db, workspaceId, now);
+    const [count] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.ownerId, workspaceId));
+    left += Number(count?.count ?? 0);
+  }
+  if (left > 0) return "pending";
+  // Its member and plan events in the global database go before the batches that end the
   // deletion, so a crash in between leaves a step that runs again, never events nothing erases.
-  await db.global.batch([eraseOwnerAuditEvents(db.global, workspaceId)]);
+  await global.batch([eraseOwnerAuditEvents(global, workspaceId)]);
 
-  const objects = await db
-    .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
-    .from(schema.objects)
-    .where(eq(schema.objects.ownerId, workspaceId));
-  await releaseOrphans(db, bucket, objects, now);
-  // Its brand and logo, as an account's: no foreign key ties a brand to its owner.
-  await eraseOwnerBrand(db, bucket, workspaceId);
-
-  const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${workspaceId})`;
-  const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'workspace' and ${schema.tombstones.id} = ${workspaceId})`;
-  const results = (await db.batch([
-    db
-      .delete(schema.uploadSessions)
-      .where(and(eq(schema.uploadSessions.ownerId, workspaceId), nothingLeft)),
-    db
-      .delete(schema.usageEvents)
-      .where(and(eq(schema.usageEvents.ownerId, workspaceId), nothingLeft)),
-    db
-      .delete(schema.trafficCounters)
-      .where(and(eq(schema.trafficCounters.ownerId, workspaceId), nothingLeft)),
-    db
-      .delete(schema.annotationUsage)
-      .where(and(eq(schema.annotationUsage.ownerId, workspaceId), nothingLeft)),
-    db
-      .delete(schema.ownerPlans)
-      .where(and(eq(schema.ownerPlans.ownerId, workspaceId), nothingLeft)),
-    eraseOwnerAuditEvents(db, workspaceId, nothingLeft),
-    // Any webhook a restore or a race brought back since the deletion was requested.
-    db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
-    // Single sign-on identities a restore or a race left without their provider.
-    deleteOrphanSsoIdentities(db),
-    db
-      .delete(schema.accountUsage)
-      .where(
-        and(
-          eq(schema.accountUsage.ownerId, workspaceId),
-          nothingLeft,
-          sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${workspaceId})`,
+  for (const handles of regions.all()) {
+    const db = handles.db;
+    const bucket = regionBucket(handles);
+    const objects = await db
+      .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
+      .from(schema.objects)
+      .where(eq(schema.objects.ownerId, workspaceId));
+    await releaseOrphans(db, bucket, objects, now);
+    // Its brand and logo, as an account's: no foreign key ties a brand to its owner.
+    await eraseOwnerBrand(db, bucket, workspaceId);
+    const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${workspaceId})`;
+    await db.batch([
+      db
+        .delete(schema.uploadSessions)
+        .where(and(eq(schema.uploadSessions.ownerId, workspaceId), nothingLeft)),
+      db
+        .delete(schema.usageEvents)
+        .where(and(eq(schema.usageEvents.ownerId, workspaceId), nothingLeft)),
+      db
+        .delete(schema.trafficCounters)
+        .where(and(eq(schema.trafficCounters.ownerId, workspaceId), nothingLeft)),
+      db
+        .delete(schema.annotationUsage)
+        .where(and(eq(schema.annotationUsage.ownerId, workspaceId), nothingLeft)),
+      eraseOwnerAuditEvents(db, workspaceId, nothingLeft),
+      // Any webhook a restore or a race brought back since the deletion was requested.
+      db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
+      db
+        .delete(schema.accountUsage)
+        .where(
+          and(
+            eq(schema.accountUsage.ownerId, workspaceId),
+            nothingLeft,
+            sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${workspaceId})`,
+          ),
         ),
-      ),
-    db
+    ]);
+  }
+
+  // Every region was empty just above, and no one can create anything for the workspace (its
+  // row and memberships are gone), so the global batch ends the deletion.
+  const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'workspace' and ${schema.tombstones.id} = ${workspaceId})`;
+  const results = (await global.batch([
+    global.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, workspaceId)),
+    // Single sign-on identities a restore or a race left without their provider.
+    deleteOrphanSsoIdentities(global),
+    global
       .insert(schema.tombstones)
-      .select(sql`select 'workspace', ${workspaceId}, ${now} where ${nothingLeft}`)
+      .values({ kind: "workspace", id: workspaceId, deletedAt: now })
       .onConflictDoNothing(),
-    closeJobs(db, "workspace_deletion", workspaceId, and(nothingLeft, tombstoned) as SQL),
-    db
+    closeJobs(global, "workspace_deletion", workspaceId, tombstoned),
+    global
       .delete(schema.workspaceDeletions)
-      .where(and(eq(schema.workspaceDeletions.workspaceId, workspaceId), nothingLeft, tombstoned))
+      .where(and(eq(schema.workspaceDeletions.workspaceId, workspaceId), tombstoned))
       .returning({ id: schema.workspaceDeletions.workspaceId }),
   ])) as unknown[];
   return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";

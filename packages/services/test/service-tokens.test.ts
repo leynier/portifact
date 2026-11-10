@@ -245,7 +245,7 @@ describe("managing tokens", () => {
       code: "not_found",
       message: "Service token not found.",
     });
-    expect(await exportTombstones(db())).toContainEqual({
+    expect(await exportTombstones(regionsFromEnv(env))).toContainEqual({
       kind: "service_token",
       id: created.token.id,
       deletedAt: NOW,
@@ -264,7 +264,7 @@ describe("managing tokens", () => {
       }),
     ).toEqual({ ok: false, code: "not_found", message: "Service token not found." });
     expect((await authenticateServiceToken(db().global, created.secret, NOW)).ok).toBe(true);
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     expect(markers.some((marker) => marker.id === created.token.id)).toBe(false);
   });
 });
@@ -320,7 +320,7 @@ describe("authentication", () => {
 
     const gone = await team();
     const goneToken = await token(gone);
-    value(await deleteWorkspace(db(), { workspaceId: gone.id, now: NOW }));
+    value(await deleteWorkspace(regionsFromEnv(env), { workspaceId: gone.id, now: NOW }));
     expect(await authenticateServiceToken(db().global, goneToken.secret, NOW)).toEqual({
       ok: false,
       reason: "invalid",
@@ -776,7 +776,7 @@ describe("lifecycle of tokens", () => {
         now: NOW,
       }),
     );
-    const markers = await exportTombstones(db());
+    const markers = await exportTombstones(regionsFromEnv(env));
     // The restore rewinds the tombstone and brings the row back; re-applying removes it again.
     await db().delete(schema.tombstones).where(eq(schema.tombstones.id, revoked.token.id));
     await db()
@@ -813,7 +813,7 @@ describe("lifecycle of tokens", () => {
       .insert(schema.workspaceMembers)
       .values({ workspaceId: t.id, userId: second.id, role: "admin", updatedAt: NOW });
     value(
-      await requestAccountDeletion(db(), {
+      await requestAccountDeletion(regionsFromEnv(env), {
         userId: t.admin.id,
         sessionId: await session(t.admin.id),
         confirmEmail: t.admin.email,
@@ -841,7 +841,7 @@ describe("lifecycle of tokens", () => {
     expect(await operatorRevokeServiceToken(db().global, created.token.id, NOW)).toBe(true);
     expect(await operatorRevokeServiceToken(db().global, created.token.id, NOW)).toBe(false);
     expect((await authenticateServiceToken(db().global, created.secret, NOW)).ok).toBe(false);
-    expect(await exportTombstones(db())).toContainEqual({
+    expect(await exportTombstones(regionsFromEnv(env))).toContainEqual({
       kind: "service_token",
       id: created.token.id,
       deletedAt: NOW,
