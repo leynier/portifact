@@ -17,6 +17,7 @@ import {
   type AnnotationTarget,
   type AnnotationThreadView,
   type AnnotationVersionFilter,
+  type IntegrationChoiceList,
   REVIEW_SESSION,
   type ReviewStart,
   type ReviewTabStart,
@@ -84,6 +85,7 @@ import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
+import { useIssueChoices } from "../review/create-issue.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
 import { ActionError, bodyError, humanRefusal, ThreadCard } from "../review/thread-card.tsx";
 import { TargetSummary } from "../review/thread-parts.tsx";
@@ -793,6 +795,8 @@ function ReviewSession({
   const t = useT();
   const announce = useAnnounce();
   const approval = useApprovalReview(info.artifactId, true);
+  // The owner side may create issues from threads (decision 0018).
+  const issueChoices = useIssueChoices(info.artifactId, info.role === "owner");
   const frame = useRef<HTMLIFrameElement>(null);
   const [sidebarOpen, setSidebarOpen] = useState(startsOpen);
   const [offer, setOfferState] = useState<Offer | null>(null);
@@ -1104,6 +1108,8 @@ function ReviewSession({
         ) : null}
         <ThreadList
           start={start}
+          issueChoices={issueChoices}
+          artifactName={info.name}
           threads={threads}
           shown={shown}
           filtered={filter.status !== "all" || filter.author !== "all"}
@@ -1684,6 +1690,9 @@ const NO_SELECTION: ThreadSelection = { ids: [], fromFrame: false };
 
 interface ThreadListProps {
   start: ReviewStart;
+  /** The owner's connections for issues (decision 0018); undefined offers none. */
+  issueChoices?: IntegrationChoiceList | undefined;
+  artifactName: string;
   threads: ThreadsQuery;
   /** The threads the filters let through, in creation order. */
   shown: AnnotationThreadView[];
@@ -1701,6 +1710,8 @@ interface ThreadListProps {
 
 function ThreadList({
   start,
+  issueChoices,
+  artifactName,
   threads,
   shown,
   filtered,
@@ -1757,6 +1768,8 @@ function ThreadList({
       onSelect={rest.onSelect}
       onHover={rest.onHover}
       register={rest.register}
+      issueChoices={issueChoices}
+      artifactName={artifactName}
     />
   );
   return (

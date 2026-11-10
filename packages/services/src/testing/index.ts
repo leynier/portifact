@@ -3,3 +3,4 @@
 // stack only; never imported by a deployed Worker.
 export * from "./fake-domains.ts";
 export * from "./fake-idp.ts";
+export * from "./fake-issue-trackers.ts";

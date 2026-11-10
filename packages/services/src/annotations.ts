@@ -1606,6 +1606,22 @@ export function commentStanding(
   return load(db, input);
 }
 
+/**
+ * A thread the caller may read now, by every read path's rules (role, state, comment mode,
+ * comment scope and the version a visitor sees), with the caller's standing; a thread outside
+ * them answers exactly like a missing one. Issue integrations (./thread-issues.ts) send a thread
+ * out only through this, so they never reimplement who sees what.
+ */
+export async function readableThread(
+  db: RegionalDb,
+  input: AnnotationActor & { threadId: string },
+): Promise<Result<{ standing: CommentStanding & { role: AnnotationRole }; thread: ThreadRow }>> {
+  const loaded = await authorize(db, input, "read");
+  if (!loaded.ok) return loaded;
+  const thread = await findThread(db, loaded.value, input.threadId);
+  return thread ? ok({ standing: loaded.value, thread }) : missingThread();
+}
+
 /** How one listed address stands with an artifact (approval reviews, decision 0013). */
 export interface Participant {
   /** Whether the access rules let a signed-in person with this verified address take part. */

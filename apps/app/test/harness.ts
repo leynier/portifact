@@ -63,6 +63,8 @@ export function createHarness(
     emailDomains?: FakeDomains;
     /** The identity providers single sign-on reaches; omitted, every call fails. */
     ssoFetch?: AuthDeps["ssoFetch"];
+    /** GitHub and Linear for issue integrations; omitted, every call fails. */
+    integrationFetch?: AuthDeps["integrationFetch"];
   } = {},
 ): Harness {
   const outbox: EmailMessage[] = [];
@@ -78,6 +80,11 @@ export function createHarness(
       options.ssoFetch ??
       (async () => {
         throw new Error("no identity provider in this test");
+      }),
+    integrationFetch:
+      options.integrationFetch ??
+      (async () => {
+        throw new Error("no issue tracker in this test");
       }),
     email: options.email ?? {
       send: async (message) => {

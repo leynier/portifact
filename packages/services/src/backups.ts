@@ -272,6 +272,8 @@ export interface ApplyTombstonesResult {
   invitations: number;
   /** Memberships a directory ended before the restore, ended again. */
   members: number;
+  /** Issue connections removed before the restore, or of deleted owners, deleted again. */
+  integrations: number;
 }
 
 /**
@@ -342,6 +344,8 @@ export async function applyTombstones(
     invitations,
     ,
     members,
+    integrations,
+    ,
   ] = await db.batch([
     db
       .insert(schema.outbox)
@@ -493,6 +497,18 @@ export async function applyTombstones(
         sql`exists (select 1 from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} and ${schema.workspaceMembers.createdAt} <= ${t.deletedAt})`,
       )
       .returning({ userId: schema.workspaceMembers.userId }),
+    // Removed issue connections and those of deleted accounts and workspaces (decision 0018): a
+    // restored credential must never act again.
+    db
+      .delete(schema.integrationConnections)
+      .where(
+        sql`${schema.integrationConnections.id} in (select ${t.id} from ${t} where ${t.kind} = 'integration_connection') or ${schema.integrationConnections.ownerId} in (${tombstonedOwners})`,
+      )
+      .returning({ id: schema.integrationConnections.id }),
+    db
+      .update(schema.integrationConnections)
+      .set({ createdBy: null })
+      .where(sql`${schema.integrationConnections.createdBy} in (${tombstonedAccounts})`),
   ]);
   // Roles from directory groups, recomputed from what the restore and the tombstones left
   // (decision 0017): bounded per run (`recomputeDirectoryRoles`), run again while `more`.
@@ -507,6 +523,7 @@ export async function applyTombstones(
     workspaces: workspaces.length,
     shareLinks: shareLinks.length,
     webhooks: webhooks.length,
+    integrations: integrations.length,
     serviceTokens: serviceTokens.length,
     domains: domains.length,
     groups: groups.length,

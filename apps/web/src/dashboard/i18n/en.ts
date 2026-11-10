@@ -2297,6 +2297,142 @@ export const en = {
     "Your directory will no longer manage this group: admins edit it here from now on. Its role mapping is cleared, and the people it made editors or admins keep their roles. If the directory pushes a group with the same name later, it is refused.",
   "groups.stopSync.done": "{name} is no longer synced from your directory.",
   "audit.kind.groupSyncStopped": "Stopped syncing the group {group} from the directory",
+  "shell.integrationsLink": "Integrations",
+  "integrations.title": "Integrations",
+  "integrations.description":
+    "Turn a comment thread into an issue in GitHub or Linear. A connection acts with a credential an admin pastes, so issues appear as created by that account.",
+  "integrations.adminOnly.title": "Only admins manage integrations",
+  "integrations.adminOnly.body": "Ask an admin of {workspace} to connect GitHub or Linear.",
+  "integrations.planTitle": "Not in this plan",
+  "integrations.planRequired":
+    "Integrations are part of the {plan} plan. Connections already made are kept, but no issue can be created through them.",
+  "integrations.list.title": "Connections",
+  "integrations.list.loading": "Loading connections",
+  "integrations.list.error": "The connections could not be loaded.",
+  "integrations.empty.title": "No connections yet",
+  "integrations.empty.body":
+    "Connect GitHub or Linear so admins and editors can create issues from comment threads.",
+  "integrations.service.github": "GitHub",
+  "integrations.service.linear": "Linear",
+  "integrations.add.title": "Connect a service",
+  "integrations.add.hint":
+    "The credential is checked with the service, stored encrypted and never shown again: Portifact shows only its last four characters.",
+  "integrations.add.service": "Service",
+  "integrations.add.label": "Label",
+  "integrations.add.labelHint": "A name your team recognizes, such as Product repo.",
+  "integrations.add.credential.github": "Fine-grained personal access token",
+  "integrations.add.credential.linear": "Linear API key",
+  "integrations.add.targets.github": "Repositories",
+  "integrations.add.targets.linear": "Team IDs",
+  "integrations.add.targetsHint.github": "One owner/repository per line, at most {limit}.",
+  "integrations.add.targetsHint.linear":
+    "One team ID per line, at most {limit}. Linear shows it in the team's settings.",
+  "integrations.add.failed":
+    "The service did not accept the credential or one of the repositories or teams. Check them against the steps above, then try again.",
+  "integrations.add.submit": "Connect",
+  "integrations.add.limit":
+    "A space can have at most {limit} connections. Remove one to add another.",
+  "integrations.howto.github.title": "Create a least-privilege GitHub token",
+  "integrations.howto.github.1":
+    "In GitHub, open Settings, Developer settings, Personal access tokens, Fine-grained tokens, and choose Generate new token.",
+  "integrations.howto.github.2":
+    "Set the resource owner to the account or organization that owns the repositories, and give it an expiration.",
+  "integrations.howto.github.3":
+    "Under Repository access, choose Only select repositories and pick the repositories you list here.",
+  "integrations.howto.github.4":
+    "Under Repository permissions, set Issues to Read and write. Leave every other permission at No access; Metadata stays read-only.",
+  "integrations.howto.github.5":
+    "Generate the token and paste it here. Issues appear as created by the token's account.",
+  "integrations.howto.linear.title": "Create a Linear API key",
+  "integrations.howto.linear.1":
+    "In Linear, open Settings, then Security and access, and create a personal API key.",
+  "integrations.howto.linear.2":
+    "If Linear lets you limit the key, allow only creating issues, and only in the teams you list here.",
+  "integrations.howto.linear.3":
+    "Paste the key here. Issues appear as created by your Linear account.",
+  "integrations.connected": "Connected {label}.",
+  "integrations.identity": "Acts as {identity}",
+  "integrations.credential": "Credential ending in {hint}",
+  "integrations.attention.credential_rejected":
+    "The service refused this credential. Paste a new one, then test it.",
+  "integrations.attention.key_unavailable":
+    "The stored credential can no longer be opened. Paste it again.",
+  "integrations.state.ready": "Ready",
+  "integrations.state.attention": "Needs attention",
+  "integrations.test": "Test",
+  "integrations.testLabel": "Test {label}",
+  "integrations.testPassed":
+    "{label} works. It acts as {identity}, and every repository or team is reachable.",
+  "integrations.problem.credential_rejected":
+    "The service refused the credential: it is wrong, expired or revoked.",
+  "integrations.problem.missing_permission":
+    "The service accepted the credential, but it cannot read its own account.",
+  "integrations.problem.target_unreachable":
+    "The credential cannot reach {target}. Check its access there.",
+  "integrations.problem.issues_disabled": "Issues are turned off in {target}.",
+  "integrations.problem.service_unavailable": "The service did not answer. Try again later.",
+  "integrations.problem.rate_limited":
+    "The service is limiting requests from this credential. Try again later.",
+  "integrations.edit": "Change",
+  "integrations.editLabel": "Change {label}",
+  "integrations.edit.title": "Change {label}",
+  "integrations.edit.credentialHint": "Leave it empty to keep the current credential.",
+  "integrations.edit.save": "Save",
+  "integrations.saved": "Saved {label}.",
+  "integrations.remove": "Remove",
+  "integrations.removeLabel": "Remove {label}",
+  "integrations.confirm.title": "Remove {label}?",
+  "integrations.confirm.body":
+    "Its credential is deleted from Portifact. Issues already created keep their links; issues still being created fail. Revoke the token or key at the service too.",
+  "integrations.removed": "Removed {label}.",
+  "integrations.actionFailed": "That did not work",
+  "issues.create": "Create issue",
+  "issues.dialog.title": "Create an issue from thread {number}",
+  "issues.dialog.close": "Close",
+  "issues.dialog.connection": "Connection",
+  "issues.dialog.target": "Repository or team",
+  "issues.dialog.issueTitle": "Issue title",
+  "issues.dialog.parts": "What to send",
+  "issues.dialog.part.link": "A link to this thread",
+  "issues.dialog.part.artifactName": "The artifact's name",
+  "issues.dialog.part.quote": "The quoted text",
+  "issues.dialog.part.quoteHint": "A selection from the artifact. It leaves Portifact.",
+  "issues.dialog.part.message": "The thread's first message",
+  "issues.dialog.part.messageHint":
+    "Someone's words. They leave Portifact and stay in the issue even if the comment is deleted later.",
+  "issues.dialog.preview": "Exactly what is sent",
+  "issues.dialog.previewHint":
+    "Comment text goes as plain text: mentions, links and images in it do nothing. It is read again when the issue is created, so a later edit is what is sent.",
+  "issues.dialog.never":
+    "Never sent: readers' email addresses, the artifact's content, other messages of the thread or review notes.",
+  "issues.dialog.eu":
+    "This space keeps its data in the EU. What you send goes to {service}, outside the EU.",
+  "issues.dialog.submit": "Create issue",
+  "issues.dialog.noConnections":
+    "No connection can be used. Ask an admin to connect GitHub or Linear, or to fix a connection that needs attention.",
+  "issues.requested": "Issue requested. Its link appears on the thread within a few minutes.",
+  "issues.list": "Issues",
+  "issues.link": "Issue {key} in {target}",
+  "issues.pending": "Issue in {target} is being created",
+  "issues.failed": "Issue in {target} was not created: {reason}",
+  "issues.failure.credential_rejected": "the connection's credential no longer works.",
+  "issues.failure.target_unreachable": "the credential cannot create issues there.",
+  "issues.failure.rejected": "the service refused it.",
+  "issues.failure.connection_removed": "the connection was removed.",
+  "issues.failure.unavailable": "integrations are not available.",
+  "issues.failure.plan_lapsed": "the plan no longer includes integrations.",
+  "issues.failure.service_unavailable": "the service did not answer.",
+  "issues.failure.invalid_response": "the service answered in a way Portifact could not use.",
+  "audit.kind.integrationConnected":
+    "Connected {service, select, github {GitHub} other {Linear}} with {targets, plural, one {# repository or team} other {# repositories or teams}}",
+  "audit.kind.integrationChanged":
+    "{credential, select, true {Replaced a connection's credential} other {Changed a connection's label or targets}}",
+  "audit.kind.integrationRemoved":
+    "Removed a {service, select, github {GitHub} other {Linear}} connection",
+  "audit.kind.integrationFailing":
+    "{reason, select, key_unavailable {A connection's credential can no longer be opened} other {{service, select, github {GitHub} other {Linear}} refused a connection's credential}}",
+  "audit.kind.issueCreated":
+    "Created a {service, select, github {GitHub} other {Linear}} issue in {target} from a thread {message, select, true {with its first message} other {without comment text}}",
 } as const;
 
 export type MessageId = keyof typeof en;

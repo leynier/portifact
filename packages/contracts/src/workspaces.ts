@@ -74,6 +74,8 @@ export const ROLE_ACTIONS = [
   "approvals",
   /** Searching inside the content of every artifact of the owner (premium plan T8, decision 0012). */
   "search",
+  /** Creating issues from comment threads through the owner's connections (decision 0018). */
+  "issues",
   // Admins only.
   /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */
   "transfer_out",
@@ -91,6 +93,8 @@ export const ROLE_ACTIONS = [
   "sso",
   /** The workspace's SCIM provisioning (decision 0017): its tokens and settings. */
   "scim",
+  /** The owner's connections to GitHub or Linear (decision 0018): they hold a credential. */
+  "integrations",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;

@@ -29,6 +29,7 @@ import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
 import { feedback } from "./feedback.ts";
 import { pullHistory } from "./history.ts";
+import { createIssue, listIntegrations } from "./integrations.ts";
 import { logs } from "./logs.ts";
 import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
@@ -174,6 +175,22 @@ usage act on your personal space unless --workspace names a workspace (or person
 workspaces use <slug>\` made one this device's default. Updating an artifact with --artifact
 always keeps it where it is. Admins and editors of a workspace see and manage everything published
 there; members only read and comment on what is shared with them.
+`;
+
+const INTEGRATIONS_HELP = `
+Connections hold a GitHub token or a Linear API key, so only the space's admins add, test and
+remove them, in the dashboard (Integrations). This lists their labels and the repositories or
+teams each allows; never a credential.
+`;
+
+const ISSUE_HELP = `
+Only the link to the thread and the artifact's name are sent unless you add --quote or
+--message: those are other people's words, and they leave Portifact for GitHub or Linear.
+The issue is created within a few minutes by Portifact's jobs; \`portifact annotations show
+<artifact> <thread>\` then shows its link, or why it failed.
+
+Example:
+  portifact issue abc123 th_1 --connection ic_... --target acme/site --title "Fix the header"
 `;
 
 const WEBHOOKS_HELP = `
@@ -1164,6 +1181,59 @@ An artifact shared with its workspace or an email domain becomes restricted when
           yes: options.yes === true,
           json: options.json === true,
         }),
+      ),
+    );
+
+  program
+    .command("integrations")
+    .description(
+      "List a space's connections to GitHub Issues or Linear, to create issues from threads",
+    )
+    .option("--workspace <slug>", "a workspace's connections (admins and editors), or personal")
+    .option("--json", "Print the result as JSON")
+    .addHelpText("after", INTEGRATIONS_HELP)
+    .action(
+      execute((io, runtime, options: { json?: boolean; workspace?: string }) =>
+        listIntegrations(io, runtime, {
+          json: options.json === true,
+          workspace: options.workspace,
+        }),
+      ),
+    );
+
+  program
+    .command("issue")
+    .description("Create a GitHub or Linear issue from one comment thread")
+    .argument("<artifact>", "the artifact's ID")
+    .argument("<thread>", "the thread's ID")
+    .requiredOption("--connection <id>", "a connection from `portifact integrations`")
+    .requiredOption("--target <target>", "owner/repo on GitHub, or a Linear team ID")
+    .requiredOption("--title <title>", "the issue's title")
+    .option("--quote", "also send the quoted text the thread is anchored to (others' words)")
+    .option("--message", "also send the thread's first message (others' words)")
+    .option("--no-link", "leave out the link to the thread")
+    .option("--no-name", "leave out the artifact's name")
+    .option("--json", "Print the result as JSON")
+    .addHelpText("after", ISSUE_HELP)
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: {
+            connection: string;
+            target: string;
+            title: string;
+            quote?: boolean;
+            message?: boolean;
+            link?: boolean;
+            name?: boolean;
+            json?: boolean;
+          },
+          artifact: string,
+          thread: string,
+        ) =>
+          createIssue(io, runtime, artifact, thread, { ...options, json: options.json === true }),
       ),
     );
 

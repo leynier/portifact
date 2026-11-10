@@ -2336,4 +2336,142 @@ export const ptBR = {
     "Seu diretório não vai mais gerenciar este grupo: a partir de agora os administradores o editam aqui. O mapeamento de papel é removido, e as pessoas que ele tornou editores ou administradores mantêm seus papéis. Se o diretório enviar depois um grupo com o mesmo nome, ele é recusado.",
   "groups.stopSync.done": "{name} não é mais sincronizado do seu diretório.",
   "audit.kind.groupSyncStopped": "Parou de sincronizar o grupo {group} do diretório",
+  "shell.integrationsLink": "Integrações",
+  "integrations.title": "Integrações",
+  "integrations.description":
+    "Transforme uma conversa de comentários em uma issue no GitHub ou no Linear. Uma conexão age com uma credencial que um administrador cola, então as issues aparecem como criadas por essa conta.",
+  "integrations.adminOnly.title": "Só administradores gerenciam integrações",
+  "integrations.adminOnly.body":
+    "Peça a um administrador de {workspace} para conectar o GitHub ou o Linear.",
+  "integrations.planTitle": "Fora deste plano",
+  "integrations.planRequired":
+    "As integrações fazem parte do plano {plan}. As conexões já feitas são mantidas, mas nenhuma issue pode ser criada por elas.",
+  "integrations.list.title": "Conexões",
+  "integrations.list.loading": "Carregando conexões",
+  "integrations.list.error": "Não foi possível carregar as conexões.",
+  "integrations.empty.title": "Nenhuma conexão ainda",
+  "integrations.empty.body":
+    "Conecte o GitHub ou o Linear para que administradores e editores criem issues a partir de conversas de comentários.",
+  "integrations.service.github": "GitHub",
+  "integrations.service.linear": "Linear",
+  "integrations.add.title": "Conectar um serviço",
+  "integrations.add.hint":
+    "A credencial é verificada com o serviço, guardada criptografada e nunca mais mostrada: o Portifact mostra só os quatro últimos caracteres.",
+  "integrations.add.service": "Serviço",
+  "integrations.add.label": "Rótulo",
+  "integrations.add.labelHint": "Um nome que sua equipe reconheça, como Repositório do produto.",
+  "integrations.add.credential.github": "Token de acesso pessoal refinado (fine-grained)",
+  "integrations.add.credential.linear": "Chave de API do Linear",
+  "integrations.add.targets.github": "Repositórios",
+  "integrations.add.targets.linear": "IDs de equipes",
+  "integrations.add.targetsHint.github": "Um dono/repositório por linha, no máximo {limit}.",
+  "integrations.add.targetsHint.linear":
+    "Um ID de equipe por linha, no máximo {limit}. O Linear o mostra nas configurações da equipe.",
+  "integrations.add.failed":
+    "O serviço não aceitou a credencial ou algum dos repositórios ou equipes. Confira-os com os passos acima e tente de novo.",
+  "integrations.add.submit": "Conectar",
+  "integrations.add.limit":
+    "Um espaço pode ter no máximo {limit} conexões. Remova uma para adicionar outra.",
+  "integrations.howto.github.title": "Crie um token do GitHub com o mínimo de permissões",
+  "integrations.howto.github.1":
+    "No GitHub, abra Settings, Developer settings, Personal access tokens, Fine-grained tokens e escolha Generate new token.",
+  "integrations.howto.github.2":
+    "Defina como dono do recurso a conta ou organização dona dos repositórios e dê uma data de expiração.",
+  "integrations.howto.github.3":
+    "Em Repository access, escolha Only select repositories e marque os repositórios que você lista aqui.",
+  "integrations.howto.github.4":
+    "Em Repository permissions, defina Issues como Read and write. Deixe todas as outras permissões em No access; Metadata fica somente leitura.",
+  "integrations.howto.github.5":
+    "Gere o token e cole aqui. As issues aparecem como criadas pela conta do token.",
+  "integrations.howto.linear.title": "Crie uma chave de API do Linear",
+  "integrations.howto.linear.1":
+    "No Linear, abra Settings, depois Security and access, e crie uma chave de API pessoal.",
+  "integrations.howto.linear.2":
+    "Se o Linear permitir limitar a chave, permita apenas criar issues e só nas equipes que você lista aqui.",
+  "integrations.howto.linear.3":
+    "Cole a chave aqui. As issues aparecem como criadas pela sua conta do Linear.",
+  "integrations.connected": "{label} conectado.",
+  "integrations.identity": "Age como {identity}",
+  "integrations.credential": "Credencial terminada em {hint}",
+  "integrations.attention.credential_rejected":
+    "O serviço recusou esta credencial. Cole uma nova e teste.",
+  "integrations.attention.key_unavailable":
+    "A credencial guardada não pode mais ser aberta. Cole de novo.",
+  "integrations.state.ready": "Pronta",
+  "integrations.state.attention": "Precisa de atenção",
+  "integrations.test": "Testar",
+  "integrations.testLabel": "Testar {label}",
+  "integrations.testPassed":
+    "{label} funciona. Age como {identity} e todos os repositórios ou equipes estão acessíveis.",
+  "integrations.problem.credential_rejected":
+    "O serviço recusou a credencial: ela está errada, expirou ou foi revogada.",
+  "integrations.problem.missing_permission":
+    "O serviço aceitou a credencial, mas ela não consegue ler a própria conta.",
+  "integrations.problem.target_unreachable":
+    "A credencial não alcança {target}. Verifique o acesso dela lá.",
+  "integrations.problem.issues_disabled": "As issues estão desativadas em {target}.",
+  "integrations.problem.service_unavailable": "O serviço não respondeu. Tente de novo mais tarde.",
+  "integrations.problem.rate_limited":
+    "O serviço está limitando as solicitações desta credencial. Tente de novo mais tarde.",
+  "integrations.edit": "Alterar",
+  "integrations.editLabel": "Alterar {label}",
+  "integrations.edit.title": "Alterar {label}",
+  "integrations.edit.credentialHint": "Deixe vazio para manter a credencial atual.",
+  "integrations.edit.save": "Salvar",
+  "integrations.saved": "{label} salvo.",
+  "integrations.remove": "Remover",
+  "integrations.removeLabel": "Remover {label}",
+  "integrations.confirm.title": "Remover {label}?",
+  "integrations.confirm.body":
+    "A credencial é apagada do Portifact. As issues já criadas mantêm seus links; as que ainda estão sendo criadas falham. Revogue também o token ou a chave no serviço.",
+  "integrations.removed": "{label} removido.",
+  "integrations.actionFailed": "Não funcionou",
+  "issues.create": "Criar issue",
+  "issues.dialog.title": "Criar uma issue a partir da conversa {number}",
+  "issues.dialog.close": "Fechar",
+  "issues.dialog.connection": "Conexão",
+  "issues.dialog.target": "Repositório ou equipe",
+  "issues.dialog.issueTitle": "Título da issue",
+  "issues.dialog.parts": "O que enviar",
+  "issues.dialog.part.link": "Um link para esta conversa",
+  "issues.dialog.part.artifactName": "O nome do artifact",
+  "issues.dialog.part.quote": "O texto citado",
+  "issues.dialog.part.quoteHint": "Uma seleção do artifact. Sai do Portifact.",
+  "issues.dialog.part.message": "A primeira mensagem da conversa",
+  "issues.dialog.part.messageHint":
+    "Palavras de alguém. Saem do Portifact e ficam na issue mesmo que o comentário seja apagado depois.",
+  "issues.dialog.preview": "Exatamente o que é enviado",
+  "issues.dialog.previewHint":
+    "O texto dos comentários vai como texto simples: menções, links e imagens nele não fazem nada. Ele é lido de novo quando a issue é criada, então uma edição posterior é o que vai.",
+  "issues.dialog.never":
+    "Nunca enviados: e-mails dos leitores, o conteúdo do artifact, outras mensagens da conversa ou notas de revisão.",
+  "issues.dialog.eu":
+    "Este espaço guarda seus dados na UE. O que você enviar vai para o {service}, fora da UE.",
+  "issues.dialog.submit": "Criar issue",
+  "issues.dialog.noConnections":
+    "Nenhuma conexão pode ser usada. Peça a um administrador para conectar o GitHub ou o Linear, ou para corrigir uma conexão que precisa de atenção.",
+  "issues.requested": "Issue solicitada. O link aparece na conversa em poucos minutos.",
+  "issues.list": "Issues",
+  "issues.link": "Issue {key} em {target}",
+  "issues.pending": "A issue em {target} está sendo criada",
+  "issues.failed": "A issue em {target} não foi criada: {reason}",
+  "issues.failure.credential_rejected": "a credencial da conexão não funciona mais.",
+  "issues.failure.target_unreachable": "a credencial não pode criar issues ali.",
+  "issues.failure.rejected": "o serviço a recusou.",
+  "issues.failure.connection_removed": "a conexão foi removida.",
+  "issues.failure.unavailable": "as integrações não estão disponíveis.",
+  "issues.failure.plan_lapsed": "o plano não inclui mais integrações.",
+  "issues.failure.service_unavailable": "o serviço não respondeu.",
+  "issues.failure.invalid_response":
+    "o serviço respondeu de um jeito que o Portifact não pôde usar.",
+  "audit.kind.integrationConnected":
+    "Conectou o {service, select, github {GitHub} other {Linear}} com {targets, plural, one {# repositório ou equipe} other {# repositórios ou equipes}}",
+  "audit.kind.integrationChanged":
+    "{credential, select, true {Substituiu a credencial de uma conexão} other {Alterou o rótulo ou os destinos de uma conexão}}",
+  "audit.kind.integrationRemoved":
+    "Removeu uma conexão do {service, select, github {GitHub} other {Linear}}",
+  "audit.kind.integrationFailing":
+    "{reason, select, key_unavailable {A credencial de uma conexão não pode mais ser aberta} other {O {service, select, github {GitHub} other {Linear}} recusou a credencial de uma conexão}}",
+  "audit.kind.issueCreated":
+    "Criou uma issue no {service, select, github {GitHub} other {Linear}} em {target} a partir de uma conversa {message, select, true {com a primeira mensagem} other {sem texto de comentários}}",
 } satisfies Catalog;

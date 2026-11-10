@@ -2026,3 +2026,50 @@ describe("approval reviews in the viewer", () => {
     expect(screen.queryByText("Review pending")).toBeNull();
   });
 });
+
+describe("issues from threads in the viewer (decision 0018)", () => {
+  const CONNECTION = {
+    id: `ic_${"a".repeat(32)}`,
+    service: "github" as const,
+    label: "Product repo",
+    targets: [{ id: "acme/site", name: "acme/site" }],
+    usable: true,
+    identity: "octo-bot",
+    credentialHint: "\u2026WXYZ",
+    attention: null,
+    createdAt: "2026-11-09T09:00:00.000Z",
+    updatedAt: "2026-11-09T09:00:00.000Z",
+    createdBy: "Ada",
+  };
+
+  it("offers Create issue to the owner side while integrations are offered, and opens the dialog", async () => {
+    server.integrations.offered = true;
+    server.integrations.connections = [CONNECTION];
+    await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    // The owner's connections load after the artifact's space; then the menu offers the issue.
+    await waitFor(() =>
+      expect(server.requests.some((r) => r.path === "/api/v1/integrations")).toBe(true),
+    );
+    expect(menuItems(thread, "More actions for thread 1")).toEqual([
+      "Create issue",
+      "Delete thread",
+    ]);
+    chooseFromMenu(thread, "More actions for thread 1", "Create issue");
+    const sheet = await screen.findByRole("dialog", { name: "Create an issue from thread 1" });
+    expect((within(sheet).getByLabelText("Issue title") as HTMLInputElement).value).toBe(
+      "Launch plan",
+    );
+    expect(
+      (within(sheet).getByLabelText("The thread's first message") as HTMLInputElement).checked,
+    ).toBe(false);
+  });
+
+  it("offers nothing while integrations are switched off, or to a reader", async () => {
+    server.integrations.connections = [CONNECTION];
+    await open();
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    expect(menuItems(thread, "More actions for thread 1")).toEqual(["Delete thread"]);
+    expect(server.requests.some((r) => r.path.startsWith("/api/v1/integrations"))).toBe(true);
+  });
+});

@@ -2372,4 +2372,143 @@ export const de = {
   "groups.stopSync.done": "{name} wird nicht mehr aus Ihrem Verzeichnis synchronisiert.",
   "audit.kind.groupSyncStopped":
     "Hat die Synchronisierung der Gruppe {group} aus dem Verzeichnis beendet",
+  "shell.integrationsLink": "Integrationen",
+  "integrations.title": "Integrationen",
+  "integrations.description":
+    "Machen Sie aus einem Kommentar-Thread ein Issue in GitHub oder Linear. Eine Verbindung handelt mit Zugangsdaten, die ein Admin einfügt, daher erscheinen Issues als von diesem Konto erstellt.",
+  "integrations.adminOnly.title": "Nur Admins verwalten Integrationen",
+  "integrations.adminOnly.body":
+    "Bitten Sie einen Admin von {workspace}, GitHub oder Linear zu verbinden.",
+  "integrations.planTitle": "Nicht in diesem Tarif",
+  "integrations.planRequired":
+    "Integrationen gehören zum Tarif {plan}. Bestehende Verbindungen bleiben erhalten, aber über sie können keine Issues erstellt werden.",
+  "integrations.list.title": "Verbindungen",
+  "integrations.list.loading": "Verbindungen werden geladen",
+  "integrations.list.error": "Die Verbindungen konnten nicht geladen werden.",
+  "integrations.empty.title": "Noch keine Verbindungen",
+  "integrations.empty.body":
+    "Verbinden Sie GitHub oder Linear, damit Admins und Bearbeitende Issues aus Kommentar-Threads erstellen können.",
+  "integrations.service.github": "GitHub",
+  "integrations.service.linear": "Linear",
+  "integrations.add.title": "Dienst verbinden",
+  "integrations.add.hint":
+    "Die Zugangsdaten werden beim Dienst geprüft, verschlüsselt gespeichert und nie wieder angezeigt: Portifact zeigt nur die letzten vier Zeichen.",
+  "integrations.add.service": "Dienst",
+  "integrations.add.label": "Bezeichnung",
+  "integrations.add.labelHint": "Ein Name, den Ihr Team erkennt, etwa Produkt-Repository.",
+  "integrations.add.credential.github": "Feingranulares persönliches Zugriffstoken",
+  "integrations.add.credential.linear": "Linear-API-Schlüssel",
+  "integrations.add.targets.github": "Repositorys",
+  "integrations.add.targets.linear": "Team-IDs",
+  "integrations.add.targetsHint.github": "Ein Besitzer/Repository pro Zeile, höchstens {limit}.",
+  "integrations.add.targetsHint.linear":
+    "Eine Team-ID pro Zeile, höchstens {limit}. Linear zeigt sie in den Team-Einstellungen.",
+  "integrations.add.failed":
+    "Der Dienst hat die Zugangsdaten oder eines der Repositorys oder Teams nicht akzeptiert. Prüfen Sie sie anhand der Schritte oben und versuchen Sie es erneut.",
+  "integrations.add.submit": "Verbinden",
+  "integrations.add.limit":
+    "Ein Bereich kann höchstens {limit} Verbindungen haben. Entfernen Sie eine, um eine weitere hinzuzufügen.",
+  "integrations.howto.github.title": "Ein GitHub-Token mit minimalen Rechten erstellen",
+  "integrations.howto.github.1":
+    "Öffnen Sie in GitHub Settings, Developer settings, Personal access tokens, Fine-grained tokens und wählen Sie Generate new token.",
+  "integrations.howto.github.2":
+    "Wählen Sie als Ressourcenbesitzer das Konto oder die Organisation, der die Repositorys gehören, und geben Sie ein Ablaufdatum an.",
+  "integrations.howto.github.3":
+    "Wählen Sie unter Repository access Only select repositories und die hier aufgeführten Repositorys.",
+  "integrations.howto.github.4":
+    "Setzen Sie unter Repository permissions Issues auf Read and write. Lassen Sie alle anderen Rechte auf No access; Metadata bleibt schreibgeschützt.",
+  "integrations.howto.github.5":
+    "Erstellen Sie das Token und fügen Sie es hier ein. Issues erscheinen als vom Konto des Tokens erstellt.",
+  "integrations.howto.linear.title": "Einen Linear-API-Schlüssel erstellen",
+  "integrations.howto.linear.1":
+    "Öffnen Sie in Linear Settings, dann Security and access, und erstellen Sie einen persönlichen API-Schlüssel.",
+  "integrations.howto.linear.2":
+    "Wenn Linear das Einschränken des Schlüssels erlaubt, erlauben Sie nur das Erstellen von Issues und nur in den hier aufgeführten Teams.",
+  "integrations.howto.linear.3":
+    "Fügen Sie den Schlüssel hier ein. Issues erscheinen als von Ihrem Linear-Konto erstellt.",
+  "integrations.connected": "{label} verbunden.",
+  "integrations.identity": "Handelt als {identity}",
+  "integrations.credential": "Zugangsdaten enden auf {hint}",
+  "integrations.attention.credential_rejected":
+    "Der Dienst hat diese Zugangsdaten abgelehnt. Fügen Sie neue ein und testen Sie sie.",
+  "integrations.attention.key_unavailable":
+    "Die gespeicherten Zugangsdaten lassen sich nicht mehr öffnen. Fügen Sie sie erneut ein.",
+  "integrations.state.ready": "Bereit",
+  "integrations.state.attention": "Prüfen nötig",
+  "integrations.test": "Testen",
+  "integrations.testLabel": "{label} testen",
+  "integrations.testPassed":
+    "{label} funktioniert. Sie handelt als {identity}, und jedes Repository oder Team ist erreichbar.",
+  "integrations.problem.credential_rejected":
+    "Der Dienst hat die Zugangsdaten abgelehnt: Sie sind falsch, abgelaufen oder widerrufen.",
+  "integrations.problem.missing_permission":
+    "Der Dienst hat die Zugangsdaten angenommen, aber sie können das eigene Konto nicht lesen.",
+  "integrations.problem.target_unreachable":
+    "Die Zugangsdaten erreichen {target} nicht. Prüfen Sie den Zugriff dort.",
+  "integrations.problem.issues_disabled": "Issues sind in {target} ausgeschaltet.",
+  "integrations.problem.service_unavailable":
+    "Der Dienst hat nicht geantwortet. Versuchen Sie es später erneut.",
+  "integrations.problem.rate_limited":
+    "Der Dienst begrenzt Anfragen dieser Zugangsdaten. Versuchen Sie es später erneut.",
+  "integrations.edit": "Ändern",
+  "integrations.editLabel": "{label} ändern",
+  "integrations.edit.title": "{label} ändern",
+  "integrations.edit.credentialHint": "Leer lassen, um die aktuellen Zugangsdaten zu behalten.",
+  "integrations.edit.save": "Speichern",
+  "integrations.saved": "{label} gespeichert.",
+  "integrations.remove": "Entfernen",
+  "integrations.removeLabel": "{label} entfernen",
+  "integrations.confirm.title": "{label} entfernen?",
+  "integrations.confirm.body":
+    "Die Zugangsdaten werden aus Portifact gelöscht. Bereits erstellte Issues behalten ihre Links; Issues, die noch erstellt werden, schlagen fehl. Widerrufen Sie das Token oder den Schlüssel auch beim Dienst.",
+  "integrations.removed": "{label} entfernt.",
+  "integrations.actionFailed": "Das hat nicht geklappt",
+  "issues.create": "Issue erstellen",
+  "issues.dialog.title": "Issue aus Thread {number} erstellen",
+  "issues.dialog.close": "Schließen",
+  "issues.dialog.connection": "Verbindung",
+  "issues.dialog.target": "Repository oder Team",
+  "issues.dialog.issueTitle": "Titel des Issues",
+  "issues.dialog.parts": "Was gesendet wird",
+  "issues.dialog.part.link": "Ein Link zu diesem Thread",
+  "issues.dialog.part.artifactName": "Der Name des Artifacts",
+  "issues.dialog.part.quote": "Der zitierte Text",
+  "issues.dialog.part.quoteHint": "Eine Auswahl aus dem Artifact. Sie verlässt Portifact.",
+  "issues.dialog.part.message": "Die erste Nachricht des Threads",
+  "issues.dialog.part.messageHint":
+    "Die Worte einer Person. Sie verlassen Portifact und bleiben im Issue, auch wenn der Kommentar später gelöscht wird.",
+  "issues.dialog.preview": "Genau das wird gesendet",
+  "issues.dialog.previewHint":
+    "Kommentartext geht als reiner Text: Erwähnungen, Links und Bilder darin bewirken nichts. Er wird beim Erstellen des Issues neu gelesen, also wird eine spätere Änderung gesendet.",
+  "issues.dialog.never":
+    "Nie gesendet: E-Mail-Adressen der Lesenden, der Inhalt des Artifacts, andere Nachrichten des Threads oder Prüfnotizen.",
+  "issues.dialog.eu":
+    "Dieser Bereich speichert seine Daten in der EU. Was Sie senden, geht an {service}, außerhalb der EU.",
+  "issues.dialog.submit": "Issue erstellen",
+  "issues.dialog.noConnections":
+    "Keine Verbindung ist nutzbar. Bitten Sie einen Admin, GitHub oder Linear zu verbinden oder eine Verbindung zu reparieren, die geprüft werden muss.",
+  "issues.requested": "Issue angefordert. Der Link erscheint in wenigen Minuten am Thread.",
+  "issues.list": "Issues",
+  "issues.link": "Issue {key} in {target}",
+  "issues.pending": "Das Issue in {target} wird erstellt",
+  "issues.failed": "Das Issue in {target} wurde nicht erstellt: {reason}",
+  "issues.failure.credential_rejected": "die Zugangsdaten der Verbindung funktionieren nicht mehr.",
+  "issues.failure.target_unreachable": "die Zugangsdaten können dort keine Issues erstellen.",
+  "issues.failure.rejected": "der Dienst hat es abgelehnt.",
+  "issues.failure.connection_removed": "die Verbindung wurde entfernt.",
+  "issues.failure.unavailable": "Integrationen sind nicht verfügbar.",
+  "issues.failure.plan_lapsed": "der Tarif enthält keine Integrationen mehr.",
+  "issues.failure.service_unavailable": "der Dienst hat nicht geantwortet.",
+  "issues.failure.invalid_response":
+    "der Dienst hat so geantwortet, dass Portifact es nicht verwenden konnte.",
+  "audit.kind.integrationConnected":
+    "Hat {service, select, github {GitHub} other {Linear}} mit {targets, plural, one {# Repository oder Team} other {# Repositorys oder Teams}} verbunden",
+  "audit.kind.integrationChanged":
+    "{credential, select, true {Hat die Zugangsdaten einer Verbindung ersetzt} other {Hat Bezeichnung oder Ziele einer Verbindung geändert}}",
+  "audit.kind.integrationRemoved":
+    "Hat eine {service, select, github {GitHub} other {Linear}}-Verbindung entfernt",
+  "audit.kind.integrationFailing":
+    "{reason, select, key_unavailable {Die Zugangsdaten einer Verbindung lassen sich nicht mehr öffnen} other {{service, select, github {GitHub} other {Linear}} hat die Zugangsdaten einer Verbindung abgelehnt}}",
+  "audit.kind.issueCreated":
+    "Hat ein {service, select, github {GitHub} other {Linear}}-Issue in {target} aus einem Thread erstellt {message, select, true {mit der ersten Nachricht} other {ohne Kommentartext}}",
 } satisfies Catalog;

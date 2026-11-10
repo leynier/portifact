@@ -2313,4 +2313,142 @@ export const ja = {
     "このグループはディレクトリで管理されなくなり、今後は管理者がここで編集します。ロールの割り当ては解除され、このグループによって編集者や管理者になった人はそのロールを保持します。後でディレクトリが同じ名前のグループを送ってきた場合は拒否されます。",
   "groups.stopSync.done": "{name} はディレクトリから同期されなくなりました。",
   "audit.kind.groupSyncStopped": "グループ {group} のディレクトリからの同期を停止しました",
+  "shell.integrationsLink": "連携",
+  "integrations.title": "連携",
+  "integrations.description":
+    "コメントスレッドを GitHub または Linear の issue にします。接続は管理者が貼り付けた認証情報で動作するため、issue はそのアカウントが作成したものとして表示されます。",
+  "integrations.adminOnly.title": "連携を管理できるのは管理者だけです",
+  "integrations.adminOnly.body":
+    "{workspace} の管理者に GitHub または Linear の接続を依頼してください。",
+  "integrations.planTitle": "このプランには含まれていません",
+  "integrations.planRequired":
+    "連携は {plan} プランに含まれます。既存の接続は残りますが、それを使って issue を作成することはできません。",
+  "integrations.list.title": "接続",
+  "integrations.list.loading": "接続を読み込んでいます",
+  "integrations.list.error": "接続を読み込めませんでした。",
+  "integrations.empty.title": "まだ接続はありません",
+  "integrations.empty.body":
+    "GitHub または Linear を接続すると、管理者と編集者がコメントスレッドから issue を作成できます。",
+  "integrations.service.github": "GitHub",
+  "integrations.service.linear": "Linear",
+  "integrations.add.title": "サービスを接続",
+  "integrations.add.hint":
+    "認証情報はサービスで確認され、暗号化して保存され、再び表示されることはありません。Portifact が表示するのは最後の 4 文字だけです。",
+  "integrations.add.service": "サービス",
+  "integrations.add.label": "ラベル",
+  "integrations.add.labelHint": "チームがわかる名前。例: プロダクトのリポジトリ。",
+  "integrations.add.credential.github": "Fine-grained 個人アクセストークン",
+  "integrations.add.credential.linear": "Linear の API キー",
+  "integrations.add.targets.github": "リポジトリ",
+  "integrations.add.targets.linear": "チーム ID",
+  "integrations.add.targetsHint.github": "1 行に 1 つの owner/repository、最大 {limit} 件。",
+  "integrations.add.targetsHint.linear":
+    "1 行に 1 つのチーム ID、最大 {limit} 件。Linear ではチームの設定に表示されます。",
+  "integrations.add.failed":
+    "サービスが認証情報、またはリポジトリやチームのいずれかを受け付けませんでした。上の手順と照らし合わせて確認し、もう一度お試しください。",
+  "integrations.add.submit": "接続",
+  "integrations.add.limit":
+    "1 つのスペースに作成できる接続は最大 {limit} 件です。追加するには 1 つ削除してください。",
+  "integrations.howto.github.title": "最小権限の GitHub トークンを作成する",
+  "integrations.howto.github.1":
+    "GitHub で Settings、Developer settings、Personal access tokens、Fine-grained tokens を開き、Generate new token を選びます。",
+  "integrations.howto.github.2":
+    "リソースの所有者に、リポジトリを所有するアカウントまたは組織を選び、有効期限を設定します。",
+  "integrations.howto.github.3":
+    "Repository access で Only select repositories を選び、ここに挙げるリポジトリを選択します。",
+  "integrations.howto.github.4":
+    "Repository permissions で Issues を Read and write にします。他の権限はすべて No access のままにします。Metadata は読み取り専用のままです。",
+  "integrations.howto.github.5":
+    "トークンを生成してここに貼り付けます。issue はトークンのアカウントが作成したものとして表示されます。",
+  "integrations.howto.linear.title": "Linear の API キーを作成する",
+  "integrations.howto.linear.1":
+    "Linear で Settings、Security and access を開き、個人用 API キーを作成します。",
+  "integrations.howto.linear.2":
+    "Linear でキーを制限できる場合は、issue の作成だけを、ここに挙げるチームだけで許可します。",
+  "integrations.howto.linear.3":
+    "キーをここに貼り付けます。issue はあなたの Linear アカウントが作成したものとして表示されます。",
+  "integrations.connected": "{label} を接続しました。",
+  "integrations.identity": "{identity} として動作",
+  "integrations.credential": "末尾が {hint} の認証情報",
+  "integrations.attention.credential_rejected":
+    "サービスがこの認証情報を拒否しました。新しいものを貼り付けてテストしてください。",
+  "integrations.attention.key_unavailable":
+    "保存された認証情報を開けなくなりました。もう一度貼り付けてください。",
+  "integrations.state.ready": "使用可能",
+  "integrations.state.attention": "要対応",
+  "integrations.test": "テスト",
+  "integrations.testLabel": "{label} をテスト",
+  "integrations.testPassed":
+    "{label} は動作しています。{identity} として動作し、すべてのリポジトリまたはチームにアクセスできます。",
+  "integrations.problem.credential_rejected":
+    "サービスが認証情報を拒否しました。誤っているか、期限切れか、取り消されています。",
+  "integrations.problem.missing_permission":
+    "サービスは認証情報を受け付けましたが、自分のアカウントを読み取れません。",
+  "integrations.problem.target_unreachable":
+    "認証情報では {target} にアクセスできません。アクセス権を確認してください。",
+  "integrations.problem.issues_disabled": "{target} では issue が無効になっています。",
+  "integrations.problem.service_unavailable":
+    "サービスが応答しませんでした。後でもう一度お試しください。",
+  "integrations.problem.rate_limited":
+    "サービスがこの認証情報からのリクエストを制限しています。後でもう一度お試しください。",
+  "integrations.edit": "変更",
+  "integrations.editLabel": "{label} を変更",
+  "integrations.edit.title": "{label} を変更",
+  "integrations.edit.credentialHint": "現在の認証情報を残すには空欄のままにします。",
+  "integrations.edit.save": "保存",
+  "integrations.saved": "{label} を保存しました。",
+  "integrations.remove": "削除",
+  "integrations.removeLabel": "{label} を削除",
+  "integrations.confirm.title": "{label} を削除しますか?",
+  "integrations.confirm.body":
+    "認証情報は Portifact から削除されます。作成済みの issue のリンクは残り、作成中の issue は失敗します。サービス側でもトークンやキーを取り消してください。",
+  "integrations.removed": "{label} を削除しました。",
+  "integrations.actionFailed": "うまくいきませんでした",
+  "issues.create": "issue を作成",
+  "issues.dialog.title": "スレッド {number} から issue を作成",
+  "issues.dialog.close": "閉じる",
+  "issues.dialog.connection": "接続",
+  "issues.dialog.target": "リポジトリまたはチーム",
+  "issues.dialog.issueTitle": "issue のタイトル",
+  "issues.dialog.parts": "送信する内容",
+  "issues.dialog.part.link": "このスレッドへのリンク",
+  "issues.dialog.part.artifactName": "artifact の名前",
+  "issues.dialog.part.quote": "引用されたテキスト",
+  "issues.dialog.part.quoteHint": "artifact から選択された部分です。Portifact の外に送られます。",
+  "issues.dialog.part.message": "スレッドの最初のメッセージ",
+  "issues.dialog.part.messageHint":
+    "誰かの言葉です。Portifact の外に送られ、後でコメントが削除されても issue に残ります。",
+  "issues.dialog.preview": "送信される内容そのもの",
+  "issues.dialog.previewHint":
+    "コメントのテキストはプレーンテキストとして送られ、その中のメンション、リンク、画像は機能しません。issue の作成時に読み直されるため、後で編集した内容が送られます。",
+  "issues.dialog.never":
+    "送信されないもの: 閲覧者のメールアドレス、artifact の内容、スレッドの他のメッセージ、レビューのメモ。",
+  "issues.dialog.eu":
+    "このスペースはデータを EU 内に保存しています。送信する内容は EU 外の {service} に送られます。",
+  "issues.dialog.submit": "issue を作成",
+  "issues.dialog.noConnections":
+    "使用できる接続がありません。管理者に GitHub または Linear の接続、または要対応の接続の修正を依頼してください。",
+  "issues.requested": "issue を依頼しました。数分以内にスレッドにリンクが表示されます。",
+  "issues.list": "issue",
+  "issues.link": "{target} の issue {key}",
+  "issues.pending": "{target} の issue を作成中です",
+  "issues.failed": "{target} の issue は作成されませんでした: {reason}",
+  "issues.failure.credential_rejected": "接続の認証情報が使えなくなりました。",
+  "issues.failure.target_unreachable": "認証情報ではそこに issue を作成できません。",
+  "issues.failure.rejected": "サービスが拒否しました。",
+  "issues.failure.connection_removed": "接続が削除されました。",
+  "issues.failure.unavailable": "連携は利用できません。",
+  "issues.failure.plan_lapsed": "プランに連携が含まれなくなりました。",
+  "issues.failure.service_unavailable": "サービスが応答しませんでした。",
+  "issues.failure.invalid_response": "サービスの応答を Portifact が使用できませんでした。",
+  "audit.kind.integrationConnected":
+    "{service, select, github {GitHub} other {Linear}} を {targets, plural, one {# 件のリポジトリまたはチーム} other {# 件のリポジトリまたはチーム}} で接続しました",
+  "audit.kind.integrationChanged":
+    "{credential, select, true {接続の認証情報を置き換えました} other {接続のラベルまたは対象を変更しました}}",
+  "audit.kind.integrationRemoved":
+    "{service, select, github {GitHub} other {Linear}} の接続を削除しました",
+  "audit.kind.integrationFailing":
+    "{reason, select, key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} other {Linear}} が接続の認証情報を拒否しました}}",
+  "audit.kind.issueCreated":
+    "スレッドから {target} に {service, select, github {GitHub} other {Linear}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
 } satisfies Catalog;

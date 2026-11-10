@@ -68,6 +68,7 @@ const TOOLS = [
     "set_annotations",
   ],
   ...["list_webhooks", "list_webhook_deliveries"],
+  ...["list_integrations", "create_issue_from_thread"],
   ...["request_review", "submit_review", "get_review_status"],
 ].sort();
 
@@ -157,6 +158,13 @@ describe("the MCP endpoint", () => {
     expect(byName.get("list_share_links")?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get("revoke_share_link")?.annotations?.destructiveHint).toBe(true);
     expect(client.getInstructions()).toContain("creating a share link");
+    // Issue integrations (decision 0018): connections are only listed; an issue needs the
+    // moderation scope, like its route, and the tool asks the agent to ask the user.
+    expect(TOOL_SCOPES.get("list_integrations")).toBe("artifacts:read");
+    expect(byName.get("list_integrations")?.annotations?.readOnlyHint).toBe(true);
+    expect(TOOL_SCOPES.get("create_issue_from_thread")).toBe("annotations:moderate");
+    expect(byName.get("create_issue_from_thread")?.description).toContain("always ask the user");
+    expect(client.getInstructions()).toContain("Issue integrations");
     // Webhooks are only read through MCP (decision 0003, addendum).
     for (const name of ["list_webhooks", "list_webhook_deliveries"]) {
       expect(TOOL_SCOPES.get(name), name).toBe("artifacts:read");

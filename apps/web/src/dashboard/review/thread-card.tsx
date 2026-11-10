@@ -8,6 +8,8 @@ import {
   type AnnotationMessageView,
   type AnnotationThreadView,
   HUMAN_VERIFICATION_REQUIRED,
+  type IntegrationChoiceList,
+  type ThreadIssueView,
 } from "@portifact/contracts";
 import {
   Badge,
@@ -24,6 +26,8 @@ import {
   ChevronDown,
   CircleAlert,
   CircleCheck,
+  CircleDashed,
+  ExternalLink,
   Eye,
   EyeOff,
   Info,
@@ -33,6 +37,7 @@ import {
   Reply,
   RotateCcw,
   Send,
+  SquarePlus,
   Trash2,
 } from "lucide-react";
 import {
@@ -47,6 +52,7 @@ import {
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { errorMessage } from "../screens/artifact-list.tsx";
+import { CreateIssueDialog, usableConnections } from "./create-issue.tsx";
 import { useHumanCheck } from "./human-check.tsx";
 import { MessageContent, TargetSummary } from "./thread-parts.tsx";
 import { applyThread, dropThread, type ThreadsState, threadsQuery } from "./use-threads.ts";
@@ -97,6 +103,13 @@ export interface ThreadCardProps {
   /** The reader points at the thread (or stops, with null): its text is outlined in the page. */
   onHover(id: string | null): void;
   register(id: string, element: HTMLElement | null): void;
+  /**
+   * The owner's connections to GitHub or Linear (decision 0018), for the owner side only; absent
+   * while integrations are not offered, so the card offers nothing.
+   */
+  issueChoices?: IntegrationChoiceList | undefined;
+  /** The artifact's name, for the issue's title and body. */
+  artifactName?: string | undefined;
 }
 
 /** Controls inside a card that keep their own clicks: the card only selects on the rest. */
@@ -114,6 +127,8 @@ export function ThreadCard({
   onSelect,
   onHover,
   register,
+  issueChoices,
+  artifactName = "",
 }: ThreadCardProps) {
   const t = useT();
   const announce = useAnnounce();
@@ -121,6 +136,7 @@ export function ThreadCard({
   const { api } = useDashboard();
   const [replying, setReplying] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [creatingIssue, setCreatingIssue] = useState(false);
   const [expanded, setExpanded] = useState(false);
   // Replies rest folded behind their count; selecting the thread or replying opens them.
   const [repliesOpen, setRepliesOpen] = useState(false);
@@ -176,8 +192,20 @@ export function ThreadCard({
   // Resolved threads rest folded; selecting one, or asking, opens it.
   const folded = resolved && selection === null && !expanded;
 
+  const issuesOffered =
+    owner && issueChoices !== undefined && usableConnections(issueChoices).length > 0;
   const threadActions: MenuItem[] = owner
     ? [
+        ...(issuesOffered
+          ? [
+              {
+                id: "issue",
+                label: t("issues.create"),
+                icon: <SquarePlus className="size-4" />,
+                onSelect: () => setCreatingIssue(true),
+              },
+            ]
+          : []),
         {
           id: "delete",
           label: t("review.thread.delete"),
@@ -356,6 +384,9 @@ export function ThreadCard({
               ) : null}
             </div>
           ) : null}
+          {!folded && thread.issues && thread.issues.length > 0 ? (
+            <IssueLinks issues={thread.issues} />
+          ) : null}
           {writable && !folded && showReplies ? (
             replying ? (
               <ReplyForm
@@ -381,6 +412,17 @@ export function ThreadCard({
           ) : null}
         </div>
       </article>
+      {issuesOffered && issueChoices ? (
+        <CreateIssueDialog
+          open={creatingIssue}
+          onClose={() => setCreatingIssue(false)}
+          artifactId={artifactId}
+          artifactName={artifactName}
+          thread={thread}
+          number={number}
+          choices={issueChoices}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirmingDelete}
         title={t("review.thread.confirmDelete.title", { number })}
@@ -394,6 +436,48 @@ export function ThreadCard({
         {t("review.thread.confirmDelete.body")}
       </ConfirmDialog>
     </li>
+  );
+}
+
+/**
+ * The issues created from the thread (everyone who sees the thread sees them) and the reader's
+ * own requests still being created or failed, with the plain reason.
+ */
+export function IssueLinks({ issues }: { issues: readonly ThreadIssueView[] }) {
+  const t = useT();
+  return (
+    <section aria-label={t("issues.list")} className="border-t border-border pt-3">
+      <ul className="flex flex-col gap-1.5 text-sm">
+        {issues.map((issue) => (
+          <li key={issue.id} className="flex items-start gap-2">
+            {issue.state === "created" && issue.url ? (
+              <a
+                href={issue.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-medium underline underline-offset-2 hover:no-underline"
+              >
+                <ExternalLink aria-hidden="true" className="size-4 shrink-0" />
+                {t("issues.link", { key: issue.key ?? "", target: issue.target })}
+              </a>
+            ) : issue.state === "pending" ? (
+              <span className="inline-flex items-center gap-1.5 text-text-muted">
+                <CircleDashed aria-hidden="true" className="size-4 shrink-0" />
+                {t("issues.pending", { target: issue.target })}
+              </span>
+            ) : (
+              <span className="inline-flex items-start gap-1.5">
+                <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                {t("issues.failed", {
+                  target: issue.target,
+                  reason: t(`issues.failure.${issue.failure ?? "rejected"}`),
+                })}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

@@ -79,6 +79,18 @@ export interface Env extends DomainEnv {
    */
   SSO_KEY?: string | undefined;
   SSO_KEY_PREVIOUS?: string | undefined;
+  /**
+   * Exactly `"true"` offers issue integrations (decision 0018, "Switched off"): unset in the
+   * deployed configuration until the checks in docs/releasing.md ("Integrations") pass. Without
+   * it, the connection routes and creating an issue answer 503 and nothing calls GitHub or Linear.
+   */
+  INTEGRATIONS_ENABLED?: string | undefined;
+  /**
+   * Seals the credentials of issue connections (decision 0018); the jobs Worker opens them with
+   * the same secret, and `INTEGRATIONS_KEY_PREVIOUS` opens those sealed before a rotation.
+   */
+  INTEGRATIONS_KEY?: string | undefined;
+  INTEGRATIONS_KEY_PREVIOUS?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

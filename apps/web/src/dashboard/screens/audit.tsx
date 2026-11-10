@@ -76,6 +76,11 @@ export const AUDIT_GROUPS = {
     "webhook.created",
     "webhook.changed",
     "webhook.removed",
+    "integration.connected",
+    "integration.changed",
+    "integration.removed",
+    "integration.failing",
+    "issue.created",
     "brand.changed",
     "brand.removed",
   ],
@@ -544,6 +549,26 @@ export function describeAuditEvent(
     case "webhook.changed":
       return t("audit.kind.webhookChanged", {
         enabled: d.enabled === undefined ? "events" : flag(d.enabled),
+      });
+    case "integration.connected":
+      return t("audit.kind.integrationConnected", {
+        service: String(d.service),
+        targets: Number(d.targets),
+      });
+    case "integration.changed":
+      return t("audit.kind.integrationChanged", { credential: flag(d.credential) });
+    case "integration.removed":
+      return t("audit.kind.integrationRemoved", { service: String(d.service) });
+    case "integration.failing":
+      return t("audit.kind.integrationFailing", {
+        service: String(d.service),
+        reason: String(d.reason),
+      });
+    case "issue.created":
+      return t("audit.kind.issueCreated", {
+        service: String(d.service),
+        target: String(d.target),
+        message: flag(d.message),
       });
     case "brand.changed":
     case "brand.removed": {

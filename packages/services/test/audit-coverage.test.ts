@@ -30,6 +30,14 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   createWebhook: ["webhook.created"],
   updateWebhook: ["webhook.changed"],
   removeWebhook: ["webhook.removed"],
+  // Issue integrations (decision 0018): connections by an admin; a credential the service
+  // refuses, by the admin who tested it or by the job, as the system; an issue once it exists.
+  createIntegrationConnection: ["integration.connected"],
+  updateIntegrationConnection: ["integration.changed"],
+  removeIntegrationConnection: ["integration.removed"],
+  testIntegrationConnection: ["integration.failing"],
+  markAttention: ["integration.failing"],
+  runThreadIssue: ["issue.created", "integration.failing"],
   updateBrand: ["brand.changed"],
   setBrandLogo: ["brand.changed"],
   deleteBrand: ["brand.removed"],
@@ -245,7 +253,23 @@ reason("reads that find a custom host or the operator's block list", [
   "blockedNames",
   "customHostHint",
 ]);
+reason(
+  "issue integrations: calls to GitHub or Linear and key handling change nothing an owner has",
+  [
+    "checkCredential",
+    "createIssue",
+    "findIssue",
+    "integrationKeys",
+    "sealCredential",
+    "openCredential",
+  ],
+);
+reason("an issue request is recorded once the job creates the issue (issue.created)", [
+  "requestThreadIssue",
+]);
 reason("scheduled jobs and their consequences of changes already recorded", [
+  "requeueThreadIssues",
+  "rewrapIntegrationKeys",
   "releaseMovedArtifactDomains",
   "archiveExpired",
   "expireUploads",
@@ -319,6 +343,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // The thread a caller may read now (decision 0018): a read like every annotation read.
+  "readableThread",
   "appSessionLive",
   "directoryGroupChoices",
   "directoryRoleHolders",
