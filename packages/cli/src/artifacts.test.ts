@@ -575,6 +575,7 @@ describe("portifact access", () => {
       readerCommentVisibility: [{ email: "bo@example.test", commentVisibility: "all" }],
       policyGeneration: 1,
       audience: null,
+      groups: [],
     });
   });
 
