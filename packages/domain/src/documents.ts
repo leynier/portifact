@@ -1,6 +1,7 @@
 // Rules for `markdown` and `text` artifacts (plan section 7). Portifact renders their entrypoint
 // once, when a version is committed, and serves the rendering at the artifact's root.
-import { type ArtifactType, LIMITS } from "@portifact/contracts";
+import { type ArtifactType, LIMITS, type PlanLimits } from "@portifact/contracts";
+import { formatSize } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 export type DocumentType = Exclude<ArtifactType, "site">;
@@ -49,10 +50,18 @@ export function checkDocumentManifest(
 /**
  * Checks a version once its rendering exists: the rendered page counts toward the version size
  * like any published file, so a document with large assets cannot exceed it through rendering.
+ * `limits` are the owner's plan limits (`entitlements`).
  */
-export function checkRenderedVersion(publishedBytes: number, renderedBytes: number): Result<true> {
-  if (publishedBytes + renderedBytes > LIMITS.artifactBytes) {
-    return fail("quota_exceeded", "With its rendered page, this version exceeds 250 MB.");
+export function checkRenderedVersion(
+  publishedBytes: number,
+  renderedBytes: number,
+  limits: Pick<PlanLimits, "artifactBytes">,
+): Result<true> {
+  if (publishedBytes + renderedBytes > limits.artifactBytes) {
+    return fail(
+      "quota_exceeded",
+      `With its rendered page, this version exceeds ${formatSize(limits.artifactBytes)}.`,
+    );
   }
   return ok(true);
 }

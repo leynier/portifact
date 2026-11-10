@@ -234,7 +234,7 @@ describe("MCP tool inputs", () => {
     });
     expect(ReadArtifactInput.safeParse({ ...ref, offset: -1 }).success).toBe(false);
     expect(ReadArtifactInput.safeParse({ ...ref, offset: 1.5 }).success).toBe(false);
-    expect(ReadArtifactInput.safeParse({ ...ref, offset: LIMITS.artifactBytes + 1 }).success).toBe(
+    expect(ReadArtifactInput.safeParse({ ...ref, offset: LIMITS.fileBytesCap + 1 }).success).toBe(
       false,
     );
     // The API's query takes the offset as text.

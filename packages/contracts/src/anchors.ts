@@ -24,8 +24,8 @@ export const ANCHOR_LIMITS = {
   routeMaxLength: 2_048,
   rendererMaxLength: 64,
   sourceBlockMax: 1_000_000,
-  /** A position can never exceed the bytes of the largest artifact. */
-  positionMax: LIMITS.artifactBytes,
+  /** A position can never exceed the bytes of the largest file any plan allows. */
+  positionMax: LIMITS.fileBytesCap,
   rectMaxCoordinate: 10_000_000,
   /** Serialized JSON size of a whole target, in UTF-8 bytes. */
   targetMaxBytes: 8 * 1024,

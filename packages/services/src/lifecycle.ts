@@ -146,7 +146,10 @@ export async function restoreArtifact(
     if (updated.length === 0) return conflict();
   } catch (error) {
     if (String((error as Error)?.cause ?? error).includes("CHECK constraint failed")) {
-      return fail("quota_exceeded", "You already have 50 active artifacts.");
+      return fail(
+        "quota_exceeded",
+        `You already have ${owner.limits.activeArtifacts} active artifacts.`,
+      );
     }
     throw error;
   }

@@ -1,4 +1,4 @@
-import { LIMITS } from "@portifact/contracts";
+import { EXPIRY_NOTICE_ARTIFACTS_MAX, LIMITS } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   checkNoticeCapacity,
@@ -82,15 +82,16 @@ describe("groupNotices", () => {
     expect(groupNotices([]).size).toBe(0);
   });
 
-  it("lists at most the active artifact limit in one notice", () => {
-    const many = Array.from({ length: LIMITS.activeArtifacts + 3 }, (_, i) => ({
+  it("lists more than the free plan's artifacts, up to the notice cap, in one notice", () => {
+    const many = Array.from({ length: EXPIRY_NOTICE_ARTIFACTS_MAX + 3 }, (_, i) => ({
       ownerId: "a",
-      id: `id${String(i).padStart(3, "0")}`,
+      id: `id${String(i).padStart(4, "0")}`,
       expiresAt: NOW + DAY + i,
     }));
     const group = groupNotices(many).get("a") ?? [];
-    expect(group).toHaveLength(LIMITS.activeArtifacts);
-    expect(group[0]?.id).toBe("id000");
+    expect(group).toHaveLength(EXPIRY_NOTICE_ARTIFACTS_MAX);
+    expect(group.length).toBeGreaterThan(LIMITS.activeArtifacts);
+    expect(group[0]?.id).toBe("id0000");
   });
 });
 

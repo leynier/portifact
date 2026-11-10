@@ -640,7 +640,7 @@ export const es = {
   "manifest.empty":
     "No hay nada que publicar: todos los archivos se excluyeron o la fuente está vacía.",
   "manifest.too_many_files": "Una versión puede contener como máximo {detail} archivos.",
-  "manifest.too_large": "Una versión puede contener como máximo 250 MB.",
+  "manifest.too_large": "Una versión puede contener como máximo {detail}.",
   "manifest.invalid_path": "Una ruta de archivo no está permitida: {detail}",
   "manifest.missing_entry":
     "La página de entrada {detail} no está entre los archivos. Cambia la página de entrada o agrégala.",

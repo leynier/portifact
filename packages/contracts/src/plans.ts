@@ -141,7 +141,11 @@ export const PLANS: Readonly<Record<PlanName, PlanDefinition>> = {
  */
 export const PlanOverrides = z
   .object({
-    limits: PlanLimits.partial().strict().optional(),
+    // A per-artifact size above the boundaries' file cap could never be used.
+    limits: PlanLimits.partial()
+      .extend({ artifactBytes: count.max(LIMITS.fileBytesCap).optional() })
+      .strict()
+      .optional(),
     features: z.partialRecord(PlanFeature, z.boolean()).optional(),
   })
   .strict();
@@ -161,3 +165,19 @@ export const PlanView = z.object({
   features: z.array(PlanFeature),
 });
 export type PlanView = z.infer<typeof PlanView>;
+
+/**
+ * One owner's plan as `export-plans` writes it before a D1 Time Travel restore and `apply-plans`
+ * grants it again after (docs/operations.md): the restore rewinds `owner_plans`, and plans are
+ * not tombstones, so the operator carries them across.
+ */
+export const OwnerPlanExport = z.strictObject({
+  ownerId: z.string().min(1).max(200),
+  plan: PlanName,
+  seats: z.number().int().min(1),
+  validUntil: z.number().int().nonnegative().nullable(),
+  overrides: PlanOverrides.nullable(),
+  grantedBy: z.string().min(1).max(200),
+  note: z.string().max(500).nullable(),
+});
+export type OwnerPlanExport = z.infer<typeof OwnerPlanExport>;

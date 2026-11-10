@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DeleteObjectsPayload,
+  EXPIRY_NOTICE_ARTIFACTS_MAX,
   ExpiryNoticePayload,
   JobMessage,
   LIMITS,
@@ -33,12 +34,13 @@ describe("job contracts", () => {
     expect(DeleteObjectsPayload.safeParse({ keys: Array(101).fill("k") }).success).toBe(false);
   });
 
-  it("bounds the artifacts of an expiry_notice payload by the active artifact limit", () => {
+  it("bounds the artifacts of an expiry_notice payload by its safety cap, above the free plan", () => {
     const entry = { id: "k7d2qm4xab", expiresAt: 1 };
     expect(JobMessage.parse({ id: 3, topic: "expiry_notice" }).topic).toBe("expiry_notice");
     expect(ExpiryNoticePayload.parse({ artifacts: [entry] })).toEqual({ artifacts: [entry] });
     expect(ExpiryNoticePayload.safeParse({ artifacts: [] }).success).toBe(false);
-    const full = Array(LIMITS.activeArtifacts).fill(entry);
+    expect(EXPIRY_NOTICE_ARTIFACTS_MAX).toBeGreaterThan(LIMITS.activeArtifacts);
+    const full = Array(EXPIRY_NOTICE_ARTIFACTS_MAX).fill(entry);
     expect(ExpiryNoticePayload.safeParse({ artifacts: full }).success).toBe(true);
     expect(ExpiryNoticePayload.safeParse({ artifacts: [...full, entry] }).success).toBe(false);
     expect(

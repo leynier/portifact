@@ -593,7 +593,7 @@ export const zhCN = {
 
   "manifest.empty": "没有可发布的内容：所有文件都被排除，或源为空。",
   "manifest.too_many_files": "一个版本最多可包含 {detail} 个文件。",
-  "manifest.too_large": "一个版本最多可包含 250 MB。",
+  "manifest.too_large": "一个版本最多可包含 {detail}。",
   "manifest.invalid_path": "不允许的文件路径：{detail}",
   "manifest.missing_entry": "入口页面 {detail} 不在文件中。请更改入口页面或添加该文件。",
   "manifest.document_files": "文档只能是单个文件。请选择一个文件。",

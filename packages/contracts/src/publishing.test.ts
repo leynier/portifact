@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ErrorCode } from "./core.ts";
 import { LIMITS } from "./limits.ts";
+import { PLANS } from "./plans.ts";
 import {
   AccessUpdate,
   ArtifactList,
@@ -43,7 +44,11 @@ describe("publishing contracts", () => {
     expect(ManifestFile.safeParse({ ...file, sha256: "A".repeat(64) }).success).toBe(false);
     expect(ManifestFile.safeParse({ ...file, size: -1 }).success).toBe(false);
     expect(ManifestFile.safeParse({ ...file, size: 1.5 }).success).toBe(false);
-    expect(ManifestFile.safeParse({ ...file, size: LIMITS.artifactBytes + 1 }).success).toBe(false);
+    expect(ManifestFile.safeParse({ ...file, size: LIMITS.fileBytesCap + 1 }).success).toBe(false);
+    // The plan's per-artifact size is checked with the owner's plan, not here: a Pro file passes.
+    expect(ManifestFile.safeParse({ ...file, size: PLANS.pro.limits.artifactBytes }).success).toBe(
+      true,
+    );
     const base = { type: "site", name: "x", entrypoint: "index.html" };
     expect(PublishRequest.safeParse({ ...base, files: [] }).success).toBe(false);
     expect(

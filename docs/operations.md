@@ -1,6 +1,6 @@
 # Operations
 
-How the operator handles abuse reports and suspensions (plan section 13), how storage is verified and a database backup restored (plan section 10), the budget alerts and protection (plan section 12), and the email quota and suppressions (plan section 17). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
+How the operator handles abuse reports and suspensions (plan section 13), how storage is verified and a database backup restored (plan section 10), the budget alerts and protection (plan section 12), the email quota and suppressions (plan section 17), and owners' plans (premium plan section 3, F1 and F2). There is no operator web UI: every operator action runs from the operator's machine through the operator tool.
 
 ## Why a local tool and not an operator account
 
@@ -29,6 +29,11 @@ bun run --cwd apps/jobs operator export-tombstones --out <absolute file>   # bef
 bun run --cwd apps/jobs operator apply-tombstones --file <absolute file>   # after restoring a backup
 bun run --cwd apps/jobs operator email-suppressions                  # addresses that get no sign-in codes
 bun run --cwd apps/jobs operator lift-email-suppression <email>
+bun run --cwd apps/jobs operator plan <user-id|email>                # row, effective plan, usage against limits and columns
+bun run --cwd apps/jobs operator set-plan <user-id|email> pro [--seats N] [--until 2027-01-31] [--note "why"] [--overrides '<json>']
+bun run --cwd apps/jobs operator remove-plan <user-id|email>         # back to free
+bun run --cwd apps/jobs operator export-plans --out <absolute file>  # before restoring a backup
+bun run --cwd apps/jobs operator apply-plans --file <absolute file>  # after restoring a backup
 ```
 
 `--local` runs against the local D1 state of `wrangler dev` in `apps/app` instead (apply the migrations there first with `wrangler d1 migrations apply portifact-control --local --persist-to apps/app/.wrangler/state`). The remote binding is defined in `apps/jobs/operator.wrangler.jsonc`, which is never deployed. `--config <file>` uses the `DB` binding of another Wrangler configuration instead, for example a scratch database in a backup drill; never edit `operator.wrangler.jsonc` to point it elsewhere. `bun run --cwd apps/jobs` runs the script in `apps/jobs`, so relative paths (`--config`, `--out`, `--file`) resolve from there, not from the repository root: pass absolute paths. Reasons are the `AbuseReason` values in `packages/contracts/src/moderation.ts`.
@@ -117,7 +122,19 @@ Deletions need no operator action: the request removes the user at once and the 
 
 ## Traffic quota
 
-An account whose artifacts served its plan's traffic in the current UTC month (1 million requests or 25 GB on `free`, the plan of every account without an `owner_plans` row; `PLANS` in `packages/contracts/src/plans.ts`) gets 429 on all of them until the next month ( see "Access control" in [security.md](security.md)). Its counters are in `traffic_counters`, one row per account and month, for example `select owner_id, requests, bytes from traffic_counters where cycle_start = <month start in ms> order by bytes desc limit 20` to see the largest consumers during a budget review. There is no operator command to raise or reset a counter, and none yet to grant a plan: a quota exception is a product decision, not an operation. Counters older than the previous month are pruned by the maintenance job.
+An account whose artifacts served its plan's traffic in the current UTC month (1 million requests or 25 GB on `free`, the plan of every account without an `owner_plans` row; `PLANS` in `packages/contracts/src/plans.ts`) gets 429 on all of them until the next month ( see "Access control" in [security.md](security.md)). Its counters are in `traffic_counters`, one row per account and month, for example `select owner_id, requests, bytes from traffic_counters where cycle_start = <month start in ms> order by bytes desc limit 20` to see the largest consumers during a budget review. There is no operator command to raise or reset a counter; a higher quota comes with a plan (see "Plans" below). Counters older than the previous month are pruned by the maintenance job.
+
+## Plans
+
+Every owner has a plan (`free`, `pro`, `team` or `enterprise`, `PLANS` in `packages/contracts/src/plans.ts`); without an `owner_plans` row it is `free`, exactly the limits every account had before plans. Payment does not exist yet: the operator tool is the only way to grant, change or remove a plan, and there is no web route, API endpoint, MCP tool or CLI command for it, nor may there be one. A future billing webhook writes the same row through the same service.
+
+- `set-plan <owner> <plan>` grants or changes it (`setOwnerPlan`, `packages/services/src/plans.ts`): `--seats` multiplies Team and Enterprise's per-seat limits, `--until` (an ISO date, UTC) ends it, after which the owner reads as `free`, `--note` records why, and `--overrides` takes JSON such as `{"limits":{"activeArtifacts":5000},"features":{"sso":true}}`, totals applied after seats (an Enterprise contract). It refuses an unknown plan, seats outside 1 to 10,000, an end in the past, invalid overrides, and accounts that do not exist or are being deleted. It records `granted_by` as `operator`.
+- The grant writes the row and the four limit columns the database's CHECK constraints compare usage against (`account_usage.active_limit` and `bytes_limit`, `annotation_usage.messages_limit` and `bytes_limit`) in one batch, creating the usage rows if the owner has none yet, so a later publish or comment finds the plan's limits. A column is never set below what the owner already uses: it holds the larger of the plan's limit and the usage. The rules that admit new work read the plan, not the columns, so the columns are only the safety net against races.
+- `remove-plan <owner>` deletes the row and lowers the columns toward the free values in the same batch; `plan <owner>` shows the row, the effective plan (an expired plan shows as `free`), the features and each usage against its limit and column.
+- The maintenance scan `alignPlanLimits` (`alignedPlanLimits` in the `maintenance` log line) brings the columns back in line for owners whose plan expired, was removed or lowered, or whose usage fell: up to 50 owners a run, reading only owners with a plan row or a column off the free values and writing only those out of line, each conditioned on the plan row it read being unchanged.
+- A lower plan never deletes or hides anything. Above its limits, new artifacts, restores, updates that add storage and new comments are refused with `quota_exceeded`, naming the plan's limit where the owner reads the message (comments say only that the owner has no room, because the commenter is someone else). Reading, listing, exporting, downloading, deleting, archiving, reducing access, renewing and rolling back keep working; a rollback is not held to the per-artifact size, since the version already fit the plan it was published under.
+
+Safety caps that are not plan tiers stay constants: files per version, publishes and new files per 24 hours, open uploads, readers per artifact, the boundaries' file, offset and anchor cap (`LIMITS.fileBytesCap`, 5 GB, above every plan's per-artifact size) and the artifacts one expiry notice lists (`EXPIRY_NOTICE_ARTIFACTS_MAX`, 1,000). Archive months, version retention and access log retention are carried in `PLANS` but not applied yet. Budget protection does not look at plans.
 
 ## Maintenance and the outbox
 
@@ -150,7 +167,9 @@ The database backup is D1 Time Travel (30 days on Workers Paid). R2 is not rewou
 5. The jobs Worker purges the claimed artifacts and finishes the deletions within the next runs; an account deletion stays pending until its artifacts are purged, so it finishes one run after them. Check with `select count(*) from artifacts where state = 'purging'` and `select * from account_deletions`.
 6. Run `storage-report` after a full reconciliation pass and handle `missing` and `orphan` findings as described above.
 
-If the live database cannot be read for step 2, restore to the latest point that can, export from it, then restore to the point you need and apply. Migrations applied after the restore point are rewound too: apply them again with `wrangler d1 migrations apply portifact-control --remote` before step 4. A restore to before migration 0027 also rewinds the per-row limit columns of `account_usage` and `annotation_usage`; reapplying it gives every row the free plan's defaults again, so check any limits written after the restore point.
+Plans are rewound too: `owner_plans` and the limit columns go back to the restore point, consistent with each other, so the database stays correct but plans granted, changed or removed since are lost or back. Plans are not tombstones, so they have their own export: in step 2 also run `export-plans --out "$HOME/portifact-plans.jsonl"` (one JSON object per plan, with owner IDs and notes: keep it outside the repository and delete it when done), and after step 4 run `apply-plans --file "$HOME/portifact-plans.jsonl"`. It grants each exported plan again through the same service, which sets the limit columns, skips plans that ended and accounts that are gone or being deleted (so run it after `apply-tombstones`), and lists owners that have a plan the file does not, which the restore brought back; remove each with `remove-plan` if it was removed after the export. It never removes a plan by itself. Running it again changes nothing.
+
+If the live database cannot be read for step 2, restore to the latest point that can, export from it, then restore to the point you need and apply. Migrations applied after the restore point are rewound too: apply them again with `wrangler d1 migrations apply portifact-control --remote` before step 4. A restore to before migration 0027 also rewinds the per-row limit columns of `account_usage` and `annotation_usage`; reapplying it gives every row the free plan's defaults again, and `apply-plans` sets the granted plans' columns again.
 
 ### Backup drill
 

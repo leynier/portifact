@@ -199,7 +199,7 @@ export const PrepareUploadInput = z.object({
     .min(1)
     .max(LIMITS.filesPerVersion)
     .describe(
-      `Every file of the version, at most ${LIMITS.filesPerVersion}, ${LIMITS.artifactBytes} bytes in all. Files the account already stores are not uploaded again.`,
+      `Every file of the version, at most ${LIMITS.filesPerVersion}, within the per-artifact size of the owner's plan in all (get_usage: plan.limits.artifactBytes). Files the account already stores are not uploaded again.`,
     ),
   artifactId: artifactId
     .optional()

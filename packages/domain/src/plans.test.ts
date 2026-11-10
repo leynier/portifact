@@ -3,11 +3,14 @@ import { describe, expect, it } from "vitest";
 import { checkAnnotationWrite } from "./annotations.ts";
 import { checkRestore } from "./lifecycle.ts";
 import {
+  alignedLimit,
   type Entitlements,
   entitlements,
+  FREE_LIMIT_COLUMNS,
   formatCount,
   formatSize,
   hasFeature,
+  limitColumns,
   type OwnerPlanRecord,
   planActive,
 } from "./plans.ts";
@@ -370,5 +373,32 @@ describe("plan limits in the rules", () => {
         pro.limits,
       ),
     ).toEqual([]);
+  });
+});
+
+describe("limit columns", () => {
+  it("maps the entitlements to the database's four limit columns", () => {
+    const team = entitlements({ plan: "team", seats: 2, validUntil: null, overrides: null }, 0);
+    expect(limitColumns(team)).toEqual({
+      activeLimit: 2_000,
+      bytesLimit: 60_000_000_000,
+      messagesLimit: 50_000,
+      annotationBytesLimit: 200_000_000,
+    });
+  });
+
+  it("keeps the free columns equal to the database defaults", () => {
+    expect(FREE_LIMIT_COLUMNS).toEqual({
+      activeLimit: 50,
+      bytesLimit: 2_500_000_000,
+      messagesLimit: 5_000,
+      annotationBytesLimit: 50_000_000,
+    });
+  });
+
+  it("never aligns a column below usage", () => {
+    expect(alignedLimit(50, 10)).toBe(50);
+    expect(alignedLimit(50, 50)).toBe(50);
+    expect(alignedLimit(50, 70)).toBe(70);
   });
 });

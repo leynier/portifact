@@ -1,4 +1,4 @@
-import { LIMITS } from "@portifact/contracts";
+import { LIMITS, PLANS } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   checkDocumentManifest,
@@ -77,17 +77,27 @@ describe("checkDocumentManifest", () => {
 
 describe("checkRenderedVersion", () => {
   it("accepts a version whose rendering fits exactly", () => {
-    expect(checkRenderedVersion(LIMITS.artifactBytes - 100, 100)).toEqual({
+    expect(checkRenderedVersion(LIMITS.artifactBytes - 100, 100, PLANS.free.limits)).toEqual({
       ok: true,
       value: true,
     });
   });
 
   it("rejects a version one byte over with its rendering", () => {
-    expect(checkRenderedVersion(LIMITS.artifactBytes - 100, 101)).toEqual({
+    expect(checkRenderedVersion(LIMITS.artifactBytes - 100, 101, PLANS.free.limits)).toEqual({
       ok: false,
       code: "quota_exceeded",
       message: "With its rendered page, this version exceeds 250 MB.",
+    });
+  });
+
+  it("applies the plan's per-artifact size and names it", () => {
+    const pro = PLANS.pro.limits;
+    expect(checkRenderedVersion(LIMITS.artifactBytes, 1_000, pro).ok).toBe(true);
+    expect(checkRenderedVersion(pro.artifactBytes - 100, 101, pro)).toEqual({
+      ok: false,
+      code: "quota_exceeded",
+      message: "With its rendered page, this version exceeds 2 GB.",
     });
   });
 });

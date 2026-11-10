@@ -26,6 +26,18 @@ describe("PLANS", () => {
       expect([...plan.features]).toEqual(PLAN_FEATURES.filter((f) => plan.features.includes(f)));
     }
     expect(PLANS.pro.perSeat).toEqual([]);
+  });
+
+  it("keeps every plan's per-artifact size within the boundaries' file cap", () => {
+    for (const plan of Object.values(PLANS)) {
+      expect(plan.limits.artifactBytes).toBeLessThanOrEqual(LIMITS.fileBytesCap);
+    }
+    expect(
+      PlanOverrides.safeParse({ limits: { artifactBytes: LIMITS.fileBytesCap } }).success,
+    ).toBe(true);
+    expect(
+      PlanOverrides.safeParse({ limits: { artifactBytes: LIMITS.fileBytesCap + 1 } }).success,
+    ).toBe(false);
     expect(PLANS.team.perSeat).toEqual(PLANS.enterprise.perSeat);
   });
 });

@@ -419,8 +419,10 @@ export async function rollbackArtifact(
     return fail("invalid_input", "That version is already the current one.");
   }
 
-  // A rollback publishes: it counts against the publishes per 24 hours and the version limits,
-  // but uploads nothing and opens no upload, so storage and upload limits do not apply.
+  // A rollback publishes: it counts against the publishes per 24 hours and the file limit, but
+  // uploads nothing and opens no upload, so storage and upload limits do not apply. Nor does the
+  // plan's per-artifact size: the retained version fit the plan it was published under and adds
+  // no bytes, and a lower plan never blocks going back to it (premium plan, downgrades).
   const [usageRow] = await db
     .select({ activeArtifacts: schema.accountUsage.activeArtifacts })
     .from(schema.accountUsage)
@@ -439,7 +441,7 @@ export async function rollbackArtifact(
     },
     {
       createsArtifact: false,
-      versionBytes: target.publishedBytes,
+      versionBytes: 0,
       files: target.publishedFiles + target.sourceFiles,
       newBytes: 0,
       newFiles: 0,

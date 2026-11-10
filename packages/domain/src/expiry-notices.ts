@@ -3,7 +3,7 @@
 // one email that lists every artifact of theirs about to expire. Each expiry is notified once: a
 // publish or renewal sets a new expiry, which is due for its own notice. An owner gets at most one
 // notice a day, so artifacts that enter the window hours apart wait and go out together.
-import { LIMITS } from "@portifact/contracts";
+import { EXPIRY_NOTICE_ARTIFACTS_MAX } from "@portifact/contracts";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -58,7 +58,7 @@ export interface NoticeEntry {
 
 /**
  * One notice per owner, its artifacts soonest first (then by ID, so the order is stable), at
- * most the active artifact limit each.
+ * most `EXPIRY_NOTICE_ARTIFACTS_MAX` each; the rest wait for the owner's next notice.
  */
 export function groupNotices(
   candidates: readonly (NoticeEntry & { ownerId: string })[],
@@ -71,7 +71,7 @@ export function groupNotices(
   }
   for (const [owner, group] of groups) {
     group.sort((a, b) => a.expiresAt - b.expiresAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    groups.set(owner, group.slice(0, LIMITS.activeArtifacts));
+    groups.set(owner, group.slice(0, EXPIRY_NOTICE_ARTIFACTS_MAX));
   }
   return groups;
 }

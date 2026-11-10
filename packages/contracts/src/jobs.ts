@@ -2,7 +2,6 @@
 // payloads of outbox rows, and the tombstone markers the operator exports before restoring a
 // backup and applies after it (docs/operations.md).
 import { z } from "zod";
-import { LIMITS } from "./limits.ts";
 
 export const OutboxTopic = z.enum([
   "purge_artifact",
@@ -36,6 +35,13 @@ export const EraseAccessEventsPayload = z.strictObject({
 export type EraseAccessEventsPayload = z.infer<typeof EraseAccessEventsPayload>;
 
 /**
+ * Artifacts one expiry notice lists at most: a safety cap on the payload (a queue message) and the
+ * email, not a plan limit. An owner with more expiring at once gets the rest, soonest first, in
+ * the next notices (one a day while they stay inside the notice window).
+ */
+export const EXPIRY_NOTICE_ARTIFACTS_MAX = 1_000;
+
+/**
  * Payload of an `expiry_notice` job (its subject is the owner): the artifacts it tells the owner
  * about, each with the expiry it was scheduled for. The job skips an artifact whose expiry changed
  * since (renewed or published again) or that is no longer active.
@@ -49,7 +55,7 @@ export const ExpiryNoticePayload = z.strictObject({
       }),
     )
     .min(1)
-    .max(LIMITS.activeArtifacts),
+    .max(EXPIRY_NOTICE_ARTIFACTS_MAX),
 });
 export type ExpiryNoticePayload = z.infer<typeof ExpiryNoticePayload>;
 

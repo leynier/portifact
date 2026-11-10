@@ -6,7 +6,7 @@
 // single buffer.
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
-import { type ArtifactType, LIMITS } from "@portifact/contracts";
+import { type ArtifactType, LIMITS, PLANS } from "@portifact/contracts";
 import {
   contentTypeFor,
   DEFAULT_ENTRY,
@@ -27,6 +27,11 @@ export interface ManifestOptions {
   type: ArtifactType;
   /** The page a site opens at; `index.html` by default. */
   entry?: string | undefined;
+  /**
+   * The largest version the owner's plan allows (`plan.limits.artifactBytes` of the usage
+   * endpoint); the free plan's when not given. The API checks the plan again.
+   */
+  maxBytes?: number | undefined;
 }
 
 export interface ManifestFile {
@@ -176,9 +181,11 @@ export async function buildManifest(
   }
   // Sizes first, so a source over the limit fails before any hashing or expanding.
   const declared = kept.reduce((sum, candidate) => sum + candidate.size, 0);
-  if (declared > LIMITS.artifactBytes) {
-    throw new ManifestError("too_large", String(LIMITS.artifactBytes));
-  }
+  const maxBytes = Math.min(
+    options.maxBytes ?? PLANS.free.limits.artifactBytes,
+    LIMITS.fileBytesCap,
+  );
+  if (declared > maxBytes) throw new ManifestError("too_large", String(maxBytes));
 
   const paths = validateManifestPaths(kept.map((candidate) => candidate.path));
   if (!paths.ok) throw new ManifestError("invalid_path", paths.message);

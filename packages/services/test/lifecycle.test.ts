@@ -445,6 +445,7 @@ describe("purging archives", () => {
       prunedTrafficCounters: 0,
       prunedEmailCounters: 0,
       prunedEmailSuppressions: 0,
+      alignedPlanLimits: 0,
     });
   });
 });

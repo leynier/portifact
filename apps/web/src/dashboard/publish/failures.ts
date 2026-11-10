@@ -11,10 +11,21 @@ type Translate = (id: MessageId, values?: Record<string, string | number>) => st
 
 const PUBLISH_CODES = ["quota_exceeded", "version_conflict", "upload_incomplete", "invalid_input"];
 
-/** The message for a failed publish, in the terms of the rule that refused it. */
-export function publishFailureMessage(t: Translate, error: unknown): string {
+/**
+ * The message for a failed publish, in the terms of the rule that refused it. A size limit the
+ * manifest names is shown with `formatBytes` when given.
+ */
+export function publishFailureMessage(
+  t: Translate,
+  error: unknown,
+  formatBytes?: (bytes: number) => string,
+): string {
   if (error instanceof ManifestError) {
-    return t(`manifest.${error.reason}`, { detail: error.detail ?? "" });
+    const detail =
+      error.reason === "too_large" && formatBytes && error.detail
+        ? formatBytes(Number(error.detail))
+        : (error.detail ?? "");
+    return t(`manifest.${error.reason}`, { detail });
   }
   if (error instanceof UploadFailure)
     return t(`upload.${error.reason}`, { path: error.path ?? "" });

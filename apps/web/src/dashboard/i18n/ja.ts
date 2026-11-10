@@ -627,7 +627,7 @@ export const ja = {
 
   "manifest.empty": "公開するものがありません。すべてのファイルが除外されたか、ソースが空です。",
   "manifest.too_many_files": "1つのバージョンに含められるファイルは最大{detail}個です。",
-  "manifest.too_large": "1つのバージョンの上限は250 MBです。",
+  "manifest.too_large": "1つのバージョンの上限は{detail}です。",
   "manifest.invalid_path": "使用できないファイルパスがあります：{detail}",
   "manifest.missing_entry":
     "エントリーページ{detail}がファイルの中にありません。エントリーページを変更するか、ファイルを追加してください。",
