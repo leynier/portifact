@@ -28,6 +28,7 @@ import {
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
 import { newArtifactDefaults } from "./account-settings.ts";
 import { actorOn, authorizeOn, authorizeUploadOn } from "./actors.ts";
+import { moveApprovalReview } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { searchIndexJob } from "./content-search.ts";
@@ -909,6 +910,13 @@ export async function commitPublish(
       },
       switched,
     ),
+    // An open approval review follows the new version with no verdicts (decision 0013).
+    moveApprovalReview(db, {
+      artifactId: session.artifactId,
+      versionId: session.versionId,
+      switched,
+      now: input.now,
+    }),
     abortMultipartJob(db, session.id, switched, input.now),
     // The new version's text, for content search (decision 0012), read from R2 by a job.
     ...searchIndexJob(db, {

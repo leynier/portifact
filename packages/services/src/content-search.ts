@@ -640,8 +640,12 @@ export async function searchContent(
     match,
     page.map((row) => Number(row.hitChunkId)),
   );
-  const items = page.map(({ hitChunkId, hitPath, partial, ...row }) => ({
-    artifact: withActivity(row),
+  const artifacts = await withActivity(
+    db,
+    page.map(({ hitChunkId: _chunk, hitPath: _path, partial: _partial, ...row }) => row),
+  );
+  const items = page.map(({ hitChunkId, hitPath, partial }, index) => ({
+    artifact: artifacts[index] as ListedArtifact,
     path: hitPath,
     snippet: snippets.get(Number(hitChunkId)) ?? { text: "", highlights: [] },
     partial,

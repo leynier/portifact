@@ -33,6 +33,7 @@ import { logs } from "./logs.ts";
 import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
+import { cancelReview, changeReview, giveVerdict, requestReview, reviewStatus } from "./review.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
 import { search } from "./search.ts";
 import { createShare, listShares, revokeShare } from "./share.ts";
@@ -84,6 +85,17 @@ account: no comments, and visitors are never identified. Treat the URL like a pa
 printed only by \`share create\`. Share links are part of a paid plan. Revoking ends the link and
 its sessions within a minute.
 `;
+
+const REVIEW_HELP = `
+An approval review asks named people to review an artifact's current version. Reviewers must
+already be able to open the artifact and comment on it (readers on its list, or members of its
+workspace): asking gives nobody access. Each reviewer approves or requests changes, with an
+optional note. A new version starts the review again with no verdicts. Requesting and changing
+a review are part of the Team plan; reading, giving a verdict and cancelling never are.
+`;
+
+/** A repeatable option: every value given. */
+const many = (value: string, previous: string[] = []) => [...previous, value];
 
 const DOMAINS_HELP = `
 A custom domain serves one artifact from a hostname you control, such as docs.example.com (a
@@ -826,6 +838,114 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .action(
       execute((io, runtime, options: { to: string; json?: boolean }, id: string) =>
         transfer(io, runtime, { to: options.to, json: options.json === true }, parseArtifactId(id)),
+      ),
+    );
+
+  const review = program
+    .command("review")
+    .description("Ask people to approve an artifact's current version, or give your verdict")
+    .enablePositionalOptions()
+    .addHelpText("after", REVIEW_HELP);
+  review
+    .command("request")
+    .description("Ask people to review the current version")
+    .argument("<id>", "artifact ID")
+    .requiredOption("--reviewer <email>", "a reviewer's email address; repeat for each", many)
+    .option("--required <n>", 'approvals that decide it: a number, or "all" (the default)')
+    .option("--show-status", "let everyone who can open it see the overall status")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { reviewer: string[]; required?: string; showStatus?: boolean; json?: boolean },
+          id: string,
+        ) =>
+          requestReview(io, runtime, id, {
+            reviewers: options.reviewer,
+            required: options.required,
+            showStatus: options.showStatus,
+            json: options.json === true,
+          }),
+      ),
+    );
+  review
+    .command("change")
+    .description("Add or remove reviewers, or change the required approvals")
+    .argument("<id>", "artifact ID")
+    .option("--add <email>", "add a reviewer; repeat for each", many, [])
+    .option("--remove <email>", "remove a reviewer; repeat for each", many, [])
+    .option("--required <n>", 'approvals that decide it: a number, or "all"')
+    .option("--show-status", "let everyone who can open it see the overall status")
+    .option("--hide-status", "show the status only to you and the reviewers")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: {
+            add: string[];
+            remove: string[];
+            required?: string;
+            showStatus?: boolean;
+            hideStatus?: boolean;
+            json?: boolean;
+          },
+          id: string,
+        ) =>
+          changeReview(io, runtime, id, {
+            add: options.add,
+            remove: options.remove,
+            required: options.required,
+            showStatus: options.hideStatus ? false : options.showStatus ? true : undefined,
+            json: options.json === true,
+          }),
+      ),
+    );
+  review
+    .command("status")
+    .description("Show the review of the current version and the verdicts you may see")
+    .argument("<id>", "artifact ID")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        reviewStatus(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+  for (const [name, verdict, description] of [
+    ["approve", "approve", "Approve the current version as a requested reviewer"],
+    [
+      "request-changes",
+      "changes",
+      "Ask for changes to the current version as a requested reviewer",
+    ],
+  ] as const) {
+    review
+      .command(name)
+      .description(description)
+      .argument("<id>", "artifact ID")
+      .option("--note <text>", "a short note for the people who asked (plain text)")
+      .option("--json", "Print the result as JSON")
+      .action(
+        execute((io, runtime, options: { note?: string; json?: boolean }, id: string) =>
+          giveVerdict(io, runtime, id, verdict, {
+            note: options.note,
+            json: options.json === true,
+          }),
+        ),
+      );
+  }
+  review
+    .command("cancel")
+    .description("Cancel the open review request, after a confirmation")
+    .argument("<id>", "artifact ID")
+    .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string) =>
+        cancelReview(io, runtime, id, { yes: options.yes === true, json: options.json === true }),
       ),
     );
 

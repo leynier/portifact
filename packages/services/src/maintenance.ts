@@ -8,6 +8,7 @@ import { and, asc, eq, gt, inArray, lte, notExists, or, type SQL, sql } from "dr
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
+import { recheckApprovalReviewers } from "./approval-reviews.ts";
 import { pruneAuditEvents } from "./audit.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
@@ -574,5 +575,8 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     prunedAuditEvents:
       (await pruneAuditEvents(db, db.global, now)) +
       (await pruneAuditEvents(db.global, db.global, now)),
+    // Last, with its own call and time budget, so a backlog of review requests never keeps the
+    // deletions and prunes above from running.
+    approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
   };
 }

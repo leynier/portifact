@@ -52,6 +52,7 @@ import {
 import { authorizeAccountRequest, authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
+import { approvalReviewRoutes } from "./approval-reviews.ts";
 import { auditRoutes } from "./audit.ts";
 import { documentRoutes } from "./documents.ts";
 import { domainRoutes } from "./domains.ts";
@@ -399,6 +400,7 @@ export function apiRoutes(deps: ApiDeps) {
   auditRoutes(api, guarded, deps.now);
   workspaceReadRoutes(api, guarded);
   shareLinkRoutes(api, guarded, deps.now);
+  approvalReviewRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
   searchRoutes(api, guarded, deps.now);
   feedbackRoutes(api, guarded, deps.now);

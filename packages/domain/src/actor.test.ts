@@ -41,6 +41,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   access_log: { admin: true, editor: true, member: false },
   usage: { admin: true, editor: true, member: false },
   domains: { admin: true, editor: true, member: false },
+  approvals: { admin: true, editor: true, member: false },
   search: { admin: true, editor: true, member: false },
   members: { admin: true, editor: false, member: false },
   plan: { admin: true, editor: false, member: false },
@@ -64,6 +65,7 @@ const TOKEN_ALLOWED: readonly RoleAction[] = [
   "versions",
   "rollback",
   "usage",
+  "approvals",
   "search",
 ];
 

@@ -22,6 +22,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
+import { eraseApprovalAuthor } from "./approval-reviews.ts";
 import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
@@ -292,6 +293,23 @@ export async function exportAccount(
       invitedBy: invitation.invitedBy,
       expiresAt: iso(invitation.expiresAt),
     })),
+    reviewVerdicts: (
+      await db
+        .select({
+          artifactId: schema.reviewRequests.artifactId,
+          versionId: schema.reviewVerdicts.versionId,
+          verdict: schema.reviewVerdicts.verdict,
+          note: schema.reviewVerdicts.note,
+          updatedAt: schema.reviewVerdicts.updatedAt,
+        })
+        .from(schema.reviewVerdicts)
+        .innerJoin(
+          schema.reviewRequests,
+          eq(schema.reviewRequests.id, schema.reviewVerdicts.requestId),
+        )
+        .where(eq(schema.reviewVerdicts.authorId, input.userId))
+        .orderBy(asc(schema.reviewVerdicts.updatedAt))
+    ).map(({ updatedAt, ...verdict }) => ({ ...verdict, decidedAt: iso(updatedAt) })),
     // A thread the account no longer sees keeps only where it points and the account's words.
     commentsElsewhere: elsewhere.map((thread) => {
       const { state: _state, createdAt: _createdAt, ...rest } = threadView(thread, true);
@@ -469,6 +487,8 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, input.userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, input.userId)),
     closeJobs(db, "comment_notice", input.userId, sql`1`),
+    // Verdicts the account gave and the requests it made (approval reviews, decision 0013).
+    ...eraseApprovalAuthor(db, input.userId),
     // The account's webhooks stop at once; no foreign key (an owner may be a workspace).
     db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, input.userId)),
     // A workspace's webhooks stay; who created them goes with the account.
@@ -589,6 +609,8 @@ export async function advanceAccountDeletion(
       .update(schema.shareLinks)
       .set({ createdBy: null })
       .where(eq(schema.shareLinks.createdBy, userId)),
+    // Again as it goes on, which also covers a deletion a restore re-applied.
+    ...eraseApprovalAuthor(db, userId),
   ]);
   const threads = await threadsToErase(db, userId, threadsPerAccount);
   for (const threadId of threads) {

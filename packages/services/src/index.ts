@@ -7,6 +7,7 @@ export * from "./actors.ts";
 export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
+export * from "./approval-reviews.ts";
 export * from "./artifacts.ts";
 export * from "./audit.ts";
 export * from "./backups.ts";

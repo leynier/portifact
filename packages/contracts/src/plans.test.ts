@@ -165,6 +165,7 @@ describe("plan offers", () => {
       "branding",
       "workspaces",
       "serviceTokens",
+      "reviews",
       "contentSearch",
       "audit",
     ]);
@@ -174,7 +175,7 @@ describe("plan offers", () => {
   });
 
   it("keeps webhooks, custom domains and every later feature coming soon", () => {
-    for (const feature of ["webhooks", "customDomains", "reviews", "sso", "euResidency"]) {
+    for (const feature of ["webhooks", "customDomains", "sso", "euResidency"]) {
       expect(planFeatureAvailable(feature as PlanFeature), feature).toBe(false);
     }
   });
@@ -186,6 +187,9 @@ describe("plan offers", () => {
       comingSoon: ["webhooks", "customDomains"],
     });
     expect(planFeatureStatus("team").available).toContain("workspaces");
+    // Approval reviews shipped (decision 0013): included in Team, no longer coming soon.
+    expect(planFeatureStatus("team").available).toContain("reviews");
+    expect(planFeatureStatus("team").comingSoon).not.toContain("reviews");
     for (const plan of PLAN_NAMES) {
       const { available, comingSoon } = planFeatureStatus(plan);
       expect([...available, ...comingSoon].sort()).toEqual([...PLANS[plan].features].sort());

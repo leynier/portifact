@@ -1,6 +1,6 @@
 // Read use cases for an owner's artifacts: list with a cursor and look one up. Someone else's
 // artifact looks exactly like a missing one.
-import type { ArtifactListFilters } from "@portifact/contracts";
+import type { ApprovalSummary, ArtifactListFilters } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
@@ -25,6 +25,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
+import { approvalReviewColumn, approvalSummaries } from "./approval-reviews.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { retainedVersionSql } from "./retention.ts";
 
@@ -45,7 +46,10 @@ export interface ArtifactActivity {
   lastAnnotationAt: number | null;
 }
 
-export type ListedArtifact = ArtifactRow & { activity: ArtifactActivity };
+/** An artifact with its approval review block (status and counts, no names; decision 0013). */
+export type ReviewedArtifact = ArtifactRow & { review: ApprovalSummary };
+
+export type ListedArtifact = ReviewedArtifact & { activity: ArtifactActivity };
 
 export interface ListInput {
   /** The user acting on the owner whose artifacts are listed (from `resolveActor`). */
@@ -139,40 +143,67 @@ export function activityColumns(retention: VersionRetention, now: number) {
     activityLastAnnotationAt: sql<
       number | null
     >`(select ${col(th.updatedAt)} from ${th} where ${col(th.artifactId)} = ${id} order by ${col(th.changeSeq)} desc limit 1)`,
+    approvalReview: approvalReviewColumn(id),
   };
 }
 
-/** A row selected with `activityColumns`, as a listed artifact. */
-export function withActivity<
-  T extends {
-    activityVersions: number;
-    activityCurrentBytes: number | null;
-    activityOpenThreads: number;
-    activityLastAnnotationAt: number | null;
-  },
->({
-  activityVersions,
-  activityCurrentBytes,
-  activityOpenThreads,
-  activityLastAnnotationAt,
-  ...row
-}: T): Omit<T, keyof ReturnType<typeof activityColumns>> & { activity: ArtifactActivity } {
-  return {
-    ...row,
-    activity: {
-      versions: Number(activityVersions),
-      currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
-      openThreads: Number(activityOpenThreads),
-      lastAnnotationAt: activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
-    },
-  };
+/** What `activityColumns` adds to a selected row. */
+interface ActivityFields {
+  activityVersions: number;
+  activityCurrentBytes: number | null;
+  activityOpenThreads: number;
+  activityLastAnnotationAt: number | null;
+  approvalReview: string | null;
+}
+
+/**
+ * Rows selected with `activityColumns`, as listed artifacts: each with its activity and its
+ * approval review, the verdicts' authors read once for the whole page (decision 0013). The one
+ * place a listed artifact is built, for the artifact list and for search results.
+ */
+export async function withActivity<T extends ActivityFields>(
+  db: RegionalDb,
+  rows: readonly T[],
+): Promise<
+  (Omit<T, keyof ActivityFields> & { review: ApprovalSummary; activity: ArtifactActivity })[]
+> {
+  const reviews = await approvalSummaries(
+    db,
+    rows.map((row) => row.approvalReview),
+  );
+  return rows.map(
+    (
+      {
+        activityVersions,
+        activityCurrentBytes,
+        activityOpenThreads,
+        activityLastAnnotationAt,
+        approvalReview: _review,
+        ...row
+      },
+      index,
+    ) => ({
+      ...row,
+      review: reviews[index] as ApprovalSummary,
+      activity: {
+        versions: Number(activityVersions),
+        currentBytes: activityCurrentBytes === null ? null : Number(activityCurrentBytes),
+        openThreads: Number(activityOpenThreads),
+        lastAnnotationAt:
+          activityLastAnnotationAt === null ? null : Number(activityLastAnnotationAt),
+      },
+    }),
+  );
 }
 
 /**
  * The owner's artifacts that match the filters, most recently updated first, each with its
  * activity. Deleted artifacts are not listed. Listing is for admins and editors of the owner.
  */
-export async function listArtifacts(db: Db, input: ListInput): Promise<Result<ArtifactPage>> {
+export async function listArtifacts(
+  db: RegionalDb,
+  input: ListInput,
+): Promise<Result<ArtifactPage>> {
   const allowed = authorize(input.actor, "list");
   if (!allowed.ok) return allowed;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);
@@ -202,7 +233,7 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
     )
     .orderBy(desc(t.updatedAt), desc(t.id))
     .limit(input.limit + 1);
-  const items = rows.slice(0, input.limit).map(withActivity);
+  const items = await withActivity(db, rows.slice(0, input.limit));
   const last = items.at(-1);
   return ok({ items, nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null });
 }
@@ -214,15 +245,23 @@ export async function listArtifacts(db: Db, input: ListInput): Promise<Result<Ar
 export async function getArtifact(
   db: RegionalDb,
   input: { userId: string; artifactId: string },
-): Promise<Result<ArtifactRow>> {
+): Promise<Result<ReviewedArtifact>> {
   const missing = () => fail<never>("not_found", "Artifact not found.");
-  const [row] = await db
-    .select()
-    .from(schema.artifacts)
-    .where(eq(schema.artifacts.id, input.artifactId))
+  const t = schema.artifacts;
+  const [found] = await db
+    .select({
+      ...getTableColumns(t),
+      approvalReview: approvalReviewColumn(
+        sql`${sql.identifier(getTableName(t))}.${sql.identifier(t.id.name)}`,
+      ),
+    })
+    .from(t)
+    .where(eq(t.id, input.artifactId))
     .limit(1);
-  if (!row || row.state === "deleted") return missing();
+  if (!found || found.state === "deleted") return missing();
+  const { approvalReview, ...row } = found;
   const actor = await authorizeOn(db, input.userId, row, "list", missing);
   if (!actor.ok) return actor;
-  return ok(row);
+  const [review] = await approvalSummaries(db, [approvalReview]);
+  return ok({ ...row, review: review as ApprovalSummary });
 }

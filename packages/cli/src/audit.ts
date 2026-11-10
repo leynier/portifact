@@ -101,6 +101,19 @@ export function auditSummary(event: AuditEventView): string {
       return `Created a share link${d.password ? " with a password" : ""}${d.expires ? " that expires" : ""}`;
     case "share_link.revoked":
       return "Revoked a share link";
+    case "review.requested":
+      return `Asked ${d.reviewers} ${d.reviewers === 1 ? "person" : "people"} to review${d.required === null ? "" : ` (${d.required} approval${d.required === 1 ? "" : "s"} required)`}`;
+    case "review.changed":
+      return `Changed a review request${[
+        d.added === undefined ? "" : `: ${d.added} added`,
+        d.removed === undefined ? "" : `${d.added === undefined ? ":" : ","} ${d.removed} removed`,
+      ].join("")}`;
+    case "review.cancelled":
+      return "Cancelled a review request";
+    case "review.verdict":
+      return d.verdict === "approve"
+        ? `Approved version ${d.version}`
+        : `Asked for changes to version ${d.version}`;
     case "domain.attached":
       return `Attached the domain ${d.hostname}`;
     case "domain.removed":
