@@ -47,6 +47,14 @@ const messages = {
       "С этого аккаунта открыто слишком много artifacts за короткое время. Подождите несколько минут и снова откройте ссылку.",
   },
   providerErrorFallback: "Вход не завершился. Попробуйте ещё раз.",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "Открыть по собственному адресу",
+    body: (host: string) =>
+      `Этот artifact находится на ${host}, адресом управляет его владелец. Продолжайте, только если хотели открыть его там.`,
+    continue: "Продолжить",
+    missing: "Ссылка была неполной. Откройте её снова там, где вы её нашли.",
+  },
   deviceCodeRequired: "Введите код, показанный в терминале.",
   deviceCodeInvalid: "Код неверный или его срок истёк. Снова выполните команду login.",
   deviceCodeTaken: "Этот код уже рассматривает другой аккаунт.",

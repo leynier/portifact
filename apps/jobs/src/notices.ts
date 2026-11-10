@@ -6,9 +6,10 @@
 // offered to mail clients through the `List-Unsubscribe` headers (RFC 8058).
 import { LIMITS } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { commentNoticeEmail, expiryNoticeEmail } from "@portifact/emails";
+import { commentNoticeEmail, domainNoticeEmail, expiryNoticeEmail } from "@portifact/emails";
 import {
   type CommentNotifier,
+  type DomainNotifier,
   type ExpiringArtifact,
   type ExpiryNotifier,
   isRecipientSuppressed,
@@ -121,6 +122,30 @@ export function commentNotifierFromEnv(env: NoticeEnv): CommentNotifier {
       if (!secret) throw new Error("comment notices need UNSUBSCRIBE_SECRET");
       const token = await signUnsubscribeToken(secret, userId, issuedAt);
       const email = commentEmail(env, { artifacts, more, locale }, token);
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/** The downgrade notice of custom domains, linking the dashboard's usage page (decision 0006). */
+export function domainNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+): DomainNotifier {
+  return {
+    async send({ to, hostnames, detachAt, limit, locale }) {
+      const email = domainNoticeEmail({
+        hostnames,
+        detachAt,
+        limit,
+        usageUrl: `${env.APP_ORIGIN}/usage`,
+        locale: locale ?? undefined,
+      });
       try {
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
       } catch (error) {

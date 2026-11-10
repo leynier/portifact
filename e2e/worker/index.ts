@@ -75,7 +75,8 @@ export default {
       url.hostname = "portifact.com";
       return siteCookies(await app.fetch(new Request(url, request), env, ctx));
     }
-    if (host.endsWith(`.${env.CONTENT_DOMAIN}`)) {
+    // Artifact hosts, and any other name but the app's: custom hosts (decision 0006).
+    if (host.endsWith(`.${env.CONTENT_DOMAIN}`) || host !== new URL(env.APP_ORIGIN).hostname) {
       // Like the content Worker's own fetch: traffic, access log and view batches after the response.
       const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
       return handle(

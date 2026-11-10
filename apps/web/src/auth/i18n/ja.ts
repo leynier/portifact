@@ -49,6 +49,14 @@ const messages = {
       "このアカウントは短時間に多くのartifactを開きすぎました。数分待ってから、リンクをもう一度開いてください。",
   },
   providerErrorFallback: "サインインが完了しませんでした。もう一度お試しください。",
+  /** The read entry's confirmation before a code goes to an artifact's custom host. */
+  readConfirm: {
+    heading: "独自のアドレスで開く",
+    body: (host: string) =>
+      `このartifactは、所有者が管理するアドレス ${host} にあります。そこで開くつもりだった場合にのみ続行してください。`,
+    continue: "続行",
+    missing: "リンクが不完全でした。見つけた場所からもう一度開いてください。",
+  },
   deviceCodeRequired: "ターミナルに表示されたコードを入力してください。",
   deviceCodeInvalid:
     "このコードは無効か、有効期限が切れています。loginコマンドをもう一度実行してください。",

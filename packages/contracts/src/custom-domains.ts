@@ -12,8 +12,11 @@ import { ArtifactId } from "./core.ts";
 export const CUSTOM_DOMAINS = {
   /** A claim waits this long for its TXT record; it never reaches Cloudflare. */
   claimTtlDays: 7,
-  /** A domain whose certificate is not active this long after the proof is detached (billed). */
-  provisioningMaxDays: 7,
+  /**
+   * A domain whose certificate is not active this long after the proof is detached: Cloudflare
+   * bills a pending hostname, and HTTP validation takes minutes once the CNAME is in place.
+   */
+  provisioningMaxDays: 2,
   /** The TXT proof and Cloudflare's status are checked again this often. */
   recheckHours: 24,
   /** Re-checks the TXT proof may miss in a row before the domain is detached. */
@@ -72,13 +75,16 @@ export type DnsRecord = z.infer<typeof DnsRecord>;
 /**
  * What the last check found, when it found a problem: `txt_missing` (the TXT record does not hold
  * this claim's value), `certificate_pending` (Cloudflare has not activated the hostname yet,
- * usually because the CNAME is not in place) or `cloudflare_unavailable` (Cloudflare did not
- * answer; checked again later).
+ * usually because the CNAME is not in place), `cloudflare_unavailable` (Cloudflare did not
+ * answer; checked again later) or `cname_elsewhere` (the name does not resolve to the CNAME
+ * target: it is not activated, and an active domain is removed after `maxMissedChecks` daily
+ * checks in a row).
  */
 export const CustomDomainProblem = z.enum([
   "txt_missing",
   "certificate_pending",
   "cloudflare_unavailable",
+  "cname_elsewhere",
 ]);
 export type CustomDomainProblem = z.infer<typeof CustomDomainProblem>;
 

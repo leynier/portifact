@@ -80,14 +80,17 @@ export async function list(io: Io, runtime: Runtime, options: ListOptions): Prom
     io.stdout(`${filters ? messages.listNoMatch : messages.listEmpty}\n`);
     return;
   }
+  // A custom domain column only when an artifact on the page has one.
+  const domains = page.items.some((item) => item.customHost !== undefined);
   const rows = [
-    ["ID", "STATE", "ACCESS", "TYPE", "EXPIRES", "NAME"],
+    ["ID", "STATE", "ACCESS", "TYPE", "EXPIRES", ...(domains ? ["DOMAIN"] : []), "NAME"],
     ...page.items.map((item) => [
       item.id,
       item.state,
       item.accessMode,
       item.type,
       item.pinned ? "pinned" : item.expiresAt === null ? "never" : item.expiresAt.slice(0, 10),
+      ...(domains ? [item.customHost ?? "-"] : []),
       item.name,
     ]),
   ];
@@ -125,6 +128,7 @@ export async function info(
       ["Annotations", artifact.annotations],
       ["URL", artifact.url],
       ["Space", ownerLabel(artifact.owner)],
+      ...(artifact.customHost ? [["Custom domain", artifact.customHost]] : []),
       ["Pinned", artifact.pinned ? "yes, no expiry" : "no"],
       ["Expires", formatDate(artifact.expiresAt)],
       ["Archived", formatDate(artifact.archivedAt)],

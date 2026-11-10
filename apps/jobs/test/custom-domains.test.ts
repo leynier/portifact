@@ -9,6 +9,7 @@ import { FakeDomains } from "@portifact/services/testing";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { domainsFromEnv, runQueue, runScheduled } from "../src/index.ts";
+import { domainNotifierFromEnv } from "../src/notices.ts";
 import { runOperator } from "../src/operator.ts";
 
 const NOW = Date.UTC(2026, 10, 10, 12);
@@ -194,5 +195,77 @@ describe("operator domain commands", () => {
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain(lost.hostname);
     expect(result.output).toContain("Deleted from Cloudflare (no row): orphan.example.com");
+  });
+});
+
+describe("the operator's block list", () => {
+  it("blocks a name, detaching what it covers, lists it and lifts it", async () => {
+    const fake = new FakeDomains();
+    const { hostname } = await domain(fake, "active");
+    const name = hostname.split(".").slice(1).join(".");
+    expect((await runOperator(createDb(env.DB), ["block-domain", name], NOW)).exitCode).toBe(2);
+    const blocked = await runOperator(
+      createDb(env.DB),
+      ["block-domain", name, "--note", "phishing"],
+      NOW,
+    );
+    expect(blocked.output).toBe(`Blocked ${name} and every name under it. Detached: ${hostname}.`);
+    expect(await row(hostname)).toMatchObject({ state: "detaching", detachReason: "blocked" });
+    expect((await runOperator(createDb(env.DB), ["blocked-domains"], NOW)).output).toContain(
+      `${name}  `,
+    );
+    expect(
+      (await runOperator(createDb(env.DB), ["block-domain", "not a name", "--note", "x"], NOW))
+        .exitCode,
+    ).toBe(1);
+    expect((await runOperator(createDb(env.DB), ["unblock-domain", name], NOW)).exitCode).toBe(0);
+    expect((await runOperator(createDb(env.DB), ["unblock-domain", name], NOW)).exitCode).toBe(1);
+    expect((await runOperator(createDb(env.DB), ["unblock-domain"], NOW)).exitCode).toBe(2);
+    expect((await runOperator(createDb(env.DB), ["blocked-domains"], NOW)).output).toBe(
+      "No blocked names.",
+    );
+  });
+});
+
+describe("the downgrade notice email", () => {
+  it("renders in the owner's language with the usage page, and maps provider refusals", async () => {
+    const sent: unknown[] = [];
+    const notifier = domainNotifierFromEnv({
+      APP_ORIGIN: "https://app.portifact.com",
+      EMAIL: {
+        send: async (message: unknown) => {
+          sent.push(message);
+          return { messageId: "m" };
+        },
+      } as unknown as SendEmail,
+    });
+    await notifier.send({
+      to: "owner@example.com",
+      hostnames: ["docs.example.com"],
+      detachAt: NOW,
+      limit: 0,
+      locale: "es",
+    });
+    const [message] = sent as { to: string; subject: string; text: string }[];
+    expect(message?.to).toBe("owner@example.com");
+    expect(message?.subject).toBe("Tu dominio propio dejará de funcionar pronto");
+    expect(message?.text).toContain("https://app.portifact.com/usage");
+    const failing = domainNotifierFromEnv({
+      APP_ORIGIN: "https://app.portifact.com",
+      EMAIL: {
+        send: async () => {
+          throw new Error(`refused owner@example.com: ${"secret"}`);
+        },
+      } as unknown as SendEmail,
+    });
+    await expect(
+      failing.send({
+        to: "owner@example.com",
+        hostnames: ["a.example.com"],
+        detachAt: NOW,
+        limit: 0,
+        locale: null,
+      }),
+    ).rejects.toThrow(/^email delivery failed$/);
   });
 });

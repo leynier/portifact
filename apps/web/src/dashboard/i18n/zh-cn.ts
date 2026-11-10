@@ -1095,6 +1095,9 @@ export const zhCN = {
   "domains.problem.certificate_pending.hint": "请确认 CNAME 记录指向下面的值,几分钟后再次检查。",
   "domains.problem.cloudflare_unavailable": "证书服务没有响应",
   "domains.problem.cloudflare_unavailable.hint": "你这边没有问题,稍后会自动重试。",
+  "domains.problem.cname_elsewhere": "该域名未指向 Portifact",
+  "domains.problem.cname_elsewhere.hint":
+    "它的 DNS 不再指向下方的 CNAME 目标。请改回来；活动域名在每日检查中连续 3 次如此就会被移除。",
   "domains.missedChecks":
     "{count, plural, one {最近 # 次每日检查都没有找到 TXT 记录。连续 3 次找不到时将移除该域名。} other {最近 # 次每日检查都没有找到 TXT 记录。连续 3 次找不到时将移除该域名。}}",
   "domains.records": "需要创建的记录",

@@ -15,7 +15,7 @@ import { EMAIL_SUPPRESSED } from "@portifact/contracts/email-delivery";
 import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
-import { type Api, currentUser, field, type PageLocation } from "./api.ts";
+import { type Api, currentUser, type FetchLike, field, type PageLocation } from "./api.ts";
 import { announce, byId, hideSummary, setFieldError, showSummary, whileBusy } from "./dom.ts";
 import { humanGate } from "./human-gate.ts";
 import { messages } from "./messages.ts";
@@ -28,6 +28,8 @@ export interface PageEnv {
   origin: string;
   /** The human check of new accounts; null or absent when the page has no site key. */
   humanCheck?: HumanCheckWidget | null;
+  /** Same-origin calls outside /api/auth (the read entry's confirmation); `fetch` by default. */
+  fetch?: FetchLike;
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -276,6 +278,18 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     return;
   }
   const sessionEmail = user?.email;
+  const confirming = new URLSearchParams(location.search).get("confirm") === "read";
+  if (confirming) {
+    const entry = next ? readEntry(next) : undefined;
+    if (!entry) {
+      showSummary(summary, messages.readConfirm.missing);
+      return;
+    }
+    if (sessionEmail) {
+      setupReadConfirm(doc, env, { email: sessionEmail, entry, summary });
+      return;
+    }
+  }
   if (sessionEmail && next) {
     location.assign(next);
     return;
@@ -288,6 +302,86 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     return;
   }
   showSignIn();
+}
+
+interface ReadEntry {
+  id: string;
+  state: string;
+  host: string;
+}
+
+/** The artifact, nonce and custom host of a read entry path, or undefined. */
+function readEntry(path: string): ReadEntry | undefined {
+  const url = new URL(path, "https://app.invalid");
+  const match = /^\/read\/([a-z2-7]{10})$/.exec(url.pathname);
+  const state = url.searchParams.getAll("state");
+  const host = url.searchParams.getAll("host");
+  if (!match || state.length !== 1 || host.length !== 1) return undefined;
+  if (!STATE_SHAPE.test(state[0] as string) || !hostShaped(host[0] as string)) return undefined;
+  return { id: match[1] as string, state: state[0] as string, host: host[0] as string };
+}
+
+/** The sign-in transaction's state: 32 random bytes in base64url (`OpaqueToken` in contracts). */
+const STATE_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * Whether the text is shaped like a lowercase host name of two or more labels. The page shows it
+ * next to the visitor's email before the server has checked it against the artifact's own
+ * address, so anything else in its place would be a message from whoever built the link.
+ */
+function hostShaped(host: string): boolean {
+  if (host.length === 0 || host.length > 253) return false;
+  const labels = host.split(".");
+  return labels.length >= 2 && labels.every((label) => HOST_LABEL.test(label));
+}
+
+/**
+ * The read entry's confirmation (decision 0006, "Codes on a custom host"): an artifact that every
+ * signed-in account reads opens on its owner's own address only after this click, which sends the
+ * entry as a same-origin POST; the answer says where to go.
+ */
+function setupReadConfirm(
+  doc: Document,
+  env: PageEnv,
+  confirm: { email: string; entry: ReadEntry; summary: HTMLElement },
+): void {
+  const { entry, summary } = confirm;
+  const send = env.fetch ?? ((input, init) => fetch(input, init));
+  // Built from a template only now, so the page has no empty heading or button before it.
+  const template = byId<HTMLTemplateElement>(doc, "read-confirm-template");
+  template.after(template.content.cloneNode(true));
+  const heading = doc.createElement("h2");
+  heading.id = "read-confirm-heading";
+  heading.className = "text-lg font-semibold";
+  heading.textContent = messages.readConfirm.heading;
+  byId(doc, "read-confirm").prepend(heading);
+  byId(doc, "intro").hidden = true;
+  byId(doc, "read-confirm-email").textContent = messages.signedInAs(confirm.email);
+  byId(doc, "read-confirm-body").textContent = messages.readConfirm.body(entry.host);
+  const button = byId<HTMLButtonElement>(doc, "read-confirm-continue");
+  button.textContent = messages.readConfirm.continue;
+  button.addEventListener("click", async () => {
+    hideSummary(summary);
+    const url = await whileBusy(button, async () => {
+      try {
+        const response = await send(`/read/${entry.id}`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ state: entry.state, host: entry.host }),
+        });
+        return response.ok ? field(await response.json(), "url") : undefined;
+      } catch {
+        return undefined;
+      }
+    });
+    if (url) {
+      env.location.assign(url);
+    } else {
+      showSummary(summary, messages.unexpected);
+    }
+  });
 }
 
 interface TermsUpdate {

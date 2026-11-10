@@ -69,6 +69,15 @@ export type ReadDecision =
 export type SignInStep = Exclude<ReadDecision, { kind: "allow" }>;
 
 /**
+ * The host a request came on and the artifact's `.dev` host: a one-use code redeems only on the
+ * host it was issued for (decision 0006), and a code without one counts as the `.dev` host's.
+ */
+export interface RequestHosts {
+  host: string;
+  devHost: string;
+}
+
+/**
  * Whether the request may use the read cookie. Sibling artifacts are same-site, so their
  * `<script>`, `<img>` and CSS loads would carry it: only the artifact's own requests
  * (`same-origin`) and navigations, which never expose the response to the initiator, use it.
@@ -127,6 +136,11 @@ export async function authorizeRead(
    * (decision 0008). A read session that works always wins over it.
    */
   linkSession?: () => Promise<ReadDecision | null>,
+  /**
+   * The custom host the request came on, or null on the `.dev` host: sign-in on the app sends
+   * the code back here only when this is the artifact's active custom host.
+   */
+  customHost: string | null = null,
 ): Promise<ReadDecision> {
   if (!request.headers.has("Sec-Fetch-Site")) {
     // Fail closed without fetch metadata, and without a redirect a client could loop on.
@@ -176,7 +190,7 @@ export async function authorizeRead(
   if (linked) return { ...linked, setCookies: [...setCookies, ...linked.setCookies] };
 
   if (!isNavigation(request)) return { kind: "page", status: 401, page: "signIn", setCookies };
-  return startSignIn(request, env, secret, artifactId, now, setCookies);
+  return startSignIn(request, env, secret, artifactId, now, setCookies, customHost);
 }
 
 async function startSignIn(
@@ -186,6 +200,7 @@ async function startSignIn(
   artifactId: string,
   now: number,
   setCookies: string[],
+  customHost: string | null,
 ): Promise<SignInStep> {
   const url = new URL(request.url);
   const open = await openTransactions(request, secret, artifactId, now);
@@ -208,6 +223,8 @@ async function startSignIn(
   );
   const location = new URL(`/read/${artifactId}`, env.APP_ORIGIN);
   location.searchParams.set("state", nonce);
+  // The transaction cookie lives on this host, so the code must come back here.
+  if (customHost !== null) location.searchParams.set("host", customHost);
   return { kind: "redirect", location: location.toString(), setCookies };
 }
 
@@ -277,6 +294,7 @@ export async function handleCallback(
   db: RegionalDb,
   artifactId: string,
   now: number,
+  hosts: RequestHosts,
 ): Promise<SignInStep> {
   const secret = env.READ_SESSION_SECRET;
   if (!usableSecret(secret)) {
@@ -301,6 +319,7 @@ export async function handleCallback(
     code: code.data,
     artifactId,
     states: open.live.map((entry) => entry.transaction.nonce),
+    ...hosts,
     now,
   });
   if (!redeemed.ok) return failed;

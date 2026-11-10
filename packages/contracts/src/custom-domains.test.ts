@@ -21,7 +21,7 @@ describe("custom domain records", () => {
     expect(cnameTarget("portifact.dev")).toBe("domains.portifact.dev");
     expect(CUSTOM_DOMAINS).toMatchObject({
       claimTtlDays: 7,
-      provisioningMaxDays: 7,
+      provisioningMaxDays: 2,
       recheckHours: 24,
       maxMissedChecks: 3,
       downgradeGraceDays: 7,
@@ -107,6 +107,7 @@ describe("custom domain shapes, exactly", () => {
       "txt_missing",
       "certificate_pending",
       "cloudflare_unavailable",
+      "cname_elsewhere",
     ]);
   });
 
