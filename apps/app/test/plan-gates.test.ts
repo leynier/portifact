@@ -135,6 +135,20 @@ const GATED: GatedOperation[] = [
     (id) => ({ artifactId: id }),
   ),
   route(
+    "shareLinks",
+    "create a share link",
+    (id) => [
+      `/api/v1/artifacts/${id}/share-links`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "Gate" }),
+      },
+    ],
+    "create_share_link",
+    (id) => ({ artifactId: id, label: "Gate" }),
+  ),
+  route(
     "versionDiff",
     "compare two versions",
     (id) => [`/api/v1/artifacts/${id}/versions/current/diff/current`],

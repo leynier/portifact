@@ -1046,6 +1046,57 @@ export const en = {
   "error.human_verification_required":
     "Your first comments on other people's artifacts need a quick check that you are human. Complete it, then post again.",
   "error.plan_required": "This feature is not part of the plan of the artifact's owner.",
+  "shareLinks.title": "Share links",
+  "shareLinks.description":
+    "Links that let anyone who has them read this artifact without an account. Visitors only read the current version: they cannot comment and are never identified.",
+  "shareLinks.loading": "Loading share links",
+  "shareLinks.loadFailed": "Share links did not load",
+  "shareLinks.paidTitle": "Share links are part of a paid plan",
+  "shareLinks.paid":
+    "Your plan does not include share links. Adding people and public access work as before.",
+  "shareLinks.paused":
+    "Your plan does not include share links now, so these links do not open. They are kept and work again if the plan includes share links. You can still revoke them.",
+  "shareLinks.publicNote":
+    "This artifact is public, so anyone can already open it. Share links matter if you narrow access later.",
+  "shareLinks.created.title": 'Link "{label}" created',
+  "shareLinks.created.once":
+    "Copy it now: for your safety it is shown only this once. Anyone with this link can read the artifact.",
+  "shareLinks.created.label": "Share link",
+  "shareLinks.created.copy": "Copy link",
+  "shareLinks.created.done": "Done",
+  "shareLinks.created.announce": "Share link created. Copy it now; it is shown only once.",
+  "shareLinks.empty": "No share links yet.",
+  "shareLinks.list": "Share links of this artifact",
+  "shareLinks.expired": "Expired",
+  "shareLinks.noExpiry": "No expiry",
+  "shareLinks.expires": "Expires {date}",
+  "shareLinks.withPassword": "Password",
+  "shareLinks.noPassword": "No password",
+  "shareLinks.neverUsed": "Not used yet",
+  "shareLinks.lastUsed": "Last used {date}",
+  "shareLinks.revoke": "Revoke",
+  "shareLinks.revokeLabel": "Revoke the link {label}",
+  "shareLinks.revoked": "Revoked the link {label}.",
+  "shareLinks.revokeFailed": "The link was not revoked",
+  "shareLinks.confirm.title": 'Revoke "{label}"?',
+  "shareLinks.confirm.body":
+    "Anyone with this link loses access within a minute. It cannot be undone; a new link has a new address.",
+  "shareLinks.cancel": "Cancel",
+  "shareLinks.create": "Create link",
+  "shareLinks.createFailed": "The link was not created",
+  "shareLinks.full":
+    "This artifact has {max} active links, the most it can have. Revoke one to create another.",
+  "shareLinks.label.label": "Label",
+  "shareLinks.label.hint": "Only you see it, for example who the link is for.",
+  "shareLinks.label.invalid": "Give the link a label of 1 to {max} characters.",
+  "shareLinks.expiry.label": "Expires after",
+  "shareLinks.expiry.never": "Never",
+  "shareLinks.expiry.days": "{count, plural, one {# day} other {# days}}",
+  "shareLinks.password.label": "Password (optional)",
+  "shareLinks.password.hint":
+    "At least {min} characters. Visitors type it before the artifact opens. Send it separately from the link.",
+  "shareLinks.password.short": "Use at least {min} characters, or leave it empty.",
+  "accessLog.shareLink": "Share link: {label}",
 } as const;
 
 export type MessageId = keyof typeof en;

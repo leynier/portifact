@@ -31,6 +31,7 @@ export * from "./publish.ts";
 export * from "./read-access.ts";
 export * from "./read-file.ts";
 export * from "./review-access.ts";
+export * from "./share-links.ts";
 export * from "./traffic.ts";
 export * from "./usage.ts";
 export * from "./version-diff.ts";

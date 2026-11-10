@@ -87,6 +87,20 @@ const messages = {
       "報告を送信できませんでした。もう一度お試しいただくか、abuse@portifact.comまでご連絡ください。",
     sent: "報告を送信しました。",
   },
+  /** The share link entry page (src/share/share.ts). */
+  share: {
+    checking: "リンクを確認しています。",
+    opening: "artifact を開いています。",
+    passwordRequired: "パスワードを入力してください。",
+    refused: "パスワードが違うか、リンクの期限が切れたか取り消されています。",
+    humanCheckShown:
+      "下で人間であることを確認してください。完了するとパスワードをもう一度試します。",
+    humanCheckUnavailable:
+      "人間であることの確認を読み込めませんでした。challenges.cloudflare.com を許可するか、後でもう一度お試しください。",
+    rateLimited: "試行回数が多すぎます。数分待ってからもう一度お試しください。",
+    network: "Portifact に接続できませんでした。接続を確認して、もう一度お試しください。",
+    failed: "リンクを開けませんでした。もう一度お試しください。",
+  },
   /** The comment notice unsubscribe page (src/unsubscribe/unsubscribe.ts). */
   unsubscribe: {
     missing:
@@ -211,6 +225,23 @@ export const ja: AuthCatalog = {
     "report.doneHeading": "ご報告ありがとうございます。受け付けました",
     "report.doneBody":
       'すべての報告を確認しています。<a href="mailto:abuse@portifact.com">abuse@portifact.com</a>までご連絡いただくこともできます。',
+    // share.html
+    "share.title": "共有された artifact を開く",
+    "share.heading": "共有された artifact を開く",
+    "share.passwordIntro": "この artifact を共有した人がパスワードで保護しています。",
+    "share.passwordLabel": "パスワード",
+    "share.humanCheckHint":
+      "パスワードを何度か間違えた後は、人間であることを確認してからもう一度お試しください。",
+    "share.open": "開く",
+    "share.unavailableHeading": "このリンクは使えません",
+    "share.unavailableBody":
+      "期限が切れたか取り消された可能性があります。または共有リンクではありません。共有した人に新しいリンクを依頼してください。",
+    "share.incompleteHeading": "リンクをもう一度開いてください",
+    "share.incompleteBody":
+      "このページには、# の後ろの部分を含む共有リンク全体が必要です。安全のため、この部分はアドレスバーから削除されます。再読み込みした後は、受け取った場所からもう一度リンクを開いてください。",
+    "share.privacy":
+      "アカウントなしで artifact を閲覧しています。Portifact はあなたが誰かを記録しません。所有者にはリンクが使われたことだけが分かります。artifact は Portifact ではなく作成者が書いたものです。パスワードや個人情報を入力しないでください。",
+    "share.report": "不正利用を報告",
 
     // unsubscribe.html
     "unsubscribe.title": "Portifactのコメント通知をオフにする",

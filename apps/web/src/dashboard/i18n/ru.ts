@@ -1075,4 +1075,56 @@ export const ru = {
   "error.human_verification_required":
     "Первым комментариям к чужим artifacts нужна короткая проверка, что вы человек. Пройдите её и отправьте снова.",
   "error.plan_required": "Эта функция не входит в план владельца artifact.",
+  "shareLinks.title": "Ссылки для доступа",
+  "shareLinks.description":
+    "Ссылки, по которым любой, у кого они есть, может читать этот artifact без учётной записи. Посетители читают только текущую версию: они не могут комментировать, и их никогда не идентифицируют.",
+  "shareLinks.loading": "Загружаем ссылки для доступа",
+  "shareLinks.loadFailed": "Не удалось загрузить ссылки для доступа",
+  "shareLinks.paidTitle": "Ссылки для доступа входят в платный тариф",
+  "shareLinks.paid":
+    "Ваш тариф не включает ссылки для доступа. Добавление людей и публичный доступ работают как раньше.",
+  "shareLinks.paused":
+    "Ваш тариф больше не включает ссылки для доступа, поэтому эти ссылки не открываются. Они сохранены и снова заработают, если тариф будет включать ссылки для доступа. Их по-прежнему можно отозвать.",
+  "shareLinks.publicNote":
+    "Этот artifact публичный, поэтому его и так может открыть любой. Ссылки для доступа пригодятся, если позже вы ограничите доступ.",
+  "shareLinks.created.title": "Ссылка «{label}» создана",
+  "shareLinks.created.once":
+    "Скопируйте её сейчас: ради безопасности она показывается только один раз. Любой, у кого есть эта ссылка, может читать artifact.",
+  "shareLinks.created.label": "Ссылка для доступа",
+  "shareLinks.created.copy": "Скопировать ссылку",
+  "shareLinks.created.done": "Готово",
+  "shareLinks.created.announce":
+    "Ссылка для доступа создана. Скопируйте её сейчас; она показывается только один раз.",
+  "shareLinks.empty": "Ссылок для доступа пока нет.",
+  "shareLinks.list": "Ссылки для доступа к этому artifact",
+  "shareLinks.expired": "Истекла",
+  "shareLinks.noExpiry": "Без срока действия",
+  "shareLinks.expires": "Истекает {date}",
+  "shareLinks.withPassword": "Пароль",
+  "shareLinks.noPassword": "Без пароля",
+  "shareLinks.neverUsed": "Ещё не использовалась",
+  "shareLinks.lastUsed": "Последнее использование: {date}",
+  "shareLinks.revoke": "Отозвать",
+  "shareLinks.revokeLabel": "Отозвать ссылку {label}",
+  "shareLinks.revoked": "Ссылка {label} отозвана.",
+  "shareLinks.revokeFailed": "Ссылка не отозвана",
+  "shareLinks.confirm.title": "Отозвать «{label}»?",
+  "shareLinks.confirm.body":
+    "Все, у кого есть эта ссылка, потеряют доступ в течение минуты. Это нельзя отменить; у новой ссылки будет новый адрес.",
+  "shareLinks.cancel": "Отмена",
+  "shareLinks.create": "Создать ссылку",
+  "shareLinks.createFailed": "Ссылка не создана",
+  "shareLinks.full":
+    "У этого artifact {max} активных ссылок, это максимум. Отзовите одну, чтобы создать другую.",
+  "shareLinks.label.label": "Метка",
+  "shareLinks.label.hint": "Её видите только вы, например, для кого эта ссылка.",
+  "shareLinks.label.invalid": "Дайте ссылке метку длиной от 1 до {max} символов.",
+  "shareLinks.expiry.label": "Срок действия",
+  "shareLinks.expiry.never": "Бессрочно",
+  "shareLinks.expiry.days": "{count, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+  "shareLinks.password.label": "Пароль (необязательно)",
+  "shareLinks.password.hint":
+    "Не менее {min} символов. Посетители вводят его перед открытием artifact. Отправьте его отдельно от ссылки.",
+  "shareLinks.password.short": "Используйте не менее {min} символов или оставьте поле пустым.",
+  "accessLog.shareLink": "Ссылка для доступа: {label}",
 } satisfies Catalog;

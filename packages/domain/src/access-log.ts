@@ -48,3 +48,15 @@ export function isLoggedOpening(request: ServedRequest): boolean {
     request.visitorId !== request.ownerId
   );
 }
+
+/**
+ * A page load through a share link (decision 0008) of an `authenticated` or `restricted`
+ * artifact is recorded for the link, never for a person: the link names no one, so recording it
+ * hands the owner no identity. Public artifacts are never recorded, as above.
+ */
+export function isLoggedLinkOpening(request: {
+  navigation: boolean;
+  accessMode: ServedRequest["accessMode"];
+}): boolean {
+  return request.navigation && request.accessMode !== "public";
+}

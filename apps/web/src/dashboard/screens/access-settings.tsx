@@ -33,6 +33,7 @@ import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { threadsQuery } from "../review/use-threads.ts";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { CommentNoticeToggle } from "./comment-notices.tsx";
+import { ShareLinksPanel } from "./share-links.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
 
 export const accessQuery = (artifactId: string) => ["artifact", artifactId, "access"] as const;
@@ -228,6 +229,7 @@ export function SharingSettings({ artifact }: { artifact: ArtifactSummary }) {
           ) : null}
           <AccessModePanel artifact={artifact} policy={policy} disabled={suspended} />
           <ReadersPanel artifact={artifact} policy={policy} disabled={suspended} />
+          <ShareLinksPanel artifact={artifact} disabled={suspended} />
           <LinkSettingsPanel artifact={artifact} policy={policy} disabled={suspended} />
         </>
       )}

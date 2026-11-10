@@ -32,7 +32,7 @@ export interface TextInputProps extends NativeInput {
   description?: ReactNode;
   /** The validation message; marks the control invalid. */
   error?: string | undefined;
-  type?: "text" | "email" | "search" | "url";
+  type?: "text" | "email" | "search" | "url" | "password";
 }
 
 /** A labelled single-line text input. The label is always visible; placeholders are not labels. */

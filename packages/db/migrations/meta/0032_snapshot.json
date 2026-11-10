@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "be558083-1112-4400-9f9e-83c62786c673",
+  "id": "91f10b6c-6765-4e1a-a48a-05cc4e581080",
   "prevId": "60e54c31-8672-4c0f-bc94-c1048d594290",
   "tables": {
     "abuse_reports": {
@@ -2544,6 +2544,288 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "share_handoffs": {
+      "name": "share_handoffs",
+      "columns": {
+        "code_hash": {
+          "name": "code_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "link_id": {
+          "name": "link_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "share_handoffs_expires_idx": {
+          "name": "share_handoffs_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "share_handoffs_link_id_share_links_id_fk": {
+          "name": "share_handoffs_link_id_share_links_id_fk",
+          "tableFrom": "share_handoffs",
+          "tableTo": "share_links",
+          "columnsFrom": ["link_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "share_handoffs_artifact_id_artifacts_id_fk": {
+          "name": "share_handoffs_artifact_id_artifacts_id_fk",
+          "tableFrom": "share_handoffs",
+          "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "share_links": {
+      "name": "share_links",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "password_salt": {
+          "name": "password_salt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "password_iterations": {
+          "name": "password_iterations",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_used_at": {
+          "name": "last_used_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "share_links_token_idx": {
+          "name": "share_links_token_idx",
+          "columns": ["token_hash"],
+          "isUnique": true
+        },
+        "share_links_artifact_idx": {
+          "name": "share_links_artifact_idx",
+          "columns": ["artifact_id", "created_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "share_links_artifact_id_artifacts_id_fk": {
+          "name": "share_links_artifact_id_artifacts_id_fk",
+          "tableFrom": "share_links",
+          "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "share_links_password_complete": {
+          "name": "share_links_password_complete",
+          "value": "(\"share_links\".\"password_hash\" is null) = (\"share_links\".\"password_salt\" is null) and (\"share_links\".\"password_hash\" is null) = (\"share_links\".\"password_iterations\" is null)"
+        }
+      }
+    },
+    "share_sessions": {
+      "name": "share_sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "link_id": {
+          "name": "link_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        }
+      },
+      "indexes": {
+        "share_sessions_expires_idx": {
+          "name": "share_sessions_expires_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        },
+        "share_sessions_link_idx": {
+          "name": "share_sessions_link_idx",
+          "columns": ["link_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "share_sessions_link_id_share_links_id_fk": {
+          "name": "share_sessions_link_id_share_links_id_fk",
+          "tableFrom": "share_sessions",
+          "tableTo": "share_links",
+          "columnsFrom": ["link_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "share_sessions_artifact_id_artifacts_id_fk": {
+          "name": "share_sessions_artifact_id_artifacts_id_fk",
+          "tableFrom": "share_sessions",
+          "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "source_origins": {
       "name": "source_origins",
       "columns": {
@@ -3163,8 +3445,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "superseded_at": {
-          "name": "superseded_at",
+        "expires_at": {
+          "name": "expires_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -3185,11 +3467,10 @@
           "columns": ["artifact_id", "number"],
           "isUnique": true
         },
-        "versions_superseded_idx": {
-          "name": "versions_superseded_idx",
-          "columns": ["superseded_at"],
-          "isUnique": false,
-          "where": "\"versions\".\"superseded_at\" is not null"
+        "versions_state_expires_idx": {
+          "name": "versions_state_expires_idx",
+          "columns": ["state", "expires_at"],
+          "isUnique": false
         },
         "versions_artifact_state_idx": {
           "name": "versions_artifact_state_idx",

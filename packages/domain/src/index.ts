@@ -17,6 +17,7 @@ export * from "./paths.ts";
 export * from "./plans.ts";
 export * from "./quotas.ts";
 export * from "./result.ts";
+export * from "./share-links.ts";
 export * from "./sources.ts";
 export * from "./terms.ts";
 export * from "./text-diff.ts";

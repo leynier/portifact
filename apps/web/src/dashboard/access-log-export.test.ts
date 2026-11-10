@@ -54,12 +54,21 @@ describe("accessLogCsv", () => {
         { email: "=cmd|' /C calc'!A0@x.test", openedAt: "2026-11-08T11:00:00.000Z" },
       ]),
     ).toBe(
-      `openedAt,email\r\n${AT},ana@example.test\r\n2026-11-08T11:00:00.000Z,"'=cmd|' /C calc'!A0@x.test"\r\n`,
+      `openedAt,email,shareLink\r\n${AT},ana@example.test,\r\n2026-11-08T11:00:00.000Z,"'=cmd|' /C calc'!A0@x.test",\r\n`,
     );
   });
 
   it("writes only the header for an empty log", () => {
-    expect(accessLogCsv([])).toBe("openedAt,email\r\n");
+    expect(accessLogCsv([])).toBe("openedAt,email,shareLink\r\n");
+  });
+
+  it("names the share link of an opening through a link, and neutralizes its label", () => {
+    expect(
+      accessLogCsv([
+        { email: "", openedAt: AT, shareLink: { id: "sl_1", label: "=board" } },
+        { email: "", openedAt: AT, shareLink: { id: "sl_2", label: null } },
+      ]),
+    ).toBe(`openedAt,email,shareLink\r\n${AT},,"'=board"\r\n${AT},,sl_2\r\n`);
   });
 });
 
@@ -103,7 +112,9 @@ describe("exportAccessLog", () => {
     const file = await exportAccessLog({ accessLog }, ID, "csv");
     expect(file.fileName).toBe(`${ID}-access-log.csv`);
     expect(file.blob.type).toBe("text/csv;charset=utf-8");
-    expect(await file.blob.text()).toBe(`openedAt,email\r\n${AT},"'+ana@example.test"\r\n`);
+    expect(await file.blob.text()).toBe(
+      `openedAt,email,shareLink\r\n${AT},"'+ana@example.test",\r\n`,
+    );
   });
 
   it("names the JSON after the artifact and types it", async () => {

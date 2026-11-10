@@ -1073,4 +1073,56 @@ export const ptBR = {
   "error.human_verification_required":
     "Seus primeiros comentários em artifacts de outras pessoas precisam de uma verificação rápida de que você é humano. Conclua-a e depois publique de novo.",
   "error.plan_required": "Este recurso não faz parte do plano do dono do artifact.",
+  "shareLinks.title": "Links de compartilhamento",
+  "shareLinks.description":
+    "Links que permitem que qualquer pessoa que os tenha leia este artifact sem uma conta. Os visitantes só leem a versão atual: não podem comentar e nunca são identificados.",
+  "shareLinks.loading": "Carregando os links de compartilhamento",
+  "shareLinks.loadFailed": "Os links de compartilhamento não carregaram",
+  "shareLinks.paidTitle": "Links de compartilhamento fazem parte de um plano pago",
+  "shareLinks.paid":
+    "Seu plano não inclui links de compartilhamento. Adicionar pessoas e o acesso público funcionam como antes.",
+  "shareLinks.paused":
+    "Seu plano não inclui mais links de compartilhamento, então estes links não abrem. Eles são mantidos e voltam a funcionar se o plano incluir links de compartilhamento. Você ainda pode revogá-los.",
+  "shareLinks.publicNote":
+    "Este artifact é público, então qualquer pessoa já pode abri-lo. Links de compartilhamento fazem diferença se você restringir o acesso depois.",
+  "shareLinks.created.title": 'Link "{label}" criado',
+  "shareLinks.created.once":
+    "Copie agora: por segurança ele é mostrado só desta vez. Qualquer pessoa com este link pode ler o artifact.",
+  "shareLinks.created.label": "Link de compartilhamento",
+  "shareLinks.created.copy": "Copiar link",
+  "shareLinks.created.done": "Concluído",
+  "shareLinks.created.announce":
+    "Link de compartilhamento criado. Copie agora; ele é mostrado só uma vez.",
+  "shareLinks.empty": "Ainda não há links de compartilhamento.",
+  "shareLinks.list": "Links de compartilhamento deste artifact",
+  "shareLinks.expired": "Expirado",
+  "shareLinks.noExpiry": "Sem expiração",
+  "shareLinks.expires": "Expira em {date}",
+  "shareLinks.withPassword": "Senha",
+  "shareLinks.noPassword": "Sem senha",
+  "shareLinks.neverUsed": "Ainda não usado",
+  "shareLinks.lastUsed": "Usado pela última vez em {date}",
+  "shareLinks.revoke": "Revogar",
+  "shareLinks.revokeLabel": "Revogar o link {label}",
+  "shareLinks.revoked": "O link {label} foi revogado.",
+  "shareLinks.revokeFailed": "O link não foi revogado",
+  "shareLinks.confirm.title": 'Revogar "{label}"?',
+  "shareLinks.confirm.body":
+    "Quem tiver este link perde o acesso em até um minuto. Não dá para desfazer; um link novo tem outro endereço.",
+  "shareLinks.cancel": "Cancelar",
+  "shareLinks.create": "Criar link",
+  "shareLinks.createFailed": "O link não foi criado",
+  "shareLinks.full":
+    "Este artifact tem {max} links ativos, o máximo possível. Revogue um para criar outro.",
+  "shareLinks.label.label": "Rótulo",
+  "shareLinks.label.hint": "Só você vê, por exemplo para quem é o link.",
+  "shareLinks.label.invalid": "Dê ao link um rótulo de 1 a {max} caracteres.",
+  "shareLinks.expiry.label": "Expira depois de",
+  "shareLinks.expiry.never": "Nunca",
+  "shareLinks.expiry.days": "{count, plural, one {# dia} other {# dias}}",
+  "shareLinks.password.label": "Senha (opcional)",
+  "shareLinks.password.hint":
+    "Pelo menos {min} caracteres. Os visitantes a digitam antes de o artifact abrir. Envie-a separada do link.",
+  "shareLinks.password.short": "Use pelo menos {min} caracteres ou deixe vazio.",
+  "accessLog.shareLink": "Link de compartilhamento: {label}",
 } satisfies Catalog;
