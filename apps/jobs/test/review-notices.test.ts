@@ -158,6 +158,10 @@ describe("review notices end to end", () => {
       updatedAt: NOW,
       checkedAt: NOW,
     });
+    // A listed reader: someone with a standing relationship to the artifact is told by email.
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: "r3v13wabcd", email: `${reviewerId}@example.test` });
     await db()
       .insert(schema.reviewReviewers)
       .values({ requestId: "ar_jobs", email: `${reviewerId}@example.test`, addedAt: NOW });
