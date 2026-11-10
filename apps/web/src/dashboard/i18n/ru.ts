@@ -1619,4 +1619,255 @@ export const ru = {
   "plan.requestNote": "Запросить другой тариф могут только администраторы {workspace}.",
   "plan.hidden": "Тариф {workspace} видят его редакторы и администраторы.",
   "usage.plan.compare": "Сравнить тарифы",
+  "shell.auditLink": "Журнал аудита",
+  "audit.title": "Журнал аудита",
+  "audit.description": "Кто и что изменил в этом пространстве. Изменения хранятся {days} дн.",
+  "audit.planTitle": "Журнал аудита входит в платный тариф",
+  "audit.planRequired":
+    "Журнал аудита входит в тариф {plan}. Изменения уже записываются, поэтому после подключения тарифа здесь появятся последние 90 дней.",
+  "audit.forbidden.title": "Журнал аудита могут читать только администраторы",
+  "audit.forbidden.body":
+    "Спросите администратора этого рабочего пространства, если нужно узнать, кто что изменил.",
+  "audit.loading": "Загрузка журнала аудита",
+  "audit.error.title": "Не удалось загрузить журнал аудита",
+  "audit.empty.title": "Изменений не записано",
+  "audit.empty.body": "За последние {days} дн. ничего не подходит под эти фильтры.",
+  "audit.caption": "Изменения в этом пространстве, сначала новые",
+  "audit.column.when": "Когда",
+  "audit.column.who": "Кто",
+  "audit.column.what": "Что",
+  "audit.column.on": "Где",
+  "audit.loadMore": "Показать более ранние изменения",
+  "audit.filters": "Фильтры журнала аудита",
+  "audit.filter.kind": "Вид изменения",
+  "audit.filter.actor": "Кто",
+  "audit.filter.period": "Период",
+  "audit.group.all": "Все изменения",
+  "audit.group.access": "Доступ и общий доступ",
+  "audit.group.lifecycle": "Публикация и жизненный цикл",
+  "audit.group.integrations": "Домены, вебхуки и бренд",
+  "audit.group.members": "Участники, токены и тариф",
+  "audit.actor.all": "Кто угодно",
+  "audit.period.day": "Последние 24 часа",
+  "audit.period.week": "Последние 7 дней",
+  "audit.period.month": "Последние 30 дней",
+  "audit.period.all": "Всё сохранённое",
+  "audit.actor.removed": "Удалённый участник",
+  "audit.actor.token": "{label} (сервисный токен)",
+  "audit.actor.tokenGone": "Отозванный сервисный токен",
+  "audit.actor.operator": "Оператор Portifact",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Удалённый artifact",
+  "audit.target.space": "Это пространство",
+  "audit.target.invitation": "Приглашение",
+  "audit.kind.published": "Опубликовал(а) версию {version}",
+  "audit.kind.publishedFirst": "Создал(а) с версией {version}",
+  "audit.kind.rolledBack": "Вернул(а) файлы версии {from}, теперь это версия {version}",
+  "audit.kind.renewed": "Продлил(а)",
+  "audit.kind.archived": "Архивировал(а)",
+  "audit.kind.restored": "Восстановил(а)",
+  "audit.kind.deleted": "Удалил(а)",
+  "audit.kind.pinned": "Закрепил(а)",
+  "audit.kind.unpinned": "Открепил(а)",
+  "audit.kind.transferredIn":
+    "Перенёс(ла) сюда из {from, select, workspace {рабочего пространства} other {личного пространства}}",
+  "audit.kind.transferredOut":
+    "Перенёс(ла) в {to, select, workspace {рабочее пространство} other {личное пространство}}",
+  "audit.kind.accessChanged": "Изменил(а) доступ: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {сделал(а) публичным} authenticated {открыл(а) всем, кто вошёл} other {ограничил(а) читателями из списка}}",
+  "audit.access.readersAdded":
+    "{count, plural, one {добавил(а) # читателя} few {добавил(а) # читателей} many {добавил(а) # читателей} other {добавил(а) # читателя}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {удалил(а) # читателя} few {удалил(а) # читателей} many {удалил(а) # читателей} other {удалил(а) # читателя}}",
+  "audit.access.domains": "из {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {изменил(а) видимость комментариев для # читателя} few {изменил(а) видимость комментариев для # читателей} many {изменил(а) видимость комментариев для # читателей} other {изменил(а) видимость комментариев для # читателя}}",
+  "audit.access.bar":
+    "{on, select, true {включил(а) панель Portifact} other {выключил(а) панель Portifact}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {показал(а) комментарии всем} other {показал(а) комментарии только владельцу}}",
+  "audit.access.indexable":
+    "{on, select, true {разрешил(а) индексацию} other {запретил(а) индексацию}}",
+  "audit.access.embeddable":
+    "{on, select, true {разрешил(а) встраивание} other {запретил(а) встраивание}}",
+  "audit.kind.shareLinkCreated":
+    "Создал(а) ссылку для общего доступа{password, select, true { с паролем} other {}}{expires, select, true {, у которой есть срок} other {}}",
+  "audit.kind.shareLinkRevoked": "Отозвал(а) ссылку для общего доступа",
+  "audit.kind.domainAttached": "Подключил(а) домен {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Удалил(а) домен {hostname}} operator {Portifact удалил домен {hostname}} other {Домен {hostname} отключён автоматически}}",
+  "audit.kind.webhookCreated":
+    "Добавил(а) {format, select, slack {вебхук Slack} discord {вебхук Discord} other {подписанный вебхук}} на {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Включил(а) вебхук} false {Выключил(а) вебхук} other {Изменил(а) события вебхука}}",
+  "audit.kind.webhookRemoved": "Удалил(а) вебхук",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Изменил(а) логотип бренда} other {Изменил(а) название, цвет или ссылку бренда}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Удалил(а) логотип бренда} other {Удалил(а) бренд}}",
+  "audit.kind.memberInvited": "Пригласил(а) пользователя из {domain} как {role}",
+  "audit.kind.invitationRevoked": "Отозвал(а) приглашение",
+  "audit.kind.memberJoined": "{member} присоединился(-ась) как {role}",
+  "audit.kind.roleChanged": "Изменил(а) роль {member} с {from} на {to}",
+  "audit.kind.memberRemoved": "Удалил(а) {member}",
+  "audit.kind.memberLeft": "{member} вышел(-ла)",
+  "audit.kind.planGranted":
+    "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}}",
+  "audit.kind.planGrantedUntil":
+    "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}} до {until}",
+  "audit.kind.planRemoved": "Удалил тариф, пространство снова на Free",
+  "audit.kind.tokenCreated":
+    "Создал сервисный токен, который истекает через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+  "audit.kind.tokenRevoked": "Отозвал сервисный токен",
+  "audit.kind.emailDomainVerified": "Подтвердил(а) почтовый домен {domain}",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {Удалил(а) почтовый домен {domain}} claimed {Почтовый домен {domain} удалён, потому что его подтвердил другой workspace} other {Почтовый домен {domain} удалён, потому что отсутствует его DNS-запись}}",
+  "shell.serviceTokensLink": "Сервисные токены",
+  "tokens.title": "Сервисные токены",
+  "tokens.description":
+    "Учётные данные, с которыми автоматизация, например CI, публикует в {workspace} без входа человека. У каждого токена есть роль, права и срок действия, и он перестаёт работать, как только вы его отзовёте.",
+  "tokens.personal.title": "Сервисные токены принадлежат workspace",
+  "tokens.personal.body":
+    "Переключитесь на workspace, которым вы управляете, чтобы создать для него токены.",
+  "tokens.adminOnly.title": "Сервисными токенами управляют только администраторы",
+  "tokens.adminOnly.body": "Попросите токен у администратора этого workspace.",
+  "tokens.planTitle": "Сервисных токенов нет в тарифе этого workspace",
+  "tokens.planRequired":
+    "Создание сервисных токенов входит в тариф {plan}. Существующие токены видны и их можно отозвать, но они не работают, пока тариф снова их не включит.",
+  "tokens.list.title": "Токены",
+  "tokens.loading": "Загрузка сервисных токенов",
+  "tokens.loadFailed": "Не удалось загрузить сервисные токены",
+  "tokens.empty.title": "Сервисных токенов пока нет",
+  "tokens.empty.body":
+    "Создайте токен для задачи CI, сохраните его как секрет PORTIFACT_TOKEN и запустите CLI portifact.",
+  "tokens.secret.title": "Скопируйте токен сейчас",
+  "tokens.secret.body":
+    "Он показывается только один раз. Сохраните его как секрет вашего CI, например PORTIFACT_TOKEN. Любой, у кого он есть, может делать то, что разрешают его права, пока срок не истечёт или вы его не отзовёте.",
+  "tokens.secret.label": "Сервисный токен {label}",
+  "tokens.secret.copy": "Скопировать токен",
+  "tokens.secret.done": "Я сохранил его",
+  "tokens.create.title": "Создать токен",
+  "tokens.create.hint":
+    "Он действует от имени workspace, никогда от вашего, и никогда не бывает участником.",
+  "tokens.create.limit":
+    "В этом workspace уже максимум токенов ({limit}). Отзовите один, чтобы создать новый.",
+  "tokens.create.label": "Название",
+  "tokens.create.labelHint": "Где он используется, например предпросмотры GitHub",
+  "tokens.create.labelError": "Введите название длиной от 1 до 80 символов.",
+  "tokens.create.scopes": "Что ему разрешено",
+  "tokens.create.scopesError": "Выберите хотя бы одно.",
+  "tokens.create.expiry": "Истекает через",
+  "tokens.create.expiryHint": "Когда срок истечёт, его заменит новый токен.",
+  "tokens.create.days": "{days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+  "tokens.create.restriction": "Ограничить",
+  "tokens.create.prefix": "Префикс ключа",
+  "tokens.create.prefixHint":
+    "Каждый artifact, который он публикует, должен иметь ключ с таким началом, например pr-.",
+  "tokens.create.prefixError":
+    "Используйте буквы, цифры, точки, подчёркивания, косые черты или дефисы, начиная с буквы или цифры.",
+  "tokens.create.submit": "Создать токен",
+  "tokens.scope.read": "Чтение",
+  "tokens.scope.readHint": "Список artifacts и их версий",
+  "tokens.scope.write": "Публикация",
+  "tokens.scope.writeHint": "Публиковать новые artifacts и версии, продлевать и архивировать",
+  "tokens.scope.share": "Доступ",
+  "tokens.scope.shareHint":
+    "Менять, кто может открыть artifact, в том числе делать его публичным. Утёкший токен может раскрыть artifacts.",
+  "tokens.scope.delete": "Удаление",
+  "tokens.scope.deleteHint":
+    "Удалять artifacts навсегда. Утёкший токен может их уничтожить; ограничьте его префиксом ключа.",
+  "tokens.restriction.none": "Все artifacts workspace",
+  "tokens.restriction.noneHint": "Токен достаёт до каждого artifact этого workspace.",
+  "tokens.restriction.own": "Artifacts, которые он создал",
+  "tokens.restriction.ownHint":
+    "Всё, что публикуют люди или другие токены, для него как будто не существует.",
+  "tokens.restriction.key": "Artifacts с префиксом ключа",
+  "tokens.restriction.keyHint":
+    "Только artifacts, опубликованные с ключом под выбранным префиксом.",
+  "tokens.created": "Токен {label} создан",
+  "tokens.actionFailed": "Не получилось",
+  "tokens.reach.none": "Достаёт до каждого artifact workspace",
+  "tokens.reach.own": "Достаёт только до созданных им artifacts",
+  "tokens.reach.key": "Достаёт только до ключей, начинающихся с {prefix}",
+  "tokens.expired": "Истёк",
+  "tokens.revoke": "Отозвать",
+  "tokens.revokeLabel": "Отозвать {label}",
+  "tokens.scopes": "Права: {scopes}",
+  "tokens.expiresOn": "Истекает {date}",
+  "tokens.expiredOn": "Истёк {date}",
+  "tokens.lastUsed": "Последнее использование {when}",
+  "tokens.neverUsed": "Не использовался",
+  "tokens.createdBy": "Создал {name} {date}",
+  "tokens.createdOn": "Создан {date}",
+  "tokens.revoked": "Токен {label} отозван",
+  "tokens.confirm.title": "Отозвать {label}?",
+  "tokens.confirm.body":
+    "Всё, что его использует, перестанет работать со следующего запроса. Это нельзя отменить.",
+  "access.workspace": "Весь workspace",
+  "access.domain": "Workspace и его почтовые домены",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Почтовый домен",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} после входа, в любой роли.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} и все, кто вошел с подтвержденным адресом в {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} и все, кто вошел с подтвержденным адресом в почтовых доменах workspace. Пока ни один домен не подтвержден: администратор добавляет его на странице «Участники».",
+  "accessSettings.mode.listOnlyRestricted":
+    "Люди из списка ниже могут открыть его, только пока доступ ограничен.",
+  "accessSettings.mode.workspacePlan": "Входит в план {plan}.",
+  "accessSettings.lapsed.title": "Пока этот artifact могут открыть только участники",
+  "accessSettings.lapsed.body":
+    "План workspace сейчас не включает доступ для почтовых доменов, поэтому только его участники могут открыть этот artifact, пока план снова его не включит. Ничего не изменено.",
+  "emailDomains.title": "Почтовые домены",
+  "emailDomains.description":
+    "Любой, кто вошел в Portifact с подтвержденным адресом в одном из этих доменов, может открыть artifacts workspace, к которым открыт доступ для его почтовых доменов. Учитывается только точный домен, без поддоменов.",
+  "emailDomains.loading": "Загрузка почтовых доменов",
+  "emailDomains.loadFailed": "Не удалось загрузить почтовые домены",
+  "emailDomains.rules":
+    "Подтвердите каждый домен записью DNS. Публичные почтовые сервисы (например, gmail.com), общие суффиксы и домены Portifact не принимаются. Portifact проверяет запись каждый день и удаляет домен после 3 неудачных проверок подряд.",
+  "emailDomains.addFailed": "Домен не добавлен",
+  "emailDomains.add": "Добавить домен",
+  "emailDomains.domain": "Домен",
+  "emailDomains.domainHint":
+    "Собственный домен вашей организации, например example.com. Не более {limit} доменов.",
+  "emailDomains.domainRequired": "Введите домен.",
+  "emailDomains.empty": "Почтовых доменов пока нет.",
+  "emailDomains.added": "{domain} добавлен. Создайте его запись TXT, затем подтвердите.",
+  "emailDomains.planTitle": "Почтовые домены входят в платный план",
+  "emailDomains.plan":
+    "Подтверждение почтовых доменов входит в план {plan}. Уже добавленные домены остаются, и их по-прежнему можно удалить.",
+  "emailDomains.state.verified": "Подтвержден",
+  "emailDomains.state.pending": "Ожидает запись DNS",
+  "emailDomains.verifiedOn": "Подтвержден {date}.",
+  "emailDomains.pendingUntil": "Создайте запись до {date}, иначе заявка будет отменена.",
+  "emailDomains.failing.title": "Запись DNS отсутствует",
+  "emailDomains.failing.body":
+    "{count, plural, one {Запись отсутствовала при последней ежедневной проверке.} few {Запись отсутствовала при последних # ежедневных проверках подряд.} many {Запись отсутствовала при последних # ежедневных проверках подряд.} other {Запись отсутствовала при последних # ежедневных проверках подряд.}} {left, plural, one {Еще # неудачная проверка, и домен будет удален.} few {Еще # неудачные проверки, и домен будет удален.} many {Еще # неудачных проверок, и домен будет удален.} other {Еще # неудачной проверки, и домен будет удален.}}",
+  "emailDomains.actionFailed": "Изменение не сохранено",
+  "emailDomains.recordHint":
+    "Создайте эту запись у вашего DNS-провайдера. Она может появиться не сразу.",
+  "emailDomains.verify": "Подтвердить",
+  "emailDomains.verifyNamed": "Подтвердить {domain}",
+  "emailDomains.remove": "Удалить",
+  "emailDomains.removeNamed": "Удалить {domain}",
+  "emailDomains.verified": "{domain} подтвержден.",
+  "emailDomains.removed": "{domain} удален.",
+  "emailDomains.confirmRemove.title": "Удалить {domain}?",
+  "emailDomains.confirmRemove.body":
+    "Те, кто открывает artifacts только благодаря этому домену, потеряют доступ в течение минуты. Позже его можно добавить снова с новой записью.",
+  "emailDomains.confirmRemove.action": "Удалить домен",
+  "emailDomains.error.quota_exceeded": "У workspace уже максимальное число почтовых доменов.",
+  "emailDomains.error.version_conflict":
+    "Домен тем временем изменился, или другой workspace все еще подтверждает его в своем DNS. Обновите страницу и попробуйте снова.",
+  "emailDomains.error.capacity_unavailable":
+    "Сейчас не удалось проверить DNS. Попробуйте чуть позже.",
+  "emailDomains.error.not_found": "Этого домена больше нет в списке.",
+  "emailDomains.error.refused":
+    "Этот домен нельзя добавить. Используйте собственный домен вашей организации: публичные почтовые сервисы, общие суффиксы, зарезервированные имена и домены Portifact не принимаются.",
+  "emailDomains.error.recordMissing":
+    "Запись TXT со значением этого домена пока не найдена. Изменения DNS могут появиться не сразу; попробуйте позже. Заявку старше 7 дней нужно добавить заново.",
+  "transfer.confirm.accessReset":
+    "Сейчас доступ к нему открыт для workspace или почтового домена, поэтому он станет ограниченным: читать его смогут только люди из списка читателей.",
 } satisfies Catalog;

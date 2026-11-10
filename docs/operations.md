@@ -36,6 +36,8 @@ bun run --cwd apps/jobs operator workspaces                          # every wor
 bun run --cwd apps/jobs operator workspace <slug|workspace-id>       # members, invitations, seats, artifacts and plan
 bun run --cwd apps/jobs operator workspace-create <slug> --name "Acme" --admin <user-id|email> [--plan team --seats 5 [--until 2027-01-31] [--note "why"]]
 bun run --cwd apps/jobs operator workspace-delete <slug|workspace-id> --confirm <slug>
+printf '%s' "$SECRET" | bun run --cwd apps/jobs operator find-service-token   # a leaked service token, from standard input
+bun run --cwd apps/jobs operator revoke-service-token <st_…>          # revoke it, with a tombstone
 bun run --cwd apps/jobs operator export-plans --out <absolute file>  # before restoring a backup
 bun run --cwd apps/jobs operator apply-plans --file <absolute file>  # after restoring a backup
 ```
@@ -187,6 +189,14 @@ Owners whose plan includes `branding` show a name, logo, color and link on the v
 
 Deletions need no operator action: the request removes the user at once and the scheduled jobs finish the rest (see "Account deletion" in [security.md](security.md)). `select * from account_deletions` lists the ones still in progress.
 
+## A leaked service token
+
+A service token (decision 0011) leaked: in a log, a public repository, a compromised CI. Revoking it stops it at its next request.
+
+1. The workspace's admins revoke it on the workspace's Service tokens page in the dashboard. If they cannot be reached, the operator finds it from the secret and revokes it: `printf '%s' "$SECRET" | bun run --cwd apps/jobs operator find-service-token` (standard input, never the command line; it prints the token ID, label, workspace and expiry, never the secret), then `bun run --cwd apps/jobs operator revoke-service-token <st_…>`, which deletes the row and writes the `service_token` tombstone.
+2. Check what it did: versions whose author is the token ID (`select artifact_id, number, created_at from versions where author_id = '<st_…>'`), `lifecycle_events` with that `actor_id` (renewals, archives, deletions and access changes), and artifacts whose `created_by` is it. Its last use is on the Service tokens page, to the hour. If it held `artifacts:share`, check the workspace's artifacts that are `public` or have share links; if it held `artifacts:delete`, check `purging` artifacts of the workspace (a deletion cannot be undone).
+3. Tell the admins to create a new token for the job, with the narrowest scopes and a key prefix restriction.
+
 ## Workspaces
 
 Workspaces are created and deleted only by the operator while there is no billing (premium plan T1): every workspace has its own quotas, so free self-service workspaces would multiply the free quota. Self-service arrives with billing.
@@ -197,7 +207,16 @@ Workspaces are created and deleted only by the operator while there is no billin
 - `workspace <slug>` shows members (addresses masked), pending invitations, seats in use, the artifacts count and the plan; `workspaces` lists them.
 - `workspace-delete <slug> --confirm <slug>` deletes it (`deleteWorkspace`): in one batch it records the deletion with a `workspace_deletion` job, claims every artifact for purging (they stop being served at once) and deletes the workspace row, its memberships and its invitations. The jobs release its custom domains and claims, finish it once the artifacts are purged and leave a `workspace` tombstone; `select * from workspace_deletions` lists the ones in progress. There is no undo.
 - Invitation emails count in the month's email budget and stop at the same capacity as expiry notices. An address gets at most 5 invitations a day across workspaces (the `rate_limits` key holds a hash of it, never the address). A suppressed address gets no email, but the admin gets the same answer as for any other address (an `invitation_not_sent` log line says so, with the reason only); the invitation expires unanswered. To help an admin whose invitee never got the email, check the address with `email-suppressions` and lift it if appropriate (see "Email quota and suppressions").
-- Moving an artifact (`portifact transfer`, MCP `transfer_artifact`, the API) needs an admin of a source workspace. The move bumps the artifact's generations, so its open read, review and share link sessions end; its access log and view counters follow it through the `access_history_move` job, which re-owns the rows in `portifact-access` and sets their expiry from the target's plan.
+- Moving an artifact (`portifact transfer`, MCP `transfer_artifact`, the API) needs an admin of a source workspace. The move bumps the artifact's generations, so its open read, review and share link sessions end; its access log and view counters follow it through the `access_history_move` job, which re-owns the rows in `portifact-access` and sets their expiry from the target's plan. An artifact in the `workspace` or `domain` access mode becomes `restricted` in the same batch.
+
+### Workspace email domains
+
+Admins verify email domains on the Members page (premium plan T2, [decision 0010](decisions/0010-workspace-access-modes.md)); artifacts in the `domain` access mode are then read by anyone signed in with a verified address at one of them. There is no operator command and no CLI or MCP path for them.
+
+- Rows live in `workspace_domains` (global): `pending` claims with a fresh token for 7 days, then `verified`. At most one workspace has a domain verified (a partial unique index); at most 10 domains per workspace.
+- The maintenance run re-checks every verified domain whose last check is more than 24 hours old (50 per run, `recheckEmailDomains`) through DNS over HTTPS, and drops pending claims past their expiry. A missing record counts a miss (`failed_checks`, `problem = 'txt_missing'`, which the Members page shows with the misses left), a found one resets it, and the third miss in a row deletes the row with a `workspace_domain` tombstone. A resolver failure counts nothing; the run's log line carries `emailDomains` with `checked`, `removed`, `unavailable` and `expiredClaims`, or `failed`.
+- A workspace that proves a domain another workspace holds takes it over only when the holder's record is gone from the same answer; otherwise the claimant is told another workspace still proves it. A complaint that a domain was verified by the wrong workspace is answered by asking the domain's DNS operator to remove that workspace's `_portifact-email.<domain>` record: the next daily checks remove it, and the rightful workspace can then verify. In an emergency (an employer reports a former workspace keeping its domain) delete the row with `wrangler d1 execute` after verifying the request, insert a `workspace_domain` tombstone with its ID, and record why: readers who matched it stop within a minute.
+- Deleting a workspace removes its domains with it.
 
 ## Traffic quota
 
@@ -240,6 +259,10 @@ Openings of artifacts by signed-in visitors and the daily view counters of analy
 
 Retention follows the plan. `set-plan`, `remove-plan` and `apply-plans` write an `owner_retention` job in the same batch as the plan change; the job recomputes the expiry of every row of the owner from the plan at that moment, in bounded statements. A lower plan (a removal, a lowered plan, an override of `accessLogRetentionDays`) deletes nothing on the spot: the job shortens the expiries and the next prune deletes the rows the new plan does not keep, so a downgrade from Pro keeps the last 30 days. A higher plan extends the rows still there; rows already pruned do not come back. A plan that reaches its `valid_until` needs no job: rows written under it already expire no later than its end, or 30 days after their start if that is later. Each row keeps the expiry it got when written until a job moves it, so a grant with no job (a row written by hand) leaves existing rows as they were. To check an owner: `npx wrangler d1 execute portifact-access --remote --command "select count(*), min(expires_at), max(expires_at) from artifact_views where owner_id = '<id>'"`. Only the artifact's owner reads them through the product; there is no operator command, and a visitor's request about their own entries goes through `privacy@portifact.com`: `npx wrangler d1 execute portifact-access --remote --command "select artifact_id, opened_at from access_events where user_id = '<id>'"` lists them, and deleting the account erases them. The database is not part of the control database's Time Travel restore: restoring `portifact-control` does not bring access log rows back, and the erase jobs of re-applied tombstones delete any rows of resurrected accounts or artifacts again. It has its own Time Travel, but restoring it would bring back entries that were erased, so do not. A restore of `portifact-control` rewinds `owner_plans`; `apply-plans` grants them again through `setOwnerPlan`, which writes the `owner_retention` jobs that set the access database's expiries back in line with the plans.
 
+## Audit log
+
+Every owner's changes are recorded in `audit_events` (see "Audit log" in [security.md](security.md)): in the owner's region, and for members, invitations, plans and custom domains in the global database. The 15-minute maintenance run deletes events past the owner's `auditRetentionDays` (90 days on every plan; an Enterprise override keeps longer) at most 1,000 rows per statement and 50 statements per pass (50,000 rows per database and run), first for owners on the default retention and then for each owner whose plan keeps another number of days; a plan row changed after the scan read it is left for the next run. Plan grants and removals made with `set-plan`, `remove-plan` and `apply-plans` are themselves recorded, with the operator as actor and without the operator's name or note; a grant that changes nothing records nothing. A D1 Time Travel restore rewinds the audit log like everything else: events after the restore point are lost, and `apply-tombstones` erases the events of deleted accounts and workspaces that the restore brought back.
+
 ## Storage reconciliation
 
 Each scheduled run checks the next 50 object rows against R2 and the next 100 R2 objects under `objects/` against D1, resuming where the previous run stopped (`maintenance_cursors`). It records in `storage_findings`, and never deletes:
@@ -264,6 +287,8 @@ The database backup is D1 Time Travel (30 days on Workers Paid). R2 is not rewou
 Workspaces, memberships and invitations are rewound too: members added or removed and invitations sent since the restore point are lost or back (a revoked invitation's link works again until it expires); tell the workspaces' admins. Workspaces deleted since are deleted again by `apply-tombstones`.
 
 Comment notice activity is rewound too: pending `comment_notices` rows and `comment_notice` jobs from before the restore point come back, so some people may get a digest of activity they were already told about. Rows of accounts deleted since go again when step 4 re-runs their deletion, and rows of purged artifacts go with them by the foreign keys. Unsubscribes and mutes made since the restore point are lost with the rest of `account_settings`: tell anyone who writes in to unsubscribe again.
+
+Workspace email domains are rewound too: a domain removed or lapsed since the restore point comes back from the backup, and `apply-tombstones` removes it again (every removal writes a `workspace_domain` tombstone with the row's ID, which `export-tombstones` exports, so a claim of the same name made later is kept). Domains verified since are lost; their admins verify them again.
 
 Webhooks are rewound too: a webhook removed since the restore point comes back from the backup, and `apply-tombstones` removes it again (removals write a `webhook` tombstone, which `export-tombstones` exports); webhooks of tombstoned accounts go with them. Webhooks created since the restore point are lost; their admins add them again. Pending events and delivery jobs from the restore point come back, so a receiver may get a delivery again, with the same delivery ID.
 

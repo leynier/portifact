@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { Readable } from "node:stream";
+import { childEnvironment } from "./child-env.ts";
 import { type Git, gitRunner } from "./git.ts";
 
 /** Output sinks, injected so the CLI can be tested without touching the process streams. */
@@ -118,7 +119,7 @@ export const runProcess: ProcessRunner = (command, args, options) =>
   new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       stdio: ["ignore", "pipe", "ignore"],
-      env: { ...process.env, ...options.env },
+      env: { ...childEnvironment(process.env), ...options.env },
       windowsHide: true,
     });
     const chunks: Buffer[] = [];

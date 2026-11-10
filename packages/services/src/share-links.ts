@@ -2,7 +2,7 @@
 // visitor's (open a link on the app, redeem its one-use code on the artifact origin, renew the
 // link session's claims). A link grants reading one artifact and nothing else; it never names
 // a visitor, never touches the access policy and does not bump the policy generation.
-import { SHARE_LINKS } from "@portifact/contracts";
+import { type AuditDetail, SHARE_LINKS } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   checkShareExpiry,
@@ -22,6 +22,7 @@ import {
 } from "@portifact/domain";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { activeCustomHost } from "./custom-domains.ts";
 import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
 import { hashSecret, randomToken } from "./read-access.ts";
@@ -137,12 +138,14 @@ async function loadManaged(db: RegionalDb, userId: string, artifactId: string) {
       id: schema.artifacts.id,
       ownerId: schema.artifacts.ownerId,
       state: schema.artifacts.state,
+      createdBy: schema.artifacts.createdBy,
+      externalKey: schema.artifacts.externalKey,
     })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
+  const actor = await authorizeOn(db, userId, artifact, "access", missing);
   if (!actor.ok) return actor;
   return ok(artifact);
 }
@@ -160,6 +163,35 @@ function stillOwned(artifact: { id: string; ownerId: string }): SQL {
 function activeLinks(artifactId: string, now: number) {
   const l = schema.shareLinks;
   return sql`(select count(*) from ${l} where ${l.artifactId} = ${artifactId} and ${l.revokedAt} is null and (${l.expiresAt} is null or ${l.expiresAt} > ${now}))`;
+}
+
+/** The audit event of a share link change, in its batch on `condition`. */
+function shareLinkEvent<K extends "share_link.created" | "share_link.revoked">(
+  db: Db,
+  kind: K,
+  input: {
+    ownerId: string;
+    artifactId: string;
+    linkId: string;
+    userId: string;
+    detail: AuditDetail<K>;
+    now: number;
+    condition: SQL;
+  },
+) {
+  return auditEvent(
+    db,
+    {
+      ownerId: input.ownerId,
+      kind,
+      actor: { type: "user", id: input.userId },
+      targetId: input.linkId,
+      artifactId: input.artifactId,
+      detail: input.detail,
+      now: input.now,
+    },
+    input.condition,
+  );
 }
 
 export interface CreateShareLinkInput {
@@ -191,12 +223,24 @@ export async function createShareLink(
   const id = newLinkId();
   const password = input.password === undefined ? null : await hashSharePassword(input.password);
   const l = schema.shareLinks;
-  const inserted = await db
-    .insert(l)
-    .select(
-      sql`select ${id}, ${input.artifactId}, ${await hashSecret(token)}, ${input.label}, ${expiry.value}, ${password?.hash ?? null}, ${password?.salt ?? null}, ${password?.iterations ?? null}, ${input.userId}, ${input.now}, null, null where ${activeLinks(input.artifactId, input.now)} < ${SHARE_LINKS.activePerArtifact} and ${stillOwned(artifact.value)}`,
-    )
-    .returning();
+  const [inserted] = await db.batch([
+    db
+      .insert(l)
+      .select(
+        sql`select ${id}, ${input.artifactId}, ${await hashSecret(token)}, ${input.label}, ${expiry.value}, ${password?.hash ?? null}, ${password?.salt ?? null}, ${password?.iterations ?? null}, ${input.userId}, ${input.now}, null, null where ${activeLinks(input.artifactId, input.now)} < ${SHARE_LINKS.activePerArtifact} and ${stillOwned(artifact.value)}`,
+      )
+      .returning(),
+    // After the insert, on the link it created: the ID is new to this request.
+    shareLinkEvent(db, "share_link.created", {
+      ownerId: artifact.value.ownerId,
+      artifactId: input.artifactId,
+      linkId: id,
+      userId: input.userId,
+      detail: { password: password !== null, expires: expiry.value !== null },
+      now: input.now,
+      condition: sql`exists (select 1 from ${l} where ${l.id} = ${id})`,
+    }),
+  ]);
   const row = inserted[0];
   if (!row) {
     const [now] = await db
@@ -276,7 +320,17 @@ export async function revokeShareLink(
     owned,
   );
   // Sessions of an already revoked link ended with it, so deleting them again changes nothing.
-  const [, revoked] = await db.batch([
+  const [, , revoked] = await db.batch([
+    // Before the revocation, on the link still being live.
+    shareLinkEvent(db, "share_link.revoked", {
+      ownerId: artifact.value.ownerId,
+      artifactId: input.artifactId,
+      linkId: input.linkId,
+      userId: input.userId,
+      detail: {},
+      now: input.now,
+      condition: sql`exists (select 1 from ${l} where ${live})`,
+    }),
     db
       .delete(schema.shareSessions)
       .where(

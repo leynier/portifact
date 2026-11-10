@@ -107,11 +107,10 @@ describe("checkAccessChange", () => {
   const created = new Date("2026-11-01T00:00:00Z");
 
   it("blocks public access during the first 15 minutes of an account", () => {
-    expect(
-      checkAccessChange("public", created, new Date("2026-11-01T00:14:59.999Z")),
-    ).toMatchObject({
+    expect(checkAccessChange("public", created, new Date("2026-11-01T00:14:59.999Z"))).toEqual({
       ok: false,
       code: "account_too_new_for_public",
+      message: "Accounts can make artifacts public 15 minutes after they are created.",
     });
   });
 
@@ -122,5 +121,160 @@ describe("checkAccessChange", () => {
   it("never blocks private modes", () => {
     expect(checkAccessChange("restricted", created, created)).toEqual(GRANTED);
     expect(checkAccessChange("authenticated", created, created)).toEqual(GRANTED);
+  });
+});
+
+describe("canRead in the workspace and domain modes (decision 0010)", () => {
+  const ws = "ws_0123456789abcdef0123456789abcdef";
+  type Who =
+    | "anonymous"
+    | "admin"
+    | "editor"
+    | "member"
+    | "domain"
+    | "unicodeDomain"
+    | "unicodeSpelling"
+    | "unverified"
+    | "subdomain"
+    | "listed"
+    | "outsider";
+  const viewers: Record<Exclude<Who, "anonymous">, Viewer> = {
+    admin: { userId: "u_admin", verifiedEmails: ["admin@acme.example"] },
+    editor: { userId: "u_editor", verifiedEmails: ["editor@elsewhere.example"] },
+    member: { userId: "u_member", verifiedEmails: ["member@elsewhere.example"] },
+    domain: { userId: "u_domain", verifiedEmails: ["dana@ACME.example"] },
+    // An address at an internationalized domain matches in its ASCII form only: the mailbox was
+    // proven for the address as written, and other spellings fold onto the same name.
+    unicodeDomain: { userId: "u_idn", verifiedEmails: ["ida@xn--bcher-kva.example"] },
+    unicodeSpelling: { userId: "u_spelled", verifiedEmails: ["ida@bücher.example"] },
+    // The address is at the domain but not verified, so the session gives no verified email.
+    unverified: { userId: "u_unverified", verifiedEmails: [] },
+    subdomain: { userId: "u_sub", verifiedEmails: ["sam@eng.acme.example"] },
+    listed: { userId: "u_listed", verifiedEmails: ["lee@partner.example"] },
+    outsider: { userId: "u_out", verifiedEmails: ["out@other.example"] },
+  };
+  const roles: Partial<Record<Who, Actor["role"]>> = {
+    admin: "admin",
+    editor: "editor",
+    member: "member",
+  };
+  const actor = (who: Who, ownerId: string): Actor | null => {
+    const role = roles[who];
+    if (who === "anonymous" || !role) return null;
+    return { userId: viewers[who].userId, ownerId, role, region: "default" };
+  };
+  const decide = (
+    mode: AccessPolicy["mode"],
+    who: Who,
+    feature: boolean,
+    ownerId: string = ws,
+  ): "read" | "sign_in" | "no" => {
+    const viewer = who === "anonymous" ? null : viewers[who];
+    const result = canRead(
+      {
+        mode,
+        ownerId,
+        readers: ["lee@partner.example"],
+        domains: { featureAvailable: feature, verified: ["acme.example", "xn--bcher-kva.example"] },
+      },
+      viewer,
+      actor(who, ownerId),
+    );
+    if (result.ok) {
+      expect(result).toEqual(GRANTED);
+      return "read";
+    }
+    if (result.code === "unauthenticated") {
+      expect(result.message).toBe("Sign in to open this artifact.");
+      return "sign_in";
+    }
+    expect(result).toEqual({
+      ok: false,
+      code: "forbidden",
+      message: "Your account does not have access to this artifact.",
+    });
+    return "no";
+  };
+  const WHO: Who[] = [
+    "anonymous",
+    "admin",
+    "editor",
+    "member",
+    "domain",
+    "unicodeDomain",
+    "unicodeSpelling",
+    "unverified",
+    "subdomain",
+    "listed",
+    "outsider",
+  ];
+  // Expected answers, in the order of WHO.
+  const table: [AccessPolicy["mode"], boolean, string][] = [
+    ["public", true, "read read read read read read read read read read read"],
+    ["authenticated", true, "sign_in read read read read read read read read read read"],
+    ["restricted", true, "sign_in read read no no no no no no read no"],
+    ["workspace", true, "sign_in read read read no no no no no no no"],
+    ["workspace", false, "sign_in read read read no no no no no no no"],
+    ["domain", true, "sign_in read read read read read no no no no no"],
+    // A lapsed plan falls back to members only, never wider.
+    ["domain", false, "sign_in read read read no no no no no no no"],
+  ];
+  for (const [mode, feature, expected] of table) {
+    it(`${mode} with the feature ${feature ? "on" : "off"}`, () => {
+      expect(WHO.map((who) => decide(mode, who, feature)).join(" ")).toBe(expected);
+    });
+  }
+
+  it("never grants through a domain when the services found none", () => {
+    expect(
+      canRead({ mode: "domain", ownerId: ws, readers: [] }, viewers.domain, null),
+    ).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("does not let a role on another workspace count as membership", () => {
+    const other = "ws_ffffffffffffffffffffffffffffffff";
+    for (const mode of ["workspace", "domain"] as const) {
+      expect(
+        canRead({ mode, ownerId: ws, readers: [] }, viewers.member, actor("member", other)),
+      ).toMatchObject({ ok: false, code: "forbidden" });
+      expect(
+        canRead({ mode, ownerId: ws, readers: [] }, viewers.outsider, actor("member", ws)),
+      ).toMatchObject({ ok: false, code: "forbidden" });
+    }
+  });
+
+  it("reads like restricted without readers on a personal owner (after a transfer)", () => {
+    const personal = "u_admin";
+    const ownerActor = personalActor(personal);
+    for (const mode of ["workspace", "domain"] as const) {
+      const p: AccessPolicy = {
+        mode,
+        ownerId: personal,
+        readers: [],
+        domains: { featureAvailable: true, verified: ["acme.example"] },
+      };
+      expect(canRead(p, viewers.admin, ownerActor)).toEqual(GRANTED);
+      expect(canRead(p, viewers.domain, null)).toMatchObject({ ok: false, code: "forbidden" });
+      // A personal space has no members: only its owner's own actor counts.
+      expect(
+        canRead(p, viewers.member, {
+          ...ownerActor,
+          userId: viewers.member.userId,
+          role: "member",
+        }),
+      ).toMatchObject({ ok: false, code: "forbidden" });
+    }
+  });
+
+  it("matches only well-formed addresses", () => {
+    const p: AccessPolicy = {
+      mode: "domain",
+      ownerId: ws,
+      readers: [],
+      domains: { featureAvailable: true, verified: ["acme.example"] },
+    };
+    for (const email of ["acme.example", "@acme.example", "x@", "x@acme.example.", "x@[1.2.3.4]"]) {
+      expect(canRead(p, { userId: "u_x", verifiedEmails: [email] }, null).ok, email).toBe(false);
+    }
   });
 });

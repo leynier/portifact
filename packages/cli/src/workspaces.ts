@@ -15,8 +15,9 @@ import { callApi } from "./api.ts";
 import { table } from "./artifacts.ts";
 import { type OutputOptions, openSession, signedInPrincipal, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
+import { messages } from "./messages.ts";
 import type { Io, Runtime } from "./runtime.ts";
-import type { Session } from "./session.ts";
+import { type Session, serviceTokenOf } from "./session.ts";
 
 /** The device's default space, next to the credentials file. */
 export const WORKSPACE_FILE = "workspace.json";
@@ -49,6 +50,8 @@ const StoredDefault = z.object({
 
 /** The workspace the signed-in account chose on this device; undefined for the personal space. */
 export async function defaultWorkspace(session: Session): Promise<string | undefined> {
+  // A service token acts on its own workspace: the server picks it when no slug is sent.
+  if (serviceTokenOf(session.runtime)) return undefined;
   let stored: z.infer<typeof StoredDefault>;
   try {
     const parsed = StoredDefault.safeParse(
@@ -134,6 +137,9 @@ export async function useWorkspace(
   options: OutputOptions,
   value: string,
 ): Promise<void> {
+  if (serviceTokenOf(runtime)) {
+    throw new CliError("invalid_input", messages.errors.serviceTokenWorkspace);
+  }
   const slug = value.trim() === PERSONAL ? undefined : parseSlug(value);
   const session = await openSession(io, runtime);
   if (slug !== undefined) {

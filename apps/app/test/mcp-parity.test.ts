@@ -1250,6 +1250,47 @@ describe("API and MCP parity for artifact analytics", () => {
   });
 });
 
+describe("API and MCP parity for the audit log", () => {
+  it("answers the same events, the same plan refusal and the same missing workspace", async () => {
+    const b = await both("parity-audit@example.test");
+    const owner = await ownerId(b);
+    // Without the feature: the same refusal at both.
+    const refused = fromTool(await b.tool("get_audit_log", {}));
+    expect(refused).toEqual(await fromApi(await b.apiCall("/api/v1/audit")));
+    expect(refused).toMatchObject({ ok: false, body: { error: { code: "plan_required" } } });
+
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.ownerPlans)
+      .values({ ownerId: owner, plan: "team", seats: 1, grantedBy: "test", updatedAt: NOW });
+    fromTool(await b.tool("publish_document", { type: "text", name: "Notes", content: "audit" }));
+    const viaMcp = fromTool(await b.tool("get_audit_log", { kind: ["artifact.published"] }));
+    expect(viaMcp).toEqual(await fromApi(await b.apiCall("/api/v1/audit?kind=artifact.published")));
+    expect(viaMcp).toMatchObject({
+      ok: true,
+      body: { events: [{ kind: "artifact.published", actor: { type: "member", id: owner } }] },
+    });
+
+    const missing = fromTool(await b.tool("get_audit_log", { workspace: "no-such-team" }));
+    expect(missing).toEqual(await fromApi(await b.apiCall("/api/v1/audit?workspace=no-such-team")));
+    expect(missing).toMatchObject({ ok: false, body: { error: { code: "not_found" } } });
+  });
+
+  it("needs artifacts:read at both", async () => {
+    const h = createHarness();
+    const email = "parity-audit-scope@example.test";
+    const apiDenied = await api(h, await apiToken(h, email, "annotations:read"), "/api/v1/audit");
+    expect(apiDenied.status).toBe(403);
+    const mcpDenied = await rawCall(
+      h,
+      await mcpToken(h, email, "annotations:read"),
+      "get_audit_log",
+      {},
+    );
+    expect(mcpDenied.status).toBe(403);
+  });
+});
+
 describe("API and MCP parity for access logs", () => {
   /** Openings of `artifactId` by `count` visitors, one window apart, newest at NOW. */
   async function seedOpenings(artifactId: string, owner: string, count: number) {

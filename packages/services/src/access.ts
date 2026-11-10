@@ -3,9 +3,12 @@
 // in one transaction. Every change but the bar and comment visibility bumps the policy
 // generation, which read sessions carry, so a revocation applies quickly.
 import {
+  type AccessAudience,
   type AccessMode,
   type CommentScope,
   type CommentVisibility,
+  isWorkspaceAccessMode,
+  isWorkspaceId,
   LIMITS,
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
@@ -13,15 +16,21 @@ import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   checkAccessChange,
+  checkCommentVisibilityChange,
+  emailDomains,
   entitlements,
   fail,
   ok,
   type Result,
+  requireFeature,
+  seesReaders,
 } from "@portifact/domain";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
+import { accessAudience } from "./workspace-domains.ts";
 
 export interface AccessPolicyState {
   mode: AccessMode;
@@ -33,6 +42,8 @@ export interface AccessPolicyState {
   /** Readers with an exception to `commentVisibility`, by address. */
   readerCommentVisibility: { email: string; commentVisibility: CommentScope }[];
   policyGeneration: number;
+  /** Who the workspace modes reach on the owner; null for a personal artifact. */
+  audience: AccessAudience | null;
 }
 
 export interface AccessChange {
@@ -69,6 +80,38 @@ function changesAccess(change: AccessChange): boolean {
 
 type PlanRow = Parameters<typeof entitlements>[0];
 
+/**
+ * The `workspace` and `domain` modes (decision 0010) exist only for workspace artifacts, need
+ * `workspaces` in the owner's plan, and `domain` needs a verified domain. Checked after
+ * authorization, only when switching to one of them: narrowing never needs the plan.
+ */
+async function checkWorkspaceMode(
+  db: RegionalDb,
+  ownerId: string,
+  mode: AccessMode,
+  owner: ReturnType<typeof entitlements>,
+): Promise<Result<true>> {
+  if (!isWorkspaceAccessMode(mode)) return ok(true);
+  if (!isWorkspaceId(ownerId)) {
+    return fail(
+      "invalid_input",
+      "Only workspace artifacts can be shared with a workspace or an email domain.",
+    );
+  }
+  const gate = requireFeature(owner, "workspaces");
+  if (!gate.ok) return gate;
+  if (mode === "domain") {
+    const audience = await accessAudience(db.global, ownerId, owner);
+    if (!audience || audience.domains.length === 0) {
+      return fail(
+        "invalid_input",
+        "Verify an email domain on the workspace's Members page before sharing with it.",
+      );
+    }
+  }
+  return ok(true);
+}
+
 const missing = () => fail<never>("not_found", "Artifact not found.");
 
 /**
@@ -95,7 +138,7 @@ async function loadManaged(
     .limit(1);
   const artifact = row?.artifact;
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
+  const actor = await authorizeOn(db, userId, artifact, "access", missing);
   if (!actor.ok) return actor;
   return ok({ artifact, actor: actor.value, plan: row.plan });
 }
@@ -117,12 +160,18 @@ async function readers(db: Db, artifactId: string): Promise<string[]> {
 
 export async function getAccess(
   db: RegionalDb,
-  input: { userId: string; artifactId: string },
+  input: { userId: string; artifactId: string; now?: number | undefined },
 ): Promise<Result<AccessPolicyState>> {
   const loaded = await loadManaged(db, input.userId, input.artifactId);
   if (!loaded.ok) return loaded;
-  const { artifact } = loaded.value;
-  const rows = await readerRows(db, artifact.id);
+  const { artifact, actor } = loaded.value;
+  // A token without `artifacts:share` reads the policy without the readers' addresses.
+  const rows = seesReaders(actor.token) ? await readerRows(db, artifact.id) : [];
+  const audience = await accessAudience(
+    db.global,
+    artifact.ownerId,
+    entitlements(loaded.value.plan, input.now ?? Date.now()),
+  );
   return ok({
     mode: artifact.accessMode,
     readers: rows.map((row) => row.email),
@@ -136,6 +185,7 @@ export async function getAccess(
         : [{ email: row.email, commentVisibility: row.commentVisibility }],
     ),
     policyGeneration: artifact.policyGeneration,
+    audience,
   });
 }
 
@@ -156,20 +206,27 @@ export async function updateAccess(
     return fail("forbidden", "This artifact is suspended; its access cannot change.");
   }
   const { change } = input;
+  const visibility = checkCommentVisibilityChange(actor.token, change);
+  if (!visibility.ok) return visibility;
   // Widening the audience is checked against the age of the account making the change (the
   // owner's, in a personal space); narrowing it never is.
   if (change.mode && change.mode !== artifact.accessMode) {
-    const [owner] = await db.global
-      .select({ createdAt: schema.users.createdAt })
-      .from(schema.users)
-      .where(eq(schema.users.id, actor.userId))
-      .limit(1);
+    // A service token has no account: its own age counts (decision 0011).
+    const [actingUser] = actor.token
+      ? [{ createdAt: new Date(actor.token.createdAt) }]
+      : await db.global
+          .select({ createdAt: schema.users.createdAt })
+          .from(schema.users)
+          .where(eq(schema.users.id, actor.userId))
+          .limit(1);
     const allowed = checkAccessChange(
       change.mode,
-      owner?.createdAt ?? new Date(input.now),
+      actingUser?.createdAt ?? new Date(input.now),
       new Date(input.now),
     );
     if (!allowed.ok) return allowed;
+    const workspaceMode = await checkWorkspaceMode(db, artifact.ownerId, change.mode, owner);
+    if (!workspaceMode.ok) return workspaceMode;
   }
   const add = [...new Set(change.addReaders ?? [])];
   const remove = [...new Set(change.removeReaders ?? [])].filter((email) => !add.includes(email));
@@ -248,6 +305,16 @@ export async function updateAccess(
           condition: unchanged,
         })
       : []),
+    ...accessAuditEvent(db, {
+      artifact,
+      actorId: actor.userId,
+      change,
+      added: add,
+      removed: remove,
+      exceptions: exceptions.length,
+      now: input.now,
+      condition: unchanged,
+    }),
     db
       .update(schema.artifacts)
       .set({
@@ -290,4 +357,69 @@ export async function updateAccess(
     at: input.now,
   });
   return getAccess(db, input);
+}
+
+/**
+ * The audit event of an access change, before the guarded update on the same old state: what
+ * changed, readers as counts and the domains of their addresses, never the addresses. Nothing when
+ * the change changes nothing.
+ */
+function accessAuditEvent(
+  db: Db,
+  input: {
+    artifact: {
+      id: string;
+      ownerId: string;
+      accessMode: AccessMode;
+      bar: boolean;
+      indexable: boolean;
+      embeddable: boolean;
+      commentVisibility: CommentVisibility;
+    };
+    actorId: string;
+    change: AccessChange;
+    added: string[];
+    removed: string[];
+    exceptions: number;
+    now: number;
+    condition: SQL;
+  },
+): BatchItem<"sqlite">[] {
+  const { artifact, change } = input;
+  const differs = <T>(next: T | undefined, current: T) =>
+    next !== undefined && next !== current ? { value: next } : null;
+  const mode = differs(change.mode, artifact.accessMode);
+  const bar = differs(change.bar, artifact.bar);
+  const indexable = differs(change.indexable, artifact.indexable);
+  const embeddable = differs(change.embeddable, artifact.embeddable);
+  const commentVisibility = differs(change.commentVisibility, artifact.commentVisibility);
+  const detail = {
+    ...(mode ? { mode: mode.value } : {}),
+    ...(input.added.length > 0 ? { readersAdded: input.added.length } : {}),
+    ...(input.removed.length > 0 ? { readersRemoved: input.removed.length } : {}),
+    ...(input.added.length + input.removed.length > 0
+      ? { readerDomains: emailDomains([...input.added, ...input.removed]) }
+      : {}),
+    ...(input.exceptions > 0 ? { readerExceptions: input.exceptions } : {}),
+    ...(bar ? { bar: bar.value } : {}),
+    ...(commentVisibility ? { commentVisibility: commentVisibility.value } : {}),
+    ...(indexable ? { indexable: indexable.value } : {}),
+    ...(embeddable ? { embeddable: embeddable.value } : {}),
+  };
+  if (Object.keys(detail).length === 0) return [];
+  return [
+    auditEvent(
+      db,
+      {
+        ownerId: artifact.ownerId,
+        kind: "access.changed",
+        actor: { type: "user", id: input.actorId },
+        targetId: artifact.id,
+        artifactId: artifact.id,
+        detail,
+        now: input.now,
+      },
+      input.condition,
+    ),
+  ];
 }

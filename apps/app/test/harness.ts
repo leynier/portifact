@@ -59,6 +59,8 @@ export function createHarness(
     email?: AuthDeps["email"];
     /** Cloudflare and DNS for custom domains; omitted, the feature is switched off. */
     domains?: FakeDomains;
+    /** DNS for workspace email domain proofs; omitted, verifying answers capacity_unavailable. */
+    emailDomains?: FakeDomains;
   } = {},
 ): Harness {
   const outbox: EmailMessage[] = [];
@@ -69,6 +71,7 @@ export function createHarness(
   const deps: AuthDeps = {
     ...(options.multipart ? { multipart: options.multipart } : {}),
     domains: options.domains ?? null,
+    ...(options.emailDomains ? { emailDomains: { txt: options.emailDomains.txt } } : {}),
     email: options.email ?? {
       send: async (message) => {
         outbox.push(message);

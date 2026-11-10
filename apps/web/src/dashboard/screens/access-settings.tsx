@@ -12,6 +12,8 @@ import {
   type CommentVisibility,
   Email,
   LIMITS,
+  lowestPlanWith,
+  PLAN_LABELS,
   type ReaderCommentVisibility,
 } from "@portifact/contracts";
 import { Button, Callout, ConfirmDialog, LoadingState, Panel, Select } from "@portifact/ui";
@@ -41,6 +43,14 @@ export const accessQuery = (artifactId: string) => ["artifact", artifactId, "acc
 
 const MINUTE_MS = 60_000;
 const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
+/** A workspace's artifacts can also be shared with its members or its email domains. */
+const WORKSPACE_MODES: readonly AccessMode[] = [
+  "restricted",
+  "workspace",
+  "domain",
+  "authenticated",
+  "public",
+];
 const COMMENT_VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
 const COMMENT_MODES: readonly AnnotationsState[] = ["open", "locked", "off"];
 /** States whose comment mode the owner can change (`checkAnnotationModeChange` in the domain). */
@@ -257,11 +267,17 @@ function AccessModePanel({ artifact, policy, disabled }: GroupProps) {
   const publicLocked =
     policy.mode !== "public" && publicFrom !== null && publicFrom.getTime() > Date.now();
 
-  const options = MODES.map((mode) => ({
-    value: mode,
-    label: t(`access.${mode}`),
-    description:
-      mode === "public" && publicLocked && publicFrom ? (
+  const audience = policy.audience;
+  const plan = PLAN_LABELS[lowestPlanWith("workspaces")];
+  // A workspace mode is offered only when the plan has it, and `domain` once a domain is
+  // verified; the artifact's current mode always stays selectable, so it can be kept.
+  const workspaceModeLocked = (mode: AccessMode) =>
+    mode !== policy.mode &&
+    audience !== null &&
+    (!audience.featureAvailable || (mode === "domain" && audience.domains.length === 0));
+  const describe = (mode: AccessMode): ReactNode => {
+    if (mode === "public" && publicLocked && publicFrom) {
+      return (
         <>
           <span className="block">{t("accessSettings.mode.public")}</span>
           <span className="mt-1 block font-medium text-text">
@@ -271,11 +287,39 @@ function AccessModePanel({ artifact, policy, disabled }: GroupProps) {
             })}
           </span>
         </>
-      ) : (
-        t(`accessSettings.mode.${mode}`)
-      ),
-    disabled: mode === "public" && publicLocked,
+      );
+    }
+    if ((mode === "workspace" || mode === "domain") && audience) {
+      const who =
+        mode === "workspace"
+          ? t("accessSettings.mode.workspace", { count: audience.members })
+          : audience.domains.length > 0
+            ? t("accessSettings.mode.domain", {
+                count: audience.members,
+                domains: audience.domains.join(", "),
+              })
+            : t("accessSettings.mode.domainNone", { count: audience.members });
+      return (
+        <>
+          <span className="block">{who}</span>
+          <span className="mt-1 block">{t("accessSettings.mode.listOnlyRestricted")}</span>
+          {!audience.featureAvailable ? (
+            <span className="mt-1 block font-medium text-text">
+              {t("accessSettings.mode.workspacePlan", { plan })}
+            </span>
+          ) : null}
+        </>
+      );
+    }
+    return t(`accessSettings.mode.${mode}`);
+  };
+  const options = (audience ? WORKSPACE_MODES : MODES).map((mode) => ({
+    value: mode,
+    label: t(`access.${mode}`),
+    description: describe(mode),
+    disabled: (mode === "public" && publicLocked) || workspaceModeLocked(mode),
   }));
+  const lapsed = policy.mode === "domain" && audience !== null && !audience.featureAvailable;
 
   return (
     <Panel
@@ -305,15 +349,22 @@ function AccessModePanel({ artifact, policy, disabled }: GroupProps) {
         disabled={disabled}
       >
         {(form) => (
-          <form.AppField name="mode">
-            {(field) => (
-              <field.RadioGroupField
-                legend={t("accessSettings.mode.legend")}
-                options={options}
-                disabled={disabled}
-              />
-            )}
-          </form.AppField>
+          <div className="flex flex-col gap-4">
+            {lapsed ? (
+              <Callout title={t("accessSettings.lapsed.title")} icon={<Info className="size-5" />}>
+                {t("accessSettings.lapsed.body", { plan })}
+              </Callout>
+            ) : null}
+            <form.AppField name="mode">
+              {(field) => (
+                <field.RadioGroupField
+                  legend={t("accessSettings.mode.legend")}
+                  options={options}
+                  disabled={disabled}
+                />
+              )}
+            </form.AppField>
+          </div>
         )}
       </GroupForm>
     </Panel>

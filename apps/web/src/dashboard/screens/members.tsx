@@ -43,6 +43,7 @@ import { ROLE_LABELS, type Space, spaceCan, useReadySpace, WORKSPACES_QUERY } fr
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded } from "./account.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
+import { EmailDomainsPanel } from "./email-domains.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
 
 type T = ReturnType<typeof useT>;
@@ -128,6 +129,7 @@ function WorkspaceMembers({ space }: { space: Extract<Space, { kind: "workspace"
                 >
                   {(pending) => <PendingInvitations space={space} items={pending.items} />}
                 </Loaded>
+                <EmailDomainsPanel space={space} />
               </>
             ) : null}
           </div>

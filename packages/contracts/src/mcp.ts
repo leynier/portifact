@@ -19,7 +19,12 @@ import {
   SourceOrigin,
   UploadedPart,
 } from "./publishing.ts";
+import { PublishKey } from "./service-tokens.ts";
 import { WorkspaceSlug } from "./workspaces.ts";
+
+const keyArg = PublishKey.optional().describe(
+  "A stable key such as pr-123 or docs/main: the first publish with it creates an artifact that carries it, and every later publish with the same key updates that artifact, from its current version. Not with artifactId.",
+);
 
 /**
  * The `workspace` argument of the tools that create or list: a workspace's slug from
@@ -62,11 +67,12 @@ export const ListArtifactsInput = z.object({
   ),
   type: ArtifactType.optional().describe("Only artifacts of this type: site, markdown or text."),
   access: AccessMode.optional().describe(
-    "Only artifacts with this access mode: public, authenticated or restricted.",
+    "Only artifacts with this access mode: public, authenticated, restricted, workspace or domain.",
   ),
   annotations: AnnotationsState.optional().describe(
     "Only artifacts whose annotations are off, open or locked.",
   ),
+  key: PublishKey.optional().describe("Only the artifact published with this key, if any."),
 });
 export type ListArtifactsInput = z.infer<typeof ListArtifactsInput>;
 
@@ -99,6 +105,7 @@ export const PublishDocumentInput = z.object({
     .describe(
       "Required with artifactId: the currentVersionId you last read from get_artifact. A newer version published since then makes the call fail with version_conflict instead of overwriting it.",
     ),
+  key: keyArg,
   idempotencyKey: IdempotencyKey.optional().describe(
     "A unique string (8 to 128 letters, digits, '.', '_', ':' or '-') for this publish. Retrying with the same key and arguments returns the first result instead of publishing twice.",
   ),
@@ -152,7 +159,7 @@ export type SetCommentVisibilityInput = z.infer<typeof SetCommentVisibilityInput
 export const SetAccessInput = z.object({
   artifactId,
   mode: AccessMode.optional().describe(
-    "restricted: only the owner and the readers on the list, after signing in. authenticated: anyone signed in to Portifact. public: anyone with the link, no sign-in. Ask the user before choosing authenticated or public.",
+    "restricted: only the owner and the readers on the list, after signing in. authenticated: anyone signed in to Portifact. public: anyone with the link, no sign-in. workspace (workspace artifacts only): every member of the owning workspace. domain (workspace artifacts only): every member plus anyone signed in with a verified address at one of the workspace's verified email domains. Ask the user before choosing authenticated, public, workspace or domain.",
   ),
   indexable: z
     .boolean()
@@ -226,6 +233,7 @@ export const PrepareUploadInput = z.object({
   sourceOrigin: SourceOrigin.optional().describe(
     "The git commit, branch and remote the source files came from, when there are source files.",
   ),
+  key: keyArg,
   multipart: z
     .boolean()
     .optional()

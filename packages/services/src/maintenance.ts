@@ -8,6 +8,7 @@ import { and, asc, eq, gt, inArray, lte, notExists, or, type SQL, sql } from "dr
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
+import { pruneAuditEvents } from "./audit.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
@@ -564,5 +565,10 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     alignedPlanLimits: (await alignPlanLimits(db, now)).processed,
     unpinned: (await unpinLapsedPlans(db, now)).processed,
     webhooks: await maintainWebhooks(db, now),
+    // The region's events, then the global ones (members, plans, domains); with one region both
+    // passes read one database, and the second finds nothing left.
+    prunedAuditEvents:
+      (await pruneAuditEvents(db, db.global, now)) +
+      (await pruneAuditEvents(db.global, db.global, now)),
   };
 }

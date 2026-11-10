@@ -1,7 +1,7 @@
 // Custom domains (premium plan P7, decision 0006): which hostnames an owner may attach, how the
 // content Worker tells an artifact host from a custom one, and the decisions of the daily check
 // and the plan limit. Pure functions, no I/O; the services apply them with D1 and Cloudflare.
-import { type AccessMode, CUSTOM_DOMAINS } from "@portifact/contracts";
+import { type AccessMode, CUSTOM_DOMAINS, type DomainDetachReason } from "@portifact/contracts";
 import type { Entitlements } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
@@ -160,20 +160,7 @@ export type DomainCheck =
   | { action: "keep"; missedChecks: number }
   | { action: "detach"; reason: DetachReason };
 
-export type DetachReason =
-  | "removed"
-  | "txt_lost"
-  | "cloudflare_gone"
-  | "provisioning_timeout"
-  | "artifact_unavailable"
-  | "plan_limit"
-  | "suspended"
-  | "purged"
-  | "account_deleted"
-  | "reconciled"
-  | "operator"
-  | "blocked"
-  | "cname_elsewhere";
+export type DetachReason = DomainDetachReason;
 
 /**
  * The daily check of a domain that is proven: three misses of the TXT proof in a row detach it,
@@ -277,11 +264,14 @@ export function handoffHost(input: {
  * theirs (decision 0006, "Codes on a custom host"). The domain owner controls that host's DNS and
  * may receive the code on a server of their own. An `authenticated` artifact is read by every
  * signed-in account, so a visitor who was merely sent there confirms first on the app (the read
- * entry), or stays on the `.dev` host (the viewer's frame and its review codes). A public artifact
- * needs no code to be read, and the readers of a restricted one are the owner's own choice.
+ * entry), or stays on the `.dev` host (the viewer's frame and its review codes). The same holds for
+ * `workspace` and `domain` (decision 0010): every member, or everyone with an address at a
+ * company, people the owner did not list one by one. A public artifact needs no code to be read,
+ * and the readers of a restricted one are the owner's own choice. It names the modes that go
+ * without a click, so a mode added later asks for one until someone decides otherwise.
  */
 export function customHostWithoutClick(accessMode: AccessMode): boolean {
-  return accessMode !== "authenticated";
+  return accessMode === "public" || accessMode === "restricted";
 }
 
 /**

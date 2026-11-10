@@ -64,10 +64,12 @@ interface UserInput {
 
 interface PublishInput {
   ownerId: string;
+  /** A workspace to publish into as `ownerId`; the personal space without it. */
+  targetOwnerId?: string;
   type: "site" | "markdown" | "text";
   name: string;
   files: Record<string, string>;
-  accessMode?: "public" | "authenticated" | "restricted";
+  accessMode?: "public" | "authenticated" | "restricted" | "workspace" | "domain";
   readers?: string[];
   annotations?: "off" | "open" | "locked";
   /** The Portifact bar; on by default, like a new artifact. */
@@ -257,6 +259,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     );
     const prepared = await preparePublish(db, {
       userId: publish.ownerId,
+      ...(publish.targetOwnerId ? { targetOwnerId: publish.targetOwnerId } : {}),
       type: publish.type,
       name: publish.name,
       entrypoint: entries[0]?.[0] ?? "index.html",
@@ -269,7 +272,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     if (!prepared.ok) return Response.json(prepared, { status: 400 });
     for (const [index, [, body]] of entries.entries()) {
       const hash = files[index]?.sha256 as string;
-      await env.ARTIFACTS.put(`objects/${publish.ownerId}/${hash}`, body, { sha256: hash });
+      await env.ARTIFACTS.put(`objects/${publish.targetOwnerId ?? publish.ownerId}/${hash}`, body, {
+        sha256: hash,
+      });
     }
     const committed = await commitPublish(db, env.ARTIFACTS, {
       userId: publish.ownerId,

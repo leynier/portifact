@@ -67,6 +67,7 @@ describe("settings page", () => {
       "Plan",
       "Webhooks",
       "Branding",
+      "Audit log",
       "Settings",
     ]);
     fireEvent.click(within(nav).getByRole("link", { name: "Settings" }));

@@ -48,7 +48,10 @@ export const artifacts = sqliteTable(
     })
       .notNull()
       .default("draft"),
-    accessMode: text("access_mode", { enum: ["public", "authenticated", "restricted"] })
+    /** `workspace` and `domain` only on workspace artifacts (decision 0010); no CHECK, contracts decide. */
+    accessMode: text("access_mode", {
+      enum: ["public", "authenticated", "restricted", "workspace", "domain"],
+    })
       .notNull()
       .default("restricted"),
     /** Bumped on every access change; read sessions carry it so revocation applies quickly. */
@@ -104,9 +107,23 @@ export const artifacts = sqliteTable(
      * appends it.
      */
     customHost: text("custom_host"),
+    /**
+     * The stable publish key (decision 0011): unique per owner while the artifact exists, so a
+     * deleted or purging artifact releases it at once. Kept last because `ALTER TABLE ADD COLUMN`
+     * appends it.
+     */
+    externalKey: text("external_key"),
+    /**
+     * Who created it: a user or a service token (decision 0011), for a token's `own`
+     * restriction. Null for artifacts created before the column. No foreign key.
+     */
+    createdBy: text("created_by"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
+    uniqueIndex("artifacts_owner_key_idx")
+      .on(t.ownerId, t.externalKey)
+      .where(sql`${t.externalKey} is not null and ${t.state} not in ('purging', 'deleted')`),
     uniqueIndex("artifacts_custom_host_idx")
       .on(t.customHost)
       .where(sql`${t.customHost} is not null`),
@@ -743,11 +760,21 @@ export const tombstones = sqliteTable(
   "tombstones",
   {
     /**
-     * `share_link` marks a revoked share link (decision 0008) and `webhook` a removed webhook
-     * (decision 0009), so a restore cannot revive them; `workspace` a deleted workspace.
+     * `share_link` marks a revoked share link (decision 0008), `webhook` a removed webhook
+     * (decision 0009) and `service_token` a revoked service token (decision 0011), so a restore
+     * cannot revive them; `workspace` a deleted workspace; `workspace_domain` a removed or lapsed
+     * verified email domain by its row ID (decision 0010).
      */
     kind: text("kind", {
-      enum: ["artifact", "account", "share_link", "workspace", "webhook"],
+      enum: [
+        "artifact",
+        "account",
+        "share_link",
+        "workspace",
+        "webhook",
+        "service_token",
+        "workspace_domain",
+      ],
     }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
@@ -1452,6 +1479,81 @@ export const workspaceInvitations = sqliteTable(
 );
 
 /**
+ * Service tokens (premium plan T4, decision 0011): a workspace's credential for automation, with
+ * a fixed role (never admin) and scopes. Only the SHA-256 of the secret is stored. Revoking
+ * deletes the row and writes a `service_token` tombstone; deleting the workspace deletes its
+ * tokens. `created_by` has no foreign key: deleting that account clears it.
+ */
+export const serviceTokens = sqliteTable(
+  "service_tokens",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    role: text("role", { enum: ["editor"] }).notNull(),
+    /** Space-separated scopes from `SERVICE_TOKEN_SCOPES`. */
+    scopes: text("scopes").notNull(),
+    restriction: text("restriction", { enum: ["none", "own", "key"] })
+      .notNull()
+      .default("none"),
+    keyPrefix: text("key_prefix"),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    /** Written at most once an hour (decision 0011, "Last used"). */
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (t) => [
+    uniqueIndex("service_tokens_hash_idx").on(t.tokenHash),
+    index("service_tokens_workspace_idx").on(t.workspaceId),
+    check("service_tokens_role", sql`${t.role} = 'editor'`),
+    check(
+      "service_tokens_restriction",
+      sql`(${t.restriction} = 'key') = (${t.keyPrefix} is not null)`,
+    ),
+  ],
+);
+
+/**
+ * Email domains a workspace claims or verified (premium plan T2, decision 0010). Global, like the
+ * workspace. A claim is `pending` with a fresh token until the TXT record
+ * `_portifact-email.<domain>` holds it; at most one workspace has a domain `verified` (the partial
+ * unique index). The token is the value of a public DNS record and is shown again, so it is
+ * stored as is; it is never logged or exported. Rows go with the workspace.
+ */
+export const workspaceDomains = sqliteTable(
+  "workspace_domains",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    /** Lowercase A-label. */
+    domain: text("domain").notNull(),
+    /** The Unicode form the admin typed, when it differs; display only. */
+    display: text("display"),
+    token: text("token").notNull(),
+    state: text("state", { enum: ["pending", "verified"] }).notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    /** When a pending claim is dropped. */
+    expiresAt: timestamp("expires_at").notNull(),
+    verifiedAt: timestamp("verified_at"),
+    checkedAt: timestamp("checked_at"),
+    failedChecks: integer("failed_checks").notNull().default(0),
+    problem: text("problem", { enum: ["txt_missing"] }),
+  },
+  (t) => [
+    uniqueIndex("workspace_domains_workspace_domain_idx").on(t.workspaceId, t.domain),
+    uniqueIndex("workspace_domains_verified_idx").on(t.domain).where(sql`${t.state} = 'verified'`),
+    index("workspace_domains_state_checked_idx").on(t.state, t.checkedAt),
+    check("workspace_domains_state", sql`${t.state} in ('pending', 'verified')`),
+  ],
+);
+
+/**
  * Workspaces the operator deleted whose artifacts and data are still being purged
  * (`advanceWorkspaceDeletion`). The `workspaces` row is already gone; this row goes once nothing
  * is left and a `workspace` tombstone replaces it.
@@ -1564,3 +1666,34 @@ export const blockedHostnames = sqliteTable("blocked_hostnames", {
 });
 
 export * from "./auth-schema.ts";
+
+/**
+ * The audit log (premium plan T10): one row per change that matters for accountability, keyed by
+ * the owner it happened to, written by the services in the batch of the change, on the same
+ * condition, so a row exists exactly when the change does. Append only: nothing updates a row;
+ * the retention scan and the owner's erasure delete them. Every control database has the table
+ * (one migration history, decision 0005): an owner's events live in its region, and the changes
+ * to global rows (members, invitations, plans) are recorded in the global database, in their own
+ * batch. No foreign keys: an event outlives the artifact, member or webhook it names, and goes
+ * only with its owner. `actor_id` is an opaque account ID (null for the operator and jobs);
+ * `detail` holds the kind's small structured detail (`AUDIT_DETAILS` in contracts), never text a
+ * person wrote.
+ */
+export const auditEvents = sqliteTable(
+  "audit_events",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    at: timestamp("at").notNull(),
+    kind: text("kind").notNull(),
+    actorType: text("actor_type", { enum: ["user", "operator", "system", "token"] }).notNull(),
+    actorId: text("actor_id"),
+    targetId: text("target_id"),
+    artifactId: text("artifact_id"),
+    detail: text("detail", { mode: "json" }).notNull(),
+  },
+  (t) => [
+    index("audit_events_owner_at_idx").on(t.ownerId, t.at, t.id),
+    index("audit_events_at_idx").on(t.at),
+  ],
+);

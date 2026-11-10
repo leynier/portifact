@@ -9,6 +9,7 @@
 // at the same R2 key (no bytes are copied), counted in the target's storage. The source keeps its
 // rows while other artifacts reference them; rows nothing references any more are released after
 // the batch (`releaseOrphans`), and an R2 key is deleted only once no row of any owner has it.
+import { isWorkspaceId } from "@portifact/contracts";
 import { type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   authorize,
@@ -22,6 +23,7 @@ import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { accessHistoryMoveJob } from "./analytics.ts";
 import type { ArtifactRow } from "./artifacts.ts";
+import { auditEvent } from "./audit.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
@@ -61,6 +63,12 @@ const noRoom = () =>
     "The target space has no room for this artifact: free an active slot, storage or comment space there first.",
   );
 
+const keyTaken = () =>
+  fail<never>(
+    "invalid_input",
+    "The target space already has an artifact with this publish key. Delete that artifact or publish this one again without the key, then move it.",
+  );
+
 /**
  * Moves an artifact to another space. A retry after a move that happened answers the artifact as
  * it is now. Refused across regions, while an upload to the artifact is open, and when the target
@@ -74,7 +82,7 @@ export async function transferArtifact(
   const a = schema.artifacts;
   const [artifact] = await db.select().from(a).where(eq(a.id, input.artifactId)).limit(1);
   if (!artifact) return missingArtifact();
-  const source = await authorizeOn(db, input.userId, artifact.ownerId, "transfer", missingArtifact);
+  const source = await authorizeOn(db, input.userId, artifact, "transfer", missingArtifact);
   if (!source.ok) return source;
 
   const targetId = await targetOwner(db.global, input.userId, input.workspace);
@@ -218,6 +226,12 @@ export async function transferArtifact(
         // Columns in schema order: id, artifact, actor, channel, event, details, at.
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'transferred', ${JSON.stringify({ from, to })}, ${input.now} where ${unchanged}`,
       ),
+      // One event for each side, on the same conditions.
+      ...transferEvents(
+        db,
+        { artifactId: artifact.id, from, to, userId: input.userId, now: input.now },
+        unchanged,
+      ),
       // The triggers of the workspace_members_invitations migration move the active slot and the annotation usage with these updates.
       db
         .update(a)
@@ -228,6 +242,9 @@ export async function transferArtifact(
           updatedAt: input.now,
           lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
           policyGeneration: sql`${a.policyGeneration} + 1`,
+          // `workspace` and `domain` name the old owner's people (decision 0010): the artifact
+          // becomes restricted (its reader list stays) wherever it goes.
+          accessMode: sql`case when ${a.accessMode} in ('workspace', 'domain') then 'restricted' else ${a.accessMode} end`,
         })
         // The same conditions as every other statement, so the row never moves without them.
         .where(and(eq(a.id, artifact.id), unchanged))
@@ -235,6 +252,8 @@ export async function transferArtifact(
     ])) as unknown[];
   } catch (error) {
     if (causeIncludes(error, "CHECK constraint failed")) return noRoom();
+    // The partial unique index on (owner, publish key): the target already publishes under it.
+    if (causeIncludes(error, "artifacts.external_key")) return keyTaken();
     throw error;
   }
   if ((results.at(-1) as unknown[]).length === 0) {
@@ -251,4 +270,41 @@ export async function transferArtifact(
   );
   const [moved] = await db.select().from(a).where(eq(a.id, artifact.id)).limit(1);
   return moved ? ok(moved) : missingArtifact();
+}
+
+/** The audit events of a move: out of the source and into the target, both on `condition`. */
+function transferEvents(
+  db: RegionalDb,
+  input: { artifactId: string; from: string; to: string; userId: string; now: number },
+  condition: SQL,
+) {
+  const side = (ownerId: string) => (isWorkspaceId(ownerId) ? "workspace" : "personal");
+  const common = {
+    actor: { type: "user" as const, id: input.userId },
+    targetId: input.artifactId,
+    artifactId: input.artifactId,
+    now: input.now,
+  };
+  return [
+    auditEvent(
+      db,
+      {
+        ...common,
+        ownerId: input.from,
+        kind: "artifact.transferred_out",
+        detail: { to: side(input.to) },
+      },
+      condition,
+    ),
+    auditEvent(
+      db,
+      {
+        ...common,
+        ownerId: input.to,
+        kind: "artifact.transferred_in",
+        detail: { from: side(input.from) },
+      },
+      condition,
+    ),
+  ];
 }

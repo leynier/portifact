@@ -29,6 +29,8 @@ export interface InlinePublish {
   content: string;
   artifactId?: string | undefined;
   baseVersionId: string | null;
+  /** A stable publish key (decision 0011). */
+  key?: string | undefined;
   now: number;
 }
 
@@ -60,6 +62,7 @@ export async function publishInline(
     entrypoint: file.path,
     baseVersionId: input.baseVersionId,
     files: [{ ...file, kind: "published", sha256, size: bytes.byteLength }],
+    key: input.key,
     now: input.now,
   });
   if (!prepared.ok) return prepared;

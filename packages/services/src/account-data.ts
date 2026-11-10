@@ -22,6 +22,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
+import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
@@ -29,6 +30,7 @@ import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
+import { exportServiceTokens } from "./service-tokens.ts";
 import { exportWebhooks } from "./webhooks.ts";
 
 const IN_CHUNK = 80;
@@ -223,7 +225,10 @@ export async function exportAccount(
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
       // Destinations only by host: never the URL or the signing secret.
       webhooks: await exportWebhooks(db, input.userId),
+      auditEvents: await exportAuditEvents(db, input.userId, input.now),
       brand: await exportedBrand(db, input.userId),
+      // The service tokens of the workspaces the account administers: never a secret or hash.
+      serviceTokens: await exportServiceTokens(db.global, input.userId, input.now),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
@@ -280,19 +285,7 @@ export async function exportAccount(
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
     })),
-    workspaces: (
-      await db.global
-        .select({
-          slug: schema.workspaces.slug,
-          name: schema.workspaces.name,
-          role: schema.workspaceMembers.role,
-          joinedAt: schema.workspaceMembers.createdAt,
-        })
-        .from(schema.workspaceMembers)
-        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
-        .where(eq(schema.workspaceMembers.userId, input.userId))
-        .orderBy(asc(schema.workspaces.slug))
-    ).map((row) => ({ ...row, joinedAt: iso(row.joinedAt) })),
+    workspaces: await exportWorkspaces(db.global, input.userId),
     invitations: (await listIncomingInvitations(db.global, input)).map((invitation) => ({
       workspace: invitation.workspace,
       role: invitation.role,
@@ -483,8 +476,15 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
       .update(schema.webhooks)
       .set({ createdBy: null })
       .where(eq(schema.webhooks.createdBy, input.userId)),
+    // A workspace's service tokens stay with it (decision 0011); who created them goes.
+    db
+      .update(schema.serviceTokens)
+      .set({ createdBy: null })
+      .where(eq(schema.serviceTokens.createdBy, input.userId)),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
+    // Each workspace the account is in records that the member is gone, before the cascade.
+    accountLeftEvents(db, input.userId, input.now),
     // Cascades to sessions, accounts, OAuth tokens and consents, read sessions and handoffs,
     // and workspace memberships.
     db.delete(schema.users).where(eq(schema.users.id, input.userId)),
@@ -601,6 +601,9 @@ export async function advanceAccountDeletion(
     .where(eq(schema.artifacts.ownerId, userId));
   if (Number(left?.count ?? 0) > 0) return "pending";
 
+  // The account's events in the global database (its plan's) go before the batch that ends the
+  // deletion, so a crash in between leaves a step that runs again, never events nothing erases.
+  await db.global.batch([eraseOwnerAuditEvents(db.global, userId)]);
   // Objects only aborted uploads referenced; nothing references them any more.
   const objects = await db
     .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
@@ -637,8 +640,14 @@ export async function advanceAccountDeletion(
       .update(schema.webhooks)
       .set({ createdBy: null })
       .where(eq(schema.webhooks.createdBy, userId)),
+    db
+      .update(schema.serviceTokens)
+      .set({ createdBy: null })
+      .where(eq(schema.serviceTokens.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
+    // The audit log goes with its owner (the global copy, the plan's events, below).
+    eraseOwnerAuditEvents(db, userId, nothingLeft),
     db
       .delete(schema.accountUsage)
       .where(
@@ -672,4 +681,52 @@ export async function advanceAccountDeletion(
       .returning({ userId: schema.accountDeletions.userId }),
   ])) as unknown[];
   return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
+}
+
+/**
+ * The account's workspaces and role; for those it is an admin of, the verified email domains it
+ * manages (decision 0010), never their tokens. Other members see no domains.
+ */
+async function exportWorkspaces(global: GlobalDb, userId: string) {
+  const rows = await global
+    .select({
+      id: schema.workspaces.id,
+      slug: schema.workspaces.slug,
+      name: schema.workspaces.name,
+      role: schema.workspaceMembers.role,
+      joinedAt: schema.workspaceMembers.createdAt,
+    })
+    .from(schema.workspaceMembers)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
+    .where(eq(schema.workspaceMembers.userId, userId))
+    .orderBy(asc(schema.workspaces.slug));
+  const admin = rows.filter((row) => row.role === "admin").map((row) => row.id);
+  const domains =
+    admin.length === 0
+      ? []
+      : await global
+          .select({
+            workspaceId: schema.workspaceDomains.workspaceId,
+            domain: schema.workspaceDomains.domain,
+            state: schema.workspaceDomains.state,
+            verifiedAt: schema.workspaceDomains.verifiedAt,
+          })
+          .from(schema.workspaceDomains)
+          .where(inArray(schema.workspaceDomains.workspaceId, admin))
+          .orderBy(asc(schema.workspaceDomains.domain));
+  return rows.map(({ id, ...row }) => ({
+    ...row,
+    joinedAt: iso(row.joinedAt),
+    ...(row.role === "admin"
+      ? {
+          domains: domains
+            .filter((domain) => domain.workspaceId === id)
+            .map((domain) => ({
+              domain: domain.domain,
+              state: domain.state,
+              verifiedAt: domain.verifiedAt === null ? null : iso(domain.verifiedAt),
+            })),
+        }
+      : {}),
+  }));
 }

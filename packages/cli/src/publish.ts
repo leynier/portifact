@@ -14,7 +14,7 @@ import {
   type PublishRequest,
 } from "@portifact/contracts";
 import { callApi, withRetries } from "./api.ts";
-import { parseArtifactId } from "./artifacts.ts";
+import { artifactWithKey, parseArtifactId, parsePublishKey } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { buildManifest, discardManifest, type LocalManifest } from "./manifest.ts";
@@ -39,6 +39,11 @@ export interface PublishOptions extends OutputOptions {
   assets?: string | undefined;
   /** The space a new artifact goes to: a workspace slug or `personal` (default: the device's). */
   workspace?: string | undefined;
+  /**
+   * A stable key (decision 0011): the first publish creates the artifact, later ones with the
+   * same key update it, so CI needs no stored ID.
+   */
+  key?: string | undefined;
   dryRun: boolean;
 }
 
@@ -62,6 +67,10 @@ export async function publish(
   options: PublishOptions,
 ): Promise<void> {
   const artifactId = options.artifact === undefined ? undefined : parseArtifactId(options.artifact);
+  const key = options.key === undefined ? undefined : parsePublishKey(options.key);
+  if (key !== undefined && artifactId !== undefined) {
+    throw new CliError("invalid_input", messages.errors.keyWithArtifact);
+  }
   if (options.ref !== undefined && options.source === undefined) {
     throw new CliError("invalid_input", messages.errors.refNeedsSource);
   }
@@ -85,6 +94,8 @@ export async function publish(
       workspace = base.owner.kind === "workspace" ? base.owner.slug : undefined;
     } else {
       workspace = await chosenWorkspace(session, options.workspace);
+      // The artifact this key already names, if any: its type and name are the defaults.
+      if (key !== undefined) base = await artifactWithKey(session, key, workspace);
     }
     // The plan's sizes of that space, checked before hashing or uploading; the API checks them
     // again.
@@ -123,6 +134,7 @@ export async function publish(
       base,
       artifactId,
       workspace,
+      key,
     });
   } finally {
     await discardManifest(manifest);
@@ -143,9 +155,10 @@ async function publishBuilt(
     artifactId: string | undefined;
     /** The space a new artifact goes to; undefined for the personal space. */
     workspace: string | undefined;
+    key: string | undefined;
   },
 ): Promise<void> {
-  const { manifest, sources, path, options, session, base, artifactId, workspace } = built;
+  const { manifest, sources, path, options, session, base, artifactId, workspace, key } = built;
   const fileCount = manifest.files.length + (sources?.files.length ?? 0);
   if (fileCount > LIMITS.filesPerVersion) {
     throw new CliError(
@@ -166,10 +179,12 @@ async function publishBuilt(
 
   const request: PublishRequest = {
     ...(artifactId ? { artifactId } : {}),
+    ...(key !== undefined ? { key } : {}),
     type: manifest.type,
     name,
     entrypoint: manifest.entrypoint,
-    baseVersionId: base?.currentVersionId ?? null,
+    // A keyed publish updates from the current version, whichever it is.
+    baseVersionId: key === undefined ? (base?.currentVersionId ?? null) : null,
     files: [
       ...manifest.files.map((file) => ({
         path: file.path,
@@ -190,9 +205,72 @@ async function publishBuilt(
     // Files over the multipart threshold are uploaded in parts that resume after a failure.
     multipart: true,
   };
+  const active = session;
+  // Two jobs publishing one key at once: the second's commit finds the version it was based on
+  // replaced, so it prepares again once, on the new current version.
+  let attempt = await sendVersion(io, active, manifest, sources, request, artifactId, workspace);
+  if (attempt.kind === "conflict" && key !== undefined) {
+    io.stderr(`${messages.keyRetry(key)}\n`);
+    attempt = await sendVersion(io, active, manifest, sources, request, artifactId, workspace);
+  }
+  if (attempt.kind === "conflict") throw attempt.error;
+  const { prepared, committed, uploadBytes } = attempt;
+
+  // The star suggestion comes only after a publish that succeeded, never in a dry run.
+  if (options.json) {
+    const pending = await starSuggestion(runtime);
+    writeJson(io, {
+      artifactId: committed.artifactId,
+      versionId: committed.versionId,
+      versionNumber: committed.versionNumber,
+      url: committed.url,
+      expiresAt: committed.expiresAt,
+      uploadId: prepared.uploadId,
+      files: manifest.files.length,
+      totalBytes: manifest.totalBytes,
+      sourceFiles: sources?.files.length ?? 0,
+      sourceBytes: sources?.totalBytes ?? 0,
+      sourceOrigin: sources?.origin ?? null,
+      uploadedFiles: prepared.uploads.length,
+      uploadedBytes: uploadBytes,
+      workspace: workspace ?? null,
+      ...(pending ? { suggestion: pending.suggestion } : {}),
+    });
+    await pending?.markShown();
+  } else {
+    io.stdout(
+      `${messages.published(committed.url, committed.artifactId, committed.versionNumber, committed.expiresAt)}\n`,
+    );
+    if (workspace !== undefined) io.stdout(`Workspace: ${workspace}\n`);
+    const pending = await starSuggestion(runtime);
+    if (pending) {
+      io.stderr(`\n${pending.suggestion.message}\n`);
+      await pending.markShown();
+    }
+  }
+}
+
+type Sent =
+  | {
+      kind: "done";
+      prepared: PreparedPublish;
+      committed: CommittedPublish;
+      uploadBytes: number;
+    }
+  | { kind: "conflict"; error: CliError };
+
+/** Prepares, uploads and commits one version; a commit that lost a race comes back as a conflict. */
+async function sendVersion(
+  io: Io,
+  active: Session,
+  manifest: LocalManifest,
+  sources: SourceManifest | undefined,
+  request: PublishRequest,
+  artifactId: string | undefined,
+  workspace: string | undefined,
+): Promise<Sent> {
   // One key for every attempt: a retry after a lost answer gets the same upload back.
   const idempotencyKey = randomUUID();
-  const active = session;
   const prepared = await withRetries(active, () =>
     callApi(active, {
       method: "POST",
@@ -244,41 +322,13 @@ async function publishBuilt(
     );
   } catch (error) {
     await abort(io, active, prepared.uploadId);
+    if (error instanceof CliError && error.code === "version_conflict") {
+      return { kind: "conflict", error };
+    }
     throw error;
   }
 
-  // The star suggestion comes only after a publish that succeeded, never in a dry run.
-  if (options.json) {
-    const pending = await starSuggestion(runtime);
-    writeJson(io, {
-      artifactId: committed.artifactId,
-      versionId: committed.versionId,
-      versionNumber: committed.versionNumber,
-      url: committed.url,
-      expiresAt: committed.expiresAt,
-      uploadId: prepared.uploadId,
-      files: manifest.files.length,
-      totalBytes: manifest.totalBytes,
-      sourceFiles: sources?.files.length ?? 0,
-      sourceBytes: sources?.totalBytes ?? 0,
-      sourceOrigin: sources?.origin ?? null,
-      uploadedFiles: prepared.uploads.length,
-      uploadedBytes: uploadBytes,
-      workspace: workspace ?? null,
-      ...(pending ? { suggestion: pending.suggestion } : {}),
-    });
-    await pending?.markShown();
-  } else {
-    io.stdout(
-      `${messages.published(committed.url, committed.artifactId, committed.versionNumber, committed.expiresAt)}\n`,
-    );
-    if (workspace !== undefined) io.stdout(`Workspace: ${workspace}\n`);
-    const pending = await starSuggestion(runtime);
-    if (pending) {
-      io.stderr(`\n${pending.suggestion.message}\n`);
-      await pending.markShown();
-    }
-  }
+  return { kind: "done", prepared, committed, uploadBytes };
 }
 
 async function abort(io: Io, session: Session, uploadId: string): Promise<void> {

@@ -109,10 +109,34 @@ describe("the space menu", () => {
     server.workspaces.e = workspace("e", "editor");
     server.workspaces.m = workspace("m", "member");
     const cases: [string, string[]][] = [
-      ["/", ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Webhooks", "Branding", "Settings"]],
+      [
+        "/",
+        [
+          "Artifacts",
+          "Publish",
+          "Apps",
+          "Usage",
+          "Plan",
+          "Webhooks",
+          "Branding",
+          "Audit log",
+          "Settings",
+        ],
+      ],
       [
         "/?workspace=a",
-        ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Branding", "Members", "Settings"],
+        [
+          "Artifacts",
+          "Publish",
+          "Apps",
+          "Usage",
+          "Plan",
+          "Branding",
+          "Members",
+          "Audit log",
+          "Service tokens",
+          "Settings",
+        ],
       ],
       ["/?workspace=e", ["Artifacts", "Publish", "Apps", "Usage", "Plan", "Members", "Settings"]],
       // Every role compares the plans; the page decides what it shows and offers.
@@ -300,11 +324,24 @@ describe("moving an artifact", () => {
     renderDashboard("/artifacts/w2w2w2w2w2?workspace=acme", server);
     const section = await panel();
     fireEvent.click(await moveButton(section));
+    // A restricted artifact keeps its mode: nothing to warn about.
+    expect((await screen.findByRole("dialog")).textContent).not.toContain("becomes restricted");
     fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("button", { name: "Move" }),
     );
     expect(await screen.findByText("Team report moved to Personal.")).toBeTruthy();
     expect(server.bodies).toContainEqual({ workspace: null });
+  });
+
+  it("says a workspace-shared artifact becomes restricted when it moves", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    const shared = server.artifacts.find((a) => a.id === "w2w2w2w2w2");
+    if (shared) shared.accessMode = "domain";
+    renderDashboard("/artifacts/w2w2w2w2w2?workspace=acme", server);
+    fireEvent.click(await moveButton(await panel()));
+    expect((await screen.findByRole("dialog")).textContent).toContain(
+      "so it becomes restricted: only the people on its reader list keep reading it.",
+    );
   });
 
   it("says an editor cannot take a workspace's artifact out, and offers no move", async () => {

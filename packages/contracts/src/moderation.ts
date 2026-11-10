@@ -1,10 +1,13 @@
 // Abuse reports, operator suspensions and the account's own export and deletion (plan sections
 // 5 and 13). Report text and the reporter's email are untrusted input from anyone on the web.
+
 import { z } from "zod";
 import { AccountSettings } from "./account.ts";
+import { AuditEventView } from "./audit.ts";
 import { Brand } from "./branding.ts";
-import { ArtifactId, Email } from "./core.ts";
+import { AccessMode, ArtifactId, Email } from "./core.ts";
 import { PlanView } from "./plans.ts";
+import { ServiceTokenView } from "./service-tokens.ts";
 
 /** Categories of the Acceptable Use Policy, used by reports and by suspensions. */
 export const AbuseReason = z.enum([
@@ -164,7 +167,7 @@ export const ExportArtifact = z.object({
   name: z.string(),
   type: z.enum(["site", "markdown", "text"]),
   state: z.string(),
-  accessMode: z.enum(["public", "authenticated", "restricted"]),
+  accessMode: AccessMode,
   readers: z.array(z.string()),
   annotations: z.enum(["off", "open", "locked"]),
   indexable: z.boolean(),
@@ -218,15 +221,37 @@ export const AccountExport = z.object({
      * The logo's bytes are on the Branding page; the export lists what it is.
      */
     brand: Brand.nullable(),
+    /**
+     * The personal space's audit log (premium plan T10) still kept, newest first. A workspace's
+     * is for its admins on the Audit page, not in a member's export.
+     */
+    auditEvents: z.array(AuditEventView),
+    /**
+     * The service tokens of the workspaces the account administers (decision 0011): never the
+     * secret or its hash.
+     */
+    serviceTokens: z.array(z.object({ workspace: z.string(), token: ServiceTokenView })),
   }),
   artifacts: z.array(ExportArtifact),
-  /** The workspaces the account is a member of, with its role; not their artifacts. */
+  /**
+   * The workspaces the account is a member of, with its role; not their artifacts. For a
+   * workspace the account is an admin of, its email domains (decision 0010), never their tokens.
+   */
   workspaces: z.array(
     z.object({
       slug: z.string(),
       name: z.string(),
       role: z.enum(["admin", "editor", "member"]),
       joinedAt: Iso,
+      domains: z
+        .array(
+          z.strictObject({
+            domain: z.string(),
+            state: z.enum(["pending", "verified"]),
+            verifiedAt: IsoOrNull,
+          }),
+        )
+        .optional(),
     }),
   ),
   /** Pending invitations addressed to the account's email. */

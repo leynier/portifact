@@ -4,7 +4,7 @@
 // docs/decisions/0002-review-mode-cookies.md.
 import { z } from "zod";
 import { ViewerBrand } from "./branding.ts";
-import { ArtifactId, ArtifactType } from "./core.ts";
+import { AccessMode, ArtifactId, ArtifactType } from "./core.ts";
 import { OpaqueToken } from "./read.ts";
 
 /**
@@ -110,7 +110,7 @@ export const ViewerInfo = z.object({
   /** The artifact origin, which the viewer frames and accepts bridge messages from. */
   origin: z.url(),
   versionNumber: z.number().int().positive(),
-  accessMode: z.enum(["public", "authenticated", "restricted"]),
+  accessMode: AccessMode,
   annotations: z.enum(["off", "open", "locked"]),
   role: ViewerRole,
   /**

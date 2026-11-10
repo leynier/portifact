@@ -25,6 +25,7 @@ const TOOLS = [
   "diff_versions",
   "get_access_logs",
   "get_artifact",
+  "get_audit_log",
   "get_artifact_stats",
   "get_download",
   "get_usage",
@@ -111,6 +112,7 @@ describe("the MCP endpoint", () => {
       "get_usage",
       "get_access_logs",
       "get_artifact_stats",
+      "get_audit_log",
     ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
     }

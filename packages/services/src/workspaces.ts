@@ -4,7 +4,9 @@
 // gives. Membership writes are D1 batches conditioned on the state the request read, and the
 // triggers of the workspace_members_invitations migration refuse leaving a workspace without an admin even when a race slips past.
 import {
+  type AuditDetail,
   DEFAULT_REGION,
+  isServiceTokenId,
   isWorkspaceId,
   type OwnerView,
   type Region,
@@ -25,6 +27,7 @@ import {
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import { claimArtifacts } from "./account-data.ts";
 import { actorOn } from "./actors.ts";
+import { type AuditActor, auditEvent, eraseOwnerAuditEvents } from "./audit.ts";
 import { eraseOwnerBrand } from "./branding.ts";
 import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
@@ -73,10 +76,28 @@ export async function resolveOwnerScope(
   userId: string,
   slug: string | undefined,
 ): Promise<Result<Actor>> {
+  // A service token has no personal space: without a slug it acts on its own workspace.
+  if (isServiceTokenId(userId)) return tokenScope(global, userId, slug);
   if (slug === undefined) return ok(personalActor(userId));
   const workspace = await workspaceBySlug(global, slug);
   if (!workspace) return missingWorkspace();
   const actor = await actorOn(global, userId, workspace.id);
+  return actor ? ok(actor) : missingWorkspace();
+}
+
+async function tokenScope(
+  global: GlobalDb,
+  tokenId: string,
+  slug: string | undefined,
+): Promise<Result<Actor>> {
+  const [token] = await global
+    .select({ workspaceId: schema.serviceTokens.workspaceId, slug: w.slug })
+    .from(schema.serviceTokens)
+    .innerJoin(w, eq(w.id, schema.serviceTokens.workspaceId))
+    .where(eq(schema.serviceTokens.id, tokenId))
+    .limit(1);
+  if (!token || (slug !== undefined && slug !== token.slug)) return missingWorkspace();
+  const actor = await actorOn(global, tokenId, token.workspaceId);
   return actor ? ok(actor) : missingWorkspace();
 }
 
@@ -89,6 +110,24 @@ export async function listUserWorkspaces(
   global: GlobalDb,
   userId: string,
 ): Promise<UserWorkspace[]> {
+  // A service token belongs to one workspace, with its own role, and is nobody's member.
+  if (isServiceTokenId(userId)) {
+    const t = schema.serviceTokens;
+    const rows = await global
+      .select({
+        id: w.id,
+        slug: w.slug,
+        name: w.name,
+        region: w.region,
+        createdAt: w.createdAt,
+        role: t.role,
+      })
+      .from(t)
+      .innerJoin(w, eq(w.id, t.workspaceId))
+      .where(eq(t.id, userId))
+      .limit(1);
+    return rows.map((row) => ({ ...row, region: regionOf(row) }));
+  }
   const rows = await global
     .select({
       id: w.id,
@@ -186,7 +225,7 @@ async function members(global: GlobalDb, workspaceId: string): Promise<MemberRow
 }
 
 /** The workspace a request names, with the caller's actor allowed to do `action` there. */
-async function scoped(
+export async function scoped(
   global: GlobalDb,
   userId: string,
   slug: string,
@@ -298,20 +337,35 @@ export async function changeMemberRole(
   const allowed = checkRoleChange(current.role, input.role, await adminCount(global, workspace.id));
   if (!allowed.ok) return allowed;
   if (current.role !== input.role) {
+    const where = and(
+      eq(m.workspaceId, workspace.id),
+      eq(m.userId, input.memberId),
+      eq(m.role, current.role),
+      stillAdmin(workspace.id, input.userId),
+    ) as SQL;
     const updated = await guardedBatch(
-      () =>
-        global
-          .update(m)
-          .set({ role: input.role, updatedAt: input.now })
-          .where(
-            and(
-              eq(m.workspaceId, workspace.id),
-              eq(m.userId, input.memberId),
-              eq(m.role, current.role),
-              stillAdmin(workspace.id, input.userId),
+      async () =>
+        (
+          await global.batch([
+            memberEvent(
+              global,
+              {
+                workspaceId: workspace.id,
+                memberId: input.memberId,
+                now: input.now,
+                actor: { type: "user", id: input.userId },
+              },
+              "member.role_changed",
+              { from: current.role, to: input.role },
+              sql`exists (select 1 from ${m} where ${where})`,
             ),
-          )
-          .returning({ userId: m.userId }),
+            global
+              .update(m)
+              .set({ role: input.role, updatedAt: input.now })
+              .where(where)
+              .returning({ userId: m.userId }),
+          ])
+        )[1],
       () => checkRoleChange("admin", input.role, 1) as Result<never>,
     );
     if (!updated.ok) return updated;
@@ -328,7 +382,7 @@ export async function changeMemberRole(
 /** Removes a member, for an admin; the last admin cannot be removed. */
 export async function removeMember(
   global: GlobalDb,
-  input: { userId: string; slug: string; memberId: string },
+  input: { userId: string; slug: string; memberId: string; now?: number | undefined },
 ): Promise<Result<{ removed: true }>> {
   const found = await scoped(global, input.userId, input.slug, "members");
   if (!found.ok) return found;
@@ -339,6 +393,7 @@ export async function removeMember(
     input.memberId,
     input.memberId === input.userId,
     stillAdmin(workspaceId, input.userId),
+    { userId: input.userId, now: input.now ?? Date.now() },
   );
   if (removed.ok || removed.code !== "not_found") return removed;
   // Nothing removed: the caller may have lost the role meanwhile.
@@ -348,11 +403,14 @@ export async function removeMember(
 /** Leaves a workspace, for any member; the last admin cannot leave. */
 export async function leaveWorkspace(
   global: GlobalDb,
-  input: { userId: string; slug: string },
+  input: { userId: string; slug: string; now?: number | undefined },
 ): Promise<Result<{ removed: true }>> {
   const found = await scoped(global, input.userId, input.slug, "read");
   if (!found.ok) return found;
-  return dropMember(global, found.value.workspace.id, input.userId, true, sql`1`);
+  return dropMember(global, found.value.workspace.id, input.userId, true, sql`1`, {
+    userId: input.userId,
+    now: input.now ?? Date.now(),
+  });
 }
 
 async function dropMember(
@@ -361,22 +419,57 @@ async function dropMember(
   memberId: string,
   leaving: boolean,
   callerGuard: SQL,
+  by: { userId: string; now: number },
 ): Promise<Result<{ removed: true }>> {
   const current = await membership(global, workspaceId, memberId);
   if (!current) return missingMember();
   const allowed = checkRemoval(current.role, await adminCount(global, workspaceId), leaving);
   if (!allowed.ok) return allowed;
+  const where = and(eq(m.workspaceId, workspaceId), eq(m.userId, memberId), callerGuard) as SQL;
+  const self = memberId === by.userId;
   const removed = await guardedBatch(
-    () =>
-      global
-        .delete(m)
-        .where(and(eq(m.workspaceId, workspaceId), eq(m.userId, memberId), callerGuard))
-        .returning({ userId: m.userId }),
+    async () =>
+      (
+        await global.batch([
+          memberEvent(
+            global,
+            { workspaceId, memberId, now: by.now, actor: { type: "user", id: by.userId } },
+            self ? "member.left" : "member.removed",
+            { role: current.role },
+            sql`exists (select 1 from ${m} where ${where})`,
+          ),
+          global.delete(m).where(where).returning({ userId: m.userId }),
+        ])
+      )[1],
     () => checkRemoval("admin", 1, leaving) as Result<never>,
   );
   if (!removed.ok) return removed;
   if (removed.value.length === 0) return missingMember();
   return ok({ removed: true });
+}
+
+/** The audit event of a membership change, in the global batch of that change. */
+export function memberEvent<
+  K extends "member.joined" | "member.role_changed" | "member.removed" | "member.left",
+>(
+  global: GlobalDb,
+  input: { workspaceId: string; memberId: string; now: number; actor: AuditActor },
+  kind: K,
+  detail: AuditDetail<K>,
+  condition: SQL,
+) {
+  return auditEvent(
+    global,
+    {
+      ownerId: input.workspaceId,
+      kind,
+      actor: input.actor,
+      targetId: input.memberId,
+      detail,
+      now: input.now,
+    },
+    condition,
+  );
 }
 
 // The operator's workspace commands ---------------------------------------------------------
@@ -422,6 +515,14 @@ export async function createWorkspace(
       )
       .onConflictDoNothing()
       .returning({ id: w.id }),
+    // The first admin joins with the operator as the actor, once even if the command is retried.
+    memberEvent(
+      global,
+      { workspaceId: id, memberId: input.adminUserId, now: input.now, actor: { type: "operator" } },
+      "member.joined",
+      { role: "admin" },
+      sql`exists (select 1 from ${w} where ${w.id} = ${id} and ${w.createdBy} = ${input.adminUserId}) and not exists (select 1 from ${m} where ${m.workspaceId} = ${id} and ${m.userId} = ${input.adminUserId})`,
+    ),
     global
       .insert(m)
       // Columns in schema order: workspace, user, role, created at, updated at.
@@ -429,7 +530,7 @@ export async function createWorkspace(
         sql`select ${id}, ${input.adminUserId}, 'admin', ${input.now}, ${input.now} where exists (select 1 from ${w} where ${w.id} = ${id} and ${w.createdBy} = ${input.adminUserId})`,
       )
       .onConflictDoNothing(),
-  ])) as [unknown[], unknown];
+  ])) as [unknown[], unknown, unknown];
   if (created.length === 0) {
     return (await workspaceBySlug(global, slug))
       ? fail("invalid_input", `The slug ${slug} is taken.`)
@@ -591,6 +692,9 @@ export async function advanceWorkspaceDeletion(
     .from(schema.artifacts)
     .where(eq(schema.artifacts.ownerId, workspaceId));
   if (Number(left?.count ?? 0) > 0) return "pending";
+  // Its member and plan events in the global database go before the batch that ends the
+  // deletion, so a crash in between leaves a step that runs again, never events nothing erases.
+  await db.global.batch([eraseOwnerAuditEvents(db.global, workspaceId)]);
 
   const objects = await db
     .select({ ownerId: schema.objects.ownerId, sha256: schema.objects.sha256 })
@@ -618,6 +722,7 @@ export async function advanceWorkspaceDeletion(
     db
       .delete(schema.ownerPlans)
       .where(and(eq(schema.ownerPlans.ownerId, workspaceId), nothingLeft)),
+    eraseOwnerAuditEvents(db, workspaceId, nothingLeft),
     // Any webhook a restore or a race brought back since the deletion was requested.
     db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
     db

@@ -84,10 +84,37 @@ const GATED: GatedCommand[] = [
     path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}\/test$/,
   },
   {
+    feature: "audit",
+    args: () => ["audit"],
+    method: "GET",
+    path: /^\/api\/v1\/audit$/,
+  },
+  {
+    feature: "workspaces",
+    args: (id) => ["access", "set", id, "workspace"],
+    method: "PATCH",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/access$/,
+  },
+  {
+    feature: "workspaces",
+    args: (id) => ["access", "set", id, "domain"],
+    method: "PATCH",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/access$/,
+  },
+  {
     feature: "customDomains",
     args: (id) => ["domains", "add", id, "docs.example.com"],
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/domain$/,
+  },
+  // A service token of a workspace whose plan lost the feature (decision 0011) is refused on
+  // every request; with PORTIFACT_TOKEN set it goes through the same error path
+  // (service-tokens.test.ts).
+  {
+    feature: "serviceTokens",
+    args: () => ["list"],
+    method: "GET",
+    path: /^\/api\/v1\/artifacts$/,
   },
 ];
 

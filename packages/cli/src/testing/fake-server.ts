@@ -92,6 +92,11 @@ export interface FakeServer {
   refreshTokens: Map<string, { userId: string; scopes: string[] }>;
   /** Apps other than the CLI holding tokens for the user, as /api/v1/tokens lists them. */
   otherApps: ConnectedApp[];
+  /**
+   * Workspace service tokens (decision 0011) by secret: the token's workspace and scopes, or the
+   * refusal the API gives it (expired, revoked, plan lapsed).
+   */
+  serviceTokens: Map<string, { workspace: string; scopes: string[]; refusal?: Reply }>;
   /** Issues a token pair directly, as if a login had happened before the test. */
   issue(scopes?: string[]): { accessToken: string; refreshToken: string };
   revokedTokens(): string[];
@@ -127,6 +132,7 @@ export async function startFakeServer(): Promise<FakeServer> {
     accessTokens: new Map(),
     refreshTokens: new Map(),
     otherApps: [],
+    serviceTokens: new Map(),
     issue(scopes = ["artifacts:read", "offline_access"]) {
       const accessToken = `at-${randomUUID()}`;
       const refreshToken = `rt-${randomUUID()}`;
@@ -194,6 +200,10 @@ export async function startFakeServer(): Promise<FakeServer> {
   }
 
   function api(method: string, url: URL, headers: IncomingHttpHeaders, body: string): Reply {
+    const bearer = headers.authorization?.startsWith("Bearer ")
+      ? headers.authorization.slice(7)
+      : "";
+    if (bearer.startsWith("pfst_")) return serviceTokenApi(bearer, method, url, headers, body);
     const access = accessFor(headers.authorization);
     if (!access) return { status: 401, body: { error: "invalid_token" } };
     const scope = annotationScope(method, url.pathname) ?? scopeFor(method, url.pathname);
@@ -205,6 +215,59 @@ export async function startFakeServer(): Promise<FakeServer> {
     return (
       fakeAnnotations.api(method, url, key, body) ??
       fakeApi.api(method, url, access.userId, key, body) ?? {
+        status: 404,
+        body: { error: { code: "not_found", message: "Not found." } },
+      }
+    );
+  }
+
+  // A service token, as apps/app/src/api/access.ts answers it: refused like an unknown token,
+  // held to its scopes, and acting on its own workspace when the request names none.
+  function serviceTokenApi(
+    secret: string,
+    method: string,
+    url: URL,
+    headers: IncomingHttpHeaders,
+    body: string,
+  ): Reply {
+    const token = fake.serviceTokens.get(secret);
+    if (!token) {
+      return {
+        status: 401,
+        body: {
+          error: {
+            code: "unauthenticated",
+            message: "This service token is not valid. It may have been revoked.",
+          },
+        },
+      };
+    }
+    if (token.refusal) return token.refusal;
+    const scope = scopeFor(method, url.pathname);
+    if (!token.scopes.includes(scope) || annotationScope(method, url.pathname)) {
+      return {
+        status: 403,
+        body: {
+          error: {
+            code: "forbidden",
+            message: `This service token does not have the ${scope} scope.`,
+          },
+        },
+      };
+    }
+    const scoped = new URL(url);
+    if (!scoped.searchParams.has("workspace"))
+      scoped.searchParams.set("workspace", token.workspace);
+    if (scoped.searchParams.get("workspace") !== token.workspace) {
+      return {
+        status: 404,
+        body: { error: { code: "not_found", message: "Workspace not found." } },
+      };
+    }
+    const key =
+      typeof headers["idempotency-key"] === "string" ? headers["idempotency-key"] : undefined;
+    return (
+      fakeApi.api(method, scoped, `st_${token.workspace}`, key, body) ?? {
         status: 404,
         body: { error: { code: "not_found", message: "Not found." } },
       }

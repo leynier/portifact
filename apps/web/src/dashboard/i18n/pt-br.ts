@@ -1610,4 +1610,254 @@ export const ptBR = {
   "plan.requestNote": "Só os administradores de {workspace} podem solicitar outro plano.",
   "plan.hidden": "O plano de {workspace} é mostrado aos editores e administradores.",
   "usage.plan.compare": "Comparar planos",
+  "shell.auditLink": "Auditoria",
+  "audit.title": "Auditoria",
+  "audit.description":
+    "Quem mudou o quê neste espaço. As mudanças ficam guardadas por {days} dias.",
+  "audit.planTitle": "A auditoria faz parte de um plano pago",
+  "audit.planRequired":
+    "A auditoria faz parte do plano {plan}. As mudanças já são registradas, então os últimos 90 dias aparecem aqui quando o plano a incluir.",
+  "audit.forbidden.title": "Só administradores podem ver a auditoria",
+  "audit.forbidden.body":
+    "Peça a um administrador deste espaço de trabalho se precisar saber quem mudou algo.",
+  "audit.loading": "Carregando a auditoria",
+  "audit.error.title": "Não foi possível carregar a auditoria",
+  "audit.empty.title": "Nenhuma mudança registrada",
+  "audit.empty.body": "Nada corresponde a estes filtros nos últimos {days} dias.",
+  "audit.caption": "Mudanças neste espaço, da mais recente para a mais antiga",
+  "audit.column.when": "Quando",
+  "audit.column.who": "Quem",
+  "audit.column.what": "O quê",
+  "audit.column.on": "Em",
+  "audit.loadMore": "Mostrar mudanças anteriores",
+  "audit.filters": "Filtrar a auditoria",
+  "audit.filter.kind": "Tipo de mudança",
+  "audit.filter.actor": "Quem",
+  "audit.filter.period": "Período",
+  "audit.group.all": "Todas as mudanças",
+  "audit.group.access": "Acesso e compartilhamento",
+  "audit.group.lifecycle": "Publicação e ciclo de vida",
+  "audit.group.integrations": "Domínios, webhooks e marca",
+  "audit.group.members": "Membros, tokens e plano",
+  "audit.actor.all": "Qualquer pessoa",
+  "audit.period.day": "Últimas 24 horas",
+  "audit.period.week": "Últimos 7 dias",
+  "audit.period.month": "Últimos 30 dias",
+  "audit.period.all": "Tudo o que está guardado",
+  "audit.actor.removed": "Membro removido",
+  "audit.actor.token": "{label} (token de serviço)",
+  "audit.actor.tokenGone": "Token de serviço revogado",
+  "audit.actor.operator": "Operador do Portifact",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Artifact excluído",
+  "audit.target.space": "Este espaço",
+  "audit.target.invitation": "Um convite",
+  "audit.kind.published": "Publicou a versão {version}",
+  "audit.kind.publishedFirst": "Criou com a versão {version}",
+  "audit.kind.rolledBack": "Voltou aos arquivos da versão {from}, agora versão {version}",
+  "audit.kind.renewed": "Renovou",
+  "audit.kind.archived": "Arquivou",
+  "audit.kind.restored": "Restaurou",
+  "audit.kind.deleted": "Excluiu",
+  "audit.kind.pinned": "Fixou",
+  "audit.kind.unpinned": "Desafixou",
+  "audit.kind.transferredIn":
+    "Trouxe para cá de {from, select, workspace {um espaço de trabalho} other {um espaço pessoal}}",
+  "audit.kind.transferredOut":
+    "Moveu para {to, select, workspace {um espaço de trabalho} other {um espaço pessoal}}",
+  "audit.kind.accessChanged": "Mudou o acesso: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {tornou público} authenticated {abriu para qualquer pessoa conectada} other {restringiu aos leitores da lista}}",
+  "audit.access.readersAdded":
+    "{count, plural, one {adicionou # leitor} other {adicionou # leitores}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {removeu # leitor} other {removeu # leitores}}",
+  "audit.access.domains": "em {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {mudou quais comentários # leitor vê} other {mudou quais comentários # leitores veem}}",
+  "audit.access.bar":
+    "{on, select, true {ativou a barra do Portifact} other {desativou a barra do Portifact}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {mostrou os comentários a todos} other {mostrou os comentários só ao dono}}",
+  "audit.access.indexable":
+    "{on, select, true {permitiu a indexação em buscadores} other {parou a indexação em buscadores}}",
+  "audit.access.embeddable":
+    "{on, select, true {permitiu incorporar} other {parou de permitir incorporar}}",
+  "audit.kind.shareLinkCreated":
+    "Criou um link de compartilhamento{password, select, true { com senha} other {}}{expires, select, true {, que expira} other {}}",
+  "audit.kind.shareLinkRevoked": "Revogou um link de compartilhamento",
+  "audit.kind.domainAttached": "Conectou o domínio {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Removeu o domínio {hostname}} operator {O Portifact removeu o domínio {hostname}} other {O domínio {hostname} foi desconectado automaticamente}}",
+  "audit.kind.webhookCreated":
+    "Adicionou um webhook {format, select, slack {do Slack} discord {do Discord} other {assinado}} para {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Ativou um webhook} false {Desativou um webhook} other {Mudou os eventos de um webhook}}",
+  "audit.kind.webhookRemoved": "Removeu um webhook",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Mudou o logo da marca} other {Mudou o nome, a cor ou o link da marca}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Removeu o logo da marca} other {Removeu a marca}}",
+  "audit.kind.memberInvited": "Convidou alguém de {domain} como {role}",
+  "audit.kind.invitationRevoked": "Revogou um convite",
+  "audit.kind.memberJoined": "{member} entrou como {role}",
+  "audit.kind.roleChanged": "Mudou {member} de {from} para {to}",
+  "audit.kind.memberRemoved": "Removeu {member}",
+  "audit.kind.memberLeft": "{member} saiu",
+  "audit.kind.planGranted":
+    "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}}",
+  "audit.kind.planGrantedUntil":
+    "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}} até {until}",
+  "audit.kind.planRemoved": "Removeu o plano, e o espaço voltou ao Free",
+  "audit.kind.tokenCreated":
+    "Criou um token de serviço que expira em {days, plural, one {# dia} other {# dias}}",
+  "audit.kind.tokenRevoked": "Revogou um token de serviço",
+  "audit.kind.emailDomainVerified": "Verificou o domínio de email {domain}",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {Removeu o domínio de email {domain}} claimed {O domínio de email {domain} foi removido porque outro workspace o comprovou} other {O domínio de email {domain} foi removido porque o registro DNS está ausente}}",
+  "shell.serviceTokensLink": "Tokens de serviço",
+  "tokens.title": "Tokens de serviço",
+  "tokens.description":
+    "Credenciais para que automações, como CI, publiquem em {workspace} sem o login de uma pessoa. Cada token tem uma função, permissões e uma validade, e para de funcionar quando você o revoga.",
+  "tokens.personal.title": "Tokens de serviço pertencem a um workspace",
+  "tokens.personal.body": "Mude para um workspace que você administra para criar tokens para ele.",
+  "tokens.adminOnly.title": "Só admins gerenciam tokens de serviço",
+  "tokens.adminOnly.body": "Peça um token a um admin deste workspace.",
+  "tokens.planTitle": "Tokens de serviço não estão no plano deste workspace",
+  "tokens.planRequired":
+    "Criar tokens de serviço faz parte do plano {plan}. Os tokens existentes são listados e podem ser revogados, mas não funcionam até o plano incluí-los de novo.",
+  "tokens.list.title": "Tokens",
+  "tokens.loading": "Carregando tokens de serviço",
+  "tokens.loadFailed": "Os tokens de serviço não carregaram",
+  "tokens.empty.title": "Nenhum token de serviço ainda",
+  "tokens.empty.body":
+    "Crie um para um job de CI, salve como o segredo PORTIFACT_TOKEN e rode a CLI portifact.",
+  "tokens.secret.title": "Copie o token agora",
+  "tokens.secret.body":
+    "Esta é a única vez que ele aparece. Guarde-o como segredo do seu CI, por exemplo PORTIFACT_TOKEN. Quem o tiver pode fazer o que as permissões dele permitem até ele expirar ou você revogá-lo.",
+  "tokens.secret.label": "Token de serviço {label}",
+  "tokens.secret.copy": "Copiar token",
+  "tokens.secret.done": "Já guardei",
+  "tokens.create.title": "Criar um token",
+  "tokens.create.hint": "Ele age pelo workspace, nunca por você, e nunca é membro.",
+  "tokens.create.limit":
+    "Este workspace já tem o máximo de tokens ({limit}). Revogue um para criar outro.",
+  "tokens.create.label": "Rótulo",
+  "tokens.create.labelHint": "Onde é usado, como prévias do GitHub",
+  "tokens.create.labelError": "Digite um rótulo de 1 a 80 caracteres.",
+  "tokens.create.scopes": "O que ele pode fazer",
+  "tokens.create.scopesError": "Escolha pelo menos uma.",
+  "tokens.create.expiry": "Expira após",
+  "tokens.create.expiryHint": "Quando expirar, um token novo o substitui.",
+  "tokens.create.days": "{days, plural, one {# dia} other {# dias}}",
+  "tokens.create.restriction": "Limitar a",
+  "tokens.create.prefix": "Prefixo de chave",
+  "tokens.create.prefixHint":
+    "Cada artifact que ele publicar precisa de uma chave começando assim, como pr-.",
+  "tokens.create.prefixError":
+    "Use letras, dígitos, pontos, sublinhados, barras ou hifens, começando com uma letra ou um dígito.",
+  "tokens.create.submit": "Criar token",
+  "tokens.scope.read": "Ler",
+  "tokens.scope.readHint": "Listar artifacts e suas versões",
+  "tokens.scope.write": "Publicar",
+  "tokens.scope.writeHint": "Publicar artifacts e versões novas, renovar e arquivar",
+  "tokens.scope.share": "Compartilhar",
+  "tokens.scope.shareHint":
+    "Mudar quem pode abrir um artifact, inclusive torná-lo público. Um token vazado poderia expor artifacts.",
+  "tokens.scope.delete": "Excluir",
+  "tokens.scope.deleteHint":
+    "Excluir artifacts para sempre. Um token vazado poderia destruí-los; limite-o a um prefixo de chave.",
+  "tokens.restriction.none": "Todos os artifacts do workspace",
+  "tokens.restriction.noneHint": "O token alcança todos os artifacts do workspace.",
+  "tokens.restriction.own": "Artifacts que ele criou",
+  "tokens.restriction.ownHint":
+    "O que pessoas ou outros tokens publicarem parece inexistente para ele.",
+  "tokens.restriction.key": "Artifacts com um prefixo de chave",
+  "tokens.restriction.keyHint":
+    "Só artifacts publicados com uma chave sob o prefixo que você escolher.",
+  "tokens.created": "Token {label} criado",
+  "tokens.actionFailed": "Não deu certo",
+  "tokens.reach.none": "Alcança todos os artifacts do workspace",
+  "tokens.reach.own": "Alcança só os artifacts que criou",
+  "tokens.reach.key": "Alcança só chaves que começam com {prefix}",
+  "tokens.expired": "Expirado",
+  "tokens.revoke": "Revogar",
+  "tokens.revokeLabel": "Revogar {label}",
+  "tokens.scopes": "Permissões: {scopes}",
+  "tokens.expiresOn": "Expira em {date}",
+  "tokens.expiredOn": "Expirou em {date}",
+  "tokens.lastUsed": "Último uso {when}",
+  "tokens.neverUsed": "Nunca usado",
+  "tokens.createdBy": "Criado por {name} em {date}",
+  "tokens.createdOn": "Criado em {date}",
+  "tokens.revoked": "Token {label} revogado",
+  "tokens.confirm.title": "Revogar {label}?",
+  "tokens.confirm.body":
+    "Tudo que o usa para de funcionar na próxima requisição. Não dá para desfazer.",
+  "access.workspace": "Todo o workspace",
+  "access.domain": "O workspace e seus domínios de e-mail",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Domínio de e-mail",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {O # membro deste workspace} other {Os # membros deste workspace}}, depois de entrar, com qualquer função.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {O # membro deste workspace} other {Os # membros deste workspace}} e qualquer pessoa conectada com um endereço verificado em {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {O # membro deste workspace} other {Os # membros deste workspace}} e qualquer pessoa conectada com um endereço verificado nos domínios de e-mail do workspace. Ainda não há domínio verificado: um admin adiciona um na página Membros.",
+  "accessSettings.mode.listOnlyRestricted":
+    "As pessoas listadas abaixo só podem abri-lo enquanto ele estiver restrito.",
+  "accessSettings.mode.workspacePlan": "Faz parte do plano {plan}.",
+  "accessSettings.lapsed.title": "Por enquanto só os membros podem abrir este artifact",
+  "accessSettings.lapsed.body":
+    "O plano do workspace não inclui agora o compartilhamento com domínios de e-mail, então só os membros podem abrir este artifact até que o plano volte a incluí-lo. Nada foi alterado.",
+  "emailDomains.title": "Domínios de e-mail",
+  "emailDomains.description":
+    "Qualquer pessoa conectada ao Portifact com um endereço verificado em um destes domínios pode abrir os artifacts do workspace compartilhados com seus domínios de e-mail. Só conta o domínio exato, não os subdomínios.",
+  "emailDomains.loading": "Carregando domínios de e-mail",
+  "emailDomains.loadFailed": "Os domínios de e-mail não carregaram",
+  "emailDomains.rules":
+    "Comprove cada domínio com um registro DNS. Provedores de e-mail públicos (como gmail.com), sufixos compartilhados e os domínios do Portifact são recusados. O Portifact verifica o registro todo dia e remove um domínio depois de 3 verificações falhas seguidas.",
+  "emailDomains.addFailed": "O domínio não foi adicionado",
+  "emailDomains.add": "Adicionar domínio",
+  "emailDomains.domain": "Domínio",
+  "emailDomains.domainHint":
+    "O domínio próprio da sua organização, como example.com. Até {limit} domínios.",
+  "emailDomains.domainRequired": "Digite um domínio.",
+  "emailDomains.empty": "Ainda não há domínios de e-mail.",
+  "emailDomains.added": "{domain} foi adicionado. Crie o registro TXT e depois verifique.",
+  "emailDomains.planTitle": "Domínios de e-mail fazem parte de um plano pago",
+  "emailDomains.plan":
+    "Verificar domínios de e-mail faz parte do plano {plan}. Os domínios já listados ficam, e você ainda pode removê-los.",
+  "emailDomains.state.verified": "Verificado",
+  "emailDomains.state.pending": "Aguardando o registro DNS",
+  "emailDomains.verifiedOn": "Verificado em {date}.",
+  "emailDomains.pendingUntil": "Crie o registro antes de {date}, ou a solicitação é descartada.",
+  "emailDomains.failing.title": "O registro DNS está faltando",
+  "emailDomains.failing.body":
+    "{count, plural, one {O registro estava faltando na última verificação diária.} other {O registro estava faltando nas últimas # verificações diárias seguidas.}} {left, plural, one {Depois de mais # verificação falha o domínio é removido.} other {Depois de mais # verificações falhas o domínio é removido.}}",
+  "emailDomains.actionFailed": "A alteração não foi salva",
+  "emailDomains.recordHint":
+    "Crie este registro no seu provedor de DNS. Pode demorar um pouco para aparecer.",
+  "emailDomains.verify": "Verificar",
+  "emailDomains.verifyNamed": "Verificar {domain}",
+  "emailDomains.remove": "Remover",
+  "emailDomains.removeNamed": "Remover {domain}",
+  "emailDomains.verified": "{domain} está verificado.",
+  "emailDomains.removed": "{domain} foi removido.",
+  "emailDomains.confirmRemove.title": "Remover {domain}?",
+  "emailDomains.confirmRemove.body":
+    "Quem abre artifacts só por causa deste domínio perde o acesso em um minuto. Você pode adicioná-lo de novo depois com um registro novo.",
+  "emailDomains.confirmRemove.action": "Remover domínio",
+  "emailDomains.error.quota_exceeded": "O workspace já tem o máximo de domínios de e-mail.",
+  "emailDomains.error.version_conflict":
+    "O domínio mudou nesse meio-tempo, ou outro workspace ainda o comprova no DNS. Recarregue e tente de novo.",
+  "emailDomains.error.capacity_unavailable":
+    "Não foi possível verificar o DNS agora. Tente de novo em instantes.",
+  "emailDomains.error.not_found": "Esse domínio não está mais na lista.",
+  "emailDomains.error.refused":
+    "Este domínio não pode ser adicionado. Use o domínio próprio da sua organização: provedores de e-mail públicos, sufixos compartilhados, nomes reservados e os domínios do Portifact são recusados.",
+  "emailDomains.error.recordMissing":
+    "O registro TXT ainda não foi encontrado com o valor deste domínio. Mudanças de DNS podem demorar a aparecer; tente de novo mais tarde. Uma solicitação com mais de 7 dias precisa ser adicionada de novo.",
+  "transfer.confirm.accessReset":
+    "Agora ele é compartilhado com o workspace ou um domínio de e-mail, então passa a ser restrito: só as pessoas da lista de leitores continuam lendo.",
 } satisfies Catalog;

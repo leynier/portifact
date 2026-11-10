@@ -70,6 +70,8 @@ export const DASHBOARD_ROUTES = [
   "/branding",
   "/settings",
   "/members",
+  "/audit",
+  "/service-tokens",
   // The old account page; the dashboard sends it on to the page that holds each section now.
   "/account",
 ] as const;
@@ -359,6 +361,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     workspaceRoutes({
       session: sessionUserFor,
       email: (env) => depsFor(env).email,
+      dns: (env) => depsFor(env).emailDomains ?? null,
       now: () => Date.now(),
     }),
   );

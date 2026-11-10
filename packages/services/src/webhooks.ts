@@ -3,6 +3,8 @@
 // packages/domain/src/webhooks.ts; writes record events through webhook-activity.ts.
 import {
   type AccessMode,
+  type AuditDetail,
+  isServiceTokenId,
   WEBHOOK_LIMITS,
   WEBHOOK_TEST_EVENT,
   type WebhookCreate,
@@ -15,7 +17,7 @@ import {
   type WebhookState,
   type WebhookUpdate,
 } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -37,9 +39,10 @@ import {
   requireFeature,
   utcDayStart,
 } from "@portifact/domain";
-import { and, desc, eq, gte, inArray, lt, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerSide } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { closeJobs, type JobOutcome } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -247,6 +250,28 @@ export async function listWebhooks(
   });
 }
 
+/** The audit event of a webhook change, in its batch on `condition`. */
+function webhookEvent<K extends "webhook.created" | "webhook.changed" | "webhook.removed">(
+  db: Db,
+  actor: Actor,
+  webhookId: string,
+  kind: K,
+  input: { detail: AuditDetail<K>; now: number; condition: SQL },
+) {
+  return auditEvent(
+    db,
+    {
+      ownerId: actor.ownerId,
+      kind,
+      actor: { type: "user", id: actor.userId },
+      targetId: webhookId,
+      detail: input.detail,
+      now: input.now,
+    },
+    input.condition,
+  );
+}
+
 /** Creates a webhook; the secret (generic only) is returned here and never again. */
 export async function createWebhook(
   db: RegionalDb,
@@ -279,12 +304,24 @@ export async function createWebhook(
   // Columns in schema order: id, owner, host, format, events, key, url, secret, created,
   // disabled, reason, failures, probation, re-enables, re-enable day, created by, created via.
   // The count keeps concurrent creates under the cap.
-  const inserted = await db
-    .insert(w)
-    .select(
-      sql`select ${id}, ${ownerId}, ${checked.value.host}, ${input.webhook.format}, ${eventsToBits(input.webhook.events)}, ${key.id}, ${urlBox}, ${secretBox}, ${input.now}, null, null, 0, 0, 0, null, ${input.actor.userId}, ${input.via} where (select count(*) from ${w} where ${w.ownerId} = ${ownerId}) < ${WEBHOOK_LIMITS.perOwner}`,
-    )
-    .returning();
+  const [inserted] = await db.batch([
+    db
+      .insert(w)
+      .select(
+        sql`select ${id}, ${ownerId}, ${checked.value.host}, ${input.webhook.format}, ${eventsToBits(input.webhook.events)}, ${key.id}, ${urlBox}, ${secretBox}, ${input.now}, null, null, 0, 0, 0, null, ${input.actor.userId}, ${input.via} where (select count(*) from ${w} where ${w.ownerId} = ${ownerId}) < ${WEBHOOK_LIMITS.perOwner}`,
+      )
+      .returning(),
+    // After the insert, on the webhook it created: only the host, never the URL or the secret.
+    webhookEvent(db, input.actor, id, "webhook.created", {
+      detail: {
+        host: checked.value.host,
+        format: input.webhook.format,
+        events: [...input.webhook.events],
+      },
+      now: input.now,
+      condition: sql`exists (select 1 from ${w} where ${w.id} = ${id})`,
+    }),
+  ]);
   const [row] = inserted;
   if (!row) {
     return fail(
@@ -322,7 +359,9 @@ export async function updateWebhook(
     if (!gate.ok) return gate;
   }
   const change: Partial<typeof w.$inferInsert> = {};
-  if (input.update.events) change.events = eventsToBits(input.update.events);
+  // Only what differs is a change: the same events again write nothing and record nothing.
+  const events = input.update.events ? eventsToBits(input.update.events) : row.events;
+  if (events !== row.events) change.events = events;
   const reenabling = input.update.enabled === true && row.disabledAt !== null;
   if (reenabling) {
     const day = utcDayStart(input.now);
@@ -345,24 +384,33 @@ export async function updateWebhook(
       reenableDay: day,
     });
   }
-  if (input.update.enabled === false && row.disabledAt === null) {
-    Object.assign(change, { disabledAt: input.now, disabledReason: "manual" });
-  }
+  const disabling = input.update.enabled === false && row.disabledAt === null;
+  if (disabling) Object.assign(change, { disabledAt: input.now, disabledReason: "manual" });
   if (Object.keys(change).length === 0) return ok(await present(db, row, owner));
   // Conditioned on the state read, so two enables at once count once.
-  const [updated] = await db
-    .update(w)
-    .set(change)
-    .where(
-      and(
-        eq(w.id, row.id),
-        eq(w.ownerId, input.actor.ownerId),
-        reenabling ? sql`${w.disabledAt} is not null` : undefined,
-      ),
-    )
-    .returning();
-  if (!updated) return missing();
-  return ok(await present(db, updated, owner));
+  const where = and(
+    eq(w.id, row.id),
+    eq(w.ownerId, input.actor.ownerId),
+    reenabling ? sql`${w.disabledAt} is not null` : undefined,
+    // Two disables at once are one change and one event.
+    disabling ? sql`${w.disabledAt} is null` : undefined,
+  ) as SQL;
+  const changedEvents = change.events !== undefined ? input.update.events : null;
+  const [, [updated]] = await db.batch([
+    webhookEvent(db, input.actor, row.id, "webhook.changed", {
+      detail: {
+        ...("disabledAt" in change ? { enabled: change.disabledAt === null } : {}),
+        ...(changedEvents ? { events: [...changedEvents] } : {}),
+      },
+      now: input.now,
+      condition: sql`exists (select 1 from ${w} where ${where})`,
+    }),
+    db.update(w).set(change).where(where).returning(),
+  ]);
+  if (updated) return ok(await present(db, updated, owner));
+  // A concurrent request made the same change first: answer the webhook as it is now.
+  const current = await owned(db, input.actor, input.webhookId);
+  return current ? ok(await present(db, current, owner)) : missing();
 }
 
 /**
@@ -377,6 +425,11 @@ export async function removeWebhook(
   if (!allowed.ok) return allowed;
   const mine = sql`exists (select 1 from ${w} where ${w.id} = ${input.webhookId} and ${w.ownerId} = ${input.actor.ownerId})`;
   const results = await db.batch([
+    webhookEvent(db, input.actor, input.webhookId, "webhook.removed", {
+      detail: {},
+      now: input.now,
+      condition: mine,
+    }),
     db
       .insert(schema.tombstones)
       .select(sql`select 'webhook', ${input.webhookId}, ${input.now} where ${mine}`)
@@ -387,7 +440,7 @@ export async function removeWebhook(
       .where(and(eq(w.id, input.webhookId), eq(w.ownerId, input.actor.ownerId)))
       .returning({ id: w.id }),
   ]);
-  const deleted = results[2] as { id: string }[];
+  const deleted = results[3] as { id: string }[];
   return deleted.length === 1 ? ok({ webhookId: input.webhookId }) : missing();
 }
 
@@ -693,6 +746,23 @@ async function eventBodies(
             .where(inArray(schema.users.id, actorIds))
         ).map((user) => [user.id, user.name]),
   );
+  // A service token of the owner that acted alone is named by its label (decision 0011).
+  const tokenIds = [
+    ...new Set(
+      pending.flatMap((event) =>
+        event.actorId && isServiceTokenId(event.actorId) ? [event.actorId] : [],
+      ),
+    ),
+  ];
+  if (tokenIds.length > 0) {
+    const t = schema.serviceTokens;
+    for (const token of await db.global
+      .select({ id: t.id, label: t.label })
+      .from(t)
+      .where(and(inArray(t.id, tokenIds), eq(t.workspaceId, ownerId)))) {
+      names.set(token.id, `${token.label} (service token)`);
+    }
+  }
   const iso = (ms: number) => new Date(ms).toISOString();
   return pending.flatMap((event): WebhookEventBody[] => {
     const isTest = event.type === WEBHOOK_TEST_EVENT;

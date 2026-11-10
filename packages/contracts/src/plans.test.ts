@@ -37,6 +37,7 @@ describe("PLANS", () => {
       previousVersionRetentionDays: LIMITS.previousVersionRetentionDays,
       accessLogRetentionDays: ACCESS_LOG.retentionDays,
       customDomains: 0,
+      auditRetentionDays: 90,
     });
   });
 
@@ -163,6 +164,8 @@ describe("plan offers", () => {
       "analytics",
       "branding",
       "workspaces",
+      "serviceTokens",
+      "audit",
     ]);
     expect([...AVAILABLE_PLAN_FEATURES]).toEqual(
       PLAN_FEATURES.filter((feature) => planFeatureAvailable(feature)),
@@ -170,7 +173,7 @@ describe("plan offers", () => {
   });
 
   it("keeps webhooks, custom domains and every later feature coming soon", () => {
-    for (const feature of ["webhooks", "customDomains", "serviceTokens", "sso", "euResidency"]) {
+    for (const feature of ["webhooks", "customDomains", "reviews", "sso", "euResidency"]) {
       expect(planFeatureAvailable(feature as PlanFeature), feature).toBe(false);
     }
   });
