@@ -14,6 +14,7 @@ import {
   NO_APPROVAL_REVIEW,
 } from "@portifact/contracts";
 import { threadInScope } from "./annotations.ts";
+import { type Entitlements, hasFeature } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 export const APPROVAL_FEATURE = "reviews";
@@ -68,6 +69,15 @@ export function approvalSummary(
   if (changesRequested > 0) status = "changes_requested";
   else if (counting.length > 0 && approvals >= required) status = "approved";
   return { status, reviewers: counting.length, required, approvals, changesRequested };
+}
+
+/**
+ * Whether an owner's review emails are on (decision 0013, "Emails"): they need both approval
+ * reviews and comment notices in the artifact owner's plan. Without either nothing is written or
+ * sent.
+ */
+export function reviewNoticesOn(owner: Entitlements): boolean {
+  return hasFeature(owner, APPROVAL_FEATURE) && hasFeature(owner, "commentNotices");
 }
 
 /** Whether a status ends the review of the version: approved or changes requested. */

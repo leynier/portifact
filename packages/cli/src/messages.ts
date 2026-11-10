@@ -1,7 +1,7 @@
 // User-facing text of the CLI, kept in one place so it can move to the i18n layer. Sentences
 // end with a period; no em dashes. Never interpolate a token, cookie or code other than the
 // device user code, which the user must see to approve the login.
-import { VERSION_DIFF } from "@portifact/contracts";
+import { VERSION_DIFF, WEBHOOK_EVENTS } from "@portifact/contracts";
 
 const VERSION_DIFF_FILE_BYTES = VERSION_DIFF.fileBytes;
 
@@ -363,7 +363,7 @@ export const messages = {
     invalidWebhookId: (value: string) =>
       `${JSON.stringify(value)} is not a webhook ID. Run \`portifact webhooks list\` to see them.`,
     invalidWebhookEvents: (value: string) =>
-      `${JSON.stringify(value)} is not a list of events. Use comma-separated names from: comment.created, thread.resolved, artifact.published, artifact.expiring, artifact.access_changed.`,
+      `${JSON.stringify(value)} is not a list of events. Use comma-separated names from: ${WEBHOOK_EVENTS.join(", ")}.`,
     webhookRemoveConfirmationRequired: (id: string) =>
       `Removing stops the webhook for good. Run \`portifact webhooks remove ${id} --yes\` to confirm without a prompt.`,
     webhookRemoveCancelled: 'Nothing was removed: the confirmation was not "remove".',

@@ -177,8 +177,11 @@ there; members only read and comment on what is shared with them.
 `;
 
 const WEBHOOKS_HELP = `
-A webhook sends events about all your artifacts to an HTTPS URL you choose: comment.created,
-thread.resolved, artifact.published, artifact.expiring and artifact.access_changed (or "all").
+A webhook sends events about all the artifacts of a space to an HTTPS URL you choose:
+comment.created, thread.resolved, artifact.published, artifact.expiring,
+artifact.access_changed, review.requested and review.completed (or "all"). Without --workspace
+the commands act on your personal space; --workspace <slug> acts on a workspace, whose admins
+alone manage its webhooks.
 The generic format is signed JSON (Standard Webhooks: webhook-id, webhook-timestamp and
 webhook-signature headers); add shows its signing secret once. slack and discord need that
 service's incoming webhook URL. Webhooks are part of a paid plan. Removing asks you to type
@@ -1171,11 +1174,12 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .addHelpText("after", WEBHOOKS_HELP);
   webhooks
     .command("list")
-    .description("List your webhooks: host, format, state, events and last attempt")
+    .description("List the webhooks of a space: host, format, state, events and last attempt")
+    .option("--workspace <slug>", "a workspace's webhooks (its admins only), or personal")
     .option("--json", "Print the result as JSON")
     .action(
-      execute((io, runtime, options: { json?: boolean }) =>
-        listWebhooks(io, runtime, { json: options.json === true }),
+      execute((io, runtime, options: { json?: boolean; workspace?: string }) =>
+        listWebhooks(io, runtime, { json: options.json === true, workspace: options.workspace }),
       ),
     );
   webhooks
@@ -1184,19 +1188,26 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .argument("<url>", "the HTTPS URL that receives the events")
     .requiredOption("--events <list>", 'comma-separated event types, or "all"')
     .option("--format <format>", "generic (signed JSON), slack or discord", "generic")
+    .option("--workspace <slug>", "a workspace's webhooks (its admins only), or personal")
     .option("--json", "Print the result as JSON")
     .action(
       execute(
         (
           io,
           runtime,
-          options: { events: string; format: "generic" | "slack" | "discord"; json?: boolean },
+          options: {
+            events: string;
+            format: "generic" | "slack" | "discord";
+            json?: boolean;
+            workspace?: string;
+          },
           url: string,
         ) =>
           addWebhook(io, runtime, url, {
             events: options.events,
             format: options.format,
             json: options.json === true,
+            workspace: options.workspace,
           }),
       ),
     );
@@ -1205,30 +1216,41 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .description("Remove a webhook and its delivery log, after a confirmation")
     .argument("<id>", "webhook ID")
     .option("-y, --yes", "confirm without a prompt; required when no terminal can answer")
+    .option("--workspace <slug>", "a workspace's webhooks (its admins only), or personal")
     .option("--json", "Print the result as JSON")
     .action(
-      execute((io, runtime, options: { yes?: boolean; json?: boolean }, id: string) =>
-        removeWebhook(io, runtime, id, { yes: options.yes === true, json: options.json === true }),
+      execute(
+        (io, runtime, options: { yes?: boolean; json?: boolean; workspace?: string }, id: string) =>
+          removeWebhook(io, runtime, id, {
+            yes: options.yes === true,
+            json: options.json === true,
+            workspace: options.workspace,
+          }),
       ),
     );
   webhooks
     .command("test")
     .description("Send a test event to a webhook")
     .argument("<id>", "webhook ID")
+    .option("--workspace <slug>", "a workspace's webhooks (its admins only), or personal")
     .option("--json", "Print the result as JSON")
     .action(
-      execute((io, runtime, options: { json?: boolean }, id: string) =>
-        testWebhook(io, runtime, id, { json: options.json === true }),
+      execute((io, runtime, options: { json?: boolean; workspace?: string }, id: string) =>
+        testWebhook(io, runtime, id, { json: options.json === true, workspace: options.workspace }),
       ),
     );
   webhooks
     .command("deliveries")
     .description("Show a webhook's delivery attempts of the last 7 days")
     .argument("<id>", "webhook ID")
+    .option("--workspace <slug>", "a workspace's webhooks (its admins only), or personal")
     .option("--json", "Print the result as JSON")
     .action(
-      execute((io, runtime, options: { json?: boolean }, id: string) =>
-        webhookDeliveries(io, runtime, id, { json: options.json === true }),
+      execute((io, runtime, options: { json?: boolean; workspace?: string }, id: string) =>
+        webhookDeliveries(io, runtime, id, {
+          json: options.json === true,
+          workspace: options.workspace,
+        }),
       ),
     );
   for (const [name, enabled, description] of [
@@ -1239,10 +1261,17 @@ An artifact shared with its workspace or an email domain becomes restricted when
       .command(name)
       .description(description)
       .argument("<id>", "webhook ID")
+      .option("--workspace <slug>", "a workspace's webhooks (its admins only), or personal")
       .option("--json", "Print the result as JSON")
       .action(
-        execute((io, runtime, options: { json?: boolean }, id: string) =>
-          updateWebhook(io, runtime, id, { enabled }, { json: options.json === true }),
+        execute((io, runtime, options: { json?: boolean; workspace?: string }, id: string) =>
+          updateWebhook(
+            io,
+            runtime,
+            id,
+            { enabled },
+            { json: options.json === true, workspace: options.workspace },
+          ),
         ),
       );
   }
@@ -1251,10 +1280,18 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .description("Change which events a webhook receives")
     .argument("<id>", "webhook ID")
     .argument("<list>", 'comma-separated event types, or "all"')
+    .option("--workspace <slug>", "a workspace's webhooks (its admins only), or personal")
     .option("--json", "Print the result as JSON")
     .action(
-      execute((io, runtime, options: { json?: boolean }, id: string, list: string) =>
-        updateWebhook(io, runtime, id, { events: list }, { json: options.json === true }),
+      execute(
+        (io, runtime, options: { json?: boolean; workspace?: string }, id: string, list: string) =>
+          updateWebhook(
+            io,
+            runtime,
+            id,
+            { events: list },
+            { json: options.json === true, workspace: options.workspace },
+          ),
       ),
     );
 

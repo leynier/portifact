@@ -161,6 +161,8 @@ describe("webhook views and tool inputs", () => {
       "artifact.published",
       "artifact.expiring",
       "artifact.access_changed",
+      "review.requested",
+      "review.completed",
     ]);
     expect(WEBHOOK_FORMAT_NAMES).toEqual(["generic", "slack", "discord"]);
     expect(WebhookState.options).toEqual(["active", "disabled", "paused"]);
@@ -248,7 +250,10 @@ describe("webhook views and tool inputs", () => {
       z.toJSONSchema(value) as {
         properties?: Record<string, { description?: string }>;
       };
-    expect(schema(ListWebhooksInput).properties ?? {}).toEqual({});
+    const space =
+      "The workspace slug, as list_workspaces returns it. Omit it for your personal space.";
+    expect(schema(ListWebhooksInput).properties?.workspace?.description).toBe(space);
+    expect(schema(WebhookRef).properties?.workspace?.description).toBe(space);
     expect(schema(WebhookRef).properties?.webhookId?.description).toBe(
       "The webhook ID, as list_webhooks returns it.",
     );
