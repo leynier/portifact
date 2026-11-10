@@ -94,6 +94,26 @@ export async function grantPlan(ownerId: string, plan: "free" | "pro"): Promise<
   );
 }
 
+/**
+ * A workspace as the operator creates it, on a Team plan with `seats` seats (10 by default), with
+ * `admin` as its first admin and any other members given.
+ */
+export function createWorkspace(input: {
+  slug: string;
+  name: string;
+  admin: User;
+  seats?: number;
+  members?: { user: User; role: "admin" | "editor" | "member" }[];
+}): Promise<{ id: string; slug: string; name: string }> {
+  return control("/workspace", {
+    slug: input.slug,
+    name: input.name,
+    adminUserId: input.admin.userId,
+    seats: input.seats,
+    members: (input.members ?? []).map((m) => ({ userId: m.user.userId, role: m.role })),
+  });
+}
+
 /** Publishes a TXT record in the stack's fake DNS, or reports a hostname active in its Cloudflare. */
 export function fakeDomains(input: {
   txt?: { name: string; value: string };

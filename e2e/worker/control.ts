@@ -6,6 +6,7 @@ import {
   commitPublish,
   createAnnotationThread,
   createShareLink,
+  createWorkspace,
   issueReviewHandoff,
   preparePublish,
   revokeShareLink,
@@ -113,6 +114,15 @@ interface ClockInput {
   artifactId: string;
   /** How far ahead of real time the content Worker's clock runs for it; 0 puts it back. */
   offsetMs: number;
+}
+
+interface WorkspaceInput {
+  slug: string;
+  name: string;
+  adminUserId: string;
+  /** The plan the operator grants it, `team` with 10 seats by default. */
+  seats?: number;
+  members?: { userId: string; role: "admin" | "editor" | "member" }[];
 }
 
 interface SqlInput {
@@ -444,6 +454,30 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     if (txt) e2eDomains.publishTxt(txt.name, txt.value);
     if (activate) e2eDomains.activate(activate);
     return Response.json({ ok: true });
+  }
+
+  // A workspace as the operator tool creates it (`workspace-create`, then `set-plan`), with any
+  // other members inserted as the services' tests do. Test-only: no product surface creates one.
+  if (path === "/workspace") {
+    const { slug, name, adminUserId, seats = 10, members = [] } = input as WorkspaceInput;
+    const created = await createWorkspace(db.global, { slug, name, adminUserId, now });
+    if (!created.ok) return Response.json(created, { status: 400 });
+    for (const member of members) {
+      await db.insert(schema.workspaceMembers).values({
+        workspaceId: created.value.id,
+        userId: member.userId,
+        role: member.role,
+        updatedAt: now,
+      });
+    }
+    await db.insert(schema.ownerPlans).values({
+      ownerId: created.value.id,
+      plan: "team",
+      seats,
+      grantedBy: "e2e",
+      updatedAt: now,
+    });
+    return Response.json({ id: created.value.id, slug, name });
   }
 
   if (path === "/sql") {

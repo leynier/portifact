@@ -7,7 +7,7 @@ import { createWorkspace } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
-import { createHarness, type Harness, ORIGIN } from "./harness.ts";
+import { createHarness, type Harness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 import { api, apiToken, callTool, connect, mcpToken, type ToolResult } from "./mcp-helpers.ts";
 
 const NOW = Date.parse("2026-11-10T09:00:00Z");
@@ -505,6 +505,30 @@ describe("member and invitation routes", () => {
     ).toBe(403);
   });
 
+  it("refuse what a role may not do and a session that no longer exists", async () => {
+    const t = await team("wrf");
+    const editorCookie = await t.editor.h.signIn(t.editor.email);
+    const adminCookie = await t.admin.h.signIn(t.admin.email);
+    const base = `/api/v1/workspaces/${t.slug}`;
+    for (const [path, method] of [
+      [`${base}/invitations`, "GET"],
+      [`${base}/members/${t.member.userId}`, "DELETE"],
+    ] as const) {
+      const response = await t.editor.h.request(path, dashboard(editorCookie, method));
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+    const unknown = await t.admin.h.request(
+      `${base}/invitations/inv_${"0".repeat(32)}`,
+      dashboard(adminCookie, "DELETE"),
+    );
+    expect(unknown.status).toBe(404);
+    const forged = await t.admin.h.request(
+      `${base}/members`,
+      dashboard(`${SESSION_COOKIE}=forged.value`),
+    );
+    expect(forged.status).toBe(401);
+  });
+
   it("brand a workspace through the query, for its admins only, and refuse other spaces", async () => {
     const t = await team("wbr");
     const path = (slug?: string) =>
@@ -518,6 +542,9 @@ describe("member and invitation routes", () => {
     expect(await saved.json()).toMatchObject({ available: true, brand: { name: "Team brand" } });
     const personal = await t.admin.h.request(path(), dashboard(adminCookie));
     expect(await personal.json()).toMatchObject({ available: false, brand: null });
+    // An empty parameter names the personal space too.
+    const empty = await t.admin.h.request(path(""), dashboard(adminCookie));
+    expect(await empty.json()).toMatchObject({ available: false, brand: null });
     const editorCookie = await t.editor.h.signIn(t.editor.email);
     const editor = await t.editor.h.request(path(t.slug), dashboard(editorCookie));
     expect(editor.status).toBe(403);
