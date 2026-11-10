@@ -449,9 +449,9 @@ export const ru = {
   "settings.notices.saved": "Уведомления по почте сохранены.",
   "settings.notices.unchanged": "Нечего сохранять: уведомления уже настроены так.",
   "settings.notices.failed": "Уведомления по почте не сохранены",
-  "settings.notices.comments.label": "Сообщать по почте о новых комментариях",
+  "settings.notices.comments.label": "Сообщать по почте о новых комментариях и ревью",
   "settings.notices.comments.hint":
-    "Не чаще одного письма в 10 минут: сколько новых веток, ответов и закрытых веток в каждом artifact, без текста комментариев. Только для artifacts, у владельца которых тариф с уведомлениями о комментариях.",
+    "Не чаще одного письма в 10 минут: сколько новых веток, ответов и закрытых веток в каждом artifact, без текста комментариев. Только для artifacts, у владельца которых тариф с уведомлениями о комментариях. Та же настройка управляет письмами о ревью: когда вас просят провести ревью и когда версию, которой вы управляете, одобряют или запрашивают изменения.",
   "commentNotices.label": "Сообщать по почте о новых комментариях к этому artifact",
   "commentNotices.hint":
     "Не чаще одного письма в 10 минут, только числа. Все письма о комментариях отключаются в настройках.",
@@ -1273,6 +1273,8 @@ export const ru = {
   "webhooks.event.artifact.published": "Новые версии",
   "webhooks.event.artifact.expiring": "Artifacts, срок которых скоро истекает",
   "webhooks.event.artifact.access_changed": "Изменения доступа",
+  "webhooks.event.review.requested": "Запросы на ревью",
+  "webhooks.event.review.completed": "Ревью одобрено или запрошены изменения",
   "webhooks.add.submit": "Добавить вебхук",
   "webhooks.add.noEvents": "Выберите хотя бы одно событие.",
   "webhooks.add.limit":
@@ -1617,9 +1619,9 @@ export const ru = {
   "account.delete.soleAdmin.body":
     "У workspace должен остаться администратор. Назначьте администратором другого участника в каждом из этих workspaces или попросите Portifact по адресу hello@portifact.com удалить их, а затем удалите аккаунт.",
   "account.delete.soleAdmin.members": "Участники {workspace}",
-  "webhooks.personalOnly.title": "Webhooks настраиваются в личном пространстве",
-  "webhooks.personalOnly.body":
-    "Пока webhooks отправляют события только об artifacts вашего личного пространства. Перейдите в него, чтобы управлять ими.",
+  "webhooks.adminOnly.title": "Webhooks управляют только администраторы",
+  "webhooks.adminOnly.body":
+    "Webhooks отправляют события artifacts этого рабочего пространства в другие системы, поэтому видеть их и управлять ими могут только администраторы {workspace}. Обратитесь к одному из них, если вам нужен webhook.",
   "shell.planLink": "Тариф",
   "plan.title": "Тариф",
   "plan.description":
@@ -1969,4 +1971,293 @@ export const ru = {
     "Запись TXT со значением этого домена пока не найдена. Изменения DNS могут появиться не сразу; попробуйте позже. Заявку старше 7 дней нужно добавить заново.",
   "transfer.confirm.accessReset":
     "Сейчас доступ к нему открыт для workspace или почтового домена, поэтому он станет ограниченным: читать его смогут только люди из списка читателей.",
+  "shell.groupsLink": "Группы",
+  "groups.title": "Группы",
+  "groups.description":
+    "Именованные наборы участников {workspace}. Добавьте группу к закрытому artifact, и её участники смогут открыть его, как читатели из списка.",
+  "groups.personal.title": "Группы принадлежат workspace",
+  "groups.personal.body":
+    "Переключитесь на workspace, которым вы управляете, чтобы настроить его группы.",
+  "groups.adminOnly.title": "Группами управляют только администраторы",
+  "groups.adminOnly.body":
+    "Редакторы выбирают группы в настройках доступа artifact. Попросите администратора этого workspace создать или изменить группу.",
+  "groups.planTitle": "Группы не входят в тариф этого workspace",
+  "groups.planRequired":
+    "Группы входят в тариф {plan}. Существующие группы можно переименовать, очистить и удалить, но они никому не дают доступ, пока тариф снова их не включит.",
+  "groups.list.title": "Группы",
+  "groups.loading": "Загрузка групп",
+  "groups.loadFailed": "Не удалось загрузить группы",
+  "groups.empty.title": "Групп пока нет",
+  "groups.empty.body":
+    "Создайте группу, добавьте в неё участников, затем добавьте её в настройках доступа закрытого artifact.",
+  "groups.create.title": "Создать группу",
+  "groups.create.hint":
+    "Администраторы и редакторы видят её название, когда выбирают, кто может открыть artifact.",
+  "groups.create.limit": "В workspace может быть не больше {limit} групп. Сначала удалите одну.",
+  "groups.create.name": "Название",
+  "groups.create.submit": "Создать группу",
+  "groups.nameError": "Используйте одну строку от 1 до {max} символов.",
+  "groups.actionFailed": "Группа не изменилась",
+  "groups.created": "Группа {name} создана.",
+  "groups.memberCount":
+    "{count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
+  "groups.showMembers": "Участники",
+  "groups.hideMembers": "Скрыть участников",
+  "groups.rename": "Переименовать",
+  "groups.renameLabel": "Переименовать {name}",
+  "groups.renameField": "Новое название для {name}",
+  "groups.save": "Сохранить название",
+  "groups.renamed": "Группа теперь называется {name}.",
+  "groups.delete": "Удалить",
+  "groups.deleteLabel": "Удалить {name}",
+  "groups.deleted": "Группа {name} удалена.",
+  "groups.confirm.title": "Удалить {name}?",
+  "groups.confirm.body":
+    "Её участники перестанут читать artifacts, в которые она добавлена, в течение минуты, если доступ им не даёт что-то другое. Это нельзя отменить.",
+  "groups.membersLoading": "Загрузка участников группы",
+  "groups.noMembers": "В этой группе пока никого нет.",
+  "groups.membersOf": "Участники {name}",
+  "groups.removeMember": "Убрать",
+  "groups.removeMemberLabel": "Убрать {name} из {group}",
+  "groups.memberRemoved": "{name} убран(а) из {group}.",
+  "groups.addMember": "Добавить участника в {name}",
+  "groups.chooseMember": "Выберите участника",
+  "groups.add": "Добавить",
+  "groups.memberAdded": "{name} добавлен(а) в {group}.",
+  "groupAccess.title": "Группы",
+  "groupAccess.hint":
+    "Участники этих групп workspace могут открыть его после входа, как читатели из списка.",
+  "groupAccess.onlyRestricted":
+    "Группы дают доступ своим участникам, только пока доступ закрытый; в других режимах они сохраняют лишь исключения для комментариев.",
+  "groupAccess.count": "{count} из {max} групп",
+  "groupAccess.planTitle": "Группы не входят в тариф этого workspace",
+  "groupAccess.planRequired":
+    "Добавление групп входит в тариф {plan}. Уже добавленные группы никому не дают доступ, пока тариф снова их не включит, и вы по-прежнему можете их убрать.",
+  "groupAccess.failed.title": "Группы не изменились",
+  "groupAccess.empty": "Группы не добавлены.",
+  "groupAccess.list": "Группы, которые могут открыть этот artifact",
+  "groupAccess.removeLabel": "Убрать группу {name}",
+  "groupAccess.removed": "Группа {name} убрана.",
+  "groupAccess.full": "В artifact можно добавить не больше {max} групп.",
+  "groupAccess.none":
+    "В этом workspace пока нет групп. Администраторы создают их на странице Группы.",
+  "groupAccess.added": "Группа {name} добавлена.",
+  "groupAccess.pick": "Добавить группу",
+  "groupAccess.choose": "Выберите группу",
+  "groupAccess.option":
+    "{name} ({count, plural, one {# участник} few {# участника} many {# участников} other {# участника}})",
+  "groupAccess.add": "Добавить группу",
+  "groupAccess.comments.label": "Комментарии, которые видит группа {name}",
+  "groupAccess.comments.changed": "Группа {name} теперь видит: {choice}.",
+  "groupAccess.comments.confirm.title": "Показать все комментарии группе {name}?",
+  "groupAccess.comments.confirm.body":
+    "Каждый участник {name} увидит все ветки комментариев этого artifact, включая те, что другие читатели начали раньше.",
+  "audit.group.groups": "Группы",
+  "audit.kind.groupCreated": "Создал(а) группу {group}",
+  "audit.kind.groupRenamed": "Переименовал(а) группу, теперь {group}",
+  "audit.kind.groupDeleted": "Удалил(а) группу {group}",
+  "audit.kind.groupMemberAdded": "Добавил(а) {member} в группу {group}",
+  "audit.kind.groupMemberRemoved": "Убрал(а) {member} из группы {group}",
+  "audit.target.groupGone": "удалённая группа",
+  "audit.access.groupsAdded":
+    "{count, plural, one {добавил(а) # группу} few {добавил(а) # группы} many {добавил(а) # групп} other {добавил(а) # группы}}",
+  "audit.access.groupsRemoved":
+    "{count, plural, one {убрал(а) # группу} few {убрал(а) # группы} many {убрал(а) # групп} other {убрал(а) # группы}}",
+  "audit.access.groupExceptions":
+    "{count, plural, one {изменил(а) видимость комментариев для # группы} few {изменил(а) видимость комментариев для # групп} many {изменил(а) видимость комментариев для # групп} other {изменил(а) видимость комментариев для # группы}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Единый вход",
+  "sso.description":
+    "Люди с адресом в подтверждённых почтовых доменах workspace могут входить через поставщика удостоверений вашей организации по OpenID Connect.",
+  "sso.loadFailed": "Не удалось загрузить единый вход",
+  "sso.stateLabel": "Состояние",
+  "sso.state.off": "Не настроен",
+  "sso.state.on": "Включён",
+  "sso.state.plan": "Приостановлен: не входит в тариф",
+  "sso.state.domains": "Приостановлен: нет подтверждённых доменов",
+  "sso.planTitle": "Не входит в этот тариф",
+  "sso.plan":
+    "Единый вход входит в тариф {plan}. Уже настроенный поставщик остаётся, и вы всё ещё можете его удалить.",
+  "sso.lapsedTitle": "Домен больше не подтверждён",
+  "sso.lapsed":
+    "{domains} больше не подтверждён, поэтому адреса в нём не могут входить так, пока домен не подтвердят снова.",
+  "sso.membership":
+    "Те, кто входит так, становятся участниками workspace, или получают роль из ожидающего приглашения, пока есть свободное место. Текущие участники сохраняют роль.",
+  "sso.removalNote":
+    "Тот, кого удалил администратор, не сможет вернуться через единый вход, пока администратор снова его не пригласит. Тот, кто ушёл сам, может.",
+  "sso.redirectUri": "URI перенаправления",
+  "sso.redirectPending":
+    "Сохраните поставщика, чтобы получить URI перенаправления для регистрации у поставщика удостоверений. Он выглядит так: {pattern}.",
+  "sso.saveFailed": "Изменение не сохранено",
+  "sso.testOkTitle": "Обнаружение работает",
+  "sso.testOk": "Вход идёт через {authorization}, токены приходят от {token}, ключи от {keys}.",
+  "sso.testOkShort": "Обнаружение работает.",
+  "sso.testFailed": "Обнаружение не удалось",
+  "sso.formLabel": "Поставщик единого входа",
+  "sso.issuer": "URL издателя",
+  "sso.issuerHint":
+    "Издатель вашего поставщика удостоверений, например https://login.example.com. Portifact читает его документ обнаружения. После сохранения его нельзя изменить.",
+  "sso.clientId": "ID клиента",
+  "sso.clientSecret": "Секрет клиента",
+  "sso.secretHint": "Хранится в зашифрованном виде и больше не показывается.",
+  "sso.secretKeep": "Оставьте пустым, чтобы сохранить текущий секрет.",
+  "sso.domains": "Домены для входа",
+  "sso.domainsHint":
+    "Только подтверждённые почтовые домены workspace. Адрес из другого домена не может входить так.",
+  "sso.noDomains": "Сначала подтвердите почтовый домен выше.",
+  "sso.issuerRequired": "Введите URL издателя.",
+  "sso.clientIdRequired": "Введите ID клиента.",
+  "sso.secretRequired": "Введите секрет клиента.",
+  "sso.domainsRequired": "Выберите хотя бы один домен.",
+  "sso.save": "Сохранить",
+  "sso.saveChanges": "Сохранить изменения",
+  "sso.test": "Проверить издателя",
+  "sso.remove": "Удалить единый вход",
+  "sso.saved": "Единый вход сохранён.",
+  "sso.removed": "Единый вход удалён.",
+  "sso.scim":
+    "Удаление человека у поставщика удостоверений не удаляет его здесь: удалите его из списка участников.",
+  "sso.confirmRemove.title": "Удалить единый вход?",
+  "sso.confirmRemove.body":
+    "Больше никто не сможет войти через этого поставщика. Участники остаются участниками и сохраняют аккаунты; они входят с кодом по почте, через Google или GitHub. Новый поставщик получит новый URI перенаправления.",
+  "sso.confirmRemove.action": "Удалить",
+  "sso.problem.invalid_issuer": "Издатель должен быть публичным https URL без запроса и фрагмента.",
+  "sso.problem.unreachable": "Не удалось связаться с поставщиком удостоверений.",
+  "sso.problem.timeout": "Поставщик удостоверений отвечал слишком долго.",
+  "sso.problem.redirect":
+    "Поставщик удостоверений ответил перенаправлением, которому Portifact не следует. Укажите издателя, на которого он перенаправляет.",
+  "sso.problem.http_error": "Поставщик удостоверений ответил ошибкой.",
+  "sso.problem.too_large": "Ответ поставщика удостоверений слишком большой.",
+  "sso.problem.not_json": "Документ обнаружения не является корректным JSON.",
+  "sso.problem.issuer_mismatch":
+    "Документ обнаружения указывает другого издателя. Укажите издателя точно так, как в документе.",
+  "sso.problem.missing_endpoint":
+    "В документе обнаружения нет конечной точки авторизации, токенов или ключей.",
+  "sso.problem.invalid_endpoint":
+    "Конечная точка в документе обнаружения не является публичным https URL.",
+  "sso.problem.no_code_flow": "Поставщик удостоверений не поддерживает поток с кодом авторизации.",
+  "sso.problem.no_pkce": "Поставщик удостоверений не поддерживает PKCE с S256.",
+  "sso.problem.no_signing_algorithm":
+    "Поставщик удостоверений подписывает ID-токены алгоритмом, который Portifact не принимает (семейства RS256, PS256, ES256 или EdDSA).",
+  "sso.error.invalid_input":
+    "Проверьте издателя, клиента и домены. «Проверить издателя» покажет, что не так с обнаружением.",
+  "sso.error.capacity_unavailable": "Единый вход сейчас недоступен.",
+  "sso.error.version_conflict":
+    "Единый вход за это время изменился. Обновите страницу и попробуйте снова.",
+  "sso.error.not_found": "Единый вход не настроен.",
+  "audit.kind.memberJoinedSso": "{member} присоединяется как {role} через единый вход",
+  "audit.kind.ssoCreated":
+    "Настроил(а) единый вход с {host} для {count, plural, one {# домена} few {# доменов} many {# доменов} other {# доменов}}",
+  "audit.kind.ssoChanged": "Изменил(а) единый вход",
+  "audit.kind.ssoRemoved": "Удалил(а) единый вход",
+  "shell.policiesLink": "Правила",
+  "policies.title": "Правила",
+  "policies.description":
+    "Правила для всех артефактов {workspace}. Они действуют для всех, кто работает с его артефактами, включая администраторов и сервисные токены.",
+  "policies.personal.title": "Правила есть у рабочих пространств",
+  "policies.personal.body":
+    "У личного пространства нет правил. Переключитесь на рабочее пространство, чтобы увидеть его правила.",
+  "policies.loading": "Загрузка правил",
+  "policies.loadFailed": "Не удалось загрузить правила",
+  "policies.planTitle": "Настройка правил входит в тариф {plan}",
+  "policies.planRequired":
+    "Тариф рабочего пространства не включает правила. Уже заданные продолжают действовать, а администраторы по-прежнему могут ослабить или снять их.",
+  "policies.readOnly.title": "Задаются администраторами",
+  "policies.readOnly.body": "Менять правила могут только администраторы. Они действуют и для вас.",
+  "policies.adminsToo": "Эти правила действуют и для администраторов.",
+  "policies.public.legend": "Публичный доступ",
+  "policies.public.allowed": "Разрешён",
+  "policies.public.allowedHint":
+    "Администраторы и редакторы могут сделать артефакт публичным, и тогда его откроет любой, у кого есть ссылка.",
+  "policies.public.forbidden": "Запрещён",
+  "policies.public.forbiddenHint":
+    "Ни один артефакт рабочего пространства не может быть публичным. Публичные артефакты станут доступны рабочему пространству.",
+  "policies.default.legend": "Доступ новых артефактов",
+  "policies.default.hint":
+    "С каким доступом создаётся новый артефакт рабочего пространства. Существующие сохраняют свой.",
+  "policies.default.restricted": "Открыть его могут только владельцы и добавленные читатели.",
+  "policies.default.workspace": "Открыть его может любой участник рабочего пространства.",
+  "policies.default.domain":
+    "Открыть его могут участники и все, кто вошёл с подтверждённым адресом на почтовых доменах рабочего пространства.",
+  "policies.default.domainNone": "Сначала подтвердите почтовый домен на странице «Участники».",
+  "policies.readers.legend": "Домены читателей",
+  "policies.readers.any": "Любой адрес",
+  "policies.readers.anyHint": "Читателей можно добавлять с любым адресом почты.",
+  "policies.readers.only": "Только эти домены",
+  "policies.readers.onlyHint":
+    "Читателей можно добавлять только с адресами на этих почтовых доменах. Участников и группы это не касается.",
+  "policies.readers.domains": "Разрешённые домены",
+  "policies.readers.domainsHint": "По одному на строку, например example.com, не больше {max}.",
+  "policies.readers.domainsError": "Укажите от 1 до {max} простых доменов, например example.com.",
+  "policies.links.legend": "Ссылки для доступа",
+  "policies.links.allowed": "Разрешены",
+  "policies.links.allowedHint":
+    "Администраторы и редакторы могут создавать ссылки для доступа, с паролем или без.",
+  "policies.links.password_required": "Нужен пароль",
+  "policies.links.password_requiredHint":
+    "Каждой ссылке нужен пароль. Ссылки без пароля перестают открываться.",
+  "policies.links.disabled": "Отключены",
+  "policies.links.disabledHint": "Ссылок для доступа нет. Существующие отзываются.",
+  "policies.lifetime.label": "Наибольший срок жизни ссылки, в днях",
+  "policies.lifetime.hint":
+    "Оставьте пустым, чтобы не ограничивать. Более старые ссылки перестают открываться.",
+  "policies.lifetime.error": "Укажите целое число дней от 1 до {max} или оставьте поле пустым.",
+  "policies.save": "Сохранить правила",
+  "policies.saved": "Правила сохранены.",
+  "policies.saveFailed": "Правила не сохранены",
+  "policies.conflict":
+    "Кто-то изменил правила за это время. Они загружены заново: проверьте их и сохраните.",
+  "policies.impact.title": "Применить эти правила к существующим артефактам?",
+  "policies.impact.body": "Сохранение изменит то, что уже есть в {workspace}:",
+  "policies.impact.public":
+    "{count, plural, one {# публичный артефакт станет доступен рабочему пространству} few {# публичных артефакта станут доступны рабочему пространству} many {# публичных артефактов станут доступны рабочему пространству} other {# публичного артефакта станут доступны рабочему пространству}}",
+  "policies.impact.readers":
+    "{count, plural, one {# читатель вне разрешённых доменов будет удалён} few {# читателя вне разрешённых доменов будут удалены} many {# читателей вне разрешённых доменов будут удалены} other {# читателя вне разрешённых доменов будут удалены}}",
+  "policies.impact.revoked":
+    "{count, plural, one {# ссылка будет отозвана} few {# ссылки будут отозваны} many {# ссылок будут отозваны} other {# ссылки будут отозваны}}",
+  "policies.impact.password":
+    "{count, plural, one {# ссылка без пароля перестанет открываться} few {# ссылки без пароля перестанут открываться} many {# ссылок без пароля перестанут открываться} other {# ссылки без пароля перестанут открываться}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# ссылка старше срока жизни перестанет открываться} few {# ссылки старше срока жизни перестанут открываться} many {# ссылок старше срока жизни перестанут открываться} other {# ссылки старше срока жизни перестанут открываться}}",
+  "policies.impact.note":
+    "Это происходит в фоне, небольшими порциями, и записывается в журнал аудита.",
+  "policies.impact.confirm": "Применить и сохранить",
+  "policies.impact.cancel": "Продолжить правку",
+  "policies.note.publicForbidden": "Правило рабочего пространства запрещает публичный доступ.",
+  "policies.note.readerDomains":
+    "Правило рабочего пространства разрешает читателей только на {domains}.",
+  "policies.note.linksDisabled": "Правило рабочего пространства не разрешает ссылки для доступа.",
+  "policies.note.linksPassword": "Правило рабочего пространства требует пароль для каждой ссылки.",
+  "policies.note.linksLifetime":
+    "Правило рабочего пространства ограничивает ссылки сроком {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}.",
+  "error.policy_refused": "Правило рабочего пространства этого не разрешает.",
+  "audit.group.policies": "Правила",
+  "audit.kind.policyChanged": "Изменены правила рабочего пространства: {changes}",
+  "audit.kind.policyEnforced": "Применены правила рабочего пространства: {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {публичный доступ запрещён} other {публичный доступ разрешён}}",
+  "audit.policy.default":
+    "{mode, select, workspace {новые артефакты доступны рабочему пространству} domain {новые артефакты доступны почтовым доменам} other {новые артефакты ограничены}}",
+  "audit.policy.readers": "читатели только на {domains}",
+  "audit.policy.readersAny": "читатели на любом домене",
+  "audit.policy.links":
+    "{value, select, disabled {ссылки отключены} password_required {ссылкам нужен пароль} other {ссылки разрешены}}",
+  "audit.policy.lifetime":
+    "ссылки не дольше {days, plural, one {# дня} few {# дней} many {# дней} other {# дня}}",
+  "audit.policy.lifetimeNone": "без ограничения срока ссылок",
+  "audit.policy.narrowed":
+    "{count, plural, one {# артефакт ограничен рабочим пространством} few {# артефакта ограничены рабочим пространством} many {# артефактов ограничены рабочим пространством} other {# артефакта ограничены рабочим пространством}}",
+  "audit.policy.readersRemoved":
+    "{count, plural, one {удалён # читатель} few {удалены # читателя} many {удалены # читателей} other {удалены # читателя}}",
+  "audit.policy.linksRevoked":
+    "{count, plural, one {отозвана # ссылка} few {отозваны # ссылки} many {отозваны # ссылок} other {отозваны # ссылки}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {завершён # сеанс по ссылке} few {завершены # сеанса по ссылке} many {завершены # сеансов по ссылке} other {завершены # сеанса по ссылке}}",
+  "policies.impact.stale":
+    "Изменения, которые правило вносит в существующие артефакты, выросли с момента вашей проверки. Сохраните ещё раз, чтобы проверить новые числа.",
+  "policies.savedWithChanges":
+    "Существующие артефакты приводятся в соответствие с правилами. Их страницы и журнал аудита показывают, что изменилось.",
+  "policies.default.domainLapsed":
+    "Нет подтверждённого почтового домена, поэтому новые артефакты создаются доступными рабочему пространству, пока домен не будет подтверждён снова.",
+  "audit.access.byPolicy": "по правилу рабочего пространства",
 } satisfies Catalog;

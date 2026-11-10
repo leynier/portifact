@@ -225,7 +225,7 @@ describe("email notices", () => {
     renderDashboard("/settings", server);
     const section = await notices();
     const box = within(section).getByRole("checkbox", {
-      name: "Email me about new comments",
+      name: "Email me about new comments and reviews",
     }) as HTMLInputElement;
     expect(box.checked).toBe(true);
     fireEvent.click(box);

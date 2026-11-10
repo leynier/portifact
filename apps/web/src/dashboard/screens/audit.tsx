@@ -90,6 +90,17 @@ export const AUDIT_GROUPS = {
     "plan.removed",
     "service_token.created",
     "service_token.revoked",
+    "sso.created",
+    "sso.changed",
+    "sso.removed",
+  ],
+  policies: ["policy.changed", "policy.enforced"],
+  groups: [
+    "group.created",
+    "group.renamed",
+    "group.deleted",
+    "group.member_added",
+    "group.member_removed",
   ],
 } as const satisfies Record<string, readonly AuditKind[]>;
 type Group = "all" | keyof typeof AUDIT_GROUPS;
@@ -307,6 +318,8 @@ function AuditFilters(props: {
     { value: "lifecycle", label: t("audit.group.lifecycle") },
     { value: "integrations", label: t("audit.group.integrations") },
     { value: "members", label: t("audit.group.members") },
+    { value: "groups", label: t("audit.group.groups") },
+    { value: "policies", label: t("audit.group.policies") },
   ];
   const periods: SelectOption<Period>[] = [
     { value: "all", label: t("audit.period.all") },
@@ -418,10 +431,13 @@ function targetName(t: T, event: AuditEventView): string {
       return t("audit.target.invitation");
     case "service_token":
       return event.target.serviceToken ? actorName(t, event.target.serviceToken) : "";
+    case "group":
+      return groupName(t, event);
     case "brand":
     case "plan":
     case "email_domain":
     case "audit_log":
+    case "policy":
       return t("audit.target.space");
     default:
       return "";
@@ -429,6 +445,8 @@ function targetName(t: T, event: AuditEventView): string {
 }
 
 const role = (t: T, value: unknown) => t(ROLE_LABELS[value as WorkspaceRole]);
+/** A group by its current name; events never store it (decision 0014). */
+const groupName = (t: T, event: AuditEventView) => event.group?.name ?? t("audit.target.groupGone");
 const flag = (value: unknown) => (value === true ? "true" : "false");
 
 /** What happened, in the dashboard's language. */
@@ -511,7 +529,18 @@ export function describeAuditEvent(
         role: role(t, d.role),
       });
     case "member.joined":
-      return t("audit.kind.memberJoined", { member, role: role(t, d.role) });
+      return d.via === "sso"
+        ? t("audit.kind.memberJoinedSso", { member, role: role(t, d.role) })
+        : t("audit.kind.memberJoined", { member, role: role(t, d.role) });
+    case "sso.created":
+      return t("audit.kind.ssoCreated", {
+        host: String(d.issuerHost),
+        count: Number(d.domains),
+      });
+    case "sso.changed":
+      return t("audit.kind.ssoChanged");
+    case "sso.removed":
+      return t("audit.kind.ssoRemoved");
     case "member.role_changed":
       return t("audit.kind.roleChanged", { member, from: role(t, d.from), to: role(t, d.to) });
     case "member.removed":
@@ -527,8 +556,22 @@ export function describeAuditEvent(
         domain: String(d.domain),
         reason: String(d.reason),
       });
+    case "group.created":
+      return t("audit.kind.groupCreated", { group: groupName(t, event) });
+    case "group.renamed":
+      return t("audit.kind.groupRenamed", { group: groupName(t, event) });
+    case "group.deleted":
+      return t("audit.kind.groupDeleted", { group: groupName(t, event) });
+    case "group.member_added":
+      return t("audit.kind.groupMemberAdded", { member, group: groupName(t, event) });
+    case "group.member_removed":
+      return t("audit.kind.groupMemberRemoved", { member, group: groupName(t, event) });
     case "audit.exported":
       return t("audit.kind.exported", { format: String(d.format) });
+    case "policy.changed":
+      return t("audit.kind.policyChanged", { changes: policyChanges(t, d, locale) });
+    case "policy.enforced":
+      return t("audit.kind.policyEnforced", { changes: enforcedChanges(t, d, locale) });
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"
@@ -538,6 +581,43 @@ export function describeAuditEvent(
     default:
       return event.kind;
   }
+}
+
+/** The fields of a policy change, in the dashboard's language. */
+function policyChanges(t: T, d: Record<string, unknown>, locale: string | undefined): string {
+  const parts: string[] = [];
+  if (d.publicAccess) parts.push(t("audit.policy.public", { value: String(d.publicAccess) }));
+  if (d.defaultAccess) parts.push(t("audit.policy.default", { mode: String(d.defaultAccess) }));
+  if (d.readerDomains !== undefined) {
+    parts.push(
+      Array.isArray(d.readerDomains)
+        ? t("audit.policy.readers", { domains: d.readerDomains.join(", ") })
+        : t("audit.policy.readersAny"),
+    );
+  }
+  if (d.shareLinks) parts.push(t("audit.policy.links", { value: String(d.shareLinks) }));
+  if (d.shareLinkMaxDays !== undefined) {
+    parts.push(
+      d.shareLinkMaxDays === null
+        ? t("audit.policy.lifetimeNone")
+        : t("audit.policy.lifetime", { days: Number(d.shareLinkMaxDays) }),
+    );
+  }
+  return new Intl.ListFormat(locale, { style: "long", type: "unit" }).format(parts);
+}
+
+/** What one step of applying a policy changed, as counts. */
+function enforcedChanges(t: T, d: Record<string, unknown>, locale: string | undefined): string {
+  const counts = [
+    [d.artifactsNarrowed, "audit.policy.narrowed"],
+    [d.readersRemoved, "audit.policy.readersRemoved"],
+    [d.linksRevoked, "audit.policy.linksRevoked"],
+    [d.sessionsEnded, "audit.policy.sessionsEnded"],
+  ] as const;
+  const parts = counts
+    .filter(([count]) => Number(count) > 0)
+    .map(([count, message]) => t(message, { count: Number(count) }));
+  return new Intl.ListFormat(locale, { style: "long", type: "unit" }).format(parts);
 }
 
 function accessChanges(t: T, d: Record<string, unknown>, locale: string | undefined): string {
@@ -553,6 +633,13 @@ function accessChanges(t: T, d: Record<string, unknown>, locale: string | undefi
   if (d.readerExceptions) {
     parts.push(t("audit.access.exceptions", { count: Number(d.readerExceptions) }));
   }
+  if (d.groupsAdded) parts.push(t("audit.access.groupsAdded", { count: Number(d.groupsAdded) }));
+  if (d.groupsRemoved) {
+    parts.push(t("audit.access.groupsRemoved", { count: Number(d.groupsRemoved) }));
+  }
+  if (d.groupExceptions) {
+    parts.push(t("audit.access.groupExceptions", { count: Number(d.groupExceptions) }));
+  }
   if (d.bar !== undefined) parts.push(t("audit.access.bar", { on: flag(d.bar) }));
   if (d.commentVisibility) {
     parts.push(t("audit.access.comments", { visibility: String(d.commentVisibility) }));
@@ -561,5 +648,6 @@ function accessChanges(t: T, d: Record<string, unknown>, locale: string | undefi
   if (d.embeddable !== undefined) {
     parts.push(t("audit.access.embeddable", { on: flag(d.embeddable) }));
   }
+  if (d.policy) parts.push(t("audit.access.byPolicy"));
   return new Intl.ListFormat(locale, { style: "long", type: "unit" }).format(parts);
 }

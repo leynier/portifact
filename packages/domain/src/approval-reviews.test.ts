@@ -1,4 +1,4 @@
-import { APPROVALS, NO_APPROVAL_REVIEW } from "@portifact/contracts";
+import { AccessMode, APPROVALS, NO_APPROVAL_REVIEW } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   APPROVAL_MESSAGES,
@@ -13,6 +13,8 @@ import {
   checkRequiredApprovals,
   checkReviewerList,
   checkVerdictTarget,
+  type ReviewNoticeFacts,
+  reviewNoticeRecipient,
 } from "./approval-reviews.ts";
 
 const on = (verdict: ApprovalReviewerFacts["verdict"], active = true): ApprovalReviewerFacts => ({
@@ -283,5 +285,67 @@ describe("who sees what", () => {
     ["reader", true, true],
   ] as const)("%s with showStatus %s sees the status: %s", (role, show, visible) => {
     expect(approvalStatusVisible(role, show)).toBe(visible);
+  });
+});
+
+describe("reviewNoticeRecipient", () => {
+  type Relation = "owner" | "member" | "reader" | "group" | "domain" | "none";
+  const facts = (mode: AccessMode, relation: Relation, takesPart = true): ReviewNoticeFacts => ({
+    mode,
+    takesPart,
+    side:
+      relation === "owner"
+        ? "owner"
+        : relation === "member" || relation === "group"
+          ? "member"
+          : null,
+    listedReader: relation === "reader",
+    inListedGroup: relation === "group",
+    atVerifiedDomain: relation === "domain",
+  });
+  // Whether a person who can open the artifact gets the "review requested" email, by access mode
+  // and relationship: never someone admitted only because the artifact is open to everyone.
+  const table: Record<AccessMode, Record<Relation, boolean>> = {
+    public: { owner: true, member: true, reader: true, group: true, domain: false, none: false },
+    authenticated: {
+      owner: true,
+      member: true,
+      reader: true,
+      group: true,
+      domain: false,
+      none: false,
+    },
+    restricted: {
+      owner: true,
+      member: true,
+      reader: true,
+      group: true,
+      domain: false,
+      none: false,
+    },
+    workspace: { owner: true, member: true, reader: true, group: true, domain: false, none: false },
+    domain: { owner: true, member: true, reader: true, group: true, domain: true, none: false },
+  };
+
+  it("covers every access mode", () => {
+    expect(Object.keys(table).sort()).toEqual([...AccessMode.options].sort());
+  });
+
+  it.each(
+    Object.entries(table).flatMap(([mode, row]) =>
+      Object.entries(row).map(([relation, expected]) => [mode, relation, expected] as const),
+    ),
+  )("in %s mode, %s: %s", (mode, relation, expected) => {
+    expect(reviewNoticeRecipient(facts(mode as AccessMode, relation as Relation))).toBe(expected);
+  });
+
+  it("never emails someone who cannot open the artifact now, whatever the relationship", () => {
+    for (const mode of AccessMode.options) {
+      for (const relation of ["owner", "member", "reader", "group", "domain", "none"] as const) {
+        expect(reviewNoticeRecipient(facts(mode, relation, false)), `${mode} ${relation}`).toBe(
+          false,
+        );
+      }
+    }
   });
 });

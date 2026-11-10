@@ -59,14 +59,17 @@ import {
   commentScope,
   type Entitlements,
   effectiveState,
+  emailDomainOf,
   entitlements,
   fail,
+  type GroupMatch,
   type HumanVerdict,
   type ModerationAction,
   moderationTransition,
   needsHumanCheck,
   ok,
   type Result,
+  requireFeature,
   threadInScope,
   threadVisible,
 } from "@portifact/domain";
@@ -78,6 +81,12 @@ import { markCommentActivity } from "./comment-activity.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
+import {
+  artifactGroupRows,
+  groupMembershipsOf,
+  groupScopeSql,
+  viewerGroups,
+} from "./workspace-groups.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -99,6 +108,8 @@ interface Loaded {
   viewerId: string;
   verifiedEmail: string | null;
   scope: CommentScope;
+  /** Groups the artifact lists that the caller belongs to and that grant (decision 0014). */
+  groupIds: readonly string[];
   /**
    * Who acts for the artifact's owner: the user of a personal space, or a workspace's admins and
    * editors. Their threads are "the owner's" in the `own` scope.
@@ -169,8 +180,18 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     new Date(input.now),
   );
   const owner = entitlements(row.plan, input.now);
-  const { role, verifiedEmail, exception } = await roleOf(db, artifact, input.userId, owner);
-  const scope = commentScope(role ?? "participant", artifact.commentVisibility, exception);
+  const { role, verifiedEmail, exception, groups } = await roleOf(
+    db,
+    artifact,
+    input.userId,
+    owner,
+  );
+  const scope = commentScope(
+    role ?? "participant",
+    artifact.commentVisibility,
+    exception,
+    groups.map((group) => group.commentVisibility),
+  );
   return {
     artifact,
     state,
@@ -178,6 +199,7 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | un
     viewerId: input.userId,
     verifiedEmail,
     scope,
+    groupIds: groups.map((group) => group.id),
     // A personal space needs no read.
     ownerSide: await ownerSide(db.global, artifact.ownerId),
     entitlements: owner,
@@ -189,6 +211,8 @@ interface Caller {
   verifiedEmail: string | null;
   /** The reader's exception on the list, matched by verified address in any access mode. */
   exception: CommentScope | null;
+  /** Listed groups the caller belongs to, with their exceptions, in any access mode. */
+  groups: GroupMatch["matched"];
 }
 
 /**
@@ -205,17 +229,18 @@ async function roleOf(
 ): Promise<Caller> {
   // Comments are people's words: a service token takes no part, whatever its role (decision
   // 0011), and gets what a missing artifact gives.
-  if (isServiceTokenId(userId)) return { role: null, verifiedEmail: null, exception: null };
+  if (isServiceTokenId(userId))
+    return { role: null, verifiedEmail: null, exception: null, groups: [] };
   const actor = await actorOn(db.global, userId, artifact.ownerId);
   if (actsForOwner(actor, artifact.ownerId)) {
-    return { role: "owner", verifiedEmail: null, exception: null };
+    return { role: "owner", verifiedEmail: null, exception: null, groups: [] };
   }
   const [user] = await db
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
     .limit(1);
-  if (!user) return { role: null, verifiedEmail: null, exception: null };
+  if (!user) return { role: null, verifiedEmail: null, exception: null, groups: [] };
   const verifiedEmail = user.emailVerified ? user.email.toLowerCase() : null;
   const r = schema.artifactReaders;
   const columns = { email: r.email, commentVisibility: r.commentVisibility };
@@ -231,6 +256,17 @@ async function roleOf(
             .from(r)
             .where(and(eq(r.artifactId, artifact.id), eq(r.email, verifiedEmail)));
   const verifiedEmails = verifiedEmail === null ? [] : [verifiedEmail];
+  // A member of the owning workspace may be in groups the artifact lists: they can admit them in
+  // `restricted` mode and carry exceptions in every mode (decision 0014). Nobody else reads them.
+  const groups =
+    actor?.ownerId === artifact.ownerId
+      ? await viewerGroups(db.global, {
+          ownerId: artifact.ownerId,
+          actor,
+          listed: await artifactGroupRows(db, artifact.id),
+          entitlements: owner,
+        })
+      : undefined;
   const decision = canRead(
     {
       mode: artifact.accessMode,
@@ -243,6 +279,7 @@ async function roleOf(
         verifiedEmails,
         entitlements: owner,
       }),
+      groups,
     },
     { userId, verifiedEmails },
     actor,
@@ -251,7 +288,12 @@ async function roleOf(
     verifiedEmail === null
       ? null
       : (listed.find((row) => row.email === verifiedEmail)?.commentVisibility ?? null);
-  return { role: decision.ok ? "participant" : null, verifiedEmail, exception };
+  return {
+    role: decision.ok ? "participant" : null,
+    verifiedEmail,
+    exception,
+    groups: groups?.matched ?? [],
+  };
 }
 
 /** Whether the caller sees a thread started by `authorId`. */
@@ -394,8 +436,10 @@ function currentThreadGuard(threadId: string): SQL {
 
 /**
  * For a reader, the thread is still within their comment scope: they or the owner started it,
- * or their exception on the list (by verified address), else the artifact's setting, shows
- * them every thread. The same rule as `commentScope`, evaluated on the live rows.
+ * or their exception on the list (by verified address), else the widest scope of the listed
+ * groups they belong to, else the artifact's setting, shows them every thread. The same rule as
+ * `commentScope`, evaluated on the live rows (the groups the caller belongs to were read from the
+ * global database when the request loaded; the artifact's group rows are live).
  */
 function scopeGuard(loaded: Authorized, threadId: string): SQL {
   if (loaded.role === "owner") return sql`1`;
@@ -403,10 +447,11 @@ function scopeGuard(loaded: Authorized, threadId: string): SQL {
   const t = schema.artifacts;
   const r = schema.artifactReaders;
   const setting = sql`case ${t.commentVisibility} when 'everyone' then 'all' else 'own' end`;
-  const scope =
+  const reader =
     loaded.verifiedEmail === null
-      ? setting
-      : sql`coalesce((select ${r.commentVisibility} from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${loaded.verifiedEmail}), ${setting})`;
+      ? sql`null`
+      : sql`(select ${r.commentVisibility} from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${loaded.verifiedEmail})`;
+  const scope = sql`coalesce(${reader}, ${groupScopeSql(t.id, loaded.groupIds, setting)}, ${setting})`;
   const owners = sql.join(
     [loaded.viewerId, ...loaded.ownerSide].map((id) => sql`${id}`),
     sql`, `,
@@ -1539,6 +1584,12 @@ export interface Participant {
    */
   knownUserId: string | null;
   side: "owner" | "member" | null;
+  /** On the reader list read for this decision (restricted artifacts only). */
+  listedReader: boolean;
+  /** In a group the artifact lists (restricted workspace artifacts only). */
+  inListedGroup: boolean;
+  /** At a verified email domain of the owning workspace (`domain` artifacts only). */
+  atVerifiedDomain: boolean;
 }
 
 /**
@@ -1556,7 +1607,12 @@ export async function participation(
   artifact: Pick<ArtifactRow, "id" | "ownerId" | "accessMode">,
   emails: readonly string[],
   owner: Entitlements,
-  policy?: { mode: ArtifactRow["accessMode"]; readers: readonly string[] },
+  policy?: {
+    mode: ArtifactRow["accessMode"];
+    readers: readonly string[];
+    /** The groups the artifact lists after the change; read from the artifact when absent. */
+    groups?: readonly string[] | undefined;
+  },
 ): Promise<Map<string, Participant>> {
   const result = new Map<string, Participant>();
   const addresses = [...new Set(emails)];
@@ -1609,6 +1665,18 @@ export async function participation(
     verifiedEmails: addresses,
     entitlements: owner,
   });
+  // Groups (decision 0014) admit only members of the owning workspace, so only the members found
+  // above are asked about: one regional read of the listed groups and one batched global read of
+  // their memberships. An address outside the workspace never changes the reads.
+  const groupsAvailable = requireFeature(owner, "workspaces").ok;
+  const members = [...known.values()]
+    .filter((person) => person.role === "member")
+    .map((person) => person.userId);
+  const listedGroups =
+    mode === "restricted" && groupsAvailable && members.length > 0
+      ? (policy?.groups ?? (await artifactGroupRows(db, artifact.id)).map((row) => row.groupId))
+      : [];
+  const inGroups = await groupMembershipsOf(db.global, artifact.ownerId, members, listedGroups);
   for (const email of addresses) {
     const person = known.get(email);
     const actor: Actor | null = person
@@ -1625,16 +1693,30 @@ export async function participation(
         ownerId: artifact.ownerId,
         readers: readers.has(email) ? [email] : [],
         domains,
+        groups: {
+          featureAvailable: groupsAvailable,
+          matched: (person ? (inGroups.get(person.userId) ?? []) : []).map((id) => ({
+            id,
+            commentVisibility: null,
+          })),
+        },
       },
       // Nobody outside the owner's people is told apart from an address with no account.
       { userId: person?.userId ?? "", verifiedEmails: [email] },
       actor,
     );
     const side = actsForOwner(actor, artifact.ownerId) ? "owner" : person ? "member" : null;
+    const domain = emailDomainOf(email);
     result.set(email, {
       takesPart: decision.ok,
       knownUserId: person?.userId ?? null,
       side,
+      listedReader: readers.has(email),
+      inListedGroup: person ? (inGroups.get(person.userId) ?? []).length > 0 : false,
+      atVerifiedDomain:
+        domain !== null &&
+        (domains?.featureAvailable ?? false) &&
+        domains?.verified.includes(domain) === true,
     });
   }
   return result;

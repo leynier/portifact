@@ -52,6 +52,23 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   operatorRevokeServiceToken: ["service_token.revoked"],
   // The workspaces the account was in each record that the member is gone.
   requestAccountDeletion: ["member.left"],
+  createWorkspaceGroup: ["group.created"],
+  renameWorkspaceGroup: ["group.renamed"],
+  deleteWorkspaceGroup: ["group.deleted"],
+  addGroupMember: ["group.member_added"],
+  removeGroupMember: ["group.member_removed"],
+  saveSsoProvider: ["sso.created", "sso.changed"],
+  removeSsoProvider: ["sso.removed"],
+  joinWorkspaceThroughSso: ["member.joined"],
+  // Workspace policies (decision 0015): a change records which fields and values, and each step
+  // that applies one to existing artifacts records its counts and each changed artifact's own
+  // access change, as the system.
+  setWorkspacePolicy: ["policy.changed"],
+  // After a restore, with the operator as actor.
+  applyWorkspacePolicies: ["policy.changed"],
+  enforceWorkspacePolicy: ["policy.enforced", "access.changed"],
+  runWorkspacePolicyJob: ["policy.enforced", "access.changed"],
+  enforceWorkspacePolicies: ["policy.enforced", "access.changed"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
 };
@@ -61,6 +78,20 @@ const NOT_RECORDED: Record<string, string> = {};
 const reason = (why: string, names: string[]) => {
   for (const name of names) NOT_RECORDED[name] = why;
 };
+reason(
+  "single sign-on protocol steps and lookups: they change nothing an owner has (decision 0016)",
+  [
+    "fetchSsoJson",
+    "discoverSso",
+    "testSsoIssuer",
+    "ssoProviderForEmail",
+    "ssoProviderForCallback",
+    "checkSsoIdentity",
+    "unlinkSsoIdentity",
+    "ssoKeys",
+    "openSsoSecret",
+  ],
+);
 reason("approval reviews: who can still open the artifact counts again; nobody's choice changed", [
   "recheckApprovalReviewers",
 ]);
@@ -160,6 +191,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sweepOrphanObjects",
   "rerenderDocuments",
   "runMaintenance",
+  "pruneArtifactGroups",
+  "pruneGroupTombstones",
   "relayOutbox",
   "runJob",
   "maintainWebhooks",
@@ -171,6 +204,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "scheduleCommentNotices",
   "sendExpiryNotice",
   "sendCommentNotice",
+  // Review emails (decision 0013): sending a notice changes nothing an owner has.
+  "runReviewNotice",
   "scheduleDomainNotices",
   "sendDomainNotice",
   "alignPlanLimits",
@@ -218,12 +253,19 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  "seatLimit",
   "accessAudience",
   "approvalSummaries",
   "participation",
   "withActivity",
   "authorizeUploadOn",
   "policyDomains",
+  "viewerGroups",
+  "viewerGroupIds",
+  "groupMembershipsOf",
+  "groupSummaries",
+  // What saving a policy would change (decision 0015): counts only.
+  "policyImpact",
   "scoped",
   "checkReadAccess",
   "checkSignInEmail",

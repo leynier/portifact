@@ -438,9 +438,9 @@ export const en = {
   "settings.notices.saved": "Email notices saved.",
   "settings.notices.unchanged": "Nothing to save: your email notices are already set this way.",
   "settings.notices.failed": "Your email notices were not saved",
-  "settings.notices.comments.label": "Email me about new comments",
+  "settings.notices.comments.label": "Email me about new comments and reviews",
   "settings.notices.comments.hint":
-    "At most one email every 10 minutes, with how many threads, replies and resolutions are new on each artifact, never what was written. Only for artifacts whose owner's plan includes comment notices.",
+    "At most one email every 10 minutes, with how many threads, replies and resolutions are new on each artifact, never what was written. Only for artifacts whose owner's plan includes comment notices. The same setting covers review emails: when someone asks for your review, and when a version you manage is approved or changes are requested.",
   "commentNotices.label": "Email me about new comments on this artifact",
   "commentNotices.hint":
     "At most one email every 10 minutes, with counts only. Turn every comment email off in your settings.",
@@ -1242,6 +1242,8 @@ export const en = {
   "webhooks.event.artifact.published": "New versions",
   "webhooks.event.artifact.expiring": "Artifacts about to expire",
   "webhooks.event.artifact.access_changed": "Access changes",
+  "webhooks.event.review.requested": "Review requests",
+  "webhooks.event.review.completed": "Reviews approved or with changes requested",
   "webhooks.add.submit": "Add webhook",
   "webhooks.add.noEvents": "Choose at least one event.",
   "webhooks.add.limit": "You can have at most {limit} webhooks. Remove one to add another.",
@@ -1575,9 +1577,9 @@ export const en = {
   "account.delete.soleAdmin.body":
     "A workspace must keep an admin. Make another member an admin of each of these workspaces, or ask Portifact at hello@portifact.com to delete them, then delete your account.",
   "account.delete.soleAdmin.members": "Members of {workspace}",
-  "webhooks.personalOnly.title": "Webhooks are set in your personal space",
-  "webhooks.personalOnly.body":
-    "For now, webhooks send events about the artifacts of your personal space only. Switch to it to manage them.",
+  "webhooks.adminOnly.title": "Only admins manage webhooks",
+  "webhooks.adminOnly.body":
+    "Webhooks send the events of this workspace's artifacts to other systems, so only the admins of {workspace} can see and manage them. Ask one of them if you need a webhook.",
   "shell.planLink": "Plan",
   "plan.title": "Plan",
   "plan.description":
@@ -1920,6 +1922,287 @@ export const en = {
     "The TXT record was not found with this domain's value yet. DNS changes can take a while to appear; try again later. A claim older than 7 days must be added again.",
   "transfer.confirm.accessReset":
     "It is shared with its workspace or an email domain now, so it becomes restricted: only the people on its reader list keep reading it.",
+  "shell.groupsLink": "Groups",
+  "groups.title": "Groups",
+  "groups.description":
+    "Named sets of the members of {workspace}. Add a group to a restricted artifact and its members can open it, as listed readers can.",
+  "groups.personal.title": "Groups belong to a workspace",
+  "groups.personal.body": "Switch to a workspace you administer to manage its groups.",
+  "groups.adminOnly.title": "Only admins manage groups",
+  "groups.adminOnly.body":
+    "Editors pick groups in an artifact's sharing settings. Ask an admin of this workspace to create or change one.",
+  "groups.planTitle": "Groups are not in this workspace's plan",
+  "groups.planRequired":
+    "Groups are part of the {plan} plan. Existing groups can be renamed, emptied and deleted, but they let nobody read until the plan includes them again.",
+  "groups.list.title": "Groups",
+  "groups.loading": "Loading groups",
+  "groups.loadFailed": "Groups did not load",
+  "groups.empty.title": "No groups yet",
+  "groups.empty.body":
+    "Create a group, add members to it, then add it to a restricted artifact's sharing settings.",
+  "groups.create.title": "Create a group",
+  "groups.create.hint":
+    "Admins and editors see its name when they choose who can open an artifact.",
+  "groups.create.limit": "A workspace can have at most {limit} groups. Delete one first.",
+  "groups.create.name": "Name",
+  "groups.create.submit": "Create group",
+  "groups.nameError": "Use one line of 1 to {max} characters.",
+  "groups.actionFailed": "The group did not change",
+  "groups.created": "Created the group {name}.",
+  "groups.memberCount": "{count, plural, one {# member} other {# members}}",
+  "groups.showMembers": "Members",
+  "groups.hideMembers": "Hide members",
+  "groups.rename": "Rename",
+  "groups.renameLabel": "Rename {name}",
+  "groups.renameField": "New name for {name}",
+  "groups.save": "Save name",
+  "groups.renamed": "Renamed the group to {name}.",
+  "groups.delete": "Delete",
+  "groups.deleteLabel": "Delete {name}",
+  "groups.deleted": "Deleted the group {name}.",
+  "groups.confirm.title": "Delete {name}?",
+  "groups.confirm.body":
+    "Its members stop reading the artifacts that list it within a minute, unless something else lets them in. This cannot be undone.",
+  "groups.membersLoading": "Loading the group's members",
+  "groups.noMembers": "Nobody is in this group yet.",
+  "groups.membersOf": "Members of {name}",
+  "groups.removeMember": "Remove",
+  "groups.removeMemberLabel": "Remove {name} from {group}",
+  "groups.memberRemoved": "Removed {name} from {group}.",
+  "groups.addMember": "Add a member to {name}",
+  "groups.chooseMember": "Choose a member",
+  "groups.add": "Add",
+  "groups.memberAdded": "Added {name} to {group}.",
+  "groupAccess.title": "Groups",
+  "groupAccess.hint":
+    "Members of these groups of the workspace can open it after signing in, as listed readers can.",
+  "groupAccess.onlyRestricted":
+    "Groups let their members in only while access is restricted; in other modes they keep only their comment exceptions.",
+  "groupAccess.count": "{count} of {max} groups",
+  "groupAccess.planTitle": "Groups are not in this workspace's plan",
+  "groupAccess.planRequired":
+    "Adding groups is part of the {plan} plan. Groups already added let nobody read until the plan includes them again, and you can still remove them.",
+  "groupAccess.failed.title": "The groups did not change",
+  "groupAccess.empty": "No groups added.",
+  "groupAccess.list": "Groups that can open this artifact",
+  "groupAccess.removeLabel": "Remove the group {name}",
+  "groupAccess.removed": "Removed the group {name}.",
+  "groupAccess.full": "An artifact can list at most {max} groups.",
+  "groupAccess.none":
+    "This workspace has no groups yet. Its admins create them on the Groups page.",
+  "groupAccess.added": "Added the group {name}.",
+  "groupAccess.pick": "Add a group",
+  "groupAccess.choose": "Choose a group",
+  "groupAccess.option": "{name} ({count, plural, one {# member} other {# members}})",
+  "groupAccess.add": "Add group",
+  "groupAccess.comments.label": "Comments the group {name} sees",
+  "groupAccess.comments.changed": "The group {name} now sees: {choice}.",
+  "groupAccess.comments.confirm.title": "Show every comment to {name}?",
+  "groupAccess.comments.confirm.body":
+    "Every member of {name} will see all comment threads on this artifact, including those other readers started before now.",
+  "audit.group.groups": "Groups",
+  "audit.kind.groupCreated": "Created the group {group}",
+  "audit.kind.groupRenamed": "Renamed a group, now {group}",
+  "audit.kind.groupDeleted": "Deleted the group {group}",
+  "audit.kind.groupMemberAdded": "Added {member} to the group {group}",
+  "audit.kind.groupMemberRemoved": "Removed {member} from the group {group}",
+  "audit.target.groupGone": "a deleted group",
+  "audit.access.groupsAdded": "{count, plural, one {added # group} other {added # groups}}",
+  "audit.access.groupsRemoved": "{count, plural, one {removed # group} other {removed # groups}}",
+  "audit.access.groupExceptions":
+    "{count, plural, one {changed # group's comment visibility} other {changed # groups' comment visibility}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Single sign-on",
+  "sso.description":
+    "People with an address at the workspace's verified email domains can sign in through your organization's identity provider with OpenID Connect.",
+  "sso.loadFailed": "Single sign-on could not be loaded",
+  "sso.stateLabel": "State",
+  "sso.state.off": "Not set up",
+  "sso.state.on": "On",
+  "sso.state.plan": "Paused: not on this plan",
+  "sso.state.domains": "Paused: no verified domain",
+  "sso.planTitle": "Not on this plan",
+  "sso.plan":
+    "Single sign-on is part of the {plan} plan. A provider already set up stays, and you can still remove it.",
+  "sso.lapsedTitle": "A domain is no longer verified",
+  "sso.lapsed":
+    "{domains} is no longer verified, so its addresses cannot sign in this way until the domain is verified again.",
+  "sso.membership":
+    "People who sign in this way join the workspace as members, or with the role of a pending invitation, while it has a free seat. Existing members keep their role.",
+  "sso.removalNote":
+    "Someone an admin removes cannot rejoin through single sign-on until an admin invites them again. Someone who leaves by themselves can.",
+  "sso.redirectUri": "Redirect URI",
+  "sso.redirectPending":
+    "Save the provider to get its redirect URI to register at your identity provider. It looks like {pattern}.",
+  "sso.saveFailed": "The change was not saved",
+  "sso.testOkTitle": "Discovery works",
+  "sso.testOk": "Sign-in goes to {authorization}, tokens come from {token} and keys from {keys}.",
+  "sso.testOkShort": "Discovery works.",
+  "sso.testFailed": "Discovery failed",
+  "sso.formLabel": "Single sign-on provider",
+  "sso.issuer": "Issuer URL",
+  "sso.issuerHint":
+    "Your identity provider's issuer, for example https://login.example.com. Portifact reads its discovery document. It cannot change once saved.",
+  "sso.clientId": "Client ID",
+  "sso.clientSecret": "Client secret",
+  "sso.secretHint": "Stored sealed and never shown again.",
+  "sso.secretKeep": "Leave it empty to keep the stored secret.",
+  "sso.domains": "Domains it signs in",
+  "sso.domainsHint":
+    "Only the workspace's verified email domains. An address at another domain cannot sign in this way.",
+  "sso.noDomains": "Verify an email domain above first.",
+  "sso.issuerRequired": "Enter the issuer URL.",
+  "sso.clientIdRequired": "Enter the client ID.",
+  "sso.secretRequired": "Enter the client secret.",
+  "sso.domainsRequired": "Choose at least one domain.",
+  "sso.save": "Save",
+  "sso.saveChanges": "Save changes",
+  "sso.test": "Check the issuer",
+  "sso.remove": "Remove single sign-on",
+  "sso.saved": "Single sign-on saved.",
+  "sso.removed": "Single sign-on removed.",
+  "sso.scim":
+    "Removing someone at your identity provider does not remove them here: remove them from the members list.",
+  "sso.confirmRemove.title": "Remove single sign-on?",
+  "sso.confirmRemove.body":
+    "Nobody can sign in through this provider any more. Members stay members and keep their accounts; they sign in with an email code, Google or GitHub. A new provider gets a new redirect URI.",
+  "sso.confirmRemove.action": "Remove",
+  "sso.problem.invalid_issuer":
+    "The issuer must be a public https URL without a query or a fragment.",
+  "sso.problem.unreachable": "The identity provider could not be reached.",
+  "sso.problem.timeout": "The identity provider took too long to answer.",
+  "sso.problem.redirect":
+    "The identity provider answered with a redirect, which Portifact does not follow. Use the issuer it redirects to.",
+  "sso.problem.http_error": "The identity provider answered with an error.",
+  "sso.problem.too_large": "The identity provider's answer is too large.",
+  "sso.problem.not_json": "The discovery document is not valid JSON.",
+  "sso.problem.issuer_mismatch":
+    "The discovery document names a different issuer. Use the issuer exactly as the document says it.",
+  "sso.problem.missing_endpoint":
+    "The discovery document lacks an authorization, token or key set endpoint.",
+  "sso.problem.invalid_endpoint":
+    "An endpoint in the discovery document is not a public https URL.",
+  "sso.problem.no_code_flow": "The identity provider does not offer the authorization code flow.",
+  "sso.problem.no_pkce": "The identity provider does not support PKCE with S256.",
+  "sso.problem.no_signing_algorithm":
+    "The identity provider signs ID tokens with no algorithm Portifact accepts (RS256, PS256, ES256 or EdDSA families).",
+  "sso.error.invalid_input":
+    "Check the issuer, the client and the domains. Check the issuer shows what failed in discovery.",
+  "sso.error.capacity_unavailable": "Single sign-on is not available right now.",
+  "sso.error.version_conflict": "Single sign-on changed meanwhile. Reload and try again.",
+  "sso.error.not_found": "Single sign-on is not set up.",
+  "audit.kind.memberJoinedSso": "{member} joined as {role} through single sign-on",
+  "audit.kind.ssoCreated":
+    "Set up single sign-on with {host} for {count, plural, one {# domain} other {# domains}}",
+  "audit.kind.ssoChanged": "Changed single sign-on",
+  "audit.kind.ssoRemoved": "Removed single sign-on",
+  "shell.policiesLink": "Policies",
+  "policies.title": "Policies",
+  "policies.description":
+    "Rules for every artifact of {workspace}. They bind everyone who acts on its artifacts, admins and service tokens included.",
+  "policies.personal.title": "Policies are for workspaces",
+  "policies.personal.body":
+    "A personal space has no policies. Switch to a workspace to see its policies.",
+  "policies.loading": "Loading the policies",
+  "policies.loadFailed": "The policies did not load",
+  "policies.planTitle": "Setting policies is part of the {plan} plan",
+  "policies.planRequired":
+    "The workspace's plan does not include policies. Policies already set keep applying, and admins can still loosen or remove them.",
+  "policies.readOnly.title": "Set by the workspace's admins",
+  "policies.readOnly.body": "Only admins change the policies. They apply to you too.",
+  "policies.adminsToo": "These policies apply to admins too.",
+  "policies.public.legend": "Public access",
+  "policies.public.allowed": "Allowed",
+  "policies.public.allowedHint":
+    "Admins and editors can make an artifact public, so anyone with its link can open it.",
+  "policies.public.forbidden": "Forbidden",
+  "policies.public.forbiddenHint":
+    "No artifact of the workspace can be public. Public artifacts become shared with the workspace.",
+  "policies.default.legend": "Access of new artifacts",
+  "policies.default.hint":
+    "What a new artifact of the workspace starts with. Existing artifacts keep theirs.",
+  "policies.default.restricted": "Only its owner side and the readers added to it can open it.",
+  "policies.default.workspace": "Every member of the workspace can open it.",
+  "policies.default.domain":
+    "Members and anyone signed in with a verified address at the workspace's email domains can open it.",
+  "policies.default.domainNone": "Verify an email domain on the Members page first.",
+  "policies.readers.legend": "Reader domains",
+  "policies.readers.any": "Any address",
+  "policies.readers.anyHint": "Readers can be added at any email address.",
+  "policies.readers.only": "Only these domains",
+  "policies.readers.onlyHint":
+    "Readers can be added only at these email domains. Members and groups are not affected.",
+  "policies.readers.domains": "Allowed domains",
+  "policies.readers.domainsHint": "One per line, like example.com, at most {max}.",
+  "policies.readers.domainsError": "Write between 1 and {max} plain domains, like example.com.",
+  "policies.links.legend": "Share links",
+  "policies.links.allowed": "Allowed",
+  "policies.links.allowedHint":
+    "Admins and editors can create share links, with or without a password.",
+  "policies.links.password_required": "Password required",
+  "policies.links.password_requiredHint":
+    "Every share link needs a password. Links without one stop opening.",
+  "policies.links.disabled": "Disabled",
+  "policies.links.disabledHint": "No share links. Existing ones are revoked.",
+  "policies.lifetime.label": "Longest share link lifetime, in days",
+  "policies.lifetime.hint": "Leave it empty for no limit. Links older than this stop opening.",
+  "policies.lifetime.error": "Write a whole number of days from 1 to {max}, or leave it empty.",
+  "policies.save": "Save policies",
+  "policies.saved": "The policies were saved.",
+  "policies.saveFailed": "The policies were not saved",
+  "policies.conflict":
+    "Someone changed the policies meanwhile. They were loaded again: review them and save.",
+  "policies.impact.title": "Apply these policies to existing artifacts?",
+  "policies.impact.body": "Saving changes what already exists in {workspace}:",
+  "policies.impact.public":
+    "{count, plural, one {# public artifact becomes shared with the workspace} other {# public artifacts become shared with the workspace}}",
+  "policies.impact.readers":
+    "{count, plural, one {# reader outside the allowed domains is removed} other {# readers outside the allowed domains are removed}}",
+  "policies.impact.revoked":
+    "{count, plural, one {# share link is revoked} other {# share links are revoked}}",
+  "policies.impact.password":
+    "{count, plural, one {# share link without a password stops opening} other {# share links without a password stop opening}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# share link past the lifetime stops opening} other {# share links past the lifetime stop opening}}",
+  "policies.impact.note":
+    "This happens in the background, in small batches, and is recorded in the audit log.",
+  "policies.impact.confirm": "Apply and save",
+  "policies.impact.cancel": "Keep editing",
+  "policies.note.publicForbidden": "The workspace's policy forbids public access.",
+  "policies.note.readerDomains": "The workspace's policy allows readers only at {domains}.",
+  "policies.note.linksDisabled": "The workspace's policy does not allow share links.",
+  "policies.note.linksPassword": "The workspace's policy requires a password on every share link.",
+  "policies.note.linksLifetime":
+    "The workspace's policy limits share links to {days, plural, one {# day} other {# days}}.",
+  "error.policy_refused": "A workspace policy does not allow this.",
+  "audit.group.policies": "Policies",
+  "audit.kind.policyChanged": "Changed the workspace's policies: {changes}",
+  "audit.kind.policyEnforced": "Applied the workspace's policies: {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {public access forbidden} other {public access allowed}}",
+  "audit.policy.default":
+    "{mode, select, workspace {new artifacts shared with the workspace} domain {new artifacts shared with the email domains} other {new artifacts restricted}}",
+  "audit.policy.readers": "readers only at {domains}",
+  "audit.policy.readersAny": "readers at any domain",
+  "audit.policy.links":
+    "{value, select, disabled {share links disabled} password_required {share links need a password} other {share links allowed}}",
+  "audit.policy.lifetime": "share links last at most {days, plural, one {# day} other {# days}}",
+  "audit.policy.lifetimeNone": "no share link lifetime limit",
+  "audit.policy.narrowed":
+    "{count, plural, one {made # artifact workspace-only} other {made # artifacts workspace-only}}",
+  "audit.policy.readersRemoved":
+    "{count, plural, one {removed # reader} other {removed # readers}}",
+  "audit.policy.linksRevoked":
+    "{count, plural, one {revoked # share link} other {revoked # share links}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {ended # link session} other {ended # link sessions}}",
+  "policies.impact.stale":
+    "What this policy changes on existing artifacts grew since you reviewed it. Save again to review the new counts.",
+  "policies.savedWithChanges":
+    "Existing artifacts are being brought in line with the policies. Their pages and the audit log show what changed.",
+  "policies.default.domainLapsed":
+    "No email domain is verified, so new artifacts start shared with the workspace until one is verified again.",
+  "audit.access.byPolicy": "by the workspace's policy",
 } as const;
 
 export type MessageId = keyof typeof en;

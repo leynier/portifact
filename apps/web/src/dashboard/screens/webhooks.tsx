@@ -1,4 +1,5 @@
-// The webhooks page (`/webhooks`, premium plan P6, decision 0009): the account's webhooks with
+// The webhooks page (`/webhooks`, premium plan P6, decision 0009): the space's webhooks (the
+// personal space, or a workspace for its admins; `?workspace=<slug>` like every route) with
 // their state and last attempt, adding one (the signing secret shown once), sending a test,
 // the delivery log, disabling, enabling and removing with a confirmation. Without the feature in
 // the plan it says which plan includes webhooks; there is no checkout yet, so nothing else is
@@ -35,7 +36,6 @@ import {
   TextInput,
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import {
   CircleAlert,
   CirclePause,
@@ -50,14 +50,15 @@ import {
 import { type FormEvent, useId, useState } from "react";
 import { useAnnounce, useDashboard, useFormatDate, useRelativeTime, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
-import { useReadySpace } from "../space.tsx";
+import { spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
 
-export const WEBHOOKS_QUERY = ["webhooks"] as const;
-const deliveriesQuery = (id: string) => ["webhooks", id, "deliveries"] as const;
+export const webhooksQuery = (slug: string | undefined) => ["webhooks", slug ?? ""] as const;
+const deliveriesQuery = (slug: string | undefined, id: string) =>
+  ["webhooks", slug ?? "", id, "deliveries"] as const;
 
 type T = ReturnType<typeof useT>;
 
@@ -65,12 +66,13 @@ export function WebhooksScreen() {
   const t = useT();
   const { api } = useDashboard();
   useDocumentTitle(t("webhooks.title"));
-  // Webhooks belong to the personal space for now (API, MCP and CLI alike).
+  // The space in the URL; in a workspace only its admins manage webhooks (the API decides again).
   const space = useReadySpace();
+  const manages = spaceCan(space, "webhooks");
   const list = useQuery({
-    queryKey: WEBHOOKS_QUERY,
-    queryFn: () => api.webhooks(),
-    enabled: space.kind === "personal",
+    queryKey: webhooksQuery(space.slug),
+    queryFn: () => api.webhooks(space.slug),
+    enabled: manages,
     ...refreshOptions,
   });
   const [created, setCreated] = useState<WebhookCreated | null>(null);
@@ -78,19 +80,12 @@ export function WebhooksScreen() {
   const offered = list.data?.serviceAvailable ?? true;
   const full = (list.data?.webhooks.length ?? 0) >= (list.data?.limit ?? Number.POSITIVE_INFINITY);
 
-  if (space.kind === "workspace") {
+  if (!manages && space.kind === "workspace") {
     return (
       <div className="flex flex-col gap-6">
         <PageHeader title={t("webhooks.title")} meta={<SpaceBadge owner={space} />} />
-        <Callout
-          title={t("webhooks.personalOnly.title")}
-          action={
-            <Link to="/webhooks" search={{ workspace: undefined }} className="font-semibold">
-              {t("space.missing.personal")}
-            </Link>
-          }
-        >
-          {t("webhooks.personalOnly.body")}
+        <Callout title={t("webhooks.adminOnly.title")}>
+          {t("webhooks.adminOnly.body", { workspace: space.name })}
         </Callout>
       </div>
     );
@@ -98,7 +93,11 @@ export function WebhooksScreen() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title={t("webhooks.title")} description={t("webhooks.description")} />
+      <PageHeader
+        title={t("webhooks.title")}
+        meta={space.kind === "workspace" ? <SpaceBadge owner={space} /> : undefined}
+        description={t("webhooks.description")}
+      />
       {list.data && !offered ? (
         <Callout
           tone="info"
@@ -134,6 +133,7 @@ export function WebhooksScreen() {
                     {data.webhooks.map((webhook) => (
                       <WebhookCard
                         key={webhook.id}
+                        slug={space.slug}
                         webhook={webhook}
                         available={data.available && data.serviceAvailable}
                       />
@@ -145,6 +145,7 @@ export function WebhooksScreen() {
           </Section>
         </div>
         <AddWebhook
+          slug={space.slug}
           disabled={!list.data || !available || !offered || full}
           full={full}
           limit={list.data?.limit ?? 0}
@@ -183,11 +184,13 @@ function SecretOnce({ created, onDone }: { created: WebhookCreated; onDone(): vo
 }
 
 function AddWebhook({
+  slug,
   disabled,
   full,
   limit,
   onCreated,
 }: {
+  slug: string | undefined;
   disabled: boolean;
   full: boolean;
   limit: number;
@@ -203,11 +206,11 @@ function AddWebhook({
   const [events, setEvents] = useState<WebhookEventType[]>(["comment.created", "thread.resolved"]);
   const [noEvents, setNoEvents] = useState(false);
   const create = useMutation({
-    mutationFn: () => api.createWebhook({ url: url.trim(), format, events }),
+    mutationFn: () => api.createWebhook({ url: url.trim(), format, events }, slug),
     onSuccess: async (created) => {
       setUrl("");
       onCreated(created);
-      await queryClient.invalidateQueries({ queryKey: WEBHOOKS_QUERY });
+      await queryClient.invalidateQueries({ queryKey: webhooksQuery(slug) });
       announce(t("webhooks.added", { host: created.webhook.host }));
     },
   });
@@ -327,7 +330,15 @@ function attemptText(t: T, attempt: WebhookAttempt) {
   return `${t(`webhooks.outcome.${attempt.outcome}`)}${detail ? ` (${detail})` : ""}`;
 }
 
-function WebhookCard({ webhook, available }: { webhook: WebhookView; available: boolean }) {
+function WebhookCard({
+  slug,
+  webhook,
+  available,
+}: {
+  slug: string | undefined;
+  webhook: WebhookView;
+  available: boolean;
+}) {
   const t = useT();
   const announce = useAnnounce();
   const relative = useRelativeTime();
@@ -335,20 +346,20 @@ function WebhookCard({ webhook, available }: { webhook: WebhookView; available: 
   const { api } = useDashboard();
   const [confirming, setConfirming] = useState(false);
   const host = webhook.host;
-  const refresh = () => queryClient.invalidateQueries({ queryKey: WEBHOOKS_QUERY });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: webhooksQuery(slug) });
   const test = useMutation({
-    mutationFn: () => api.testWebhook(webhook.id),
+    mutationFn: () => api.testWebhook(webhook.id, slug),
     onSuccess: () => announce(t("webhooks.testQueued", { host })),
   });
   const toggle = useMutation({
-    mutationFn: (enabled: boolean) => api.updateWebhook(webhook.id, { enabled }),
+    mutationFn: (enabled: boolean) => api.updateWebhook(webhook.id, { enabled }, slug),
     onSuccess: async (next) => {
       await refresh();
       announce(t(next.state === "disabled" ? "webhooks.disabled" : "webhooks.enabled", { host }));
     },
   });
   const remove = useMutation({
-    mutationFn: () => api.removeWebhook(webhook.id),
+    mutationFn: () => api.removeWebhook(webhook.id, slug),
     onSuccess: async () => {
       setConfirming(false);
       await refresh();
@@ -445,7 +456,7 @@ function WebhookCard({ webhook, available }: { webhook: WebhookView; available: 
         </Callout>
       ) : null}
       <div className="border-t border-border pt-2">
-        <DeliveryLog webhook={webhook} />
+        <DeliveryLog slug={slug} webhook={webhook} />
       </div>
       <ConfirmDialog
         open={confirming}
@@ -465,7 +476,7 @@ function WebhookCard({ webhook, available }: { webhook: WebhookView; available: 
 }
 
 /** The last 7 days of attempts, fetched when it is opened. */
-function DeliveryLog({ webhook }: { webhook: WebhookView }) {
+function DeliveryLog({ slug, webhook }: { slug: string | undefined; webhook: WebhookView }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   return (
@@ -475,18 +486,18 @@ function DeliveryLog({ webhook }: { webhook: WebhookView }) {
       label={t("webhooks.deliveriesOf", { host: webhook.host })}
       onToggle={setOpen}
     >
-      {open ? <DeliveryTable webhook={webhook} /> : null}
+      {open ? <DeliveryTable slug={slug} webhook={webhook} /> : null}
     </Disclosure>
   );
 }
 
-function DeliveryTable({ webhook }: { webhook: WebhookView }) {
+function DeliveryTable({ slug, webhook }: { slug: string | undefined; webhook: WebhookView }) {
   const t = useT();
   const formatDate = useFormatDate();
   const { api } = useDashboard();
   const log = useQuery({
-    queryKey: deliveriesQuery(webhook.id),
-    queryFn: () => api.webhookDeliveries(webhook.id),
+    queryKey: deliveriesQuery(slug, webhook.id),
+    queryFn: () => api.webhookDeliveries(webhook.id, slug),
   });
   if (log.isPending) return <LoadingState label={t("webhooks.deliveries.loading")} />;
   if (log.isError) {

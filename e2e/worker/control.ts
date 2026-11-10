@@ -21,6 +21,7 @@ import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
 import { webhookDepsFromEnv } from "../../apps/jobs/src/webhooks.ts";
 import { setContentClockOffset } from "./clock.ts";
 import { e2eDomains } from "./domains.ts";
+import { setNextIdentity } from "./sso.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
 /** Where the e2e Worker keeps the last email sent to each address, in the local bucket. */
@@ -463,6 +464,13 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       received.push(await (await env.ARTIFACTS.get(object.key))?.json());
     }
     return Response.json({ ran: results.length, received });
+  }
+
+  // Single sign-on: who signs in at the fake identity provider next (decision 0016).
+  if (path === "/sso-identity") {
+    const { sub, email, name } = input as { sub: string; email: string; name?: string };
+    setNextIdentity({ sub, email, ...(name ? { name } : {}) });
+    return Response.json({ ok: true });
   }
 
   // Custom domains: what DNS holds and what Cloudflare reports, as a customer and Cloudflare would.

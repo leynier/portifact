@@ -150,7 +150,7 @@ export function auditSummary(event: AuditEventView): string {
     case "member.invitation_revoked":
       return "Revoked an invitation";
     case "member.joined":
-      return `${member} joined as ${ROLE[d.role as keyof typeof ROLE]}`;
+      return `${member} joined as ${ROLE[d.role as keyof typeof ROLE]}${d.via === "sso" ? " through single sign-on" : ""}`;
     case "member.role_changed":
       return `Changed ${member} from ${d.from} to ${d.to}`;
     case "member.removed":
@@ -171,9 +171,80 @@ export function auditSummary(event: AuditEventView): string {
       return d.reason === "removed"
         ? `Removed the email domain ${d.domain}`
         : `The email domain ${d.domain} was removed (${d.reason === "claimed" ? "another workspace proved it" : "its DNS record is missing"})`;
+    case "group.created":
+      return `Created the group ${groupName(event)}`;
+    case "group.renamed":
+      return `Renamed the group ${groupName(event)}`;
+    case "group.deleted":
+      return `Deleted the group ${groupName(event)}`;
+    case "group.member_added":
+      return `Added ${member} to the group ${groupName(event)}`;
+    case "group.member_removed":
+      return `Removed ${member} from the group ${groupName(event)}`;
+    case "sso.created":
+      return `Set up single sign-on with ${d.issuerHost} for ${d.domains} domain${d.domains === 1 ? "" : "s"}`;
+    case "sso.changed":
+      return `Changed single sign-on (${(d.fields as string[]).map((field) => SSO_FIELD[field as keyof typeof SSO_FIELD]).join(", ")})`;
+    case "sso.removed":
+      return "Removed single sign-on";
     case "audit.exported":
       return `Exported the audit log as ${String(d.format).toUpperCase()}${d.from || d.to ? ` (${d.from ?? "start"} to ${d.to ?? "now"})` : ""}`;
+    case "policy.changed":
+      return `Changed the workspace's policies: ${policyParts(d).join(", ")}${d.confirmed ? " (existing artifacts changed)" : ""}`;
+    case "policy.enforced":
+      return `Applied the workspace's policies: ${enforcedParts(d).join(", ")}`;
   }
+}
+
+const SSO_FIELD = {
+  clientId: "client ID",
+  clientSecret: "client secret",
+  domains: "domains",
+} as const;
+
+/** The fields of a policy change, in words. */
+function policyParts(d: Record<string, unknown>): string[] {
+  const parts: string[] = [];
+  if (d.publicAccess !== undefined) parts.push(`public access ${d.publicAccess}`);
+  if (d.defaultAccess !== undefined) parts.push(`new artifacts ${d.defaultAccess}`);
+  if (d.readerDomains !== undefined) {
+    parts.push(
+      d.readerDomains === null
+        ? "readers at any domain"
+        : `readers only at ${(d.readerDomains as string[]).join(", ")}`,
+    );
+  }
+  if (d.shareLinks !== undefined) {
+    parts.push(`share links ${String(d.shareLinks).replaceAll("_", " ")}`);
+  }
+  if (d.shareLinkMaxDays !== undefined) {
+    parts.push(
+      d.shareLinkMaxDays === null
+        ? "no share link lifetime limit"
+        : `share links at most ${d.shareLinkMaxDays} days`,
+    );
+  }
+  return parts;
+}
+
+/** What one enforcement step changed, as counts. */
+function enforcedParts(d: Record<string, unknown>): string[] {
+  const parts = [
+    [d.artifactsNarrowed, "artifact(s) made workspace-only"],
+    [d.readersRemoved, "reader(s) removed"],
+    [d.linksRevoked, "share link(s) revoked"],
+    [d.sessionsEnded, "link session(s) ended"],
+  ] as const;
+  const listed = parts
+    .filter(([count]) => Number(count) > 0)
+    .map(([count, what]) => `${count} ${what}`);
+  return listed.length > 0 ? listed : ["nothing to change"];
+}
+
+/** A group by its current name, or as deleted: the event never stores the name. */
+function groupName(event: AuditEventView): string {
+  if (!event.group) return "(unknown)";
+  return event.group.name === null ? "(deleted)" : `"${plain(event.group.name)}"`;
 }
 
 function accessParts(d: Record<string, unknown>): string[] {
@@ -185,10 +256,14 @@ function accessParts(d: Record<string, unknown>): string[] {
     parts.push(`at ${d.readerDomains.join(", ")}`);
   }
   if (d.readerExceptions) parts.push(`${d.readerExceptions} comment exception(s)`);
+  if (d.groupsAdded) parts.push(`${d.groupsAdded} group(s) added`);
+  if (d.groupsRemoved) parts.push(`${d.groupsRemoved} group(s) removed`);
+  if (d.groupExceptions) parts.push(`${d.groupExceptions} group comment exception(s)`);
   if (d.bar !== undefined) parts.push(`bar ${d.bar ? "on" : "off"}`);
   if (d.commentVisibility) parts.push(`comments visible to ${d.commentVisibility}`);
   if (d.indexable !== undefined) parts.push(`indexing ${d.indexable ? "on" : "off"}`);
   if (d.embeddable !== undefined) parts.push(`embedding ${d.embeddable ? "on" : "off"}`);
+  if (d.policy) parts.push("by the workspace's policy");
   return parts;
 }
 

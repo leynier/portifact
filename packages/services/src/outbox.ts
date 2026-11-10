@@ -23,7 +23,9 @@ import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
+import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
+import { runWorkspacePolicyJob } from "./workspace-policies.ts";
 import { advanceWorkspaceDeletion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
@@ -140,6 +142,8 @@ export interface JobDeps {
   domains?: DomainDeps | null | undefined;
   /** Sends `domain_notice` emails. */
   domainNotifier?: DomainNotifier | undefined;
+  /** Sends `review_notice` emails. */
+  reviewNotifier?: ReviewNotifier | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -165,7 +169,7 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  { access, notifier, commentNotifier, webhooks, domains, domainNotifier }: JobDeps,
+  { access, notifier, commentNotifier, webhooks, domains, domainNotifier, reviewNotifier }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -215,6 +219,12 @@ async function runRow(
       return sendDomainNotice(db, row, now, domainNotifier);
     case "search_index":
       return runSearchIndex(db, bucket, row, now);
+    case "review_notice":
+      if (!reviewNotifier) throw new Error("review_notice needs the review notifier");
+      return runReviewNotice(db, row, now, reviewNotifier);
+    case "workspace_policy":
+      // Written in the global batch that saved the policy (one database with one region).
+      return runWorkspacePolicyJob(db, row, now);
   }
 }
 

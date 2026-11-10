@@ -29,6 +29,10 @@ const messages = {
   methodConnected: "Verbunden",
   methodNotUsed: "Noch nicht verwendet",
   redirecting: "Du wirst angemeldet.",
+  ssoFor: (email: string) =>
+    `${email} meldet sich über den Identitätsanbieter deiner Organisation an.`,
+  ssoShown:
+    "Deine Organisation nutzt Single Sign-on. Fahre damit fort, oder lass dir stattdessen einen Code per E-Mail schicken.",
   termsUpdateFor: (email: string) => `Angemeldet als ${email}`,
   providerErrors: {
     human_verification_required:
@@ -47,6 +51,20 @@ const messages = {
       "Dieses Artifact existiert nicht, ist nicht mehr verfügbar oder kann mit diesem Konto nicht geöffnet werden. Um ein anderes Konto zu verwenden, melde dich ab und öffne den Link erneut.",
     read_rate_limited:
       "Dieses Konto hat in kurzer Zeit zu viele Artifacts geöffnet. Warte ein paar Minuten und öffne den Link erneut.",
+    sso_unavailable:
+      "Single Sign-on ist für diese Adresse gerade nicht verfügbar. Melde dich anders an, oder frag den Admin deines Workspace.",
+    sso_email_outside_domain:
+      "Der Identitätsanbieter deiner Organisation hat eine Adresse außerhalb ihrer bestätigten Domains gemeldet, daher kann Portifact sie nicht verwenden. Frag den Admin deines Workspace.",
+    sso_failed:
+      "Single Sign-on wurde nicht abgeschlossen. Versuch es noch einmal; wenn es weiter scheitert, melde dich mit einem Code per E-Mail an und sag dem Admin deines Workspace Bescheid.",
+    sso_workspace_full:
+      "Der Workspace deiner Organisation hat keinen freien Platz, daher konntest du ihm nicht beitreten. Bitte den Admin um einen Platz und melde dich dann erneut an.",
+    sso_email_unverified:
+      "Der Identitätsanbieter deiner Organisation hat diese Adresse nicht bestätigt, daher kann Portifact sie nicht verwenden. Frag den Admin deines Workspace.",
+    sso_link_required:
+      "Diese Adresse hat bereits ein Portifact-Konto. Melde dich einmal mit einem Code per E-Mail oder wie gewohnt an und wähle dann auf dieser Seite Single Sign-on verknüpfen.",
+    sso_removed:
+      "Ein Admin des Workspace hat dich entfernt, daher kannst du ihm nicht per Single Sign-on wieder beitreten. Bitte einen Admin, dich erneut einzuladen.",
   },
   providerErrorFallback: "Die Anmeldung wurde nicht abgeschlossen. Versuch es noch einmal.",
   /** The read entry's confirmation before a code goes to an artifact's custom host. */
@@ -119,7 +137,7 @@ const messages = {
     network: "Portifact ist nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.",
     failed:
       "Die Kommentarhinweise konnten nicht abgeschaltet werden. Versuche es erneut oder schalte sie in deinen Einstellungen ab.",
-    done: "Kommentarhinweise abgeschaltet.",
+    done: "Kommentar- und Review-Hinweise abgeschaltet.",
   },
 } satisfies AuthMessages;
 
@@ -166,6 +184,13 @@ export const de: AuthCatalog = {
     "login.termsUpdateNotice": `Wenn du Zustimmen und fortfahren wählst, ${termsConditions}`,
     "login.agreeAndContinue": "Zustimmen und fortfahren",
     "login.termsNotice": `Wenn du mit Google, GitHub oder einem Code per E-Mail fortfährst, ${termsConditions}`,
+    "login.termsNoticeSso": `Wenn du mit Google, GitHub, einem Code per E-Mail oder Single Sign-on fortfährst, ${termsConditions}`,
+    "login.ssoHeading": "Deine Organisation nutzt Single Sign-on",
+    "login.ssoContinue": "Weiter mit Single Sign-on",
+    "login.ssoUseCode": "Lieber einen Code per E-Mail",
+    "login.ssoLinkHint":
+      "Deine Organisation nutzt Single Sign-on. Verknüpfe es einmal mit diesem Konto und nutze es beim nächsten Mal.",
+    "login.ssoLink": "Single Sign-on verknüpfen",
     "login.google": "Weiter mit Google",
     "login.github": "Weiter mit GitHub",
     "login.orEmail": "oder nutze deine E-Mail-Adresse",
@@ -261,7 +286,7 @@ export const de: AuthCatalog = {
     "unsubscribe.title": "Portifact-Kommentarhinweise abschalten",
     "unsubscribe.heading": "Kommentarhinweise abschalten",
     "unsubscribe.intro":
-      "Du bekommst keine E-Mails mehr über neue Kommentare zu Portifact-Artifacts. Ablaufhinweise und Anmelde-E-Mails ändern sich nicht.",
+      "Du bekommst keine E-Mails mehr über neue Kommentare und Reviews zu Portifact-Artifacts. Ablaufhinweise und Anmelde-E-Mails ändern sich nicht.",
     "unsubscribe.confirm": "Kommentarhinweise abschalten",
     "unsubscribe.doneHeading": "Kommentarhinweise sind abgeschaltet",
     "unsubscribe.doneBody":

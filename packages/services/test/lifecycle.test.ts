@@ -441,6 +441,8 @@ describe("purging archives", () => {
       prunedAuditEvents: 0,
       prunedOperations: 0,
       readSessions: 0,
+      artifactGroups: 0,
+      groupTombstones: 0,
       shareLinks: 0,
       approvalReviewers: 0,
       reviewSessions: 0,
@@ -456,6 +458,7 @@ describe("purging archives", () => {
       droppedSearchIndexes: 0,
       scheduledSearchIndexing: 0,
       webhooks: { prunedDeliveries: 0, requeued: 0 },
+      workspacePolicies: { checked: 0, corrected: 0, failed: 0 },
     });
   });
 });

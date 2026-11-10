@@ -565,6 +565,10 @@ describe("previews", () => {
       ...translated.map((code) => `expiry-notice-${code}`),
       "invitation",
       ...translated.map((code) => `invitation-${code}`),
+      "review-requested",
+      "review-approved",
+      "review-changes-requested",
+      ...translated.map((code) => `review-requested-${code}`),
     ]);
     for (const { email } of previews()) {
       expect(email.html.startsWith("<!doctype html>")).toBe(true);

@@ -7,10 +7,13 @@ import { join } from "node:path";
 import {
   ArtifactSummary,
   type OwnerView,
+  WorkspaceGroupList,
   WorkspaceList,
   WorkspaceSlug,
 } from "@portifact/contracts";
+import { describePolicy } from "@portifact/domain";
 import { z } from "zod";
+import { plain } from "./annotations.ts";
 import { callApi } from "./api.ts";
 import { table } from "./artifacts.ts";
 import { type OutputOptions, openSession, signedInPrincipal, writeJson } from "./commands.ts";
@@ -96,6 +99,14 @@ export async function chosenWorkspace(
   return defaultWorkspace(session);
 }
 
+/**
+ * The space a command acts on from its flag alone (`personal` or none for the personal space),
+ * for commands the device's default does not cover, such as `webhooks`.
+ */
+export function flaggedWorkspace(flag: string | undefined): string | undefined {
+  return flag === undefined || flag.trim() === PERSONAL ? undefined : parseSlug(flag);
+}
+
 /** `?workspace=<slug>` for the API, or an empty string for the personal space. */
 export function workspaceQuery(slug: string | undefined, extra?: URLSearchParams): string {
   const query = new URLSearchParams(extra);
@@ -128,7 +139,46 @@ export async function workspaces(io: Io, runtime: Runtime, options: OutputOption
       ...list.items.map((item) => [mark(item.slug === current), item.slug, item.role, item.name]),
     ]),
   );
+  // Each workspace's policies (decision 0015) bind everyone in it, admins included.
+  for (const item of list.items) {
+    const policy = describePolicy(item.policy);
+    if (policy.length > 0) io.stdout(`Policies of ${item.slug}: ${policy.join("; ")}.\n`);
+  }
   io.stderr("* is where publish, list and usage go without --workspace.\n");
+}
+
+/**
+ * A workspace's groups, for its admins and editors (a service token needs `artifacts:share`):
+ * the IDs `portifact access group add` takes, their names and member counts, never members.
+ */
+export async function workspaceGroups(
+  io: Io,
+  runtime: Runtime,
+  options: OutputOptions,
+  value: string,
+): Promise<void> {
+  const slug = parseSlug(value);
+  const session = await openSession(io, runtime);
+  const list = await callApi(session, {
+    method: "GET",
+    path: `/workspaces/${encodeURIComponent(slug)}/groups`,
+    schema: WorkspaceGroupList,
+  });
+  if (options.json) {
+    writeJson(io, list);
+    return;
+  }
+  if (list.items.length === 0) {
+    io.stdout(`${messages.groupsNone(slug)}\n`);
+  } else {
+    io.stdout(
+      table([
+        ["ID", "MEMBERS", "NAME"],
+        ...list.items.map((item) => [item.id, String(item.members), plain(item.name)]),
+      ]),
+    );
+  }
+  if (!list.available) io.stderr(`${messages.groupsLapsed}\n`);
 }
 
 export async function useWorkspace(

@@ -53,6 +53,7 @@ import {
   InvitationLookup,
   InvitationView,
   LifecycleResult,
+  PolicyImpact,
   PreparedPublish,
   type PublishRequest,
   ReviewStart,
@@ -67,6 +68,9 @@ import {
   ShareLinkList,
   ShareLinkRevoked,
   SignOutOthersResult,
+  type SsoProviderInput,
+  SsoSettings,
+  SsoTestResult,
   type UploadedPart,
   VersionComparison,
   VersionDownload,
@@ -83,9 +87,14 @@ import {
   WebhookView,
   WorkspaceDomainList,
   WorkspaceDomainView,
+  WorkspaceGroupDetail,
+  WorkspaceGroupList,
+  WorkspaceGroupView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
+  type WorkspacePolicy,
+  WorkspacePolicyView,
   type WorkspaceRole,
   WorkspaceView,
 } from "@portifact/contracts";
@@ -182,6 +191,23 @@ export interface DashboardApi {
   /** Creates a service token; the answer holds its secret once. */
   createServiceToken(slug: string, body: ServiceTokenCreate): Promise<ServiceTokenCreated>;
   revokeServiceToken(slug: string, tokenId: string): Promise<void>;
+  /** A workspace's groups: names and member counts (admins and editors, decision 0014). */
+  groups(slug: string): Promise<WorkspaceGroupList>;
+  /** One group with its members, for admins (session only). */
+  group(slug: string, groupId: string): Promise<WorkspaceGroupDetail>;
+  createGroup(slug: string, name: string): Promise<WorkspaceGroupView>;
+  renameGroup(slug: string, groupId: string, name: string): Promise<WorkspaceGroupView>;
+  deleteGroup(slug: string, groupId: string): Promise<void>;
+  addGroupMember(slug: string, groupId: string, userId: string): Promise<WorkspaceGroupDetail>;
+  removeGroupMember(slug: string, groupId: string, userId: string): Promise<void>;
+  /** A workspace's policies (decision 0015): every member reads them, only admins change them. */
+  policies(slug: string): Promise<WorkspacePolicyView>;
+  /** What saving a policy would change on the existing artifacts. */
+  previewPolicies(slug: string, policy: WorkspacePolicy): Promise<PolicyImpact>;
+  savePolicies(
+    slug: string,
+    update: { policy: WorkspacePolicy; revision: number; confirmed?: PolicyImpact },
+  ): Promise<WorkspacePolicyView>;
   changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
   removeMember(slug: string, userId: string): Promise<void>;
   leaveWorkspace(slug: string): Promise<void>;
@@ -197,6 +223,13 @@ export interface DashboardApi {
   /** Looks the TXT record up and verifies the claim. */
   verifyWorkspaceDomain(slug: string, domainId: string): Promise<WorkspaceDomainView>;
   removeWorkspaceDomain(slug: string, domainId: string): Promise<void>;
+  /** A workspace's single sign-on settings, for its admins (decision 0016). */
+  sso(slug: string): Promise<SsoSettings>;
+  /** Creates or changes the provider; the secret may be omitted on a change. */
+  saveSso(slug: string, input: SsoProviderInput): Promise<SsoSettings>;
+  removeSso(slug: string): Promise<void>;
+  /** Runs discovery for an issuer and says what failed; stores nothing. */
+  testSso(slug: string, issuer: string): Promise<SsoTestResult>;
   /** The invitations addressed to the signed-in account. */
   incomingInvitations(): Promise<IncomingInvitationList>;
   /** Accepts (answering the workspace joined) or declines one of them. */
@@ -212,14 +245,18 @@ export interface DashboardApi {
   ): Promise<WorkspaceView | null>;
   /** Moves an artifact to a workspace, or to the personal space with `null`. */
   transferArtifact(artifactId: string, workspace: string | null): Promise<ArtifactSummary>;
-  /** The account's webhooks (decision 0009). */
-  webhooks(): Promise<WebhookList>;
+  /** A space's webhooks (decision 0009): the personal space, or a workspace by slug. */
+  webhooks(workspace: string | undefined): Promise<WebhookList>;
   /** Adds a webhook; the answer holds its signing secret once. */
-  createWebhook(webhook: WebhookCreate): Promise<WebhookCreated>;
-  updateWebhook(webhookId: string, update: WebhookUpdate): Promise<WebhookView>;
-  removeWebhook(webhookId: string): Promise<WebhookRemoved>;
-  testWebhook(webhookId: string): Promise<WebhookTestQueued>;
-  webhookDeliveries(webhookId: string): Promise<WebhookDeliveries>;
+  createWebhook(webhook: WebhookCreate, workspace: string | undefined): Promise<WebhookCreated>;
+  updateWebhook(
+    webhookId: string,
+    update: WebhookUpdate,
+    workspace: string | undefined,
+  ): Promise<WebhookView>;
+  removeWebhook(webhookId: string, workspace: string | undefined): Promise<WebhookRemoved>;
+  testWebhook(webhookId: string, workspace: string | undefined): Promise<WebhookTestQueued>;
+  webhookDeliveries(webhookId: string, workspace: string | undefined): Promise<WebhookDeliveries>;
   /** The artifact's share links that are not revoked, never with their URL. */
   listShareLinks(artifactId: string): Promise<ShareLinkList>;
   /** Creates a share link; the answer holds its URL, the only time it is ever shown. */
@@ -555,33 +592,37 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     removeBrandLogo(workspace) {
       return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "DELETE");
     },
-    webhooks() {
-      return call("/api/v1/webhooks", WebhookList);
+    webhooks(workspace) {
+      return call(inSpace("/api/v1/webhooks", workspace), WebhookList);
     },
-    createWebhook(webhook) {
-      return call("/api/v1/webhooks", WebhookCreated, "POST", webhook);
+    createWebhook(webhook, workspace) {
+      return call(inSpace("/api/v1/webhooks", workspace), WebhookCreated, "POST", webhook);
     },
-    updateWebhook(webhookId, update) {
+    updateWebhook(webhookId, update, workspace) {
       return call(
-        `/api/v1/webhooks/${encodeURIComponent(webhookId)}`,
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, workspace),
         WebhookView,
         "PATCH",
         update,
       );
     },
-    removeWebhook(webhookId) {
-      return call(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, WebhookRemoved, "DELETE");
-    },
-    testWebhook(webhookId) {
+    removeWebhook(webhookId, workspace) {
       return call(
-        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`,
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}`, workspace),
+        WebhookRemoved,
+        "DELETE",
+      );
+    },
+    testWebhook(webhookId, workspace) {
+      return call(
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}/test`, workspace),
         WebhookTestQueued,
         "POST",
       );
     },
-    webhookDeliveries(webhookId) {
+    webhookDeliveries(webhookId, workspace) {
       return call(
-        `/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`,
+        inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`, workspace),
         WebhookDeliveries,
       );
     },
@@ -616,6 +657,57 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     createServiceToken(slug, body) {
       return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenCreated, "POST", body);
+    },
+    policies(slug) {
+      return call(`${workspacePath(slug)}/policies`, WorkspacePolicyView);
+    },
+    previewPolicies(slug, policy) {
+      return call(`${workspacePath(slug)}/policies/preview`, PolicyImpact, "POST", { policy });
+    },
+    savePolicies(slug, update) {
+      return call(`${workspacePath(slug)}/policies`, WorkspacePolicyView, "PUT", update);
+    },
+    groups(slug) {
+      return call(`${workspacePath(slug)}/groups`, WorkspaceGroupList);
+    },
+    group(slug, groupId) {
+      return call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}`,
+        WorkspaceGroupDetail,
+      );
+    },
+    createGroup(slug, name) {
+      return call(`${workspacePath(slug)}/groups`, WorkspaceGroupView, "POST", { name });
+    },
+    renameGroup(slug, groupId, name) {
+      return call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}`,
+        WorkspaceGroupView,
+        "PATCH",
+        { name },
+      );
+    },
+    async deleteGroup(slug, groupId) {
+      await call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    addGroupMember(slug, groupId, userId) {
+      return call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}/members`,
+        WorkspaceGroupDetail,
+        "POST",
+        { userId },
+      );
+    },
+    async removeGroupMember(slug, groupId, userId) {
+      await call(
+        `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+        z.null(),
+        "DELETE",
+      );
     },
     async revokeServiceToken(slug, tokenId) {
       await call(
@@ -674,6 +766,18 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         z.object({ id: z.string(), removed: z.literal(true) }),
         "DELETE",
       );
+    },
+    sso(slug) {
+      return call(`${workspacePath(slug)}/sso`, SsoSettings);
+    },
+    saveSso(slug, input) {
+      return call(`${workspacePath(slug)}/sso`, SsoSettings, "PUT", input);
+    },
+    async removeSso(slug) {
+      await call(`${workspacePath(slug)}/sso`, z.object({ removed: z.literal(true) }), "DELETE");
+    },
+    testSso(slug, issuer) {
+      return call(`${workspacePath(slug)}/sso/test`, SsoTestResult, "POST", { issuer });
     },
     incomingInvitations() {
       return call("/api/v1/account/invitations", IncomingInvitationList);

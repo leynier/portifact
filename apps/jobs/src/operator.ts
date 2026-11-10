@@ -19,6 +19,7 @@ import {
   PlanName,
   ServiceTokenId,
   TombstoneMarker,
+  WorkspacePolicyExport,
 } from "@portifact/contracts";
 import { type Db, regionsFromEnv, schema } from "@portifact/db";
 import {
@@ -33,6 +34,7 @@ import {
   accountSuspension,
   applyOwnerPlans,
   applyTombstones,
+  applyWorkspacePolicies,
   type BudgetState,
   blockHostname,
   checkGrant,
@@ -44,6 +46,7 @@ import {
   domainDbsOf,
   exportOwnerPlans,
   exportTombstones,
+  exportWorkspacePolicies,
   findServiceToken,
   getBudgetState,
   getOwnerPlan,
@@ -117,6 +120,8 @@ Commands:
   remove-plan <owner>
   export-plans --out <file>
   apply-plans --file <file>
+  export-policies --out <file>
+  apply-policies --file <file>
   workspaces
   workspace <slug|workspace-id>
   workspace-create <slug> --name <name> --admin <user-id|email>
@@ -833,7 +838,7 @@ export async function runOperator(
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${result.groups} group(s) and ${result.groupMembers} group membership(s) removed again, ${result.ssoProviders} single sign-on provider(s) removed again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {
@@ -935,6 +940,39 @@ export async function runOperator(
         lines.push(
           `${result.extra.length} owner(s) have a plan the file does not list; remove each with remove-plan if it ended after the export:`,
           ...result.extra.map((ownerId) => `  ${ownerId}`),
+        );
+      }
+      return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "export-policies": {
+      const out = options.get("out");
+      if (!out) return usage("export-policies needs --out <file>.");
+      const items = await exportWorkspacePolicies(regionsFromEnv({ DB: db.$client }).global);
+      await files.write(out, items.map((item) => `${JSON.stringify(item)}\n`).join(""));
+      return { exitCode: 0, output: `Wrote ${items.length} workspace policy(ies) to ${out}.` };
+    }
+    case "apply-policies": {
+      const file = options.get("file");
+      if (!file) return usage("apply-policies needs --file <file>.");
+      const parsed = parseJsonLines(await files.read(file), WorkspacePolicyExport);
+      if (!parsed.ok) {
+        return {
+          exitCode: 1,
+          output: `Line ${parsed.line} of ${file} is not an exported workspace policy; nothing was applied.`,
+        };
+      }
+      const result = await applyWorkspacePolicies(
+        regionsFromEnv({ DB: db.$client }).global,
+        parsed.items,
+        now,
+      );
+      const lines = [
+        `Applied ${result.applied} workspace policy(ies); skipped ${result.skipped} (unchanged, or the workspace is gone).`,
+      ];
+      if (result.extra.length > 0) {
+        lines.push(
+          `${result.extra.length} workspace(s) have a policy the file does not list; review each on its Policies page (it was set before the restore point):`,
+          ...result.extra.map((id) => `  ${id}`),
         );
       }
       return { exitCode: 0, output: lines.join("\n") };

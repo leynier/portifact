@@ -18,6 +18,8 @@ export const OutboxTopic = z.enum([
   "access_history_move",
   "domain_notice",
   "search_index",
+  "review_notice",
+  "workspace_policy",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -98,6 +100,42 @@ export const CommentNoticePayload = z.strictObject({
 });
 export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
 
+const reviewNoticeId = z.string().min(1).max(200);
+
+/**
+ * Payload of a `review_notice` job (approval reviews, decision 0013, "Emails"). The write's batch
+ * adds one `event` job (its subject is the request): who was asked (the reviewers added at
+ * `addedAt`) or which final status the version reached. The job fans it out into one `send` job
+ * per recipient account (its subject is the account), which sends one email. IDs, a time and a
+ * status only: never an address, a name or a note.
+ */
+export const ReviewNoticePayload = z.union([
+  z.strictObject({
+    stage: z.literal("event"),
+    kind: z.literal("requested"),
+    versionId: reviewNoticeId,
+    /** The reviewers asked are those added at this time. */
+    addedAt: z.number().int().nonnegative(),
+  }),
+  z.strictObject({
+    stage: z.literal("event"),
+    kind: z.literal("completed"),
+    versionId: reviewNoticeId,
+    status: z.enum(["approved", "changes_requested"]),
+    /** Whose verdict made it final, when one did: they are not told about their own act. */
+    actorId: reviewNoticeId.nullable(),
+  }),
+  z.strictObject({
+    stage: z.literal("send"),
+    kind: z.enum(["requested", "completed"]),
+    requestId: reviewNoticeId,
+    artifactId: reviewNoticeId,
+    versionId: reviewNoticeId,
+    status: z.enum(["approved", "changes_requested"]).nullable(),
+  }),
+]);
+export type ReviewNoticePayload = z.infer<typeof ReviewNoticePayload>;
+
 /**
  * Payload of a `domain_notice` job (its subject is the owner): the custom domains a plan that
  * ended will stop covering, and when (decision 0006, section 7). Hostnames only.
@@ -110,7 +148,9 @@ export type DomainNoticePayload = z.infer<typeof DomainNoticePayload>;
 
 /**
  * One purged or deleted artifact or account, a revoked share link, a removed webhook or a removed
- * or lapsed workspace email domain (by row ID), that a restored backup must not bring back.
+ * or lapsed workspace email domain (by row ID), a deleted workspace group or a removed group
+ * membership (by row ID, decision 0014) or a removed single sign-on provider (by row ID,
+ * decision 0016), that a restored backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
   kind: z.enum([
@@ -121,6 +161,9 @@ export const TombstoneMarker = z.strictObject({
     "webhook",
     "service_token",
     "workspace_domain",
+    "workspace_group",
+    "workspace_group_member",
+    "workspace_sso",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),

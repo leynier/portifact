@@ -5,11 +5,13 @@
 // triggers of the workspace_members_invitations migration refuse leaving a workspace without an admin even when a race slips past.
 import {
   type AuditDetail,
+  DEFAULT_POLICY,
   DEFAULT_REGION,
   isServiceTokenId,
   isWorkspaceId,
   type OwnerView,
   type Region,
+  type WorkspacePolicy,
   type WorkspaceRole,
 } from "@portifact/contracts";
 import { type Db, type GlobalDb, isRegion, type RegionalDb, schema } from "@portifact/db";
@@ -22,6 +24,7 @@ import {
   fail,
   ok,
   personalActor,
+  policyOf,
   type Result,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
@@ -37,6 +40,7 @@ import { ownerEntitlements } from "./plans.ts";
 const w = schema.workspaces;
 const m = schema.workspaceMembers;
 const inv = schema.workspaceInvitations;
+const gm = schema.workspaceGroupMembers;
 
 export const missingWorkspace = () => fail<never>("not_found", "Workspace not found.");
 
@@ -46,6 +50,8 @@ export interface WorkspaceRow {
   name: string;
   region: Region;
   createdAt: number;
+  /** Its policies in effect (decision 0015). */
+  policy: WorkspacePolicy;
 }
 
 export function regionOf(row: { id: string; region: string }): Region {
@@ -59,11 +65,18 @@ export async function workspaceBySlug(
   slug: string,
 ): Promise<WorkspaceRow | null> {
   const [row] = await global
-    .select({ id: w.id, slug: w.slug, name: w.name, region: w.region, createdAt: w.createdAt })
+    .select({
+      id: w.id,
+      slug: w.slug,
+      name: w.name,
+      region: w.region,
+      createdAt: w.createdAt,
+      policy: w.policy,
+    })
     .from(w)
     .where(eq(w.slug, slug))
     .limit(1);
-  return row ? { ...row, region: regionOf(row) } : null;
+  return row ? { ...row, region: regionOf(row), policy: policyOf(row.policy) } : null;
 }
 
 /**
@@ -120,13 +133,14 @@ export async function listUserWorkspaces(
         name: w.name,
         region: w.region,
         createdAt: w.createdAt,
+        policy: w.policy,
         role: t.role,
       })
       .from(t)
       .innerJoin(w, eq(w.id, t.workspaceId))
       .where(eq(t.id, userId))
       .limit(1);
-    return rows.map((row) => ({ ...row, region: regionOf(row) }));
+    return rows.map((row) => ({ ...row, region: regionOf(row), policy: policyOf(row.policy) }));
   }
   const rows = await global
     .select({
@@ -135,13 +149,14 @@ export async function listUserWorkspaces(
       name: w.name,
       region: w.region,
       createdAt: w.createdAt,
+      policy: w.policy,
       role: m.role,
     })
     .from(m)
     .innerJoin(w, eq(w.id, m.workspaceId))
     .where(eq(m.userId, userId))
     .orderBy(asc(w.name), asc(w.slug));
-  return rows.map((row) => ({ ...row, region: regionOf(row) }));
+  return rows.map((row) => ({ ...row, region: regionOf(row), policy: policyOf(row.policy) }));
 }
 
 /**
@@ -438,14 +453,52 @@ async function dropMember(
             { role: current.role },
             sql`exists (select 1 from ${m} where ${where})`,
           ),
+          // Their groups go with the membership by cascade; a restore must not bring them back.
+          groupMembershipTombstones(
+            global,
+            workspaceId,
+            memberId,
+            sql`exists (select 1 from ${m} where ${where})`,
+            by.now,
+          ),
+          // An admin's removal holds against single sign-on until they invite them again
+          // (decision 0016); leaving by oneself records none.
+          global
+            .insert(schema.workspaceRemovals)
+            .select(
+              sql`select ${workspaceId}, ${memberId}, ${by.now} where ${self ? sql`0` : sql`1`} and exists (select 1 from ${m} where ${where})`,
+            )
+            .onConflictDoUpdate({
+              target: [schema.workspaceRemovals.workspaceId, schema.workspaceRemovals.userId],
+              set: { removedAt: by.now },
+            }),
           global.delete(m).where(where).returning({ userId: m.userId }),
         ])
-      )[1],
+      )[3],
     () => checkRemoval("admin", 1, leaving) as Result<never>,
   );
   if (!removed.ok) return removed;
   if (removed.value.length === 0) return missingMember();
   return ok({ removed: true });
+}
+
+/**
+ * Tombstones of every group membership `memberId` has in the workspace, for the batch that removes
+ * them from the workspace (the cascade deletes the rows): a restore must not put them back.
+ */
+export function groupMembershipTombstones(
+  global: GlobalDb,
+  workspaceId: string,
+  memberId: string,
+  condition: SQL,
+  now: number,
+) {
+  return global
+    .insert(schema.tombstones)
+    .select(
+      sql`select 'workspace_group_member', ${gm.id}, ${now} from ${gm} where ${gm.workspaceId} = ${workspaceId} and ${gm.userId} = ${memberId} and ${condition}`,
+    )
+    .onConflictDoNothing();
 }
 
 /** The audit event of a membership change, in the global batch of that change. */
@@ -509,9 +562,10 @@ export async function createWorkspace(
   const [created] = (await global.batch([
     global
       .insert(w)
-      // Columns in schema order: id, slug, name, region, created by, created at, updated at.
+      // Columns in schema order: id, slug, name, region, created by, created at, updated at,
+      // policy (the defaults), policy revision.
       .select(
-        sql`select ${id}, ${slug}, ${name}, ${DEFAULT_REGION}, ${input.adminUserId}, ${input.now}, ${input.now} where ${guard}`,
+        sql`select ${id}, ${slug}, ${name}, ${DEFAULT_REGION}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0 where ${guard}`,
       )
       .onConflictDoNothing()
       .returning({ id: w.id }),
@@ -536,7 +590,14 @@ export async function createWorkspace(
       ? fail("invalid_input", `The slug ${slug} is taken.`)
       : fail("not_found", "Account not found.");
   }
-  return ok({ id, slug, name, region: DEFAULT_REGION, createdAt: input.now });
+  return ok({
+    id,
+    slug,
+    name,
+    region: DEFAULT_REGION,
+    createdAt: input.now,
+    policy: DEFAULT_POLICY,
+  });
 }
 
 export interface WorkspaceDetail extends WorkspaceRow {
@@ -570,6 +631,7 @@ export async function getWorkspaceDetail(
     name: row.name,
     region: regionOf(row),
     createdAt: row.createdAt,
+    policy: policyOf(row.policy),
     createdBy: row.createdBy,
     members: await members(global, row.id),
     invitations: await global
@@ -593,11 +655,17 @@ export async function listAllWorkspaces(
       name: w.name,
       region: w.region,
       createdAt: w.createdAt,
+      policy: w.policy,
       members: sql<number>`(select count(*) from ${m} where ${m.workspaceId} = ${w.id})`,
     })
     .from(w)
     .orderBy(asc(w.slug));
-  return rows.map((row) => ({ ...row, region: regionOf(row), members: Number(row.members) }));
+  return rows.map((row) => ({
+    ...row,
+    region: regionOf(row),
+    policy: policyOf(row.policy),
+    members: Number(row.members),
+  }));
 }
 
 /** Inserts a `workspace_deletion` job for `workspaceId` when `condition` holds. */
@@ -633,6 +701,13 @@ export async function deleteWorkspace(
     // Its webhooks stop at once, as an account's do: no foreign key ties them to their owner,
     // and their pending events and delivery log cascade from them.
     db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, input.workspaceId), exists)),
+    // The identities linked through its single sign-on: no foreign key ties them to the provider,
+    // which the workspace row takes with it below (decision 0016).
+    db
+      .delete(schema.accounts)
+      .where(
+        sql`${schema.accounts.providerId} in (select 'sso:' || ${schema.workspaceSso.id} from ${schema.workspaceSso} where ${schema.workspaceSso.workspaceId} = ${input.workspaceId})`,
+      ),
     db.delete(w).where(eq(w.id, input.workspaceId)).returning({ id: w.id }),
   ])) as unknown[];
   const deleted = (results.at(-1) as unknown[]).length === 1;
@@ -643,6 +718,18 @@ export async function deleteWorkspace(
     .where(eq(schema.workspaceDeletions.workspaceId, input.workspaceId))
     .limit(1);
   return pending ? ok({ deleted: false }) : missingWorkspace();
+}
+
+/**
+ * Deletes identities linked through a single sign-on provider that no longer exists
+ * (`accounts.provider_id` is `sso:<id>`, with no foreign key to the provider).
+ */
+export function deleteOrphanSsoIdentities(db: Db) {
+  return db
+    .delete(schema.accounts)
+    .where(
+      sql`${schema.accounts.providerId} like 'sso:%' and substr(${schema.accounts.providerId}, 5) not in (select ${schema.workspaceSso.id} from ${schema.workspaceSso})`,
+    );
 }
 
 /** Advances pending workspace deletions, oldest first. */
@@ -725,6 +812,8 @@ export async function advanceWorkspaceDeletion(
     eraseOwnerAuditEvents(db, workspaceId, nothingLeft),
     // Any webhook a restore or a race brought back since the deletion was requested.
     db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
+    // Single sign-on identities a restore or a race left without their provider.
+    deleteOrphanSsoIdentities(db),
     db
       .delete(schema.accountUsage)
       .where(

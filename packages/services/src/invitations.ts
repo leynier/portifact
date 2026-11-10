@@ -18,6 +18,7 @@ import {
   newAuditEventId,
   normalizeEmail,
   ok,
+  policyOf,
   type Result,
 } from "@portifact/domain";
 import { and, asc, eq, gt, lte, type SQL, sql } from "drizzle-orm";
@@ -119,7 +120,7 @@ export interface InviteInput {
  * the one read: a write that takes a seat is conditioned on it, so a plan lowered or removed
  * between the read and the batch makes it a no-op instead of applying the old limit.
  */
-async function seatLimit(global: GlobalDb, workspaceId: string, now: number) {
+export async function seatLimit(global: GlobalDb, workspaceId: string, now: number) {
   const p = schema.ownerPlans;
   const [row] = await global
     .select({
@@ -228,6 +229,12 @@ export async function inviteMember(
         },
       })
       .returning({ id: inv.id }),
+    // Inviting someone again lifts an earlier removal for single sign-on (decision 0016).
+    global
+      .delete(schema.workspaceRemovals)
+      .where(
+        sql`${schema.workspaceRemovals.workspaceId} = ${workspace.id} and ${schema.workspaceRemovals.userId} in (select ${schema.users.id} from ${schema.users} where lower(${schema.users.email}) = ${email}) and exists (select 1 from ${inv} where ${inv.id} = ${id})`,
+      ),
     // After the upsert, on the invitation it wrote (its ID is new to this request): the role and
     // the address's domain, never the address.
     auditEvent(
@@ -501,6 +508,7 @@ export async function acceptInvitation(
       name: w.name,
       region: w.region,
       createdAt: w.createdAt,
+      policy: w.policy,
       role: m.role,
     })
     .from(m)
@@ -508,7 +516,7 @@ export async function acceptInvitation(
     .where(and(eq(m.workspaceId, invitation.workspaceId), eq(m.userId, input.userId)))
     .limit(1);
   if (!row) return fail("not_found", MISSING_INVITATION);
-  return ok({ ...row, region: regionOf(row) });
+  return ok({ ...row, region: regionOf(row), policy: policyOf(row.policy) });
 }
 
 /** Declines an invitation, for the account it was sent to; its seat is free again. */

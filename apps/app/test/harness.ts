@@ -61,6 +61,8 @@ export function createHarness(
     domains?: FakeDomains;
     /** DNS for workspace email domain proofs; omitted, verifying answers capacity_unavailable. */
     emailDomains?: FakeDomains;
+    /** The identity providers single sign-on reaches; omitted, every call fails. */
+    ssoFetch?: AuthDeps["ssoFetch"];
   } = {},
 ): Harness {
   const outbox: EmailMessage[] = [];
@@ -72,6 +74,11 @@ export function createHarness(
     ...(options.multipart ? { multipart: options.multipart } : {}),
     domains: options.domains ?? null,
     ...(options.emailDomains ? { emailDomains: { txt: options.emailDomains.txt } } : {}),
+    ssoFetch:
+      options.ssoFetch ??
+      (async () => {
+        throw new Error("no identity provider in this test");
+      }),
     email: options.email ?? {
       send: async (message) => {
         outbox.push(message);

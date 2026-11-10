@@ -58,15 +58,18 @@ function under(host: string, domain: string): boolean {
 const refuse = (message: string) => fail<never>("invalid_input", message);
 
 /**
- * Validates a webhook URL and returns it in canonical form with its host. Runs at creation and
- * again before every delivery attempt, so a tightened rule also stops stored webhooks.
+ * Validates a URL that Portifact will fetch itself and returns it in canonical form with its host:
+ * https on the standard port, no credentials or fragment, a public DNS name (never an IP address,
+ * a local or reserved name, Portifact's own hosts or Cloudflare's). Shared by webhooks
+ * (decision 0009) and single sign-on discovery (decision 0016). The Worker's
+ * `global_fetch_strictly_public` flag keeps private addresses out at the network too.
  */
-export function checkWebhookUrl(
+export function checkPublicHttpsUrl(
   raw: string,
-  format: WebhookFormat,
-): Result<{ url: string; host: string }> {
-  if (raw.length > WEBHOOK_LIMITS.urlMaxLength) {
-    return refuse(`The URL can be at most ${WEBHOOK_LIMITS.urlMaxLength} characters.`);
+  maxLength: number,
+): Result<{ url: URL; host: string }> {
+  if (raw.length > maxLength) {
+    return refuse(`The URL can be at most ${maxLength} characters.`);
   }
   let url: URL;
   try {
@@ -98,8 +101,26 @@ export function checkWebhookUrl(
     return refuse("The host must be a public DNS name, not a local or reserved one.");
   }
   if (PORTIFACT_DOMAINS.some((domain) => under(host, domain)) || isCloudflareHost(host)) {
-    return refuse("Webhooks cannot point at Portifact or Cloudflare service hosts.");
+    return refuse("The URL cannot point at Portifact or Cloudflare service hosts.");
   }
+  return ok({ url, host });
+}
+
+/**
+ * Validates a webhook URL and returns it in canonical form with its host. Runs at creation and
+ * again before every delivery attempt, so a tightened rule also stops stored webhooks.
+ */
+export function checkWebhookUrl(
+  raw: string,
+  format: WebhookFormat,
+): Result<{ url: string; host: string }> {
+  const checked = checkPublicHttpsUrl(raw, WEBHOOK_LIMITS.urlMaxLength);
+  if (!checked.ok) {
+    return checked.message.startsWith("The URL cannot point at Portifact")
+      ? refuse("Webhooks cannot point at Portifact or Cloudflare service hosts.")
+      : checked;
+  }
+  const { url, host } = checked.value;
   if (
     format === "slack" &&
     !(host === "hooks.slack.com" && url.pathname.startsWith("/services/"))
@@ -219,6 +240,24 @@ export function signedContent(id: string, timestampSeconds: number, body: string
   return `${id}.${timestampSeconds}.${body}`;
 }
 
+/** A review's version and counts for a chat line: never names, addresses or notes. */
+function reviewCounts(event: WebhookEventBody): string {
+  const parts: string[] = [];
+  if (event.version !== undefined) parts.push(`version ${event.version}`);
+  const review = event.review;
+  if (review) {
+    parts.push(`${review.approvals} of ${review.required} approvals`);
+    if (review.changesRequested > 0) {
+      parts.push(
+        review.changesRequested === 1
+          ? "1 asked for changes"
+          : `${review.changesRequested} asked for changes`,
+      );
+    }
+  }
+  return parts.length === 0 ? "" : ` (${parts.join(", ")})`;
+}
+
 /** One line per event for the chat formats, in English (decision 0009). */
 function eventLine(event: WebhookEventBody, link: (name: string, url: string) => string): string {
   const on = event.artifact ? ` ${link(event.artifact.name, event.artifact.viewUrl)}` : "";
@@ -234,6 +273,10 @@ function eventLine(event: WebhookEventBody, link: (name: string, url: string) =>
       return `${on.trim()} expires ${event.expiresAt?.slice(0, 10) ?? "soon"}`;
     case "artifact.access_changed":
       return `Access to${on} changed${event.access ? ` (now ${event.access})` : ""}`;
+    case "review.requested":
+      return `Review requested on${on}${reviewCounts(event)}`;
+    case "review.completed":
+      return `${event.review?.status === "changes_requested" ? "Changes requested on" : "Approved:"}${on}${reviewCounts(event)}`;
     case WEBHOOK_TEST_EVENT:
       return "Test event from Portifact: this webhook works.";
   }

@@ -141,8 +141,33 @@ describe("the catalog's exact shapes", () => {
       "service_token.revoked": "service_token",
       "email_domain.verified": "email_domain",
       "email_domain.removed": "email_domain",
+      "sso.created": "sso",
+      "sso.changed": "sso",
+      "sso.removed": "sso",
+      "group.created": "group",
+      "group.renamed": "group",
+      "group.deleted": "group",
+      "group.member_added": "member",
+      "group.member_removed": "member",
       "audit.exported": "audit_log",
+      "policy.changed": "policy",
+      "policy.enforced": "policy",
     });
+  });
+
+  it("names a group by its ID only, and access changes count groups", () => {
+    const group = `wg_${"a".repeat(32)}`;
+    expect(AUDIT_DETAILS["group.member_added"].safeParse({ group }).success).toBe(true);
+    for (const wrong of [{}, { group: "Design" }, { group, name: "Design" }]) {
+      expect(AUDIT_DETAILS["group.member_removed"].safeParse(wrong).success).toBe(false);
+    }
+    expect(AUDIT_DETAILS["group.created"].safeParse({ name: "Design" }).success).toBe(false);
+    const access = AUDIT_DETAILS["access.changed"];
+    expect(
+      access.safeParse({ groupsAdded: 20, groupsRemoved: 1, groupExceptions: 0 }).success,
+    ).toBe(true);
+    expect(access.safeParse({ groupsAdded: 21 }).success).toBe(false);
+    expect(access.safeParse({ groups: [group] }).success).toBe(false);
   });
 
   it("keeps a service token's event to what it may do", () => {

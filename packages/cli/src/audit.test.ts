@@ -345,7 +345,29 @@ describe("plain words for every kind", () => {
     "service_token.revoked": {},
     "email_domain.verified": { domain: "corp.example" },
     "email_domain.removed": { domain: "corp.example", reason: "removed" },
+    "group.created": {},
+    "group.renamed": {},
+    "group.deleted": {},
+    "group.member_added": { group: "wg_11111111111111111111111111111111" },
+    "group.member_removed": { group: "wg_11111111111111111111111111111111" },
+    "sso.created": { issuerHost: "login.corp.example", domains: 2 },
+    "sso.changed": { fields: ["clientSecret", "domains"] },
+    "sso.removed": {},
     "audit.exported": { format: "csv", kinds: 0, from: "2026-01-01" },
+    "policy.changed": {
+      fields: ["publicAccess", "readerDomains", "shareLinks", "shareLinkMaxDays"],
+      publicAccess: "forbidden",
+      readerDomains: ["corp.example"],
+      shareLinks: "password_required",
+      shareLinkMaxDays: 30,
+      confirmed: true,
+    },
+    "policy.enforced": {
+      artifactsNarrowed: 2,
+      readersRemoved: 0,
+      linksRevoked: 1,
+      sessionsEnded: 3,
+    },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -385,7 +407,19 @@ describe("plain words for every kind", () => {
     "service_token.revoked": "Revoked a service token",
     "email_domain.verified": "Verified the email domain corp.example",
     "email_domain.removed": "Removed the email domain corp.example",
+    "group.created": 'Created the group "Design"',
+    "group.renamed": 'Renamed the group "Design"',
+    "group.deleted": 'Deleted the group "Design"',
+    "group.member_added": 'Added Grace to the group "Design"',
+    "group.member_removed": 'Removed Grace from the group "Design"',
+    "sso.created": "Set up single sign-on with login.corp.example for 2 domains",
+    "sso.changed": "Changed single sign-on (client secret, domains)",
+    "sso.removed": "Removed single sign-on",
     "audit.exported": "Exported the audit log as CSV (2026-01-01 to now)",
+    "policy.changed":
+      "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days (existing artifacts changed)",
+    "policy.enforced":
+      "Applied the workspace's policies: 2 artifact(s) made workspace-only, 1 share link(s) revoked, 3 link session(s) ended",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {
@@ -396,9 +430,50 @@ describe("plain words for every kind", () => {
           kind,
           detail: details[kind],
           target: { type: "member", id: "u_g", member },
+          group: { id: "wg_11111111111111111111111111111111", name: "Design" },
         }),
       ),
     ).toBe(expected[kind]);
+  });
+
+  it("says when the workspace's policy changed access", () => {
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "access.changed",
+          detail: { mode: "workspace", policy: "publicAccess" },
+        }),
+      ),
+    ).toBe("Changed access: mode workspace, by the workspace's policy");
+  });
+
+  it("names a group by its current name, or as deleted, never from the event", () => {
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "group.deleted",
+          group: { id: "wg_11111111111111111111111111111111", name: null },
+        }),
+      ),
+    ).toBe("Deleted the group (deleted)");
+    expect(auditSummary(event(0, { kind: "group.created" }))).toBe("Created the group (unknown)");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "member.joined",
+          detail: { role: "member", via: "sso" },
+          target: { type: "member", id: "u1" },
+        }),
+      ),
+    ).toContain("joined as member through single sign-on");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "access.changed",
+          detail: { groupsAdded: 2, groupsRemoved: 1, groupExceptions: 1 },
+        }),
+      ),
+    ).toBe("Changed access: 2 group(s) added, 1 group(s) removed, 1 group comment exception(s)");
   });
 
   it("covers the other variants and actors", () => {

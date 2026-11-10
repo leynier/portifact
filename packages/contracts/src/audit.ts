@@ -6,8 +6,16 @@
 import { z } from "zod";
 import { APPROVALS } from "./approval-reviews.ts";
 import { AccessMode, CommentVisibility } from "./core.ts";
+import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { LIMITS } from "./limits.ts";
 import { PlanName } from "./plans.ts";
+import {
+  DefaultAccessPolicy,
+  POLICY_FIELDS,
+  PublicAccessPolicy,
+  ShareLinkPolicy,
+  WORKSPACE_POLICIES,
+} from "./policies.ts";
 import { SERVICE_TOKENS, ServiceTokenScope } from "./service-tokens.ts";
 import { WebhookEventType, WebhookFormat } from "./webhooks.ts";
 import { OwnerView, WorkspaceRole } from "./workspaces.ts";
@@ -83,6 +91,8 @@ const DnsName = z
   .max(253)
   .regex(/^[a-z0-9.-]+$/, "Invalid domain");
 const empty = z.strictObject({});
+const groupCount = z.number().int().min(0).max(WORKSPACE_GROUPS.perArtifact);
+const enforceCount = z.number().int().min(0).max(10_000);
 const approvalCount = z.number().int().min(0).max(APPROVALS.reviewersPerRequest);
 
 /** Why a custom domain stopped serving (every path that detaches one names its reason). */
@@ -129,10 +139,19 @@ export const AUDIT_DETAILS = {
     /** The distinct domains of those addresses, sorted, at most `AUDIT_LIMITS.readerDomains`. */
     readerDomains: z.array(DnsName).max(AUDIT_LIMITS.readerDomains).optional(),
     readerExceptions: count.optional(),
+    /** Groups listed and unlisted, and group exceptions set (decision 0014): counts only. */
+    groupsAdded: groupCount.optional(),
+    groupsRemoved: groupCount.optional(),
+    groupExceptions: groupCount.optional(),
     bar: z.boolean().optional(),
     commentVisibility: CommentVisibility.optional(),
     indexable: z.boolean().optional(),
     embeddable: z.boolean().optional(),
+    /**
+     * Set when a workspace policy made the change (decision 0015), by the system: the policy that
+     * did. The other fields say what changed, as for a manual change.
+     */
+    policy: z.enum(["publicAccess", "readerDomains"]).optional(),
   }),
   "share_link.created": z.strictObject({ password: z.boolean(), expires: z.boolean() }),
   "share_link.revoked": empty,
@@ -172,7 +191,11 @@ export const AUDIT_DETAILS = {
   "brand.removed": z.strictObject({ fields: z.array(z.enum(["logo", "all"])).min(1) }),
   "member.invited": z.strictObject({ role: WorkspaceRole, emailDomain: DnsName }),
   "member.invitation_revoked": empty,
-  "member.joined": z.strictObject({ role: WorkspaceRole }),
+  /** `via` is how they joined: an invitation (absent on older events) or single sign-on. */
+  "member.joined": z.strictObject({
+    role: WorkspaceRole,
+    via: z.enum(["invitation", "sso"]).optional(),
+  }),
   "member.role_changed": z.strictObject({ from: WorkspaceRole, to: WorkspaceRole }),
   "member.removed": z.strictObject({ role: WorkspaceRole }),
   "member.left": z.strictObject({ role: WorkspaceRole }),
@@ -198,6 +221,55 @@ export const AUDIT_DETAILS = {
   "email_domain.removed": z.strictObject({
     domain: DnsName,
     reason: z.enum(EMAIL_DOMAIN_REMOVAL_REASONS),
+  }),
+  /**
+   * A workspace's groups (decision 0014). The group is named by its ID only and shown by its
+   * current name, never stored: a name is owner-chosen text. A member added to or removed from a
+   * group is the target, and the detail names the group.
+   */
+  /**
+   * The workspace's single sign-on provider (decision 0016): the issuer as a host only and how
+   * many domains it serves, never the client ID or secret. `changed` names what changed.
+   */
+  "sso.created": z.strictObject({ issuerHost: DnsName, domains: z.number().int().min(1).max(10) }),
+  "sso.changed": z.strictObject({
+    fields: z.array(z.enum(["clientId", "clientSecret", "domains"])).min(1),
+  }),
+  "sso.removed": empty,
+  "group.created": empty,
+  "group.renamed": empty,
+  "group.deleted": empty,
+  "group.member_added": z.strictObject({ group: WorkspaceGroupId }),
+  "group.member_removed": z.strictObject({ group: WorkspaceGroupId }),
+  /**
+   * A workspace's policies changed (decision 0015): which fields and their new values. Reader
+   * domains are domains, never addresses.
+   */
+  "policy.changed": z.strictObject({
+    fields: z.array(z.enum(POLICY_FIELDS)).min(1).max(POLICY_FIELDS.length),
+    publicAccess: PublicAccessPolicy.optional(),
+    defaultAccess: DefaultAccessPolicy.optional(),
+    readerDomains: z.array(DnsName).max(WORKSPACE_POLICIES.readerDomains).nullable().optional(),
+    shareLinks: ShareLinkPolicy.optional(),
+    shareLinkMaxDays: z
+      .number()
+      .int()
+      .min(1)
+      .max(WORKSPACE_POLICIES.shareLinkMaxDays)
+      .nullable()
+      .optional(),
+    /** The save accepted changes to existing artifacts (the preview's counts). */
+    confirmed: z.boolean(),
+  }),
+  /**
+   * One step of applying a policy to existing artifacts (the `workspace_policy` job or the
+   * maintenance scan), by the system: what it changed, as counts.
+   */
+  "policy.enforced": z.strictObject({
+    artifactsNarrowed: enforceCount,
+    readersRemoved: enforceCount,
+    linksRevoked: enforceCount,
+    sessionsEnded: enforceCount,
   }),
   /**
    * An export of the audit log was started (E3): its format, how many kinds it filtered on (0 for
@@ -228,7 +300,10 @@ export const AUDIT_TARGET_TYPES = [
   "plan",
   "service_token",
   "email_domain",
+  "group",
   "audit_log",
+  "sso",
+  "policy",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -271,7 +346,17 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "service_token.revoked": "service_token",
   "email_domain.verified": "email_domain",
   "email_domain.removed": "email_domain",
+  "sso.created": "sso",
+  "sso.changed": "sso",
+  "sso.removed": "sso",
+  "group.created": "group",
+  "group.renamed": "group",
+  "group.deleted": "group",
+  "group.member_added": "member",
+  "group.member_removed": "member",
   "audit.exported": "audit_log",
+  "policy.changed": "policy",
+  "policy.enforced": "policy",
 };
 
 /**
@@ -308,6 +393,11 @@ export const AuditEventView = z.object({
   }),
   /** The artifact the event is about, with its current name; null name once it is gone. */
   artifact: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),
+  /**
+   * The group a group event is about, with its current name; null name once it is deleted.
+   * Absent for other kinds.
+   */
+  group: z.object({ id: z.string(), name: z.string().nullable() }).optional(),
   /** The kind's detail, as `AUDIT_DETAILS` defines it. */
   detail: z.record(z.string(), z.unknown()),
 });
@@ -382,7 +472,9 @@ export const GetAuditLogInput = z.object({
   actor: opaqueId.optional().describe("Only events by this account ID (actor.id of an event)."),
   target: opaqueId
     .optional()
-    .describe("Only events about this target: an artifact, member, share link or webhook ID."),
+    .describe(
+      "Only events about this target: an artifact, member, share link, webhook or group ID.",
+    ),
   from: z.iso
     .datetime()
     .optional()

@@ -22,14 +22,30 @@ import {
   ServiceTokenCreated,
   ServiceTokenId,
   ServiceTokenList,
+  SsoProviderInput,
+  SsoSettings,
+  SsoTestInput,
+  SsoTestResult,
+  ssoCallbackPath,
   WORKSPACE_DOMAINS,
+  WORKSPACE_GROUPS,
   WorkspaceDomainCreate,
   WorkspaceDomainId,
   WorkspaceDomainList,
   WorkspaceDomainView,
+  WorkspaceGroupCreate,
+  WorkspaceGroupDetail,
+  WorkspaceGroupId,
+  WorkspaceGroupList,
+  WorkspaceGroupMemberAdd,
+  WorkspaceGroupRename,
+  WorkspaceGroupView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
+  WorkspacePolicyPreviewInput,
+  WorkspacePolicyUpdate,
+  WorkspacePolicyView,
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
@@ -37,11 +53,20 @@ import { domainRecord } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
   acceptInvitation,
+  addGroupMember,
   addWorkspaceDomain,
   changeMemberRole,
   createServiceToken,
+  createWorkspaceGroup,
   declineInvitation,
+  deleteWorkspaceGroup,
   type EmailDomainDeps,
+  type GroupList,
+  type GroupMemberRow,
+  type GroupRow,
+  getSsoSettings,
+  getWorkspaceGroup,
+  getWorkspacePolicy,
   type InvitationKey,
   type InvitationRow,
   type InvitationSender,
@@ -53,19 +78,33 @@ import {
   listServiceTokens,
   listUserWorkspaces,
   listWorkspaceDomains,
+  listWorkspaceGroups,
   lookupInvitation,
   type MemberRow,
+  type PolicyState,
+  previewWorkspacePolicy,
+  removeGroupMember,
   removeMember,
+  removeSsoProvider,
   removeWorkspaceDomain,
+  renameWorkspaceGroup,
   revokeInvitation,
   revokeServiceToken,
+  type SsoFetch,
+  type SsoProviderRow,
+  type SsoSettingsResult,
+  saveSsoProvider,
+  setWorkspacePolicy,
+  ssoKeys,
+  testSsoIssuer,
   type UserWorkspace,
   verifyWorkspaceDomain,
   type WorkspaceDomainRow,
 } from "@portifact/services";
 import { type Context, Hono } from "hono";
-import { authUrls } from "../auth/config.ts";
+import { AUTH_BASE_PATH, authUrls } from "../auth/config.ts";
 import type { EmailSender } from "../auth/email.ts";
+import { ssoEnabled } from "../auth/sso.ts";
 import type { Env } from "../env.ts";
 import { regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, type SessionLookup } from "./access.ts";
@@ -84,7 +123,12 @@ export function workspaceView(row: UserWorkspace): WorkspaceView {
     role: row.role,
     region: row.region,
     createdAt: iso(row.createdAt),
+    policy: row.policy,
   });
+}
+
+function policyView(state: PolicyState): WorkspacePolicyView {
+  return WorkspacePolicyView.parse(state);
 }
 
 export function workspaceListView(rows: UserWorkspace[]): WorkspaceList {
@@ -167,14 +211,87 @@ export function invitationSender(
   };
 }
 
+export function groupView(row: GroupRow): WorkspaceGroupView {
+  return WorkspaceGroupView.parse({
+    id: row.id,
+    name: row.name,
+    members: row.members,
+    createdAt: iso(row.createdAt),
+  });
+}
+
+/** A workspace's groups: names and counts only, never members (decision 0014). */
+export function groupListView(list: GroupList): WorkspaceGroupList {
+  return WorkspaceGroupList.parse({
+    items: list.groups.map(groupView),
+    available: list.available,
+    limit: WORKSPACE_GROUPS.perWorkspace,
+  });
+}
+
 /** The read routes, behind the API's bearer-or-session gate. */
-export function workspaceReadRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded) {
+export function workspaceReadRoutes(
+  api: Hono<{ Bindings: Env }>,
+  guarded: Guarded,
+  now: () => number,
+) {
   api.get(
     "/api/v1/workspaces",
     guarded("artifacts:read", async (c, userId) =>
       c.json(workspaceListView(await listUserWorkspaces(regionsOf(c.env).global, userId))),
     ),
   );
+  // Group IDs, names and member counts, to use them in artifacts' access: admins and editors,
+  // and a service token with `artifacts:share` (the service decides). Never the members.
+  api.get(
+    "/api/v1/workspaces/:slug/groups",
+    guarded("artifacts:read", async (c, userId) => {
+      const slug = WorkspaceSlug.safeParse(c.req.param("slug"));
+      if (!slug.success) return error(c, "not_found", "Workspace not found.");
+      const result = await listWorkspaceGroups(regionsOf(c.env).global, {
+        userId,
+        slug: slug.data,
+        now: now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(groupListView(result.value));
+    }),
+  );
+}
+
+/** The redirect URI to register at the identity provider for a provider. */
+export function ssoRedirectUri(appOrigin: string, providerId: string): string {
+  return `${authUrls(appOrigin).origin}${AUTH_BASE_PATH}${ssoCallbackPath(providerId)}`;
+}
+
+function ssoSettingsView(env: Env, result: SsoSettingsResult): SsoSettings {
+  const provider = result.provider;
+  return SsoSettings.parse({
+    state: result.state,
+    available: result.available,
+    verifiedDomains: result.verifiedDomains,
+    redirectUriPattern: ssoRedirectUri(env.APP_ORIGIN, "<id>"),
+    provider: provider
+      ? {
+          ...ssoProviderView(env, provider),
+          lapsedDomains: provider.lapsedDomains,
+        }
+      : null,
+  });
+}
+
+function ssoProviderView(env: Env, row: SsoProviderRow) {
+  return {
+    id: row.id,
+    issuer: row.issuer,
+    clientId: row.clientId,
+    domains: row.domains,
+    lapsedDomains: [] as string[],
+    hasClientSecret: true,
+    redirectUri: ssoRedirectUri(env.APP_ORIGIN, row.id),
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
+  };
 }
 
 export interface WorkspaceDeps {
@@ -183,6 +300,8 @@ export interface WorkspaceDeps {
   email(env: Env): EmailSender;
   /** DNS over HTTPS for email domain proofs; null answers `capacity_unavailable`. */
   dns(env: Env): EmailDomainDeps | null;
+  /** Calls identity providers for single sign-on discovery (decision 0016). */
+  ssoFetch(env: Env): SsoFetch;
   now(): number;
 }
 
@@ -518,6 +637,222 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json({ id: id.data, removed: true });
+    }),
+  );
+
+  // Single sign-on (decision 0016): admins only, through the dashboard's session only, like the
+  // members it adds. Switched off without SSO_ENABLED.
+  const ssoRoute = (
+    handler: (c: WorkspaceContext, userId: string, slug: string) => Promise<Response>,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      if (!ssoEnabled(c.env)) {
+        return error(c, "capacity_unavailable", "Single sign-on is not available yet.");
+      }
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      return handler(c, userId, slug);
+    }, "Single sign-on is managed from the dashboard.");
+  routes.get(
+    "/api/v1/workspaces/:slug/sso",
+    ssoRoute(async (c, userId, slug) => {
+      const result = await getSsoSettings(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ssoSettingsView(c.env, result.value));
+    }),
+  );
+  routes.put(
+    "/api/v1/workspaces/:slug/sso",
+    ssoRoute(async (c, userId, slug) => {
+      const body = await readJson(c, SsoProviderInput);
+      if (!body.ok) return body.response;
+      const keys = await ssoKeys({ current: c.env.SSO_KEY, previous: c.env.SSO_KEY_PREVIOUS });
+      const result = await saveSsoProvider(
+        global(c),
+        { keys, fetch: deps.ssoFetch(c.env) },
+        { userId, slug, ...body.value, now: deps.now() },
+      );
+      if (!result.ok) return error(c, result.code, result.message);
+      const settings = await getSsoSettings(global(c), { userId, slug, now: deps.now() });
+      if (!settings.ok) return error(c, settings.code, settings.message);
+      return c.json(ssoSettingsView(c.env, settings.value));
+    }),
+  );
+  routes.delete(
+    "/api/v1/workspaces/:slug/sso",
+    ssoRoute(async (c, userId, slug) => {
+      const result = await removeSsoProvider(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json({ removed: true });
+    }),
+  );
+  routes.post(
+    "/api/v1/workspaces/:slug/sso/test",
+    ssoRoute(async (c, userId, slug) => {
+      const body = await readJson(c, SsoTestInput);
+      if (!body.ok) return body.response;
+      const result = await testSsoIssuer(global(c), deps.ssoFetch(c.env), {
+        userId,
+        slug,
+        issuer: body.value.issuer,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(SsoTestResult.parse(result.value));
+    }),
+  );
+
+  // Groups (decision 0014): admins manage them through the dashboard session only, like the
+  // members they hold. Listing names and counts is the read route above.
+  const detailView = (detail: { group: GroupRow; members: GroupMemberRow[] }) =>
+    WorkspaceGroupDetail.parse({
+      group: groupView(detail.group),
+      items: detail.members.map((row) => ({ ...row, addedAt: iso(row.addedAt) })),
+      limit: WORKSPACE_GROUPS.membersPerGroup,
+    });
+  /** Answers a service result: the error's status and body, or `done` with the value. */
+  const reply = <T>(
+    c: WorkspaceContext,
+    result: { ok: true; value: T } | { ok: false; code: ErrorCode; message: string },
+    done: (value: T) => Response,
+  ) => (result.ok ? done(result.value) : error(c, result.code, result.message));
+  /**
+   * A group route: the session check, then the slug and (unless `list`) the group ID from the
+   * path, each answering like a missing one when malformed.
+   */
+  const groupRoute = (
+    handler: (
+      c: WorkspaceContext,
+      ids: { userId: string; slug: string; groupId: string },
+    ) => Promise<Response>,
+    list = false,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const groupId = list ? "" : WorkspaceGroupId.safeParse(c.req.param("groupId")).data;
+      if (groupId === undefined) return error(c, "not_found", "Group not found.");
+      return handler(c, { userId, slug, groupId });
+    }, "Groups are managed from the dashboard.");
+
+  routes.post(
+    "/api/v1/workspaces/:slug/groups",
+    groupRoute(async (c, { userId, slug }) => {
+      const body = await readJson(c, WorkspaceGroupCreate);
+      if (!body.ok) return body.response;
+      const result = await createWorkspaceGroup(global(c), {
+        userId,
+        slug,
+        name: body.value.name,
+        now: deps.now(),
+      });
+      return reply(c, result, (group) => c.json(groupView(group), 201));
+    }, true),
+  );
+
+  routes.get(
+    "/api/v1/workspaces/:slug/groups/:groupId",
+    groupRoute(async (c, ids) =>
+      reply(c, await getWorkspaceGroup(global(c), ids), (detail) => c.json(detailView(detail))),
+    ),
+  );
+
+  routes.patch(
+    "/api/v1/workspaces/:slug/groups/:groupId",
+    groupRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspaceGroupRename);
+      if (!body.ok) return body.response;
+      const result = await renameWorkspaceGroup(global(c), {
+        ...ids,
+        name: body.value.name,
+        now: deps.now(),
+      });
+      return reply(c, result, (group) => c.json(groupView(group)));
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/groups/:groupId",
+    groupRoute(async (c, ids) =>
+      reply(c, await deleteWorkspaceGroup(global(c), { ...ids, now: deps.now() }), () =>
+        c.body(null, 204),
+      ),
+    ),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/groups/:groupId/members",
+    groupRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspaceGroupMemberAdd);
+      if (!body.ok) return body.response;
+      const input = { ...ids, memberId: body.value.userId, now: deps.now() };
+      const added = await addGroupMember(global(c), input);
+      if (!added.ok) return error(c, added.code, added.message);
+      return reply(c, await getWorkspaceGroup(global(c), input), (detail) =>
+        c.json(detailView(detail), 201),
+      );
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/groups/:groupId/members/:userId",
+    groupRoute(async (c, ids) => {
+      const result = await removeGroupMember(global(c), {
+        ...ids,
+        memberId: c.req.param("userId") as string,
+        now: deps.now(),
+      });
+      return reply(c, result, () => c.body(null, 204));
+    }),
+  );
+
+  // Policies (decision 0015): every member reads them; only admins preview and change them, and
+  // only from the dashboard's session, so no token (a service token included) can lift one.
+  const policyRoute = (
+    handler: (c: WorkspaceContext, ids: { userId: string; slug: string }) => Promise<Response>,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      return handler(c, { userId, slug });
+    }, "Workspace policies are managed from the dashboard.");
+
+  routes.get(
+    "/api/v1/workspaces/:slug/policies",
+    policyRoute(async (c, ids) =>
+      reply(c, await getWorkspacePolicy(global(c), { ...ids, now: deps.now() }), (state) =>
+        c.json(policyView(state)),
+      ),
+    ),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/policies/preview",
+    policyRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspacePolicyPreviewInput);
+      if (!body.ok) return body.response;
+      const result = await previewWorkspacePolicy(regionsOf(c.env), {
+        ...ids,
+        policy: body.value.policy,
+        now: deps.now(),
+      });
+      return reply(c, result, (impact) => c.json(impact));
+    }),
+  );
+
+  routes.put(
+    "/api/v1/workspaces/:slug/policies",
+    policyRoute(async (c, ids) => {
+      const body = await readJson(c, WorkspacePolicyUpdate);
+      if (!body.ok) return body.response;
+      const result = await setWorkspacePolicy(regionsOf(c.env), {
+        ...ids,
+        policy: body.value.policy,
+        revision: body.value.revision,
+        confirmed: body.value.confirmed,
+        now: deps.now(),
+      });
+      return reply(c, result, (state) => c.json(policyView(state)));
     }),
   );
 

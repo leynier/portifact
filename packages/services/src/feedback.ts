@@ -14,6 +14,7 @@ import { type RegionalDb, schema } from "@portifact/db";
 import type { AnnotationRole } from "@portifact/domain";
 import {
   type Actor,
+  actsForOwner,
   decodeFeedbackCursor,
   encodeFeedbackCursor,
   type FeedbackReach,
@@ -28,6 +29,7 @@ import { ownerSide } from "./actors.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { type ThreadRow, threadViews } from "./thread-views.ts";
 import { policyDomains } from "./workspace-domains.ts";
+import { groupScopeSql, viewerGroupIds } from "./workspace-groups.ts";
 
 export interface FeedbackInput {
   /** The caller acting on the space (from `resolveOwnerScope`). */
@@ -56,6 +58,7 @@ export interface FeedbackResult {
 const th = schema.annotationThreads;
 const t = schema.artifacts;
 const r = schema.artifactReaders;
+const ag = schema.artifactGroups;
 const m = schema.annotationMessages;
 
 interface Caller {
@@ -107,23 +110,37 @@ function accessCondition(caller: Caller): SQL | undefined {
   if (reach.openModes === null) return undefined;
   const open =
     reach.openModes.length === 0 ? sql`0` : sql`${t.accessMode} in (${literals(reach.openModes)})`;
-  if (!reach.readerList || verifiedEmail === null) return open;
-  return sql`(${open} or (${t.accessMode} = 'restricted' and exists (select 1 from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${verifiedEmail})))`;
+  const listed: SQL[] = [];
+  if (reach.readerList && verifiedEmail !== null) {
+    listed.push(
+      sql`exists (select 1 from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${verifiedEmail})`,
+    );
+  }
+  // A group the artifact lists and the caller belongs to (decision 0014).
+  if (reach.groupList) {
+    listed.push(
+      sql`exists (select 1 from ${ag} where ${ag.artifactId} = ${t.id} and ${inArray(ag.groupId, [...reach.groups])})`,
+    );
+  }
+  if (listed.length === 0) return open;
+  return sql`(${open} or (${t.accessMode} = 'restricted' and (${sql.join(listed, sql` or `)})))`;
 }
 
 /**
  * The thread is in the caller's comment scope (`commentScope`, `threadInScope`): they or the owner
- * started it, or their exception on the reader list (by verified address), else the artifact's
- * setting, shows them every thread. The same rule as the per-artifact `scopeGuard`.
+ * started it, or their exception on the reader list (by verified address), else the widest scope
+ * of the listed groups they belong to, else the artifact's setting, shows them every thread. The
+ * same rule as the per-artifact `scopeGuard`.
  */
 function scopeCondition(caller: Caller): SQL | undefined {
   const { reach, verifiedEmail } = caller;
   if (reach.role === "owner") return undefined;
   const setting = sql`case ${t.commentVisibility} when 'everyone' then ${literals([reach.scopeOf.everyone])} else ${literals([reach.scopeOf.owner])} end`;
-  const scope =
+  const reader =
     verifiedEmail === null
-      ? setting
-      : sql`coalesce((select ${r.commentVisibility} from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${verifiedEmail}), ${setting})`;
+      ? sql`null`
+      : sql`(select ${r.commentVisibility} from ${r} where ${r.artifactId} = ${t.id} and ${r.email} = ${verifiedEmail})`;
+  const scope = sql`coalesce(${reader}, ${groupScopeSql(t.id, reach.groups, setting)}, ${setting})`;
   return or(inArray(th.authorId, [caller.userId, ...caller.ownerSide]), sql`${scope} = 'all'`);
 }
 
@@ -172,10 +189,20 @@ export async function listOpenFeedback(
     verifiedEmails,
     entitlements,
   });
+  // The caller's groups in the workspace (one global read), which grant only while the plan
+  // includes `workspaces`, like on each artifact (`viewerGroups`).
+  const groupsAvailable = requireFeature(entitlements, "workspaces").ok;
+  const groupIds =
+    isWorkspaceId(owner) && groupsAvailable && !actsForOwner(input.actor, owner)
+      ? [...(await viewerGroupIds(db.global, owner, userId))]
+      : [];
   const caller: Caller = {
     userId,
     verifiedEmail,
-    reach: feedbackReach(input.actor, { userId, verifiedEmails }, domains),
+    reach: feedbackReach(input.actor, { userId, verifiedEmails }, domains, {
+      featureAvailable: groupsAvailable,
+      ids: groupIds,
+    }),
     ownerSide: await ownerSide(db.global, owner),
   };
   const visible = visibleThreads(caller, input);

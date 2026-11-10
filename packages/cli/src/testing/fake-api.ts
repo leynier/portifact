@@ -31,6 +31,7 @@ import {
   type CommentVisibility,
   CustomDomainAdd,
   type CustomDomainView,
+  DEFAULT_POLICY,
   ERROR_STATUS,
   type ErrorCode,
   type FeedbackItem,
@@ -53,6 +54,8 @@ import {
   WebhookCreate,
   WebhookUpdate,
   type WebhookView,
+  type WorkspaceGroupView,
+  type WorkspacePolicy,
 } from "@portifact/contracts";
 import {
   auditExportContentType,
@@ -103,12 +106,16 @@ export interface FakeArtifact {
   key?: string | undefined;
   /** Who the workspace modes reach, as the access view shows it; absent means null. */
   audience?: AccessPolicyView["audience"];
+  /** Groups of its workspace it lists (decision 0014). */
+  groups?: AccessPolicyView["groups"];
 }
 
 export interface FakeWorkspace {
   slug: string;
   name: string;
   role: "admin" | "editor" | "member";
+  /** Its policies (decision 0015); the defaults when absent. */
+  policy?: WorkspacePolicy;
 }
 
 export interface FakeVersionFile {
@@ -253,6 +260,8 @@ export interface FakeApiState {
   tooNewForPublic: boolean;
   /** The workspaces the user belongs to, as GET /workspaces lists them. */
   workspaces: FakeWorkspace[];
+  /** Groups by workspace slug, as GET /workspaces/:slug/groups lists them. */
+  groups: Map<string, WorkspaceGroupView[]>;
   /** The `workspace` parameter of each owner-scoped request, as `<route> <slug|personal>`. */
   workspaceParams: string[];
   /** How long upload URLs stay valid. */
@@ -332,6 +341,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     },
     tooNewForPublic: false,
     workspaces: [],
+    groups: new Map(),
     workspaceParams: [],
     webhooks: new Map(),
     webhookAttempts: new Map(),
@@ -1452,6 +1462,28 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       if (change.mode === "public" && state.tooNewForPublic) {
         return error("account_too_new_for_public", "Your account is too new to share publicly.");
       }
+      const groups = new Map((artifact.groups ?? []).map((group) => [group.id, group]));
+      if ((change.addGroups ?? []).length > 0) {
+        if (artifact.workspace === undefined) {
+          return error("invalid_input", "Only workspace artifacts can list groups.");
+        }
+        if (!state.usage.plan.features.includes("workspaces")) return planRequired("workspaces");
+      }
+      for (const id of change.addGroups ?? []) {
+        const group = state.groups.get(artifact.workspace ?? "")?.find((one) => one.id === id);
+        if (!group) return error("invalid_input", `${id} is not a group of this workspace.`);
+        if (!groups.has(id)) {
+          groups.set(id, { id, name: group.name, members: group.members, commentVisibility: null });
+        }
+      }
+      for (const id of change.removeGroups ?? []) groups.delete(id);
+      for (const entry of change.groupCommentVisibility ?? []) {
+        const group = groups.get(entry.group);
+        if (!group) return error("invalid_input", "Not a group of the artifact.");
+        group.commentVisibility =
+          entry.commentVisibility === "inherit" ? null : entry.commentVisibility;
+      }
+      artifact.groups = [...groups.values()].sort((a, b) => a.name.localeCompare(b.name));
       const readers = new Set(artifact.access.readers);
       for (const reader of change.addReaders ?? []) readers.add(reader);
       for (const reader of change.removeReaders ?? []) readers.delete(reader);
@@ -1482,6 +1514,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       ...artifact.access,
       policyGeneration: artifact.policyGeneration,
       audience: artifact.audience ?? null,
+      groups: artifact.groups ?? [],
     };
     return { status: 200, body: view };
   }
@@ -1591,7 +1624,25 @@ export function createFakeApi(origin: () => string, clock: () => number) {
             ...workspace,
             region: "default",
             createdAt: "2026-11-01T00:00:00.000Z",
+            policy: workspace.policy ?? DEFAULT_POLICY,
           })),
+        },
+      };
+    }
+    const groupList = /^\/workspaces\/([^/]+)\/groups$/.exec(path);
+    if (groupList && method === "GET") {
+      const slug = decodeURIComponent(groupList[1] as string);
+      const member = state.workspaces.find((one) => one.slug === slug);
+      if (!member) return error("not_found", "Workspace not found.");
+      if (member.role === "member") {
+        return error("forbidden", "Your role on this workspace does not allow this.");
+      }
+      return {
+        status: 200,
+        body: {
+          items: state.groups.get(slug) ?? [],
+          available: state.usage.plan.features.includes("workspaces"),
+          limit: 50,
         },
       };
     }

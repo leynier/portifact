@@ -15,7 +15,10 @@ import {
   LifecycleResult,
   PublishKey,
   ReaderCommentVisibility,
+  WORKSPACE_GROUPS,
+  WorkspaceGroupId,
 } from "@portifact/contracts";
+import { plain as plainText } from "./annotations.ts";
 import { callApi } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
@@ -277,7 +280,10 @@ export type AccessChange =
   | { kind: "bar"; state: string }
   | { kind: "comments"; visibility: string }
   | { kind: "reader-comments"; email: string; visibility: string }
-  | { kind: "add" | "remove"; emails: readonly string[] };
+  | { kind: "add" | "remove"; emails: readonly string[] }
+  | { kind: "group-add"; groups: readonly string[] }
+  | { kind: "group-remove"; groups: readonly string[] }
+  | { kind: "group-comments"; group: string; visibility: string };
 
 export async function changeAccess(
   io: Io,
@@ -298,6 +304,9 @@ export async function changeAccess(
   if (!options.json) io.stdout(`${messages.accessChanged(artifactId)}\n`);
   if (change.kind === "add" && policy.mode !== "restricted") {
     io.stderr(`${messages.readersOnlyWhenRestricted(policy.mode)}\n`);
+  }
+  if (change.kind === "group-add" && policy.mode !== "restricted") {
+    io.stderr(`${messages.groupsOnlyWhenRestricted(policy.mode)}\n`);
   }
   writeAccess(io, artifactId, policy, options);
 }
@@ -339,6 +348,30 @@ function accessUpdate(change: AccessChange): AccessUpdate {
     }
     return { readerCommentVisibility: [{ email: email.data, commentVisibility: visibility.data }] };
   }
+  if (change.kind === "group-comments") {
+    const visibility = ReaderCommentVisibility.safeParse(change.visibility);
+    if (!visibility.success) {
+      throw new CliError(
+        "invalid_input",
+        messages.errors.invalidReaderCommentVisibility(change.visibility),
+      );
+    }
+    return {
+      groupCommentVisibility: [
+        { group: parseGroupId(change.group), commentVisibility: visibility.data },
+      ],
+    };
+  }
+  if (change.kind === "group-add" || change.kind === "group-remove") {
+    if (change.groups.length > WORKSPACE_GROUPS.perArtifact) {
+      throw new CliError(
+        "invalid_input",
+        messages.errors.tooManyGroups(WORKSPACE_GROUPS.perArtifact),
+      );
+    }
+    const groups = change.groups.map(parseGroupId);
+    return change.kind === "group-add" ? { addGroups: groups } : { removeGroups: groups };
+  }
   if (change.emails.length > LIMITS.readersPerChange) {
     throw new CliError("invalid_input", messages.errors.tooManyReaders(LIMITS.readersPerChange));
   }
@@ -348,6 +381,12 @@ function accessUpdate(change: AccessChange): AccessUpdate {
     return parsed.data;
   });
   return change.kind === "add" ? { addReaders: emails } : { removeReaders: emails };
+}
+
+function parseGroupId(value: string): string {
+  const parsed = WorkspaceGroupId.safeParse(value.trim());
+  if (!parsed.success) throw new CliError("invalid_input", messages.errors.invalidGroup(value));
+  return parsed.data;
 }
 
 function writeAccess(
@@ -367,10 +406,17 @@ function writeAccess(
     const exception = exceptions.get(email);
     return exception === undefined ? email : `${email} (${messages.readerSees[exception]})`;
   };
+  const group = (entry: AccessPolicyView["groups"][number]) =>
+    `${plainText(entry.name)} (${entry.id}, ${messages.groupMembers(entry.members)}${entry.commentVisibility === null ? "" : `, ${messages.readerSees[entry.commentVisibility]}`})`;
   io.stdout(
     table([
       ["Access", policy.mode],
       ["Readers", policy.readers.length > 0 ? policy.readers.map(reader).join(", ") : "none"],
+      ...(policy.groups.length > 0
+        ? [["Groups", policy.groups.map(group).join(", ")]]
+        : policy.audience
+          ? [["Groups", "none"]]
+          : []),
       ["Comments", messages.commentVisibility[policy.commentVisibility]],
       ["Indexable", policy.indexable ? "yes" : "no"],
       ["Embeddable", policy.embeddable ? "yes" : "no"],

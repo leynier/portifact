@@ -471,6 +471,8 @@ describe("terms acceptance at sign-in", () => {
     providerButton("github")?.click();
     await settle();
     expect(api.calls.filter((call) => call.method === "POST")).toEqual([
+      // The lookup for single sign-on comes first and accepts nothing.
+      { method: "POST", path: "/sso/lookup", body: { email: "ada@example.test" } },
       { method: "POST", path: "/accept-terms", body: ACCEPTANCE },
       {
         method: "POST",
@@ -495,7 +497,10 @@ describe("terms acceptance at sign-in", () => {
     await settle();
     expect(element("error-summary").textContent).toBe(messages.network);
     expect(
-      api.calls.filter((call) => call.path !== "/accept-terms" && call.method === "POST"),
+      api.calls.filter(
+        (call) =>
+          call.path !== "/accept-terms" && call.path !== "/sso/lookup" && call.method === "POST",
+      ),
     ).toEqual([]);
   });
 
@@ -909,5 +914,181 @@ describe("confirming an artifact on its owner's own address", () => {
     await open(search);
     expect(element("sign-in").hidden).toBe(false);
     expect(document.getElementById("read-confirm")).toBeNull();
+  });
+});
+
+describe("single sign-on", () => {
+  const ssoOn = () => api.on("POST", "/sso/lookup", { status: 200, body: { sso: true } });
+
+  it("offers it for an address whose domain uses it, with the notice that names it", async () => {
+    ssoOn();
+    await open();
+    await requestCode("ada@corp.example");
+    expect(element("sso-step").hidden).toBe(false);
+    expect(element("methods").hidden).toBe(true);
+    expect(element("terms-notice").hidden).toBe(true);
+    expect(element("terms-notice-sso").hidden).toBe(false);
+    expect(element("terms-notice-sso").textContent).toContain("single sign-on");
+    expect(element("terms-notice-sso").textContent).toContain("18");
+    expect(element("sso-for").textContent).toBe(messages.ssoFor("ada@corp.example"));
+    expect(document.activeElement?.id).toBe("sso-heading");
+    for (const id of ["sso-continue", "sso-code"]) {
+      expect(element(id).getAttribute("aria-describedby")).toBe("terms-notice-sso");
+    }
+    expect(api.calls.some((call) => call.path === "/email-otp/send-verification-otp")).toBe(false);
+  });
+
+  it("records the acceptance, then starts the sign-in and follows the provider's URL", async () => {
+    ssoOn();
+    api.on("POST", "/sign-in/sso", { status: 200, body: { url: "https://login.corp.example/a" } });
+    await open("?next=%2Fmembers");
+    await requestCode("ada@corp.example");
+    element("sso-continue").click();
+    await settle();
+    expect(api.calls.filter((call) => call.method === "POST").slice(1)).toEqual([
+      { method: "POST", path: "/accept-terms", body: ACCEPTANCE },
+      {
+        method: "POST",
+        path: "/sign-in/sso",
+        body: { email: "ada@corp.example", callbackURL: "/members", errorCallbackURL: "/login" },
+      },
+    ]);
+    expect(location.assigned).toEqual(["https://login.corp.example/a"]);
+  });
+
+  it("does not start without the acceptance, and explains a refusal", async () => {
+    ssoOn();
+    api.on("POST", "/accept-terms", { status: 0, body: null });
+    await open();
+    await requestCode("ada@corp.example");
+    element("sso-continue").click();
+    await settle();
+    expect(api.calls.some((call) => call.path === "/sign-in/sso")).toBe(false);
+    expect(element("error-summary").textContent).toBe(messages.network);
+
+    api.on("POST", "/accept-terms", { status: 200, body: { accepted: true } });
+    api.on("POST", "/sign-in/sso", { status: 404, body: { code: "sso_unavailable" } });
+    element("sso-continue").click();
+    await settle();
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.sso_unavailable);
+    api.on("POST", "/sign-in/sso", { status: 500, body: null });
+    element("sso-continue").click();
+    await settle();
+    expect(element("error-summary").textContent).toBe(messages.unexpected);
+    expect(location.assigned).toEqual([]);
+  });
+
+  it("sends an email code instead on request, back under the usual notice", async () => {
+    ssoOn();
+    await open();
+    await requestCode("ada@corp.example");
+    element("sso-code").click();
+    await settle();
+    expect(element("code-form").hidden).toBe(false);
+    expect(element("sso-step").hidden).toBe(true);
+    expect(element("terms-notice").hidden).toBe(false);
+    expect(element("terms-notice-sso").hidden).toBe(true);
+    expect(api.calls.some((call) => call.path === "/email-otp/send-verification-otp")).toBe(true);
+  });
+
+  it("keeps the step when the code could not be sent", async () => {
+    ssoOn();
+    api.on("POST", "/email-otp/send-verification-otp", { status: 429, body: null });
+    await open();
+    await requestCode("ada@corp.example");
+    element("sso-code").click();
+    await settle();
+    expect(element("sso-step").hidden).toBe(false);
+    expect(element("error-summary").textContent).toBe(messages.rateLimited);
+  });
+
+  it("goes back to every method to use another address", async () => {
+    ssoOn();
+    await open();
+    await requestCode("ada@corp.example");
+    element("sso-change-email").click();
+    expect(element("sso-step").hidden).toBe(true);
+    expect(element("methods").hidden).toBe(false);
+    expect(element("terms-notice").hidden).toBe(false);
+    expect(element("terms-notice-sso").hidden).toBe(true);
+    expect(document.activeElement?.id).toBe("email");
+  });
+
+  it("sends a code as before when the lookup says no or is switched off", async () => {
+    for (const answer of [
+      { status: 200, body: { sso: false } },
+      { status: 404, body: { error: { code: "not_found" } } },
+      { status: 200, body: null },
+    ]) {
+      loadPage("login");
+      api = fakeApi();
+      api.on("GET", "/get-session", { status: 200, body: null });
+      api.on("POST", "/accept-terms", { status: 200, body: { accepted: true } });
+      api.on("POST", "/email-otp/send-verification-otp", { status: 200, body: { success: true } });
+      api.on("POST", "/sso/lookup", answer);
+      await open();
+      await requestCode("ada@corp.example");
+      expect(element("sso-step").hidden).toBe(true);
+      expect(element("code-form").hidden).toBe(false);
+    }
+  });
+
+  it("explains each way a single sign-on can come back", async () => {
+    for (const code of [
+      "sso_unavailable",
+      "sso_email_outside_domain",
+      "sso_failed",
+      "sso_workspace_full",
+    ]) {
+      loadPage("login");
+      await open(`?error=${code}`);
+      expect(element("error-summary").textContent).toBe(messages.providerErrors[code]);
+    }
+  });
+});
+
+describe("linking single sign-on to a signed-in account (review finding 1)", () => {
+  it("offers it when the account's domain uses single sign-on and starts it for that address", async () => {
+    api.on("GET", "/get-session", session("ada@corp.example"));
+    api.on("POST", "/sso/lookup", { status: 200, body: { sso: true } });
+    api.on("POST", "/sign-in/sso", { status: 200, body: { url: "https://login.corp.example/a" } });
+    await open();
+    expect(element("sso-link-group").hidden).toBe(false);
+    element("sso-link").click();
+    await settle();
+    expect(api.calls.filter((call) => call.path === "/sign-in/sso")).toEqual([
+      {
+        method: "POST",
+        path: "/sign-in/sso",
+        body: { email: "ada@corp.example", callbackURL: "/", errorCallbackURL: "/login" },
+      },
+    ]);
+    expect(location.assigned).toEqual(["https://login.corp.example/a"]);
+  });
+
+  it("does not offer it otherwise, and explains a refused start", async () => {
+    api.on("GET", "/get-session", session("ada@corp.example"));
+    api.on("POST", "/sso/lookup", { status: 404, body: null });
+    await open();
+    expect(element("sso-link-group").hidden).toBe(true);
+
+    loadPage("login");
+    api = fakeApi();
+    api.on("GET", "/get-session", session("ada@corp.example"));
+    api.on("POST", "/sso/lookup", { status: 200, body: { sso: true } });
+    api.on("POST", "/sign-in/sso", { status: 404, body: { code: "sso_unavailable" } });
+    await open();
+    element("sso-link").click();
+    await settle();
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.sso_unavailable);
+  });
+
+  it("explains the new refusals", async () => {
+    for (const code of ["sso_email_unverified", "sso_link_required", "sso_removed"]) {
+      loadPage("login");
+      await open(`?error=${code}`);
+      expect(messages.providerErrors[code]).toBeDefined();
+      expect(element("error-summary").textContent).toBe(messages.providerErrors[code]);
+    }
   });
 });

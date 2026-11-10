@@ -43,6 +43,7 @@ import {
   updateWebhook,
   type WebhookDeps,
 } from "../src/webhooks.ts";
+import { advanceWorkspaceDeletion, deleteWorkspace } from "../src/workspaces.ts";
 import { DAY, db, grantPlan, MINUTE, NOW, publishSite, session, value } from "./fixtures.ts";
 
 const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
@@ -495,6 +496,48 @@ describe("managing webhooks", () => {
     expect(await hookRow(webhook.id)).toMatchObject({ disabledAt: null });
   });
 
+  it("counts a workspace's limits under the workspace, not its admins' personal spaces", async () => {
+    const admin = await person();
+    const other = await person();
+    const ws = await workspace([
+      [admin.id, "admin"],
+      [other.id, "admin"],
+    ]);
+    await grantPlan(ws, "team");
+    await grantPlan(admin.id, "pro");
+    await seedCounter(`webhook:create:${ws}`, WEBHOOK_LIMITS.createsPerOwnerPerDay, NOW);
+    const create = async (actor: Actor) =>
+      createWebhook(db(), {
+        service: ON,
+        via: "dashboard",
+        actor,
+        webhook: generic(),
+        keys: await keys(),
+        now: NOW,
+      });
+    // Both admins share the workspace's count: another admin cannot reset it.
+    for (const userId of [admin.id, other.id]) {
+      expect(await create(await actorIn(userId, ws))).toMatchObject({ code: "rate_limited" });
+    }
+    // The admin's personal space keeps its own count.
+    expect((await create(personalActor(admin.id))).ok).toBe(true);
+  });
+
+  it("deletes a workspace's webhooks with the workspace, and keeps a member's own", async () => {
+    const admin = await person();
+    const ws = await workspace([[admin.id, "admin"]]);
+    await grantPlan(ws, "team");
+    await grantPlan(admin.id, "pro");
+    const { webhook } = await addHook(await actorIn(admin.id, ws));
+    const mine = (await addHook(personalActor(admin.id))).webhook;
+    value(await deleteWorkspace(db(), { workspaceId: ws, now: NOW }));
+    expect(await hookRow(webhook.id)).toBeUndefined();
+    expect(await hookRow(mine.id)).toBeDefined();
+    // Finishing the deletion leaves the member's personal webhook alone too.
+    await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws, NOW + 1);
+    expect(await hookRow(mine.id)).toBeDefined();
+  });
+
   it("answers another owner's webhook exactly like a missing one", async () => {
     const owner = await proOwner();
     const stranger = await proOwner();
@@ -789,6 +832,7 @@ describe("recording events", () => {
         version: null,
         access: null,
         expiresAt: null,
+        review: null,
       },
     ]);
     const jobs = await jobsOf(webhook.id);
@@ -949,6 +993,7 @@ describe("recording events", () => {
         version: null,
         access: null,
         expiresAt: soon,
+        review: null,
       },
     ]);
     // Once per expiry.

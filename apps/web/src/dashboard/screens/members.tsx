@@ -45,6 +45,7 @@ import { Loaded } from "./account.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { EmailDomainsPanel } from "./email-domains.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
+import { SsoPanel } from "./sso.tsx";
 
 type T = ReturnType<typeof useT>;
 
@@ -130,6 +131,7 @@ function WorkspaceMembers({ space }: { space: Extract<Space, { kind: "workspace"
                   {(pending) => <PendingInvitations space={space} items={pending.items} />}
                 </Loaded>
                 <EmailDomainsPanel space={space} />
+                <SsoPanel space={space} />
               </>
             ) : null}
           </div>

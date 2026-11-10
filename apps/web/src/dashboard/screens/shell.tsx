@@ -25,8 +25,10 @@ import {
   Palette,
   ScrollText,
   Settings,
+  ShieldCheck,
   Upload,
   Users,
+  UsersRound,
   Webhook,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -146,6 +148,8 @@ const SPACE_PAGES = new Set([
   "/plan",
   "/branding",
   "/members",
+  "/groups",
+  "/policies",
   "/audit",
   "/service-tokens",
 ]);
@@ -159,7 +163,11 @@ function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
   const { space, workspaces } = state;
   const target = SPACE_PAGES.has(pathname) ? pathname : "/";
   const to = (slug: string | undefined) =>
-    (slug === undefined && (target === "/members" || target === "/service-tokens")
+    (slug === undefined &&
+    (target === "/members" ||
+      target === "/groups" ||
+      target === "/policies" ||
+      target === "/service-tokens")
       ? "/"
       : target) as "/";
   const personal = { name: t("space.personal"), detail: t("space.personalDetail") };
@@ -284,7 +292,7 @@ export function Shell() {
       icon: <BadgeCheck className="size-4" />,
       render: (props) => <Link to="/plan" {...props} />,
     },
-    space?.kind === "personal" && {
+    allowed("webhooks") && {
       key: "webhooks",
       label: t("shell.webhooksLink"),
       icon: <Webhook className="size-4" />,
@@ -301,6 +309,20 @@ export function Shell() {
       label: t("shell.membersLink"),
       icon: <Users className="size-4" />,
       render: (props) => <Link to="/members" {...props} />,
+    },
+    space?.kind === "workspace" &&
+      allowed("members") && {
+        key: "groups",
+        label: t("shell.groupsLink"),
+        icon: <UsersRound className="size-4" />,
+        render: (props) => <Link to="/groups" {...props} />,
+      },
+    // Every member sees the policies that bind them; only admins change them (decision 0015).
+    space?.kind === "workspace" && {
+      key: "policies",
+      label: t("shell.policiesLink"),
+      icon: <ShieldCheck className="size-4" />,
+      render: (props) => <Link to="/policies" {...props} />,
     },
     allowed("audit") && {
       key: "audit",

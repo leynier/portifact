@@ -163,6 +163,32 @@ export const artifactReaders = sqliteTable(
 );
 
 /**
+ * Groups of the owning workspace a `restricted` artifact lists (decision 0014), with their
+ * exception to who sees the comments. Regional, with the artifact; the group is global, so there
+ * is no foreign key to it: a row whose group is gone grants nothing (reading checks the global
+ * membership) and the maintenance scan removes it, oldest `checked_at` first.
+ */
+export const artifactGroups = sqliteTable(
+  "artifact_groups",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    groupId: text("group_id").notNull(),
+    /** Like `artifact_readers.comment_visibility`; null inherits the artifact's setting. */
+    commentVisibility: text("comment_visibility", { enum: ["all", "own"] }),
+    createdAt: timestamp("created_at").notNull(),
+    /** When the scan last found the group alive; null until the first scan. */
+    checkedAt: timestamp("checked_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.groupId] }),
+    index("artifact_groups_group_idx").on(t.groupId),
+    index("artifact_groups_checked_idx").on(t.checkedAt),
+  ],
+);
+
+/**
  * One-use codes that carry a sign-in from app.portifact.com to an artifact origin. Only the
  * SHA-256 of the code and of the origin's transaction nonce are stored. Redeeming sets
  * `used_at` and the read session it created, in the same guarded update.
@@ -686,6 +712,8 @@ export const OUTBOX_TOPICS = [
   "access_history_move",
   "domain_notice",
   "search_index",
+  "review_notice",
+  "workspace_policy",
 ] as const;
 
 /**
@@ -764,7 +792,9 @@ export const tombstones = sqliteTable(
      * `share_link` marks a revoked share link (decision 0008), `webhook` a removed webhook
      * (decision 0009) and `service_token` a revoked service token (decision 0011), so a restore
      * cannot revive them; `workspace` a deleted workspace; `workspace_domain` a removed or lapsed
-     * verified email domain by its row ID (decision 0010).
+     * verified email domain by its row ID (decision 0010); `workspace_group` a deleted group and
+     * `workspace_group_member` a removed group membership by its row ID (decision 0014);
+     * `workspace_sso` a removed single sign-on provider by its row ID (decision 0016).
      */
     kind: text("kind", {
       enum: [
@@ -775,6 +805,9 @@ export const tombstones = sqliteTable(
         "webhook",
         "service_token",
         "workspace_domain",
+        "workspace_group",
+        "workspace_group_member",
+        "workspace_sso",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1124,6 +1157,33 @@ export const reviewVerdicts = sqliteTable(
   ],
 );
 
+/**
+ * Review emails already sent (decision 0013, "Emails"): one row per artifact, version, recipient
+ * and kind (`requested` to a reviewer, `completed` to the owner side), claimed before the send
+ * and deleted again when the send fails, so each person gets at most one of each per version.
+ * Goes with the version and the artifact (foreign keys); `recipient_id` has no foreign key (users
+ * are global), so both account deletion batches delete the account's rows.
+ */
+export const reviewNotices = sqliteTable(
+  "review_notices",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    versionId: text("version_id")
+      .notNull()
+      .references(() => versions.id, { onDelete: "cascade" }),
+    recipientId: text("recipient_id").notNull(),
+    kind: text("kind", { enum: ["requested", "completed"] }).notNull(),
+    sentAt: timestamp("sent_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.versionId, t.recipientId, t.kind] }),
+    index("review_notices_recipient_idx").on(t.recipientId),
+    index("review_notices_version_idx").on(t.versionId),
+  ],
+);
+
 /** Formats a webhook delivers in (decision 0009). */
 export const WEBHOOK_FORMATS = ["generic", "slack", "discord"] as const;
 /** Why a webhook stopped: an admin, repeated failures, a 410 from the receiver, or a URL that no longer passes. */
@@ -1172,7 +1232,8 @@ export const webhooks = sqliteTable(
   },
   (t) => [
     index("webhooks_owner_idx").on(t.ownerId),
-    check("webhooks_events", sql`${t.events} between 1 and 31`),
+    // Every bit of WEBHOOK_EVENTS (seven types; widened from 31 by `webhook_review_events`).
+    check("webhooks_events", sql`${t.events} between 1 and 127`),
     check("webhooks_failures", sql`${t.failures} >= 0`),
   ],
 );
@@ -1198,6 +1259,11 @@ export const webhookEvents = sqliteTable(
     version: integer("version"),
     access: text("access"),
     expiresAt: timestamp("expires_at"),
+    /**
+     * Review events: the status and counts (`ApprovalSummary`) when the event last happened, as
+     * JSON. Never a reviewer's name or address, never a note.
+     */
+    review: text("review"),
   },
   (t) => [
     primaryKey({ columns: [t.webhookId, t.artifactId, t.type] }),
@@ -1519,6 +1585,13 @@ export const workspaces = sqliteTable(
     createdBy: text("created_by").notNull(),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull(),
+    /**
+     * The workspace's policies (decision 0015), validated JSON (contracts: WorkspacePolicy); null
+     * is the defaults. Read with the membership, so applying them costs no read.
+     */
+    policy: text("policy", { mode: "json" }),
+    /** Moves with every policy change; a change is conditioned on the revision it read. */
+    policyRevision: integer("policy_revision").notNull().default(0),
   },
   (t) => [uniqueIndex("workspaces_slug_idx").on(t.slug)],
 );
@@ -1649,6 +1722,114 @@ export const workspaceDomains = sqliteTable(
     uniqueIndex("workspace_domains_verified_idx").on(t.domain).where(sql`${t.state} = 'verified'`),
     index("workspace_domains_state_checked_idx").on(t.state, t.checkedAt),
     check("workspace_domains_state", sql`${t.state} in ('pending', 'verified')`),
+  ],
+);
+
+/**
+ * People an admin removed from a workspace (decision 0016, section 5): while a row stands, signing
+ * in through the workspace's single sign-on does not make them a member again. Written in the
+ * removal's own global batch, deleted when an admin invites them again; leaving by oneself writes
+ * none. Global next to the memberships, so a D1 Time Travel restore rewinds both together. Goes
+ * with the workspace and with the account.
+ */
+export const workspaceRemovals = sqliteTable(
+  "workspace_removals",
+  {
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    removedAt: timestamp("removed_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] })],
+);
+
+/**
+ * A workspace's single sign-on provider with OpenID Connect (premium plan E1, decision 0016).
+ * Global, one per workspace, changed only by packages/services. The client secret is sealed with
+ * `SSO_KEY` (bound to the workspace and the column) and never returned; `domains` are the
+ * workspace's verified email domains it serves, space-separated and sorted, re-read against
+ * `workspace_domains` at every sign-in. The ID names the redirect URI and the identities linked
+ * through it (`accounts.provider_id` is `sso:<id>`), so it never changes: a new issuer is a new
+ * provider. `revision` moves on every change, and a sign-in started before one is refused.
+ * Removing it writes a `workspace_sso` tombstone; it goes with the workspace.
+ */
+export const workspaceSso = sqliteTable(
+  "workspace_sso",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    issuer: text("issuer").notNull(),
+    clientId: text("client_id").notNull(),
+    clientSecretSealed: text("client_secret_sealed").notNull(),
+    /** Which `SSO_KEY` sealed the secret. */
+    secretKeyId: text("secret_key_id").notNull(),
+    domains: text("domains").notNull(),
+    revision: integer("revision").notNull().default(1),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [uniqueIndex("workspace_sso_workspace_idx").on(t.workspaceId)],
+);
+
+/**
+ * Groups of a workspace (premium plan T3, decision 0014): a named set of its members that
+ * `restricted` artifacts of the workspace can list. Global, like the workspace and its members.
+ * Names are unique in the workspace without regard to ASCII case. Rows go with the workspace;
+ * deleting one writes a `workspace_group` tombstone so a restore cannot bring it back.
+ */
+export const workspaceGroups = sqliteTable(
+  "workspace_groups",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    // The parent key of the memberships' composite foreign key.
+    uniqueIndex("workspace_groups_workspace_id_idx").on(t.workspaceId, t.id),
+    uniqueIndex("workspace_groups_workspace_name_idx").on(t.workspaceId, sql`lower(${t.name})`),
+    check("workspace_groups_name_length", sql`length(${t.name}) between 1 and 80`),
+  ],
+);
+
+/**
+ * Who is in a group. Both composite foreign keys hold a membership to its workspace: the group
+ * must be the workspace's, and the person must be a member of it, so leaving or being removed
+ * from the workspace (or deleting the account) removes them from its groups by cascade. Each row
+ * has its own ID, which a `workspace_group_member` tombstone names when it is removed, so a later
+ * membership of the same person survives a restore.
+ */
+export const workspaceGroupMembers = sqliteTable(
+  "workspace_group_members",
+  {
+    id: text("id").primaryKey(),
+    groupId: text("group_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    userId: text("user_id").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.workspaceId, t.groupId],
+      foreignColumns: [workspaceGroups.workspaceId, workspaceGroups.id],
+      name: "workspace_group_members_group_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.workspaceId, t.userId],
+      foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.userId],
+      name: "workspace_group_members_member_fk",
+    }).onDelete("cascade"),
+    uniqueIndex("workspace_group_members_group_user_idx").on(t.groupId, t.userId),
+    index("workspace_group_members_member_idx").on(t.workspaceId, t.userId),
   ],
 );
 

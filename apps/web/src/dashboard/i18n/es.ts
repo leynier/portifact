@@ -454,9 +454,10 @@ export const es = {
   "settings.notices.unchanged":
     "Nada que guardar: tus avisos por correo ya están configurados así.",
   "settings.notices.failed": "No se guardaron tus avisos por correo",
-  "settings.notices.comments.label": "Envíame un correo cuando haya comentarios nuevos",
+  "settings.notices.comments.label":
+    "Envíame un correo cuando haya comentarios nuevos o revisiones",
   "settings.notices.comments.hint":
-    "Como máximo un correo cada 10 minutos, con cuántos hilos, respuestas y resoluciones hay nuevos en cada artifact, nunca lo que se escribió. Solo en artifacts cuyo propietario tiene un plan con avisos de comentarios.",
+    "Como máximo un correo cada 10 minutos, con cuántos hilos, respuestas y resoluciones hay nuevos en cada artifact, nunca lo que se escribió. Solo en artifacts cuyo propietario tiene un plan con avisos de comentarios. La misma opción cubre los correos de revisión: cuando alguien pide tu revisión y cuando se aprueba o se piden cambios en una versión que gestionas.",
   "commentNotices.label": "Envíame un correo cuando haya comentarios nuevos en este artifact",
   "commentNotices.hint":
     "Como máximo un correo cada 10 minutos, solo con cantidades. Desactiva todos los correos de comentarios en tu configuración.",
@@ -1286,6 +1287,8 @@ export const es = {
   "webhooks.event.artifact.published": "Versiones nuevas",
   "webhooks.event.artifact.expiring": "Artifacts a punto de vencer",
   "webhooks.event.artifact.access_changed": "Cambios de acceso",
+  "webhooks.event.review.requested": "Solicitudes de revisión",
+  "webhooks.event.review.completed": "Revisiones aprobadas o con cambios solicitados",
   "webhooks.add.submit": "Agregar webhook",
   "webhooks.add.noEvents": "Elige al menos un evento.",
   "webhooks.add.limit": "Puedes tener como máximo {limit} webhooks. Quita uno para agregar otro.",
@@ -1625,9 +1628,9 @@ export const es = {
   "account.delete.soleAdmin.body":
     "Un workspace debe conservar un admin. Haz admin a otro miembro en cada uno de estos workspaces, o pide a Portifact en hello@portifact.com que los elimine, y luego elimina tu cuenta.",
   "account.delete.soleAdmin.members": "Miembros de {workspace}",
-  "webhooks.personalOnly.title": "Los webhooks se configuran en tu espacio personal",
-  "webhooks.personalOnly.body":
-    "Por ahora, los webhooks solo envían eventos de los artifacts de tu espacio personal. Cambia a él para gestionarlos.",
+  "webhooks.adminOnly.title": "Solo los administradores gestionan los webhooks",
+  "webhooks.adminOnly.body":
+    "Los webhooks envían los eventos de los artifacts de este workspace a otros sistemas, así que solo los administradores de {workspace} pueden verlos y gestionarlos. Pide a uno de ellos el webhook que necesites.",
   "shell.planLink": "Plan",
   "plan.title": "Plan",
   "plan.description":
@@ -1972,4 +1975,293 @@ export const es = {
     "Aún no se encontró el registro TXT con el valor de este dominio. Los cambios de DNS pueden tardar en aparecer; inténtalo más tarde. Una solicitud de más de 7 días debe agregarse de nuevo.",
   "transfer.confirm.accessReset":
     "Ahora se comparte con su workspace o un dominio de correo, así que pasa a estar restringido: solo las personas de su lista de lectores siguen pudiendo leerlo.",
+  "shell.groupsLink": "Grupos",
+  "groups.title": "Grupos",
+  "groups.description":
+    "Conjuntos con nombre de los miembros de {workspace}. Agrega un grupo a un artifact restringido y sus miembros podrán abrirlo, como los lectores de la lista.",
+  "groups.personal.title": "Los grupos pertenecen a un workspace",
+  "groups.personal.body": "Cambia a un workspace que administres para gestionar sus grupos.",
+  "groups.adminOnly.title": "Solo los administradores gestionan los grupos",
+  "groups.adminOnly.body":
+    "Los editores eligen grupos en la configuración para compartir de un artifact. Pide a un administrador de este workspace que cree o cambie uno.",
+  "groups.planTitle": "Los grupos no están en el plan de este workspace",
+  "groups.planRequired":
+    "Los grupos forman parte del plan {plan}. Los grupos existentes se pueden renombrar, vaciar y eliminar, pero no dan acceso a nadie hasta que el plan los incluya de nuevo.",
+  "groups.list.title": "Grupos",
+  "groups.loading": "Cargando grupos",
+  "groups.loadFailed": "No se cargaron los grupos",
+  "groups.empty.title": "Aún no hay grupos",
+  "groups.empty.body":
+    "Crea un grupo, agrégale miembros y luego agrégalo en la configuración para compartir de un artifact restringido.",
+  "groups.create.title": "Crear un grupo",
+  "groups.create.hint":
+    "Los administradores y editores ven su nombre cuando eligen quién puede abrir un artifact.",
+  "groups.create.limit":
+    "Un workspace puede tener como máximo {limit} grupos. Elimina uno primero.",
+  "groups.create.name": "Nombre",
+  "groups.create.submit": "Crear grupo",
+  "groups.nameError": "Usa una línea de 1 a {max} caracteres.",
+  "groups.actionFailed": "El grupo no cambió",
+  "groups.created": "Se creó el grupo {name}.",
+  "groups.memberCount": "{count, plural, one {# miembro} other {# miembros}}",
+  "groups.showMembers": "Miembros",
+  "groups.hideMembers": "Ocultar miembros",
+  "groups.rename": "Renombrar",
+  "groups.renameLabel": "Renombrar {name}",
+  "groups.renameField": "Nuevo nombre para {name}",
+  "groups.save": "Guardar nombre",
+  "groups.renamed": "El grupo ahora se llama {name}.",
+  "groups.delete": "Eliminar",
+  "groups.deleteLabel": "Eliminar {name}",
+  "groups.deleted": "Se eliminó el grupo {name}.",
+  "groups.confirm.title": "¿Eliminar {name}?",
+  "groups.confirm.body":
+    "Sus miembros dejan de leer los artifacts que lo incluyen en menos de un minuto, salvo que otra cosa les dé acceso. No se puede deshacer.",
+  "groups.membersLoading": "Cargando los miembros del grupo",
+  "groups.noMembers": "Aún no hay nadie en este grupo.",
+  "groups.membersOf": "Miembros de {name}",
+  "groups.removeMember": "Quitar",
+  "groups.removeMemberLabel": "Quitar a {name} de {group}",
+  "groups.memberRemoved": "Se quitó a {name} de {group}.",
+  "groups.addMember": "Agregar un miembro a {name}",
+  "groups.chooseMember": "Elige un miembro",
+  "groups.add": "Agregar",
+  "groups.memberAdded": "Se agregó a {name} a {group}.",
+  "groupAccess.title": "Grupos",
+  "groupAccess.hint":
+    "Los miembros de estos grupos del workspace pueden abrirlo después de iniciar sesión, como los lectores de la lista.",
+  "groupAccess.onlyRestricted":
+    "Los grupos dan acceso a sus miembros solo mientras el acceso es restringido; en otros modos solo conservan sus excepciones de comentarios.",
+  "groupAccess.count": "{count} de {max} grupos",
+  "groupAccess.planTitle": "Los grupos no están en el plan de este workspace",
+  "groupAccess.planRequired":
+    "Agregar grupos forma parte del plan {plan}. Los grupos ya agregados no dan acceso a nadie hasta que el plan los incluya de nuevo, y aún puedes quitarlos.",
+  "groupAccess.failed.title": "Los grupos no cambiaron",
+  "groupAccess.empty": "No se agregaron grupos.",
+  "groupAccess.list": "Grupos que pueden abrir este artifact",
+  "groupAccess.removeLabel": "Quitar el grupo {name}",
+  "groupAccess.removed": "Se quitó el grupo {name}.",
+  "groupAccess.full": "Un artifact puede incluir como máximo {max} grupos.",
+  "groupAccess.none":
+    "Este workspace aún no tiene grupos. Sus administradores los crean en la página Grupos.",
+  "groupAccess.added": "Se agregó el grupo {name}.",
+  "groupAccess.pick": "Agregar un grupo",
+  "groupAccess.choose": "Elige un grupo",
+  "groupAccess.option": "{name} ({count, plural, one {# miembro} other {# miembros}})",
+  "groupAccess.add": "Agregar grupo",
+  "groupAccess.comments.label": "Comentarios que ve el grupo {name}",
+  "groupAccess.comments.changed": "El grupo {name} ahora ve: {choice}.",
+  "groupAccess.comments.confirm.title": "¿Mostrar todos los comentarios a {name}?",
+  "groupAccess.comments.confirm.body":
+    "Cada miembro de {name} verá todos los hilos de comentarios de este artifact, incluidos los que otros lectores iniciaron antes.",
+  "audit.group.groups": "Grupos",
+  "audit.kind.groupCreated": "Creó el grupo {group}",
+  "audit.kind.groupRenamed": "Renombró un grupo, ahora {group}",
+  "audit.kind.groupDeleted": "Eliminó el grupo {group}",
+  "audit.kind.groupMemberAdded": "Agregó a {member} al grupo {group}",
+  "audit.kind.groupMemberRemoved": "Quitó a {member} del grupo {group}",
+  "audit.target.groupGone": "un grupo eliminado",
+  "audit.access.groupsAdded": "{count, plural, one {agregó # grupo} other {agregó # grupos}}",
+  "audit.access.groupsRemoved": "{count, plural, one {quitó # grupo} other {quitó # grupos}}",
+  "audit.access.groupExceptions":
+    "{count, plural, one {cambió la visibilidad de comentarios de # grupo} other {cambió la visibilidad de comentarios de # grupos}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "Inicio de sesión único",
+  "sso.description":
+    "Las personas con una dirección en los dominios de correo verificados del workspace pueden iniciar sesión con el proveedor de identidad de tu organización mediante OpenID Connect.",
+  "sso.loadFailed": "No se pudo cargar el inicio de sesión único",
+  "sso.stateLabel": "Estado",
+  "sso.state.off": "Sin configurar",
+  "sso.state.on": "Activo",
+  "sso.state.plan": "En pausa: no está en este plan",
+  "sso.state.domains": "En pausa: ningún dominio verificado",
+  "sso.planTitle": "No está en este plan",
+  "sso.plan":
+    "El inicio de sesión único es parte del plan {plan}. Un proveedor ya configurado se mantiene y aún puedes quitarlo.",
+  "sso.lapsedTitle": "Un dominio ya no está verificado",
+  "sso.lapsed":
+    "{domains} ya no está verificado, así que sus direcciones no pueden iniciar sesión así hasta que el dominio se verifique de nuevo.",
+  "sso.membership":
+    "Quienes inician sesión así se unen al workspace como miembros, o con el rol de una invitación pendiente, mientras haya un puesto libre. Los miembros actuales conservan su rol.",
+  "sso.removalNote":
+    "Quien un admin quita no puede volver a unirse con el inicio de sesión único hasta que un admin lo invite de nuevo. Quien se va por su cuenta sí puede.",
+  "sso.redirectUri": "URI de redirección",
+  "sso.redirectPending":
+    "Guarda el proveedor para obtener la URI de redirección que debes registrar en tu proveedor de identidad. Se ve así: {pattern}.",
+  "sso.saveFailed": "El cambio no se guardó",
+  "sso.testOkTitle": "El descubrimiento funciona",
+  "sso.testOk":
+    "El inicio de sesión va a {authorization}, los tokens vienen de {token} y las claves de {keys}.",
+  "sso.testOkShort": "El descubrimiento funciona.",
+  "sso.testFailed": "El descubrimiento falló",
+  "sso.formLabel": "Proveedor de inicio de sesión único",
+  "sso.issuer": "URL del emisor",
+  "sso.issuerHint":
+    "El emisor de tu proveedor de identidad, por ejemplo https://login.example.com. Portifact lee su documento de descubrimiento. No se puede cambiar después de guardarlo.",
+  "sso.clientId": "ID de cliente",
+  "sso.clientSecret": "Secreto de cliente",
+  "sso.secretHint": "Se guarda cifrado y no se vuelve a mostrar.",
+  "sso.secretKeep": "Déjalo vacío para conservar el secreto guardado.",
+  "sso.domains": "Dominios que admite",
+  "sso.domainsHint":
+    "Solo los dominios de correo verificados del workspace. Una dirección de otro dominio no puede iniciar sesión así.",
+  "sso.noDomains": "Primero verifica un dominio de correo arriba.",
+  "sso.issuerRequired": "Escribe la URL del emisor.",
+  "sso.clientIdRequired": "Escribe el ID de cliente.",
+  "sso.secretRequired": "Escribe el secreto de cliente.",
+  "sso.domainsRequired": "Elige al menos un dominio.",
+  "sso.save": "Guardar",
+  "sso.saveChanges": "Guardar cambios",
+  "sso.test": "Comprobar el emisor",
+  "sso.remove": "Quitar el inicio de sesión único",
+  "sso.saved": "Inicio de sesión único guardado.",
+  "sso.removed": "Inicio de sesión único quitado.",
+  "sso.scim":
+    "Quitar a alguien en tu proveedor de identidad no lo quita aquí: quítalo de la lista de miembros.",
+  "sso.confirmRemove.title": "¿Quitar el inicio de sesión único?",
+  "sso.confirmRemove.body":
+    "Ya nadie podrá iniciar sesión con este proveedor. Los miembros siguen siéndolo y conservan sus cuentas; inician sesión con un código por correo, Google o GitHub. Un proveedor nuevo recibe una URI de redirección nueva.",
+  "sso.confirmRemove.action": "Quitar",
+  "sso.problem.invalid_issuer":
+    "El emisor debe ser una URL https pública sin consulta ni fragmento.",
+  "sso.problem.unreachable": "No se pudo conectar con el proveedor de identidad.",
+  "sso.problem.timeout": "El proveedor de identidad tardó demasiado en responder.",
+  "sso.problem.redirect":
+    "El proveedor de identidad respondió con una redirección, y Portifact no la sigue. Usa el emisor al que redirige.",
+  "sso.problem.http_error": "El proveedor de identidad respondió con un error.",
+  "sso.problem.too_large": "La respuesta del proveedor de identidad es demasiado grande.",
+  "sso.problem.not_json": "El documento de descubrimiento no es JSON válido.",
+  "sso.problem.issuer_mismatch":
+    "El documento de descubrimiento nombra otro emisor. Usa el emisor exactamente como lo indica el documento.",
+  "sso.problem.missing_endpoint":
+    "Al documento de descubrimiento le falta el endpoint de autorización, de tokens o de claves.",
+  "sso.problem.invalid_endpoint":
+    "Un endpoint del documento de descubrimiento no es una URL https pública.",
+  "sso.problem.no_code_flow":
+    "El proveedor de identidad no ofrece el flujo de código de autorización.",
+  "sso.problem.no_pkce": "El proveedor de identidad no admite PKCE con S256.",
+  "sso.problem.no_signing_algorithm":
+    "El proveedor de identidad firma los ID tokens con un algoritmo que Portifact no acepta (familias RS256, PS256, ES256 o EdDSA).",
+  "sso.error.invalid_input":
+    "Revisa el emisor, el cliente y los dominios. Comprobar el emisor muestra qué falló en el descubrimiento.",
+  "sso.error.capacity_unavailable": "El inicio de sesión único no está disponible en este momento.",
+  "sso.error.version_conflict":
+    "El inicio de sesión único cambió mientras tanto. Recarga e inténtalo de nuevo.",
+  "sso.error.not_found": "El inicio de sesión único no está configurado.",
+  "audit.kind.memberJoinedSso": "{member} se unió como {role} con inicio de sesión único",
+  "audit.kind.ssoCreated":
+    "Configuró el inicio de sesión único con {host} para {count, plural, one {# dominio} other {# dominios}}",
+  "audit.kind.ssoChanged": "Cambió el inicio de sesión único",
+  "audit.kind.ssoRemoved": "Quitó el inicio de sesión único",
+  "shell.policiesLink": "Políticas",
+  "policies.title": "Políticas",
+  "policies.description":
+    "Reglas para todos los artefactos de {workspace}. Obligan a todos los que actúan sobre sus artefactos, incluidos los administradores y los tokens de servicio.",
+  "policies.personal.title": "Las políticas son de los espacios de trabajo",
+  "policies.personal.body":
+    "Un espacio personal no tiene políticas. Cambia a un espacio de trabajo para ver las suyas.",
+  "policies.loading": "Cargando las políticas",
+  "policies.loadFailed": "No se pudieron cargar las políticas",
+  "policies.planTitle": "Definir políticas forma parte del plan {plan}",
+  "policies.planRequired":
+    "El plan del espacio de trabajo no incluye políticas. Las que ya están definidas siguen aplicándose, y los administradores aún pueden relajarlas o quitarlas.",
+  "policies.readOnly.title": "Las definen los administradores",
+  "policies.readOnly.body":
+    "Solo los administradores cambian las políticas. También se aplican a ti.",
+  "policies.adminsToo": "Estas políticas también se aplican a los administradores.",
+  "policies.public.legend": "Acceso público",
+  "policies.public.allowed": "Permitido",
+  "policies.public.allowedHint":
+    "Administradores y editores pueden hacer público un artefacto, así cualquiera con el enlace puede abrirlo.",
+  "policies.public.forbidden": "Prohibido",
+  "policies.public.forbiddenHint":
+    "Ningún artefacto del espacio de trabajo puede ser público. Los artefactos públicos pasan a compartirse con el espacio de trabajo.",
+  "policies.default.legend": "Acceso de los artefactos nuevos",
+  "policies.default.hint":
+    "Con qué empieza un artefacto nuevo del espacio de trabajo. Los existentes conservan el suyo.",
+  "policies.default.restricted":
+    "Solo su parte propietaria y los lectores añadidos pueden abrirlo.",
+  "policies.default.workspace": "Cualquier miembro del espacio de trabajo puede abrirlo.",
+  "policies.default.domain":
+    "Los miembros y cualquiera que inicie sesión con una dirección verificada de los dominios de correo del espacio de trabajo pueden abrirlo.",
+  "policies.default.domainNone": "Primero verifica un dominio de correo en la página Miembros.",
+  "policies.readers.legend": "Dominios de lectores",
+  "policies.readers.any": "Cualquier dirección",
+  "policies.readers.anyHint": "Se pueden añadir lectores con cualquier dirección de correo.",
+  "policies.readers.only": "Solo estos dominios",
+  "policies.readers.onlyHint":
+    "Solo se pueden añadir lectores de estos dominios de correo. No afecta a miembros ni grupos.",
+  "policies.readers.domains": "Dominios permitidos",
+  "policies.readers.domainsHint": "Uno por línea, como example.com, como máximo {max}.",
+  "policies.readers.domainsError": "Escribe entre 1 y {max} dominios simples, como example.com.",
+  "policies.links.legend": "Enlaces para compartir",
+  "policies.links.allowed": "Permitidos",
+  "policies.links.allowedHint":
+    "Administradores y editores pueden crear enlaces para compartir, con o sin contraseña.",
+  "policies.links.password_required": "Contraseña obligatoria",
+  "policies.links.password_requiredHint":
+    "Todo enlace necesita una contraseña. Los que no la tienen dejan de abrirse.",
+  "policies.links.disabled": "Desactivados",
+  "policies.links.disabledHint": "Sin enlaces para compartir. Los existentes se revocan.",
+  "policies.lifetime.label": "Vida máxima de un enlace, en días",
+  "policies.lifetime.hint":
+    "Déjalo vacío para no poner límite. Los enlaces más antiguos dejan de abrirse.",
+  "policies.lifetime.error": "Escribe un número entero de días entre 1 y {max}, o déjalo vacío.",
+  "policies.save": "Guardar políticas",
+  "policies.saved": "Se guardaron las políticas.",
+  "policies.saveFailed": "No se guardaron las políticas",
+  "policies.conflict":
+    "Alguien cambió las políticas mientras tanto. Se cargaron de nuevo: revísalas y guarda.",
+  "policies.impact.title": "¿Aplicar estas políticas a los artefactos existentes?",
+  "policies.impact.body": "Guardar cambia lo que ya existe en {workspace}:",
+  "policies.impact.public":
+    "{count, plural, one {# artefacto público pasa a compartirse con el espacio de trabajo} other {# artefactos públicos pasan a compartirse con el espacio de trabajo}}",
+  "policies.impact.readers":
+    "{count, plural, one {Se quita # lector fuera de los dominios permitidos} other {Se quitan # lectores fuera de los dominios permitidos}}",
+  "policies.impact.revoked":
+    "{count, plural, one {Se revoca # enlace para compartir} other {Se revocan # enlaces para compartir}}",
+  "policies.impact.password":
+    "{count, plural, one {# enlace sin contraseña deja de abrirse} other {# enlaces sin contraseña dejan de abrirse}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {# enlace que supera la vida máxima deja de abrirse} other {# enlaces que superan la vida máxima dejan de abrirse}}",
+  "policies.impact.note":
+    "Esto ocurre en segundo plano, en lotes pequeños, y queda en el registro de auditoría.",
+  "policies.impact.confirm": "Aplicar y guardar",
+  "policies.impact.cancel": "Seguir editando",
+  "policies.note.publicForbidden": "La política del espacio de trabajo prohíbe el acceso público.",
+  "policies.note.readerDomains":
+    "La política del espacio de trabajo solo permite lectores de {domains}.",
+  "policies.note.linksDisabled":
+    "La política del espacio de trabajo no permite enlaces para compartir.",
+  "policies.note.linksPassword":
+    "La política del espacio de trabajo exige contraseña en todo enlace para compartir.",
+  "policies.note.linksLifetime":
+    "La política del espacio de trabajo limita los enlaces a {days, plural, one {# día} other {# días}}.",
+  "error.policy_refused": "Una política del espacio de trabajo no lo permite.",
+  "audit.group.policies": "Políticas",
+  "audit.kind.policyChanged": "Cambió las políticas del espacio de trabajo: {changes}",
+  "audit.kind.policyEnforced": "Aplicó las políticas del espacio de trabajo: {changes}",
+  "audit.policy.public":
+    "{value, select, forbidden {acceso público prohibido} other {acceso público permitido}}",
+  "audit.policy.default":
+    "{mode, select, workspace {artefactos nuevos compartidos con el espacio de trabajo} domain {artefactos nuevos compartidos con los dominios de correo} other {artefactos nuevos restringidos}}",
+  "audit.policy.readers": "lectores solo de {domains}",
+  "audit.policy.readersAny": "lectores de cualquier dominio",
+  "audit.policy.links":
+    "{value, select, disabled {enlaces desactivados} password_required {enlaces con contraseña obligatoria} other {enlaces permitidos}}",
+  "audit.policy.lifetime": "enlaces de como máximo {days, plural, one {# día} other {# días}}",
+  "audit.policy.lifetimeNone": "sin límite de vida para los enlaces",
+  "audit.policy.narrowed":
+    "{count, plural, one {limitó # artefacto al espacio de trabajo} other {limitó # artefactos al espacio de trabajo}}",
+  "audit.policy.readersRemoved": "{count, plural, one {quitó # lector} other {quitó # lectores}}",
+  "audit.policy.linksRevoked": "{count, plural, one {revocó # enlace} other {revocó # enlaces}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {cerró # sesión de enlace} other {cerró # sesiones de enlace}}",
+  "policies.impact.stale":
+    "Lo que esta política cambia en los artefactos existentes creció desde que lo revisaste. Guarda de nuevo para revisar las cifras nuevas.",
+  "policies.savedWithChanges":
+    "Los artefactos existentes se están ajustando a las políticas. Sus páginas y el registro de auditoría muestran qué cambió.",
+  "policies.default.domainLapsed":
+    "No hay ningún dominio de correo verificado, así que los artefactos nuevos empiezan compartidos con el espacio de trabajo hasta que se verifique uno.",
+  "audit.access.byPolicy": "por la política del espacio de trabajo",
 } satisfies Catalog;

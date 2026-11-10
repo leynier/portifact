@@ -2411,6 +2411,45 @@ describe("API and MCP parity for sharing", () => {
     expect((await b.tool("add_reader", { artifactId: viaMcp, emails: [] })).isError).toBe(true);
   });
 
+  it("groups on a personal artifact are refused with the same body at both", async () => {
+    const b = await both("parity-groups@example.test", SHARE);
+    const { viaApi, viaMcp } = await pair(b);
+    for (const [tool, field] of [
+      ["add_group", "addGroups"],
+      ["remove_group", "removeGroups"],
+    ] as const) {
+      const apiResult = await fromApi(
+        await patch(b, viaApi, { [field]: ["wg_55555555555555555555555555555555"] }),
+      );
+      const mcpResult = fromTool(
+        await b.tool(tool, { artifactId: viaMcp, groups: ["wg_55555555555555555555555555555555"] }),
+      );
+      expect(mcpResult, tool).toEqual(apiResult);
+    }
+    expect(
+      (
+        await fromApi(
+          await patch(b, viaApi, { addGroups: ["wg_55555555555555555555555555555555"] }),
+        )
+      ).body,
+    ).toEqual({
+      error: { code: "invalid_input", message: "Only workspace artifacts can list groups." },
+    });
+    // Removing a group a personal artifact never listed changes nothing but the generation.
+    expect(
+      (
+        await fromApi(
+          await patch(b, viaApi, { removeGroups: ["wg_55555555555555555555555555555555"] }),
+        )
+      ).body,
+    ).toMatchObject({
+      groups: [],
+    });
+    expect((await b.tool("add_group", { artifactId: viaMcp, groups: ["Design"] })).isError).toBe(
+      true,
+    );
+  });
+
   it("refuses another user's or a missing artifact, and needs artifacts:share, at both", async () => {
     const b = await both("parity-share-owner@example.test", SHARE);
     const { viaApi, viaMcp } = await pair(b);
@@ -2424,6 +2463,8 @@ describe("API and MCP parity for sharing", () => {
         ["set_access", { mode: "restricted" }],
         ["add_reader", { emails: ["x@example.test"] }],
         ["remove_reader", { emails: ["x@example.test"] }],
+        ["add_group", { groups: ["wg_55555555555555555555555555555555"] }],
+        ["remove_group", { groups: ["wg_55555555555555555555555555555555"] }],
       ] as const) {
         expect(fromTool(await other.tool(tool, { artifactId: id, ...args })), tool).toEqual(
           apiResult,
@@ -2436,6 +2477,8 @@ describe("API and MCP parity for sharing", () => {
       ["set_access", { mode: "public" }],
       ["add_reader", { emails: ["x@example.test"] }],
       ["remove_reader", { emails: ["x@example.test"] }],
+      ["add_group", { groups: ["wg_55555555555555555555555555555555"] }],
+      ["remove_group", { groups: ["wg_55555555555555555555555555555555"] }],
     ] as const) {
       const denied = await rawCall(b.h, reader, tool, { artifactId: viaMcp, ...args });
       expect(denied.status, tool).toBe(403);

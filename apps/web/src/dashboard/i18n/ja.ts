@@ -441,9 +441,9 @@ export const ja = {
   "settings.notices.saved": "メール通知を保存しました。",
   "settings.notices.unchanged": "保存する変更はありません。メール通知はすでにこの設定です。",
   "settings.notices.failed": "メール通知を保存できませんでした",
-  "settings.notices.comments.label": "新しいコメントをメールで通知",
+  "settings.notices.comments.label": "新しいコメントとレビューをメールで通知",
   "settings.notices.comments.hint":
-    "メールは最大10分に1通で、artifactごとの新しいスレッド、返信、解決の件数だけを伝え、書かれた内容は含みません。所有者のプランにコメント通知が含まれるartifactのみが対象です。",
+    "メールは最大10分に1通で、artifactごとの新しいスレッド、返信、解決の件数だけを伝え、書かれた内容は含みません。所有者のプランにコメント通知が含まれるartifactのみが対象です。同じ設定でレビューのメールも管理します。レビューを依頼されたときと、管理しているバージョンが承認されたか変更を求められたときに届きます。",
   "commentNotices.label": "このartifactの新しいコメントをメールで通知",
   "commentNotices.hint":
     "メールは最大10分に1通で、件数のみです。すべてのコメントメールは設定でオフにできます。",
@@ -1261,6 +1261,8 @@ export const ja = {
   "webhooks.event.artifact.published": "新しいバージョン",
   "webhooks.event.artifact.expiring": "まもなく期限切れになるartifact",
   "webhooks.event.artifact.access_changed": "アクセスの変更",
+  "webhooks.event.review.requested": "レビューの依頼",
+  "webhooks.event.review.completed": "承認された、または変更が求められたレビュー",
   "webhooks.add.submit": "Webhookを追加",
   "webhooks.add.noEvents": "イベントを1つ以上選んでください。",
   "webhooks.add.limit": "Webhookは最大{limit}件までです。追加するには1件削除してください。",
@@ -1595,9 +1597,9 @@ export const ja = {
   "account.delete.soleAdmin.body":
     "workspaceには管理者が必要です。これらのworkspaceでそれぞれ別のメンバーを管理者にするか、hello@portifact.comでPortifactに削除を依頼してから、アカウントを削除してください。",
   "account.delete.soleAdmin.members": "{workspace}のメンバー",
-  "webhooks.personalOnly.title": "webhookは個人スペースで設定します",
-  "webhooks.personalOnly.body":
-    "現在、webhookは個人スペースのartifactのイベントだけを送信します。管理するには個人スペースに切り替えてください。",
+  "webhooks.adminOnly.title": "webhookを管理できるのは管理者だけです",
+  "webhooks.adminOnly.body":
+    "webhookはこのワークスペースのartifactのイベントを外部のシステムに送信するため、{workspace} の管理者だけが表示・管理できます。webhookが必要な場合は管理者に依頼してください。",
   "shell.planLink": "プラン",
   "plan.title": "プラン",
   "plan.description": "個人スペースのプラン、その上限と機能、そのほかのプランです。",
@@ -1932,4 +1934,289 @@ export const ja = {
     "このドメインの値を持つ TXT レコードはまだ見つかりません。DNS の変更は反映まで時間がかかることがあります。しばらくしてからもう一度お試しください。7 日を過ぎた申請は追加し直す必要があります。",
   "transfer.confirm.accessReset":
     "現在ワークスペースまたはメールドメインと共有されているため、制限付きになります。引き続き読めるのは閲覧者リストの人だけです。",
+  "shell.groupsLink": "グループ",
+  "groups.title": "グループ",
+  "groups.description":
+    "{workspace} のメンバーに名前を付けたまとまりです。制限付きの artifact にグループを追加すると、そのメンバーはリストの閲覧者と同じように開けます。",
+  "groups.personal.title": "グループは workspace に属します",
+  "groups.personal.body": "グループを管理するには、管理している workspace に切り替えてください。",
+  "groups.adminOnly.title": "グループを管理できるのは管理者だけです",
+  "groups.adminOnly.body":
+    "編集者は artifact の共有設定でグループを選びます。グループの作成や変更はこの workspace の管理者に依頼してください。",
+  "groups.planTitle": "グループはこの workspace のプランに含まれていません",
+  "groups.planRequired":
+    "グループは {plan} プランの機能です。既存のグループは名前の変更、メンバーの削除、グループの削除ができますが、プランに再び含まれるまで誰にもアクセスを与えません。",
+  "groups.list.title": "グループ",
+  "groups.loading": "グループを読み込んでいます",
+  "groups.loadFailed": "グループを読み込めませんでした",
+  "groups.empty.title": "まだグループがありません",
+  "groups.empty.body":
+    "グループを作成してメンバーを追加し、制限付きの artifact の共有設定でそのグループを追加してください。",
+  "groups.create.title": "グループを作成",
+  "groups.create.hint": "管理者と編集者は、artifact を開ける人を選ぶときにこの名前を目にします。",
+  "groups.create.limit":
+    "1 つの workspace に作成できるグループは最大 {limit} 個です。先に 1 つ削除してください。",
+  "groups.create.name": "名前",
+  "groups.create.submit": "グループを作成",
+  "groups.nameError": "1 行で 1 から {max} 文字にしてください。",
+  "groups.actionFailed": "グループは変更されませんでした",
+  "groups.created": "グループ {name} を作成しました。",
+  "groups.memberCount": "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}",
+  "groups.showMembers": "メンバー",
+  "groups.hideMembers": "メンバーを隠す",
+  "groups.rename": "名前を変更",
+  "groups.renameLabel": "{name} の名前を変更",
+  "groups.renameField": "{name} の新しい名前",
+  "groups.save": "名前を保存",
+  "groups.renamed": "グループ名を {name} に変更しました。",
+  "groups.delete": "削除",
+  "groups.deleteLabel": "{name} を削除",
+  "groups.deleted": "グループ {name} を削除しました。",
+  "groups.confirm.title": "{name} を削除しますか?",
+  "groups.confirm.body":
+    "ほかにアクセスの手段がない限り、メンバーは 1 分以内にこのグループを含む artifact を読めなくなります。元に戻せません。",
+  "groups.membersLoading": "グループのメンバーを読み込んでいます",
+  "groups.noMembers": "このグループにはまだ誰もいません。",
+  "groups.membersOf": "{name} のメンバー",
+  "groups.removeMember": "外す",
+  "groups.removeMemberLabel": "{name} を {group} から外す",
+  "groups.memberRemoved": "{name} を {group} から外しました。",
+  "groups.addMember": "{name} にメンバーを追加",
+  "groups.chooseMember": "メンバーを選択",
+  "groups.add": "追加",
+  "groups.memberAdded": "{name} を {group} に追加しました。",
+  "groupAccess.title": "グループ",
+  "groupAccess.hint":
+    "workspace のこれらのグループのメンバーは、リストの閲覧者と同じようにサインイン後に開けます。",
+  "groupAccess.onlyRestricted":
+    "グループがメンバーにアクセスを与えるのはアクセスが制限付きの間だけです。ほかのモードではコメントの例外だけが残ります。",
+  "groupAccess.count": "{max} 個中 {count} 個のグループ",
+  "groupAccess.planTitle": "グループはこの workspace のプランに含まれていません",
+  "groupAccess.planRequired":
+    "グループの追加は {plan} プランの機能です。追加済みのグループはプランに再び含まれるまで誰にもアクセスを与えません。外すことはいつでもできます。",
+  "groupAccess.failed.title": "グループは変更されませんでした",
+  "groupAccess.empty": "グループは追加されていません。",
+  "groupAccess.list": "この artifact を開けるグループ",
+  "groupAccess.removeLabel": "グループ {name} を外す",
+  "groupAccess.removed": "グループ {name} を外しました。",
+  "groupAccess.full": "1 つの artifact に追加できるグループは最大 {max} 個です。",
+  "groupAccess.none":
+    "この workspace にはまだグループがありません。管理者がグループページで作成します。",
+  "groupAccess.added": "グループ {name} を追加しました。",
+  "groupAccess.pick": "グループを追加",
+  "groupAccess.choose": "グループを選択",
+  "groupAccess.option": "{name} ({count, plural, one {# 人} other {# 人}})",
+  "groupAccess.add": "グループを追加",
+  "groupAccess.comments.label": "グループ {name} に見えるコメント",
+  "groupAccess.comments.changed": "グループ {name} に見えるもの: {choice}。",
+  "groupAccess.comments.confirm.title": "{name} にすべてのコメントを表示しますか?",
+  "groupAccess.comments.confirm.body":
+    "{name} のすべてのメンバーが、この artifact のすべてのコメントスレッドを見られるようになります。ほかの閲覧者が以前に始めたものも含みます。",
+  "audit.group.groups": "グループ",
+  "audit.kind.groupCreated": "グループ {group} を作成",
+  "audit.kind.groupRenamed": "グループの名前を変更 (現在は {group})",
+  "audit.kind.groupDeleted": "グループ {group} を削除",
+  "audit.kind.groupMemberAdded": "{member} をグループ {group} に追加",
+  "audit.kind.groupMemberRemoved": "{member} をグループ {group} から外しました",
+  "audit.target.groupGone": "削除されたグループ",
+  "audit.access.groupsAdded":
+    "{count, plural, one {グループを # 個追加} other {グループを # 個追加}}",
+  "audit.access.groupsRemoved":
+    "{count, plural, one {グループを # 個外す} other {グループを # 個外す}}",
+  "audit.access.groupExceptions":
+    "{count, plural, one {# 個のグループのコメント表示を変更} other {# 個のグループのコメント表示を変更}}",
+  // Single sign-on (premium plan E1, decision 0016).
+  "sso.title": "シングルサインオン",
+  "sso.description":
+    "workspace の確認済みメールドメインのアドレスを持つ人は、組織の ID プロバイダーから OpenID Connect でサインインできます。",
+  "sso.loadFailed": "シングルサインオンを読み込めませんでした",
+  "sso.stateLabel": "状態",
+  "sso.state.off": "未設定",
+  "sso.state.on": "有効",
+  "sso.state.plan": "一時停止中：このプランに含まれていません",
+  "sso.state.domains": "一時停止中：確認済みドメインがありません",
+  "sso.planTitle": "このプランに含まれていません",
+  "sso.plan":
+    "シングルサインオンは {plan} プランに含まれます。設定済みのプロバイダーは残り、削除もできます。",
+  "sso.lapsedTitle": "確認済みでなくなったドメインがあります",
+  "sso.lapsed":
+    "{domains} は確認済みでなくなったため、ドメインを再確認するまでそのアドレスはこの方法でサインインできません。",
+  "sso.membership":
+    "この方法でサインインした人は、空きシートがある間、メンバーとして（保留中の招待があればそのロールで）workspace に参加します。既存のメンバーはロールを維持します。",
+  "sso.removalNote":
+    "管理者が削除した人は、管理者が再度招待するまでシングルサインオンで再参加できません。自分で退出した人は再参加できます。",
+  "sso.redirectUri": "リダイレクト URI",
+  "sso.redirectPending":
+    "プロバイダーを保存すると、ID プロバイダーに登録するリダイレクト URI が発行されます。形式は {pattern} です。",
+  "sso.saveFailed": "変更は保存されませんでした",
+  "sso.testOkTitle": "ディスカバリーは正常です",
+  "sso.testOk": "サインインは {authorization}、トークンは {token}、鍵は {keys} から取得します。",
+  "sso.testOkShort": "ディスカバリーは正常です。",
+  "sso.testFailed": "ディスカバリーに失敗しました",
+  "sso.formLabel": "シングルサインオンのプロバイダー",
+  "sso.issuer": "発行者 URL",
+  "sso.issuerHint":
+    "ID プロバイダーの発行者（例：https://login.example.com）。Portifact はそのディスカバリードキュメントを読み込みます。保存後は変更できません。",
+  "sso.clientId": "クライアント ID",
+  "sso.clientSecret": "クライアントシークレット",
+  "sso.secretHint": "暗号化して保存され、二度と表示されません。",
+  "sso.secretKeep": "保存済みのシークレットを使う場合は空欄のままにしてください。",
+  "sso.domains": "サインインできるドメイン",
+  "sso.domainsHint":
+    "workspace の確認済みメールドメインのみです。ほかのドメインのアドレスはこの方法でサインインできません。",
+  "sso.noDomains": "先に上でメールドメインを確認してください。",
+  "sso.issuerRequired": "発行者 URL を入力してください。",
+  "sso.clientIdRequired": "クライアント ID を入力してください。",
+  "sso.secretRequired": "クライアントシークレットを入力してください。",
+  "sso.domainsRequired": "ドメインを1つ以上選んでください。",
+  "sso.save": "保存",
+  "sso.saveChanges": "変更を保存",
+  "sso.test": "発行者を確認",
+  "sso.remove": "シングルサインオンを削除",
+  "sso.saved": "シングルサインオンを保存しました。",
+  "sso.removed": "シングルサインオンを削除しました。",
+  "sso.scim":
+    "ID プロバイダーで削除しても、ここでは削除されません。メンバー一覧から削除してください。",
+  "sso.confirmRemove.title": "シングルサインオンを削除しますか？",
+  "sso.confirmRemove.body":
+    "このプロバイダーでは誰もサインインできなくなります。メンバーはメンバーのままでアカウントも残り、メールのコード、Google、GitHub でサインインします。新しいプロバイダーには新しいリダイレクト URI が発行されます。",
+  "sso.confirmRemove.action": "削除",
+  "sso.problem.invalid_issuer":
+    "発行者はクエリやフラグメントのない公開 https URL である必要があります。",
+  "sso.problem.unreachable": "ID プロバイダーに接続できませんでした。",
+  "sso.problem.timeout": "ID プロバイダーの応答に時間がかかりすぎました。",
+  "sso.problem.redirect":
+    "ID プロバイダーがリダイレクトで応答しましたが、Portifact はリダイレクトをたどりません。リダイレクト先の発行者を使ってください。",
+  "sso.problem.http_error": "ID プロバイダーがエラーを返しました。",
+  "sso.problem.too_large": "ID プロバイダーの応答が大きすぎます。",
+  "sso.problem.not_json": "ディスカバリードキュメントが有効な JSON ではありません。",
+  "sso.problem.issuer_mismatch":
+    "ディスカバリードキュメントに別の発行者が記載されています。ドキュメントのとおりに発行者を入力してください。",
+  "sso.problem.missing_endpoint":
+    "ディスカバリードキュメントに認可、トークン、または鍵のエンドポイントがありません。",
+  "sso.problem.invalid_endpoint":
+    "ディスカバリードキュメントのエンドポイントが公開 https URL ではありません。",
+  "sso.problem.no_code_flow": "ID プロバイダーが認可コードフローに対応していません。",
+  "sso.problem.no_pkce": "ID プロバイダーが S256 の PKCE に対応していません。",
+  "sso.problem.no_signing_algorithm":
+    "ID プロバイダーが Portifact の受け付けないアルゴリズムで ID トークンに署名しています（RS256、PS256、ES256、EdDSA の各系統のみ）。",
+  "sso.error.invalid_input":
+    "発行者、クライアント、ドメインを確認してください。「発行者を確認」でディスカバリーの失敗箇所がわかります。",
+  "sso.error.capacity_unavailable": "現在シングルサインオンは利用できません。",
+  "sso.error.version_conflict":
+    "その間にシングルサインオンが変更されました。再読み込みしてもう一度お試しください。",
+  "sso.error.not_found": "シングルサインオンは設定されていません。",
+  "audit.kind.memberJoinedSso": "{member} がシングルサインオンで {role} として参加しました",
+  "audit.kind.ssoCreated":
+    "{host} で {count, plural, one {# 件のドメイン} other {# 件のドメイン}} のシングルサインオンを設定しました",
+  "audit.kind.ssoChanged": "シングルサインオンを変更しました",
+  "audit.kind.ssoRemoved": "シングルサインオンを削除しました",
+  "shell.policiesLink": "ポリシー",
+  "policies.title": "ポリシー",
+  "policies.description":
+    "{workspace} のすべてのアーティファクトに適用されるルールです。管理者やサービストークンを含め、アーティファクトを操作するすべての人に適用されます。",
+  "policies.personal.title": "ポリシーはワークスペース用です",
+  "policies.personal.body":
+    "個人スペースにはポリシーがありません。ワークスペースに切り替えるとそのポリシーを確認できます。",
+  "policies.loading": "ポリシーを読み込んでいます",
+  "policies.loadFailed": "ポリシーを読み込めませんでした",
+  "policies.planTitle": "ポリシーの設定は {plan} プランに含まれます",
+  "policies.planRequired":
+    "このワークスペースのプランにはポリシーが含まれていません。設定済みのポリシーは引き続き適用され、管理者は緩めたり解除したりできます。",
+  "policies.readOnly.title": "管理者が設定します",
+  "policies.readOnly.body": "ポリシーを変更できるのは管理者だけです。あなたにも適用されます。",
+  "policies.adminsToo": "これらのポリシーは管理者にも適用されます。",
+  "policies.public.legend": "公開アクセス",
+  "policies.public.allowed": "許可",
+  "policies.public.allowedHint":
+    "管理者と編集者はアーティファクトを公開でき、リンクを知っている人なら誰でも開けます。",
+  "policies.public.forbidden": "禁止",
+  "policies.public.forbiddenHint":
+    "ワークスペースのアーティファクトは公開できません。公開中のアーティファクトはワークスペースと共有に変わります。",
+  "policies.default.legend": "新しいアーティファクトのアクセス",
+  "policies.default.hint":
+    "ワークスペースの新しいアーティファクトの初期アクセスです。既存のアーティファクトは変わりません。",
+  "policies.default.restricted": "オーナー側と追加した閲覧者だけが開けます。",
+  "policies.default.workspace": "ワークスペースのメンバー全員が開けます。",
+  "policies.default.domain":
+    "メンバーと、ワークスペースのメールドメインの確認済みアドレスでサインインした人が開けます。",
+  "policies.default.domainNone": "先にメンバーページでメールドメインを確認してください。",
+  "policies.readers.legend": "閲覧者のドメイン",
+  "policies.readers.any": "すべてのアドレス",
+  "policies.readers.anyHint": "どのメールアドレスでも閲覧者として追加できます。",
+  "policies.readers.only": "これらのドメインのみ",
+  "policies.readers.onlyHint":
+    "これらのメールドメインのアドレスだけを閲覧者として追加できます。メンバーとグループには影響しません。",
+  "policies.readers.domains": "許可するドメイン",
+  "policies.readers.domainsHint": "1 行に 1 つ、example.com のように、最大 {max} 個。",
+  "policies.readers.domainsError":
+    "example.com のような単純なドメインを 1 から {max} 個入力してください。",
+  "policies.links.legend": "共有リンク",
+  "policies.links.allowed": "許可",
+  "policies.links.allowedHint":
+    "管理者と編集者はパスワードの有無にかかわらず共有リンクを作成できます。",
+  "policies.links.password_required": "パスワード必須",
+  "policies.links.password_requiredHint":
+    "すべての共有リンクにパスワードが必要です。パスワードのないリンクは開けなくなります。",
+  "policies.links.disabled": "無効",
+  "policies.links.disabledHint": "共有リンクは使えません。既存のリンクは取り消されます。",
+  "policies.lifetime.label": "共有リンクの最長有効期間 (日)",
+  "policies.lifetime.hint": "空欄にすると制限なしです。これより古いリンクは開けなくなります。",
+  "policies.lifetime.error": "1 から {max} までの整数の日数を入力するか、空欄にしてください。",
+  "policies.save": "ポリシーを保存",
+  "policies.saved": "ポリシーを保存しました。",
+  "policies.saveFailed": "ポリシーを保存できませんでした",
+  "policies.conflict":
+    "その間に誰かがポリシーを変更しました。再読み込みしたので、確認して保存してください。",
+  "policies.impact.title": "既存のアーティファクトにこのポリシーを適用しますか?",
+  "policies.impact.body": "保存すると {workspace} の既存の内容が変わります:",
+  "policies.impact.public":
+    "{count, plural, one {公開アーティファクト # 件がワークスペースと共有に変わります} other {公開アーティファクト # 件がワークスペースと共有に変わります}}",
+  "policies.impact.readers":
+    "{count, plural, one {許可ドメイン外の閲覧者 # 人が削除されます} other {許可ドメイン外の閲覧者 # 人が削除されます}}",
+  "policies.impact.revoked":
+    "{count, plural, one {共有リンク # 件が取り消されます} other {共有リンク # 件が取り消されます}}",
+  "policies.impact.password":
+    "{count, plural, one {パスワードのない共有リンク # 件が開けなくなります} other {パスワードのない共有リンク # 件が開けなくなります}}",
+  "policies.impact.lifetime":
+    "{count, plural, one {有効期間を過ぎた共有リンク # 件が開けなくなります} other {有効期間を過ぎた共有リンク # 件が開けなくなります}}",
+  "policies.impact.note": "これはバックグラウンドで少しずつ行われ、監査ログに記録されます。",
+  "policies.impact.confirm": "適用して保存",
+  "policies.impact.cancel": "編集を続ける",
+  "policies.note.publicForbidden": "ワークスペースのポリシーにより公開アクセスは禁止されています。",
+  "policies.note.readerDomains":
+    "ワークスペースのポリシーにより閲覧者は {domains} のみ許可されています。",
+  "policies.note.linksDisabled": "ワークスペースのポリシーにより共有リンクは使えません。",
+  "policies.note.linksPassword":
+    "ワークスペースのポリシーによりすべての共有リンクにパスワードが必要です。",
+  "policies.note.linksLifetime":
+    "ワークスペースのポリシーにより共有リンクは {days, plural, one {# 日} other {# 日}} までです。",
+  "error.policy_refused": "ワークスペースのポリシーで許可されていません。",
+  "audit.group.policies": "ポリシー",
+  "audit.kind.policyChanged": "ワークスペースのポリシーを変更しました: {changes}",
+  "audit.kind.policyEnforced": "ワークスペースのポリシーを適用しました: {changes}",
+  "audit.policy.public": "{value, select, forbidden {公開アクセス禁止} other {公開アクセス許可}}",
+  "audit.policy.default":
+    "{mode, select, workspace {新しいアーティファクトはワークスペースと共有} domain {新しいアーティファクトはメールドメインと共有} other {新しいアーティファクトは制限付き}}",
+  "audit.policy.readers": "閲覧者は {domains} のみ",
+  "audit.policy.readersAny": "閲覧者のドメイン制限なし",
+  "audit.policy.links":
+    "{value, select, disabled {共有リンク無効} password_required {共有リンクはパスワード必須} other {共有リンク許可}}",
+  "audit.policy.lifetime": "共有リンクは最長 {days, plural, one {# 日} other {# 日}}",
+  "audit.policy.lifetimeNone": "共有リンクの有効期間制限なし",
+  "audit.policy.narrowed":
+    "{count, plural, one {# 件のアーティファクトをワークスペース限定に変更} other {# 件のアーティファクトをワークスペース限定に変更}}",
+  "audit.policy.readersRemoved":
+    "{count, plural, one {閲覧者 # 人を削除} other {閲覧者 # 人を削除}}",
+  "audit.policy.linksRevoked":
+    "{count, plural, one {共有リンク # 件を取り消し} other {共有リンク # 件を取り消し}}",
+  "audit.policy.sessionsEnded":
+    "{count, plural, one {リンクのセッション # 件を終了} other {リンクのセッション # 件を終了}}",
+  "policies.impact.stale":
+    "このポリシーによる既存アーティファクトへの変更が、確認後に増えました。もう一度保存して新しい件数を確認してください。",
+  "policies.savedWithChanges":
+    "既存のアーティファクトをポリシーに合わせています。変更内容は各アーティファクトのページと監査ログで確認できます。",
+  "policies.default.domainLapsed":
+    "確認済みのメールドメインがないため、ドメインが再確認されるまで新しいアーティファクトはワークスペースと共有で作成されます。",
+  "audit.access.byPolicy": "ワークスペースのポリシーによる",
 } satisfies Catalog;

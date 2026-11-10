@@ -1,7 +1,7 @@
 // User-facing text of the CLI, kept in one place so it can move to the i18n layer. Sentences
 // end with a period; no em dashes. Never interpolate a token, cookie or code other than the
 // device user code, which the user must see to approve the login.
-import { VERSION_DIFF } from "@portifact/contracts";
+import { VERSION_DIFF, WEBHOOK_EVENTS } from "@portifact/contracts";
 
 const VERSION_DIFF_FILE_BYTES = VERSION_DIFF.fileBytes;
 
@@ -129,6 +129,13 @@ export const messages = {
     everyone: "everyone (every reader sees every thread)",
   },
   readerSees: { all: "sees all comments", own: "sees own and yours" },
+  groupsOnlyWhenRestricted: (mode: string) =>
+    `Note: access is ${mode}, so groups let their members read only after \`portifact access set <id> restricted\`.`,
+  groupMembers: (members: number) => `${members} ${plural(members, "member", "members")}`,
+  groupsNone: (slug: string) =>
+    `${slug} has no groups. Its admins create them on the workspace's Groups page in the dashboard.`,
+  groupsLapsed:
+    "Note: the workspace's plan does not include workspace sharing now, so groups let nobody read until it does again.",
 
   // Versions.
   versionsEmpty: (id: string) => `${id} has no published versions.`,
@@ -275,8 +282,9 @@ export const messages = {
   webhookTestQueued: (id: string) =>
     `Queued a test event for ${id}. It goes within about two minutes; check \`portifact webhooks deliveries ${id}\`.`,
   webhookDeliveriesEmpty: (days: number) => `No delivery attempts in the last ${days} days.`,
-  confirmWebhookRemove: (id: string, host: string) =>
-    `This removes webhook ${id} for ${host} and its delivery log.\nType "remove" to confirm: `,
+  /** `workspace` is the slug the command acts on; undefined for the personal space. */
+  confirmWebhookRemove: (id: string, host: string, workspace: string | undefined) =>
+    `This removes webhook ${id} for ${host} from ${workspace === undefined ? "your personal space" : `the workspace ${workspace}`} and its delivery log.\nType "remove" to confirm: `,
   tokensEmpty: "No app holds tokens for your account.",
   tokensUnnamed: "Unnamed app",
   tokensNote:
@@ -356,9 +364,9 @@ export const messages = {
     invalidWebhookId: (value: string) =>
       `${JSON.stringify(value)} is not a webhook ID. Run \`portifact webhooks list\` to see them.`,
     invalidWebhookEvents: (value: string) =>
-      `${JSON.stringify(value)} is not a list of events. Use comma-separated names from: comment.created, thread.resolved, artifact.published, artifact.expiring, artifact.access_changed.`,
-    webhookRemoveConfirmationRequired: (id: string) =>
-      `Removing stops the webhook for good. Run \`portifact webhooks remove ${id} --yes\` to confirm without a prompt.`,
+      `${JSON.stringify(value)} is not a list of events. Use comma-separated names from: ${WEBHOOK_EVENTS.join(", ")}.`,
+    webhookRemoveConfirmationRequired: (id: string, workspace: string | undefined) =>
+      `Removing stops the webhook for good. Run \`portifact webhooks remove ${id}${workspace === undefined ? "" : ` --workspace ${workspace}`} --yes\` to confirm without a prompt.`,
     webhookRemoveCancelled: 'Nothing was removed: the confirmation was not "remove".',
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
@@ -371,6 +379,9 @@ export const messages = {
     invalidReaderCommentVisibility: (value: string) =>
       `${JSON.stringify(value)} is not a reader's comment visibility. Use all, own or inherit.`,
     invalidEmail: (value: string) => `${JSON.stringify(value)} is not a valid email address.`,
+    invalidGroup: (value: string) =>
+      `${JSON.stringify(value)} is not a group ID. Run \`portifact workspaces groups <slug>\` to see them.`,
+    tooManyGroups: (max: number) => `Add or remove at most ${max} groups at a time.`,
     tooManyReaders: (max: number) => `Add or remove at most ${max} readers at a time.`,
     invalidLimit: (max: number) => `Use a whole number from 1 to ${max}.`,
     invalidSince: (value: string) =>

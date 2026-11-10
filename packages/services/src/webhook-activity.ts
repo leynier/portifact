@@ -27,6 +27,11 @@ export interface WebhookMark {
   version?: number | SQL | undefined;
   access?: AccessMode | undefined;
   expiresAt?: number | undefined;
+  /**
+   * Review events: a statement that computes the review's status and counts as JSON in the same
+   * batch (`approvalWebhookSummary`). Never names, addresses or notes.
+   */
+  review?: SQL | undefined;
   now: number;
   /** The write's own claim or old-state condition. */
   condition: SQL;
@@ -60,6 +65,7 @@ function upsert(db: Db, source: SQL) {
         version: sql`coalesce(excluded."version", ${we.version})`,
         access: sql`coalesce(excluded."access", ${we.access})`,
         expiresAt: sql`coalesce(excluded."expires_at", ${we.expiresAt})`,
+        review: sql`coalesce(excluded."review", ${we.review})`,
       },
     });
 }
@@ -78,11 +84,12 @@ export function deliveryJobs(db: Db, where: SQL, availableAt: number, now: numbe
 export function markWebhookEvent(db: Db, mark: WebhookMark): BatchItem<"sqlite">[] {
   if (!hasFeature(mark.entitlements, WEBHOOK_FEATURE)) return [];
   const where = sql`${subscribed(mark.ownerId, eventBit(mark.type))} and ${mark.condition}`;
-  // Columns in schema order: webhook, artifact, type, count, first, last, actor, version, access, expires.
+  // Columns in schema order: webhook, artifact, type, count, first, last, actor, version, access,
+  // expires, review.
   return [
     upsert(
       db,
-      sql`select ${w.id}, ${mark.artifactId}, ${mark.type}, 1, ${mark.now}, ${mark.now}, ${mark.actorId}, ${mark.version ?? null}, ${mark.access ?? null}, ${mark.expiresAt ?? null} from ${w} where ${where}`,
+      sql`select ${w.id}, ${mark.artifactId}, ${mark.type}, 1, ${mark.now}, ${mark.now}, ${mark.actorId}, ${mark.version ?? null}, ${mark.access ?? null}, ${mark.expiresAt ?? null}, ${mark.review ?? null} from ${w} where ${where}`,
     ),
     deliveryJobs(db, where, mark.now + WEBHOOK_LIMITS.coalesceMs, mark.now),
   ];
@@ -101,11 +108,49 @@ export function markWebhookExpiring(
   return [
     upsert(
       db,
-      sql`select ${w.id}, ${a.id}, 'artifact.expiring', 1, ${input.now}, ${input.now}, null, null, null, ${a.expiresAt} from ${w} join ${a} on ${a.ownerId} = ${w.ownerId} where ${where} and ${input.artifacts}`,
+      sql`select ${w.id}, ${a.id}, 'artifact.expiring', 1, ${input.now}, ${input.now}, null, null, null, ${a.expiresAt}, null from ${w} join ${a} on ${a.ownerId} = ${w.ownerId} where ${where} and ${input.artifacts}`,
     ),
     deliveryJobs(
       db,
       sql`${where} and exists (select 1 from ${a} where ${a.ownerId} = ${w.ownerId} and ${input.artifacts})`,
+      input.now + WEBHOOK_LIMITS.coalesceMs,
+      input.now,
+    ),
+  ];
+}
+
+/**
+ * One event of `type` for every artifact of the owner that `artifacts` (a statement selecting
+ * artifact IDs) names, for a write that changes many artifacts at once (a workspace policy, decision
+ * 0015). `artifacts` is evaluated in each of the two statements, so it must bind a bounded number
+ * of parameters, never a list that grows with the batch. `access` is the access mode the artifacts
+ * have after the write: a constant, or by default each artifact's current mode.
+ */
+export function markWebhookEvents(
+  db: Db,
+  input: {
+    entitlements: Entitlements;
+    ownerId: string;
+    type: WebhookEventType;
+    artifacts: SQL;
+    access?: AccessMode | undefined;
+    now: number;
+  },
+): BatchItem<"sqlite">[] {
+  if (!hasFeature(input.entitlements, WEBHOOK_FEATURE)) return [];
+  const a = schema.artifacts;
+  const where = subscribed(input.ownerId, eventBit(input.type));
+  const access = input.access === undefined ? sql`${a.accessMode}` : sql`${input.access}`;
+  // Columns in schema order: webhook, artifact, type, count, first, last, actor, version, access,
+  // expires, review.
+  return [
+    upsert(
+      db,
+      sql`select ${w.id}, ${a.id}, ${input.type}, 1, ${input.now}, ${input.now}, null, null, ${access}, null, null from ${w} join ${a} on ${a.ownerId} = ${w.ownerId} where ${where} and ${a.id} in (${input.artifacts})`,
+    ),
+    deliveryJobs(
+      db,
+      sql`${where} and exists (select 1 from ${a} where ${a.ownerId} = ${w.ownerId} and ${a.id} in (${input.artifacts}))`,
       input.now + WEBHOOK_LIMITS.coalesceMs,
       input.now,
     ),
@@ -121,7 +166,7 @@ export function markWebhookTest(
   return [
     upsert(
       db,
-      sql`select ${w.id}, '', ${TEST_TYPE}, 1, ${input.now}, ${input.now}, ${input.actorId}, null, null, null from ${w} where ${where}`,
+      sql`select ${w.id}, '', ${TEST_TYPE}, 1, ${input.now}, ${input.now}, ${input.actorId}, null, null, null, null from ${w} where ${where}`,
     ),
     deliveryJobs(db, where, input.now, input.now),
   ];

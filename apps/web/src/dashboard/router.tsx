@@ -17,11 +17,13 @@ import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx
 import { AuditScreen } from "./screens/audit.tsx";
 import { BrandingScreen } from "./screens/branding.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
+import { GroupsScreen } from "./screens/groups.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { InvitationFrame, InvitationScreen } from "./screens/invitations.tsx";
 import { MembersScreen } from "./screens/members.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
 import { PlanScreen } from "./screens/plan.tsx";
+import { PoliciesScreen } from "./screens/policies.tsx";
 import { ProfileScreen } from "./screens/profile.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
 import { ServiceTokensScreen } from "./screens/service-tokens.tsx";
@@ -148,6 +150,16 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/members",
     component: MembersScreen,
   });
+  const groups = createRoute({
+    getParentRoute: () => root,
+    path: "/groups",
+    component: GroupsScreen,
+  });
+  const policies = createRoute({
+    getParentRoute: () => root,
+    path: "/policies",
+    component: PoliciesScreen,
+  });
   const serviceTokens = createRoute({
     getParentRoute: () => root,
     path: "/service-tokens",
@@ -188,6 +200,8 @@ export function createDashboardRouter(history?: RouterHistory) {
       branding,
       settings,
       members,
+      groups,
+      policies,
       audit,
       serviceTokens,
       invitations,

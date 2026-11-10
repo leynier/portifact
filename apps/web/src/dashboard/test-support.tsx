@@ -27,6 +27,7 @@ import {
   type ConnectedApp,
   type CustomDomainList,
   type CustomDomainView,
+  DEFAULT_POLICY,
   DocumentPreviewRequest,
   type ErrorCode,
   type FileChange,
@@ -38,6 +39,7 @@ import {
   NO_APPROVAL_REVIEW,
   type OwnerView,
   PLANS,
+  type PolicyImpact,
   type PreparedPublish,
   PublishRequest,
   planRequiredMessage,
@@ -49,6 +51,8 @@ import {
   type ShareLinkCreated,
   type ShareLinkList,
   type ShareLinkView,
+  type SsoProviderView,
+  type SsoSettings,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
@@ -57,7 +61,10 @@ import {
   type WebhookAttempt,
   type WebhookView,
   type WorkspaceDomainView,
+  WorkspaceGroupCreate,
+  type WorkspaceGroupView,
   type WorkspaceMemberView,
+  type WorkspacePolicy,
   type WorkspaceView,
 } from "@portifact/contracts";
 import {
@@ -357,16 +364,39 @@ export interface FakeWorkspace {
   dns: Record<string, string[]>;
   /** The plan includes workspace sharing. */
   domainsAvailable: boolean;
+  /** Its groups (decision 0014), with their members' user IDs. */
+  groups: (WorkspaceGroupView & { memberIds: string[] })[];
+  /**
+   * Single sign-on (decision 0016): switched on for the deployment, in the plan, and the provider.
+   * Off by default, as deployed: the routes answer `capacity_unavailable`.
+   */
+  sso: { enabled: boolean; available: boolean; provider: SsoProviderView | null };
+  /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
+  policyRevision: number;
+  policiesAvailable: boolean;
+  /** What the fake preview answers; a save needs these counts confirmed while any is above zero. */
+  policyImpact: PolicyImpact;
 }
+
+export const NO_IMPACT: PolicyImpact = {
+  publicArtifacts: 0,
+  readersOutside: 0,
+  linksRevoked: 0,
+  linksWithoutPassword: 0,
+  linksOverLifetime: 0,
+};
 
 export function workspace(
   slug: string,
   role: WorkspaceView["role"],
-  overrides: Partial<Omit<FakeWorkspace, "view">> & { name?: string } = {},
+  overrides: Partial<Omit<FakeWorkspace, "view">> & {
+    name?: string;
+    policy?: WorkspacePolicy;
+  } = {},
 ): FakeWorkspace {
-  const { name = `Team ${slug}`, ...rest } = overrides;
+  const { name = `Team ${slug}`, policy = DEFAULT_POLICY, ...rest } = overrides;
   return {
-    view: { slug, name, role, region: "default", createdAt: NOW },
+    view: { slug, name, role, region: "default", createdAt: NOW, policy },
     members: [
       {
         userId: "u_ada",
@@ -398,6 +428,11 @@ export function workspace(
     domains: [],
     dns: {},
     domainsAvailable: true,
+    groups: [],
+    sso: { enabled: false, available: true, provider: null },
+    policyRevision: 0,
+    policiesAvailable: true,
+    policyImpact: NO_IMPACT,
     ...rest,
   };
 }
@@ -1002,6 +1037,7 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       role: invitation.role,
       region: "default",
       createdAt: NOW,
+      policy: DEFAULT_POLICY,
     };
     server.workspaces[view.slug] = workspace(view.slug, view.role, { name: view.name });
     return json(view);
@@ -1020,6 +1056,11 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
     server.workspaces[target.slug] = workspace(target.slug, role, { name: target.name });
     return json(server.workspaces[target.slug]?.view);
   }
+  const groups =
+    /^\/api\/v1\/workspaces\/([^/]+)\/groups(?:\/([^/]+))?(?:\/members(?:\/([^/]+))?)?$/.exec(path);
+  if (groups) return groupRoute(server, groups, path, method, body);
+  const policies = /^\/api\/v1\/workspaces\/([^/]+)\/policies(\/preview)?$/.exec(path);
+  if (policies) return policyRoute(server, policies, method, body);
   const tokens = /^\/api\/v1\/workspaces\/([^/]+)\/service-tokens(?:\/([^/]+))?$/.exec(path);
   if (tokens) return serviceTokenRoute(server, tokens, method, body);
   const scoped = /^\/api\/v1\/workspaces\/([^/]+)\/(members|invitations|leave)(?:\/([^/]+))?$/.exec(
@@ -1027,6 +1068,8 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
   );
   const domains = /^\/api\/v1\/workspaces\/([^/]+)\/domains(?:\/([^/]+))?(\/verify)?$/.exec(path);
   if (domains) return domainRoute(server, method, domains, body);
+  const sso = /^\/api\/v1\/workspaces\/([^/]+)\/sso(\/test)?$/.exec(path);
+  if (sso) return ssoRoute(server, method, sso, body);
   if (!scoped) return undefined;
   const w = server.workspaces[decodeURIComponent(scoped[1] ?? "")];
   if (!w) return apiError("not_found", 404);
@@ -1089,6 +1132,71 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
 }
 
 /** The email domain routes, answered like the Worker: admins only, a missing slug is missing. */
+/** Single sign-on settings as the API answers them (decision 0016). */
+function ssoSettings(w: FakeWorkspace): SsoSettings {
+  const verified = w.domains.filter((d) => d.state === "verified").map((d) => d.domain);
+  const provider = w.sso.provider;
+  const lapsed = provider ? provider.domains.filter((d) => !verified.includes(d)) : [];
+  const state = !provider
+    ? "off"
+    : !w.sso.available
+      ? "plan"
+      : lapsed.length === provider.domains.length
+        ? "domains"
+        : "on";
+  return {
+    state,
+    provider: provider ? { ...provider, lapsedDomains: lapsed } : null,
+    available: w.sso.available,
+    verifiedDomains: verified,
+    redirectUriPattern: "https://app.portifact.com/api/auth/sso/callback/<id>",
+  };
+}
+
+function ssoRoute(
+  server: FakeServer,
+  method: string,
+  match: RegExpExecArray,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (!w.sso.enabled) return apiError("capacity_unavailable", 503);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  if (match[2] && method === "POST") {
+    if (!w.sso.available) return apiError("plan_required", 403);
+    const issuer = String(body?.issuer ?? "");
+    if (issuer.includes("broken")) return json({ ok: false, problem: "issuer_mismatch" });
+    const host = new URL(issuer).hostname;
+    return json({ ok: true, hosts: { authorization: host, token: host, keys: host } });
+  }
+  if (method === "GET") return json(ssoSettings(w));
+  if (method === "PUT") {
+    if (!w.sso.available) return apiError("plan_required", 403);
+    const issuer = String(body?.issuer ?? "");
+    if (issuer.includes("broken")) return apiError("invalid_input", 400);
+    const id = `sso_${"5".repeat(32)}`;
+    w.sso.provider = {
+      id,
+      issuer,
+      clientId: String(body?.clientId ?? ""),
+      domains: (body?.domains as string[]) ?? [],
+      lapsedDomains: [],
+      hasClientSecret: true,
+      redirectUri: `https://app.portifact.com/api/auth/sso/callback/${id}`,
+      createdAt: NOW,
+      updatedAt: NOW,
+    };
+    return json(ssoSettings(w));
+  }
+  if (method === "DELETE") {
+    if (!w.sso.provider) return apiError("not_found", 404);
+    w.sso.provider = null;
+    return json({ removed: true });
+  }
+  return apiError("not_found", 404);
+}
+
 function domainRoute(
   server: FakeServer,
   method: string,
@@ -1569,6 +1677,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       commentVisibility: "owner",
       readerCommentVisibility: [],
       policyGeneration: 1,
+      groups: [],
       audience:
         owned.owner.kind === "workspace"
           ? {
@@ -1582,7 +1691,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     };
     server.access[owned.id] = policy;
     if (method === "GET") return Response.json(policy);
-    return applyAccess(owned, policy, server.bodies.at(-1));
+    return applyAccess(owned, policy, server.bodies.at(-1), space);
   }
   if (path === "/api/auth/sign-out" && method === "POST") return Response.json({ success: true });
   if (path === "/api/v1/artifacts" && method === "GET") {
@@ -1961,7 +2070,12 @@ function reviewRoute(
 }
 
 /** What PATCH /access does in the Worker, minus the account-age rule. */
-function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: unknown): Response {
+function applyAccess(
+  artifact: ArtifactSummary,
+  policy: AccessPolicyView,
+  body: unknown,
+  space?: FakeWorkspace,
+): Response {
   const change = AccessUpdate.safeParse(body);
   if (!change.success) {
     return Response.json({ error: { code: "invalid_input", message: "x" } }, { status: 400 });
@@ -1975,7 +2089,29 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
     addReaders = [],
     removeReaders = [],
     readerCommentVisibility = [],
+    addGroups = [],
+    removeGroups = [],
+    groupCommentVisibility = [],
   } = change.data;
+  // Groups as the Worker checks them (decision 0014): only the workspace's, with its plan.
+  const groups = new Map(
+    policy.groups.filter((g) => !removeGroups.includes(g.id)).map((g) => [g.id, { ...g }]),
+  );
+  for (const id of addGroups) {
+    if (!space) return apiError("invalid_input", 400);
+    if (!space.domainsAvailable) return apiError("plan_required", 403);
+    const group = space.groups.find((g) => g.id === id);
+    if (!group) return apiError("invalid_input", 400);
+    if (!groups.has(id)) {
+      groups.set(id, { id, name: group.name, members: group.members, commentVisibility: null });
+    }
+  }
+  for (const entry of groupCommentVisibility) {
+    const group = groups.get(entry.group);
+    if (!group) return apiError("invalid_input", 400);
+    group.commentVisibility =
+      entry.commentVisibility === "inherit" ? null : entry.commentVisibility;
+  }
   const readers = new Set(policy.readers.filter((email) => !removeReaders.includes(email)));
   for (const email of addReaders) readers.add(email);
   if (readers.size > LIMITS.readersPerArtifact) {
@@ -2003,6 +2139,7 @@ function applyAccess(artifact: ArtifactSummary, policy: AccessPolicyView, body: 
     readerCommentVisibility: [...exceptions]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([email, scope]) => ({ email, commentVisibility: scope })),
+    groups: [...groups.values()].sort((a, b) => a.name.localeCompare(b.name)),
     policyGeneration: policy.policyGeneration + 1,
   });
   artifact.accessMode = policy.mode;
@@ -2088,6 +2225,76 @@ export function selectOptions(name: string): { options: string[]; chosen: string
   return result;
 }
 
+/** The group routes of a workspace, as apps/app/src/api/workspaces.ts answers them. */
+function groupRoute(
+  server: FakeServer,
+  match: RegExpExecArray,
+  path: string,
+  method: string,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  const id = match[2] ? decodeURIComponent(match[2]) : undefined;
+  const membersPath = path.includes("/members");
+  const memberId = match[3] ? decodeURIComponent(match[3]) : undefined;
+  const view = ({ memberIds: _, ...group }: FakeWorkspace["groups"][number]) => group;
+  if (!id && method === "GET") {
+    if (w.view.role === "member") return apiError("forbidden", 403);
+    return json({ items: w.groups.map(view), available: w.domainsAvailable, limit: 50 });
+  }
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  if (!id && method === "POST") {
+    if (!w.domainsAvailable) return apiError("plan_required", 403);
+    const parsed = WorkspaceGroupCreate.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    const group = {
+      id: `wg_${String(w.groups.length + 1).padStart(32, "0")}`,
+      name: parsed.data.name,
+      members: 0,
+      createdAt: NOW,
+      memberIds: [],
+    };
+    w.groups.push(group);
+    return json(view(group), 201);
+  }
+  const group = w.groups.find((g) => g.id === id);
+  if (!group) return apiError("not_found", 404);
+  const detail = () => ({
+    group: view(group),
+    items: group.memberIds.flatMap((userId) => {
+      const m = w.members.find((one) => one.userId === userId);
+      return m ? [{ userId, name: m.name, email: m.email, role: m.role, addedAt: NOW }] : [];
+    }),
+    limit: 500,
+  });
+  if (membersPath && method === "POST") {
+    if (!w.domainsAvailable) return apiError("plan_required", 403);
+    const userId = String(body?.userId ?? "");
+    if (!w.members.some((m) => m.userId === userId)) return apiError("not_found", 404);
+    if (!group.memberIds.includes(userId)) group.memberIds.push(userId);
+    group.members = group.memberIds.length;
+    return json(detail(), 201);
+  }
+  if (membersPath && memberId && method === "DELETE") {
+    group.memberIds = group.memberIds.filter((userId) => userId !== memberId);
+    group.members = group.memberIds.length;
+    return new Response(null, { status: 204 });
+  }
+  if (method === "GET") return json(detail());
+  if (method === "PATCH") {
+    const parsed = WorkspaceGroupCreate.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    group.name = parsed.data.name;
+    return json(view(group));
+  }
+  if (method === "DELETE") {
+    w.groups = w.groups.filter((g) => g !== group);
+    return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
+}
+
 /** The service token routes of a workspace, as apps/app/src/api/workspaces.ts answers them. */
 function serviceTokenRoute(
   server: FakeServer,
@@ -2128,6 +2335,43 @@ function serviceTokenRoute(
     w.serviceTokens = w.serviceTokens.filter((token) => token.id !== id);
     if (w.serviceTokens.length === before) return apiError("not_found", 404);
     return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
+}
+
+/** The fake policies routes (decision 0015): every member reads, admins preview and save. */
+function policyRoute(
+  server: FakeServer,
+  match: RegExpExecArray,
+  method: string,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  const admin = w.view.role === "admin";
+  const state = () => ({
+    policy: w.view.policy,
+    revision: w.policyRevision,
+    enabled: w.policiesAvailable,
+    editable: admin,
+    domainVerified: w.domains.some((domain) => domain.state === "verified"),
+  });
+  if (!match[2] && method === "GET") return json(state());
+  if (!admin) return apiError("forbidden", 403);
+  if (match[2] && method === "POST") return json(w.policyImpact);
+  if (!match[2] && method === "PUT") {
+    if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
+    // As the API: a save that changes existing artifacts needs the impact the preview showed,
+    // and is refused when a count grew past it since.
+    const impact = Object.values(w.policyImpact).reduce((sum, count) => sum + count, 0);
+    const confirmed = body?.confirmed as PolicyImpact | undefined;
+    const grew = (Object.keys(w.policyImpact) as (keyof PolicyImpact)[]).some(
+      (key) => w.policyImpact[key] > (confirmed?.[key] ?? -1),
+    );
+    if (impact > 0 && grew) return apiError("policy_refused", 403);
+    w.view = { ...w.view, policy: body?.policy as WorkspacePolicy };
+    w.policyRevision += 1;
+    return json(state());
   }
   return apiError("not_found", 404);
 }

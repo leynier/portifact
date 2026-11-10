@@ -187,6 +187,7 @@ describe("plan offers", () => {
       "contentSearch",
       "audit",
       "auditExport",
+      "policies",
     ]);
     expect([...AVAILABLE_PLAN_FEATURES]).toEqual(
       PLAN_FEATURES.filter((feature) => planFeatureAvailable(feature)),

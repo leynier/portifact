@@ -51,6 +51,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   brand: { admin: true, editor: false, member: false },
   audit: { admin: true, editor: false, member: false },
   tokens: { admin: true, editor: false, member: false },
+  sso: { admin: true, editor: false, member: false },
 };
 
 /** What a service token may do on top of its role (decision 0011): written out on purpose. */
@@ -128,6 +129,7 @@ describe("service tokens", () => {
 
   it("never manages tokens, members, webhooks, branding, domains or plans, even as admin", () => {
     for (const action of [
+      "sso",
       "tokens",
       "members",
       "webhooks",
