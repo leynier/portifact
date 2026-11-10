@@ -118,7 +118,7 @@ const messages = {
     network: "Portifact est injoignable. Vérifiez votre connexion et réessayez.",
     failed:
       "Les avis de commentaires n’ont pas pu être désactivés. Réessayez, ou désactivez-les dans vos paramètres.",
-    done: "Avis de commentaires désactivés.",
+    done: "Avis de commentaires et de relecture désactivés.",
   },
 } satisfies AuthMessages;
 
@@ -261,7 +261,7 @@ export const fr: AuthCatalog = {
     "unsubscribe.title": "Désactiver les avis de commentaires de Portifact",
     "unsubscribe.heading": "Désactiver les avis de commentaires",
     "unsubscribe.intro":
-      "Vous ne recevrez plus d’e-mails sur les nouveaux commentaires des artifacts Portifact. Les avis d’expiration et les e-mails de connexion ne changent pas.",
+      "Vous ne recevrez plus d’e-mails sur les nouveaux commentaires et les relectures des artifacts Portifact. Les avis d’expiration et les e-mails de connexion ne changent pas.",
     "unsubscribe.confirm": "Désactiver les avis de commentaires",
     "unsubscribe.doneHeading": "Les avis de commentaires sont désactivés",
     "unsubscribe.doneBody":

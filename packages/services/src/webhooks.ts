@@ -3,6 +3,7 @@
 // packages/domain/src/webhooks.ts; writes record events through webhook-activity.ts.
 import {
   type AccessMode,
+  ApprovalSummary,
   type AuditDetail,
   isServiceTokenId,
   WEBHOOK_LIMITS,
@@ -792,8 +793,24 @@ async function eventBodies(
     if (event.type === "artifact.expiring" && event.expiresAt !== null) {
       body.expiresAt = iso(event.expiresAt);
     }
+    if (event.type.startsWith("review.")) {
+      if (event.version !== null) body.version = event.version;
+      const review = reviewOf(event.review);
+      if (review) body.review = review;
+    }
     return [body];
   });
+}
+
+/** The review block a pending row stored, when it still reads as one; nothing otherwise. */
+function reviewOf(stored: string | null): ApprovalSummary | undefined {
+  if (stored === null) return undefined;
+  try {
+    const parsed = ApprovalSummary.safeParse(JSON.parse(stored));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Reads at most `limit` bytes of a body and cancels the rest; gives up when `signal` aborts. */

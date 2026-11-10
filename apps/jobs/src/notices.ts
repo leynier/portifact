@@ -1,12 +1,18 @@
 // The notice senders of the jobs Worker (docs/operations.md, "Expiry notices" and "Comment
 // notices"): they render the emails with packages/emails in the recipient's language (English when
 // they chose none) and send them through Cloudflare Email Service. Expiry notices link each
-// artifact, its page in the dashboard to renew it and the settings; comment notices link each
-// artifact's comments in the viewer, the settings and a signed one-click unsubscribe link, also
-// offered to mail clients through the `List-Unsubscribe` headers (RFC 8058).
+// artifact, its page in the dashboard to renew it and the settings; comment and review notices link
+// the artifact in the viewer, the settings and a signed one-click unsubscribe link (the same one:
+// one setting covers both), also offered to mail clients through the `List-Unsubscribe` headers
+// (RFC 8058).
 import { LIMITS } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { commentNoticeEmail, domainNoticeEmail, expiryNoticeEmail } from "@portifact/emails";
+import {
+  commentNoticeEmail,
+  domainNoticeEmail,
+  expiryNoticeEmail,
+  reviewNoticeEmail,
+} from "@portifact/emails";
 import {
   type CommentNotifier,
   type DomainNotifier,
@@ -15,6 +21,7 @@ import {
   isRecipientSuppressed,
   type NoticeArtifact,
   RecipientSuppressedError,
+  type ReviewNotifier,
   signUnsubscribeToken,
 } from "@portifact/services";
 
@@ -124,6 +131,56 @@ export function commentNotifierFromEnv(env: NoticeEnv): CommentNotifier {
       const email = commentEmail(env, { artifacts, more, locale }, token);
       try {
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+type ReviewNotice = Parameters<ReviewNotifier["send"]>[0];
+
+/**
+ * The email of one review notice (decision 0013, "Emails"), with the environment's addresses and
+ * the same signed unsubscribe link as comment notices: one setting covers both.
+ */
+export function reviewEmail(
+  env: Pick<NoticeEnv, "APP_ORIGIN">,
+  notice: Omit<ReviewNotice, "to" | "userId" | "issuedAt">,
+  token: string,
+) {
+  const urls = unsubscribeUrls(env.APP_ORIGIN, token);
+  const email = reviewNoticeEmail({
+    kind: notice.kind === "requested" ? "requested" : (notice.status ?? "approved"),
+    name: notice.name,
+    version: notice.version,
+    url: `${env.APP_ORIGIN}/view/${notice.artifactId}`,
+    settingsUrl: `${env.APP_ORIGIN}/settings`,
+    unsubscribeUrl: urls.page,
+    // Every artifact is stored in the one global region today (decision 0005).
+    names: true,
+    locale: notice.locale ?? undefined,
+  });
+  return {
+    ...email,
+    headers: {
+      "List-Unsubscribe": `<${urls.oneClick}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+  };
+}
+
+export function reviewNotifierFromEnv(env: NoticeEnv): ReviewNotifier {
+  return {
+    async send({ to, userId, issuedAt, ...notice }) {
+      const secret = env.UNSUBSCRIBE_SECRET;
+      // Thrown before sending: the job goes back to the outbox until the secret is set.
+      if (!secret) throw new Error("review notices need UNSUBSCRIBE_SECRET");
+      const token = await signUnsubscribeToken(secret, userId, issuedAt);
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...reviewEmail(env, notice, token) });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

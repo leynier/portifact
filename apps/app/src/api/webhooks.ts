@@ -1,4 +1,6 @@
 // /api/v1/webhooks (premium plan P6, decision 0009): the owner's webhooks, managed by its admins.
+// `?workspace=<slug>` names a workspace (the personal space without it); a slug the caller is not a
+// member of answers like a missing one, and the role decides in the services.
 // A webhook is a standing channel out of the account, so creating, changing, testing and removing
 // one take the dashboard session or the Portifact CLI's `credentials:manage` token (decision 0003,
 // addendum); any client with `artifacts:read` may list them and their deliveries (hosts, never
@@ -30,8 +32,16 @@ import {
 } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
-import { personalScope } from "../regions.ts";
-import { type AccountGuarded, error, type Guarded, iso, readJson } from "./http.ts";
+import { ownerScope } from "../regions.ts";
+import {
+  type AccountGuarded,
+  type ApiContext,
+  error,
+  type Guarded,
+  iso,
+  readJson,
+  workspaceParam,
+} from "./http.ts";
 
 export function attemptView(attempt: WebhookAttemptRecord): WebhookAttempt {
   return { ...attempt, at: iso(attempt.at) };
@@ -71,6 +81,16 @@ export function webhookService(env: Env) {
 /** A webhook ID that is not well formed answers exactly like a missing webhook. */
 const notFound = "Webhook not found.";
 
+/** The space the request names, as for the audit log and usage. */
+async function scopeOf(c: ApiContext, userId: string) {
+  const workspace = workspaceParam(c);
+  if (!workspace.ok)
+    return { ok: false as const, response: error(c, "not_found", "Workspace not found.") };
+  const scope = await ownerScope(c.env, userId, workspace.slug);
+  if (!scope.ok) return { ok: false as const, response: error(c, scope.code, scope.message) };
+  return { ok: true as const, actor: scope.value.actor, db: scope.value.db };
+}
+
 export function webhookRoutes(
   api: Hono<{ Bindings: Env }>,
   guarded: Guarded,
@@ -80,7 +100,9 @@ export function webhookRoutes(
   api.get(
     "/api/v1/webhooks",
     guarded("artifacts:read", async (c, userId) => {
-      const { actor, db } = await personalScope(c.env, userId);
+      const scope = await scopeOf(c, userId);
+      if (!scope.ok) return scope.response;
+      const { actor, db } = scope;
       const result = await listWebhooks(db, { actor, service: webhookService(c.env), now: now() });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(webhookListView(result.value));
@@ -93,7 +115,9 @@ export function webhookRoutes(
     account(async (c, caller) => {
       const body = await readJson(c, WebhookCreate, 4_096);
       if (!body.ok) return body.response;
-      const { actor, db } = await personalScope(c.env, caller.userId);
+      const scope = await scopeOf(c, caller.userId);
+      if (!scope.ok) return scope.response;
+      const { actor, db } = scope;
       const result = await createWebhook(db, {
         actor,
         webhook: body.value,
@@ -120,7 +144,9 @@ export function webhookRoutes(
       if (!webhookId.success) return error(c, "not_found", notFound);
       const body = await readJson(c, WebhookUpdate, 4_096);
       if (!body.ok) return body.response;
-      const { actor, db } = await personalScope(c.env, caller.userId);
+      const scope = await scopeOf(c, caller.userId);
+      if (!scope.ok) return scope.response;
+      const { actor, db } = scope;
       const result = await updateWebhook(db, {
         actor,
         webhookId: webhookId.data,
@@ -138,7 +164,9 @@ export function webhookRoutes(
     account(async (c, caller) => {
       const webhookId = WebhookId.safeParse(c.req.param("webhookId"));
       if (!webhookId.success) return error(c, "not_found", notFound);
-      const { actor, db } = await personalScope(c.env, caller.userId);
+      const scope = await scopeOf(c, caller.userId);
+      if (!scope.ok) return scope.response;
+      const { actor, db } = scope;
       const result = await removeWebhook(db, { actor, webhookId: webhookId.data, now: now() });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(WebhookRemoved.parse({ webhookId: webhookId.data, removed: true }));
@@ -150,7 +178,9 @@ export function webhookRoutes(
     account(async (c, caller) => {
       const webhookId = WebhookId.safeParse(c.req.param("webhookId"));
       if (!webhookId.success) return error(c, "not_found", notFound);
-      const { actor, db } = await personalScope(c.env, caller.userId);
+      const scope = await scopeOf(c, caller.userId);
+      if (!scope.ok) return scope.response;
+      const { actor, db } = scope;
       const result = await sendTestEvent(db, {
         actor,
         webhookId: webhookId.data,
@@ -167,7 +197,9 @@ export function webhookRoutes(
     guarded("artifacts:read", async (c, userId) => {
       const webhookId = WebhookId.safeParse(c.req.param("webhookId"));
       if (!webhookId.success) return error(c, "not_found", notFound);
-      const { actor, db } = await personalScope(c.env, userId);
+      const scope = await scopeOf(c, userId);
+      if (!scope.ok) return scope.response;
+      const { actor, db } = scope;
       const result = await listWebhookDeliveries(db, {
         actor,
         webhookId: webhookId.data,
