@@ -11,6 +11,7 @@ export * from "./comment-notices.ts";
 export * from "./custom-domains.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
+export * from "./email-domains.ts";
 export * from "./expiry-notices.ts";
 export * from "./files.ts";
 export * from "./ids.ts";

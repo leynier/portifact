@@ -12,7 +12,7 @@ CREATE TABLE `service_tokens` (
 	`expires_at` integer NOT NULL,
 	`last_used_at` integer,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE cascade,
-	CONSTRAINT "service_tokens_role" CHECK("service_tokens"."role" in ('editor', 'member')),
+	CONSTRAINT "service_tokens_role" CHECK("service_tokens"."role" = 'editor'),
 	CONSTRAINT "service_tokens_restriction" CHECK(("service_tokens"."restriction" = 'key') = ("service_tokens"."key_prefix" is not null))
 );
 --> statement-breakpoint

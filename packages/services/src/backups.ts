@@ -242,6 +242,8 @@ export interface ApplyTombstonesResult {
   webhooks: number;
   /** Service tokens revoked before the restore, or of deleted workspaces, deleted again. */
   serviceTokens: number;
+  /** Workspace email domains removed or lapsed before the restore that it brought back. */
+  domains: number;
 }
 
 /**
@@ -283,81 +285,103 @@ export async function applyTombstones(
 
   const l = schema.shareLinks;
   const st = schema.serviceTokens;
-  const [, deletions, , workspaces, , artifacts, shareLinks, , , serviceTokens, , , , , webhooks] =
-    await db.batch([
-      db
-        .insert(schema.outbox)
-        .select(
-          sql`select null, 'account_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedAccount}`,
-        ),
-      db
-        .insert(schema.accountDeletions)
-        .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedAccount}`)
-        .onConflictDoNothing()
-        .returning({ userId: schema.accountDeletions.userId }),
-      db
-        .insert(schema.outbox)
-        .select(
-          sql`select null, 'workspace_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedWorkspace}`,
-        ),
-      // Written before the workspace rows go, so the last-admin trigger lets their memberships go.
-      db
-        .insert(wd)
-        .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedWorkspace}`)
-        .onConflictDoNothing()
-        .returning({ id: wd.workspaceId }),
-      purgeJobs(db, resurrectedArtifact, now),
-      db
-        .update(a)
-        .set({
-          state: "purging",
-          suspensionReason: null,
-          lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
-          updatedAt: now,
-        })
-        .where(resurrectedArtifact)
-        .returning({ id: a.id }),
-      db
-        .update(l)
-        .set({ revokedAt: now })
-        .where(
-          sql`${l.revokedAt} is null and ${l.id} in (select ${t.id} from ${t} where ${t.kind} = 'share_link')`,
-        )
-        .returning({ id: l.id }),
-      db
-        .update(schema.abuseReports)
-        .set({ reporterEmail: null })
-        .where(
-          sql`lower(${schema.abuseReports.reporterEmail}) in (select lower(${u.email}) from ${u} where ${u.id} in (${tombstonedAccounts}))`,
-        ),
-      db
-        .delete(schema.deviceCodes)
-        .where(sql`${schema.deviceCodes.userId} in (${tombstonedAccounts})`),
-      // A revoked token, or one of a deleted workspace, must never authenticate again
-      // (decision 0011). Before the workspace rows go, so the count includes their tokens.
-      db
-        .delete(st)
-        .where(
-          sql`${st.id} in (select ${t.id} from ${t} where ${t.kind} = 'service_token') or ${st.workspaceId} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`,
-        )
-        .returning({ id: st.id }),
-      // Cascades to memberships, invitations and service tokens.
-      db
-        .delete(ws)
-        .where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
-      db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
-      db.update(st).set({ createdBy: null }).where(sql`${st.createdBy} in (${tombstonedAccounts})`),
-      // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
-      db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
-      // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
-      // never receive.
-      db
-        .delete(schema.webhooks)
-        .where(
-          sql`${schema.webhooks.id} in (select ${t.id} from ${t} where ${t.kind} = 'webhook') or ${schema.webhooks.ownerId} in (${tombstonedOwners})`,
-        )
-        .returning({ id: schema.webhooks.id }),
-    ]);
+  const [
+    ,
+    deletions,
+    ,
+    workspaces,
+    ,
+    artifacts,
+    shareLinks,
+    ,
+    ,
+    serviceTokens,
+    ,
+    ,
+    ,
+    ,
+    webhooks,
+    domains,
+  ] = await db.batch([
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'account_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedAccount}`,
+      ),
+    db
+      .insert(schema.accountDeletions)
+      .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedAccount}`)
+      .onConflictDoNothing()
+      .returning({ userId: schema.accountDeletions.userId }),
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'workspace_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedWorkspace}`,
+      ),
+    // Written before the workspace rows go, so the last-admin trigger lets their memberships go.
+    db
+      .insert(wd)
+      .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedWorkspace}`)
+      .onConflictDoNothing()
+      .returning({ id: wd.workspaceId }),
+    purgeJobs(db, resurrectedArtifact, now),
+    db
+      .update(a)
+      .set({
+        state: "purging",
+        suspensionReason: null,
+        lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
+        updatedAt: now,
+      })
+      .where(resurrectedArtifact)
+      .returning({ id: a.id }),
+    db
+      .update(l)
+      .set({ revokedAt: now })
+      .where(
+        sql`${l.revokedAt} is null and ${l.id} in (select ${t.id} from ${t} where ${t.kind} = 'share_link')`,
+      )
+      .returning({ id: l.id }),
+    db
+      .update(schema.abuseReports)
+      .set({ reporterEmail: null })
+      .where(
+        sql`lower(${schema.abuseReports.reporterEmail}) in (select lower(${u.email}) from ${u} where ${u.id} in (${tombstonedAccounts}))`,
+      ),
+    db
+      .delete(schema.deviceCodes)
+      .where(sql`${schema.deviceCodes.userId} in (${tombstonedAccounts})`),
+    // A revoked token, or one of a deleted workspace, must never authenticate again
+    // (decision 0011). Before the workspace rows go, so the count includes their tokens.
+    db
+      .delete(st)
+      .where(
+        sql`${st.id} in (select ${t.id} from ${t} where ${t.kind} = 'service_token') or ${st.workspaceId} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`,
+      )
+      .returning({ id: st.id }),
+    // Cascades to memberships, invitations and service tokens.
+    db.delete(ws).where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
+    db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
+    db.update(st).set({ createdBy: null }).where(sql`${st.createdBy} in (${tombstonedAccounts})`),
+    // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
+    db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
+    // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
+    // never receive.
+    db
+      .delete(schema.webhooks)
+      .where(
+        sql`${schema.webhooks.id} in (select ${t.id} from ${t} where ${t.kind} = 'webhook') or ${schema.webhooks.ownerId} in (${tombstonedOwners})`,
+      )
+      .returning({ id: schema.webhooks.id }),
+    // A removed or lapsed email domain must not grant again (decision 0010); rows of deleted
+    // workspaces went with the workspace above. By row ID, so a later claim of the name survives.
+    db
+      .delete(schema.workspaceDomains)
+      .where(
+        sql`${schema.workspaceDomains.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_domain')`,
+      )
+      .returning({ id: schema.workspaceDomains.id }),
+  ]);
   return {
     inserted,
     artifacts: artifacts.length,
@@ -366,6 +390,7 @@ export async function applyTombstones(
     shareLinks: shareLinks.length,
     webhooks: webhooks.length,
     serviceTokens: serviceTokens.length,
+    domains: domains.length,
   };
 }
 

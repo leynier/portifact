@@ -309,7 +309,11 @@ export function apiRoutes(deps: ApiDeps) {
     "/api/v1/artifacts/:artifactId/access",
     guarded("artifacts:read", async (c, userId) => {
       const artifactId = c.req.param("artifactId") as string;
-      const result = await getAccess(await artifactDb(c.env, artifactId), { userId, artifactId });
+      const result = await getAccess(await artifactDb(c.env, artifactId), {
+        userId,
+        artifactId,
+        now: deps.now(),
+      });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(AccessPolicyView.parse(result.value));
     }),

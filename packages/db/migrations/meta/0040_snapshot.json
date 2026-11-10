@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fbc3e3c2-c09e-413f-bdf1-e755975b9bdc",
+  "id": "5796c03b-f1d7-4eb3-95e7-1f074bd4c881",
   "prevId": "bffc7bdc-7876-42a8-b4c6-9980617c46eb",
   "tables": {
     "abuse_reports": {
@@ -1049,20 +1049,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "external_key": {
-          "name": "external_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -1070,12 +1056,6 @@
           "name": "artifacts_owner_state_idx",
           "columns": ["owner_id", "state"],
           "isUnique": false
-        },
-        "artifacts_owner_key_idx": {
-          "name": "artifacts_owner_key_idx",
-          "columns": ["owner_id", "external_key"],
-          "isUnique": true,
-          "where": "\"artifacts\".\"external_key\" is not null and \"artifacts\".\"state\" not in ('purging', 'deleted')"
         },
         "artifacts_custom_host_idx": {
           "name": "artifacts_custom_host_idx",
@@ -2966,131 +2946,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "service_tokens": {
-      "name": "service_tokens",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "scopes": {
-          "name": "scopes",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "restriction": {
-          "name": "restriction",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'none'"
-        },
-        "key_prefix": {
-          "name": "key_prefix",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_used_at": {
-          "name": "last_used_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "service_tokens_hash_idx": {
-          "name": "service_tokens_hash_idx",
-          "columns": ["token_hash"],
-          "isUnique": true
-        },
-        "service_tokens_workspace_idx": {
-          "name": "service_tokens_workspace_idx",
-          "columns": ["workspace_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "service_tokens_workspace_id_workspaces_id_fk": {
-          "name": "service_tokens_workspace_id_workspaces_id_fk",
-          "tableFrom": "service_tokens",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "service_tokens_role": {
-          "name": "service_tokens_role",
-          "value": "\"service_tokens\".\"role\" in ('editor', 'member')"
-        },
-        "service_tokens_restriction": {
-          "name": "service_tokens_restriction",
-          "value": "(\"service_tokens\".\"restriction\" = 'key') = (\"service_tokens\".\"key_prefix\" is not null)"
-        }
-      }
-    },
     "share_handoffs": {
       "name": "share_handoffs",
       "columns": {
@@ -4424,6 +4279,133 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
+    },
+    "workspace_domains": {
+      "name": "workspace_domains",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain": {
+          "name": "domain",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display": {
+          "name": "display",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "failed_checks": {
+          "name": "failed_checks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "problem": {
+          "name": "problem",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "workspace_domains_workspace_domain_idx": {
+          "name": "workspace_domains_workspace_domain_idx",
+          "columns": ["workspace_id", "domain"],
+          "isUnique": true
+        },
+        "workspace_domains_verified_idx": {
+          "name": "workspace_domains_verified_idx",
+          "columns": ["domain"],
+          "isUnique": true,
+          "where": "\"workspace_domains\".\"state\" = 'verified'"
+        },
+        "workspace_domains_state_checked_idx": {
+          "name": "workspace_domains_state_checked_idx",
+          "columns": ["state", "checked_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "workspace_domains_workspace_id_workspaces_id_fk": {
+          "name": "workspace_domains_workspace_id_workspaces_id_fk",
+          "tableFrom": "workspace_domains",
+          "tableTo": "workspaces",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "workspace_domains_state": {
+          "name": "workspace_domains_state",
+          "value": "\"workspace_domains\".\"state\" in ('pending', 'verified')"
+        }
+      }
     },
     "workspace_invitations": {
       "name": "workspace_invitations",

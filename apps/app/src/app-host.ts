@@ -359,6 +359,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     workspaceRoutes({
       session: sessionUserFor,
       email: (env) => depsFor(env).email,
+      dns: (env) => depsFor(env).emailDomains ?? null,
       now: () => Date.now(),
     }),
   );

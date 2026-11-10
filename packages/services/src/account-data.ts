@@ -283,19 +283,7 @@ export async function exportAccount(
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
     })),
-    workspaces: (
-      await db.global
-        .select({
-          slug: schema.workspaces.slug,
-          name: schema.workspaces.name,
-          role: schema.workspaceMembers.role,
-          joinedAt: schema.workspaceMembers.createdAt,
-        })
-        .from(schema.workspaceMembers)
-        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
-        .where(eq(schema.workspaceMembers.userId, input.userId))
-        .orderBy(asc(schema.workspaces.slug))
-    ).map((row) => ({ ...row, joinedAt: iso(row.joinedAt) })),
+    workspaces: await exportWorkspaces(db.global, input.userId),
     invitations: (await listIncomingInvitations(db.global, input)).map((invitation) => ({
       workspace: invitation.workspace,
       role: invitation.role,
@@ -684,4 +672,52 @@ export async function advanceAccountDeletion(
       .returning({ userId: schema.accountDeletions.userId }),
   ])) as unknown[];
   return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
+}
+
+/**
+ * The account's workspaces and role; for those it is an admin of, the verified email domains it
+ * manages (decision 0010), never their tokens. Other members see no domains.
+ */
+async function exportWorkspaces(global: GlobalDb, userId: string) {
+  const rows = await global
+    .select({
+      id: schema.workspaces.id,
+      slug: schema.workspaces.slug,
+      name: schema.workspaces.name,
+      role: schema.workspaceMembers.role,
+      joinedAt: schema.workspaceMembers.createdAt,
+    })
+    .from(schema.workspaceMembers)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
+    .where(eq(schema.workspaceMembers.userId, userId))
+    .orderBy(asc(schema.workspaces.slug));
+  const admin = rows.filter((row) => row.role === "admin").map((row) => row.id);
+  const domains =
+    admin.length === 0
+      ? []
+      : await global
+          .select({
+            workspaceId: schema.workspaceDomains.workspaceId,
+            domain: schema.workspaceDomains.domain,
+            state: schema.workspaceDomains.state,
+            verifiedAt: schema.workspaceDomains.verifiedAt,
+          })
+          .from(schema.workspaceDomains)
+          .where(inArray(schema.workspaceDomains.workspaceId, admin))
+          .orderBy(asc(schema.workspaceDomains.domain));
+  return rows.map(({ id, ...row }) => ({
+    ...row,
+    joinedAt: iso(row.joinedAt),
+    ...(row.role === "admin"
+      ? {
+          domains: domains
+            .filter((domain) => domain.workspaceId === id)
+            .map((domain) => ({
+              domain: domain.domain,
+              state: domain.state,
+              verifiedAt: domain.verifiedAt === null ? null : iso(domain.verifiedAt),
+            })),
+        }
+      : {}),
+  }));
 }

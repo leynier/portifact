@@ -81,6 +81,8 @@ export interface FakeArtifact {
   workspace?: string | undefined;
   /** Its publish key (decision 0011), if it was created with one. */
   key?: string | undefined;
+  /** Who the workspace modes reach, as the access view shows it; absent means null. */
+  audience?: AccessPolicyView["audience"];
 }
 
 export interface FakeWorkspace {
@@ -1323,6 +1325,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const view: AccessPolicyView = {
       ...artifact.access,
       policyGeneration: artifact.policyGeneration,
+      audience: artifact.audience ?? null,
     };
     return { status: 200, body: view };
   }

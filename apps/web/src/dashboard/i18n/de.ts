@@ -1701,4 +1701,73 @@ export const de = {
   "tokens.confirm.title": "{label} widerrufen?",
   "tokens.confirm.body":
     "Alles, was es verwendet, funktioniert ab der nächsten Anfrage nicht mehr. Das lässt sich nicht rückgängig machen.",
+  "access.workspace": "Der ganze Workspace",
+  "access.domain": "Der Workspace und seine E-Mail-Domains",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "E-Mail-Domain",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {Das # Mitglied dieses Workspaces} other {Alle # Mitglieder dieses Workspaces}}, nach der Anmeldung, in jeder Rolle.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {Das # Mitglied dieses Workspaces} other {Alle # Mitglieder dieses Workspaces}} und alle, die mit einer bestätigten Adresse bei {domains} angemeldet sind.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {Das # Mitglied dieses Workspaces} other {Alle # Mitglieder dieses Workspaces}} und alle, die mit einer bestätigten Adresse bei den E-Mail-Domains des Workspaces angemeldet sind. Noch ist keine Domain bestätigt: Ein Admin fügt eine auf der Seite Mitglieder hinzu.",
+  "accessSettings.mode.listOnlyRestricted":
+    "Die unten aufgeführten Personen können es nur öffnen, solange es eingeschränkt ist.",
+  "accessSettings.mode.workspacePlan": "Teil des Plans {plan}.",
+  "accessSettings.lapsed.title": "Vorerst können nur Mitglieder dieses Artifact öffnen",
+  "accessSettings.lapsed.body":
+    "Der Plan des Workspaces umfasst gerade kein Teilen mit E-Mail-Domains, daher können nur seine Mitglieder dieses Artifact öffnen, bis der Plan es wieder umfasst. Es wurde nichts geändert.",
+  "emailDomains.title": "E-Mail-Domains",
+  "emailDomains.description":
+    "Wer bei Portifact mit einer bestätigten Adresse bei einer dieser Domains angemeldet ist, kann die Artifacts des Workspaces öffnen, die mit seinen E-Mail-Domains geteilt sind. Es zählt nur die genaue Domain, keine Subdomains.",
+  "emailDomains.loading": "E-Mail-Domains werden geladen",
+  "emailDomains.loadFailed": "E-Mail-Domains konnten nicht geladen werden",
+  "emailDomains.rules":
+    "Weisen Sie jede Domain mit einem DNS-Eintrag nach. Öffentliche E-Mail-Anbieter (etwa gmail.com), geteilte Suffixe und die Domains von Portifact werden abgelehnt. Portifact prüft den Eintrag täglich und entfernt eine Domain nach 3 fehlgeschlagenen Prüfungen in Folge.",
+  "emailDomains.addFailed": "Die Domain wurde nicht hinzugefügt",
+  "emailDomains.add": "Domain hinzufügen",
+  "emailDomains.domain": "Domain",
+  "emailDomains.domainHint":
+    "Die eigene Domain Ihrer Organisation, etwa example.com. Bis zu {limit} Domains.",
+  "emailDomains.domainRequired": "Geben Sie eine Domain ein.",
+  "emailDomains.empty": "Noch keine E-Mail-Domain.",
+  "emailDomains.added":
+    "{domain} wurde hinzugefügt. Legen Sie den TXT-Eintrag an und bestätigen Sie ihn dann.",
+  "emailDomains.planTitle": "E-Mail-Domains gehören zu einem kostenpflichtigen Plan",
+  "emailDomains.plan":
+    "Das Bestätigen von E-Mail-Domains gehört zum Plan {plan}. Bereits aufgeführte Domains bleiben, und Sie können sie weiterhin entfernen.",
+  "emailDomains.state.verified": "Bestätigt",
+  "emailDomains.state.pending": "Wartet auf den DNS-Eintrag",
+  "emailDomains.verifiedOn": "Bestätigt am {date}.",
+  "emailDomains.pendingUntil":
+    "Legen Sie den Eintrag vor dem {date} an, sonst verfällt die Anfrage.",
+  "emailDomains.failing.title": "Der DNS-Eintrag fehlt",
+  "emailDomains.failing.body":
+    "{count, plural, one {Der Eintrag fehlte bei der letzten täglichen Prüfung.} other {Der Eintrag fehlte bei den letzten # täglichen Prüfungen in Folge.}} {left, plural, one {Nach # weiteren fehlgeschlagenen Prüfung wird die Domain entfernt.} other {Nach # weiteren fehlgeschlagenen Prüfungen wird die Domain entfernt.}}",
+  "emailDomains.actionFailed": "Die Änderung wurde nicht gespeichert",
+  "emailDomains.recordHint":
+    "Legen Sie diesen Eintrag bei Ihrem DNS-Anbieter an. Es kann etwas dauern, bis er erscheint.",
+  "emailDomains.verify": "Bestätigen",
+  "emailDomains.verifyNamed": "{domain} bestätigen",
+  "emailDomains.remove": "Entfernen",
+  "emailDomains.removeNamed": "{domain} entfernen",
+  "emailDomains.verified": "{domain} ist bestätigt.",
+  "emailDomains.removed": "{domain} wurde entfernt.",
+  "emailDomains.confirmRemove.title": "{domain} entfernen?",
+  "emailDomains.confirmRemove.body":
+    "Wer Artifacts nur über diese Domain öffnet, verliert den Zugang innerhalb einer Minute. Sie können sie später mit einem neuen Eintrag wieder hinzufügen.",
+  "emailDomains.confirmRemove.action": "Domain entfernen",
+  "emailDomains.error.quota_exceeded":
+    "Der Workspace hat bereits die höchste Zahl an E-Mail-Domains.",
+  "emailDomains.error.version_conflict":
+    "Die Domain hat sich inzwischen geändert, oder ein anderer Workspace weist sie noch in seinem DNS nach. Laden Sie neu und versuchen Sie es noch einmal.",
+  "emailDomains.error.capacity_unavailable":
+    "Das DNS konnte gerade nicht geprüft werden. Versuchen Sie es gleich noch einmal.",
+  "emailDomains.error.not_found": "Diese Domain ist nicht mehr aufgeführt.",
+  "emailDomains.error.refused":
+    "Diese Domain kann nicht hinzugefügt werden. Verwenden Sie die eigene Domain Ihrer Organisation: Öffentliche E-Mail-Anbieter, geteilte Suffixe, reservierte Namen und die Domains von Portifact werden abgelehnt.",
+  "emailDomains.error.recordMissing":
+    "Der TXT-Eintrag mit dem Wert dieser Domain wurde noch nicht gefunden. DNS-Änderungen können eine Weile brauchen; versuchen Sie es später noch einmal. Eine Anfrage, die älter als 7 Tage ist, muss neu hinzugefügt werden.",
+  "transfer.confirm.accessReset":
+    "Es ist gerade mit seinem Workspace oder einer E-Mail-Domain geteilt und wird daher eingeschränkt: Nur die Personen auf seiner Leseliste können es weiter lesen.",
 } satisfies Catalog;

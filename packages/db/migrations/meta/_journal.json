@@ -285,8 +285,15 @@
     {
       "idx": 40,
       "version": "6",
-      "when": 1794317268177,
-      "tag": "0040_service_tokens",
+      "when": 1794317798279,
+      "tag": "0040_workspace_domains",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1794319423620,
+      "tag": "0041_service_tokens",
       "breakpoints": true
     }
   ]

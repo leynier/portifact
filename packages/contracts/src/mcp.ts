@@ -67,7 +67,7 @@ export const ListArtifactsInput = z.object({
   ),
   type: ArtifactType.optional().describe("Only artifacts of this type: site, markdown or text."),
   access: AccessMode.optional().describe(
-    "Only artifacts with this access mode: public, authenticated or restricted.",
+    "Only artifacts with this access mode: public, authenticated, restricted, workspace or domain.",
   ),
   annotations: AnnotationsState.optional().describe(
     "Only artifacts whose annotations are off, open or locked.",
@@ -159,7 +159,7 @@ export type SetCommentVisibilityInput = z.infer<typeof SetCommentVisibilityInput
 export const SetAccessInput = z.object({
   artifactId,
   mode: AccessMode.optional().describe(
-    "restricted: only the owner and the readers on the list, after signing in. authenticated: anyone signed in to Portifact. public: anyone with the link, no sign-in. Ask the user before choosing authenticated or public.",
+    "restricted: only the owner and the readers on the list, after signing in. authenticated: anyone signed in to Portifact. public: anyone with the link, no sign-in. workspace (workspace artifacts only): every member of the owning workspace. domain (workspace artifacts only): every member plus anyone signed in with a verified address at one of the workspace's verified email domains. Ask the user before choosing authenticated, public, workspace or domain.",
   ),
   indexable: z
     .boolean()

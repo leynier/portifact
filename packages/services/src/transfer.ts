@@ -234,6 +234,9 @@ export async function transferArtifact(
           updatedAt: input.now,
           lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
           policyGeneration: sql`${a.policyGeneration} + 1`,
+          // `workspace` and `domain` name the old owner's people (decision 0010): the artifact
+          // becomes restricted (its reader list stays) wherever it goes.
+          accessMode: sql`case when ${a.accessMode} in ('workspace', 'domain') then 'restricted' else ${a.accessMode} end`,
         })
         // The same conditions as every other statement, so the row never moves without them.
         .where(and(eq(a.id, artifact.id), unchanged))
