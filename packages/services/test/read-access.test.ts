@@ -99,6 +99,8 @@ const check = (userId: string, now = NOW) => checkReadAccess(db(), { artifactId:
 
 async function issue(userId = READER, state = "state-nonce", artifactId = ID) {
   const result = await issueReadHandoff(db(), {
+    customDomains: true,
+    confirmed: false,
     artifactId,
     userId,
     authSessionId: appSession(userId),
@@ -133,7 +135,10 @@ describe("read access", () => {
   beforeEach(() => seed());
 
   it("admits the owner and verified readers of a restricted artifact", async () => {
-    expect(await check(OWNER)).toEqual({ ok: true, value: { userId: OWNER, policyGeneration: 1 } });
+    expect(await check(OWNER)).toEqual({
+      ok: true,
+      value: { userId: OWNER, policyGeneration: 1, accessMode: "restricted" },
+    });
     // The reader's account email is mixed case; the list holds it lowercased.
     expect((await check(READER)).ok).toBe(true);
   });
@@ -250,6 +255,8 @@ describe("read handoffs", () => {
 
   it("does not issue a code to an account without access", async () => {
     const result = await issueReadHandoff(db(), {
+      customDomains: true,
+      confirmed: false,
       artifactId: ID,
       userId: STRANGER,
       authSessionId: appSession(STRANGER),

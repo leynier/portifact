@@ -361,6 +361,57 @@ describe("old `.dev` links", () => {
     expect(location).not.toContain("host=");
   });
 
+  it("redirect only while the global row is active for this artifact, never from the column alone", async () => {
+    // The regional column names a host whose row is another owner's and still provisioning.
+    const taken = host();
+    await db()
+      .insert(schema.customDomains)
+      .values({
+        hostname: taken,
+        ownerId: "u_someone_else",
+        artifactId: OTHER_ID,
+        region: "default",
+        state: "provisioning",
+        token: "b".repeat(32),
+        verifiedAt: NOW,
+        checkedAt: NOW,
+      });
+    await run("UPDATE artifacts SET custom_host = ? WHERE id = ?", taken, ID);
+    expect((await send(`https://${DEV}/index.html?q=1`)).status).toBe(200);
+    expect((await send(`https://${taken}/index.html?q=1`)).status).toBe(404);
+    // The other half: the row is active but the artifact does not name the host yet.
+    await run("UPDATE artifacts SET custom_host = NULL WHERE id = ?", ID);
+    const half = host();
+    await db()
+      .insert(schema.customDomains)
+      .values({
+        hostname: half,
+        ownerId: OWNER,
+        artifactId: ID,
+        region: "default",
+        state: "active",
+        token: "c".repeat(32),
+        verifiedAt: NOW,
+        checkedAt: NOW,
+      });
+    expect((await send(`https://${half}/`)).status).toBe(404);
+    expect((await send(`https://${DEV}/`)).status).toBe(200);
+    // Both agree: the redirect.
+    await run("UPDATE artifacts SET custom_host = ? WHERE id = ?", half, ID);
+    expect((await send(`https://${DEV}/`)).headers.get("Location")).toBe(`https://${half}/`);
+  });
+
+  it("stop at the switch and come back with it, as in a rollback", async () => {
+    const hostname = host();
+    await attach(hostname);
+    const OFF = env as Env;
+    expect((await send(`https://${DEV}/`)).status).toBe(308);
+    expect((await send(`https://${DEV}/`, { env: OFF })).status).toBe(200);
+    expect((await send(`https://${hostname}/`, { env: OFF })).status).toBe(404);
+    expect((await send(`https://${DEV}/`)).status).toBe(308);
+    expect((await send(`https://${hostname}/`)).status).toBe(200);
+  });
+
   it("stop redirecting at the next request once the domain is detached", async () => {
     const hostname = host();
     await attach(hostname);
@@ -393,6 +444,8 @@ describe("sessions on a custom host", () => {
 
     const issue = async (requestedHost: string | null) =>
       issueReadHandoff(db(), {
+        customDomains: true,
+        confirmed: false,
         artifactId: ID,
         userId: READER,
         authSessionId: `as_${READER}`,
@@ -427,6 +480,15 @@ describe("sessions on a custom host", () => {
     const session = redeemed.headers.getSetCookie().find((c) => c.startsWith("__Host-pf_read="));
     expect(session).toBeDefined();
     expect(session).not.toMatch(/Domain=/i);
+    // Encrypted: a domain owner who received this cookie on a server of theirs cannot read whom
+    // it names, nor the app session it hangs from.
+    const value = (session as string).split(";")[0]?.split("=")[1] ?? "";
+    expect(value.startsWith("e1.")).toBe(true);
+    for (const part of value.split(".").slice(1)) {
+      const decoded = atob(part.replaceAll("-", "+").replaceAll("_", "/"));
+      expect(decoded).not.toContain(READER);
+      expect(decoded).not.toContain(`as_${READER}`);
+    }
     // The session reads the artifact on the custom host.
     const page = await send(`https://${hostname}/`, { cookie: (session as string).split(";")[0] });
     expect(page.status).toBe(200);
@@ -436,6 +498,7 @@ describe("sessions on a custom host", () => {
     const hostname = host();
     await attach(hostname);
     const review = await issueReviewHandoff(db(), {
+      customDomains: true,
       artifactId: ID,
       userId: READER,
       authSessionId: `as_${READER}`,
@@ -466,6 +529,7 @@ describe("sessions on a custom host", () => {
     });
     if (!created.ok) throw new Error(created.message);
     const opened = await openShareLink([db()], {
+      customDomains: true,
       token: created.value.token,
       now: NOW,
       contentDomain: "portifact.dev",

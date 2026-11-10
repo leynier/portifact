@@ -212,7 +212,8 @@ describe("read handoff", () => {
     }
     const head = await read(`/read/${ID}?state=${STATE}`, reader, { method: "HEAD" });
     expect(head.headers.get("location")).toBe(UNAVAILABLE_URL);
-    expect((await read(`/read/${ID}?state=${STATE}`, reader, { method: "POST" })).status).toBe(404);
+    // A POST is the login page's confirmation, refused unless the page itself sends it.
+    expect((await read(`/read/${ID}?state=${STATE}`, reader, { method: "POST" })).status).toBe(403);
     expect(await handoffs()).toHaveLength(0);
   });
 

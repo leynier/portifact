@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalLocation,
   checkDomainCount,
+  checkPointing,
   checkProvenDomain,
   claimExpiry,
   classifyHost,
+  customHostWithoutClick,
   devHost,
   domainLimit,
   domainLimitAt,
@@ -410,5 +412,38 @@ describe("hostname messages", () => {
     const messages = Object.values(HOSTNAME_MESSAGES);
     expect(messages.every((message) => message.length > 20)).toBe(true);
     expect(new Set(messages).size).toBe(messages.length);
+  });
+});
+
+describe("where the name points", () => {
+  it("detaches after three checks in a row pointing elsewhere; unknown neither counts nor resets", () => {
+    expect(checkPointing({ missedPointChecks: 2, pointing: "here" })).toEqual({
+      action: "keep",
+      missedPointChecks: 0,
+    });
+    expect(checkPointing({ missedPointChecks: 2, pointing: "unknown" })).toEqual({
+      action: "keep",
+      missedPointChecks: 2,
+    });
+    expect(checkPointing({ missedPointChecks: 0, pointing: "elsewhere" })).toEqual({
+      action: "keep",
+      missedPointChecks: 1,
+    });
+    expect(checkPointing({ missedPointChecks: 1, pointing: "elsewhere" })).toEqual({
+      action: "keep",
+      missedPointChecks: 2,
+    });
+    expect(checkPointing({ missedPointChecks: 2, pointing: "elsewhere" })).toEqual({
+      action: "detach",
+      reason: "cname_elsewhere",
+    });
+  });
+});
+
+describe("codes on a custom host without a click", () => {
+  it("are kept from artifacts every signed-in account reads", () => {
+    expect(customHostWithoutClick("public")).toBe(true);
+    expect(customHostWithoutClick("restricted")).toBe(true);
+    expect(customHostWithoutClick("authenticated")).toBe(false);
   });
 });

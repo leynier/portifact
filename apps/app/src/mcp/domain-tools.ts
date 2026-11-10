@@ -49,9 +49,9 @@ function describe(view: CustomDomainView): string {
         `Ask the user to create: TXT ${txt?.name} = ${txt?.value}, and CNAME ${cname?.name} -> ${cname?.value}. Then call verify_custom_domain.`,
       ].join(" ");
     case "provisioning":
-      return `${view.hostname} is proven; Cloudflare is issuing its certificate${view.problem === "certificate_pending" ? ` (check that the CNAME points at ${cname?.value})` : ""}. Call verify_custom_domain again in a few minutes.`;
+      return `${view.hostname} is proven; Cloudflare is issuing its certificate${view.problem === "certificate_pending" || view.problem === "cname_elsewhere" ? ` (check that the CNAME points at ${cname?.value})` : ""}. Call verify_custom_domain again in a few minutes.`;
     case "active":
-      return `${view.hostname} serves ${view.artifactId}. Keep the TXT record: it is checked daily and the domain is removed after three misses.${view.problem === "txt_missing" ? " The TXT record is missing now." : ""}`;
+      return `${view.hostname} serves ${view.artifactId}. Keep the TXT record: it is checked daily and the domain is removed after three misses. The name must keep pointing at ${cname?.value}, checked daily too.${view.problem === "txt_missing" ? " The TXT record is missing now." : ""}${view.problem === "cname_elsewhere" ? ` The name does not point at ${cname?.value} now; ask the user to point it back.` : ""}`;
     case "removing":
       return `${view.hostname} is being removed.`;
   }

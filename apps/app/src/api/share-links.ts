@@ -21,6 +21,7 @@ import { hitRateLimit, releaseRateLimit } from "@portifact/db";
 import { type PasswordAttempts, passwordGate, SHARE_MESSAGES } from "@portifact/domain";
 import {
   createShareLink,
+  customDomainsServing,
   hashSecret,
   listShareLinks,
   openShareLink,
@@ -198,7 +199,13 @@ export function shareOpenRoutes(deps: ShareOpenDeps) {
       regionsOf(c.env)
         .all()
         .map((handles) => handles.db),
-      { token, password, now, contentDomain: c.env.CONTENT_DOMAIN },
+      {
+        token,
+        password,
+        now,
+        contentDomain: c.env.CONTENT_DOMAIN,
+        customDomains: customDomainsServing(c.env),
+      },
     );
     switch (outcome.kind) {
       case "opened": {

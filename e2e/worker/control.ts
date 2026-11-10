@@ -6,6 +6,7 @@ import {
   commitPublish,
   createAnnotationThread,
   createShareLink,
+  customDomainsServing,
   issueReviewHandoff,
   preparePublish,
   revokeShareLink,
@@ -318,6 +319,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       now,
       ...(kind ? { kind } : {}),
       contentDomain: env.CONTENT_DOMAIN,
+      customDomains: customDomainsServing(env),
     });
     if (!issued.ok) return Response.json(issued, { status: 400 });
     return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });

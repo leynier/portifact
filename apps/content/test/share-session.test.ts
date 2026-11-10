@@ -203,6 +203,7 @@ async function link(extra: { password?: string; artifactId?: string } = {}) {
   });
   if (!created.ok) throw new Error(created.message);
   const opened = await openShareLink([db()], {
+    customDomains: true,
     token: created.value.token,
     password: extra.password,
     now: NOW,
@@ -362,10 +363,20 @@ describe("a share link's session", () => {
     const { token } = await link();
     await setPlan("free");
     expect(
-      await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+      await openShareLink([db()], {
+        customDomains: true,
+        token,
+        now: NOW,
+        contentDomain: "portifact.dev",
+      }),
     ).toEqual({ kind: "unavailable" });
     await setPlan("pro");
-    const opened = await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" });
+    const opened = await openShareLink([db()], {
+      customDomains: true,
+      token,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
     if (opened.kind !== "opened") throw new Error(opened.kind);
     const cookie = await enter(opened.code);
     expect((await send("/", { cookie })).status).toBe(200);
@@ -405,6 +416,8 @@ describe("a share link's session", () => {
       ""
     ).split(";")[0];
     const issued = await issueReadHandoff(db(), {
+      customDomains: true,
+      confirmed: false,
       artifactId: ID,
       userId: READER,
       authSessionId: `as_${READER}`,

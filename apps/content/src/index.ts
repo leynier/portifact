@@ -18,6 +18,7 @@ import {
   findRenderedPage,
   type RegionalDb,
   type RegionHandles,
+  type Regions,
   regionsFromEnv,
 } from "@portifact/db";
 import {
@@ -40,6 +41,7 @@ import {
 import { documentPolicy } from "@portifact/render/policy";
 import {
   artifactHandles,
+  customDomainsServing,
   findBrandLogo,
   personalHandles,
   recordOpenings,
@@ -48,7 +50,7 @@ import {
 } from "@portifact/services";
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
-import { isolateHosts, resolveCustomHost } from "./custom-hosts.ts";
+import { hintAgrees, isolateHosts, resolveCustomHost } from "./custom-hosts.ts";
 import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
 import {
   BRIDGE_PATH,
@@ -118,9 +120,9 @@ export interface Env extends BudgetEnv {
   CUSTOM_DOMAINS_ENABLED?: string | undefined;
 }
 
-/** Whether this deployment serves custom hosts. */
+/** Whether this deployment serves custom hosts: the same condition the app decides with. */
 function customDomainsOn(env: Env): boolean {
-  return env.CUSTOM_DOMAINS_ENABLED === "true";
+  return customDomainsServing(env);
 }
 
 /** Reserved path that sends a visitor to the report form for this artifact. */
@@ -360,6 +362,7 @@ async function route(
     countView,
     onDevHost: resolved === undefined,
     customDomains: customDomainsOn(env),
+    regions,
   };
   // Review mode first: the viewer's iframe reads the pinned version with the bridge, and a
   // review tab reads it with the review banner.
@@ -416,6 +419,8 @@ interface Delivery {
   onDevHost: boolean;
   /** Custom domains are switched on in this deployment. */
   customDomains: boolean;
+  /** For the `.dev` redirect, which also needs the global table's agreement (`hintAgrees`). */
+  regions: Regions;
 }
 
 /**
@@ -556,7 +561,7 @@ const served = (response: Response, bytes = 0): Served => ({
  * pinned version, with the bridge appended to its HTML.
  */
 async function serveFile(
-  { request, env, db, url, onDevHost, customDomains }: Delivery,
+  { request, env, db, url, onDevHost, customDomains, regions }: Delivery,
   artifact: ServableArtifact,
   setCookies: string[],
   reviewSession?: ReviewServe,
@@ -598,7 +603,11 @@ async function serveFile(
     link,
     pathAndQuery: `${url.pathname}${url.search}`,
   });
-  if (location) {
+  // The regional column alone is not enough: the global row must be active for this artifact
+  // too, as the isolate's hint says (a warm isolate reads nothing more). A host whose row is
+  // provisioning, detaching or another owner's would send readers, path and query included, to
+  // a name someone else may control, or to a 404.
+  if (location && (await hintAgrees(regions, artifact.customHost as string, artifact.id))) {
     return { ...served(canonicalRedirect(location, setCookies)), page, canonical: true };
   }
   const sent = (response: Response, bytes = 0): Served => ({ ...served(response, bytes), page });

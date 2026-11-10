@@ -6,6 +6,7 @@ import type { ViewerRole } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
+  customHostWithoutClick,
   effectiveState,
   entitlements,
   fail,
@@ -40,7 +41,13 @@ const unavailable = () =>
 /** The artifact as the viewer shows it to `userId`, or to an anonymous visitor when null. */
 export async function getViewerArtifact(
   db: RegionalDb,
-  input: { artifactId: string; userId: string | null; now: number },
+  input: {
+    artifactId: string;
+    userId: string | null;
+    now: number;
+    /** Whether this Worker serves custom hosts (`customDomainsServing`). */
+    customDomains: boolean;
+  },
 ): Promise<Result<ViewerArtifact>> {
   const [artifact] = await db
     .select({
@@ -123,6 +130,10 @@ export async function getViewerArtifact(
         input.now,
       ),
     ),
-    customHost: await activeCustomHost(db, input.artifactId),
+    // The frame's host: never for an `authenticated` artifact, which the viewer frames on `.dev`
+    // because it opens with no click (`customHostWithoutClick`).
+    customHost: customHostWithoutClick(artifact.accessMode)
+      ? await activeCustomHost(db, input.artifactId, input.customDomains)
+      : null,
   });
 }

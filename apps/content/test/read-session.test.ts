@@ -244,6 +244,8 @@ class Jar {
 
 async function issue(userId: string, state: string, artifactId = ID, now = NOW) {
   const result = await issueReadHandoff(db(), {
+    customDomains: true,
+    confirmed: false,
     artifactId,
     userId,
     authSessionId: appSession(userId),
@@ -281,6 +283,30 @@ async function sealedClaims(overrides: Record<string, unknown>, secret = env.REA
   });
   return `${READ_COOKIE}=${value}`;
 }
+
+const b64url = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+
+/** A value in the HMAC-signed format cookies had before they were encrypted. */
+async function legacySeal(secret: string, purpose: string, payload: unknown): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const body = b64url(new TextEncoder().encode(JSON.stringify(payload)));
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${purpose}.${body}`));
+  return `${body}.${b64url(new Uint8Array(mac))}`;
+}
+
+/** Changes one character inside a sealed part, keeping it valid base64url. */
+const flip = (part: string) =>
+  `${part.slice(0, -2)}${part.at(-2) === "A" ? "B" : "A"}${part.slice(-1)}`;
 
 /** Raw SQL against the test database, for changes the app would make. */
 const sql = (query: string, ...values: unknown[]) =>
@@ -574,14 +600,17 @@ describe("handoff redemption", () => {
     const { state, tx } = await start();
     const code = await issue(READER, state);
     const [name, value = ""] = tx.split("=");
-    const [body = "", signature = ""] = value.split(".");
-    const decoded = JSON.parse(atob(body.replaceAll("-", "+").replaceAll("_", "/")));
-    const forged = btoa(JSON.stringify({ ...decoded, path: "/other" }))
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, "");
-    expect((await callback(code, `${name}=${forged}.${signature}`)).status).toBe(400);
-    // A read cookie's signature is not valid for a transaction.
+    const [tag = "", iv = "", sealed = ""] = value.split(".");
+    expect(tag).toBe("e1");
+    const decoded = await unseal(env.READ_SESSION_SECRET, "pf_read_tx", value);
+    expect((await callback(code, `${name}=${tag}.${iv}.${flip(sealed)}`)).status).toBe(400);
+    // Relabeled under a key the Worker does not hold, in the legacy format.
+    const forged = await legacySeal("another-secret-that-is-long-enough-to-use", "pf_read_tx", {
+      ...(decoded as object),
+      path: "/other",
+    });
+    expect((await callback(code, `${name}=${forged}`)).status).toBe(400);
+    // A read cookie's value is not valid for a transaction.
     const asRead = await seal(env.READ_SESSION_SECRET, "pf_read", decoded);
     expect((await callback(code, `${name}=${asRead}`)).status).toBe(400);
     // A transaction under another name than its nonce's is not this transaction.
@@ -749,6 +778,8 @@ describe("read session claims", () => {
     }
     // Signing in again is refused too: the app issues no handoff for a suspended artifact.
     const handoff = await issueReadHandoff(db(), {
+      customDomains: true,
+      confirmed: false,
       artifactId: ID,
       userId: READER,
       authSessionId: appSession(READER),
@@ -760,6 +791,8 @@ describe("read session claims", () => {
     expect(handoff.ok).toBe(false);
     // The owner too.
     const owner = await issueReadHandoff(db(), {
+      customDomains: true,
+      confirmed: false,
       artifactId: ID,
       userId: OWNER,
       authSessionId: appSession(OWNER),
@@ -781,24 +814,22 @@ describe("read session claims", () => {
   it("rejects tampered, foreign and injected read cookies", async () => {
     const cookie = await signIn(READER);
     const value = cookie.slice(`${READ_COOKIE}=`.length);
-    const [body = "", signature = ""] = value.split(".");
-    const claims = JSON.parse(atob(body.replaceAll("-", "+").replaceAll("_", "/")));
-    const forgedBody = btoa(JSON.stringify({ ...claims, uid: OWNER }))
-      .replaceAll("+", "-")
-      .replaceAll("/", "_")
-      .replace(/=+$/, "");
-    // Replaces the second-to-last character, which always carries signature bits.
-    const flipped = `${signature.slice(0, -2)}${signature.at(-2) === "A" ? "B" : "A"}${signature.slice(-1)}`;
+    const [tag = "", iv = "", sealed = ""] = value.split(".");
+    const claims = (await unseal(env.READ_SESSION_SECRET, "pf_read", value)) as { sid: string };
+    const otherKey = "another-secret-that-is-long-enough-to-use";
     for (const bad of [
-      `${READ_COOKIE}=${forgedBody}.${signature}`,
-      `${READ_COOKIE}=${body}.${flipped}`,
-      await sealedClaims({ sid: claims.sid }, "another-secret-that-is-long-enough-to-use"),
+      `${READ_COOKIE}=${tag}.${iv}.${flip(sealed)}`,
+      `${READ_COOKIE}=${tag}.${flip(iv)}.${sealed}`,
+      `${READ_COOKIE}=e2.${iv}.${sealed}`,
+      `${READ_COOKIE}=${tag}.${iv.slice(2)}.${sealed}`,
+      await sealedClaims({ sid: claims.sid }, otherKey),
+      `${READ_COOKIE}=${await legacySeal(otherKey, "pf_read", { ...claims, uid: OWNER })}`,
       `__host-pf_read=${value}`,
       `pf_read=${value}`,
       `${cookie}; ${cookie}`,
-      `${READ_COOKIE}=${body}`,
-      `${READ_COOKIE}=${body}.${signature}.x`,
-      `${READ_COOKIE}=!!!.${signature}`,
+      `${READ_COOKIE}=${tag}.${iv}`,
+      `${READ_COOKIE}=${value}.x`,
+      `${READ_COOKIE}=${tag}.!!!.${sealed}`,
     ]) {
       const response = await send("/", { cookie: bad });
       expect(response.status, bad).toBe(303);
@@ -809,9 +840,11 @@ describe("read session claims", () => {
     const [session] = await db().select().from(schema.readSessions);
     expect(session).toBeUndefined();
     const owner = await signIn(OWNER);
-    const sid = JSON.parse(
-      atob((owner.split("=")[1]?.split(".")[0] ?? "").replaceAll("-", "+").replaceAll("_", "/")),
-    ).sid;
+    const { sid } = (await unseal(
+      env.READ_SESSION_SECRET,
+      "pf_read",
+      owner.split("=")[1] ?? "",
+    )) as { sid: string };
     for (const overrides of [
       { v: 2 },
       { extra: true },
@@ -823,6 +856,26 @@ describe("read session claims", () => {
     }
     const notJson = await seal(env.READ_SESSION_SECRET, "pf_read", "x");
     expect((await send("/", { cookie: `${READ_COOKIE}=${notJson}` })).status).toBe(303);
+  });
+  it("encrypts claims, so the cookie names no account, and still reads signed values", async () => {
+    const cookie = await signIn(READER);
+    const value = cookie.slice(`${READ_COOKIE}=`.length);
+    const decodedParts = value
+      .split(".")
+      .slice(1)
+      .map((part) => atob(part.replaceAll("-", "+").replaceAll("_", "/")));
+    for (const part of decodedParts) {
+      expect(part).not.toContain(READER);
+      expect(part).not.toContain(ID);
+    }
+    // Two seals of the same claims differ (a random IV), so values link nothing.
+    expect(await seal("x".repeat(32), "p", { a: 1 })).not.toBe(
+      await seal("x".repeat(32), "p", { a: 1 }),
+    );
+    // A read session signed before the change keeps working until it ends.
+    const claims = await unseal(env.READ_SESSION_SECRET, "pf_read", value);
+    const legacy = await legacySeal(env.READ_SESSION_SECRET, "pf_read", claims);
+    expect((await send("/", { cookie: `${READ_COOKIE}=${legacy}` })).status).toBe(200);
   });
 });
 
@@ -942,7 +995,38 @@ describe("cookie helpers", () => {
     expect(await unseal(secret, "p", "a.b.c")).toBeNull();
     expect(await unseal(secret, "p", "a")).toBeNull();
     // Base64url characters that do not decode (a lone trailing symbol).
-    expect(await unseal(secret, "p", `A.${sealed.split(".")[1]}`)).toBeNull();
+    expect(await unseal(secret, "p", `e1.A.${sealed.split(".")[2]}`)).toBeNull();
+    expect(await unseal(secret, "p", `A.${sealed.split(".")[2]}`)).toBeNull();
+    // A correct encryption of something that is not JSON.
+    const aesBase = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      "HKDF",
+      false,
+      ["deriveKey"],
+    );
+    const aes = await crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: new Uint8Array(0),
+        info: new TextEncoder().encode("portifact artifact-origin cookies v1"),
+      },
+      aesBase,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt"],
+    );
+    const iv = new Uint8Array(12);
+    const notJsonCipher = new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv, additionalData: new TextEncoder().encode("p") },
+        aes,
+        new TextEncoder().encode("not json"),
+      ),
+    );
+    expect(await unseal(secret, "p", `e1.${b64url(iv)}.${b64url(notJsonCipher)}`)).toBeNull();
+    expect(await unseal(secret, "p", await legacySeal(secret, "p", { a: 1 }))).toEqual({ a: 1 });
     // A correct signature over a body that is not JSON.
     const key = await crypto.subtle.importKey(
       "raw",

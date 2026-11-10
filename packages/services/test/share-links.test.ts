@@ -300,6 +300,7 @@ describe("openShareLink", () => {
     const { owner, artifactId } = await owned();
     const { link, token } = value(await create(owner.id, artifactId));
     const opened = await openShareLink([db()], {
+      customDomains: true,
       token,
       now: NOW + 5 * 3_600_000,
       contentDomain: "portifact.dev",
@@ -319,10 +320,16 @@ describe("openShareLink", () => {
     const { owner, artifactId } = await owned();
     const { token } = value(await create(owner.id, artifactId, { password: "correct horse" }));
     expect(
-      await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+      await openShareLink([db()], {
+        customDomains: true,
+        token,
+        now: NOW,
+        contentDomain: "portifact.dev",
+      }),
     ).toEqual({ kind: "password_required" });
     expect(
       await openShareLink([db()], {
+        customDomains: true,
         token,
         password: "wrong horse",
         now: NOW,
@@ -334,6 +341,7 @@ describe("openShareLink", () => {
     expect(
       (
         await openShareLink([db()], {
+          customDomains: true,
           token,
           password: "correct horse",
           now: NOW,
@@ -358,10 +366,16 @@ describe("openShareLink", () => {
     const later = NOW + 10;
     for (const token of [MISSING_TOKEN, expired.token, revoked.token]) {
       expect(
-        await openShareLink([db()], { token, now: later, contentDomain: "portifact.dev" }),
+        await openShareLink([db()], {
+          customDomains: true,
+          token,
+          now: later,
+          contentDomain: "portifact.dev",
+        }),
       ).toEqual({ kind: "unavailable" });
       expect(
         await openShareLink([db()], {
+          customDomains: true,
           token,
           password: "longenough",
           now: later,
@@ -378,15 +392,32 @@ describe("openShareLink", () => {
     const { token } = value(await create(owner.id, artifactId));
     await grantPlan(owner.id, "free");
     expect(
-      await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+      await openShareLink([db()], {
+        customDomains: true,
+        token,
+        now: NOW,
+        contentDomain: "portifact.dev",
+      }),
     ).toEqual({ kind: "unavailable" });
     await grantPlan(owner.id, "pro", { validUntil: NOW - 1 });
     expect(
-      await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+      await openShareLink([db()], {
+        customDomains: true,
+        token,
+        now: NOW,
+        contentDomain: "portifact.dev",
+      }),
     ).toEqual({ kind: "unavailable" });
     await grantPlan(owner.id, "pro");
     expect(
-      (await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" })).kind,
+      (
+        await openShareLink([db()], {
+          customDomains: true,
+          token,
+          now: NOW,
+          contentDomain: "portifact.dev",
+        })
+      ).kind,
     ).toBe("opened");
   });
 
@@ -400,7 +431,12 @@ describe("openShareLink", () => {
       const { token } = value(await create(owner.id, artifactId));
       await db().update(schema.artifacts).set(change).where(eq(schema.artifacts.id, artifactId));
       expect(
-        await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+        await openShareLink([db()], {
+          customDomains: true,
+          token,
+          now: NOW,
+          contentDomain: "portifact.dev",
+        }),
       ).toEqual({ kind: "unavailable" });
     }
   });
@@ -413,6 +449,7 @@ describe("openShareLink", () => {
     for (const token of [MISSING_TOKEN, plain.token, locked.token]) {
       derive.mockClear();
       await openShareLink([db()], {
+        customDomains: true,
         token,
         password: "some guess",
         now: NOW,
@@ -424,7 +461,12 @@ describe("openShareLink", () => {
       });
     }
     derive.mockClear();
-    await openShareLink([db()], { token: MISSING_TOKEN, now: NOW, contentDomain: "portifact.dev" });
+    await openShareLink([db()], {
+      customDomains: true,
+      token: MISSING_TOKEN,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
     expect(derive).not.toHaveBeenCalled();
   });
 });
@@ -453,7 +495,12 @@ describe("redeemShareHandoff and refreshShareSession", () => {
   async function opened(extra: { expiresAt?: number | null } = {}) {
     const { owner, artifactId } = await owned();
     const { link, token } = value(await create(owner.id, artifactId, extra));
-    const result = await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" });
+    const result = await openShareLink([db()], {
+      customDomains: true,
+      token,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
     if (result.kind !== "opened") throw new Error(result.kind);
     return { owner, artifactId, link, code: result.code };
   }
@@ -574,6 +621,7 @@ describe("pruneShareLinks", () => {
     ).link;
     const live = value(await create(owner.id, artifactId, { label: "live" }));
     const opened = await openShareLink([db()], {
+      customDomains: true,
       token: live.token,
       now: NOW,
       contentDomain: "portifact.dev",
@@ -629,12 +677,24 @@ describe("restores, purges and the access log", () => {
       .set({ revokedAt: null })
       .where(eq(schema.shareLinks.id, link.id));
     expect(
-      (await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" })).kind,
+      (
+        await openShareLink([db()], {
+          customDomains: true,
+          token,
+          now: NOW,
+          contentDomain: "portifact.dev",
+        })
+      ).kind,
     ).toBe("opened");
     const result = await applyTombstones(db(), markers, NOW + 1);
     expect(result.shareLinks).toBeGreaterThanOrEqual(1);
     expect(
-      await openShareLink([db()], { token, now: NOW + 2, contentDomain: "portifact.dev" }),
+      await openShareLink([db()], {
+        customDomains: true,
+        token,
+        now: NOW + 2,
+        contentDomain: "portifact.dev",
+      }),
     ).toEqual({ kind: "unavailable" });
     expect((await applyTombstones(db(), markers, NOW + 3)).shareLinks).toBe(0);
   });
@@ -707,6 +767,7 @@ describe("links in another region", () => {
     });
 
     const opened = await openShareLink([db(), second], {
+      customDomains: true,
       token,
       now: NOW,
       contentDomain: "portifact.dev",
@@ -739,6 +800,7 @@ describe("links in another region", () => {
     // A token no region holds still costs one derivation and answers like any other.
     expect(
       await openShareLink([db(), second], {
+        customDomains: true,
         token: "Q".repeat(43),
         now: NOW,
         contentDomain: "portifact.dev",

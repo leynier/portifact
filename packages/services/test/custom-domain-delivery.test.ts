@@ -32,10 +32,11 @@ import {
   suppressEmail,
 } from "../src/email.ts";
 import { runJob } from "../src/outbox.ts";
-import { issueReadHandoff, redeemReadHandoff } from "../src/read-access.ts";
+import { issueReadHandoff, readEntryConfirmation, redeemReadHandoff } from "../src/read-access.ts";
 import { issueReviewHandoff, redeemReviewHandoff } from "../src/review-access.ts";
 import { createShareLink, openShareLink, redeemShareHandoff } from "../src/share-links.ts";
 import { FakeDomains } from "../src/testing/fake-domains.ts";
+import { getViewerArtifact } from "../src/viewer.ts";
 import { DAY, db, grantPlan, NOW, publishSite, session, user, value } from "./fixtures.ts";
 
 const CONTENT = "portifact.dev";
@@ -210,23 +211,25 @@ describe("the active custom host", () => {
   it("is the artifact's host only while the global row is active for the same artifact", async () => {
     const fake = new FakeDomains();
     const { owner, artifactId } = await owned();
-    expect(await activeCustomHost(db(), artifactId)).toBeNull();
+    expect(await activeCustomHost(db(), artifactId, true)).toBeNull();
     const hostname = await attach(fake, owner.id, artifactId);
-    expect(await activeCustomHost(db(), artifactId)).toBe(hostname);
+    expect(await activeCustomHost(db(), artifactId, true)).toBe(hostname);
+    // Switched off, the app's entries use the `.dev` host whatever the tables say.
+    expect(await activeCustomHost(db(), artifactId, false)).toBeNull();
     expect(await customHostHint(db(), hostname)).toEqual({ artifactId, region: "default" });
     // A host the artifact holds without an active row (a restore, a race) is never used.
     await db()
       .update(schema.customDomains)
       .set({ state: "provisioning" })
       .where(eq(schema.customDomains.hostname, hostname));
-    expect(await activeCustomHost(db(), artifactId)).toBeNull();
+    expect(await activeCustomHost(db(), artifactId, true)).toBeNull();
     expect(await customHostHint(db(), hostname)).toBeNull();
     expect(await customHostHint(db(), "nobody.example.com")).toBeNull();
     await db()
       .update(schema.customDomains)
       .set({ state: "active", artifactId: "abcdefghij" })
       .where(eq(schema.customDomains.hostname, hostname));
-    expect(await activeCustomHost(db(), artifactId)).toBeNull();
+    expect(await activeCustomHost(db(), artifactId, true)).toBeNull();
   });
 });
 
@@ -243,6 +246,8 @@ describe("codes bound to their host", () => {
     const authSessionId = await session(owner.id);
     const issue = (requestedHost: string | null, state: string) =>
       issueReadHandoff(db(), {
+        customDomains: true,
+        confirmed: false,
         artifactId,
         userId: owner.id,
         authSessionId,
@@ -258,6 +263,8 @@ describe("codes bound to their host", () => {
     // Any other host answers exactly like an artifact the visitor cannot open.
     const other = await issue("evil.example.com", "u".repeat(43));
     const missing = await issueReadHandoff(db(), {
+      customDomains: true,
+      confirmed: false,
       artifactId: "abcdefghij",
       userId: owner.id,
       authSessionId,
@@ -289,6 +296,8 @@ describe("codes bound to their host", () => {
     const authSessionId = await session(owner.id);
     const issued = value(
       await issueReadHandoff(db(), {
+        customDomains: true,
+        confirmed: false,
         artifactId,
         userId: owner.id,
         authSessionId,
@@ -317,6 +326,7 @@ describe("codes bound to their host", () => {
     const authSessionId = await session(owner.id);
     const issued = value(
       await issueReviewHandoff(db(), {
+        customDomains: true,
         artifactId,
         userId: owner.id,
         authSessionId,
@@ -340,6 +350,7 @@ describe("codes bound to their host", () => {
     const plain = await owned();
     const plainCode = value(
       await issueReviewHandoff(db(), {
+        customDomains: true,
         artifactId: plain.artifactId,
         userId: plain.owner.id,
         authSessionId: await session(plain.owner.id),
@@ -361,7 +372,12 @@ describe("codes bound to their host", () => {
         now: NOW,
       }),
     );
-    const opened = await openShareLink([db()], { token, now: NOW, contentDomain: CONTENT });
+    const opened = await openShareLink([db()], {
+      customDomains: true,
+      token,
+      now: NOW,
+      contentDomain: CONTENT,
+    });
     if (opened.kind !== "opened") throw new Error("not opened");
     expect(opened.host).toBe(hostname);
     const redeem = (on: string) =>
@@ -370,7 +386,12 @@ describe("codes bound to their host", () => {
     expect((await redeem(hostname)).ok).toBe(true);
     // Removing the domain sends the next opening to `.dev`.
     value(await removeCustomDomain(regions(), { userId: owner.id, hostname, now: NOW }));
-    const again = await openShareLink([db()], { token, now: NOW, contentDomain: CONTENT });
+    const again = await openShareLink([db()], {
+      customDomains: true,
+      token,
+      now: NOW,
+      contentDomain: CONTENT,
+    });
     expect(again.kind === "opened" && again.host).toBe(dev);
   });
 });
@@ -582,5 +603,261 @@ describe("the downgrade notice", () => {
     } finally {
       log.mockRestore();
     }
+  });
+});
+
+describe("the switch decides every host the app sends to", () => {
+  it("names only `.dev` while off, with an active domain in the tables, and again after a rollback", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    const hostname = await attach(fake, owner.id, artifactId);
+    const dev = `${artifactId}.${CONTENT}`;
+    const authSessionId = await session(owner.id);
+    const { token } = value(
+      await createShareLink(db(), {
+        userId: owner.id,
+        artifactId,
+        label: "Board",
+        expiresAt: null,
+        now: NOW,
+      }),
+    );
+    const hosts = async (customDomains: boolean) => {
+      const read = await issueReadHandoff(db(), {
+        customDomains,
+        confirmed: false,
+        artifactId,
+        userId: owner.id,
+        authSessionId,
+        state: crypto.randomUUID().replaceAll("-", "").padEnd(43, "a"),
+        now: NOW,
+        requestedHost: hostname,
+        contentDomain: CONTENT,
+      });
+      const review = value(
+        await issueReviewHandoff(db(), {
+          customDomains,
+          artifactId,
+          userId: owner.id,
+          authSessionId,
+          now: NOW,
+          contentDomain: CONTENT,
+        }),
+      );
+      const link = await openShareLink([db()], {
+        customDomains,
+        token,
+        now: NOW,
+        contentDomain: CONTENT,
+      });
+      const viewer = value(
+        await getViewerArtifact(db(), { customDomains, artifactId, userId: owner.id, now: NOW }),
+      );
+      return {
+        read: read.ok ? read.value.host : "refused",
+        review: review.host,
+        link: link.kind === "opened" ? link.host : link.kind,
+        viewer: viewer.customHost,
+      };
+    };
+    const on = { read: hostname, review: hostname, link: hostname, viewer: hostname };
+    // Off: a read entry asking for the custom host is refused like any unknown host.
+    const off = { read: "refused", review: dev, link: dev, viewer: null };
+    expect(await hosts(true)).toEqual(on);
+    expect(await hosts(false)).toEqual(off);
+    expect(await hosts(true)).toEqual(on);
+  });
+});
+
+describe("an artifact every signed-in account reads", () => {
+  async function authenticated() {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    const hostname = await attach(fake, owner.id, artifactId);
+    await db()
+      .update(schema.artifacts)
+      .set({ accessMode: "authenticated" })
+      .where(eq(schema.artifacts.id, artifactId));
+    const visitor = await user();
+    return { owner, artifactId, hostname, visitor, dev: `${artifactId}.${CONTENT}` };
+  }
+
+  it("asks the visitor to confirm before a read code goes to the custom host", async () => {
+    const { artifactId, hostname, visitor, dev } = await authenticated();
+    const authSessionId = await session(visitor.id);
+    const input = (requestedHost: string | null, confirmed: boolean) => ({
+      customDomains: true,
+      confirmed,
+      artifactId,
+      userId: visitor.id,
+      authSessionId,
+      state: "c".repeat(43),
+      now: NOW,
+      requestedHost,
+      contentDomain: CONTENT,
+    });
+    expect(await readEntryConfirmation(db(), input(hostname, false))).toBe(hostname);
+    const missing = await issueReadHandoff(db(), {
+      ...input(null, false),
+      artifactId: "abcdefghij",
+    });
+    expect(await issueReadHandoff(db(), input(hostname, false))).toEqual(missing);
+    expect(
+      await db().select().from(schema.readHandoffs).where(eq(schema.readHandoffs.host, hostname)),
+    ).toEqual([]);
+    expect(value(await issueReadHandoff(db(), input(hostname, true))).host).toBe(hostname);
+    // The `.dev` entry is as before: no confirmation, no read.
+    expect(await readEntryConfirmation(db(), input(null, false))).toBeNull();
+    expect(value(await issueReadHandoff(db(), input(null, false))).host).toBe(dev);
+    // Off, or for a host that is not the artifact's, there is nothing to confirm.
+    expect(
+      await readEntryConfirmation(db(), { ...input(hostname, false), customDomains: false }),
+    ).toBeNull();
+    expect(await readEntryConfirmation(db(), input("evil.example.com", false))).toBeNull();
+  });
+
+  it("keeps the viewer's frame and review codes on `.dev`, which open with no click", async () => {
+    const { artifactId, visitor, dev } = await authenticated();
+    const review = value(
+      await issueReviewHandoff(db(), {
+        customDomains: true,
+        artifactId,
+        userId: visitor.id,
+        authSessionId: await session(visitor.id),
+        now: NOW,
+        contentDomain: CONTENT,
+      }),
+    );
+    expect(review.host).toBe(dev);
+    const viewer = value(
+      await getViewerArtifact(db(), {
+        customDomains: true,
+        artifactId,
+        userId: visitor.id,
+        now: NOW,
+      }),
+    );
+    expect(viewer.customHost).toBeNull();
+  });
+
+  it("asks nothing of a reader of a restricted artifact, whom the owner chose", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    const hostname = await attach(fake, owner.id, artifactId);
+    expect(
+      await readEntryConfirmation(db(), {
+        customDomains: true,
+        artifactId,
+        userId: owner.id,
+        now: NOW,
+        requestedHost: hostname,
+        contentDomain: CONTENT,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("activation never shows a half state", () => {
+  it("makes the row active before the artifact names the host", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    // Records the row's state at the moment the artifact takes the host.
+    await env.DB.exec(
+      "CREATE TABLE IF NOT EXISTS seen_on_bind (state text); DELETE FROM seen_on_bind; CREATE TRIGGER record_bind AFTER UPDATE OF custom_host ON artifacts WHEN NEW.custom_host IS NOT NULL BEGIN INSERT INTO seen_on_bind SELECT state FROM custom_domains WHERE hostname = NEW.custom_host; END",
+    );
+    try {
+      await attach(fake, owner.id, artifactId);
+      const seen = await env.DB.prepare("SELECT state FROM seen_on_bind").all<{ state: string }>();
+      expect(seen.results.map((row) => row.state)).toEqual(["active"]);
+    } finally {
+      await env.DB.exec("DROP TRIGGER record_bind; DROP TABLE seen_on_bind");
+    }
+  });
+
+  it("binds an active row whose artifact never took the host, at the daily check", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    const hostname = await attach(fake, owner.id, artifactId);
+    // A Worker stopped between the two writes.
+    await db()
+      .update(schema.artifacts)
+      .set({ customHost: null })
+      .where(eq(schema.artifacts.id, artifactId));
+    expect(await activeCustomHost(db(), artifactId, true)).toBeNull();
+    await checkCustomDomains(dbs(), fake, NOW + DAY);
+    expect(await domainRow(hostname)).toMatchObject({ state: "active" });
+    expect(await activeCustomHost(db(), artifactId, true)).toBe(hostname);
+  });
+});
+
+describe("where the name points", () => {
+  it("activates only while the name resolves to Portifact's target", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    const hostname = host();
+    fake.elsewhere.add(hostname);
+    const claim = value(
+      await addCustomDomain(regions(), fake, {
+        userId: owner.id,
+        artifactId,
+        hostname,
+        contentDomain: CONTENT,
+        now: NOW,
+      }),
+    );
+    fake.publishTxt(txtRecordName(hostname), txtRecordValue(claim.token));
+    value(await verifyCustomDomain(regions(), fake, { userId: owner.id, hostname, now: NOW }));
+    fake.activate(hostname);
+    const waiting = value(
+      await verifyCustomDomain(regions(), fake, { userId: owner.id, hostname, now: NOW }),
+    );
+    expect(waiting).toMatchObject({ state: "provisioning", problem: "cname_elsewhere" });
+    expect(await activeCustomHost(db(), artifactId, true)).toBeNull();
+    // DNS that cannot be asked waits too.
+    fake.elsewhere.delete(hostname);
+    fake.failing.txt = true;
+    await checkCustomDomains(dbs(), fake, NOW + 60_000);
+    expect((await domainRow(hostname))?.state).toBe("provisioning");
+    fake.failing.txt = false;
+    const active = value(
+      await verifyCustomDomain(regions(), fake, { userId: owner.id, hostname, now: NOW }),
+    );
+    expect(active).toMatchObject({ state: "active", problem: null });
+    expect(fake.pointingAsked).toContain(hostname);
+  });
+
+  it("detaches a repointed name after three daily checks in a row, apart from the TXT", async () => {
+    const fake = new FakeDomains();
+    const { owner, artifactId } = await owned();
+    const hostname = await attach(fake, owner.id, artifactId);
+    fake.elsewhere.add(hostname);
+    // "Check again" shows it at once, without counting.
+    const checked = value(
+      await verifyCustomDomain(regions(), fake, { userId: owner.id, hostname, now: NOW }),
+    );
+    expect(checked).toMatchObject({ state: "active", problem: "cname_elsewhere" });
+    await checkCustomDomains(dbs(), fake, NOW + DAY);
+    expect(await domainRow(hostname)).toMatchObject({
+      missedPointChecks: 1,
+      missedChecks: 0,
+      problem: "cname_elsewhere",
+    });
+    // Pointed back: the count resets.
+    fake.elsewhere.delete(hostname);
+    await checkCustomDomains(dbs(), fake, NOW + 2 * DAY);
+    expect(await domainRow(hostname)).toMatchObject({ missedPointChecks: 0, problem: null });
+    fake.elsewhere.add(hostname);
+    fake.failing.txt = true;
+    await checkCustomDomains(dbs(), fake, NOW + 3 * DAY);
+    expect((await domainRow(hostname))?.missedPointChecks).toBe(0);
+    fake.failing.txt = false;
+    for (const day of [4, 5]) await checkCustomDomains(dbs(), fake, NOW + day * DAY);
+    expect(await domainRow(hostname)).toMatchObject({ state: "active", missedPointChecks: 2 });
+    await checkCustomDomains(dbs(), fake, NOW + 6 * DAY);
+    expect(await domainRow(hostname)).toMatchObject({
+      state: "detaching",
+      detachReason: "cname_elsewhere",
+    });
+    expect(await activeCustomHost(db(), artifactId, true)).toBeNull();
   });
 });

@@ -67,6 +67,21 @@ export function isolateHosts(): HostDirectory {
   return directory;
 }
 
+/**
+ * Whether the global table says `hostname` is active for `artifactId`, for the `.dev` redirect:
+ * a cached hint for that artifact answers at once; anything else reads the table once (a hint for
+ * another artifact may be stale). Never true from the regional column alone.
+ */
+export async function hintAgrees(
+  regions: Regions,
+  hostname: string,
+  artifactId: string,
+  hosts: HostDirectory = isolateHosts(),
+): Promise<boolean> {
+  if (hosts.cached(hostname)?.artifactId === artifactId) return true;
+  return (await hosts.refresh(regions, hostname))?.artifactId === artifactId;
+}
+
 /** What a custom host resolved to: the artifact (with the delivery lookup's joins) and its region. */
 export interface CustomHostTarget {
   artifact: DeliveryArtifact;

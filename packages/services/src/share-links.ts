@@ -318,6 +318,8 @@ export async function openShareLink(
     now: number;
     /** The deployment's content domain, for the artifact's `.dev` host. */
     contentDomain: string;
+    /** Whether this Worker serves custom hosts (`customDomainsServing`). */
+    customDomains: boolean;
   },
 ): Promise<ShareOpenOutcome> {
   const l = schema.shareLinks;
@@ -408,7 +410,7 @@ export async function openShareLink(
   // The link opens the artifact on its active custom host when it has one, from the tables; the
   // code works only on the host it is sent to.
   const host =
-    (await activeCustomHost(target, found.artifactId)) ??
+    (await activeCustomHost(target, found.artifactId, input.customDomains)) ??
     devHost(found.artifactId, input.contentDomain);
   await target.batch([
     target.insert(schema.shareHandoffs).values({

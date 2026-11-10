@@ -107,6 +107,7 @@ describe("custom domain shapes, exactly", () => {
       "txt_missing",
       "certificate_pending",
       "cloudflare_unavailable",
+      "cname_elsewhere",
     ]);
   });
 

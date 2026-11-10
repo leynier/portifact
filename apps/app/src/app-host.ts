@@ -11,7 +11,7 @@ import { isLocale } from "@portifact/contracts/locales";
 import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { needsTermsAcceptance, viewerFrameOrigin } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
-import { getViewerArtifact } from "@portifact/services";
+import { customDomainsServing, getViewerArtifact } from "@portifact/services";
 import { Hono } from "hono";
 import { hasSessionCookie, type SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
@@ -200,9 +200,9 @@ async function viewerFrameOriginFor(
   request: Request,
   artifactId: string,
   userFor: (request: Request) => Promise<string | undefined>,
-  enabled: boolean,
 ): Promise<string | undefined> {
-  if (!enabled) return undefined;
+  // The same switch as the content Worker's and every other app entry's.
+  if (!customDomainsServing(env)) return undefined;
   const userId = hasSessionCookie(request.headers.get("cookie"))
     ? ((await userFor(request)) ?? null)
     : null;
@@ -210,6 +210,7 @@ async function viewerFrameOriginFor(
     artifactId,
     userId,
     now: Date.now(),
+    customDomains: true,
   });
   return viewerFrameOrigin({
     artifactId,
@@ -427,13 +428,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       await viewerCsp(
         c.env,
         artifactId,
-        await viewerFrameOriginFor(
-          c.env,
-          c.req.raw,
-          artifactId,
-          sessionUserFor(c.env),
-          depsFor(c.env).domains !== null,
-        ),
+        await viewerFrameOriginFor(c.env, c.req.raw, artifactId, sessionUserFor(c.env)),
       ),
     );
     page.headers.set("X-Robots-Tag", "noindex");

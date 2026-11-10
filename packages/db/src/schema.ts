@@ -1528,7 +1528,7 @@ export const customDomains = sqliteTable(
     missedChecks: integer("missed_checks").notNull().default(0),
     /** What the last check found wrong (contracts: CustomDomainProblem), or null. */
     problem: text("problem", {
-      enum: ["txt_missing", "certificate_pending", "cloudflare_unavailable"],
+      enum: ["txt_missing", "certificate_pending", "cloudflare_unavailable", "cname_elsewhere"],
     }),
     /** Why it was detached (domain: DetachReason); null unless `detaching`. */
     detachReason: text("detach_reason"),
@@ -1538,6 +1538,11 @@ export const customDomains = sqliteTable(
      * domain (the downgrade notice); null until then. A renewal makes it irrelevant.
      */
     noticeFor: timestamp("notice_for"),
+    /**
+     * Daily checks in a row that found the name not pointing at Portifact's target (decision
+     * 0006, "Where the name points"); counted apart from the TXT misses, with the same limit.
+     */
+    missedPointChecks: integer("missed_point_checks").notNull().default(0),
   },
   (t) => [
     index("custom_domains_owner_idx").on(t.ownerId, t.verifiedAt),

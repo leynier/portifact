@@ -33,7 +33,7 @@ async function userId(email: string): Promise<string> {
   return user.id;
 }
 
-async function seed(accessMode: "public" | "restricted", withDomain: boolean) {
+async function seed(accessMode: "public" | "restricted" | "authenticated", withDomain: boolean) {
   for (const table of ["custom_domains", "read_handoffs", "review_handoffs", "artifact_readers"]) {
     await env.DB.exec(`DELETE FROM ${table}`);
   }
@@ -85,7 +85,7 @@ const get = (h: Harness, path: string, cookie?: string, extra: Record<string, st
   h.request(path, { headers: { ...(cookie ? { cookie } : {}), ...extra }, redirect: "manual" });
 
 beforeAll(async () => {
-  on = createHarness({ domains: new FakeDomains() });
+  on = createHarness({ domains: new FakeDomains(), env: { CUSTOM_DOMAINS_ENABLED: "true" } });
   off = createHarness();
   for (const email of [OWNER, READER, STRANGER]) cookies[email] = await on.signIn(email);
 });
@@ -223,5 +223,133 @@ describe("artifact views", () => {
     >();
     expect(plain.url).toBe(`${DEV}/`);
     expect("customHost" in plain).toBe(false);
+  });
+});
+
+describe("the switch", () => {
+  const origins = async (h: Harness) => {
+    const viewer = await (
+      await get(h, `/api/v1/artifacts/${ID}/viewer`, cookies[READER], {
+        "sec-fetch-site": "same-origin",
+      })
+    ).json<{ origin: string }>();
+    const review = await (
+      await h.request(`/api/v1/artifacts/${ID}/review`, {
+        method: "POST",
+        headers: {
+          cookie: cookies[READER] as string,
+          "sec-fetch-site": "same-origin",
+          origin: ORIGIN,
+        },
+      })
+    ).json<{ origin: string; url: string }>();
+    const page = await get(h, `/view/${ID}`, cookies[READER]);
+    return {
+      viewer: viewer.origin,
+      review: review.origin,
+      reviewUrl: new URL(review.url).origin,
+      frame: page.headers.get("content-security-policy")?.includes(`frame-src https://${HOST} `),
+    };
+  };
+
+  it("names only `.dev` while off, even with Cloudflare configured and an active domain, and again after a rollback", async () => {
+    await seed("restricted", true);
+    // Cloudflare's clients are there; only the variable is missing.
+    const unset = createHarness({ domains: new FakeDomains() });
+    const custom = `https://${HOST}`;
+    const onHosts = { viewer: custom, review: custom, reviewUrl: custom, frame: true };
+    const offHosts = { viewer: DEV, review: DEV, reviewUrl: DEV, frame: false };
+    expect(await origins(on)).toEqual(onHosts);
+    expect(await origins(unset)).toEqual(offHosts);
+    expect(await origins(off)).toEqual(offHosts);
+    expect(await origins(on)).toEqual(onHosts);
+    // The read entry refuses the custom host while off, like any host that is not the artifact's.
+    const read = await get(unset, `/read/${ID}?state=${STATE}&host=${HOST}`, cookies[READER]);
+    expect(read.headers.get("location")).toBe(UNAVAILABLE_URL);
+  });
+
+  it("serves the domains that exist with the variable alone, as the content Worker does", async () => {
+    await seed("restricted", true);
+    const servingOnly = createHarness({ env: { CUSTOM_DOMAINS_ENABLED: "true" } });
+    const custom = `https://${HOST}`;
+    expect(await origins(servingOnly)).toEqual({
+      viewer: custom,
+      review: custom,
+      reviewUrl: custom,
+      frame: true,
+    });
+  });
+});
+
+describe("an artifact every signed-in account reads", () => {
+  beforeEach(() => seed("authenticated", true));
+
+  const confirm = (headers: Record<string, string>, body: unknown = { state: STATE, host: HOST }) =>
+    on.request(`/read/${ID}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it("asks for a click before a read code goes to the custom host", async () => {
+    const response = await get(on, `/read/${ID}?state=${STATE}&host=${HOST}`, cookies[STRANGER]);
+    expect(response.status).toBe(303);
+    const location = new URL(response.headers.get("location") ?? "", ORIGIN);
+    expect(location.pathname).toBe("/login");
+    expect(location.searchParams.get("confirm")).toBe("read");
+    expect(location.searchParams.get("next")).toBe(`/read/${ID}?state=${STATE}&host=${HOST}`);
+    expect(await db().select().from(schema.readHandoffs)).toEqual([]);
+
+    const confirmed = await confirm({
+      cookie: cookies[STRANGER] as string,
+      "sec-fetch-site": "same-origin",
+      origin: ORIGIN,
+    });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.headers.get("cache-control")).toBe("no-store");
+    const { url } = await confirmed.json<{ url: string }>();
+    const callback = new URL(url);
+    expect(`${callback.origin}${callback.pathname}`).toBe(`https://${HOST}/__portifact/callback`);
+    const [handoff] = await db().select().from(schema.readHandoffs);
+    expect(handoff?.host).toBe(HOST);
+    // The `.dev` entry needs no click.
+    const dev = await get(on, `/read/${ID}?state=${"m".repeat(43)}`, cookies[STRANGER]);
+    expect(new URL(dev.headers.get("location") ?? "").origin).toBe(DEV);
+  });
+
+  it("refuses a confirmation another site sends, and one without a session or a body", async () => {
+    const cookie = cookies[STRANGER] as string;
+    for (const headers of [
+      { cookie, "sec-fetch-site": "cross-site", origin: "https://evil.example.com" },
+      { cookie, "sec-fetch-site": "same-site", origin: ORIGIN },
+      { cookie, "sec-fetch-site": "same-origin", origin: "https://evil.example.com" },
+      { cookie, "sec-fetch-site": "same-origin" },
+    ]) {
+      expect((await confirm(headers)).status, JSON.stringify(headers)).toBe(403);
+    }
+    const signedOut = await confirm({ "sec-fetch-site": "same-origin", origin: ORIGIN });
+    const login = new URL((await signedOut.json<{ url: string }>()).url, ORIGIN);
+    expect(login.pathname).toBe("/login");
+    const malformed = await confirm(
+      { cookie, "sec-fetch-site": "same-origin", origin: ORIGIN },
+      {
+        state: STATE,
+        host: HOST,
+        extra: true,
+      },
+    );
+    expect((await malformed.json<{ url: string }>()).url).toBe(UNAVAILABLE_URL);
+    expect(await db().select().from(schema.readHandoffs)).toEqual([]);
+  });
+
+  it("keeps the viewer's frame and review codes on `.dev`", async () => {
+    const info = await (
+      await get(on, `/api/v1/artifacts/${ID}/viewer`, cookies[STRANGER], {
+        "sec-fetch-site": "same-origin",
+      })
+    ).json<{ origin: string }>();
+    expect(info.origin).toBe(DEV);
+    const page = await get(on, `/view/${ID}`, cookies[STRANGER]);
+    expect(page.headers.get("content-security-policy")).toBe(await viewerCsp(env, ID));
   });
 });

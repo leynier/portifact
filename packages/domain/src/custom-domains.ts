@@ -1,7 +1,7 @@
 // Custom domains (premium plan P7, decision 0006): which hostnames an owner may attach, how the
 // content Worker tells an artifact host from a custom one, and the decisions of the daily check
 // and the plan limit. Pure functions, no I/O; the services apply them with D1 and Cloudflare.
-import { CUSTOM_DOMAINS } from "@portifact/contracts";
+import { type AccessMode, CUSTOM_DOMAINS } from "@portifact/contracts";
 import type { Entitlements } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
@@ -172,7 +172,8 @@ export type DetachReason =
   | "account_deleted"
   | "reconciled"
   | "operator"
-  | "blocked";
+  | "blocked"
+  | "cname_elsewhere";
 
 /**
  * The daily check of a domain that is proven: three misses of the TXT proof in a row detach it,
@@ -198,6 +199,29 @@ export function checkProvenDomain(input: {
   return missed >= CUSTOM_DOMAINS.maxMissedChecks
     ? { action: "detach", reason: "txt_lost" }
     : { action: "keep", missedChecks: missed };
+}
+
+/** Where a name resolves, as the DNS check found it: to Portifact's CNAME target or elsewhere. */
+export type Pointing = "here" | "elsewhere" | "unknown";
+
+/**
+ * The daily check of where an active name points (decision 0006, "Where the name points"): a
+ * name that no longer resolves to Portifact's CNAME target may be serving something else inside
+ * Portifact's bar, so `maxMissedChecks` such checks in a row detach it, counted apart from the TXT
+ * misses. A check that could not reach DNS neither counts nor resets.
+ */
+export function checkPointing(input: {
+  missedPointChecks: number;
+  pointing: Pointing;
+}): { action: "keep"; missedPointChecks: number } | { action: "detach"; reason: DetachReason } {
+  if (input.pointing === "unknown") {
+    return { action: "keep", missedPointChecks: input.missedPointChecks };
+  }
+  if (input.pointing === "here") return { action: "keep", missedPointChecks: 0 };
+  const missed = input.missedPointChecks + 1;
+  return missed >= CUSTOM_DOMAINS.maxMissedChecks
+    ? { action: "detach", reason: "cname_elsewhere" }
+    : { action: "keep", missedPointChecks: missed };
 }
 
 /** Whether a proven domain is due for its daily check at `now`. */
@@ -246,6 +270,18 @@ export function handoffHost(input: {
   return input.activeHost !== null && input.requested === input.activeHost
     ? input.activeHost
     : null;
+}
+
+/**
+ * Whether the app may send a visitor's code to the artifact's custom host without a click of
+ * theirs (decision 0006, "Codes on a custom host"). The domain owner controls that host's DNS and
+ * may receive the code on a server of their own. An `authenticated` artifact is read by every
+ * signed-in account, so a visitor who was merely sent there confirms first on the app (the read
+ * entry), or stays on the `.dev` host (the viewer's frame and its review codes). A public artifact
+ * needs no code to be read, and the readers of a restricted one are the owner's own choice.
+ */
+export function customHostWithoutClick(accessMode: AccessMode): boolean {
+  return accessMode !== "authenticated";
 }
 
 /**

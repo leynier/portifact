@@ -21,6 +21,7 @@ import {
 import { viewerFrameOrigin } from "@portifact/domain";
 import {
   brandLogoUrl,
+  customDomainsServing,
   getViewerArtifact,
   type IssuedReviewHandoff,
   issueReviewHandoff,
@@ -122,6 +123,7 @@ export function reviewRoutes(deps: ReviewDeps) {
       artifactId,
       userId,
       now,
+      customDomains: customDomainsServing(c.env),
     });
     if (!found.ok) return error(c, found.code, found.message);
     const { brand, customHost, ...artifact } = found.value;
@@ -204,6 +206,7 @@ async function issue(c: ReviewContext, deps: ReviewDeps, kind: ReviewKind): Prom
     now,
     kind,
     contentDomain: c.env.CONTENT_DOMAIN,
+    customDomains: customDomainsServing(c.env),
   });
   if (!issued.ok) return refuse(issued.code, issued.message);
   // The artifact's active custom host or its `.dev` host, chosen by the service from the tables.

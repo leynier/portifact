@@ -12,7 +12,7 @@ const SITE = {
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Handbook</title></head><body><h1>Handbook</h1><p id="where"></p><script>document.getElementById("where").textContent = location.host;</script></body></html>',
 };
 
-async function withDomain(accessMode: "public" | "restricted", bar: boolean) {
+async function withDomain(accessMode: "public" | "authenticated" | "restricted", bar: boolean) {
   const owner = await createUser("Owner");
   const published = await publish({
     ownerId: owner.userId,
@@ -119,4 +119,30 @@ test("review mode runs in the viewer's frame on the custom host where the browse
   );
   expect(issued.length).toBeGreaterThan(0);
   expect(new Set(issued.map((row) => row.host))).toEqual(new Set([hostname]));
+});
+
+test("an artifact every signed-in account reads opens on the custom host only after a click", async ({
+  page,
+  context,
+}) => {
+  const { artifactId, hostname } = await withDomain("authenticated", false);
+  const visitor = await createUser("Visitor");
+  await signIn(context, visitor);
+  await page.goto(`https://${hostname}/`);
+  // The app stops at the login page's confirmation; no code went anywhere yet.
+  await page.waitForURL((url) => url.origin === APP_ORIGIN && url.pathname === "/login");
+  await expect(page.getByText(hostname, { exact: false })).toBeVisible();
+  expect(
+    await sql<{ host: string }>("SELECT host FROM read_handoffs WHERE artifact_id = ?", [
+      artifactId,
+    ]),
+  ).toEqual([]);
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.waitForURL(`https://${hostname}/`);
+  await expect(page.locator("#where")).toHaveText(hostname);
+  const handoffs = await sql<{ host: string }>(
+    "SELECT host FROM read_handoffs WHERE artifact_id = ?",
+    [artifactId],
+  );
+  expect(handoffs.map((row) => row.host)).toEqual([hostname]);
 });

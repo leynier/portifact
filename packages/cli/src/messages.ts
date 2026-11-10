@@ -204,6 +204,8 @@ export const messages = {
     certificate_pending:
       "The certificate is not ready yet. Check that the CNAME points at the target above, then check again in a few minutes.",
     cloudflare_unavailable: "The certificate service did not answer. It is tried again shortly.",
+    cname_elsewhere:
+      "The domain does not point at the CNAME target above. Point it back: an active domain is removed after 3 daily checks in a row like this.",
   },
   domainClaimExpires: (date: string) => `Add the records before ${date}, or add the domain again.`,
   domainMissedChecks: (count: number) =>

@@ -1140,6 +1140,7 @@ describe("exact outcomes", () => {
     const racing = {
       txt: fake.txt,
       apex: fake.apex,
+      pointing: fake.pointing,
       hostnames: {
         ...fake.hostnames,
         create: async (hostname: string) => {
@@ -1172,6 +1173,7 @@ describe("exact outcomes", () => {
     const racing = {
       txt: fake.txt,
       apex: fake.apex,
+      pointing: fake.pointing,
       hostnames: {
         ...fake.hostnames,
         status: async (id: string) => {

@@ -75,13 +75,16 @@ export type DnsRecord = z.infer<typeof DnsRecord>;
 /**
  * What the last check found, when it found a problem: `txt_missing` (the TXT record does not hold
  * this claim's value), `certificate_pending` (Cloudflare has not activated the hostname yet,
- * usually because the CNAME is not in place) or `cloudflare_unavailable` (Cloudflare did not
- * answer; checked again later).
+ * usually because the CNAME is not in place), `cloudflare_unavailable` (Cloudflare did not
+ * answer; checked again later) or `cname_elsewhere` (the name does not resolve to the CNAME
+ * target: it is not activated, and an active domain is removed after `maxMissedChecks` daily
+ * checks in a row).
  */
 export const CustomDomainProblem = z.enum([
   "txt_missing",
   "certificate_pending",
   "cloudflare_unavailable",
+  "cname_elsewhere",
 ]);
 export type CustomDomainProblem = z.infer<typeof CustomDomainProblem>;
 

@@ -42,6 +42,8 @@ export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, We
   ACCESS_DB: D1Database;
   ARTIFACTS: R2Bucket;
   JOBS: Queue<JobMessage>;
+  /** Required here: notices name `.dev` addresses and the DNS check needs the CNAME target. */
+  CONTENT_DOMAIN: string;
 }
 
 /** Delay before a job that is not finished yet (an account with artifacts left) runs again. */

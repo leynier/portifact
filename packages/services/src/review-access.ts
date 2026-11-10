@@ -5,7 +5,7 @@
 // revocation or signing out of the app ends review within the claims' lifetime.
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { devHost, fail, ok, type Result } from "@portifact/domain";
+import { customHostWithoutClick, devHost, fail, ok, type Result } from "@portifact/domain";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { activeCustomHost } from "./custom-domains.ts";
 import { checkReadAccess, hashSecret, liveAppSession, randomToken } from "./read-access.ts";
@@ -83,15 +83,20 @@ export async function issueReviewHandoff(
     kind?: ReviewKind;
     /** The deployment's content domain, for the artifact's `.dev` host. */
     contentDomain: string;
+    /** Whether this Worker serves custom hosts (`customDomainsServing`). */
+    customDomains: boolean;
   },
 ): Promise<Result<IssuedReviewHandoff>> {
   const access = await checkReadAccess(db, input);
   if (!access.ok) return access;
   // The visitor may read the artifact, so the frame is its active custom host when it has one
-  // (`viewerFrameOrigin`), from the tables and never from input; the code works only there.
+  // (`viewerFrameOrigin`), from the tables and never from input; the code works only there. An
+  // `authenticated` artifact keeps the `.dev` frame: the viewer opens with no click of theirs
+  // (`customHostWithoutClick`).
   const host =
-    (await activeCustomHost(db, input.artifactId)) ??
-    devHost(input.artifactId, input.contentDomain);
+    (customHostWithoutClick(access.value.accessMode)
+      ? await activeCustomHost(db, input.artifactId, input.customDomains)
+      : null) ?? devHost(input.artifactId, input.contentDomain);
   const [current] = await db
     .select({
       versionId: schema.versions.id,

@@ -212,6 +212,7 @@ function reviewSetCookie(response: Response): string | undefined {
 
 async function code(userId = READER, artifactId = ID, kind?: ReviewKind): Promise<string> {
   const issued = await issueReviewHandoff(db(), {
+    customDomains: true,
     artifactId,
     userId,
     authSessionId: appSession(userId),
