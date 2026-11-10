@@ -1651,7 +1651,6 @@ export const de = {
   "tokens.create.label": "Bezeichnung",
   "tokens.create.labelHint": "Wo es verwendet wird, zum Beispiel GitHub-Vorschauen",
   "tokens.create.labelError": "Gib eine Bezeichnung mit 1 bis 80 Zeichen ein.",
-  "tokens.create.role": "Rolle",
   "tokens.create.scopes": "Was es darf",
   "tokens.create.scopesError": "Wähle mindestens eine aus.",
   "tokens.create.expiry": "Läuft ab nach",
@@ -1664,8 +1663,6 @@ export const de = {
   "tokens.create.prefixError":
     "Verwende Buchstaben, Ziffern, Punkte, Unterstriche, Schrägstriche oder Bindestriche, beginnend mit einem Buchstaben oder einer Ziffer.",
   "tokens.create.submit": "Token erstellen",
-  "tokens.role.editorHint": "Veröffentlicht und verwaltet die Artifacts des Workspace",
-  "tokens.role.memberHint": "Liest, was mit dem Workspace geteilt ist",
   "tokens.scope.read": "Lesen",
   "tokens.scope.readHint": "Artifacts und ihre Versionen auflisten",
   "tokens.scope.write": "Veröffentlichen",

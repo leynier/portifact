@@ -1612,7 +1612,6 @@ export const ja = {
   "tokens.create.label": "ラベル",
   "tokens.create.labelHint": "使う場所(例: GitHubプレビュー)",
   "tokens.create.labelError": "1〜80文字のラベルを入力してください。",
-  "tokens.create.role": "ロール",
   "tokens.create.scopes": "できること",
   "tokens.create.scopesError": "少なくとも1つ選んでください。",
   "tokens.create.expiry": "有効期限",
@@ -1624,8 +1623,6 @@ export const ja = {
   "tokens.create.prefixError":
     "英字、数字、ドット、アンダースコア、スラッシュ、ハイフンを使い、英字か数字で始めてください。",
   "tokens.create.submit": "トークンを作成",
-  "tokens.role.editorHint": "workspaceのartifactを公開・管理します",
-  "tokens.role.memberHint": "workspaceと共有されたものを読み取ります",
   "tokens.scope.read": "読み取り",
   "tokens.scope.readHint": "artifactとそのバージョンの一覧",
   "tokens.scope.write": "公開",

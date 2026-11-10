@@ -8,7 +8,7 @@ import {
   SERVICE_TOKEN_SECRET_PREFIX,
   SERVICE_TOKENS,
   type ServiceTokenCreate,
-  ServiceTokenScope,
+  type ServiceTokenScope,
   type ServiceTokenView,
 } from "@portifact/contracts";
 import { type GlobalDb, schema } from "@portifact/db";
@@ -25,6 +25,7 @@ import {
   restrictionOf,
   serviceTokenExpired,
   serviceTokenExpiry,
+  storedTokenScopes,
 } from "@portifact/domain";
 import { and, asc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { hashSecret } from "./read-access.ts";
@@ -51,20 +52,13 @@ export function newServiceTokenSecret(): string {
 
 type TokenRow = typeof t.$inferSelect;
 
-function scopesOf(stored: string): ServiceTokenScope[] {
-  return stored.split(" ").flatMap((scope) => {
-    const parsed = ServiceTokenScope.safeParse(scope);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
-
 function view(row: TokenRow, creator: string | null, now: number): ServiceTokenView {
   const iso = (ms: number) => new Date(ms).toISOString();
   return {
     id: row.id,
     label: row.label,
     role: row.role,
-    scopes: scopesOf(row.scopes),
+    scopes: storedTokenScopes(row.scopes),
     restriction: restrictionOf(row.restriction, row.keyPrefix),
     createdAt: iso(row.createdAt),
     expiresAt: iso(row.expiresAt),
@@ -247,7 +241,12 @@ export async function authenticateServiceToken(
         and(eq(t.id, row.id), or(isNull(t.lastUsedAt), lt(t.lastUsedAt, lastUsedPeriodStart(now)))),
       );
   }
-  return { ok: true, tokenId: row.id, workspaceId: row.workspaceId, scopes: scopesOf(row.scopes) };
+  return {
+    ok: true,
+    tokenId: row.id,
+    workspaceId: row.workspaceId,
+    scopes: storedTokenScopes(row.scopes),
+  };
 }
 
 /**

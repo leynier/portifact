@@ -1651,7 +1651,6 @@ export const fr = {
   "tokens.create.label": "Libellé",
   "tokens.create.labelHint": "Où il sert, par exemple les aperçus GitHub",
   "tokens.create.labelError": "Saisissez un libellé de 1 à 80 caractères.",
-  "tokens.create.role": "Rôle",
   "tokens.create.scopes": "Ce qu'il peut faire",
   "tokens.create.scopesError": "Choisissez-en au moins une.",
   "tokens.create.expiry": "Expire après",
@@ -1664,8 +1663,6 @@ export const fr = {
   "tokens.create.prefixError":
     "Utilisez des lettres, des chiffres, des points, des tirets bas, des barres obliques ou des tirets, en commençant par une lettre ou un chiffre.",
   "tokens.create.submit": "Créer le jeton",
-  "tokens.role.editorHint": "Publie et gère les artifacts du workspace",
-  "tokens.role.memberHint": "Lit ce qui est partagé avec le workspace",
   "tokens.scope.read": "Lire",
   "tokens.scope.readHint": "Lister les artifacts et leurs versions",
   "tokens.scope.write": "Publier",

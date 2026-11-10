@@ -13,10 +13,12 @@ import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   checkAccessChange,
+  checkCommentVisibilityChange,
   entitlements,
   fail,
   ok,
   type Result,
+  seesReaders,
 } from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -121,8 +123,9 @@ export async function getAccess(
 ): Promise<Result<AccessPolicyState>> {
   const loaded = await loadManaged(db, input.userId, input.artifactId);
   if (!loaded.ok) return loaded;
-  const { artifact } = loaded.value;
-  const rows = await readerRows(db, artifact.id);
+  const { artifact, actor } = loaded.value;
+  // A token without `artifacts:share` reads the policy without the readers' addresses.
+  const rows = seesReaders(actor.token) ? await readerRows(db, artifact.id) : [];
   return ok({
     mode: artifact.accessMode,
     readers: rows.map((row) => row.email),
@@ -156,6 +159,8 @@ export async function updateAccess(
     return fail("forbidden", "This artifact is suspended; its access cannot change.");
   }
   const { change } = input;
+  const visibility = checkCommentVisibilityChange(actor.token, change);
+  if (!visibility.ok) return visibility;
   // Widening the audience is checked against the age of the account making the change (the
   // owner's, in a personal space); narrowing it never is.
   if (change.mode && change.mode !== artifact.accessMode) {

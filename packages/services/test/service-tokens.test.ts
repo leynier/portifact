@@ -6,7 +6,7 @@ import type { AnnotationTarget, ServiceTokenCreate } from "@portifact/contracts"
 import { type AccessDb, regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { updateAccess } from "../src/access.ts";
+import { getAccess, updateAccess } from "../src/access.ts";
 import { getAccessLog } from "../src/access-log.ts";
 import { exportAccount, requestAccountDeletion } from "../src/account-data.ts";
 import { actorOn, resolveActor } from "../src/actors.ts";
@@ -368,14 +368,17 @@ describe("the token's actor", () => {
       ownerId: t.id,
       role: "editor",
       region: "default",
-      token: { restriction: { kind: "none" }, createdAt: NOW, label: "CI previews" },
+      token: {
+        restriction: { kind: "none" },
+        scopes: ["artifacts:read", "artifacts:write"],
+        createdAt: NOW,
+        label: "CI previews",
+      },
     });
     expect(await actorOn(db().global, id, other.id)).toBeNull();
     expect(await actorOn(db().global, id, id)).toBeNull();
     expect(await actorOn(db().global, id, t.admin.id)).toBeNull();
     expect(await resolveActor(db().global, id, t.admin.id)).toMatchObject({ code: "not_found" });
-    const member = await token(t, { role: "member" });
-    expect((await actorOn(db().global, member.token.id, t.id))?.role).toBe("member");
   });
 
   it("acts on its workspace without a slug, and a slug naming another answers like a missing one", async () => {
@@ -508,6 +511,66 @@ describe("the token's actor", () => {
     ).toMatchObject(forbidden);
   });
 
+  it("shows the readers' addresses only to a token that may manage them", async () => {
+    const t = await team();
+    const published = value(await publish(t.admin.id, t.id));
+    value(
+      await updateAccess(db(), {
+        userId: t.admin.id,
+        artifactId: published.artifactId,
+        change: {
+          addReaders: ["reader@example.test"],
+          readerCommentVisibility: [{ email: "reader@example.test", commentVisibility: "own" }],
+        },
+        now: NOW,
+      }),
+    );
+    const read = (userId: string) =>
+      getAccess(db(), { userId, artifactId: published.artifactId }).then(value);
+    const readOnly = await token(t, { scopes: ["artifacts:read"] });
+    expect(await read(readOnly.token.id)).toMatchObject({
+      mode: "restricted",
+      readers: [],
+      readerCommentVisibility: [],
+    });
+    const sharing = await token(t, { scopes: ["artifacts:read", "artifacts:share"] });
+    const full = {
+      readers: ["reader@example.test"],
+      readerCommentVisibility: [{ email: "reader@example.test", commentVisibility: "own" }],
+    };
+    expect(await read(sharing.token.id)).toMatchObject(full);
+    expect(await read(t.editor.id)).toMatchObject(full);
+  });
+
+  it("never changes who sees comments, and still manages readers", async () => {
+    const t = await team();
+    const created = await token(t, { scopes: ["artifacts:read", "artifacts:share"] });
+    const published = value(await publish(t.admin.id, t.id));
+    const change = (change: Parameters<typeof updateAccess>[1]["change"]) =>
+      updateAccess(db(), {
+        userId: created.token.id,
+        artifactId: published.artifactId,
+        change,
+        now: NOW,
+      });
+    expect(value(await change({ addReaders: ["reader@example.test"] })).readers).toEqual([
+      "reader@example.test",
+    ]);
+    const forbidden = { ok: false, code: "forbidden" };
+    expect(await change({ commentVisibility: "everyone" })).toMatchObject(forbidden);
+    expect(
+      await change({
+        readerCommentVisibility: [{ email: "reader@example.test", commentVisibility: "all" }],
+      }),
+    ).toMatchObject(forbidden);
+    expect((await row(published.artifactId))?.commentVisibility).toBe("owner");
+    const [reader] = await db()
+      .select()
+      .from(schema.artifactReaders)
+      .where(eq(schema.artifactReaders.artifactId, published.artifactId));
+    expect(reader?.commentVisibility).toBeNull();
+  });
+
   it("makes an artifact public only once the token is 15 minutes old", async () => {
     const t = await team();
     const fresh = await token(t, { scopes: ["artifacts:share", "artifacts:write"] });
@@ -636,6 +699,31 @@ describe("publish keys", () => {
     const again = value(await publish(a.admin.id, a.id, { key: "main" }));
     expect(again.artifactId).not.toBe(inA.artifactId);
     expect(again.versionNumber).toBe(1);
+  });
+
+  it("refuses moving an artifact into a space that already publishes under its key", async () => {
+    const t = await team();
+    const inTeam = value(await publish(t.admin.id, t.id, { key: "main" }));
+    const personal = value(await publish(t.admin.id, t.admin.id, { key: "main" }));
+    const move = () =>
+      transferArtifact(db(), env.ARTIFACTS, {
+        userId: t.admin.id,
+        artifactId: personal.artifactId,
+        workspace: t.slug,
+        now: NOW,
+      });
+    expect(await move()).toMatchObject({ ok: false, code: "invalid_input" });
+    expect((await row(personal.artifactId))?.ownerId).toBe(t.admin.id);
+    expect((await row(inTeam.artifactId))?.ownerId).toBe(t.id);
+    // Once the key is free in the target, the same move goes through and keeps the key.
+    value(
+      await deleteArtifact(db(), env.ARTIFACTS, {
+        userId: t.admin.id,
+        artifactId: inTeam.artifactId,
+        now: NOW,
+      }),
+    );
+    expect(value(await move())).toMatchObject({ ownerId: t.id, externalKey: "main" });
   });
 
   it("works in a personal space too, and refuses bad keys and a key with an artifact ID", async () => {

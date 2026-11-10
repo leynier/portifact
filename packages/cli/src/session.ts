@@ -1,4 +1,5 @@
 import { isServiceTokenSecret } from "@portifact/contracts";
+import { SERVICE_TOKEN_ENV } from "./child-env.ts";
 import type { CredentialStore, Credentials } from "./credentials.ts";
 import { CliError } from "./errors.ts";
 import { messages } from "./messages.ts";
@@ -8,9 +9,10 @@ import type { Server } from "./server.ts";
 
 /**
  * A workspace's service token (decision 0011), for CI: used instead of the stored login, never
- * written to disk or printed, never refreshed.
+ * written to disk or printed, never refreshed, and withheld from the programs the CLI starts
+ * (`childEnvironment`).
  */
-export const SERVICE_TOKEN_ENV = "PORTIFACT_TOKEN";
+export { SERVICE_TOKEN_ENV };
 
 /** The service token the environment holds, or undefined; a malformed one is refused. */
 export function serviceTokenOf(runtime: Pick<Runtime, "env">): string | undefined {

@@ -1624,7 +1624,6 @@ export const ptBR = {
   "tokens.create.label": "Rótulo",
   "tokens.create.labelHint": "Onde é usado, como prévias do GitHub",
   "tokens.create.labelError": "Digite um rótulo de 1 a 80 caracteres.",
-  "tokens.create.role": "Função",
   "tokens.create.scopes": "O que ele pode fazer",
   "tokens.create.scopesError": "Escolha pelo menos uma.",
   "tokens.create.expiry": "Expira após",
@@ -1637,8 +1636,6 @@ export const ptBR = {
   "tokens.create.prefixError":
     "Use letras, dígitos, pontos, sublinhados, barras ou hifens, começando com uma letra ou um dígito.",
   "tokens.create.submit": "Criar token",
-  "tokens.role.editorHint": "Publica e gerencia os artifacts do workspace",
-  "tokens.role.memberHint": "Lê o que é compartilhado com o workspace",
   "tokens.scope.read": "Ler",
   "tokens.scope.readHint": "Listar artifacts e suas versões",
   "tokens.scope.write": "Publicar",

@@ -5,6 +5,7 @@ import type {
   Region,
   RoleAction,
   ServiceTokenRestriction,
+  ServiceTokenScope,
   WorkspaceRole,
 } from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
@@ -12,6 +13,8 @@ import { fail, ok, type Result } from "./result.ts";
 /** What a service token acting on its workspace may reach (decision 0011). */
 export interface TokenReach {
   restriction: ServiceTokenRestriction;
+  /** The scopes its admin chose, for the few rules a scope narrows inside one action. */
+  scopes: readonly ServiceTokenScope[];
   /** When the token was created: its age stands for an account's age in the rules that use one. */
   createdAt: number;
   label: string;

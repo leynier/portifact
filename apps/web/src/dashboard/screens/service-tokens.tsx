@@ -10,7 +10,6 @@ import {
   SERVICE_TOKEN_SCOPES,
   SERVICE_TOKENS,
   type ServiceTokenCreated,
-  type ServiceTokenRole,
   type ServiceTokenScope,
   type ServiceTokenView,
 } from "@portifact/contracts";
@@ -185,7 +184,6 @@ function CreateToken({
   const { api } = useDashboard();
   const scopesError = useId();
   const [label, setLabel] = useState("");
-  const [role, setRole] = useState<ServiceTokenRole>("editor");
   const [scopes, setScopes] = useState<ServiceTokenScope[]>(["artifacts:read", "artifacts:write"]);
   const [days, setDays] = useState<(typeof EXPIRY_DAYS)[number]>("90");
   const [restriction, setRestriction] = useState<Restriction>("none");
@@ -197,7 +195,7 @@ function CreateToken({
     mutationFn: () =>
       api.createServiceToken(space.slug, {
         label: label.trim(),
-        role,
+        role: "editor",
         scopes,
         expiresInDays: Number(days),
         restriction:
@@ -249,18 +247,6 @@ function CreateToken({
           disabled={disabled}
           error={problems.label ? t("tokens.create.labelError") : undefined}
           onChange={(event) => setLabel(event.currentTarget.value)}
-        />
-        <RadioGroup<ServiceTokenRole>
-          legend={t("tokens.create.role")}
-          name="token-role"
-          value={role}
-          disabled={disabled}
-          onChange={setRole}
-          options={(["editor", "member"] as const).map((value) => ({
-            value,
-            label: t(`role.${value}`),
-            description: t(`tokens.role.${value}Hint`),
-          }))}
         />
         <fieldset
           className="flex flex-col gap-3"

@@ -2,14 +2,17 @@ import { SERVICE_TOKENS } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import type { TokenReach } from "./actor.ts";
 import {
+  checkCommentVisibilityChange,
   checkPublishKeyReach,
   lastUsedDue,
   lastUsedPeriodStart,
   restrictionAllows,
   restrictionColumns,
   restrictionOf,
+  seesReaders,
   serviceTokenExpired,
   serviceTokenExpiry,
+  storedTokenScopes,
 } from "./service-tokens.ts";
 
 const HOUR = 3_600_000;
@@ -17,8 +20,12 @@ const DAY = 24 * HOUR;
 const NOW = Date.UTC(2026, 10, 10, 12, 30);
 const TOKEN = `st_${"0".repeat(32)}`;
 
-const reach = (restriction: TokenReach["restriction"]): TokenReach => ({
+const reach = (
+  restriction: TokenReach["restriction"],
+  scopes: TokenReach["scopes"] = ["artifacts:read", "artifacts:write"],
+): TokenReach => ({
   restriction,
+  scopes,
   createdAt: 0,
   label: "CI",
 });
@@ -114,5 +121,50 @@ describe("publishing with a key", () => {
       code: "forbidden",
       message: 'This service token publishes only keys starting with "pr-".',
     });
+  });
+});
+
+describe("stored scopes", () => {
+  it("reads the space-separated scopes and drops what is not a token scope", () => {
+    expect(storedTokenScopes("artifacts:read artifacts:write")).toEqual([
+      "artifacts:read",
+      "artifacts:write",
+    ]);
+    expect(storedTokenScopes("artifacts:share credentials:manage annotations:write")).toEqual([
+      "artifacts:share",
+    ]);
+    expect(storedTokenScopes("")).toEqual([]);
+  });
+});
+
+describe("readers and comment visibility", () => {
+  const none = { kind: "none" } as const;
+
+  it("shows readers to people and to tokens that may manage them", () => {
+    expect(seesReaders(undefined)).toBe(true);
+    expect(seesReaders(reach(none, ["artifacts:read", "artifacts:share"]))).toBe(true);
+    expect(
+      seesReaders(reach(none, ["artifacts:read", "artifacts:write", "artifacts:delete"])),
+    ).toBe(false);
+  });
+
+  it("lets people change who sees comments and never a token", () => {
+    const everyone = { commentVisibility: "everyone" };
+    const exception = { readerCommentVisibility: [] };
+    expect(checkCommentVisibilityChange(undefined, everyone)).toEqual({
+      ok: true,
+      value: undefined,
+    });
+    expect(checkCommentVisibilityChange(undefined, exception).ok).toBe(true);
+    const token = reach(none, ["artifacts:share"]);
+    expect(checkCommentVisibilityChange(token, {})).toEqual({ ok: true, value: undefined });
+    expect(checkCommentVisibilityChange(token, { commentVisibility: undefined }).ok).toBe(true);
+    const refused = {
+      ok: false,
+      code: "forbidden",
+      message: "A service token cannot change who sees comments.",
+    };
+    expect(checkCommentVisibilityChange(token, everyone)).toEqual(refused);
+    expect(checkCommentVisibilityChange(token, exception)).toEqual(refused);
   });
 });

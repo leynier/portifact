@@ -1639,7 +1639,6 @@ export const es = {
   "tokens.create.label": "Etiqueta",
   "tokens.create.labelHint": "Dónde se usa, por ejemplo vistas previas de GitHub",
   "tokens.create.labelError": "Escribe una etiqueta de 1 a 80 caracteres.",
-  "tokens.create.role": "Rol",
   "tokens.create.scopes": "Qué puede hacer",
   "tokens.create.scopesError": "Elige al menos uno.",
   "tokens.create.expiry": "Caduca tras",
@@ -1652,8 +1651,6 @@ export const es = {
   "tokens.create.prefixError":
     "Usa letras, dígitos, puntos, guiones bajos, barras o guiones, empezando por una letra o un dígito.",
   "tokens.create.submit": "Crear token",
-  "tokens.role.editorHint": "Publica y gestiona los artifacts del workspace",
-  "tokens.role.memberHint": "Lee lo que se comparte con el workspace",
   "tokens.scope.read": "Leer",
   "tokens.scope.readHint": "Listar artifacts y sus versiones",
   "tokens.scope.write": "Publicar",

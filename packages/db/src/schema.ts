@@ -1480,7 +1480,7 @@ export const serviceTokens = sqliteTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     label: text("label").notNull(),
-    role: text("role", { enum: ["editor", "member"] }).notNull(),
+    role: text("role", { enum: ["editor"] }).notNull(),
     /** Space-separated scopes from `SERVICE_TOKEN_SCOPES`. */
     scopes: text("scopes").notNull(),
     restriction: text("restriction", { enum: ["none", "own", "key"] })
@@ -1497,7 +1497,7 @@ export const serviceTokens = sqliteTable(
   (t) => [
     uniqueIndex("service_tokens_hash_idx").on(t.tokenHash),
     index("service_tokens_workspace_idx").on(t.workspaceId),
-    check("service_tokens_role", sql`${t.role} in ('editor', 'member')`),
+    check("service_tokens_role", sql`${t.role} = 'editor'`),
     check(
       "service_tokens_restriction",
       sql`(${t.restriction} = 'key') = (${t.keyPrefix} is not null)`,

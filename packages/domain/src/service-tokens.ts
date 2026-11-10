@@ -1,6 +1,10 @@
 // Rules of service tokens and publish keys (premium plan T4 and T5, decision 0011). Pure: the
 // services read and write the rows, these functions decide.
-import { SERVICE_TOKENS, type ServiceTokenRestriction } from "@portifact/contracts";
+import {
+  SERVICE_TOKENS,
+  type ServiceTokenRestriction,
+  ServiceTokenScope,
+} from "@portifact/contracts";
 import type { TokenReach } from "./actor.ts";
 import { fail, ok, type Result } from "./result.ts";
 
@@ -91,4 +95,37 @@ export function restrictionOf(
 ): ServiceTokenRestriction {
   if (kind === "key") return { kind, prefix: keyPrefix ?? "\u0000" };
   return { kind };
+}
+
+/** The scopes a stored row holds (space-separated); an unknown one is dropped. */
+export function storedTokenScopes(stored: string): ServiceTokenScope[] {
+  return stored.split(" ").flatMap((scope) => {
+    const parsed = ServiceTokenScope.safeParse(scope);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+/**
+ * Whether the caller may see who an artifact's readers are. Reading the policy needs only
+ * `artifacts:read`, which for a person shows what the dashboard already shows them; a token sees
+ * the readers' addresses only with `artifacts:share`, the scope that manages them, so a leaked
+ * read-only token lists nobody.
+ */
+export function seesReaders(reach: TokenReach | undefined): boolean {
+  return !reach || reach.scopes.includes("artifacts:share");
+}
+
+/**
+ * Whether the caller may change who sees comments. A token never does: that decides what readers
+ * see of each other's comments, which is moderation, and tokens never moderate.
+ */
+export function checkCommentVisibilityChange(
+  reach: TokenReach | undefined,
+  change: { commentVisibility?: unknown; readerCommentVisibility?: unknown },
+): Result<void> {
+  if (!reach) return ok(undefined);
+  if (change.commentVisibility === undefined && change.readerCommentVisibility === undefined) {
+    return ok(undefined);
+  }
+  return fail("forbidden", "A service token cannot change who sees comments.");
 }

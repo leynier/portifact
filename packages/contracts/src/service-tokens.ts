@@ -34,8 +34,12 @@ export const SERVICE_TOKENS = {
   labelMaxLength: 80,
 } as const;
 
-/** Roles a token may hold: never `admin`. */
-export const SERVICE_TOKEN_ROLES = ["editor", "member"] as const;
+/**
+ * Roles a token may hold: only `editor`. Never `admin`, and not `member`: what a member may do
+ * (read what is shared with them, comment) needs a person, so such a token could do nothing. A
+ * read-only token is an editor token with only `artifacts:read`.
+ */
+export const SERVICE_TOKEN_ROLES = ["editor"] as const;
 export const ServiceTokenRole = z.enum(SERVICE_TOKEN_ROLES);
 export type ServiceTokenRole = z.infer<typeof ServiceTokenRole>;
 

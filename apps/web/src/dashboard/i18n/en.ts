@@ -1590,7 +1590,6 @@ export const en = {
   "tokens.create.label": "Label",
   "tokens.create.labelHint": "Where it is used, such as GitHub previews",
   "tokens.create.labelError": "Enter a label of 1 to 80 characters.",
-  "tokens.create.role": "Role",
   "tokens.create.scopes": "What it may do",
   "tokens.create.scopesError": "Choose at least one.",
   "tokens.create.expiry": "Expires after",
@@ -1603,8 +1602,6 @@ export const en = {
   "tokens.create.prefixError":
     "Use letters, digits, dots, underscores, slashes or hyphens, starting with a letter or digit.",
   "tokens.create.submit": "Create token",
-  "tokens.role.editorHint": "Publishes and manages the workspace's artifacts",
-  "tokens.role.memberHint": "Reads what is shared with the workspace",
   "tokens.scope.read": "Read",
   "tokens.scope.readHint": "List artifacts and their versions",
   "tokens.scope.write": "Publish",

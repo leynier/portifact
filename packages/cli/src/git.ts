@@ -2,9 +2,11 @@
 // git would version, the tree of a commit, and the origin to attach to the version. git runs as a
 // child process with arguments, never through a shell, with the filesystem monitor off and no
 // prompts. Without the git binary, or outside a repository, callers treat the folder as plain.
+
 import { spawn } from "node:child_process";
 import type { SourceOrigin } from "@portifact/contracts";
 import { stripRemoteCredentials } from "@portifact/domain";
+import { childEnvironment } from "./child-env.ts";
 
 export interface GitResult {
   code: number;
@@ -35,7 +37,7 @@ export function gitRunner(binary = "git"): Git {
         cwd,
         stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "ignore"],
         env: {
-          ...process.env,
+          ...childEnvironment(process.env),
           ...options.env,
           GIT_TERMINAL_PROMPT: "0",
           GIT_OPTIONAL_LOCKS: "0",

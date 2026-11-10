@@ -1634,7 +1634,6 @@ export const ru = {
   "tokens.create.label": "Название",
   "tokens.create.labelHint": "Где он используется, например предпросмотры GitHub",
   "tokens.create.labelError": "Введите название длиной от 1 до 80 символов.",
-  "tokens.create.role": "Роль",
   "tokens.create.scopes": "Что ему разрешено",
   "tokens.create.scopesError": "Выберите хотя бы одно.",
   "tokens.create.expiry": "Истекает через",
@@ -1647,8 +1646,6 @@ export const ru = {
   "tokens.create.prefixError":
     "Используйте буквы, цифры, точки, подчёркивания, косые черты или дефисы, начиная с буквы или цифры.",
   "tokens.create.submit": "Создать токен",
-  "tokens.role.editorHint": "Публикует artifacts workspace и управляет ими",
-  "tokens.role.memberHint": "Читает то, чем поделились с workspace",
   "tokens.scope.read": "Чтение",
   "tokens.scope.readHint": "Список artifacts и их версий",
   "tokens.scope.write": "Публикация",

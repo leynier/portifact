@@ -101,7 +101,7 @@ describe("service tokens", () => {
   const token = (role: WorkspaceRole): Actor => ({
     ...actor(role),
     userId: "st_0123456789abcdef0123456789abcdef",
-    token: { restriction: { kind: "none" }, createdAt: 0, label: "CI" },
+    token: { restriction: { kind: "none" }, scopes: ["artifacts:read"], createdAt: 0, label: "CI" },
   });
 
   it("allows exactly the listed actions", () => {
@@ -109,7 +109,7 @@ describe("service tokens", () => {
   });
 
   const cases = ROLE_ACTIONS.flatMap((action) =>
-    (["editor", "member"] as const).map((role) => ({
+    (["editor", "member", "admin"] as const).map((role) => ({
       action,
       role,
       allowed: MATRIX[action][role] && TOKEN_ALLOWED.includes(action),

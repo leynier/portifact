@@ -52,7 +52,7 @@ describe("creating a token", () => {
   });
 
   it("never offers admin, annotation scopes or credentials:manage", () => {
-    expect(ServiceTokenRole.options).toEqual(["editor", "member"]);
+    expect(ServiceTokenRole.options).toEqual(["editor"]);
     expect(SERVICE_TOKEN_SCOPES).toEqual([
       "artifacts:read",
       "artifacts:write",

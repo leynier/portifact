@@ -26,6 +26,7 @@ import {
   type Result,
   restrictionAllows,
   restrictionOf,
+  storedTokenScopes,
 } from "@portifact/domain";
 import { and, eq, inArray } from "drizzle-orm";
 
@@ -90,6 +91,7 @@ async function tokenActorOn(
       role: t.role,
       restriction: t.restriction,
       keyPrefix: t.keyPrefix,
+      scopes: t.scopes,
       createdAt: t.createdAt,
       label: t.label,
       region: schema.workspaces.region,
@@ -107,7 +109,12 @@ async function tokenActorOn(
     ownerId,
     role: row.role,
     region: row.region,
-    token: { restriction, createdAt: row.createdAt, label: row.label },
+    token: {
+      restriction,
+      scopes: storedTokenScopes(row.scopes),
+      createdAt: row.createdAt,
+      label: row.label,
+    },
   };
 }
 
