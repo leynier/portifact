@@ -317,7 +317,23 @@ function readEntry(path: string): ReadEntry | undefined {
   const state = url.searchParams.getAll("state");
   const host = url.searchParams.getAll("host");
   if (!match || state.length !== 1 || host.length !== 1) return undefined;
+  if (!STATE_SHAPE.test(state[0] as string) || !hostShaped(host[0] as string)) return undefined;
   return { id: match[1] as string, state: state[0] as string, host: host[0] as string };
+}
+
+/** The sign-in transaction's state: 32 random bytes in base64url (`OpaqueToken` in contracts). */
+const STATE_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * Whether the text is shaped like a lowercase host name of two or more labels. The page shows it
+ * next to the visitor's email before the server has checked it against the artifact's own
+ * address, so anything else in its place would be a message from whoever built the link.
+ */
+function hostShaped(host: string): boolean {
+  if (host.length === 0 || host.length > 253) return false;
+  const labels = host.split(".");
+  return labels.length >= 2 && labels.every((label) => HOST_LABEL.test(label));
 }
 
 /**

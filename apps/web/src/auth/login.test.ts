@@ -863,6 +863,38 @@ describe("confirming an artifact on its owner's own address", () => {
     }
   });
 
+  it("never shows a host or state from the link that is not shaped like one", async () => {
+    // The page shows the host next to the visitor's email before the server has checked
+    // anything, so text in its place would be a message from whoever built the link.
+    const hosts = [
+      "nowhere. URGENT: your account is locked, call +1 555 0100",
+      "docs.example.com/evil",
+      "docs.example.com evil.example.com",
+      "DOCS.EXAMPLE.COM",
+      "localhost",
+      "-docs.example.com",
+      "docs..example.com",
+      `${"a".repeat(64)}.example.com`,
+      `${"a.".repeat(127)}com`,
+      "docs.example.com.",
+      "<b>docs.example.com</b>",
+      "",
+    ];
+    const entries = [
+      ...hosts.map((host) => `/read/k7d2qm4xab?${new URLSearchParams({ state: STATE, host })}`),
+      `/read/k7d2qm4xab?${new URLSearchParams({ state: "short", host: "docs.example.com" })}`,
+      `/read/k7d2qm4xab?${new URLSearchParams({ state: `${STATE}!`, host: "docs.example.com" })}`,
+    ];
+    for (const next of entries) {
+      loadPage("login");
+      api.on("GET", "/get-session", session("ada@example.test"));
+      await open(`?${new URLSearchParams({ confirm: "read", next })}`);
+      expect(element("error-summary").textContent, next).toContain(messages.readConfirm.missing);
+      expect(document.getElementById("read-confirm"), next).toBeNull();
+      expect(document.body.textContent, next).not.toContain("URGENT");
+    }
+  });
+
   it("refuses an incomplete entry, and signs a visitor in before confirming", async () => {
     for (const next of ["/read/k7d2qm4xab?state=x", "/device", `${ENTRY}&host=other.example.com`]) {
       loadPage("login");
