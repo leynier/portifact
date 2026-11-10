@@ -44,6 +44,11 @@ export {
 } from "./components/fields.tsx";
 export { canPickFolders, FilePicker, type FilePickerProps } from "./components/file-picker.tsx";
 export {
+  HighlightedText,
+  type HighlightedTextProps,
+  highlightParts,
+} from "./components/highlighted-text.tsx";
+export {
   IconButton,
   type IconButtonProps,
   IconLink,

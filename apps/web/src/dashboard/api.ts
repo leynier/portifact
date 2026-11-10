@@ -53,6 +53,7 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  SearchResults,
   type ServiceTokenCreate,
   ServiceTokenCreated,
   ServiceTokenList,
@@ -138,6 +139,8 @@ export interface DashboardApi {
     workspace?: string,
   ): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
+  /** Searches inside the text of a space's artifacts (premium plan T8). */
+  searchContent(query: string, cursor?: string, workspace?: string): Promise<SearchResults>;
   lifecycle(artifactId: string, action: LifecycleAction): Promise<LifecycleResult>;
   getAccess(artifactId: string): Promise<AccessPolicyView>;
   updateAccess(artifactId: string, change: AccessUpdate): Promise<AccessPolicyView>;
@@ -453,6 +456,12 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     getArtifact(artifactId) {
       return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}`, ArtifactSummary);
+    },
+    searchContent(query, cursor, workspace) {
+      const params = new URLSearchParams({ q: query });
+      if (workspace) params.set("workspace", workspace);
+      if (cursor) params.set("cursor", cursor);
+      return call(`/api/v1/search?${params}`, SearchResults);
     },
     lifecycle(artifactId, action) {
       const base = `/api/v1/artifacts/${encodeURIComponent(artifactId)}`;

@@ -108,6 +108,23 @@ export const es = {
   "list.filter.close": "Cerrar los filtros",
   "list.filter.done": "Listo",
   "list.filter.clear": "Borrar filtros",
+  "list.content.toggle": "Buscar dentro del contenido",
+  "list.content.toggleHint":
+    "Encuentra palabras en el texto de los artifacts activos, no solo en sus nombres.",
+  "list.content.search": "Buscar dentro del contenido",
+  "list.content.placeholder": "Palabras del texto",
+  "list.content.caption": "Artifacts cuyo texto coincide con la búsqueda",
+  "list.content.column.match": "Coincidencia",
+  "list.content.file": "En {path}",
+  "list.content.partial":
+    "Indexado en parte: parte de su texto era demasiado grande para buscarlo.",
+  "list.content.count":
+    "{count, plural, one {Mostrando # artifact cuyo texto coincide} other {Mostrando # artifacts cuyo texto coincide}}",
+  "list.content.searching": "Buscando dentro de tus artifacts",
+  "list.content.noMatch.title": "Ningún texto coincide",
+  "list.content.noMatch.body":
+    "Cada palabra debe aparecer en el texto. Los artifacts archivados no se buscan.",
+  "list.content.error": "La búsqueda falló",
   "list.open": "Abrir",
   "list.openLabel": "Abrir la versión publicada de {name}",
   "list.review": "Revisar",

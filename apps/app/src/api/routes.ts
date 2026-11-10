@@ -66,6 +66,7 @@ import {
   workspaceParam,
 } from "./http.ts";
 import type { Presigner } from "./presign.ts";
+import { searchRoutes } from "./search.ts";
 import { shareLinkRoutes } from "./share-links.ts";
 import { statsRoutes } from "./stats.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
@@ -398,6 +399,7 @@ export function apiRoutes(deps: ApiDeps) {
   workspaceReadRoutes(api, guarded);
   shareLinkRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  searchRoutes(api, guarded, deps.now);
   webhookRoutes(api, guarded, accountGuarded, deps.now);
   domainRoutes(api, guarded, deps.domains, deps.now);
 

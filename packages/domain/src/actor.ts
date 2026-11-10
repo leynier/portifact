@@ -49,6 +49,8 @@ const EDITOR: readonly RoleAction[] = [
   "access_log",
   "usage",
   "domains",
+  // Content search reads every artifact of the owner, so only roles that read them all (decision 0012).
+  "search",
 ];
 const ADMIN: readonly RoleAction[] = [
   ...EDITOR,
@@ -83,6 +85,8 @@ export const TOKEN_ACTIONS: ReadonlySet<RoleAction> = new Set<RoleAction>([
   "versions",
   "rollback",
   "usage",
+  // A token already downloads every version it reaches; its search is limited to the same reach.
+  "search",
 ]);
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {

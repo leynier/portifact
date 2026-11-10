@@ -89,8 +89,13 @@ export function changeAccess(input: {
   return control("/access", input);
 }
 
+/** Runs the waiting content search jobs now, as the jobs Worker would (decision 0012). */
+export function runSearchIndexing(): Promise<{ ran: number; outcomes: string[] }> {
+  return control("/search-index", {});
+}
+
 /** Gives an owner a plan, as the operator's grant writes the row. */
-export async function grantPlan(ownerId: string, plan: "free" | "pro"): Promise<void> {
+export async function grantPlan(ownerId: string, plan: "free" | "pro" | "team"): Promise<void> {
   await sql(
     "insert into owner_plans (owner_id, plan, seats, granted_by, updated_at) values (?, ?, 1, 'e2e', ?) on conflict (owner_id) do update set plan = excluded.plan",
     [ownerId, plan, Date.now()],

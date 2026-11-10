@@ -111,6 +111,22 @@ export const ru = {
   "list.filter.close": "Закрыть фильтры",
   "list.filter.done": "Готово",
   "list.filter.clear": "Сбросить фильтры",
+  "list.content.toggle": "Искать в содержимом",
+  "list.content.toggleHint":
+    "Находит слова в тексте активных artifact, а не только в их названиях.",
+  "list.content.search": "Искать в содержимом",
+  "list.content.placeholder": "Слова из текста",
+  "list.content.caption": "Artifact, текст которых соответствует поиску",
+  "list.content.column.match": "Совпадение",
+  "list.content.file": "В {path}",
+  "list.content.partial": "Проиндексирован частично: часть текста слишком велика для поиска.",
+  "list.content.count":
+    "{count, plural, one {Найден # artifact с подходящим текстом} few {Найдено # artifact с подходящим текстом} many {Найдено # artifact с подходящим текстом} other {Найдено # artifact с подходящим текстом}}",
+  "list.content.searching": "Поиск в ваших artifact",
+  "list.content.noMatch.title": "Совпадений в тексте нет",
+  "list.content.noMatch.body":
+    "В тексте должно встречаться каждое слово. Архивные artifact не ищутся.",
+  "list.content.error": "Поиск не удался",
   "list.open": "Открыть",
   "list.openLabel": "Открыть опубликованную версию «{name}»",
   "list.review": "Проверить",

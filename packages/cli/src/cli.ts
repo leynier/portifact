@@ -6,6 +6,7 @@ import {
   LIST_SEARCH_MAX,
   ListedArtifactState,
   PublishKey,
+  SEARCH_LIMITS,
 } from "@portifact/contracts";
 import { Command, CommanderError, InvalidArgumentError, Option } from "commander";
 import packageJson from "../package.json" with { type: "json" };
@@ -31,6 +32,7 @@ import { messages } from "./messages.ts";
 import { publish } from "./publish.ts";
 import { pull } from "./pull.ts";
 import { defaultRuntime, type Io, type Runtime } from "./runtime.ts";
+import { search } from "./search.ts";
 import { createShare, listShares, revokeShare } from "./share.ts";
 import { stats } from "./stats.ts";
 import { THIRD_PARTY_NOTICES } from "./third-party-notices.ts";
@@ -146,8 +148,8 @@ the session does not allow it, run \`portifact login\` again.
 
 const WORKSPACES_HELP = `
 Artifacts live in your personal space or in a workspace you belong to. Workspaces are created by
-Portifact's operator; their admins invite members from the dashboard. publish, list and usage act
-on your personal space unless --workspace names a workspace (or personal) or \`portifact
+Portifact's operator; their admins invite members from the dashboard. publish, list, search and
+usage act on your personal space unless --workspace names a workspace (or personal) or \`portifact
 workspaces use <slug>\` made one this device's default. Updating an artifact with --artifact
 always keeps it where it is. Admins and editors of a workspace see and manage everything published
 there; members only read and comment on what is shared with them.
@@ -683,6 +685,37 @@ export async function run(
             days: options.days,
             from: options.from,
             to: options.to,
+            json: options.json === true,
+          }),
+      ),
+    );
+
+  program
+    .command("search")
+    .description(
+      "Find artifacts whose text contains every word of a query (admins and editors, Team plan and above)",
+    )
+    .argument("<query>", "words to find; quotes and operators are plain characters", parseQuery)
+    .option("--workspace <slug>", "search this workspace, or personal")
+    .option(
+      "--limit <n>",
+      `results per page, 1 to ${SEARCH_LIMITS.pageMax} (default: ${SEARCH_LIMITS.pageDefault})`,
+      parseSearchLimit,
+    )
+    .option("--cursor <cursor>", "continue from where the previous page ended")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { workspace?: string; limit?: number; cursor?: string; json?: boolean },
+          query: string,
+        ) =>
+          search(io, runtime, query, {
+            workspace: options.workspace,
+            limit: options.limit,
+            cursor: options.cursor,
             json: options.json === true,
           }),
       ),
@@ -1258,6 +1291,22 @@ function parseSearch(value: string): string {
     throw new InvalidArgumentError(messages.errors.invalidSearch(LIST_SEARCH_MAX));
   }
   return search;
+}
+
+function parseQuery(value: string): string {
+  const query = value.trim();
+  if (query.length === 0 || query.length > SEARCH_LIMITS.queryChars) {
+    throw new InvalidArgumentError(messages.errors.invalidSearch(SEARCH_LIMITS.queryChars));
+  }
+  return query;
+}
+
+function parseSearchLimit(value: string): number {
+  const limit = Number(value);
+  if (!Number.isInteger(limit) || limit < 1 || limit > SEARCH_LIMITS.pageMax) {
+    throw new InvalidArgumentError(messages.errors.invalidLimit(SEARCH_LIMITS.pageMax));
+  }
+  return limit;
 }
 
 function parseLimit(value: string): number {

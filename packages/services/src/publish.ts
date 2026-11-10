@@ -30,6 +30,7 @@ import { newArtifactDefaults } from "./account-settings.ts";
 import { actorOn, authorizeOn, authorizeUploadOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
+import { searchIndexJob } from "./content-search.ts";
 import { claimNewArtifactId } from "./directory.ts";
 import {
   type DocumentRendering,
@@ -909,6 +910,14 @@ export async function commitPublish(
       switched,
     ),
     abortMultipartJob(db, session.id, switched, input.now),
+    // The new version's text, for content search (decision 0012), read from R2 by a job.
+    ...searchIndexJob(db, {
+      entitlements: owner,
+      artifactId: session.artifactId,
+      versionId: session.versionId,
+      condition: switched,
+      now: input.now,
+    }),
     db
       .update(schema.uploadSessions)
       .set({ state: "committed" })

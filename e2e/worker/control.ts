@@ -396,6 +396,18 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       : Response.json({ error: "no email" }, { status: 404 });
   }
 
+  // The jobs Worker's content search indexing (decision 0012), run now: each waiting job.
+  if (path === "/search-index") {
+    const { results } = await env.DB.prepare(
+      "select id from outbox where topic = 'search_index'",
+    ).all<{ id: number }>();
+    const outcomes = [];
+    for (const { id } of results) {
+      outcomes.push(await runJob(db, env.ARTIFACTS, { id, topic: "search_index" }, now));
+    }
+    return Response.json({ ran: outcomes.length, outcomes });
+  }
+
   // The jobs Worker's comment notices, run now: the scan, then each job with the real notifier,
   // whose emails land where `/mail` reads them instead of Email Service.
   if (path === "/comment-notices") {

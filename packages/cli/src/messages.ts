@@ -91,6 +91,10 @@ export const messages = {
   listMore: (cursor: string, filterFlags = "") =>
     `More artifacts: run \`portifact list --cursor ${cursor}${filterFlags}\`.`,
   listNoMatch: "No artifacts match these filters.",
+  searchNoMatch: "No artifact's text matches every word.",
+  searchPartial: "(partly indexed)",
+  searchMore: (cursor: string, flags = "") =>
+    `More results: run the same search with \`--cursor ${cursor}${flags}\`.`,
   renewed: (id: string, expiresAt: string | null) =>
     expiresAt === null
       ? `${id} is pinned, so it has no expiry to renew.`
