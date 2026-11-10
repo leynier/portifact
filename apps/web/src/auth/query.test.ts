@@ -50,6 +50,9 @@ describe("next after sign-in", () => {
     expect(safeNext("?next=%2F", ORIGIN)).toBe("/");
     expect(safeNext("?next=%2Fartifacts%2Fk7d2qm4xab", ORIGIN)).toBe("/artifacts/k7d2qm4xab");
     expect(safeNext("?next=%2Faccount", ORIGIN)).toBe("/account");
+    expect(safeNext("?next=%2Finvitations", ORIGIN)).toBe("/invitations");
+    expect(safeNext("?next=%2Fmembers%3Fworkspace%3Dacme", ORIGIN)).toBe("/members?workspace=acme");
+    expect(safeNext("?next=%2F%3Fworkspace%3Dacme", ORIGIN)).toBe("/?workspace=acme");
   });
 
   it("refuses other sites, other paths and tricks that leave the origin", () => {

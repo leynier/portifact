@@ -1,6 +1,9 @@
 // English messages of the dashboard, in ICU MessageFormat for Lingui. Every user-facing string
 // of the dashboard lives here. Titles and buttons have no trailing period; no em dashes.
+import { planTextEn } from "../../plans/i18n/en.ts";
+
 export const en = {
+  ...planTextEn,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Skip to content",
@@ -1163,6 +1166,9 @@ export const en = {
   "domains.problem.cloudflare_unavailable": "The certificate service did not answer",
   "domains.problem.cloudflare_unavailable.hint":
     "Nothing is wrong on your side. It is tried again shortly.",
+  "domains.problem.cname_elsewhere": "The domain does not point at Portifact",
+  "domains.problem.cname_elsewhere.hint":
+    "Its DNS no longer leads to the CNAME target below. Point it back; an active domain is removed after 3 daily checks in a row like this.",
   "domains.missedChecks":
     "{count, plural, one {The TXT record was missing at the last daily check. After 3 misses in a row the domain is removed.} other {The TXT record was missing at the last # daily checks. After 3 misses in a row the domain is removed.}}",
   "domains.records": "Records to create",
@@ -1357,6 +1363,467 @@ export const en = {
   "viewer.brandNewTab": "(opens in a new tab)",
   "viewer.hosting.poweredBy": "Powered by Portifact",
   "viewer.hosting.origin": "Published at",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "Space",
+  "space.personal": "Personal",
+  "space.personalDetail": "Your own space",
+  "space.invitations": "{count, plural, one {# pending invitation} other {# pending invitations}}",
+  "space.missing.title": "Workspace not found",
+  "space.missing.body":
+    "This workspace does not exist, or you are not one of its members. Ask one of its admins to invite you.",
+  "space.missing.personal": "Go to your personal space",
+  "space.notAllowed.title": "Not available with your role",
+  "space.notAllowed.back": "Back to artifacts",
+  "space.notAllowed.list":
+    "As a member of {workspace}, you read and comment on the artifacts shared with you, from their links. Seeing and managing every artifact of the workspace needs the editor or admin role: ask one of its admins.",
+  "space.notAllowed.publish":
+    "Publishing to {workspace} needs the editor or admin role. Ask one of its admins.",
+  "space.notAllowed.usage": "The usage of {workspace} is shown to its editors and admins.",
+  "space.notAllowed.branding": "Only the admins of {workspace} set its brand.",
+  "role.admin": "Admin",
+  "role.editor": "Editor",
+  "role.member": "Member",
+  "role.admin.hint":
+    "manages members, the brand and every artifact, and can move artifacts out of the workspace",
+  "role.editor.hint": "publishes and manages the workspace's artifacts",
+  "role.member.hint": "reads and comments on what is shared with them",
+  "shell.membersLink": "Members",
+  "list.descriptionWorkspace":
+    "Everything published in {workspace}, with its state, access and activity.",
+  "publish.descriptionWorkspace":
+    "Publish to {workspace}: an HTML file, a folder, a ZIP or a document. Nothing is uploaded until you review it.",
+  "publish.review.accessNewWorkspace":
+    "The admins and editors of {workspace}. After publishing, you can share it from the artifact page.",
+  "usage.descriptionWorkspace":
+    "The quotas of {workspace}, shared by everyone who publishes there, and this month's traffic.",
+  "branding.descriptionWorkspace":
+    "The brand the viewer's bar shows on the artifacts of {workspace}.",
+  "detail.section.space": "Space",
+  "transfer.title": "Move to another space",
+  "transfer.description":
+    "This artifact lives in {space}. Move it to your personal space or to a workspace where you are an editor or admin.",
+  "transfer.destination": "Destination",
+  "transfer.move": "Move artifact",
+  "transfer.blocked": "This artifact cannot move now",
+  "transfer.notAdmin": "Only an admin of {workspace} can move its artifacts out of it.",
+  "transfer.domain":
+    "This artifact has a custom domain or a pending one. Remove it under Sharing, then move the artifact.",
+  "transfer.none":
+    "There is no other space you can move it to. You can move artifacts to your personal space and to workspaces where you are an editor or admin.",
+  "transfer.confirm.title": "Move {name} to {space}?",
+  "transfer.confirm.stays":
+    "Stays the same: its ID, its link, its versions, the people you added and the comments.",
+  "transfer.confirm.changes":
+    "Changes: the admins and editors of {space} manage it and see who opened it, also before the move, and it counts in the usage of {space}.",
+  "transfer.confirm.plan":
+    "Pins and share links follow the plan of {space}: if it does not include them, they stop working.",
+  "transfer.confirm.blocks":
+    "It does not move if {space} has no room for it or an upload to it is still open.",
+  "transfer.confirm.action": "Move",
+  "transfer.done": "{name} moved to {space}.",
+  "transfer.failed": "The artifact did not move",
+  "transfer.error.quota_exceeded":
+    "{space} has no room for this artifact. Free an active slot or storage there first.",
+  "transfer.error.version_conflict":
+    "An upload to this artifact is still open, or it changed meanwhile. Finish or cancel the upload, reload and try again.",
+  "transfer.error.invalid_input":
+    "This artifact has a custom domain, or it is already in that space. Remove the domain first.",
+  "transfer.error.forbidden":
+    "Your role does not allow moving this artifact out of its space or into that one.",
+  "transfer.error.artifact_archived": "Only an active or archived artifact can move.",
+  "transfer.error.not_found": "That space or this artifact is no longer available to you.",
+  "members.title": "Members",
+  "members.description":
+    "The people of {workspace} and what each can do. Admins manage members and invitations.",
+  "members.personal.title": "Your personal space has no members",
+  "members.personal.body":
+    "Members belong to workspaces. Choose a workspace in the space menu to see its members.",
+  "members.loading": "Loading members",
+  "members.loadFailed": "Members did not load",
+  "members.seats": "Seats",
+  "members.seatsUsed": "Seats in use",
+  "members.seatsValue": "{used} of {limit} ({percent})",
+  "members.seatsHint":
+    "Each member and each pending invitation takes a seat. The workspace's plan sets how many there are.",
+  "members.listTitle": "People",
+  "members.count": "{count, plural, one {# member} other {# members}}",
+  "members.caption": "Members of {workspace}",
+  "members.you": "You",
+  "members.joined": "Joined on {date}",
+  "members.roleLabel": "Role of {name}",
+  "members.remove": "Remove",
+  "members.removeNamed": "Remove {name}",
+  "members.leave": "Leave workspace",
+  "members.lastAdmin":
+    "The only admin: make another member an admin before changing this role, removing them or leaving.",
+  "members.confirmRemove.title": "Remove {name} from {workspace}?",
+  "members.confirmRemove.body":
+    "They lose access to the workspace's artifacts at once. What they published stays in the workspace.",
+  "members.confirmRemove.action": "Remove member",
+  "members.confirmLeave.title": "Leave {workspace}?",
+  "members.confirmLeave.body":
+    "You lose access to its artifacts at once. To come back, an admin has to invite you again.",
+  "members.roleChanged": "{name} is now {role}.",
+  "members.removed": "{name} was removed.",
+  "members.left": "You left {workspace}.",
+  "members.actionFailed": "The change was not saved",
+  "members.error.forbidden":
+    "Your role changed meanwhile: only admins manage members and invitations. Reload the page.",
+  "members.error.version_conflict": "The member changed meanwhile. Reload and try again.",
+  "members.error.not_found": "That person is no longer in the workspace.",
+  "invite.title": "Invite someone",
+  "invite.description":
+    "We email a link that works for 7 days. They join by signing in with that address.",
+  "invite.email": "Email",
+  "invite.role": "Role",
+  "invite.send": "Send invitation",
+  "invite.sent": "Invitation sent to {email}.",
+  "invite.emailInvalid": "Enter an email address, like name@example.com.",
+  "invite.alreadyMember": "{email} is already a member.",
+  "invite.full.title": "No free seat",
+  "invite.failed": "The invitation was not sent",
+  "invite.error.invalid_input":
+    "That address already belongs to a member, or it is not a valid email address.",
+  "invite.error.rate_limited": "Too many invitations for now. Wait a while and try again.",
+  "invite.error.capacity_unavailable":
+    "Portifact sent all the invitation emails it can this month. Try again next month.",
+  "invite.error.not_found": "That invitation no longer exists. Reload the page.",
+  "pending.title": "Pending invitations",
+  "pending.description":
+    "Each one holds a seat until it is accepted, declined, revoked or expires.",
+  "pending.loading": "Loading invitations",
+  "pending.loadFailed": "Invitations did not load",
+  "pending.empty": "No pending invitations.",
+  "pending.detail": "{role}, invited by {inviter}, expires on {date}",
+  "pending.unknownInviter": "a former member",
+  "pending.resend": "Invite again",
+  "pending.resendNamed": "Invite again: {email}",
+  "pending.revoke": "Revoke",
+  "pending.revokeNamed": "Revoke: {email}",
+  "pending.confirmRevoke.title": "Revoke the invitation of {email}?",
+  "pending.confirmRevoke.body": "Its link stops working and its seat is free again.",
+  "pending.confirmRevoke.action": "Revoke invitation",
+  "pending.revoked": "The invitation of {email} was revoked.",
+  "pending.resent": "A new invitation was sent to {email}. The earlier link no longer works.",
+  "invitation.title": "Workspace invitation",
+  "invitation.signedOut.body":
+    "Someone invited you to a workspace on Portifact. Sign in with the email address the invitation was sent to, then accept or decline it here.",
+  "invitations.signedOut.body":
+    "Sign in to see the invitations to workspaces sent to your email address.",
+  "invitation.signIn": "Sign in to answer",
+  "invitation.loading": "Loading the invitation",
+  "invitation.loadFailed": "The invitation did not load",
+  "invitation.invited.body": "{inviter} invited you to {workspace} as {role}.",
+  "invitation.invited.bodyNoInviter": "You are invited to {workspace} as {role}.",
+  "invitation.expiresTerm": "Expires",
+  "invitation.accept": "Accept",
+  "invitation.acceptNamed": "Accept the invitation to {workspace}",
+  "invitation.decline": "Decline",
+  "invitation.declineNamed": "Decline the invitation to {workspace}",
+  "invitation.confirmDecline.title": "Decline the invitation to {workspace}?",
+  "invitation.confirmDecline.body": "The link stops working. An admin can invite you again later.",
+  "invitation.confirmDecline.action": "Decline invitation",
+  "invitation.accepted": "You joined {workspace}.",
+  "invitation.declined": "You declined the invitation to {workspace}.",
+  "invitation.failed": "Your answer was not saved",
+  "invitation.other.title": "This invitation is for another address",
+  "invitation.other.body":
+    "It was sent to {email}, and you are signed in as {current}. Sign in with {email} to answer it.",
+  "invitation.other.unverified":
+    "It was sent to {email}, the address of this account, which is not verified yet. Sign out and sign in again with a code sent to {email}.",
+  "invitation.switch": "Sign in with another account",
+  "invitation.missing.title": "This invitation no longer works",
+  "invitation.missing.body":
+    "It expired, was revoked or was already used. Ask an admin of the workspace to invite you again.",
+  "invitations.title": "Invitations",
+  "invitations.description": "Invitations to workspaces sent to your verified email address.",
+  "invitations.loading": "Loading invitations",
+  "invitations.loadFailed": "Invitations did not load",
+  "invitations.empty.title": "No pending invitations",
+  "invitations.empty.body":
+    "When an admin invites your address to a workspace, the invitation shows here and in your email.",
+  "invitations.others": "Other invitations",
+  "invitations.notice.title": "You are invited to a workspace",
+  "invitations.notice.body":
+    "{count, plural, one {You have # pending invitation.} other {You have # pending invitations.}}",
+  "invitations.notice.link": "See invitations",
+  "workspaces.title": "Workspaces",
+  "workspaces.description":
+    "The workspaces you belong to and your role in each. Admins invite people and change roles on a workspace's Members page.",
+  "workspaces.loading": "Loading workspaces",
+  "workspaces.loadFailed": "Workspaces did not load",
+  "workspaces.none":
+    "You do not belong to any workspace. Portifact creates workspaces for teams, and an admin invites you by email.",
+  "workspaces.leave": "Leave",
+  "workspaces.leaveNamed": "Leave {workspace}",
+  "account.delete.soleAdmin.title": "You are the only admin of a workspace",
+  "account.delete.soleAdmin.body":
+    "A workspace must keep an admin. Make another member an admin of each of these workspaces, or ask Portifact at hello@portifact.com to delete them, then delete your account.",
+  "account.delete.soleAdmin.members": "Members of {workspace}",
+  "webhooks.personalOnly.title": "Webhooks are set in your personal space",
+  "webhooks.personalOnly.body":
+    "For now, webhooks send events about the artifacts of your personal space only. Switch to it to manage them.",
+  "shell.planLink": "Plan",
+  "plan.title": "Plan",
+  "plan.description":
+    "The plan of your personal space, its limits and features, and the other plans.",
+  "plan.descriptionWorkspace":
+    "The plan of {workspace}, its limits and features, and the other plans.",
+  "plan.current.hint": "What this space has now. The Usage page shows how much of it is used.",
+  "plan.current.limits": "Limits of the current plan",
+  "plan.current.usageLink": "See usage",
+  "plan.loading": "Loading the plan",
+  "plan.error": "The plan could not be loaded.",
+  "plan.compare.section": "All plans",
+  "plan.requestNote": "Only the admins of {workspace} can request another plan.",
+  "plan.hidden": "The plan of {workspace} is shown to its editors and admins.",
+  "usage.plan.compare": "Compare plans",
+  "shell.auditLink": "Audit log",
+  "audit.title": "Audit log",
+  "audit.description": "Who changed what in this space. Changes are kept {days} days.",
+  "audit.planTitle": "The audit log is part of a paid plan",
+  "audit.planRequired":
+    "The audit log is part of the {plan} plan. Changes are already recorded, so the last 90 days show here once the plan includes it.",
+  "audit.forbidden.title": "Only admins can read the audit log",
+  "audit.forbidden.body":
+    "Ask an admin of this workspace if you need to know who changed something.",
+  "audit.loading": "Loading the audit log",
+  "audit.error.title": "The audit log did not load",
+  "audit.empty.title": "No changes recorded",
+  "audit.empty.body": "Nothing matches these filters in the last {days} days.",
+  "audit.caption": "Changes in this space, newest first",
+  "audit.column.when": "When",
+  "audit.column.who": "Who",
+  "audit.column.what": "What",
+  "audit.column.on": "On",
+  "audit.loadMore": "Show older changes",
+  "audit.filters": "Filter the audit log",
+  "audit.filter.kind": "Kind of change",
+  "audit.filter.actor": "Who",
+  "audit.filter.period": "Period",
+  "audit.group.all": "All changes",
+  "audit.group.access": "Access and sharing",
+  "audit.group.lifecycle": "Publishing and lifecycle",
+  "audit.group.integrations": "Domains, webhooks and brand",
+  "audit.group.members": "Members, tokens and plan",
+  "audit.actor.all": "Anyone",
+  "audit.period.day": "Last 24 hours",
+  "audit.period.week": "Last 7 days",
+  "audit.period.month": "Last 30 days",
+  "audit.period.all": "Everything kept",
+  "audit.actor.removed": "Removed member",
+  "audit.actor.token": "{label} (service token)",
+  "audit.actor.tokenGone": "Revoked service token",
+  "audit.actor.operator": "Portifact operator",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Deleted artifact",
+  "audit.target.space": "This space",
+  "audit.target.invitation": "An invitation",
+  "audit.kind.published": "Published version {version}",
+  "audit.kind.publishedFirst": "Created it with version {version}",
+  "audit.kind.rolledBack": "Rolled back to the files of version {from}, now version {version}",
+  "audit.kind.renewed": "Renewed it",
+  "audit.kind.archived": "Archived it",
+  "audit.kind.restored": "Restored it",
+  "audit.kind.deleted": "Deleted it",
+  "audit.kind.pinned": "Pinned it",
+  "audit.kind.unpinned": "Unpinned it",
+  "audit.kind.transferredIn":
+    "Moved it here from {from, select, workspace {a workspace} other {a personal space}}",
+  "audit.kind.transferredOut":
+    "Moved it to {to, select, workspace {a workspace} other {a personal space}}",
+  "audit.kind.accessChanged": "Changed access: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {made it public} authenticated {opened it to anyone signed in} other {restricted it to listed readers}}",
+  "audit.access.readersAdded": "{count, plural, one {added # reader} other {added # readers}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {removed # reader} other {removed # readers}}",
+  "audit.access.domains": "at {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {changed # reader's comment visibility} other {changed # readers' comment visibility}}",
+  "audit.access.bar":
+    "{on, select, true {turned the Portifact bar on} other {turned the Portifact bar off}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {showed comments to everyone} other {showed comments to the owner side only}}",
+  "audit.access.indexable":
+    "{on, select, true {allowed search indexing} other {stopped search indexing}}",
+  "audit.access.embeddable": "{on, select, true {allowed embedding} other {stopped embedding}}",
+  "audit.kind.shareLinkCreated":
+    "Created a share link{password, select, true { with a password} other {}}{expires, select, true {, which expires} other {}}",
+  "audit.kind.shareLinkRevoked": "Revoked a share link",
+  "audit.kind.domainAttached": "Attached the domain {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Removed the domain {hostname}} operator {Portifact removed the domain {hostname}} other {The domain {hostname} was detached automatically}}",
+  "audit.kind.webhookCreated":
+    "Added a {format, select, slack {Slack} discord {Discord} other {signed}} webhook to {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Enabled a webhook} false {Disabled a webhook} other {Changed a webhook's events}}",
+  "audit.kind.webhookRemoved": "Removed a webhook",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Changed the brand's logo} other {Changed the brand's name, color or link}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Removed the brand's logo} other {Removed the brand}}",
+  "audit.kind.memberInvited": "Invited someone at {domain} as {role}",
+  "audit.kind.invitationRevoked": "Revoked an invitation",
+  "audit.kind.memberJoined": "{member} joined as {role}",
+  "audit.kind.roleChanged": "Changed {member} from {from} to {to}",
+  "audit.kind.memberRemoved": "Removed {member}",
+  "audit.kind.memberLeft": "{member} left",
+  "audit.kind.planGranted":
+    "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}}",
+  "audit.kind.planGrantedUntil":
+    "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}} until {until}",
+  "audit.kind.planRemoved": "Removed the plan, so the space is back on Free",
+  "audit.kind.tokenCreated":
+    "Created a service token that expires in {days, plural, one {# day} other {# days}}",
+  "audit.kind.tokenRevoked": "Revoked a service token",
+  "audit.kind.emailDomainVerified": "Verified the email domain {domain}",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {Removed the email domain {domain}} claimed {The email domain {domain} was removed because another workspace proved it} other {The email domain {domain} was removed because its DNS record is missing}}",
+  "shell.serviceTokensLink": "Service tokens",
+  "tokens.title": "Service tokens",
+  "tokens.description":
+    "Credentials that let automation such as CI publish to {workspace} without a person's login. Each token has a role, scopes and an expiry, and stops working when you revoke it.",
+  "tokens.personal.title": "Service tokens belong to a workspace",
+  "tokens.personal.body": "Switch to a workspace you administer to create tokens for it.",
+  "tokens.adminOnly.title": "Only admins manage service tokens",
+  "tokens.adminOnly.body": "Ask an admin of this workspace for a token.",
+  "tokens.planTitle": "Service tokens are not in this workspace's plan",
+  "tokens.planRequired":
+    "Creating service tokens is part of the {plan} plan. Existing tokens are listed and can be revoked, but they do not work until the plan includes them again.",
+  "tokens.list.title": "Tokens",
+  "tokens.loading": "Loading service tokens",
+  "tokens.loadFailed": "Service tokens did not load",
+  "tokens.empty.title": "No service tokens yet",
+  "tokens.empty.body":
+    "Create one for a CI job, set it as the PORTIFACT_TOKEN secret and run the portifact CLI.",
+  "tokens.secret.title": "Copy the token now",
+  "tokens.secret.body":
+    "This is the only time it is shown. Store it as a secret of your CI, such as PORTIFACT_TOKEN. Anyone who has it can do what its scopes allow until it expires or you revoke it.",
+  "tokens.secret.label": "Service token {label}",
+  "tokens.secret.copy": "Copy token",
+  "tokens.secret.done": "I saved it",
+  "tokens.create.title": "Create a token",
+  "tokens.create.hint": "It acts for the workspace, never for you, and is never a member.",
+  "tokens.create.limit":
+    "This workspace has the most tokens it can hold ({limit}). Revoke one to create another.",
+  "tokens.create.label": "Label",
+  "tokens.create.labelHint": "Where it is used, such as GitHub previews",
+  "tokens.create.labelError": "Enter a label of 1 to 80 characters.",
+  "tokens.create.scopes": "What it may do",
+  "tokens.create.scopesError": "Choose at least one.",
+  "tokens.create.expiry": "Expires after",
+  "tokens.create.expiryHint": "A new token replaces it when it expires.",
+  "tokens.create.days": "{days, plural, one {# day} other {# days}}",
+  "tokens.create.restriction": "Limit to",
+  "tokens.create.prefix": "Key prefix",
+  "tokens.create.prefixHint":
+    "Every artifact it publishes must have a key starting with this, such as pr-.",
+  "tokens.create.prefixError":
+    "Use letters, digits, dots, underscores, slashes or hyphens, starting with a letter or digit.",
+  "tokens.create.submit": "Create token",
+  "tokens.scope.read": "Read",
+  "tokens.scope.readHint": "List artifacts and their versions",
+  "tokens.scope.write": "Publish",
+  "tokens.scope.writeHint": "Publish new artifacts and versions, renew and archive",
+  "tokens.scope.share": "Share",
+  "tokens.scope.shareHint":
+    "Change who can open an artifact, including making it public. A leaked token could expose artifacts.",
+  "tokens.scope.delete": "Delete",
+  "tokens.scope.deleteHint":
+    "Delete artifacts permanently. A leaked token could destroy them; limit it to a key prefix.",
+  "tokens.restriction.none": "All the workspace's artifacts",
+  "tokens.restriction.noneHint": "The token can reach every artifact of the workspace.",
+  "tokens.restriction.own": "Artifacts it created",
+  "tokens.restriction.ownHint": "Anything published by people or other tokens looks missing to it.",
+  "tokens.restriction.key": "Artifacts with a key prefix",
+  "tokens.restriction.keyHint": "Only artifacts published with a key under the prefix you choose.",
+  "tokens.created": "Token {label} created",
+  "tokens.actionFailed": "That did not work",
+  "tokens.reach.none": "Reaches every artifact of the workspace",
+  "tokens.reach.own": "Reaches only the artifacts it created",
+  "tokens.reach.key": "Reaches only keys starting with {prefix}",
+  "tokens.expired": "Expired",
+  "tokens.revoke": "Revoke",
+  "tokens.revokeLabel": "Revoke {label}",
+  "tokens.scopes": "Scopes: {scopes}",
+  "tokens.expiresOn": "Expires {date}",
+  "tokens.expiredOn": "Expired {date}",
+  "tokens.lastUsed": "Last used {when}",
+  "tokens.neverUsed": "Never used",
+  "tokens.createdBy": "Created by {name} on {date}",
+  "tokens.createdOn": "Created on {date}",
+  "tokens.revoked": "Token {label} revoked",
+  "tokens.confirm.title": "Revoke {label}?",
+  "tokens.confirm.body":
+    "Anything that uses it stops working at the next request. This cannot be undone.",
+  "access.workspace": "Everyone in the workspace",
+  "access.domain": "The workspace and its email domains",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Email domain",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, after signing in, whatever their role.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, and anyone signed in with a verified address at {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, and anyone signed in with a verified address at the workspace's email domains. No domain is verified yet: an admin adds one on the Members page.",
+  "accessSettings.mode.listOnlyRestricted":
+    "The people listed below can open it only while it is restricted.",
+  "accessSettings.mode.workspacePlan": "Part of the {plan} plan.",
+  "accessSettings.lapsed.title": "Only members can open this artifact for now",
+  "accessSettings.lapsed.body":
+    "The workspace's plan does not include sharing with email domains right now, so only its members can open this artifact until the plan includes it again. Nothing was changed.",
+  "emailDomains.title": "Email domains",
+  "emailDomains.description":
+    "Anyone signed in to Portifact with a verified address at one of these domains can open the workspace's artifacts shared with its email domains. Only the exact domain counts, not its subdomains.",
+  "emailDomains.loading": "Loading email domains",
+  "emailDomains.loadFailed": "Email domains did not load",
+  "emailDomains.rules":
+    "Prove each domain with a DNS record. Public email providers (such as gmail.com), shared suffixes and Portifact's own domains are refused. Portifact checks the record every day and removes a domain after 3 missed checks in a row.",
+  "emailDomains.addFailed": "The domain was not added",
+  "emailDomains.add": "Add domain",
+  "emailDomains.domain": "Domain",
+  "emailDomains.domainHint":
+    "Your organization's own domain, such as example.com. Up to {limit} domains.",
+  "emailDomains.domainRequired": "Enter a domain.",
+  "emailDomains.empty": "No email domain yet.",
+  "emailDomains.added": "{domain} was added. Create its TXT record, then verify it.",
+  "emailDomains.planTitle": "Email domains are part of a paid plan",
+  "emailDomains.plan":
+    "Verifying email domains is part of the {plan} plan. Domains already listed stay, and you can still remove them.",
+  "emailDomains.state.verified": "Verified",
+  "emailDomains.state.pending": "Waiting for the DNS record",
+  "emailDomains.verifiedOn": "Verified on {date}.",
+  "emailDomains.pendingUntil": "Create the record before {date}, or the claim is dropped.",
+  "emailDomains.failing.title": "The DNS record is missing",
+  "emailDomains.failing.body":
+    "{count, plural, one {The record was missing at the last daily check.} other {The record was missing at the last # daily checks in a row.}} {left, plural, one {After # more missed check the domain is removed.} other {After # more missed checks the domain is removed.}}",
+  "emailDomains.actionFailed": "The change was not saved",
+  "emailDomains.recordHint":
+    "Create this record at your DNS provider. It can take a while to appear.",
+  "emailDomains.verify": "Verify",
+  "emailDomains.verifyNamed": "Verify {domain}",
+  "emailDomains.remove": "Remove",
+  "emailDomains.removeNamed": "Remove {domain}",
+  "emailDomains.verified": "{domain} is verified.",
+  "emailDomains.removed": "{domain} was removed.",
+  "emailDomains.confirmRemove.title": "Remove {domain}?",
+  "emailDomains.confirmRemove.body":
+    "People who open artifacts only through this domain lose access within a minute. You can add it again later with a new record.",
+  "emailDomains.confirmRemove.action": "Remove domain",
+  "emailDomains.error.quota_exceeded":
+    "The workspace already has the most email domains it can have.",
+  "emailDomains.error.version_conflict":
+    "The domain changed meanwhile, or another workspace still proves it in its DNS. Reload and try again.",
+  "emailDomains.error.capacity_unavailable":
+    "DNS could not be checked right now. Try again shortly.",
+  "emailDomains.error.not_found": "That domain is no longer listed.",
+  "emailDomains.error.refused":
+    "This domain cannot be added. Use your organization's own domain: public email providers, shared suffixes, reserved names and Portifact's domains are refused.",
+  "emailDomains.error.recordMissing":
+    "The TXT record was not found with this domain's value yet. DNS changes can take a while to appear; try again later. A claim older than 7 days must be added again.",
+  "transfer.confirm.accessReset":
+    "It is shared with its workspace or an email domain now, so it becomes restricted: only the people on its reader list keep reading it.",
 } as const;
 
 export type MessageId = keyof typeof en;

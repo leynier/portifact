@@ -36,6 +36,7 @@ import {
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerRetentionJob } from "./analytics.ts";
+import { auditEvent } from "./audit.ts";
 
 /** What the owner's plan grants at `now`; `free` without a row or once it expired. */
 export async function ownerEntitlements(
@@ -295,7 +296,25 @@ export async function setOwnerPlan(
   );
   const guard = grantableOwner(input.ownerId);
   const p = schema.ownerPlans;
-  const [, plan] = (await db.batch([
+  const same = sql`exists (select 1 from ${p} where ${p.ownerId} = ${input.ownerId} and ${p.plan} = ${input.plan} and ${p.seats} = ${input.seats} and ${p.validUntil} is ${input.validUntil} and ${p.overrides} is ${overrides === null ? null : JSON.stringify(overrides)})`;
+  const [, , plan] = (await db.batch([
+    // Before the grant, only when it changes the plan: retrying the same grant records once.
+    auditEvent(
+      db,
+      {
+        ownerId: input.ownerId,
+        kind: "plan.granted",
+        actor: { type: "operator" },
+        targetId: input.ownerId,
+        detail: {
+          plan: input.plan as PlanName,
+          seats: input.seats,
+          validUntil: input.validUntil === null ? null : new Date(input.validUntil).toISOString(),
+        },
+        now: input.now,
+      },
+      sql`${guard} and not ${same}`,
+    ),
     // Retention follows the plan: the job moves the expiries of the owner's analytics and access
     // log rows (`applyOwnerRetention`), on the same condition as the grant.
     ownerRetentionJob(db, input.ownerId, guard, input.now),
@@ -318,7 +337,7 @@ export async function setOwnerPlan(
       })
       .returning({ ownerId: p.ownerId }),
     ...limitStatements(db, input.ownerId, limitColumns(granted), guard, input.now, true),
-  ])) as [unknown, unknown[], ...unknown[]];
+  ])) as [unknown, unknown, unknown[], ...unknown[]];
   if (plan.length === 0) return fail("not_found", "Account or workspace not found.");
   return ok(await getOwnerPlan(db, input.ownerId, input.now));
 }
@@ -333,14 +352,26 @@ export async function removeOwnerPlan(
   input: { ownerId: string; now: number },
 ): Promise<Result<{ removed: boolean; state: OwnerPlanState }>> {
   const hadPlan = sql`exists (select 1 from ${schema.ownerPlans} where ${schema.ownerPlans.ownerId} = ${input.ownerId})`;
-  const [, deleted] = (await db.batch([
+  const [, , deleted] = (await db.batch([
+    auditEvent(
+      db,
+      {
+        ownerId: input.ownerId,
+        kind: "plan.removed",
+        actor: { type: "operator" },
+        targetId: input.ownerId,
+        detail: {},
+        now: input.now,
+      },
+      hadPlan,
+    ),
     ownerRetentionJob(db, input.ownerId, hadPlan, input.now),
     db
       .delete(schema.ownerPlans)
       .where(eq(schema.ownerPlans.ownerId, input.ownerId))
       .returning({ ownerId: schema.ownerPlans.ownerId }),
     ...limitStatements(db, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false),
-  ])) as [unknown, unknown[], ...unknown[]];
+  ])) as [unknown, unknown, unknown[], ...unknown[]];
   return ok({
     removed: deleted.length === 1,
     state: await getOwnerPlan(db, input.ownerId, input.now),

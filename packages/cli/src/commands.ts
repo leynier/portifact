@@ -1,7 +1,13 @@
 // login, logout and whoami, and the helpers every command shares. Progress and instructions go
 // to stderr; the result goes to stdout, as text or as stable JSON with --json. Tokens never reach
 // either stream.
-import { CREDENTIALS_SCOPE, OAuthScope, type TokenPrincipal } from "@portifact/contracts";
+import {
+  CREDENTIALS_SCOPE,
+  OAuthScope,
+  type TokenPrincipal,
+  WorkspaceList,
+} from "@portifact/contracts";
+import { callApi } from "./api.ts";
 import { openCredentialStore } from "./credentials.ts";
 import { CliError } from "./errors.ts";
 import { messages } from "./messages.ts";
@@ -14,7 +20,13 @@ import {
 } from "./oauth.ts";
 import type { Io, Runtime } from "./runtime.ts";
 import { resolveServer, type Server } from "./server.ts";
-import { type Authorized, credentialsFrom, type Session, withAccessToken } from "./session.ts";
+import {
+  type Authorized,
+  credentialsFrom,
+  type Session,
+  serviceTokenOf,
+  withAccessToken,
+} from "./session.ts";
 import { forgetDefaultWorkspace } from "./workspaces.ts";
 
 /**
@@ -40,6 +52,7 @@ export interface LoginOptions extends OutputOptions {
 }
 
 export async function login(io: Io, runtime: Runtime, options: LoginOptions): Promise<void> {
+  if (serviceTokenOf(runtime)) throw new CliError("invalid_input", messages.errors.serviceTokenSet);
   const server = resolveServer(runtime.env);
   announceOverride(io, server);
   const store = await openCredentialStore(runtime);
@@ -108,6 +121,34 @@ async function waitForApproval(runtime: Runtime, server: Server, device: DeviceA
 
 export async function whoami(io: Io, runtime: Runtime, options: OutputOptions): Promise<void> {
   const session = await openSession(io, runtime);
+  if (serviceTokenOf(runtime)) {
+    // A service token is no account: it names its workspace and role.
+    const { items } = await callApi(session, {
+      method: "GET",
+      path: "/workspaces",
+      schema: WorkspaceList,
+    });
+    const workspace = items[0];
+    if (!workspace)
+      throw new CliError(
+        "unauthenticated",
+        messages.errors.serviceTokenRefused(session.server.origin),
+      );
+    if (options.json) {
+      writeJson(io, {
+        server: session.server.origin,
+        serviceToken: true,
+        workspace: workspace.slug,
+        role: workspace.role,
+      });
+    } else {
+      io.stdout(
+        `${messages.serviceTokenWhoami(session.server.origin, workspace.slug, workspace.role)}
+`,
+      );
+    }
+    return;
+  }
   const principal = await signedInPrincipal(session);
   const origin = session.server.origin;
   if (options.json) {
@@ -125,6 +166,7 @@ export async function whoami(io: Io, runtime: Runtime, options: OutputOptions): 
 }
 
 export async function logout(io: Io, runtime: Runtime, options: OutputOptions): Promise<void> {
+  if (serviceTokenOf(runtime)) throw new CliError("invalid_input", messages.errors.serviceTokenSet);
   const { server, store } = await openSession(io, runtime);
   const credentials = await store.load(server.origin);
 

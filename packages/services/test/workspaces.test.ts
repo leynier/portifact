@@ -561,7 +561,7 @@ describe("'the owner' means an admin or editor of the owner", () => {
       now: NOW,
     });
     const role = async (userId: string) =>
-      (await getViewerArtifact(db(), { artifactId, userId, now: NOW })) as {
+      (await getViewerArtifact(db(), { customDomains: true, artifactId, userId, now: NOW })) as {
         ok: boolean;
         value?: { role: string };
       };

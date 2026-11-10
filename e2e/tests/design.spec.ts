@@ -58,6 +58,7 @@ for (const scheme of ["light", "dark"] as const) {
       ["/profile", "Profile"],
       ["/apps", "Apps"],
       ["/usage", "Usage"],
+      ["/plan", "Plan"],
       ["/settings", "Settings"],
     ];
     for (const [path, title] of screens) {

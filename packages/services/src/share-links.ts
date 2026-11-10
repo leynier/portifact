@@ -2,10 +2,11 @@
 // visitor's (open a link on the app, redeem its one-use code on the artifact origin, renew the
 // link session's claims). A link grants reading one artifact and nothing else; it never names
 // a visitor, never touches the access policy and does not bump the policy generation.
-import { SHARE_LINKS } from "@portifact/contracts";
+import { type AuditDetail, SHARE_LINKS } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   checkShareExpiry,
+  devHost,
   type Entitlements,
   effectiveState,
   entitlements,
@@ -21,6 +22,8 @@ import {
 } from "@portifact/domain";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
+import { activeCustomHost } from "./custom-domains.ts";
 import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
 import { hashSecret, randomToken } from "./read-access.ts";
 
@@ -135,12 +138,14 @@ async function loadManaged(db: RegionalDb, userId: string, artifactId: string) {
       id: schema.artifacts.id,
       ownerId: schema.artifacts.ownerId,
       state: schema.artifacts.state,
+      createdBy: schema.artifacts.createdBy,
+      externalKey: schema.artifacts.externalKey,
     })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const actor = await authorizeOn(db, userId, artifact.ownerId, "access", missing);
+  const actor = await authorizeOn(db, userId, artifact, "access", missing);
   if (!actor.ok) return actor;
   return ok(artifact);
 }
@@ -158,6 +163,35 @@ function stillOwned(artifact: { id: string; ownerId: string }): SQL {
 function activeLinks(artifactId: string, now: number) {
   const l = schema.shareLinks;
   return sql`(select count(*) from ${l} where ${l.artifactId} = ${artifactId} and ${l.revokedAt} is null and (${l.expiresAt} is null or ${l.expiresAt} > ${now}))`;
+}
+
+/** The audit event of a share link change, in its batch on `condition`. */
+function shareLinkEvent<K extends "share_link.created" | "share_link.revoked">(
+  db: Db,
+  kind: K,
+  input: {
+    ownerId: string;
+    artifactId: string;
+    linkId: string;
+    userId: string;
+    detail: AuditDetail<K>;
+    now: number;
+    condition: SQL;
+  },
+) {
+  return auditEvent(
+    db,
+    {
+      ownerId: input.ownerId,
+      kind,
+      actor: { type: "user", id: input.userId },
+      targetId: input.linkId,
+      artifactId: input.artifactId,
+      detail: input.detail,
+      now: input.now,
+    },
+    input.condition,
+  );
 }
 
 export interface CreateShareLinkInput {
@@ -189,12 +223,24 @@ export async function createShareLink(
   const id = newLinkId();
   const password = input.password === undefined ? null : await hashSharePassword(input.password);
   const l = schema.shareLinks;
-  const inserted = await db
-    .insert(l)
-    .select(
-      sql`select ${id}, ${input.artifactId}, ${await hashSecret(token)}, ${input.label}, ${expiry.value}, ${password?.hash ?? null}, ${password?.salt ?? null}, ${password?.iterations ?? null}, ${input.userId}, ${input.now}, null, null where ${activeLinks(input.artifactId, input.now)} < ${SHARE_LINKS.activePerArtifact} and ${stillOwned(artifact.value)}`,
-    )
-    .returning();
+  const [inserted] = await db.batch([
+    db
+      .insert(l)
+      .select(
+        sql`select ${id}, ${input.artifactId}, ${await hashSecret(token)}, ${input.label}, ${expiry.value}, ${password?.hash ?? null}, ${password?.salt ?? null}, ${password?.iterations ?? null}, ${input.userId}, ${input.now}, null, null where ${activeLinks(input.artifactId, input.now)} < ${SHARE_LINKS.activePerArtifact} and ${stillOwned(artifact.value)}`,
+      )
+      .returning(),
+    // After the insert, on the link it created: the ID is new to this request.
+    shareLinkEvent(db, "share_link.created", {
+      ownerId: artifact.value.ownerId,
+      artifactId: input.artifactId,
+      linkId: id,
+      userId: input.userId,
+      detail: { password: password !== null, expires: expiry.value !== null },
+      now: input.now,
+      condition: sql`exists (select 1 from ${l} where ${l.id} = ${id})`,
+    }),
+  ]);
   const row = inserted[0];
   if (!row) {
     const [now] = await db
@@ -274,7 +320,17 @@ export async function revokeShareLink(
     owned,
   );
   // Sessions of an already revoked link ended with it, so deleting them again changes nothing.
-  const [, revoked] = await db.batch([
+  const [, , revoked] = await db.batch([
+    // Before the revocation, on the link still being live.
+    shareLinkEvent(db, "share_link.revoked", {
+      ownerId: artifact.value.ownerId,
+      artifactId: input.artifactId,
+      linkId: input.linkId,
+      userId: input.userId,
+      detail: {},
+      now: input.now,
+      condition: sql`exists (select 1 from ${l} where ${live})`,
+    }),
     db
       .delete(schema.shareSessions)
       .where(
@@ -292,7 +348,7 @@ export async function revokeShareLink(
 
 export type ShareOpenOutcome =
   /** The link opened: the code goes to the artifact origin's `/__portifact/link`. */
-  | { kind: "opened"; artifactId: string; code: string }
+  | { kind: "opened"; artifactId: string; code: string; host: string }
   /** A live link that needs a password, asked without one. */
   | { kind: "password_required" }
   /** No password was sent and the link does not open (unknown, expired, revoked or paused). */
@@ -310,7 +366,15 @@ export type ShareOpenOutcome =
  */
 export async function openShareLink(
   regions: readonly RegionalDb[],
-  input: { token: string; password?: string | undefined; now: number },
+  input: {
+    token: string;
+    password?: string | undefined;
+    now: number;
+    /** The deployment's content domain, for the artifact's `.dev` host. */
+    contentDomain: string;
+    /** Whether this Worker serves custom hosts (`customDomainsServing`). */
+    customDomains: boolean;
+  },
 ): Promise<ShareOpenOutcome> {
   const l = schema.shareLinks;
   const a = schema.artifacts;
@@ -397,6 +461,11 @@ export async function openShareLink(
 
   const code = randomToken();
   const target = db as RegionalDb;
+  // The link opens the artifact on its active custom host when it has one, from the tables; the
+  // code works only on the host it is sent to.
+  const host =
+    (await activeCustomHost(target, found.artifactId, input.customDomains)) ??
+    devHost(found.artifactId, input.contentDomain);
   await target.batch([
     target.insert(schema.shareHandoffs).values({
       codeHash: await hashSecret(code),
@@ -404,13 +473,14 @@ export async function openShareLink(
       artifactId: found.artifactId,
       expiresAt: input.now + SHARE_LINKS.handoffTtlSeconds * SECOND_MS,
       createdAt: input.now,
+      host,
     }),
     target
       .update(l)
       .set({ lastUsedAt: shareUsedDay(input.now) })
       .where(eq(l.id, found.id)),
   ]);
-  return { kind: "opened", artifactId: found.artifactId, code };
+  return { kind: "opened", artifactId: found.artifactId, code, host };
 }
 
 /** A link's condition for SQL: not revoked and not expired at `now`. */
@@ -433,7 +503,14 @@ export interface ShareSessionGrant {
  */
 export async function redeemShareHandoff(
   db: Db,
-  input: { code: string; artifactId: string; now: number },
+  input: {
+    code: string;
+    artifactId: string;
+    /** The host the request came on, and the artifact's `.dev` host (codes without a host). */
+    host: string;
+    devHost: string;
+    now: number;
+  },
 ): Promise<Result<ShareSessionGrant>> {
   const expired = fail<never>("invalid_input", "This link has expired or was already used.");
   const codeHash = await hashSecret(input.code);
@@ -449,6 +526,7 @@ export async function redeemShareHandoff(
         and(
           eq(h.codeHash, codeHash),
           eq(h.artifactId, input.artifactId),
+          sql`coalesce(${h.host}, ${input.devHost}) = ${input.host}`,
           isNull(h.usedAt),
           gt(h.expiresAt, input.now),
           sql`exists (select 1 from ${l} where ${l.id} = ${h.linkId} and ${liveLink(input.now)})`,

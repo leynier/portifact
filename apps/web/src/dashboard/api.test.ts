@@ -242,6 +242,43 @@ describe("dashboard API client", () => {
     expect((await failure(api.signOut())).code).toBe("network");
   });
 
+  it("lists, adds, verifies and removes a workspace's email domains", async () => {
+    const domain = {
+      id: `wd_${"a".repeat(32)}`,
+      domain: "acme.com",
+      unicode: null,
+      state: "pending",
+      record: {
+        name: "_portifact-email.acme.com",
+        value: `portifact-email-verify=${"a".repeat(32)}`,
+      },
+      createdAt: "2026-11-10T12:00:00.000Z",
+      verifiedAt: null,
+      checkedAt: null,
+      expiresAt: "2026-11-17T12:00:00.000Z",
+      failedChecks: 0,
+      problem: null,
+    };
+    const { api, calls } = client((path, init) =>
+      init.method === "DELETE"
+        ? Response.json({ id: domain.id, removed: true })
+        : path.endsWith("/domains") && init.method === "GET"
+          ? Response.json({ items: [domain], available: true, limit: 10 })
+          : Response.json(domain),
+    );
+    expect((await api.workspaceDomains("acme")).items).toHaveLength(1);
+    expect(await api.addWorkspaceDomain("acme", "acme.com")).toEqual(domain);
+    expect(await api.verifyWorkspaceDomain("acme", domain.id)).toEqual(domain);
+    await api.removeWorkspaceDomain("acme", domain.id);
+    expect(calls.map((call) => `${call.init.method} ${call.path}`)).toEqual([
+      "GET /api/v1/workspaces/acme/domains",
+      "POST /api/v1/workspaces/acme/domains",
+      `POST /api/v1/workspaces/acme/domains/${domain.id}/verify`,
+      `DELETE /api/v1/workspaces/acme/domains/${domain.id}`,
+    ]);
+    expect(calls[1]?.init.body).toBe('{"domain":"acme.com"}');
+  });
+
   it("reads and changes the access policy with a JSON PATCH", async () => {
     const policy = {
       mode: "restricted",
@@ -252,6 +289,7 @@ describe("dashboard API client", () => {
       commentVisibility: "owner",
       readerCommentVisibility: [],
       policyGeneration: 3,
+      audience: null,
     };
     const { api, calls } = client(() => Response.json(policy));
     expect(await api.getAccess("k7d2qm4xab")).toEqual(policy);

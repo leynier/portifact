@@ -47,9 +47,15 @@ const SECRET_SCAN_FILES = [/^\.gitleaks\.toml$/, /^\.github\/workflows\/ci\.yml$
 
 /**
  * Files no quality check reads. Everything else, including readme.md and skills/, needs
- * quality. The secret scan reads every file, so nothing is inert to it.
+ * quality. The secret scan reads every file, so nothing is inert to it. docs/github-actions.md
+ * is read: scripts/github-action.test.ts checks the workflows it documents.
  */
-const INERT_FILES = [/^docs\//, /^license$/, /^\.github\/ISSUE_TEMPLATE\//, /^\.gitleaks\.toml$/];
+const INERT_FILES = [
+  /^docs\/(?!github-actions\.md$)/,
+  /^license$/,
+  /^\.github\/ISSUE_TEMPLATE\//,
+  /^\.gitleaks\.toml$/,
+];
 
 /** Workspace packages the CLI depends on, from its package.json dependencies. */
 export function cliWorkspaceDeps(cliPackageJson: string): string[] {

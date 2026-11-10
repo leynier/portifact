@@ -14,20 +14,34 @@ import {
   InvitationCreate,
   InvitationId,
   InvitationList,
+  InvitationLookup,
   InvitationTokenInput,
   InvitationView,
   MemberRoleUpdate,
+  ServiceTokenCreate,
+  ServiceTokenCreated,
+  ServiceTokenId,
+  ServiceTokenList,
+  WORKSPACE_DOMAINS,
+  WorkspaceDomainCreate,
+  WorkspaceDomainId,
+  WorkspaceDomainList,
+  WorkspaceDomainView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
+import { domainRecord } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
   acceptInvitation,
+  addWorkspaceDomain,
   changeMemberRole,
+  createServiceToken,
   declineInvitation,
+  type EmailDomainDeps,
   type InvitationKey,
   type InvitationRow,
   type InvitationSender,
@@ -36,11 +50,18 @@ import {
   listIncomingInvitations,
   listInvitations,
   listMembers,
+  listServiceTokens,
   listUserWorkspaces,
+  listWorkspaceDomains,
+  lookupInvitation,
   type MemberRow,
   removeMember,
+  removeWorkspaceDomain,
   revokeInvitation,
+  revokeServiceToken,
   type UserWorkspace,
+  verifyWorkspaceDomain,
+  type WorkspaceDomainRow,
 } from "@portifact/services";
 import { type Context, Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
@@ -81,6 +102,28 @@ function memberView(row: MemberRow, userId: string): WorkspaceMemberView {
   });
 }
 
+/** A domain as admins see it: the record to publish, never another workspace's anything. */
+export function domainView(row: WorkspaceDomainRow): WorkspaceDomainView {
+  return WorkspaceDomainView.parse({
+    id: row.id,
+    domain: row.domain,
+    unicode: row.display,
+    state: row.state,
+    record: domainRecord(row.domain, row.token),
+    createdAt: iso(row.createdAt),
+    verifiedAt: row.verifiedAt === null ? null : iso(row.verifiedAt),
+    checkedAt: row.checkedAt === null ? null : iso(row.checkedAt),
+    expiresAt: row.state === "pending" ? iso(row.expiresAt) : null,
+    failedChecks: row.failedChecks,
+    problem: row.problem,
+  });
+}
+
+/** The deployment's own hosts, which no workspace can verify as an email domain. */
+function ownHosts(env: Env): string[] {
+  return [new URL(env.APP_ORIGIN).hostname, env.CONTENT_DOMAIN];
+}
+
 function invitationView(row: InvitationRow): InvitationView {
   return InvitationView.parse({
     id: row.id,
@@ -92,9 +135,13 @@ function invitationView(row: InvitationRow): InvitationView {
   });
 }
 
-/** Where the invitation email's link leads: the dashboard's invitation page with the token. */
+/**
+ * Where the invitation email's link leads: the dashboard's invitation page with the token in the
+ * fragment, which browsers never send, so it reaches no request line, log or `Referer`; the page
+ * reads it once and removes it from the address bar.
+ */
 export function invitationUrl(appOrigin: string, token: string): string {
-  return `${appOrigin}/invitations?${new URLSearchParams({ token })}`;
+  return `${appOrigin}/invitations#${new URLSearchParams({ token })}`;
 }
 
 /** Sends invitation emails through the same sender as sign-in codes. */
@@ -134,6 +181,8 @@ export interface WorkspaceDeps {
   /** The dashboard session's user; a session without the current terms counts as none. */
   session(env: Env): SessionLookup;
   email(env: Env): EmailSender;
+  /** DNS over HTTPS for email domain proofs; null answers `capacity_unavailable`. */
+  dns(env: Env): EmailDomainDeps | null;
   now(): number;
 }
 
@@ -142,12 +191,15 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
   const routes = new Hono<{ Bindings: Env }>();
 
   const sessionOnly =
-    (handler: (c: WorkspaceContext, userId: string) => Promise<Response>) =>
+    (
+      handler: (c: WorkspaceContext, userId: string) => Promise<Response>,
+      refusal = "Managing members needs a dashboard session.",
+    ) =>
     async (c: WorkspaceContext) => {
       c.header("Cache-Control", "no-store");
       const request = c.req.raw;
       if (request.headers.has("authorization")) {
-        return error(c, "forbidden", "Managing members needs a dashboard session.");
+        return error(c, "forbidden", refusal);
       }
       if (!hasSessionCookie(request.headers.get("cookie"))) {
         return error(c, "unauthenticated", "Sign in to manage workspaces.");
@@ -212,6 +264,60 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         userId,
         slug,
         memberId: c.req.param("userId") as string,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.body(null, 204);
+    }),
+  );
+
+  // Service tokens (decision 0011): only admins, only from the dashboard session, so no bearer
+  // token (a service token included) can mint, list or revoke them.
+  const tokensOnly = (handler: (c: WorkspaceContext, userId: string) => Promise<Response>) =>
+    sessionOnly(handler, "Service tokens are managed from the dashboard.");
+
+  routes.get(
+    "/api/v1/workspaces/:slug/service-tokens",
+    tokensOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const result = await listServiceTokens(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ServiceTokenList.parse(result.value));
+    }),
+  );
+
+  // No idempotency key: a stored replay would keep the secret (decision 0011).
+  routes.post(
+    "/api/v1/workspaces/:slug/service-tokens",
+    tokensOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const body = await readJson(c, ServiceTokenCreate);
+      if (!body.ok) return body.response;
+      const result = await createServiceToken(global(c), {
+        userId,
+        slug,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ServiceTokenCreated.parse(result.value), 201);
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/service-tokens/:tokenId",
+    tokensOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const tokenId = ServiceTokenId.safeParse(c.req.param("tokenId"));
+      if (!tokenId.success) return error(c, "not_found", "Service token not found.");
+      const result = await revokeServiceToken(global(c), {
+        userId,
+        slug,
+        tokenId: tokenId.data,
+        now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.body(null, 204);
@@ -223,7 +329,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
     sessionOnly(async (c, userId) => {
       const slug = slugOf(c);
       if (!slug) return error(c, "not_found", "Workspace not found.");
-      const result = await leaveWorkspace(global(c), { userId, slug });
+      const result = await leaveWorkspace(global(c), { userId, slug, now: deps.now() });
       if (!result.ok) return error(c, result.code, result.message);
       return c.body(null, 204);
     }),
@@ -272,6 +378,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         userId,
         slug,
         invitationId: invitationId.data,
+        now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.body(null, 204);
@@ -307,6 +414,112 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         ? c.json(workspaceView(result.value))
         : error(c, result.code, result.message);
     })();
+
+  // The invitation page: what the link's token names, for the signed-in account. POST keeps the
+  // token in the body, out of request lines and logs.
+  routes.post(
+    "/api/v1/invitations/lookup",
+    sessionOnly(async (c, userId) => {
+      const body = await readJson(c, InvitationTokenInput);
+      if (!body.ok) return body.response;
+      const result = await lookupInvitation(global(c), {
+        userId,
+        token: body.value.token,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      const standing = result.value;
+      return c.json(
+        InvitationLookup.parse(
+          standing.status === "invited"
+            ? {
+                status: "invited",
+                invitation: {
+                  ...standing.invitation,
+                  expiresAt: iso(standing.invitation.expiresAt),
+                },
+              }
+            : standing,
+        ),
+      );
+    }),
+  );
+
+  // Verified email domains (decision 0010): admins only, through the dashboard's session only,
+  // like the members they widen.
+  routes.get(
+    "/api/v1/workspaces/:slug/domains",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const result = await listWorkspaceDomains(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(
+        WorkspaceDomainList.parse({
+          items: result.value.domains.map(domainView),
+          available: result.value.available,
+          limit: WORKSPACE_DOMAINS.perWorkspace,
+        }),
+      );
+    }),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/domains",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const body = await readJson(c, WorkspaceDomainCreate);
+      if (!body.ok) return body.response;
+      const result = await addWorkspaceDomain(global(c), {
+        userId,
+        slug,
+        domain: body.value.domain,
+        now: deps.now(),
+        ownHosts: ownHosts(c.env),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(domainView(result.value), 201);
+    }),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/domains/:domainId/verify",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      const id = WorkspaceDomainId.safeParse(c.req.param("domainId"));
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      if (!id.success) return error(c, "not_found", "Domain not found.");
+      const dns = deps.dns(c.env);
+      if (!dns) return error(c, "capacity_unavailable", "DNS checks are unavailable right now.");
+      const result = await verifyWorkspaceDomain(global(c), dns, {
+        userId,
+        slug,
+        domainId: id.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(domainView(result.value));
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/domains/:domainId",
+    sessionOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      const id = WorkspaceDomainId.safeParse(c.req.param("domainId"));
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      if (!id.success) return error(c, "not_found", "Domain not found.");
+      const result = await removeWorkspaceDomain(global(c), {
+        userId,
+        slug,
+        domainId: id.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json({ id: id.data, removed: true });
+    }),
+  );
 
   for (const decision of ["accept", "decline"] as const) {
     // From the email's link: the token names the invitation.

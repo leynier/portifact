@@ -93,11 +93,14 @@ export async function getAccountUsage(
     .from(schema.accountUsage)
     .where(eq(schema.accountUsage.ownerId, ownerId))
     .limit(1);
-  const [user] = await db.global
-    .select({ createdAt: schema.users.createdAt })
-    .from(schema.users)
-    .where(eq(schema.users.id, input.actor.userId))
-    .limit(1);
+  // A service token has no account: its own creation time is its age (decision 0011).
+  const [user] = input.actor.token
+    ? [{ createdAt: new Date(input.actor.token.createdAt) }]
+    : await db.global
+        .select({ createdAt: schema.users.createdAt })
+        .from(schema.users)
+        .where(eq(schema.users.id, input.actor.userId))
+        .limit(1);
   const [uploads] = await db
     .select({ first: sql<number | null>`min(${schema.uploadSessions.expiresAt})` })
     .from(schema.uploadSessions)

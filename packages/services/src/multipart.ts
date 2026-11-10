@@ -20,7 +20,7 @@ import {
   type Result,
 } from "@portifact/domain";
 import { and, eq, type SQL, sql } from "drizzle-orm";
-import { authorizeOn } from "./actors.ts";
+import { authorizeUploadOn } from "./actors.ts";
 import { hex } from "./objects.ts";
 
 /** Where a session assembles the parts of one object before the commit verifies it. */
@@ -329,6 +329,7 @@ export async function reportUploadedPart(
   const [session] = await db
     .select({
       ownerId: schema.uploadSessions.ownerId,
+      artifactId: schema.uploadSessions.artifactId,
       state: schema.uploadSessions.state,
       expiresAt: schema.uploadSessions.expiresAt,
     })
@@ -337,7 +338,7 @@ export async function reportUploadedPart(
     .limit(1);
   const missing = () => fail<never>("not_found", "Upload not found.");
   if (!session) return missing();
-  const allowed = await authorizeOn(db, input.userId, session.ownerId, "publish", missing);
+  const allowed = await authorizeUploadOn(db, input.userId, session, "publish", missing);
   if (!allowed.ok) return allowed;
   if (
     (session.state !== "uploading" && session.state !== "ready") ||

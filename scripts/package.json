@@ -11,6 +11,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "yaml": "^2.9.0"
   }
 }

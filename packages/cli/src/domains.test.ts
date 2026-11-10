@@ -123,3 +123,22 @@ describe("portifact domains remove", () => {
     await prompted.cleanup();
   });
 });
+
+describe("custom domains in info and list", () => {
+  it("shows the domain of an artifact that has one, and a column only when one does", async () => {
+    h.signIn();
+    const plain = server.api.seed();
+    const before = await h.invoke("list");
+    expect(before.stdout).not.toContain("DOMAIN");
+    const withDomain = server.api.seed({ customHost: "docs.example.com" });
+    const info = await h.invoke("info", withDomain.id);
+    expect(info.stdout).toMatch(/Custom domain\s+docs\.example\.com/);
+    expect((await h.invoke("info", plain.id)).stdout).not.toContain("Custom domain");
+    const list = await h.invoke("list");
+    expect(list.stdout).toMatch(/DOMAIN/);
+    expect(list.stdout).toMatch(/docs\.example\.com/);
+    expect(JSON.parse((await h.invoke("info", withDomain.id, "--json")).stdout).customHost).toBe(
+      "docs.example.com",
+    );
+  });
+});

@@ -106,11 +106,20 @@ export const messages = {
   restored: (id: string, expiresAt: string | null) =>
     `Restored ${id}. It stays published until ${formatDate(expiresAt)}.`,
   deleted: (id: string) => `Deleted ${id} permanently.`,
+  keyRetry: (key: string) =>
+    `Another publish with the key ${key} finished first. Publishing again on top of it.`,
+  nothingWithKey: (key: string) => `No artifact has the key ${key}, so nothing was deleted.`,
+  serviceTokenWhoami: (origin: string, workspace: string, role: string) =>
+    `Using the service token in PORTIFACT_TOKEN on ${origin}: workspace ${workspace}, role ${role}.`,
   confirmDelete: (id: string, name: string) =>
     `This permanently deletes "${name}" (${id}) and every version of it. It cannot be undone.\nType the artifact ID to confirm: `,
   readersOnlyWhenRestricted: (mode: string) =>
     `Note: access is ${mode}, so the reader list applies only after \`portifact access set <id> restricted\`.`,
   accessChanged: (id: string) => `Updated access to ${id}.`,
+  audience: (members: number, domains: readonly string[]) =>
+    `${members} ${plural(members, "member", "members")}${domains.length > 0 ? `; verified domains ${domains.join(", ")}` : "; no verified email domain"}`,
+  domainModeLapsed:
+    "Note: the workspace's plan does not include workspace sharing now, so only its members read this artifact until it does again.",
   commentVisibility: {
     owner: "owner (each reader sees their own threads and yours)",
     everyone: "everyone (every reader sees every thread)",
@@ -145,6 +154,11 @@ export const messages = {
     const size = (bytes: number | null) => (bytes === null ? "none" : formatBytes(bytes));
     return `${path} (${change}) ${reason}. Size before: ${size(before)}, after: ${size(after)}.`;
   },
+
+  // A space's open feedback.
+  feedbackEmpty: "No open feedback: no unresolved thread you can see on the current versions.",
+  feedbackMore: (cursor: string, flags = "") =>
+    `More feedback: run \`portifact feedback --cursor ${cursor}${flags}\`.`,
 
   // Access logs.
   logsEmpty: (id: string, days: number) =>
@@ -204,6 +218,8 @@ export const messages = {
     certificate_pending:
       "The certificate is not ready yet. Check that the CNAME points at the target above, then check again in a few minutes.",
     cloudflare_unavailable: "The certificate service did not answer. It is tried again shortly.",
+    cname_elsewhere:
+      "The domain does not point at the CNAME target above. Point it back: an active domain is removed after 3 daily checks in a row like this.",
   },
   domainClaimExpires: (date: string) => `Add the records before ${date}, or add the domain again.`,
   domainMissedChecks: (count: number) =>
@@ -256,6 +272,20 @@ export const messages = {
   historyNothing: (id: string) => `${id} has no published versions, so no Git history was created.`,
 
   errors: {
+    serviceTokenMalformed:
+      "PORTIFACT_TOKEN does not hold a Portifact service token (one starts with pfst_). Copy it again from the workspace's Service tokens page.",
+    serviceTokenRefused: (origin: string) =>
+      `${origin} refused the service token in PORTIFACT_TOKEN. Ask a workspace admin for a new one.`,
+    serviceTokenSet:
+      "PORTIFACT_TOKEN is set, so this CLI uses that service token and never a stored login. Unset it to sign in or out.",
+    serviceTokenWorkspace:
+      "A service token always acts on its own workspace, so there is no default to choose while PORTIFACT_TOKEN is set.",
+    keyWithArtifact: "Use --key or --artifact, not both.",
+    invalidKey: (value: string) =>
+      `${JSON.stringify(value)} is not a key: 1 to 128 letters, digits, dots, underscores, slashes or hyphens, starting with a letter or digit.`,
+    deleteNeedsTarget: "Name the artifact to delete: its ID, or --key with its publish key.",
+    keyConfirmationRequired: (key: string) =>
+      `Deleting is permanent. Run \`portifact delete --key ${key} --yes\` to confirm without a prompt.`,
     notSignedIn: (origin: string) =>
       `Not signed in to ${origin}. Run \`portifact login\` to sign in.`,
     sessionEnded: (origin: string) =>
@@ -301,7 +331,7 @@ export const messages = {
     invalidArtifactId: (value: string) =>
       `${JSON.stringify(value)} is not an artifact ID. IDs have 10 characters, like \`k7qzr2mv4a\`.`,
     invalidMode: (value: string) =>
-      `${JSON.stringify(value)} is not an access mode. Use restricted, authenticated or public.`,
+      `${JSON.stringify(value)} is not an access mode. Use restricted, authenticated, public, workspace or domain.`,
     invalidBarState: (value: string) =>
       `${JSON.stringify(value)} is not a Portifact bar state. Use on or off.`,
     invalidCommentVisibility: (value: string) =>

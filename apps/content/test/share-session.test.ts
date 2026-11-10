@@ -203,9 +203,11 @@ async function link(extra: { password?: string; artifactId?: string } = {}) {
   });
   if (!created.ok) throw new Error(created.message);
   const opened = await openShareLink([db()], {
+    customDomains: true,
     token: created.value.token,
     password: extra.password,
     now: NOW,
+    contentDomain: "portifact.dev",
   });
   if (opened.kind !== "opened") throw new Error(opened.kind);
   return { linkId: created.value.link.id, token: created.value.token, code: opened.code };
@@ -360,9 +362,21 @@ describe("a share link's session", () => {
   it("works again through a new entry once the plan includes share links again", async () => {
     const { token } = await link();
     await setPlan("free");
-    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
+    expect(
+      await openShareLink([db()], {
+        customDomains: true,
+        token,
+        now: NOW,
+        contentDomain: "portifact.dev",
+      }),
+    ).toEqual({ kind: "unavailable" });
     await setPlan("pro");
-    const opened = await openShareLink([db()], { token, now: NOW });
+    const opened = await openShareLink([db()], {
+      customDomains: true,
+      token,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
     if (opened.kind !== "opened") throw new Error(opened.kind);
     const cookie = await enter(opened.code);
     expect((await send("/", { cookie })).status).toBe(200);
@@ -402,11 +416,15 @@ describe("a share link's session", () => {
       ""
     ).split(";")[0];
     const issued = await issueReadHandoff(db(), {
+      customDomains: true,
+      confirmed: false,
       artifactId: ID,
       userId: READER,
       authSessionId: `as_${READER}`,
       state: location.searchParams.get("state") ?? "",
       now: NOW,
+      requestedHost: null,
+      contentDomain: "portifact.dev",
     });
     if (!issued.ok) throw new Error(issued.message);
     const back = await send(`/__portifact/callback?code=${issued.value.code}`, {

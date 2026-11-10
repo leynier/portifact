@@ -93,11 +93,13 @@ async function seed(overrides: Partial<typeof schema.artifacts.$inferInsert> = {
 
 async function issue(userId = READER, artifactId = ID, kind?: ReviewKind) {
   const result = await issueReviewHandoff(db(), {
+    customDomains: true,
     artifactId,
     userId,
     authSessionId: appSession(userId),
     now: NOW,
     ...(kind ? { kind } : {}),
+    contentDomain: "portifact.dev",
   });
   if (!result.ok) throw new Error(`issue failed: ${result.code}`);
   return result.value;
@@ -107,7 +109,15 @@ const redeem = (
   code: string,
   overrides: Partial<{ artifactId: string; now: number; kind: ReviewKind }> = {},
 ) =>
-  redeemReviewHandoff(db(), { code, artifactId: ID, kind: "frame", now: NOW + 1000, ...overrides });
+  redeemReviewHandoff(db(), {
+    code,
+    artifactId: ID,
+    kind: "frame",
+    now: NOW + 1000,
+    ...overrides,
+    host: `${ID}.portifact.dev`,
+    devHost: `${ID}.portifact.dev`,
+  });
 
 const sessionCount = async () => (await db().select().from(schema.reviewSessions)).length;
 
@@ -132,16 +142,20 @@ describe("review access", () => {
 
   it("refuses a code to an account the policy does not admit, like a missing artifact", async () => {
     const stranger = await issueReviewHandoff(db(), {
+      customDomains: true,
       artifactId: ID,
       userId: STRANGER,
       authSessionId: appSession(STRANGER),
       now: NOW,
+      contentDomain: "portifact.dev",
     });
     const missing = await issueReviewHandoff(db(), {
+      customDomains: true,
       artifactId: "zzzzzzzzzz",
       userId: READER,
       authSessionId: appSession(READER),
       now: NOW,
+      contentDomain: "portifact.dev",
     });
     expect(stranger).toEqual(missing);
     expect(stranger.ok).toBe(false);
@@ -152,19 +166,23 @@ describe("review access", () => {
     await seed({ currentVersionId: null });
     await expect(
       issueReviewHandoff(db(), {
+        customDomains: true,
         artifactId: ID,
         userId: OWNER,
         authSessionId: appSession(OWNER),
         now: NOW,
+        contentDomain: "portifact.dev",
       }),
     ).resolves.toMatchObject({ ok: false, code: "not_found" });
     await seed({ state: "archived", archivedAt: NOW - DAY });
     await expect(
       issueReviewHandoff(db(), {
+        customDomains: true,
         artifactId: ID,
         userId: OWNER,
         authSessionId: appSession(OWNER),
         now: NOW,
+        contentDomain: "portifact.dev",
       }),
     ).resolves.toMatchObject({ ok: false, code: "not_found" });
   });
@@ -302,7 +320,7 @@ describe("viewer artifact", () => {
   beforeEach(() => seed());
 
   const view = (userId: string | null, now = NOW) =>
-    getViewerArtifact(db(), { artifactId: ID, userId, now });
+    getViewerArtifact(db(), { customDomains: true, artifactId: ID, userId, now });
 
   it("names who is looking: the owner, a reader the policy admits", async () => {
     expect(await view(OWNER)).toEqual({
@@ -315,6 +333,7 @@ describe("viewer artifact", () => {
         annotations: "off",
         role: "owner",
         brand: null,
+        customHost: null,
       },
     });
     const reader = await view(READER);
@@ -324,6 +343,7 @@ describe("viewer artifact", () => {
   it("answers a stranger exactly like a missing artifact", async () => {
     const stranger = await view(STRANGER);
     const missing = await getViewerArtifact(db(), {
+      customDomains: true,
       artifactId: "zzzzzzzzzz",
       userId: STRANGER,
       now: NOW,
@@ -353,10 +373,12 @@ describe("open review codes", () => {
     const codes: string[] = [];
     for (let i = 0; i < REVIEW_SESSION.openCodesPerUser + 3; i++) {
       const result = await issueReviewHandoff(db(), {
+        customDomains: true,
         artifactId: ID,
         userId: READER,
         authSessionId: appSession(READER),
         now: NOW + i,
+        contentDomain: "portifact.dev",
       });
       if (!result.ok) throw new Error(result.message);
       codes.push(result.value.code);
@@ -372,6 +394,8 @@ describe("open review codes", () => {
       artifactId: ID,
       kind: "frame",
       now: NOW + 100,
+      host: `${ID}.portifact.dev`,
+      devHost: `${ID}.portifact.dev`,
     });
     expect(newest.ok).toBe(true);
     const oldest = await redeemReviewHandoff(db(), {
@@ -379,14 +403,18 @@ describe("open review codes", () => {
       artifactId: ID,
       kind: "frame",
       now: NOW + 100,
+      host: `${ID}.portifact.dev`,
+      devHost: `${ID}.portifact.dev`,
     });
     expect(oldest.ok).toBe(false);
     // Another account's codes are never touched.
     await issueReviewHandoff(db(), {
+      customDomains: true,
       artifactId: ID,
       userId: OWNER,
       authSessionId: appSession(OWNER),
       now: NOW,
+      contentDomain: "portifact.dev",
     });
     expect(
       await db()

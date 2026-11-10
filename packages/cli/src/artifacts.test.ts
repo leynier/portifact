@@ -83,6 +83,7 @@ describe("portifact list", () => {
           archivedAt: null,
           purgeAt: null,
           pinned: false,
+          key: null,
           createdAt: "2026-11-07T12:00:00.000Z",
           updatedAt: "2026-11-07T12:00:00.000Z",
           // The fake seeds no versions or threads for this artifact.
@@ -573,7 +574,29 @@ describe("portifact access", () => {
       commentVisibility: "owner",
       readerCommentVisibility: [{ email: "bo@example.test", commentVisibility: "all" }],
       policyGeneration: 1,
+      audience: null,
     });
+  });
+
+  it("shows who a workspace artifact reaches, and says when a lapsed plan leaves members only", async () => {
+    h.signIn();
+    const artifact = seed();
+    const stored = server.api.artifacts.get(artifact.id);
+    if (!stored) throw new Error("seeded");
+    stored.access.mode = "domain";
+    stored.audience = { members: 3, domains: ["acme.com"], featureAvailable: true };
+    const text = await h.invoke("access", artifact.id);
+    expect(text.stdout).toContain("Workspace      3 members; verified domains acme.com\n");
+    expect(text.stdout).not.toContain("only its members");
+
+    stored.audience = { members: 1, domains: [], featureAvailable: false };
+    const lapsed = await h.invoke("access", artifact.id);
+    expect(lapsed.stdout).toContain("Workspace      1 member; no verified email domain\n");
+    expect(lapsed.stdout).toContain(
+      "Note: the workspace's plan does not include workspace sharing now, so only its members read this artifact until it does again.",
+    );
+    stored.access.mode = "workspace";
+    expect((await h.invoke("access", artifact.id)).stdout).not.toContain("Note:");
   });
 
   it("chooses who sees comments and rejects anything but owner or everyone", async () => {
@@ -689,7 +712,9 @@ describe("portifact access", () => {
     const result = await h.invoke("access", "set", artifact.id, "everyone", "--json");
 
     expect(result.code).toBe(2);
-    expect(json(result).error.message).toContain("Use restricted, authenticated or public.");
+    expect(json(result).error.message).toContain(
+      "Use restricted, authenticated, public, workspace or domain.",
+    );
     expect(server.requests).toHaveLength(0);
   });
 

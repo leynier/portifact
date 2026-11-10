@@ -17,6 +17,7 @@ import {
   OwnerPlanExport,
   PLAN_NAMES,
   PlanName,
+  ServiceTokenId,
   TombstoneMarker,
 } from "@portifact/contracts";
 import { type Db, regionsFromEnv, schema } from "@portifact/db";
@@ -33,6 +34,7 @@ import {
   applyOwnerPlans,
   applyTombstones,
   type BudgetState,
+  blockHostname,
   checkGrant,
   clearBudgetOverride,
   createWorkspace,
@@ -42,6 +44,7 @@ import {
   domainDbsOf,
   exportOwnerPlans,
   exportTombstones,
+  findServiceToken,
   getBudgetState,
   getOwnerPlan,
   getWorkspaceDetail,
@@ -49,10 +52,12 @@ import {
   liftEmailSuppression,
   listAbuseReports,
   listAllWorkspaces,
+  listBlockedHostnames,
   listBudgetAlerts,
   listEmailSuppressions,
   listStorageFindings,
   type OwnerPlanState,
+  operatorRevokeServiceToken,
   rebuildArtifactDirectory,
   reconcileCustomDomains,
   reinstateAccount,
@@ -66,6 +71,7 @@ import {
   suspendAccount,
   suspendArtifact,
   suspendBrand,
+  unblockHostname,
   type WorkspaceDetail,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
@@ -81,6 +87,8 @@ Commands:
   resolve-report <report-id> actioned|dismissed
   show-artifact <artifact-id>
   find-share-link              (reads the reported link or token from standard input)
+  find-service-token           (reads a leaked service token from standard input)
+  revoke-service-token <service-token-id>
   suspend-artifact <artifact-id> --reason <reason> [--report <report-id>] [--note <text>]
   reinstate-artifact <artifact-id>
   suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
@@ -99,6 +107,9 @@ Commands:
   lift-email-suppression <email>
   show-domain <hostname>
   detach-domain <hostname>
+  block-domain <name> --note <text>   (also every name under it; detaches the domains it covers)
+  unblock-domain <name>
+  blocked-domains
   reconcile-domains            (needs CF_CONTENT_ZONE_ID and CF_HOSTNAMES_TOKEN in the environment)
   plan <owner>
   set-plan <owner> <plan> [--seats N] [--until <ISO date>] [--note <text>]
@@ -625,6 +636,44 @@ export async function runOperator(
         ].join("\n"),
       };
     }
+    case "find-service-token": {
+      // A leaked secret comes from standard input, never the command line, and is never printed;
+      // only its hash is compared (decision 0011).
+      const global = regionsFromEnv({ DB: db.$client }).global;
+      const found = await findServiceToken(global, await files.read("/dev/stdin"));
+      if (!found) return { exitCode: 1, output: "No service token has this secret." };
+      const [workspace] = await global
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, found.workspaceId))
+        .limit(1);
+      return {
+        exitCode: 0,
+        output: [
+          `token      ${found.id}  ${found.label}`,
+          `workspace  ${workspace?.slug ?? found.workspaceId}`,
+          `expires    ${new Date(found.expiresAt).toISOString()}`,
+          `Revoke it with: revoke-service-token ${found.id}`,
+        ].join("\n"),
+      };
+    }
+    case "revoke-service-token": {
+      const [tokenId] = args;
+      if (!tokenId || !ServiceTokenId.safeParse(tokenId).success) {
+        return usage("revoke-service-token needs a service token ID (st_ and 32 hex characters).");
+      }
+      const revoked = await operatorRevokeServiceToken(
+        regionsFromEnv({ DB: db.$client }).global,
+        tokenId,
+        now,
+      );
+      return {
+        exitCode: revoked ? 0 : 1,
+        output: revoked
+          ? `Revoked ${tokenId}; its next request is refused. A tombstone keeps a restore from bringing it back.`
+          : "No service token has this ID (already revoked, or its workspace was deleted).",
+      };
+    }
     case "suspend-artifact": {
       const [artifactId] = args;
       const reason = reasonOption();
@@ -783,7 +832,7 @@ export async function runOperator(
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {
@@ -971,7 +1020,16 @@ export async function runOperator(
       const [hostname] = args;
       if (!hostname) return usage("detach-domain needs a hostname.");
       const name = hostname.trim().toLowerCase().replace(/\.$/, "");
-      const detached = await detachDomain(domainDbsOf(db), name, "operator", now);
+      const detached = await detachDomain(
+        domainDbsOf(db),
+        name,
+        "operator",
+        now,
+        {},
+        {
+          type: "operator",
+        },
+      );
       return detached
         ? {
             exitCode: 0,
@@ -981,6 +1039,38 @@ export async function runOperator(
             exitCode: 1,
             output: "No attached domain with that hostname (or it is already being removed).",
           };
+    }
+    case "block-domain": {
+      const [name] = args;
+      const note = options.get("note")?.trim();
+      if (!name || !note) return usage("block-domain needs a name and --note with the reason.");
+      const result = await blockHostname(domainDbsOf(db), { name, note, now });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      const { detached } = result.value;
+      return {
+        exitCode: 0,
+        output: `Blocked ${result.value.name} and every name under it. Detached: ${detached.length === 0 ? "none" : detached.join(", ")}.`,
+      };
+    }
+    case "unblock-domain": {
+      const [name] = args;
+      if (!name) return usage("unblock-domain needs a name.");
+      return (await unblockHostname(db, name))
+        ? {
+            exitCode: 0,
+            output: `Unblocked ${name.trim().toLowerCase()}. Detached domains stay detached.`,
+          }
+        : { exitCode: 1, output: "That name is not blocked." };
+    }
+    case "blocked-domains": {
+      const rows = await listBlockedHostnames(db);
+      if (rows.length === 0) return { exitCode: 0, output: "No blocked names." };
+      return {
+        exitCode: 0,
+        output: rows
+          .map((row) => `${row.name}  ${iso(row.createdAt)}  ${oneLine(row.note)}`)
+          .join("\n"),
+      };
     }
     case "reconcile-domains": {
       if (!domains) {

@@ -14,8 +14,9 @@ import {
   type Result,
   requireFeature,
 } from "@portifact/domain";
-import { and, eq, type SQL } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -45,7 +46,7 @@ async function load(db: RegionalDb, input: LifecycleInput) {
     .limit(1);
   // An artifact of an owner the user has no role on looks the same as a missing one.
   if (!artifact) return missing();
-  const actor = await authorizeOn(db, input.userId, artifact.ownerId, "lifecycle", missing);
+  const actor = await authorizeOn(db, input.userId, artifact, "lifecycle", missing);
   if (!actor.ok) return actor;
   return ok(artifact);
 }
@@ -83,6 +84,38 @@ const guard = (artifact: {
     eq(schema.artifacts.lifecycleGeneration, artifact.lifecycleGeneration),
   );
 
+/** The artifact still matches the guard: the audit event's condition, before the update. */
+const stillAsRead = (artifact: Parameters<typeof guard>[0]) =>
+  sql`exists (select 1 from ${schema.artifacts} where ${guard(artifact)})`;
+
+/** The audit event of a lifecycle change, written before its guarded update on the same guard. */
+function lifecycleEvent(
+  db: Db,
+  artifact: Parameters<typeof guard>[0],
+  input: LifecycleInput,
+  kind:
+    | "artifact.renewed"
+    | "artifact.archived"
+    | "artifact.restored"
+    | "artifact.deleted"
+    | "artifact.pinned"
+    | "artifact.unpinned",
+) {
+  return auditEvent(
+    db,
+    {
+      ownerId: artifact.ownerId,
+      kind,
+      actor: { type: "user", id: input.userId },
+      targetId: artifact.id,
+      artifactId: artifact.id,
+      detail: {},
+      now: input.now,
+    },
+    stillAsRead(artifact),
+  );
+}
+
 const conflict = () =>
   fail<never>("version_conflict", "The artifact changed meanwhile. Try again.");
 
@@ -107,11 +140,18 @@ export async function renewArtifact(
     return fail("artifact_archived", "Only active artifacts can be renewed; restore it instead.");
   }
   const expiresAt = nextExpiry(new Date(input.now)).getTime();
-  const updated = await db
-    .update(schema.artifacts)
-    .set({ expiresAt, lifecycleGeneration: artifact.lifecycleGeneration + 1, updatedAt: input.now })
-    .where(guard(artifact))
-    .returning({ id: schema.artifacts.id });
+  const [, updated] = await db.batch([
+    lifecycleEvent(db, artifact, input, "artifact.renewed"),
+    db
+      .update(schema.artifacts)
+      .set({
+        expiresAt,
+        lifecycleGeneration: artifact.lifecycleGeneration + 1,
+        updatedAt: input.now,
+      })
+      .where(guard(artifact))
+      .returning({ id: schema.artifacts.id }),
+  ]);
   if (updated.length === 0) return conflict();
   await logEvent(db, input, "renewed");
   return ok({ state: "active", expiresAt, purgeAt: null, pinned: false });
@@ -135,18 +175,21 @@ export async function archiveArtifact(
     effectiveArchivedAt(record(artifact), new Date(input.now))?.getTime() ?? input.now;
   const owner = await ownerEntitlements(db, artifact.ownerId, input.now);
   const purgeAt = purgeDate(new Date(archivedAt), owner.limits.archiveMonths).getTime();
-  const updated = await db
-    .update(schema.artifacts)
-    .set({
-      state: "archived",
-      archivedAt,
-      purgeAt,
-      pinned: false,
-      lifecycleGeneration: artifact.lifecycleGeneration + 1,
-      updatedAt: input.now,
-    })
-    .where(guard(artifact))
-    .returning({ id: schema.artifacts.id });
+  const [, updated] = await db.batch([
+    lifecycleEvent(db, artifact, input, "artifact.archived"),
+    db
+      .update(schema.artifacts)
+      .set({
+        state: "archived",
+        archivedAt,
+        purgeAt,
+        pinned: false,
+        lifecycleGeneration: artifact.lifecycleGeneration + 1,
+        updatedAt: input.now,
+      })
+      .where(guard(artifact))
+      .returning({ id: schema.artifacts.id }),
+  ]);
   if (updated.length === 0) return conflict();
   await logEvent(db, input, "archived");
   return ok({ state: "archived", expiresAt: artifact.expiresAt, purgeAt, pinned: false });
@@ -175,19 +218,22 @@ export async function restoreArtifact(
   // An active artifact past its expiry still holds its slot (maintenance has not archived it),
   // so it only gets new dates; an archived one goes back to active and the trigger retakes the slot.
   try {
-    const updated = await db
-      .update(schema.artifacts)
-      .set({
-        state: "active",
-        expiresAt,
-        archivedAt: null,
-        purgeAt: null,
-        pinned: false,
-        lifecycleGeneration: artifact.lifecycleGeneration + 1,
-        updatedAt: input.now,
-      })
-      .where(guard(artifact))
-      .returning({ id: schema.artifacts.id });
+    const [, updated] = await db.batch([
+      lifecycleEvent(db, artifact, input, "artifact.restored"),
+      db
+        .update(schema.artifacts)
+        .set({
+          state: "active",
+          expiresAt,
+          archivedAt: null,
+          purgeAt: null,
+          pinned: false,
+          lifecycleGeneration: artifact.lifecycleGeneration + 1,
+          updatedAt: input.now,
+        })
+        .where(guard(artifact))
+        .returning({ id: schema.artifacts.id }),
+    ]);
     if (updated.length === 0) return conflict();
   } catch (error) {
     if (String((error as Error)?.cause ?? error).includes("CHECK constraint failed")) {
@@ -216,8 +262,9 @@ export async function deleteArtifact(
   // The purge job is written with the claim, on the same old state, so the queue finishes the
   // deletion if this request dies before it does.
   const unchanged = guard(artifact) as SQL;
-  const [, claimed] = await db.batch([
+  const [, , claimed] = await db.batch([
     purgeJobs(db, unchanged, input.now, input.now + OUTBOX_INLINE_GRACE_MS),
+    lifecycleEvent(db, artifact, input, "artifact.deleted"),
     db
       .update(schema.artifacts)
       .set({
@@ -252,16 +299,19 @@ export async function pinArtifact(
   if (!check.ok) return check;
   const pinned = { state: "active" as const, expiresAt: null, purgeAt: null, pinned: true };
   if (!check.value.changed) return ok(pinned);
-  const updated = await db
-    .update(schema.artifacts)
-    .set({
-      pinned: true,
-      expiresAt: null,
-      lifecycleGeneration: artifact.lifecycleGeneration + 1,
-      updatedAt: input.now,
-    })
-    .where(guard(artifact))
-    .returning({ id: schema.artifacts.id });
+  const [, updated] = await db.batch([
+    lifecycleEvent(db, artifact, input, "artifact.pinned"),
+    db
+      .update(schema.artifacts)
+      .set({
+        pinned: true,
+        expiresAt: null,
+        lifecycleGeneration: artifact.lifecycleGeneration + 1,
+        updatedAt: input.now,
+      })
+      .where(guard(artifact))
+      .returning({ id: schema.artifacts.id }),
+  ]);
   if (updated.length === 0) return conflict();
   await logEvent(db, input, "pinned");
   return ok(pinned);
@@ -283,16 +333,19 @@ export async function unpinArtifact(
   const expiresAt = check.value.expiresAt?.getTime() ?? null;
   const outcome = { state: "active" as const, expiresAt, purgeAt: null, pinned: false };
   if (!check.value.changed) return ok(outcome);
-  const updated = await db
-    .update(schema.artifacts)
-    .set({
-      pinned: false,
-      expiresAt,
-      lifecycleGeneration: artifact.lifecycleGeneration + 1,
-      updatedAt: input.now,
-    })
-    .where(guard(artifact))
-    .returning({ id: schema.artifacts.id });
+  const [, updated] = await db.batch([
+    lifecycleEvent(db, artifact, input, "artifact.unpinned"),
+    db
+      .update(schema.artifacts)
+      .set({
+        pinned: false,
+        expiresAt,
+        lifecycleGeneration: artifact.lifecycleGeneration + 1,
+        updatedAt: input.now,
+      })
+      .where(guard(artifact))
+      .returning({ id: schema.artifacts.id }),
+  ]);
   if (updated.length === 0) return conflict();
   await logEvent(db, input, "unpinned");
   return ok(outcome);

@@ -23,6 +23,8 @@ import {
   type ArtifactListFilters,
   ArtifactStatsView,
   ArtifactSummary,
+  type AuditKind,
+  AuditLogView,
   BrandSettings,
   type BrandUpdate,
   BrowserSessionList,
@@ -40,6 +42,10 @@ import {
   type EditMessageRequest,
   type ErrorCode,
   FileDiff,
+  IncomingInvitationList,
+  InvitationList,
+  InvitationLookup,
+  InvitationView,
   LifecycleResult,
   PreparedPublish,
   type PublishRequest,
@@ -47,6 +53,9 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  type ServiceTokenCreate,
+  ServiceTokenCreated,
+  ServiceTokenList,
   ShareLinkCreated,
   ShareLinkList,
   ShareLinkRevoked,
@@ -65,6 +74,13 @@ import {
   WebhookTestQueued,
   type WebhookUpdate,
   WebhookView,
+  WorkspaceDomainList,
+  WorkspaceDomainView,
+  WorkspaceList,
+  WorkspaceMemberList,
+  WorkspaceMemberView,
+  type WorkspaceRole,
+  WorkspaceView,
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
@@ -82,6 +98,15 @@ export class ApiFailure extends Error {
     super(code);
     this.name = "ApiFailure";
   }
+}
+
+/** Filters and the page of an audit log request. */
+export interface AuditPageQuery {
+  kinds?: readonly AuditKind[] | undefined;
+  actor?: string | undefined;
+  /** ISO date and time: only events at or after it. */
+  from?: string | undefined;
+  cursor?: string | undefined;
 }
 
 export type LifecycleAction = "renew" | "archive" | "restore" | "delete" | "pin" | "unpin";
@@ -103,8 +128,15 @@ export interface DashboardApi {
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
   signOut(): Promise<void>;
-  /** A page of the account's artifacts that match `filters`; the API applies them. */
-  listArtifacts(cursor?: string, filters?: ArtifactListFilters): Promise<ArtifactList>;
+  /**
+   * A page of the space's artifacts that match `filters`; the API applies them. `workspace` names
+   * a workspace by slug, the personal space without it.
+   */
+  listArtifacts(
+    cursor?: string,
+    filters?: ArtifactListFilters,
+    workspace?: string,
+  ): Promise<ArtifactList>;
   getArtifact(artifactId: string): Promise<ArtifactSummary>;
   lifecycle(artifactId: string, action: LifecycleAction): Promise<LifecycleResult>;
   getAccess(artifactId: string): Promise<AccessPolicyView>;
@@ -117,21 +149,60 @@ export interface DashboardApi {
   /** The defaults new artifacts start with. */
   accountSettings(): Promise<AccountSettings>;
   updateAccountSettings(update: AccountSettingsUpdate): Promise<AccountSettings>;
-  /** The brand of the account's space on the viewer's bar, and whether its plan includes it. */
-  brandSettings(): Promise<BrandSettings>;
-  updateBrand(update: BrandUpdate): Promise<BrandSettings>;
-  deleteBrand(): Promise<BrandSettings>;
+  /** The brand of a space on the viewer's bar, and whether its plan includes it. */
+  brandSettings(workspace?: string): Promise<BrandSettings>;
+  updateBrand(update: BrandUpdate, workspace?: string): Promise<BrandSettings>;
+  deleteBrand(workspace?: string): Promise<BrandSettings>;
   /** Sends the logo file's bytes as they are; the server judges them. */
-  uploadBrandLogo(file: Blob): Promise<BrandSettings>;
-  removeBrandLogo(): Promise<BrandSettings>;
+  uploadBrandLogo(file: Blob, workspace?: string): Promise<BrandSettings>;
+  removeBrandLogo(workspace?: string): Promise<BrandSettings>;
   /** Whether the artifact's owner has comment notices, and whether the caller muted it. */
   commentNoticeMute(artifactId: string): Promise<CommentNoticeMute>;
   /** Mutes or unmutes the artifact's comment notices for the caller. */
   setCommentNoticeMute(artifactId: string, muted: boolean): Promise<CommentNoticeMute>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
-  /** The account's quotas, this month's traffic and what blocks it now. */
-  usage(): Promise<AccountUsageView>;
+  /** A space's quotas, this month's traffic and what blocks it now. */
+  usage(workspace?: string): Promise<AccountUsageView>;
+  /** The caller's workspaces and role in each. */
+  workspaces(): Promise<WorkspaceList>;
+  /** A workspace's members and seats (session only). */
+  members(slug: string): Promise<WorkspaceMemberList>;
+  /** A workspace's service tokens, for its admins (session only, decision 0011). */
+  serviceTokens(slug: string): Promise<ServiceTokenList>;
+  /** Creates a service token; the answer holds its secret once. */
+  createServiceToken(slug: string, body: ServiceTokenCreate): Promise<ServiceTokenCreated>;
+  revokeServiceToken(slug: string, tokenId: string): Promise<void>;
+  changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
+  removeMember(slug: string, userId: string): Promise<void>;
+  leaveWorkspace(slug: string): Promise<void>;
+  /** A workspace's pending invitations, for its admins. */
+  invitations(slug: string): Promise<InvitationList>;
+  /** Invites an address, or invites it again: a new invitation replaces the pending one. */
+  invite(slug: string, email: string, role: WorkspaceRole): Promise<InvitationView>;
+  revokeInvitation(slug: string, invitationId: string): Promise<void>;
+  /** A workspace's email domains, for its admins (decision 0010). */
+  workspaceDomains(slug: string): Promise<WorkspaceDomainList>;
+  /** Claims a domain: answers it with the TXT record to publish. */
+  addWorkspaceDomain(slug: string, domain: string): Promise<WorkspaceDomainView>;
+  /** Looks the TXT record up and verifies the claim. */
+  verifyWorkspaceDomain(slug: string, domainId: string): Promise<WorkspaceDomainView>;
+  removeWorkspaceDomain(slug: string, domainId: string): Promise<void>;
+  /** The invitations addressed to the signed-in account. */
+  incomingInvitations(): Promise<IncomingInvitationList>;
+  /** Accepts (answering the workspace joined) or declines one of them. */
+  answerInvitation(
+    invitationId: string,
+    decision: "accept" | "decline",
+  ): Promise<WorkspaceView | null>;
+  /** What an invitation link's token names, for the signed-in account. */
+  lookupInvitation(token: string): Promise<InvitationLookup>;
+  answerInvitationLink(
+    token: string,
+    decision: "accept" | "decline",
+  ): Promise<WorkspaceView | null>;
+  /** Moves an artifact to a workspace, or to the personal space with `null`. */
+  transferArtifact(artifactId: string, workspace: string | null): Promise<ArtifactSummary>;
   /** The account's webhooks (decision 0009). */
   webhooks(): Promise<WebhookList>;
   /** Adds a webhook; the answer holds its signing secret once. */
@@ -161,10 +232,19 @@ export interface DashboardApi {
   removeDomain(hostname: string): Promise<CustomDomainRemoved>;
   /** A page of the artifact's access log, newest first; only its owner may read it. */
   accessLog(artifactId: string, cursor?: string, limit?: number): Promise<AccessLogView>;
+  /** A page of the space's audit log (`GET /api/v1/audit`), newest first. */
+  audit(workspace: string | undefined, query: AuditPageQuery): Promise<AuditLogView>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
-  /** Starts a publish; retrying with the same key returns the same upload. */
-  preparePublish(request: PublishRequest, idempotencyKey: string): Promise<PreparedPublish>;
+  /**
+   * Starts a publish; retrying with the same key returns the same upload. A new artifact goes to
+   * `workspace`, or the personal space without it; a new version stays where its artifact is.
+   */
+  preparePublish(
+    request: PublishRequest,
+    idempotencyKey: string,
+    workspace?: string,
+  ): Promise<PreparedPublish>;
   /** An open upload with fresh URLs for the objects still to send. */
   uploadProgress(uploadId: string): Promise<PreparedPublish>;
   /** A part of a multipart object reached storage, with the ETag storage answered. */
@@ -254,13 +334,21 @@ export interface DashboardApi {
   setAnnotationMode(artifactId: string, mode: AnnotationsState): Promise<AnnotationModeView>;
 }
 
-/** The brand of the account's space (session only). */
+/** The brand of a space (session only). */
 export const BRAND_PATH = "/api/v1/account/branding";
 
-/** The stored logo for the Branding page's preview, versioned by its hash for the cache. */
-export function brandLogoPreview(sha256: string): string {
-  return `${BRAND_PATH}/logo?v=${sha256}`;
+/** `?workspace=<slug>` for an owner-scoped path, or nothing for the personal space. */
+function inSpace(path: string, workspace: string | undefined): string {
+  if (!workspace) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}${new URLSearchParams({ workspace })}`;
 }
+
+/** The stored logo for the Branding page's preview, versioned by its hash for the cache. */
+export function brandLogoPreview(sha256: string, workspace?: string): string {
+  return inSpace(`${BRAND_PATH}/logo?v=${sha256}`, workspace);
+}
+
+const workspacePath = (slug: string) => `/api/v1/workspaces/${encodeURIComponent(slug)}`;
 
 /** The account's data as a JSON download (a plain link: the browser saves the attachment). */
 export const ACCOUNT_EXPORT_PATH = "/api/v1/account/export";
@@ -353,8 +441,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       }
       if (!response.ok) throw new ApiFailure("unexpected", response.status);
     },
-    listArtifacts(cursor, filters = {}) {
+    listArtifacts(cursor, filters = {}, workspace) {
       const params = new URLSearchParams();
+      if (workspace) params.set("workspace", workspace);
       if (cursor) params.set("cursor", cursor);
       for (const [name, value] of Object.entries(filters)) {
         if (typeof value === "string" && value !== "") params.set(name, value);
@@ -408,20 +497,20 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     updateAccountSettings(update) {
       return call("/api/v1/account/settings", AccountSettings, "PATCH", update);
     },
-    brandSettings() {
-      return call(BRAND_PATH, BrandSettings);
+    brandSettings(workspace) {
+      return call(inSpace(BRAND_PATH, workspace), BrandSettings);
     },
-    updateBrand(update) {
-      return call(BRAND_PATH, BrandSettings, "PUT", update);
+    updateBrand(update, workspace) {
+      return call(inSpace(BRAND_PATH, workspace), BrandSettings, "PUT", update);
     },
-    deleteBrand() {
-      return call(BRAND_PATH, BrandSettings, "DELETE");
+    deleteBrand(workspace) {
+      return call(inSpace(BRAND_PATH, workspace), BrandSettings, "DELETE");
     },
-    uploadBrandLogo(file) {
-      return call(`${BRAND_PATH}/logo`, BrandSettings, "PUT", file);
+    uploadBrandLogo(file, workspace) {
+      return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "PUT", file);
     },
-    removeBrandLogo() {
-      return call(`${BRAND_PATH}/logo`, BrandSettings, "DELETE");
+    removeBrandLogo(workspace) {
+      return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "DELETE");
     },
     webhooks() {
       return call("/api/v1/webhooks", WebhookList);
@@ -470,8 +559,102 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     deleteAccount(confirmEmail) {
       return call("/api/v1/account/delete", AccountDeletionResult, "POST", { confirmEmail });
     },
-    usage() {
-      return call("/api/v1/usage", AccountUsageView);
+    usage(workspace) {
+      return call(inSpace("/api/v1/usage", workspace), AccountUsageView);
+    },
+    workspaces() {
+      return call("/api/v1/workspaces", WorkspaceList);
+    },
+    members(slug) {
+      return call(`${workspacePath(slug)}/members`, WorkspaceMemberList);
+    },
+    serviceTokens(slug) {
+      return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenList);
+    },
+    createServiceToken(slug, body) {
+      return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenCreated, "POST", body);
+    },
+    async revokeServiceToken(slug, tokenId) {
+      await call(
+        `${workspacePath(slug)}/service-tokens/${encodeURIComponent(tokenId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    changeMemberRole(slug, userId, role) {
+      return call(
+        `${workspacePath(slug)}/members/${encodeURIComponent(userId)}`,
+        WorkspaceMemberView,
+        "PATCH",
+        { role },
+      );
+    },
+    async removeMember(slug, userId) {
+      await call(
+        `${workspacePath(slug)}/members/${encodeURIComponent(userId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    async leaveWorkspace(slug) {
+      await call(`${workspacePath(slug)}/leave`, z.null(), "POST");
+    },
+    invitations(slug) {
+      return call(`${workspacePath(slug)}/invitations`, InvitationList);
+    },
+    invite(slug, email, role) {
+      return call(`${workspacePath(slug)}/invitations`, InvitationView, "POST", { email, role });
+    },
+    async revokeInvitation(slug, invitationId) {
+      await call(
+        `${workspacePath(slug)}/invitations/${encodeURIComponent(invitationId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    workspaceDomains(slug) {
+      return call(`${workspacePath(slug)}/domains`, WorkspaceDomainList);
+    },
+    addWorkspaceDomain(slug, domain) {
+      return call(`${workspacePath(slug)}/domains`, WorkspaceDomainView, "POST", { domain });
+    },
+    verifyWorkspaceDomain(slug, domainId) {
+      return call(
+        `${workspacePath(slug)}/domains/${encodeURIComponent(domainId)}/verify`,
+        WorkspaceDomainView,
+        "POST",
+      );
+    },
+    async removeWorkspaceDomain(slug, domainId) {
+      await call(
+        `${workspacePath(slug)}/domains/${encodeURIComponent(domainId)}`,
+        z.object({ id: z.string(), removed: z.literal(true) }),
+        "DELETE",
+      );
+    },
+    incomingInvitations() {
+      return call("/api/v1/account/invitations", IncomingInvitationList);
+    },
+    answerInvitation(invitationId, decision) {
+      return call(
+        `/api/v1/account/invitations/${encodeURIComponent(invitationId)}/${decision}`,
+        decision === "accept" ? WorkspaceView : z.null(),
+        "POST",
+      );
+    },
+    lookupInvitation(token) {
+      return call("/api/v1/invitations/lookup", InvitationLookup, "POST", { token });
+    },
+    answerInvitationLink(token, decision) {
+      return call(
+        `/api/v1/invitations/${decision}`,
+        decision === "accept" ? WorkspaceView : z.null(),
+        "POST",
+        { token },
+      );
+    },
+    transferArtifact(artifactId, workspace) {
+      return call(`${artifactPath(artifactId)}/transfer`, ArtifactSummary, "POST", { workspace });
     },
     listShareLinks(artifactId) {
       return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/share-links`, ShareLinkList);
@@ -516,6 +699,15 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     removeDomain(hostname) {
       return call(`/api/v1/domains/${encodeURIComponent(hostname)}`, CustomDomainRemoved, "DELETE");
     },
+    audit(workspace, query) {
+      const params = new URLSearchParams();
+      for (const kind of query.kinds ?? []) params.append("kind", kind);
+      if (query.actor) params.set("actor", query.actor);
+      if (query.from) params.set("from", query.from);
+      if (query.cursor) params.set("cursor", query.cursor);
+      const path = params.size > 0 ? `/api/v1/audit?${params}` : "/api/v1/audit";
+      return call(inSpace(path, workspace), AuditLogView);
+    },
     accessLog(artifactId, cursor, limit) {
       const params = new URLSearchParams();
       if (cursor) params.set("cursor", cursor);
@@ -533,8 +725,8 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         ArtifactStatsView,
       );
     },
-    preparePublish(request, idempotencyKey) {
-      return call("/api/v1/publishes", PreparedPublish, "POST", request, {
+    preparePublish(request, idempotencyKey, workspace) {
+      return call(inSpace("/api/v1/publishes", workspace), PreparedPublish, "POST", request, {
         "idempotency-key": idempotencyKey,
       });
     },

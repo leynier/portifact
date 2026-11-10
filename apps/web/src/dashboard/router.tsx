@@ -8,30 +8,41 @@ import {
   Outlet,
   type RouterHistory,
   redirect,
+  retainSearchParams,
   useMatch,
 } from "@tanstack/react-router";
 import { AppsScreen } from "./screens/apps.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx";
+import { AuditScreen } from "./screens/audit.tsx";
 import { BrandingScreen } from "./screens/branding.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
+import { InvitationFrame, InvitationScreen } from "./screens/invitations.tsx";
+import { MembersScreen } from "./screens/members.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
+import { PlanScreen } from "./screens/plan.tsx";
 import { ProfileScreen } from "./screens/profile.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
+import { ServiceTokensScreen } from "./screens/service-tokens.tsx";
 import { SettingsScreen } from "./screens/settings.tsx";
 import { Shell } from "./screens/shell.tsx";
 import { UsageScreen } from "./screens/usage.tsx";
 import { parseViewerSearch, ViewerScreen } from "./screens/viewer.tsx";
 import { WebhooksScreen } from "./screens/webhooks.tsx";
+import { parseSpaceSearch } from "./space.tsx";
 
 /**
  * Every dashboard screen sits in the shell (navigation and account); the viewer draws its own
- * frame, the Portifact bar, so it fills the screen.
+ * frame, the Portifact bar, so it fills the screen, and the invitation page has its own frame
+ * while signed out.
  */
 function Frame() {
   const viewer = useMatch({ from: "/view/$artifactId", shouldThrow: false });
-  return viewer ? <Outlet /> : <Shell />;
+  const invitation = useMatch({ from: "/invitations", shouldThrow: false });
+  if (viewer) return <Outlet />;
+  if (invitation) return <InvitationFrame />;
+  return <Shell />;
 }
 
 /**
@@ -54,7 +65,13 @@ export function accountRedirect(hash: string): "/profile" | "/apps" | "/usage" |
 }
 
 export function createDashboardRouter(history?: RouterHistory) {
-  const root = createRootRoute({ component: Frame, notFoundComponent: NotFoundScreen });
+  // `?workspace=<slug>` names the space on every route and stays on every link (space.tsx).
+  const root = createRootRoute({
+    component: Frame,
+    notFoundComponent: NotFoundScreen,
+    validateSearch: parseSpaceSearch,
+    search: { middlewares: [retainSearchParams(["workspace"])] },
+  });
   const list = createRoute({
     getParentRoute: () => root,
     path: "/",
@@ -101,6 +118,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/usage",
     component: UsageScreen,
   });
+  const plan = createRoute({
+    getParentRoute: () => root,
+    path: "/plan",
+    component: PlanScreen,
+  });
   const webhooks = createRoute({
     getParentRoute: () => root,
     path: "/webhooks",
@@ -115,6 +137,26 @@ export function createDashboardRouter(history?: RouterHistory) {
     getParentRoute: () => root,
     path: "/branding",
     component: BrandingScreen,
+  });
+  const audit = createRoute({
+    getParentRoute: () => root,
+    path: "/audit",
+    component: AuditScreen,
+  });
+  const members = createRoute({
+    getParentRoute: () => root,
+    path: "/members",
+    component: MembersScreen,
+  });
+  const serviceTokens = createRoute({
+    getParentRoute: () => root,
+    path: "/service-tokens",
+    component: ServiceTokensScreen,
+  });
+  const invitations = createRoute({
+    getParentRoute: () => root,
+    path: "/invitations",
+    component: InvitationScreen,
   });
   // The old account page: links and bookmarks to it, with or without an anchor, still work.
   const account = createRoute({
@@ -141,9 +183,14 @@ export function createDashboardRouter(history?: RouterHistory) {
       profile,
       apps,
       usage,
+      plan,
       webhooks,
       branding,
       settings,
+      members,
+      audit,
+      serviceTokens,
+      invitations,
       account,
       viewer,
     ]),

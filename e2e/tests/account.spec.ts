@@ -35,8 +35,10 @@ test("the sidebar collapses to icons, resizes from its edge and remembers both",
     "Publish",
     "Apps",
     "Usage",
+    "Plan",
     "Webhooks",
     "Branding",
+    "Audit log",
     "Settings",
   ]);
   const handle = page.getByRole("separator", { name: "Resize sidebar" });
@@ -184,6 +186,7 @@ test("settings and profile have a section guide, a compact menu on phones", asyn
     "Appearance",
     "Defaults for new artifacts",
     "Email notices",
+    "Workspaces",
     "Your data",
     "Danger zone",
   ]);

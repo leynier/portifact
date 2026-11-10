@@ -13,6 +13,9 @@
 // (a workspace on a plan with the feature, acted on by an editor whose own space is free, is not
 // refused; a free workspace acted on by an editor with a paid plan is).
 //
+// Service tokens (decision 0011) have one line: using a token of a workspace without the feature;
+// creating one is session-only and tested with the same body in service-tokens.test.ts.
+//
 // Owner-level gates served only to the dashboard session, with no MCP tool or CLI command, are
 // not lines here: the brand (`branding`) is gated and tested in branding.test.ts with the same
 // body, and its owner-plan and role rules in packages/services/test/branding.test.ts.
@@ -27,6 +30,7 @@ import { regionsFromEnv, schema } from "@portifact/db";
 import {
   authorizeOn,
   commitPublish,
+  newServiceTokenSecret,
   preparePublish,
   requireOwnerFeature,
 } from "@portifact/services";
@@ -72,6 +76,12 @@ interface GatedOperation {
    * at a workspace yet: the plan that counts is the caller's personal space's.
    */
   scope?: "artifact" | "owner";
+  /**
+   * `workspace` for operations that exist only on a workspace's artifacts (the `workspace` and
+   * `domain` access modes, decision 0010): the free case runs on a free workspace's artifact the
+   * caller is an admin of, since a personal artifact is refused before the plan is read.
+   */
+  space?: "workspace";
   /** Runs the operation as `who` on artifact `id` through both interfaces. */
   run: (who: Client, id: string) => Promise<Answers>;
 }
@@ -220,9 +230,122 @@ const GATED: GatedOperation[] = [
     "add_custom_domain",
     (id) => ({ artifactId: id, hostname: `gate-${id}.example.com` }),
   ),
+  {
+    feature: "audit",
+    name: "read the audit log",
+    scope: "owner",
+    run: async (who) => {
+      const response = await who.apiCall("/api/v1/audit");
+      const result = await who.tool("get_audit_log", {});
+      return {
+        api: { status: response.status, body: await response.json<unknown>() },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
+  {
+    feature: "serviceTokens",
+    name: "use a service token",
+    scope: "owner",
+    run: (who) => withServiceToken(who),
+  },
   probe("workspaces"),
+  ...(["workspace", "domain"] as const).map(
+    (mode): GatedOperation => ({
+      feature: "workspaces",
+      name: `share with the ${mode} mode`,
+      space: "workspace",
+      // Repeating the mode an artifact already has is never gated, so each interface starts from
+      // restricted.
+      run: async (who, id) => {
+        const restricted = () =>
+          db()
+            .update(schema.artifacts)
+            .set({ accessMode: "restricted" })
+            .where(eq(schema.artifacts.id, id));
+        await restricted();
+        const response = await who.apiCall(`/api/v1/artifacts/${id}/access`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode }),
+        });
+        const body = await response.json<unknown>();
+        await restricted();
+        const result = await who.tool("set_access", { artifactId: id, mode });
+        return {
+          api: { status: response.status, body },
+          mcp: { ok: result.isError !== true, body: result.structuredContent },
+        };
+      },
+    }),
+  ),
+  {
+    feature: "workspaces",
+    name: "list a workspace's open feedback",
+    space: "workspace",
+    // The space is the artifact's workspace, named by slug; a personal space needs no feature.
+    run: async (who, id) => {
+      const [row] = await db()
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.artifacts)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.artifacts.ownerId))
+        .where(eq(schema.artifacts.id, id));
+      if (!row) throw new Error("The feedback line needs a workspace's artifact");
+      const response = await who.apiCall(`/api/v1/feedback?workspace=${row.slug}`);
+      const result = await who.tool("list_open_feedback", { workspace: row.slug });
+      return {
+        api: { status: response.status, body: await response.json<unknown>() },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
   probe("sso"),
 ];
+
+/**
+ * Calls the API with a service token of a workspace the caller administers, whose plan is set to
+ * the caller's personal plan so the table's plans apply to it (decision 0011). Creating tokens is
+ * session-only, so the token row is written as the create route writes it. No MCP: it refuses
+ * service tokens.
+ */
+async function withServiceToken(who: Client): Promise<Answers> {
+  const [plan] = await db()
+    .select()
+    .from(schema.ownerPlans)
+    .where(eq(schema.ownerPlans.ownerId, who.userId));
+  const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+  await db()
+    .insert(schema.workspaces)
+    .values({
+      id: workspaceId,
+      slug: workspaceId.slice(3, 23),
+      name: "Team",
+      createdBy: who.userId,
+      updatedAt: NOW,
+    });
+  await db()
+    .insert(schema.workspaceMembers)
+    .values({ workspaceId, userId: who.userId, role: "admin", updatedAt: NOW });
+  await onPlan(workspaceId, plan?.plan ?? "free");
+  const secret = newServiceTokenSecret();
+  await db()
+    .insert(schema.serviceTokens)
+    .values({
+      id: `st_${crypto.randomUUID().replaceAll("-", "")}`,
+      workspaceId,
+      label: "Gate",
+      role: "editor",
+      scopes: "artifacts:read",
+      tokenHash: await sha256(secret),
+      createdBy: who.userId,
+      createdAt: NOW,
+      expiresAt: NOW + 86_400_000,
+    });
+  const response = await who.apiCall("/api/v1/artifacts", {
+    headers: { authorization: `Bearer ${secret}` },
+  });
+  return { api: { status: response.status, body: await response.json<unknown>() } };
+}
 
 const WEBHOOK = {
   url: "https://hooks.example.com/in",
@@ -338,13 +461,31 @@ function expectNotRefused(answers: Answers, label: string) {
   }
 }
 
+/** A workspace with `userId` in `role`, on the free plan (no row). */
+async function workspaceWith(userId: string, role: "admin" | "editor"): Promise<string> {
+  const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+  await db()
+    .insert(schema.workspaces)
+    .values({
+      id: workspaceId,
+      slug: workspaceId.slice(3, 23),
+      name: "Team",
+      createdBy: userId,
+      updatedAt: NOW,
+    });
+  await db().insert(schema.workspaceMembers).values({ workspaceId, userId, role, updatedAt: NOW });
+  return workspaceId;
+}
+
 describe.each(GATED)("$feature: $name", (op) => {
   it("is refused on free with plan_required, the same in the API and MCP", async () => {
     const owner = await client(`gate-free-${slug(op)}@example.test`);
-    const id = await publishIn(owner.userId, owner.userId);
+    const space = op.space === "workspace" ? await workspaceWith(owner.userId, "admin") : null;
+    const ownerId = space ?? owner.userId;
+    const id = await publishIn(ownerId, owner.userId);
     expectRefused(await op.run(owner, id), op.feature, "free");
 
-    await onPlan(owner.userId, lowestPlanWith(op.feature));
+    await onPlan(ownerId, lowestPlanWith(op.feature));
     expectNotRefused(await op.run(owner, id), lowestPlanWith(op.feature));
   });
 });
@@ -355,19 +496,7 @@ const ON_ARTIFACTS = GATED.filter((op) => op.scope !== "owner");
 describe.each(ON_ARTIFACTS)("$feature: $name, on a workspace's artifact", (op) => {
   it("follows the artifact owner's plan, not the caller's", async () => {
     const editor = await client(`gate-editor-${slug(op)}@example.test`);
-    const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
-    await db()
-      .insert(schema.workspaces)
-      .values({
-        id: workspaceId,
-        slug: workspaceId.slice(3, 23),
-        name: "Team",
-        createdBy: editor.userId,
-        updatedAt: NOW,
-      });
-    await db()
-      .insert(schema.workspaceMembers)
-      .values({ workspaceId, userId: editor.userId, role: "editor", updatedAt: NOW });
+    const workspaceId = await workspaceWith(editor.userId, "editor");
     const id = await publishIn(workspaceId, editor.userId);
 
     // A Team workspace (Enterprise for the features only it has); the editor's own space is free.

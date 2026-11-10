@@ -67,6 +67,8 @@ export const ROLE_ACTIONS = [
   "moderate",
   "access_log",
   "usage",
+  /** Custom domains (decision 0006): like `access`, but never a service token's (decision 0011). */
+  "domains",
   // Admins only.
   /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */
   "transfer_out",
@@ -76,6 +78,10 @@ export const ROLE_ACTIONS = [
   "delete_workspace",
   "webhooks",
   "brand",
+  /** Reading the audit log (premium plan T10): what every member did. */
+  "audit",
+  /** Service tokens of the workspace (decision 0011): creating, listing and revoking them. */
+  "tokens",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;
@@ -187,6 +193,17 @@ export type IncomingInvitationView = z.infer<typeof IncomingInvitationView>;
 
 export const IncomingInvitationList = z.object({ items: z.array(IncomingInvitationView) });
 export type IncomingInvitationList = z.infer<typeof IncomingInvitationList>;
+
+/**
+ * What the invitation page shows for a link's token (`POST /api/v1/invitations/lookup`): the
+ * invitation for its verified address, or only the address it was sent to for any other account,
+ * so the person can switch accounts. A missing, expired, revoked or used one is `not_found`.
+ */
+export const InvitationLookup = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("invited"), invitation: IncomingInvitationView }),
+  z.object({ status: z.literal("other_account"), email: z.string() }),
+]);
+export type InvitationLookup = z.infer<typeof InvitationLookup>;
 
 /** Accepting or declining from the email's link. */
 export const InvitationTokenInput = z.strictObject({ token: InvitationToken });

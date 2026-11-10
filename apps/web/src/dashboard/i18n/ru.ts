@@ -1,9 +1,11 @@
 // Russian messages of the dashboard (standard Russian, "вы" in lowercase), with the same keys as
 // en.ts. "artifact" stays in Latin script, masculine and undeclined. Titles and buttons have no
 // trailing period; no em dashes.
+import { planTextRu } from "../../plans/i18n/ru.ts";
 import type { Catalog } from "./en.ts";
 
 export const ru = {
+  ...planTextRu,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Перейти к содержимому",
@@ -1194,6 +1196,9 @@ export const ru = {
   "domains.problem.cloudflare_unavailable": "Служба сертификатов не ответила",
   "domains.problem.cloudflare_unavailable.hint":
     "С вашей стороны всё в порядке. Скоро будет повторная попытка.",
+  "domains.problem.cname_elsewhere": "Домен не указывает на Portifact",
+  "domains.problem.cname_elsewhere.hint":
+    "Его DNS больше не ведёт к цели CNAME ниже. Верните запись; активный домен удаляется после 3 таких ежедневных проверок подряд.",
   "domains.missedChecks":
     "{count, plural, one {TXT-запись отсутствовала при последней ежедневной проверке. После 3 пропусков подряд домен удаляется.} few {TXT-запись отсутствовала при последних # ежедневных проверках. После 3 пропусков подряд домен удаляется.} many {TXT-запись отсутствовала при последних # ежедневных проверках. После 3 пропусков подряд домен удаляется.} other {TXT-запись отсутствовала при последних # ежедневных проверках. После 3 пропусков подряд домен удаляется.}}",
   "domains.records": "Записи, которые нужно создать",
@@ -1394,4 +1399,475 @@ export const ru = {
   "viewer.brandNewTab": "(откроется в новой вкладке)",
   "viewer.hosting.poweredBy": "Работает на Portifact",
   "viewer.hosting.origin": "Опубликовано на",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "Пространство",
+  "space.personal": "Личное",
+  "space.personalDetail": "Ваше собственное пространство",
+  "space.invitations":
+    "{count, plural, one {# ожидающее приглашение} few {# ожидающих приглашения} many {# ожидающих приглашений} other {# ожидающего приглашения}}",
+  "space.missing.title": "Workspace не найден",
+  "space.missing.body":
+    "Такого workspace нет, или вы не его участник. Попросите одного из его администраторов пригласить вас.",
+  "space.missing.personal": "Перейти в личное пространство",
+  "space.notAllowed.title": "Недоступно для вашей роли",
+  "space.notAllowed.back": "К списку artifacts",
+  "space.notAllowed.list":
+    "Как участник {workspace}, вы читаете и комментируете artifacts, которыми с вами поделились, по их ссылкам. Видеть и вести все artifacts этого workspace могут только редакторы и администраторы: обратитесь к одному из администраторов.",
+  "space.notAllowed.publish":
+    "Для публикации в {workspace} нужна роль редактора или администратора. Обратитесь к одному из администраторов.",
+  "space.notAllowed.usage": "Использование {workspace} видят его редакторы и администраторы.",
+  "space.notAllowed.branding": "Бренд {workspace} задают только его администраторы.",
+  "role.admin": "Администратор",
+  "role.editor": "Редактор",
+  "role.member": "Участник",
+  "role.admin.hint":
+    "управляет участниками, брендом и всеми artifacts и может выносить artifacts из workspace",
+  "role.editor.hint": "публикует artifacts workspace и управляет ими",
+  "role.member.hint": "читает и комментирует то, чем с ним поделились",
+  "shell.membersLink": "Участники",
+  "list.descriptionWorkspace":
+    "Всё, что опубликовано в {workspace}, с состоянием, доступом и активностью.",
+  "publish.descriptionWorkspace":
+    "Публикация в {workspace}: HTML-файл, папка, ZIP или документ. Ничего не загружается, пока вы не проверите.",
+  "publish.review.accessNewWorkspace":
+    "Администраторы и редакторы {workspace}. После публикации вы сможете поделиться им на странице artifact.",
+  "usage.descriptionWorkspace":
+    "Квоты {workspace}, общие для всех, кто там публикует, и трафик за этот месяц.",
+  "branding.descriptionWorkspace":
+    "Бренд, который панель просмотрщика показывает на artifacts {workspace}.",
+  "detail.section.space": "Пространство",
+  "transfer.title": "Перенести в другое пространство",
+  "transfer.description":
+    "Этот artifact находится в {space}. Перенесите его в личное пространство или в workspace, где вы редактор или администратор.",
+  "transfer.destination": "Куда",
+  "transfer.move": "Перенести artifact",
+  "transfer.blocked": "Этот artifact сейчас нельзя перенести",
+  "transfer.notAdmin": "Выносить artifacts из {workspace} может только его администратор.",
+  "transfer.domain":
+    "У этого artifact есть собственный домен, действующий или ожидающий. Удалите его в разделе «Доступ», затем перенесите artifact.",
+  "transfer.none":
+    "Нет другого пространства, куда его можно перенести. Переносить artifacts можно в личное пространство и в workspaces, где вы редактор или администратор.",
+  "transfer.confirm.title": "Перенести «{name}» в {space}?",
+  "transfer.confirm.stays":
+    "Не меняется: его ID, ссылка, версии, добавленные вами люди и комментарии.",
+  "transfer.confirm.changes":
+    "Меняется: им управляют администраторы и редакторы {space}, они видят, кто его открывал, в том числе до переноса, и он учитывается в использовании {space}.",
+  "transfer.confirm.plan":
+    "Закрепления и ссылки для доступа следуют тарифу {space}: если он их не включает, они перестают работать.",
+  "transfer.confirm.blocks":
+    "Перенос не выполнится, если в {space} нет для него места или ещё открыта загрузка.",
+  "transfer.confirm.action": "Перенести",
+  "transfer.done": "«{name}» перенесён в {space}.",
+  "transfer.failed": "Artifact не перенесён",
+  "transfer.error.quota_exceeded":
+    "В {space} нет места для этого artifact. Сначала освободите там активный слот или хранилище.",
+  "transfer.error.version_conflict":
+    "Загрузка в этот artifact ещё открыта, или он тем временем изменился. Завершите или отмените загрузку, обновите страницу и попробуйте снова.",
+  "transfer.error.invalid_input":
+    "У этого artifact есть собственный домен, или он уже в этом пространстве. Сначала удалите домен.",
+  "transfer.error.forbidden":
+    "Ваша роль не позволяет выносить этот artifact из его пространства или переносить в это.",
+  "transfer.error.artifact_archived": "Перенести можно только активный или архивный artifact.",
+  "transfer.error.not_found": "Это пространство или этот artifact вам больше недоступны.",
+  "members.title": "Участники",
+  "members.description":
+    "Люди в {workspace} и что может каждый. Администраторы управляют участниками и приглашениями.",
+  "members.personal.title": "В личном пространстве нет участников",
+  "members.personal.body":
+    "Участники есть у workspaces. Выберите workspace в меню пространств, чтобы увидеть его участников.",
+  "members.loading": "Загрузка участников",
+  "members.loadFailed": "Не удалось загрузить участников",
+  "members.seats": "Места",
+  "members.seatsUsed": "Занятые места",
+  "members.seatsValue": "{used} из {limit} ({percent})",
+  "members.seatsHint":
+    "Каждый участник и каждое ожидающее приглашение занимают место. Сколько их, определяет тариф workspace.",
+  "members.listTitle": "Люди",
+  "members.count":
+    "{count, plural, one {# участник} few {# участника} many {# участников} other {# участника}}",
+  "members.caption": "Участники {workspace}",
+  "members.you": "Вы",
+  "members.joined": "С нами с {date}",
+  "members.roleLabel": "Роль: {name}",
+  "members.remove": "Удалить",
+  "members.removeNamed": "Удалить: {name}",
+  "members.leave": "Покинуть workspace",
+  "members.lastAdmin":
+    "Единственный администратор: сначала назначьте администратором другого участника, затем меняйте эту роль, удаляйте или уходите.",
+  "members.confirmRemove.title": "Удалить {name} из {workspace}?",
+  "members.confirmRemove.body":
+    "Человек сразу теряет доступ к artifacts этого workspace. Опубликованное им остаётся в workspace.",
+  "members.confirmRemove.action": "Удалить участника",
+  "members.confirmLeave.title": "Покинуть {workspace}?",
+  "members.confirmLeave.body":
+    "Вы сразу потеряете доступ к его artifacts. Чтобы вернуться, администратор должен пригласить вас снова.",
+  "members.roleChanged": "Теперь у {name} роль «{role}».",
+  "members.removed": "{name} удалён(а).",
+  "members.left": "Вы покинули {workspace}.",
+  "members.actionFailed": "Изменение не сохранено",
+  "members.error.forbidden":
+    "Ваша роль тем временем изменилась: участниками и приглашениями управляют только администраторы. Обновите страницу.",
+  "members.error.version_conflict":
+    "Участник тем временем изменился. Обновите страницу и попробуйте снова.",
+  "members.error.not_found": "Этого человека больше нет в workspace.",
+  "invite.title": "Пригласить",
+  "invite.description":
+    "Мы отправим по почте ссылку, действующую 7 дней. Человек присоединится, войдя с этим адресом.",
+  "invite.email": "Электронная почта",
+  "invite.role": "Роль",
+  "invite.send": "Отправить приглашение",
+  "invite.sent": "Приглашение отправлено на {email}.",
+  "invite.emailInvalid": "Введите адрес электронной почты, например name@example.com.",
+  "invite.alreadyMember": "{email} уже участник.",
+  "invite.full.title": "Нет свободных мест",
+  "invite.failed": "Приглашение не отправлено",
+  "invite.error.invalid_input":
+    "Этот адрес уже принадлежит участнику или это неверный адрес электронной почты.",
+  "invite.error.rate_limited": "Слишком много приглашений. Подождите немного и попробуйте снова.",
+  "invite.error.capacity_unavailable":
+    "Portifact уже отправил все письма с приглашениями, возможные в этом месяце. Попробуйте в следующем месяце.",
+  "invite.error.not_found": "Этого приглашения больше нет. Обновите страницу.",
+  "pending.title": "Ожидающие приглашения",
+  "pending.description":
+    "Каждое занимает место, пока его не примут, не отклонят, не отзовут или пока не истечёт срок.",
+  "pending.loading": "Загрузка приглашений",
+  "pending.loadFailed": "Не удалось загрузить приглашения",
+  "pending.empty": "Ожидающих приглашений нет.",
+  "pending.detail": "{role}, пригласил(а) {inviter}, истекает {date}",
+  "pending.unknownInviter": "бывший участник",
+  "pending.resend": "Пригласить снова",
+  "pending.resendNamed": "Пригласить снова: {email}",
+  "pending.revoke": "Отозвать",
+  "pending.revokeNamed": "Отозвать: {email}",
+  "pending.confirmRevoke.title": "Отозвать приглашение для {email}?",
+  "pending.confirmRevoke.body": "Ссылка перестанет работать, а место снова освободится.",
+  "pending.confirmRevoke.action": "Отозвать приглашение",
+  "pending.revoked": "Приглашение для {email} отозвано.",
+  "pending.resent": "Новое приглашение отправлено на {email}. Прежняя ссылка больше не работает.",
+  "invitation.title": "Приглашение в workspace",
+  "invitation.signedOut.body":
+    "Вас пригласили в workspace на Portifact. Войдите с адресом электронной почты, на который пришло приглашение, и примите или отклоните его здесь.",
+  "invitations.signedOut.body":
+    "Войдите, чтобы увидеть приглашения в workspaces, отправленные на ваш адрес.",
+  "invitation.signIn": "Войти, чтобы ответить",
+  "invitation.loading": "Загрузка приглашения",
+  "invitation.loadFailed": "Не удалось загрузить приглашение",
+  "invitation.invited.body": "{inviter} приглашает вас в {workspace} с ролью «{role}».",
+  "invitation.invited.bodyNoInviter": "Вас пригласили в {workspace} с ролью «{role}».",
+  "invitation.expiresTerm": "Истекает",
+  "invitation.accept": "Принять",
+  "invitation.acceptNamed": "Принять приглашение в {workspace}",
+  "invitation.decline": "Отклонить",
+  "invitation.declineNamed": "Отклонить приглашение в {workspace}",
+  "invitation.confirmDecline.title": "Отклонить приглашение в {workspace}?",
+  "invitation.confirmDecline.body":
+    "Ссылка перестанет работать. Администратор сможет пригласить вас снова позже.",
+  "invitation.confirmDecline.action": "Отклонить приглашение",
+  "invitation.accepted": "Вы присоединились к {workspace}.",
+  "invitation.declined": "Вы отклонили приглашение в {workspace}.",
+  "invitation.failed": "Ваш ответ не сохранён",
+  "invitation.other.title": "Это приглашение для другого адреса",
+  "invitation.other.body":
+    "Оно отправлено на {email}, а вы вошли как {current}. Войдите с {email}, чтобы ответить.",
+  "invitation.other.unverified":
+    "Оно отправлено на {email}, адрес этого аккаунта, который ещё не подтверждён. Выйдите и снова войдите с кодом, отправленным на {email}.",
+  "invitation.switch": "Войти с другим аккаунтом",
+  "invitation.missing.title": "Это приглашение больше не работает",
+  "invitation.missing.body":
+    "Срок истёк, его отозвали или уже использовали. Попросите администратора workspace пригласить вас снова.",
+  "invitations.title": "Приглашения",
+  "invitations.description":
+    "Приглашения в workspaces, отправленные на ваш подтверждённый адрес электронной почты.",
+  "invitations.loading": "Загрузка приглашений",
+  "invitations.loadFailed": "Не удалось загрузить приглашения",
+  "invitations.empty.title": "Ожидающих приглашений нет",
+  "invitations.empty.body":
+    "Когда администратор пригласит ваш адрес в workspace, приглашение появится здесь и в вашей почте.",
+  "invitations.others": "Другие приглашения",
+  "invitations.notice.title": "Вас пригласили в workspace",
+  "invitations.notice.body":
+    "{count, plural, one {У вас # ожидающее приглашение.} few {У вас # ожидающих приглашения.} many {У вас # ожидающих приглашений.} other {У вас # ожидающего приглашения.}}",
+  "invitations.notice.link": "Открыть приглашения",
+  "workspaces.title": "Workspaces",
+  "workspaces.description":
+    "Workspaces, в которых вы состоите, и ваша роль в каждом. Администраторы приглашают людей и меняют роли на странице «Участники» каждого workspace.",
+  "workspaces.loading": "Загрузка workspaces",
+  "workspaces.loadFailed": "Не удалось загрузить workspaces",
+  "workspaces.none":
+    "Вы не состоите ни в одном workspace. Portifact создаёт workspaces для команд, а администратор приглашает вас по почте.",
+  "workspaces.leave": "Покинуть",
+  "workspaces.leaveNamed": "Покинуть {workspace}",
+  "account.delete.soleAdmin.title": "Вы единственный администратор workspace",
+  "account.delete.soleAdmin.body":
+    "У workspace должен остаться администратор. Назначьте администратором другого участника в каждом из этих workspaces или попросите Portifact по адресу hello@portifact.com удалить их, а затем удалите аккаунт.",
+  "account.delete.soleAdmin.members": "Участники {workspace}",
+  "webhooks.personalOnly.title": "Webhooks настраиваются в личном пространстве",
+  "webhooks.personalOnly.body":
+    "Пока webhooks отправляют события только об artifacts вашего личного пространства. Перейдите в него, чтобы управлять ими.",
+  "shell.planLink": "Тариф",
+  "plan.title": "Тариф",
+  "plan.description":
+    "Тариф вашего личного пространства, его лимиты и функции, а также другие тарифы.",
+  "plan.descriptionWorkspace": "Тариф {workspace}, его лимиты и функции, а также другие тарифы.",
+  "plan.current.hint":
+    "Что есть у этого пространства сейчас. На странице «Использование» видно, сколько из этого занято.",
+  "plan.current.limits": "Лимиты текущего тарифа",
+  "plan.current.usageLink": "Открыть использование",
+  "plan.loading": "Загрузка тарифа",
+  "plan.error": "Не удалось загрузить тариф.",
+  "plan.compare.section": "Все тарифы",
+  "plan.requestNote": "Запросить другой тариф могут только администраторы {workspace}.",
+  "plan.hidden": "Тариф {workspace} видят его редакторы и администраторы.",
+  "usage.plan.compare": "Сравнить тарифы",
+  "shell.auditLink": "Журнал аудита",
+  "audit.title": "Журнал аудита",
+  "audit.description": "Кто и что изменил в этом пространстве. Изменения хранятся {days} дн.",
+  "audit.planTitle": "Журнал аудита входит в платный тариф",
+  "audit.planRequired":
+    "Журнал аудита входит в тариф {plan}. Изменения уже записываются, поэтому после подключения тарифа здесь появятся последние 90 дней.",
+  "audit.forbidden.title": "Журнал аудита могут читать только администраторы",
+  "audit.forbidden.body":
+    "Спросите администратора этого рабочего пространства, если нужно узнать, кто что изменил.",
+  "audit.loading": "Загрузка журнала аудита",
+  "audit.error.title": "Не удалось загрузить журнал аудита",
+  "audit.empty.title": "Изменений не записано",
+  "audit.empty.body": "За последние {days} дн. ничего не подходит под эти фильтры.",
+  "audit.caption": "Изменения в этом пространстве, сначала новые",
+  "audit.column.when": "Когда",
+  "audit.column.who": "Кто",
+  "audit.column.what": "Что",
+  "audit.column.on": "Где",
+  "audit.loadMore": "Показать более ранние изменения",
+  "audit.filters": "Фильтры журнала аудита",
+  "audit.filter.kind": "Вид изменения",
+  "audit.filter.actor": "Кто",
+  "audit.filter.period": "Период",
+  "audit.group.all": "Все изменения",
+  "audit.group.access": "Доступ и общий доступ",
+  "audit.group.lifecycle": "Публикация и жизненный цикл",
+  "audit.group.integrations": "Домены, вебхуки и бренд",
+  "audit.group.members": "Участники, токены и тариф",
+  "audit.actor.all": "Кто угодно",
+  "audit.period.day": "Последние 24 часа",
+  "audit.period.week": "Последние 7 дней",
+  "audit.period.month": "Последние 30 дней",
+  "audit.period.all": "Всё сохранённое",
+  "audit.actor.removed": "Удалённый участник",
+  "audit.actor.token": "{label} (сервисный токен)",
+  "audit.actor.tokenGone": "Отозванный сервисный токен",
+  "audit.actor.operator": "Оператор Portifact",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "Удалённый artifact",
+  "audit.target.space": "Это пространство",
+  "audit.target.invitation": "Приглашение",
+  "audit.kind.published": "Опубликовал(а) версию {version}",
+  "audit.kind.publishedFirst": "Создал(а) с версией {version}",
+  "audit.kind.rolledBack": "Вернул(а) файлы версии {from}, теперь это версия {version}",
+  "audit.kind.renewed": "Продлил(а)",
+  "audit.kind.archived": "Архивировал(а)",
+  "audit.kind.restored": "Восстановил(а)",
+  "audit.kind.deleted": "Удалил(а)",
+  "audit.kind.pinned": "Закрепил(а)",
+  "audit.kind.unpinned": "Открепил(а)",
+  "audit.kind.transferredIn":
+    "Перенёс(ла) сюда из {from, select, workspace {рабочего пространства} other {личного пространства}}",
+  "audit.kind.transferredOut":
+    "Перенёс(ла) в {to, select, workspace {рабочее пространство} other {личное пространство}}",
+  "audit.kind.accessChanged": "Изменил(а) доступ: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {сделал(а) публичным} authenticated {открыл(а) всем, кто вошёл} other {ограничил(а) читателями из списка}}",
+  "audit.access.readersAdded":
+    "{count, plural, one {добавил(а) # читателя} few {добавил(а) # читателей} many {добавил(а) # читателей} other {добавил(а) # читателя}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {удалил(а) # читателя} few {удалил(а) # читателей} many {удалил(а) # читателей} other {удалил(а) # читателя}}",
+  "audit.access.domains": "из {domains}",
+  "audit.access.exceptions":
+    "{count, plural, one {изменил(а) видимость комментариев для # читателя} few {изменил(а) видимость комментариев для # читателей} many {изменил(а) видимость комментариев для # читателей} other {изменил(а) видимость комментариев для # читателя}}",
+  "audit.access.bar":
+    "{on, select, true {включил(а) панель Portifact} other {выключил(а) панель Portifact}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {показал(а) комментарии всем} other {показал(а) комментарии только владельцу}}",
+  "audit.access.indexable":
+    "{on, select, true {разрешил(а) индексацию} other {запретил(а) индексацию}}",
+  "audit.access.embeddable":
+    "{on, select, true {разрешил(а) встраивание} other {запретил(а) встраивание}}",
+  "audit.kind.shareLinkCreated":
+    "Создал(а) ссылку для общего доступа{password, select, true { с паролем} other {}}{expires, select, true {, у которой есть срок} other {}}",
+  "audit.kind.shareLinkRevoked": "Отозвал(а) ссылку для общего доступа",
+  "audit.kind.domainAttached": "Подключил(а) домен {hostname}",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {Удалил(а) домен {hostname}} operator {Portifact удалил домен {hostname}} other {Домен {hostname} отключён автоматически}}",
+  "audit.kind.webhookCreated":
+    "Добавил(а) {format, select, slack {вебхук Slack} discord {вебхук Discord} other {подписанный вебхук}} на {host}",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Включил(а) вебхук} false {Выключил(а) вебхук} other {Изменил(а) события вебхука}}",
+  "audit.kind.webhookRemoved": "Удалил(а) вебхук",
+  "audit.kind.brandChanged":
+    "{logo, select, true {Изменил(а) логотип бренда} other {Изменил(а) название, цвет или ссылку бренда}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {Удалил(а) логотип бренда} other {Удалил(а) бренд}}",
+  "audit.kind.memberInvited": "Пригласил(а) пользователя из {domain} как {role}",
+  "audit.kind.invitationRevoked": "Отозвал(а) приглашение",
+  "audit.kind.memberJoined": "{member} присоединился(-ась) как {role}",
+  "audit.kind.roleChanged": "Изменил(а) роль {member} с {from} на {to}",
+  "audit.kind.memberRemoved": "Удалил(а) {member}",
+  "audit.kind.memberLeft": "{member} вышел(-ла)",
+  "audit.kind.planGranted":
+    "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}}",
+  "audit.kind.planGrantedUntil":
+    "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}} до {until}",
+  "audit.kind.planRemoved": "Удалил тариф, пространство снова на Free",
+  "audit.kind.tokenCreated":
+    "Создал сервисный токен, который истекает через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+  "audit.kind.tokenRevoked": "Отозвал сервисный токен",
+  "audit.kind.emailDomainVerified": "Подтвердил(а) почтовый домен {domain}",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {Удалил(а) почтовый домен {domain}} claimed {Почтовый домен {domain} удалён, потому что его подтвердил другой workspace} other {Почтовый домен {domain} удалён, потому что отсутствует его DNS-запись}}",
+  "shell.serviceTokensLink": "Сервисные токены",
+  "tokens.title": "Сервисные токены",
+  "tokens.description":
+    "Учётные данные, с которыми автоматизация, например CI, публикует в {workspace} без входа человека. У каждого токена есть роль, права и срок действия, и он перестаёт работать, как только вы его отзовёте.",
+  "tokens.personal.title": "Сервисные токены принадлежат workspace",
+  "tokens.personal.body":
+    "Переключитесь на workspace, которым вы управляете, чтобы создать для него токены.",
+  "tokens.adminOnly.title": "Сервисными токенами управляют только администраторы",
+  "tokens.adminOnly.body": "Попросите токен у администратора этого workspace.",
+  "tokens.planTitle": "Сервисных токенов нет в тарифе этого workspace",
+  "tokens.planRequired":
+    "Создание сервисных токенов входит в тариф {plan}. Существующие токены видны и их можно отозвать, но они не работают, пока тариф снова их не включит.",
+  "tokens.list.title": "Токены",
+  "tokens.loading": "Загрузка сервисных токенов",
+  "tokens.loadFailed": "Не удалось загрузить сервисные токены",
+  "tokens.empty.title": "Сервисных токенов пока нет",
+  "tokens.empty.body":
+    "Создайте токен для задачи CI, сохраните его как секрет PORTIFACT_TOKEN и запустите CLI portifact.",
+  "tokens.secret.title": "Скопируйте токен сейчас",
+  "tokens.secret.body":
+    "Он показывается только один раз. Сохраните его как секрет вашего CI, например PORTIFACT_TOKEN. Любой, у кого он есть, может делать то, что разрешают его права, пока срок не истечёт или вы его не отзовёте.",
+  "tokens.secret.label": "Сервисный токен {label}",
+  "tokens.secret.copy": "Скопировать токен",
+  "tokens.secret.done": "Я сохранил его",
+  "tokens.create.title": "Создать токен",
+  "tokens.create.hint":
+    "Он действует от имени workspace, никогда от вашего, и никогда не бывает участником.",
+  "tokens.create.limit":
+    "В этом workspace уже максимум токенов ({limit}). Отзовите один, чтобы создать новый.",
+  "tokens.create.label": "Название",
+  "tokens.create.labelHint": "Где он используется, например предпросмотры GitHub",
+  "tokens.create.labelError": "Введите название длиной от 1 до 80 символов.",
+  "tokens.create.scopes": "Что ему разрешено",
+  "tokens.create.scopesError": "Выберите хотя бы одно.",
+  "tokens.create.expiry": "Истекает через",
+  "tokens.create.expiryHint": "Когда срок истечёт, его заменит новый токен.",
+  "tokens.create.days": "{days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+  "tokens.create.restriction": "Ограничить",
+  "tokens.create.prefix": "Префикс ключа",
+  "tokens.create.prefixHint":
+    "Каждый artifact, который он публикует, должен иметь ключ с таким началом, например pr-.",
+  "tokens.create.prefixError":
+    "Используйте буквы, цифры, точки, подчёркивания, косые черты или дефисы, начиная с буквы или цифры.",
+  "tokens.create.submit": "Создать токен",
+  "tokens.scope.read": "Чтение",
+  "tokens.scope.readHint": "Список artifacts и их версий",
+  "tokens.scope.write": "Публикация",
+  "tokens.scope.writeHint": "Публиковать новые artifacts и версии, продлевать и архивировать",
+  "tokens.scope.share": "Доступ",
+  "tokens.scope.shareHint":
+    "Менять, кто может открыть artifact, в том числе делать его публичным. Утёкший токен может раскрыть artifacts.",
+  "tokens.scope.delete": "Удаление",
+  "tokens.scope.deleteHint":
+    "Удалять artifacts навсегда. Утёкший токен может их уничтожить; ограничьте его префиксом ключа.",
+  "tokens.restriction.none": "Все artifacts workspace",
+  "tokens.restriction.noneHint": "Токен достаёт до каждого artifact этого workspace.",
+  "tokens.restriction.own": "Artifacts, которые он создал",
+  "tokens.restriction.ownHint":
+    "Всё, что публикуют люди или другие токены, для него как будто не существует.",
+  "tokens.restriction.key": "Artifacts с префиксом ключа",
+  "tokens.restriction.keyHint":
+    "Только artifacts, опубликованные с ключом под выбранным префиксом.",
+  "tokens.created": "Токен {label} создан",
+  "tokens.actionFailed": "Не получилось",
+  "tokens.reach.none": "Достаёт до каждого artifact workspace",
+  "tokens.reach.own": "Достаёт только до созданных им artifacts",
+  "tokens.reach.key": "Достаёт только до ключей, начинающихся с {prefix}",
+  "tokens.expired": "Истёк",
+  "tokens.revoke": "Отозвать",
+  "tokens.revokeLabel": "Отозвать {label}",
+  "tokens.scopes": "Права: {scopes}",
+  "tokens.expiresOn": "Истекает {date}",
+  "tokens.expiredOn": "Истёк {date}",
+  "tokens.lastUsed": "Последнее использование {when}",
+  "tokens.neverUsed": "Не использовался",
+  "tokens.createdBy": "Создал {name} {date}",
+  "tokens.createdOn": "Создан {date}",
+  "tokens.revoked": "Токен {label} отозван",
+  "tokens.confirm.title": "Отозвать {label}?",
+  "tokens.confirm.body":
+    "Всё, что его использует, перестанет работать со следующего запроса. Это нельзя отменить.",
+  "access.workspace": "Весь workspace",
+  "access.domain": "Workspace и его почтовые домены",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Почтовый домен",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} после входа, в любой роли.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} и все, кто вошел с подтвержденным адресом в {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {# участник этого workspace} few {Все # участника этого workspace} many {Все # участников этого workspace} other {Все # участника этого workspace}} и все, кто вошел с подтвержденным адресом в почтовых доменах workspace. Пока ни один домен не подтвержден: администратор добавляет его на странице «Участники».",
+  "accessSettings.mode.listOnlyRestricted":
+    "Люди из списка ниже могут открыть его, только пока доступ ограничен.",
+  "accessSettings.mode.workspacePlan": "Входит в план {plan}.",
+  "accessSettings.lapsed.title": "Пока этот artifact могут открыть только участники",
+  "accessSettings.lapsed.body":
+    "План workspace сейчас не включает доступ для почтовых доменов, поэтому только его участники могут открыть этот artifact, пока план снова его не включит. Ничего не изменено.",
+  "emailDomains.title": "Почтовые домены",
+  "emailDomains.description":
+    "Любой, кто вошел в Portifact с подтвержденным адресом в одном из этих доменов, может открыть artifacts workspace, к которым открыт доступ для его почтовых доменов. Учитывается только точный домен, без поддоменов.",
+  "emailDomains.loading": "Загрузка почтовых доменов",
+  "emailDomains.loadFailed": "Не удалось загрузить почтовые домены",
+  "emailDomains.rules":
+    "Подтвердите каждый домен записью DNS. Публичные почтовые сервисы (например, gmail.com), общие суффиксы и домены Portifact не принимаются. Portifact проверяет запись каждый день и удаляет домен после 3 неудачных проверок подряд.",
+  "emailDomains.addFailed": "Домен не добавлен",
+  "emailDomains.add": "Добавить домен",
+  "emailDomains.domain": "Домен",
+  "emailDomains.domainHint":
+    "Собственный домен вашей организации, например example.com. Не более {limit} доменов.",
+  "emailDomains.domainRequired": "Введите домен.",
+  "emailDomains.empty": "Почтовых доменов пока нет.",
+  "emailDomains.added": "{domain} добавлен. Создайте его запись TXT, затем подтвердите.",
+  "emailDomains.planTitle": "Почтовые домены входят в платный план",
+  "emailDomains.plan":
+    "Подтверждение почтовых доменов входит в план {plan}. Уже добавленные домены остаются, и их по-прежнему можно удалить.",
+  "emailDomains.state.verified": "Подтвержден",
+  "emailDomains.state.pending": "Ожидает запись DNS",
+  "emailDomains.verifiedOn": "Подтвержден {date}.",
+  "emailDomains.pendingUntil": "Создайте запись до {date}, иначе заявка будет отменена.",
+  "emailDomains.failing.title": "Запись DNS отсутствует",
+  "emailDomains.failing.body":
+    "{count, plural, one {Запись отсутствовала при последней ежедневной проверке.} few {Запись отсутствовала при последних # ежедневных проверках подряд.} many {Запись отсутствовала при последних # ежедневных проверках подряд.} other {Запись отсутствовала при последних # ежедневных проверках подряд.}} {left, plural, one {Еще # неудачная проверка, и домен будет удален.} few {Еще # неудачные проверки, и домен будет удален.} many {Еще # неудачных проверок, и домен будет удален.} other {Еще # неудачной проверки, и домен будет удален.}}",
+  "emailDomains.actionFailed": "Изменение не сохранено",
+  "emailDomains.recordHint":
+    "Создайте эту запись у вашего DNS-провайдера. Она может появиться не сразу.",
+  "emailDomains.verify": "Подтвердить",
+  "emailDomains.verifyNamed": "Подтвердить {domain}",
+  "emailDomains.remove": "Удалить",
+  "emailDomains.removeNamed": "Удалить {domain}",
+  "emailDomains.verified": "{domain} подтвержден.",
+  "emailDomains.removed": "{domain} удален.",
+  "emailDomains.confirmRemove.title": "Удалить {domain}?",
+  "emailDomains.confirmRemove.body":
+    "Те, кто открывает artifacts только благодаря этому домену, потеряют доступ в течение минуты. Позже его можно добавить снова с новой записью.",
+  "emailDomains.confirmRemove.action": "Удалить домен",
+  "emailDomains.error.quota_exceeded": "У workspace уже максимальное число почтовых доменов.",
+  "emailDomains.error.version_conflict":
+    "Домен тем временем изменился, или другой workspace все еще подтверждает его в своем DNS. Обновите страницу и попробуйте снова.",
+  "emailDomains.error.capacity_unavailable":
+    "Сейчас не удалось проверить DNS. Попробуйте чуть позже.",
+  "emailDomains.error.not_found": "Этого домена больше нет в списке.",
+  "emailDomains.error.refused":
+    "Этот домен нельзя добавить. Используйте собственный домен вашей организации: публичные почтовые сервисы, общие суффиксы, зарезервированные имена и домены Portifact не принимаются.",
+  "emailDomains.error.recordMissing":
+    "Запись TXT со значением этого домена пока не найдена. Изменения DNS могут появиться не сразу; попробуйте позже. Заявку старше 7 дней нужно добавить заново.",
+  "transfer.confirm.accessReset":
+    "Сейчас доступ к нему открыт для workspace или почтового домена, поэтому он станет ограниченным: читать его смогут только люди из списка читателей.",
 } satisfies Catalog;

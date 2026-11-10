@@ -12,7 +12,8 @@
     "./email-delivery": "./src/email-delivery.ts",
     "./locales": "./src/locales.ts",
     "./theme": "./src/theme.ts",
-    "./preferences": "./src/preferences.ts"
+    "./preferences": "./src/preferences.ts",
+    "./plans": "./src/plans.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

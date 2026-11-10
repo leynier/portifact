@@ -2,12 +2,12 @@
 // service for every client), the expiry notice emails, the data export and, in the danger zone,
 // account deletion.
 import {
-  type AccessMode,
   type AccountSettings,
   type AccountSettingsUpdate,
   type CommentVisibility,
   type DefaultAnnotations,
   LIMITS,
+  type PersonalAccessMode,
 } from "@portifact/contracts";
 import { Callout, PageHeader, SectionedPage, ThemeSwitcher } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
@@ -20,11 +20,12 @@ import { publicAvailableFrom } from "./access-settings.tsx";
 import { AccountData, DeleteAccount, Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
 import { LanguageChoice, SETTINGS_QUERY } from "./language.tsx";
+import { MyWorkspaces } from "./my-workspaces.tsx";
 import { ACCOUNT_QUERY, themeLabels } from "./shell.tsx";
 
 export { SETTINGS_QUERY } from "./language.tsx";
 
-const MODES: readonly AccessMode[] = ["restricted", "authenticated", "public"];
+const MODES: readonly PersonalAccessMode[] = ["restricted", "authenticated", "public"];
 const ANNOTATIONS: readonly DefaultAnnotations[] = ["off", "open"];
 const VISIBILITIES: readonly CommentVisibility[] = ["owner", "everyone"];
 
@@ -69,6 +70,7 @@ export function SettingsScreen() {
           { id: "appearance", label: t("settings.appearance.title") },
           { id: "defaults", label: t("settings.defaults.title") },
           { id: "notices", label: t("settings.notices.title") },
+          { id: "workspaces", label: t("workspaces.title") },
           { id: "data", label: t("account.data.title") },
           { id: "delete", label: t("settings.danger.title") },
         ]}
@@ -79,6 +81,7 @@ export function SettingsScreen() {
         <Appearance />
         <ArtifactDefaults />
         <EmailNotices />
+        <MyWorkspaces />
         <AccountData />
         <DeleteAccount email={account?.email ?? ""} />
       </SectionedPage>

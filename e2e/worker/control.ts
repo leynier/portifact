@@ -6,6 +6,8 @@ import {
   commitPublish,
   createAnnotationThread,
   createShareLink,
+  createWorkspace,
+  customDomainsServing,
   issueReviewHandoff,
   preparePublish,
   revokeShareLink,
@@ -62,10 +64,12 @@ interface UserInput {
 
 interface PublishInput {
   ownerId: string;
+  /** A workspace to publish into as `ownerId`; the personal space without it. */
+  targetOwnerId?: string;
   type: "site" | "markdown" | "text";
   name: string;
   files: Record<string, string>;
-  accessMode?: "public" | "authenticated" | "restricted";
+  accessMode?: "public" | "authenticated" | "restricted" | "workspace" | "domain";
   readers?: string[];
   annotations?: "off" | "open" | "locked";
   /** The Portifact bar; on by default, like a new artifact. */
@@ -113,6 +117,15 @@ interface ClockInput {
   artifactId: string;
   /** How far ahead of real time the content Worker's clock runs for it; 0 puts it back. */
   offsetMs: number;
+}
+
+interface WorkspaceInput {
+  slug: string;
+  name: string;
+  adminUserId: string;
+  /** The plan the operator grants it, `team` with 10 seats by default. */
+  seats?: number;
+  members?: { userId: string; role: "admin" | "editor" | "member" }[];
 }
 
 interface SqlInput {
@@ -246,6 +259,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     );
     const prepared = await preparePublish(db, {
       userId: publish.ownerId,
+      ...(publish.targetOwnerId ? { targetOwnerId: publish.targetOwnerId } : {}),
       type: publish.type,
       name: publish.name,
       entrypoint: entries[0]?.[0] ?? "index.html",
@@ -258,7 +272,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     if (!prepared.ok) return Response.json(prepared, { status: 400 });
     for (const [index, [, body]] of entries.entries()) {
       const hash = files[index]?.sha256 as string;
-      await env.ARTIFACTS.put(`objects/${publish.ownerId}/${hash}`, body, { sha256: hash });
+      await env.ARTIFACTS.put(`objects/${publish.targetOwnerId ?? publish.ownerId}/${hash}`, body, {
+        sha256: hash,
+      });
     }
     const committed = await commitPublish(db, env.ARTIFACTS, {
       userId: publish.ownerId,
@@ -317,6 +333,8 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       authSessionId: sessionId,
       now,
       ...(kind ? { kind } : {}),
+      contentDomain: env.CONTENT_DOMAIN,
+      customDomains: customDomainsServing(env),
     });
     if (!issued.ok) return Response.json(issued, { status: 400 });
     return Response.json({ code: issued.value.code, sessionTag: issued.value.sessionTag });
@@ -437,13 +455,52 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
 
   // Custom domains: what DNS holds and what Cloudflare reports, as a customer and Cloudflare would.
   if (path === "/domains") {
-    const { txt, activate } = input as {
+    const { txt, activate, attach } = input as {
       txt?: { name: string; value: string };
       activate?: string;
+      /** An active domain as the jobs leave it, without going through the dashboard. */
+      attach?: { hostname: string; artifactId: string };
     };
     if (txt) e2eDomains.publishTxt(txt.name, txt.value);
     if (activate) e2eDomains.activate(activate);
+    if (attach) {
+      const now = Date.now();
+      const inserted = await env.DB.prepare(
+        `INSERT INTO custom_domains (hostname, owner_id, artifact_id, region, state, token, verified_at, checked_at)
+         SELECT ?, owner_id, id, 'default', 'active', ?, ?, ? FROM artifacts WHERE id = ?`,
+      )
+        .bind(attach.hostname, "e".repeat(32), now, now, attach.artifactId)
+        .run();
+      if (inserted.meta.changes !== 1) return new Response("Not found", { status: 404 });
+      await env.DB.prepare("UPDATE artifacts SET custom_host = ? WHERE id = ?")
+        .bind(attach.hostname, attach.artifactId)
+        .run();
+    }
     return Response.json({ ok: true });
+  }
+
+  // A workspace as the operator tool creates it (`workspace-create`, then `set-plan`), with any
+  // other members inserted as the services' tests do. Test-only: no product surface creates one.
+  if (path === "/workspace") {
+    const { slug, name, adminUserId, seats = 10, members = [] } = input as WorkspaceInput;
+    const created = await createWorkspace(db.global, { slug, name, adminUserId, now });
+    if (!created.ok) return Response.json(created, { status: 400 });
+    for (const member of members) {
+      await db.insert(schema.workspaceMembers).values({
+        workspaceId: created.value.id,
+        userId: member.userId,
+        role: member.role,
+        updatedAt: now,
+      });
+    }
+    await db.insert(schema.ownerPlans).values({
+      ownerId: created.value.id,
+      plan: "team",
+      seats,
+      grantedBy: "e2e",
+      updatedAt: now,
+    });
+    return Response.json({ id: created.value.id, slug, name });
   }
 
   if (path === "/sql") {

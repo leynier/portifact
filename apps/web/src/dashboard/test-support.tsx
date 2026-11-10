@@ -16,6 +16,8 @@ import {
   ArtifactListQuery,
   type ArtifactStatsView,
   type ArtifactSummary,
+  type AuditEventView,
+  type AuditLogView,
   type BrandSettings,
   type BrandUpdate,
   type BrowserSession,
@@ -27,14 +29,20 @@ import {
   DocumentPreviewRequest,
   type ErrorCode,
   type FileChange,
+  type IncomingInvitationView,
+  type InvitationLookup,
+  type InvitationView,
   LIMITS,
   type ManifestFile,
+  type OwnerView,
   PLANS,
   type PreparedPublish,
   PublishRequest,
   planRequiredMessage,
   type ReviewStart,
   RollbackRequest,
+  ServiceTokenCreate,
+  type ServiceTokenView,
   type ShareLinkCreated,
   type ShareLinkList,
   type ShareLinkView,
@@ -45,6 +53,9 @@ import {
   type ViewerInfo,
   type WebhookAttempt,
   type WebhookView,
+  type WorkspaceDomainView,
+  type WorkspaceMemberView,
+  type WorkspaceView,
 } from "@portifact/contracts";
 import { diffText, textDiffEligibility } from "@portifact/domain";
 import { createMemoryHistory } from "@tanstack/react-router";
@@ -114,6 +125,7 @@ export function artifact(id: string, overrides: Partial<ArtifactSummary> = {}): 
     archivedAt: null,
     purgeAt: null,
     pinned: false,
+    key: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -320,7 +332,75 @@ export function fakeThread(
   };
 }
 
+/** A workspace of the fake server: its view for the caller, members, seats and invitations. */
+export interface FakeWorkspace {
+  view: WorkspaceView;
+  members: WorkspaceMemberView[];
+  seats: number;
+  invitations: InvitationView[];
+  usage: AccountUsageView;
+  branding: BrandSettings;
+  /** Service tokens (decision 0011) and whether the plan includes them. */
+  serviceTokens: ServiceTokenView[];
+  serviceTokensAvailable: boolean;
+  /** Its email domains (decision 0010); verifying one succeeds when `dns` holds its value. */
+  domains: WorkspaceDomainView[];
+  /** The TXT values the fake DNS answers, by record name. */
+  dns: Record<string, string[]>;
+  /** The plan includes workspace sharing. */
+  domainsAvailable: boolean;
+}
+
+export function workspace(
+  slug: string,
+  role: WorkspaceView["role"],
+  overrides: Partial<Omit<FakeWorkspace, "view">> & { name?: string } = {},
+): FakeWorkspace {
+  const { name = `Team ${slug}`, ...rest } = overrides;
+  return {
+    view: { slug, name, role, region: "default", createdAt: NOW },
+    members: [
+      {
+        userId: "u_ada",
+        name: "Ada",
+        email: "ada@example.test",
+        role,
+        joinedAt: NOW,
+        you: true,
+      },
+      ...(role === "admin"
+        ? []
+        : [
+            {
+              userId: "u_grace",
+              name: "Grace Admin",
+              email: "grace@example.test",
+              role: "admin" as const,
+              joinedAt: NOW,
+              you: false,
+            },
+          ]),
+    ],
+    seats: 10,
+    invitations: [],
+    usage: usageView(),
+    branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
+    serviceTokens: [],
+    serviceTokensAvailable: true,
+    domains: [],
+    dns: {},
+    domainsAvailable: true,
+    ...rest,
+  };
+}
+
 export interface FakeServer {
+  /** The caller's workspaces, by slug; empty by default. */
+  workspaces: Record<string, FakeWorkspace>;
+  /** Invitations addressed to the caller. */
+  incoming: IncomingInvitationView[];
+  /** Answers to the invitation link lookup, by token; unknown tokens answer `not_found`. */
+  links: Record<string, InvitationLookup>;
   artifacts: ArtifactSummary[];
   /** What the list says about each artifact's activity; missing ones get `DEFAULT_ACTIVITY`. */
   activity: Record<string, ArtifactActivity>;
@@ -367,6 +447,11 @@ export interface FakeServer {
   /** Access log entries by artifact ID, newest first, paged by `pageSize` like the Worker. */
   accessLogs: Record<string, AccessLogEntry[]>;
   /**
+   * Audit events by space (`""` for the personal space), newest first. A space without an entry
+   * answers `plan_required`; a workspace role other than admin answers `forbidden`.
+   */
+  audit: Record<string, AuditEventView[]>;
+  /**
    * Analytics by artifact ID. An artifact without an entry answers `plan_required`, like an
    * owner on the free plan; the range asked for comes back as `from`.
    */
@@ -401,6 +486,9 @@ export interface FakeServer {
 export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
   const failures: { key: string; failure: Failure; times: number }[] = [];
   const server: FakeServer = {
+    workspaces: {},
+    incoming: [],
+    links: {},
     artifacts,
     activity: {},
     viewers: {},
@@ -430,6 +518,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     webhooks: { list: [], available: true, attempts: {} },
     webhookTests: [],
     accessLogs: {},
+    audit: {},
     stats: {},
     shareLinks: {},
     shareLinksEnabled: true,
@@ -616,11 +705,12 @@ function publishingRoute(
         annotations: "off",
         currentVersionId: null,
         url: "",
-        owner: { kind: "personal" },
+        owner: ownerOf(server, url.searchParams.get("workspace")),
         expiresAt: null,
         archivedAt: null,
         purgeAt: null,
         pinned: false,
+        key: request.key ?? null,
         createdAt: NOW,
         updatedAt: NOW,
       };
@@ -843,7 +933,183 @@ function diffRoute(server: FakeServer, match: RegExpExecArray, url: URL): Respon
   return answer({ ...result, nextCursor: null });
 }
 
+/** Where a new artifact lives: the workspace a slug names, or the personal space. */
+function ownerOf(server: FakeServer, slug: string | null): OwnerView {
+  const found = slug ? server.workspaces[slug] : undefined;
+  return found
+    ? { kind: "workspace", slug: found.view.slug, name: found.view.name }
+    : { kind: "personal" };
+}
+
+const seatsOf = (w: FakeWorkspace) => ({
+  used: w.members.length + w.invitations.length,
+  limit: w.seats,
+});
+
+/** The workspace routes, answered like the Worker: a slug the caller is not in is missing. */
+function workspaceRoute(server: FakeServer, method: string, url: URL): Response | undefined {
+  const path = url.pathname;
+  const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
+  if (path === "/api/v1/workspaces" && method === "GET") {
+    return json({ items: Object.values(server.workspaces).map((w) => w.view) });
+  }
+  if (path === "/api/v1/account/invitations" && method === "GET") {
+    return json({ items: server.incoming });
+  }
+  const answered = /^\/api\/v1\/account\/invitations\/([^/]+)\/(accept|decline)$/.exec(path);
+  if (answered && method === "POST") {
+    const invitation = server.incoming.find((i) => i.id === answered[1]);
+    if (!invitation) return apiError("not_found", 404);
+    server.incoming = server.incoming.filter((i) => i !== invitation);
+    if (answered[2] === "decline") return new Response(null, { status: 204 });
+    const view: WorkspaceView = {
+      slug: invitation.workspace.slug,
+      name: invitation.workspace.name,
+      role: invitation.role,
+      region: "default",
+      createdAt: NOW,
+    };
+    server.workspaces[view.slug] = workspace(view.slug, view.role, { name: view.name });
+    return json(view);
+  }
+  if (path === "/api/v1/invitations/lookup" && method === "POST") {
+    const found = server.links[String(body?.token)];
+    return found ? json(found) : apiError("not_found", 404);
+  }
+  const link = /^\/api\/v1\/invitations\/(accept|decline)$/.exec(path);
+  if (link && method === "POST") {
+    const found = server.links[String(body?.token)];
+    if (found?.status !== "invited") return apiError("not_found", 404);
+    delete server.links[String(body?.token)];
+    if (link[1] === "decline") return new Response(null, { status: 204 });
+    const { workspace: target, role } = found.invitation;
+    server.workspaces[target.slug] = workspace(target.slug, role, { name: target.name });
+    return json(server.workspaces[target.slug]?.view);
+  }
+  const tokens = /^\/api\/v1\/workspaces\/([^/]+)\/service-tokens(?:\/([^/]+))?$/.exec(path);
+  if (tokens) return serviceTokenRoute(server, tokens, method, body);
+  const scoped = /^\/api\/v1\/workspaces\/([^/]+)\/(members|invitations|leave)(?:\/([^/]+))?$/.exec(
+    path,
+  );
+  const domains = /^\/api\/v1\/workspaces\/([^/]+)\/domains(?:\/([^/]+))?(\/verify)?$/.exec(path);
+  if (domains) return domainRoute(server, method, domains, body);
+  if (!scoped) return undefined;
+  const w = server.workspaces[decodeURIComponent(scoped[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  const admin = w.view.role === "admin";
+  const admins = () => w.members.filter((m) => m.role === "admin").length;
+  const [, , kind, id] = scoped;
+  if (kind === "members" && !id && method === "GET") {
+    return json({ workspace: w.view, items: w.members, seats: seatsOf(w) });
+  }
+  if (kind === "leave" && method === "POST") {
+    const me = w.members.find((m) => m.you);
+    if (me?.role === "admin" && admins() <= 1) return apiError("sole_workspace_admin", 409);
+    delete server.workspaces[w.view.slug];
+    return new Response(null, { status: 204 });
+  }
+  if (!admin) return apiError("forbidden", 403);
+  if (kind === "members" && id) {
+    const member = w.members.find((m) => m.userId === decodeURIComponent(id));
+    if (!member) return apiError("not_found", 404);
+    if (
+      member.role === "admin" &&
+      admins() <= 1 &&
+      (method === "DELETE" || body?.role !== "admin")
+    ) {
+      return apiError("sole_workspace_admin", 409);
+    }
+    if (method === "DELETE") {
+      w.members = w.members.filter((m) => m !== member);
+      return new Response(null, { status: 204 });
+    }
+    member.role = body?.role as WorkspaceView["role"];
+    return json(member);
+  }
+  if (kind === "invitations" && !id && method === "GET") {
+    return json({ items: w.invitations, seats: seatsOf(w) });
+  }
+  if (kind === "invitations" && !id && method === "POST") {
+    const email = String(body?.email).toLowerCase();
+    const replaced = w.invitations.filter((i) => i.email !== email);
+    if (w.members.length + replaced.length >= w.seats) return apiError("seats_exhausted", 409);
+    const invitation: InvitationView = {
+      id: `inv_${String(w.invitations.length + 1).padStart(32, "0")}`,
+      email,
+      role: body?.role as WorkspaceView["role"],
+      invitedBy: "Ada",
+      createdAt: NOW,
+      expiresAt: "2026-11-15T12:00:00.000Z",
+    };
+    w.invitations = [...replaced, invitation];
+    return json(invitation, 201);
+  }
+  if (kind === "invitations" && id && method === "DELETE") {
+    const before = w.invitations.length;
+    w.invitations = w.invitations.filter((i) => i.id !== id);
+    return w.invitations.length < before
+      ? new Response(null, { status: 204 })
+      : apiError("not_found", 404);
+  }
+  return undefined;
+}
+
+/** The email domain routes, answered like the Worker: admins only, a missing slug is missing. */
+function domainRoute(
+  server: FakeServer,
+  method: string,
+  match: RegExpExecArray,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  const [, , id, verify] = match;
+  if (!id && method === "GET") {
+    return json({ items: w.domains, available: w.domainsAvailable, limit: 10 });
+  }
+  if (!id && method === "POST") {
+    if (!w.domainsAvailable) return apiError("plan_required", 403);
+    const domain = String(body?.domain).trim().toLowerCase();
+    if (domain === "gmail.com") return apiError("invalid_input", 400);
+    const existing = w.domains.find((d) => d.domain === domain);
+    if (existing) return json(existing, 201);
+    const n = String(w.domains.length + 1).padStart(32, "0");
+    const view: WorkspaceDomainView = {
+      id: `wd_${n}`,
+      domain,
+      unicode: null,
+      state: "pending",
+      record: { name: `_portifact-email.${domain}`, value: `portifact-email-verify=${n}` },
+      createdAt: NOW,
+      verifiedAt: null,
+      checkedAt: null,
+      expiresAt: "2026-11-15T12:00:00.000Z",
+      failedChecks: 0,
+      problem: null,
+    };
+    w.domains = [...w.domains, view];
+    return json(view, 201);
+  }
+  const found = w.domains.find((d) => d.id === decodeURIComponent(id ?? ""));
+  if (!found) return apiError("not_found", 404);
+  if (verify && method === "POST") {
+    if (!(w.dns[found.record.name] ?? []).includes(found.record.value)) {
+      return apiError("invalid_input", 400);
+    }
+    Object.assign(found, { state: "verified", verifiedAt: NOW, checkedAt: NOW, expiresAt: null });
+    return json(found);
+  }
+  if (method === "DELETE") {
+    w.domains = w.domains.filter((d) => d !== found);
+    return json({ id: found.id, removed: true });
+  }
+  return apiError("not_found", 404);
+}
+
 function route(server: FakeServer, method: string, url: URL, headers: Headers): Response {
+  const scoped = workspaceRoute(server, method, url);
+  if (scoped) return scoped;
   const publishing = publishingRoute(server, method, url, headers);
   if (publishing) return publishing;
   const path = url.pathname;
@@ -894,7 +1160,22 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     server.settings = { ...server.settings, ...update };
     return Response.json(server.settings);
   }
-  if (path.startsWith("/api/v1/account/branding")) return brandingRoute(server, method, path);
+  if (path.startsWith("/api/v1/account/branding")) {
+    const slug = url.searchParams.get("workspace");
+    if (!slug) return brandingRoute(server, method, path);
+    const w = server.workspaces[slug];
+    if (!w) return apiError("not_found", 404);
+    if (w.view.role !== "admin") return apiError("forbidden", 403);
+    // The workspace's brand, through the same fake as the personal one.
+    const personal = server.branding;
+    server.branding = w.branding;
+    try {
+      return brandingRoute(server, method, path);
+    } finally {
+      w.branding = server.branding;
+      server.branding = personal;
+    }
+  }
   if (path === "/api/v1/account/delete" && method === "POST") {
     const body = server.bodies.at(-1) as { confirmEmail?: string } | undefined;
     if (body?.confirmEmail?.trim().toLowerCase() !== server.email) {
@@ -1020,8 +1301,49 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       retentionDays: 30,
     } satisfies AccessLogView);
   }
+  if (path === "/api/v1/audit" && method === "GET") {
+    const slug = url.searchParams.get("workspace") ?? "";
+    if (slug !== "") {
+      const w = server.workspaces[slug];
+      if (!w) return apiError("not_found", 404);
+      if (w.view.role !== "admin") return apiError("forbidden", 403);
+    }
+    const events = server.audit[slug];
+    if (!events) return apiError("plan_required", 403);
+    const kinds = url.searchParams.getAll("kind");
+    const actor = url.searchParams.get("actor");
+    const from = url.searchParams.get("from");
+    const all = events.filter(
+      (event) =>
+        (kinds.length === 0 || kinds.includes(event.kind)) &&
+        (!actor || ("id" in event.actor && event.actor.id === actor)) &&
+        (!from || event.at >= from),
+    );
+    const offset = Number(url.searchParams.get("cursor") ?? "0");
+    const page = all.slice(offset, offset + server.pageSize);
+    const next = offset + server.pageSize;
+    return json({
+      owner: slug === "" ? { kind: "personal" } : { kind: "workspace", slug, name: slug },
+      events: page,
+      nextCursor: next < all.length ? String(next) : null,
+      retentionDays: 90,
+    } satisfies AuditLogView);
+  }
   if (path === "/api/v1/usage" && method === "GET") {
-    return Response.json(server.usage);
+    const slug = url.searchParams.get("workspace");
+    if (!slug) return Response.json(server.usage);
+    const w = server.workspaces[slug];
+    if (!w) return apiError("not_found", 404);
+    return w.view.role === "member" ? apiError("forbidden", 403) : Response.json(w.usage);
+  }
+  const transfer = /^\/api\/v1\/artifacts\/([^/]+)\/transfer$/.exec(path);
+  if (transfer && method === "POST") {
+    const moved = server.artifacts.find((a) => a.id === transfer[1]);
+    if (!moved) return apiError("not_found", 404);
+    const target = (server.bodies.at(-1) as { workspace: string | null }).workspace;
+    if (target !== null && !server.workspaces[target]) return apiError("not_found", 404);
+    moved.owner = ownerOf(server, target);
+    return Response.json(moved);
   }
   if (path.startsWith("/api/v1/webhooks")) {
     const hooks = server.webhooks;
@@ -1132,7 +1454,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   if (access) {
     if (!owned)
       return Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
-    const policy = server.access[owned.id] ?? {
+    const space =
+      owned.owner.kind === "workspace" ? server.workspaces[owned.owner.slug] : undefined;
+    const policy: AccessPolicyView = server.access[owned.id] ?? {
       mode: owned.accessMode,
       readers: [],
       indexable: false,
@@ -1141,6 +1465,16 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       commentVisibility: "owner",
       readerCommentVisibility: [],
       policyGeneration: 1,
+      audience:
+        owned.owner.kind === "workspace"
+          ? {
+              members: space?.members.length ?? 1,
+              domains: (space?.domains ?? [])
+                .filter((d) => d.state === "verified")
+                .map((d) => d.domain),
+              featureAvailable: space?.domainsAvailable ?? true,
+            }
+          : null,
     };
     server.access[owned.id] = policy;
     if (method === "GET") return Response.json(policy);
@@ -1155,8 +1489,15 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     if (!query.success) return apiError("invalid_input", 400);
     const { cursor, limit: _limit, ...filters } = query.data;
     const search = filters.search?.toLowerCase();
+    const slug = url.searchParams.get("workspace");
+    const space = slug ? server.workspaces[slug] : undefined;
+    if (slug && !space) return apiError("not_found", 404);
+    if (space?.view.role === "member") return apiError("forbidden", 403);
     const matching = server.artifacts.filter(
       (a) =>
+        (slug
+          ? a.owner.kind === "workspace" && a.owner.slug === slug
+          : a.owner.kind === "personal") &&
         (search === undefined || a.name.toLowerCase().includes(search) || a.id.includes(search)) &&
         (filters.state === undefined || a.state === filters.state) &&
         (filters.type === undefined || a.type === filters.type) &&
@@ -1639,4 +1980,48 @@ export function selectOptions(name: string): { options: string[]; chosen: string
   };
   fireEvent.keyDown(trigger, { key: "Escape" });
   return result;
+}
+
+/** The service token routes of a workspace, as apps/app/src/api/workspaces.ts answers them. */
+function serviceTokenRoute(
+  server: FakeServer,
+  match: RegExpExecArray,
+  method: string,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  const id = match[2] ? decodeURIComponent(match[2]) : undefined;
+  if (!id && method === "GET") {
+    return json({ items: w.serviceTokens, available: w.serviceTokensAvailable, limit: 20 });
+  }
+  if (!id && method === "POST") {
+    if (!w.serviceTokensAvailable) return apiError("plan_required", 403);
+    const parsed = ServiceTokenCreate.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    const token: ServiceTokenView = {
+      id: `st_${String(w.serviceTokens.length + 1).padStart(32, "0")}`,
+      label: parsed.data.label,
+      role: parsed.data.role,
+      scopes: parsed.data.scopes,
+      restriction: parsed.data.restriction,
+      createdAt: NOW,
+      expiresAt: new Date(Date.parse(NOW) + parsed.data.expiresInDays * 86_400_000).toISOString(),
+      lastUsedAt: null,
+      createdBy: { name: "Ada" },
+      expired: false,
+    };
+    w.serviceTokens.push(token);
+    // A placeholder of the secret's shape, built at run time (no committed value matches it).
+    const secret = ["pf", "st_", "x".repeat(43)].join("");
+    return json({ token, secret }, 201);
+  }
+  if (id && method === "DELETE") {
+    const before = w.serviceTokens.length;
+    w.serviceTokens = w.serviceTokens.filter((token) => token.id !== id);
+    if (w.serviceTokens.length === before) return apiError("not_found", 404);
+    return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
 }

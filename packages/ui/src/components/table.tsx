@@ -135,6 +135,23 @@ export function TableHeaderCell({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * The header of a row, such as the limit a comparison row shows: the first cell of the row,
+ * which assistive technology reads before each value of the row.
+ */
+export function TableRowHeader({ children }: { children: ReactNode }) {
+  const stacked = useContext(Stacked);
+  return (
+    <th
+      scope="row"
+      {...role(stacked, "rowheader")}
+      className={`px-4 py-3.5 text-left align-middle font-medium first:pl-5 last:pr-5 ${stacked ? STACK.full : ""}`}
+    >
+      {children}
+    </th>
+  );
+}
+
 export interface TableCellProps {
   /**
    * The column's name, shown above the value while a `stacked` table stacks its rows. Leave it

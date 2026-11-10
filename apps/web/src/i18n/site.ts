@@ -8,7 +8,11 @@ import {
   type LocaleCode,
   localeInfo,
 } from "@portifact/contracts/locales";
+import { PLAN_LABELS, PLAN_NAMES, PLANS, type PlanName } from "@portifact/contracts/plans";
 import { languageLinksHtml } from "@portifact/ui/language-links";
+import { planCardHtml, planTableHtml } from "@portifact/ui/plans";
+import { formatPlanLimit, planComparison, planRequest, planSummary } from "../plans/format.ts";
+import { PLAN_TEXT } from "../plans/i18n/catalogs.ts";
 import { localizeDocument, stripMarkers } from "./markers.ts";
 import { LOCALE_PARAM } from "./preference.ts";
 import { SITE_CATALOGS } from "./site/catalogs.ts";
@@ -168,6 +172,60 @@ function renderLegalNote(
   main.prepend(note);
 }
 
+/** Free's call to action: sign-in, the same destination as the landing's primary button. */
+const FREE_ACTION_HREF = `${APP_ORIGIN}/`;
+
+/**
+ * The pricing section's cards, comparison table and note, and the free tier's figures, drawn
+ * from `PLANS` in the page's language, so no number on the page is typed by hand. Features a
+ * plan has but the product does not offer yet are listed as coming soon.
+ */
+function renderPlans(document: Document, locale: LocaleCode): void {
+  const text = PLAN_TEXT[locale];
+  const action = (plan: PlanName) =>
+    plan === "free"
+      ? { label: text["plans.action.free"], href: FREE_ACTION_HREF }
+      : planRequest(plan, text);
+  for (const slot of document.querySelectorAll("[data-plans-cards]")) {
+    const cards = PLAN_NAMES.map((plan) => {
+      const summary = planSummary(plan, locale, text);
+      return planCardHtml({
+        id: plan,
+        name: summary.name,
+        summary: summary.summary,
+        price: summary.price,
+        includedLabel: text["plans.included"],
+        included: summary.included,
+        comingSoonLabel: text["plans.comingSoon"],
+        comingSoon: summary.comingSoon,
+        action: action(plan),
+      });
+    });
+    slot.innerHTML = `<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-4">${cards.join("")}</div>`;
+  }
+  for (const slot of document.querySelectorAll("[data-plans-table]")) {
+    slot.innerHTML = planTableHtml({
+      caption: text["plans.table.caption"],
+      rowHeader: text["plans.table.limit"],
+      plans: PLAN_NAMES.map((plan) => ({ id: plan, name: PLAN_LABELS[plan] })),
+      rows: planComparison(locale, text).map(({ row, label, cells }) => ({
+        id: row,
+        label,
+        cells: cells.map((cell) => cell.value),
+      })),
+    });
+  }
+  for (const note of document.querySelectorAll("[data-plans-note]")) {
+    note.textContent = text["plans.price.note"];
+  }
+  for (const figure of document.querySelectorAll("[data-plan-limit]")) {
+    const row = figure.getAttribute("data-plan-limit");
+    if (row === "activeArtifacts" || row === "artifactBytes" || row === "accountBytes") {
+      figure.textContent = formatPlanLimit(row, PLANS.free.limits, [], locale, text);
+    }
+  }
+}
+
 /**
  * Renders one page in one language, in place: its text, `lang` and `dir`, canonical and
  * alternate links, links to the other pages in the same language, the language switchers and
@@ -185,6 +243,7 @@ export function renderSitePage(
   root.setAttribute("lang", locale);
   root.setAttribute("dir", localeInfo(locale).dir);
   renderHead(document, page, locale);
+  renderPlans(document, locale);
   if (locale !== DEFAULT_LOCALE) {
     for (const anchor of document.querySelectorAll("a[href]")) {
       const href = localizedHref(anchor.getAttribute("href") ?? "", locale);

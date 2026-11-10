@@ -1,8 +1,10 @@
 // Japanese messages of the dashboard (polite です・ます), with the same keys as en.ts.
 // Titles and buttons have no trailing period or 。; no em dashes.
+import { planTextJa } from "../../plans/i18n/ja.ts";
 import type { Catalog } from "./en.ts";
 
 export const ja = {
+  ...planTextJa,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "コンテンツへスキップ",
@@ -1182,6 +1184,9 @@ export const ja = {
   "domains.problem.cloudflare_unavailable": "証明書サービスが応答しませんでした",
   "domains.problem.cloudflare_unavailable.hint":
     "お客様側の問題ではありません。まもなく再試行します。",
+  "domains.problem.cname_elsewhere": "ドメインが Portifact を指していません",
+  "domains.problem.cname_elsewhere.hint":
+    "DNS が下の CNAME ターゲットを指さなくなっています。元に戻してください。この状態が毎日の確認で 3 回続くと、有効なドメインは削除されます。",
   "domains.missedChecks":
     "{count, plural, one {直近 # 回の毎日の確認で TXT レコードが見つかりませんでした。3 回続けて見つからないとドメインは削除されます。} other {直近 # 回の毎日の確認で TXT レコードが見つかりませんでした。3 回続けて見つからないとドメインは削除されます。}}",
   "domains.records": "作成するレコード",
@@ -1378,4 +1383,459 @@ export const ja = {
   "viewer.brandNewTab": "（新しいタブで開きます）",
   "viewer.hosting.poweredBy": "Powered by Portifact",
   "viewer.hosting.origin": "公開先",
+  // Workspaces (premium plan T1): the space menu, members, invitations and transfers.
+  "space.label": "スペース",
+  "space.personal": "個人",
+  "space.personalDetail": "あなた専用のスペース",
+  "space.invitations": "{count, plural, one {保留中の招待#件} other {保留中の招待#件}}",
+  "space.missing.title": "workspaceが見つかりません",
+  "space.missing.body":
+    "このworkspaceは存在しないか、あなたはメンバーではありません。管理者に招待を依頼してください。",
+  "space.missing.personal": "個人スペースへ移動",
+  "space.notAllowed.title": "あなたのロールでは利用できません",
+  "space.notAllowed.back": "artifact一覧に戻る",
+  "space.notAllowed.list":
+    "{workspace}のメンバーは、共有されたartifactをそのリンクから閲覧・コメントできます。workspaceのすべてのartifactを表示・管理するには編集者または管理者のロールが必要です。管理者に依頼してください。",
+  "space.notAllowed.publish":
+    "{workspace}に公開するには編集者または管理者のロールが必要です。管理者に依頼してください。",
+  "space.notAllowed.usage": "{workspace}の使用状況は編集者と管理者に表示されます。",
+  "space.notAllowed.branding": "{workspace}のブランドを設定できるのは管理者だけです。",
+  "role.admin": "管理者",
+  "role.editor": "編集者",
+  "role.member": "メンバー",
+  "role.admin.hint":
+    "メンバー、ブランド、すべてのartifactを管理し、artifactをworkspaceの外へ移動できます",
+  "role.editor.hint": "workspaceのartifactを公開・管理します",
+  "role.member.hint": "共有されたものを閲覧・コメントします",
+  "shell.membersLink": "メンバー",
+  "list.descriptionWorkspace":
+    "{workspace}で公開されたすべてのもの。状態、アクセス、アクティビティを表示します。",
+  "publish.descriptionWorkspace":
+    "{workspace}に公開します。HTMLファイル、フォルダー、ZIP、ドキュメントを選べます。確認するまで何もアップロードされません。",
+  "publish.review.accessNewWorkspace":
+    "{workspace}の管理者と編集者。公開後、artifactのページから共有できます。",
+  "usage.descriptionWorkspace":
+    "{workspace}で公開する全員が共有するクォータと、今月のトラフィックです。",
+  "branding.descriptionWorkspace":
+    "{workspace}のartifactでビューアーのバーに表示するブランドです。",
+  "detail.section.space": "スペース",
+  "transfer.title": "別のスペースへ移動",
+  "transfer.description":
+    "このartifactは{space}にあります。個人スペース、または編集者か管理者であるworkspaceへ移動できます。",
+  "transfer.destination": "移動先",
+  "transfer.move": "artifactを移動",
+  "transfer.blocked": "このartifactは今は移動できません",
+  "transfer.notAdmin": "{workspace}からartifactを移動できるのは管理者だけです。",
+  "transfer.domain":
+    "このartifactには独自ドメイン（有効または保留中）があります。共有で削除してから移動してください。",
+  "transfer.none":
+    "移動できる別のスペースがありません。artifactは個人スペースと、編集者か管理者であるworkspaceへ移動できます。",
+  "transfer.confirm.title": "{name}を{space}へ移動しますか？",
+  "transfer.confirm.stays": "変わらないもの：ID、リンク、バージョン、追加したユーザー、コメント。",
+  "transfer.confirm.changes":
+    "変わるもの：{space}の管理者と編集者が管理し、移動前を含めて誰が開いたかを確認できます。{space}の使用状況に計上されます。",
+  "transfer.confirm.plan":
+    "固定と共有リンクは{space}のプランに従います。プランに含まれない場合は機能しなくなります。",
+  "transfer.confirm.blocks":
+    "{space}に空きがない場合や、アップロードが開いたままの場合は移動しません。",
+  "transfer.confirm.action": "移動",
+  "transfer.done": "{name}を{space}へ移動しました。",
+  "transfer.failed": "artifactは移動されませんでした",
+  "transfer.error.quota_exceeded":
+    "{space}にこのartifactの空きがありません。先に有効な枠かストレージを空けてください。",
+  "transfer.error.version_conflict":
+    "このartifactへのアップロードが開いたままか、その間に変更されました。アップロードを完了またはキャンセルし、再読み込みしてもう一度お試しください。",
+  "transfer.error.invalid_input":
+    "このartifactには独自ドメインがあるか、すでにそのスペースにあります。先にドメインを削除してください。",
+  "transfer.error.forbidden":
+    "あなたのロールでは、このartifactを現在のスペースから出すことも、そのスペースへ移すこともできません。",
+  "transfer.error.artifact_archived": "移動できるのは有効またはアーカイブ済みのartifactだけです。",
+  "transfer.error.not_found": "そのスペースまたはこのartifactは利用できなくなりました。",
+  "members.title": "メンバー",
+  "members.description":
+    "{workspace}のメンバーと、それぞれができること。メンバーと招待は管理者が管理します。",
+  "members.personal.title": "個人スペースにはメンバーがいません",
+  "members.personal.body":
+    "メンバーはworkspaceに属します。スペースのメニューでworkspaceを選ぶと、そのメンバーが表示されます。",
+  "members.loading": "メンバーを読み込んでいます",
+  "members.loadFailed": "メンバーを読み込めませんでした",
+  "members.seats": "シート",
+  "members.seatsUsed": "使用中のシート",
+  "members.seatsValue": "{used}/{limit}（{percent}）",
+  "members.seatsHint":
+    "メンバーと保留中の招待はそれぞれシートを1つ使います。シート数はworkspaceのプランで決まります。",
+  "members.listTitle": "ユーザー",
+  "members.count": "{count, plural, one {メンバー#人} other {メンバー#人}}",
+  "members.caption": "{workspace}のメンバー",
+  "members.you": "あなた",
+  "members.joined": "{date}に参加",
+  "members.roleLabel": "{name}のロール",
+  "members.remove": "削除",
+  "members.removeNamed": "削除：{name}",
+  "members.leave": "workspaceから退出",
+  "members.lastAdmin":
+    "唯一の管理者です。このロールの変更、削除、退出の前に、別のメンバーを管理者にしてください。",
+  "members.confirmRemove.title": "{name}を{workspace}から削除しますか？",
+  "members.confirmRemove.body":
+    "workspaceのartifactにすぐアクセスできなくなります。公開したものはworkspaceに残ります。",
+  "members.confirmRemove.action": "メンバーを削除",
+  "members.confirmLeave.title": "{workspace}から退出しますか？",
+  "members.confirmLeave.body":
+    "artifactにすぐアクセスできなくなります。戻るには管理者に再度招待してもらう必要があります。",
+  "members.roleChanged": "{name}のロールを{role}にしました。",
+  "members.removed": "{name}を削除しました。",
+  "members.left": "{workspace}から退出しました。",
+  "members.actionFailed": "変更は保存されませんでした",
+  "members.error.forbidden":
+    "その間にあなたのロールが変わりました。メンバーと招待を管理できるのは管理者だけです。ページを再読み込みしてください。",
+  "members.error.version_conflict":
+    "その間にメンバーが変更されました。再読み込みしてもう一度お試しください。",
+  "members.error.not_found": "そのユーザーはもうworkspaceにいません。",
+  "invite.title": "招待する",
+  "invite.description":
+    "7日間有効なリンクをメールで送ります。そのアドレスでサインインすると参加できます。",
+  "invite.email": "メールアドレス",
+  "invite.role": "ロール",
+  "invite.send": "招待を送信",
+  "invite.sent": "{email}に招待を送りました。",
+  "invite.emailInvalid": "name@example.comのようなメールアドレスを入力してください。",
+  "invite.alreadyMember": "{email}はすでにメンバーです。",
+  "invite.full.title": "空きシートがありません",
+  "invite.failed": "招待は送信されませんでした",
+  "invite.error.invalid_input":
+    "そのアドレスはすでにメンバーのものか、有効なメールアドレスではありません。",
+  "invite.error.rate_limited": "招待が多すぎます。しばらく待ってからもう一度お試しください。",
+  "invite.error.capacity_unavailable":
+    "Portifactは今月送信できる招待メールをすべて送りました。来月もう一度お試しください。",
+  "invite.error.not_found": "その招待はもう存在しません。ページを再読み込みしてください。",
+  "pending.title": "保留中の招待",
+  "pending.description":
+    "承諾、辞退、取り消し、期限切れのいずれかになるまで、各招待がシートを1つ使います。",
+  "pending.loading": "招待を読み込んでいます",
+  "pending.loadFailed": "招待を読み込めませんでした",
+  "pending.empty": "保留中の招待はありません。",
+  "pending.detail": "{role}、招待者：{inviter}、{date}に期限切れ",
+  "pending.unknownInviter": "以前のメンバー",
+  "pending.resend": "再招待",
+  "pending.resendNamed": "再招待：{email}",
+  "pending.revoke": "取り消す",
+  "pending.revokeNamed": "取り消す：{email}",
+  "pending.confirmRevoke.title": "{email}への招待を取り消しますか？",
+  "pending.confirmRevoke.body": "リンクは使えなくなり、シートが空きます。",
+  "pending.confirmRevoke.action": "招待を取り消す",
+  "pending.revoked": "{email}への招待を取り消しました。",
+  "pending.resent": "{email}に新しい招待を送りました。以前のリンクは使えません。",
+  "invitation.title": "workspaceへの招待",
+  "invitation.signedOut.body":
+    "Portifactのworkspaceに招待されています。招待が届いたメールアドレスでサインインし、ここで承諾または辞退してください。",
+  "invitations.signedOut.body":
+    "サインインすると、あなたのメールアドレス宛てのworkspaceへの招待を確認できます。",
+  "invitation.signIn": "サインインして回答",
+  "invitation.loading": "招待を読み込んでいます",
+  "invitation.loadFailed": "招待を読み込めませんでした",
+  "invitation.invited.body": "{inviter}があなたを{role}として{workspace}に招待しました。",
+  "invitation.invited.bodyNoInviter": "{role}として{workspace}に招待されています。",
+  "invitation.expiresTerm": "有効期限",
+  "invitation.accept": "承諾",
+  "invitation.acceptNamed": "承諾：{workspace}への招待",
+  "invitation.decline": "辞退",
+  "invitation.declineNamed": "辞退：{workspace}への招待",
+  "invitation.confirmDecline.title": "{workspace}への招待を辞退しますか？",
+  "invitation.confirmDecline.body": "リンクは使えなくなります。管理者は後で再度招待できます。",
+  "invitation.confirmDecline.action": "招待を辞退",
+  "invitation.accepted": "{workspace}に参加しました。",
+  "invitation.declined": "{workspace}への招待を辞退しました。",
+  "invitation.failed": "回答は保存されませんでした",
+  "invitation.other.title": "この招待は別のアドレス宛てです",
+  "invitation.other.body":
+    "{email}宛てに送られましたが、{current}でサインインしています。回答するには{email}でサインインしてください。",
+  "invitation.other.unverified":
+    "このアカウントのアドレス{email}宛てに送られましたが、アドレスはまだ確認されていません。サインアウトし、{email}に送られるコードで再度サインインしてください。",
+  "invitation.switch": "別のアカウントでサインイン",
+  "invitation.missing.title": "この招待はもう使えません",
+  "invitation.missing.body":
+    "期限切れ、取り消し済み、または使用済みです。workspaceの管理者に再度招待を依頼してください。",
+  "invitations.title": "招待",
+  "invitations.description": "確認済みのメールアドレス宛てに届いたworkspaceへの招待です。",
+  "invitations.loading": "招待を読み込んでいます",
+  "invitations.loadFailed": "招待を読み込めませんでした",
+  "invitations.empty.title": "保留中の招待はありません",
+  "invitations.empty.body":
+    "管理者があなたのアドレスをworkspaceに招待すると、こことメールに表示されます。",
+  "invitations.others": "その他の招待",
+  "invitations.notice.title": "workspaceに招待されています",
+  "invitations.notice.body":
+    "{count, plural, one {保留中の招待が#件あります。} other {保留中の招待が#件あります。}}",
+  "invitations.notice.link": "招待を見る",
+  "workspaces.title": "workspace",
+  "workspaces.description":
+    "所属しているworkspaceと、それぞれでのロールです。管理者は各workspaceのメンバーページでユーザーを招待し、ロールを変更します。",
+  "workspaces.loading": "workspaceを読み込んでいます",
+  "workspaces.loadFailed": "workspaceを読み込めませんでした",
+  "workspaces.none":
+    "所属しているworkspaceはありません。Portifactがチーム向けにworkspaceを作成し、管理者がメールで招待します。",
+  "workspaces.leave": "退出",
+  "workspaces.leaveNamed": "退出：{workspace}",
+  "account.delete.soleAdmin.title": "あなたはworkspaceの唯一の管理者です",
+  "account.delete.soleAdmin.body":
+    "workspaceには管理者が必要です。これらのworkspaceでそれぞれ別のメンバーを管理者にするか、hello@portifact.comでPortifactに削除を依頼してから、アカウントを削除してください。",
+  "account.delete.soleAdmin.members": "{workspace}のメンバー",
+  "webhooks.personalOnly.title": "webhookは個人スペースで設定します",
+  "webhooks.personalOnly.body":
+    "現在、webhookは個人スペースのartifactのイベントだけを送信します。管理するには個人スペースに切り替えてください。",
+  "shell.planLink": "プラン",
+  "plan.title": "プラン",
+  "plan.description": "個人スペースのプラン、その上限と機能、そのほかのプランです。",
+  "plan.descriptionWorkspace": "{workspace}のプラン、その上限と機能、そのほかのプランです。",
+  "plan.current.hint": "このスペースの現在の内容です。使用量は使用状況ページで確認できます。",
+  "plan.current.limits": "現在のプランの上限",
+  "plan.current.usageLink": "使用状況を見る",
+  "plan.loading": "プランを読み込み中",
+  "plan.error": "プランを読み込めませんでした。",
+  "plan.compare.section": "すべてのプラン",
+  "plan.requestNote": "別のプランをリクエストできるのは{workspace}の管理者だけです。",
+  "plan.hidden": "{workspace}のプランは編集者と管理者に表示されます。",
+  "usage.plan.compare": "プランを比較",
+  "shell.auditLink": "監査ログ",
+  "audit.title": "監査ログ",
+  "audit.description": "このスペースで誰が何を変更したか。変更は {days} 日間保存されます。",
+  "audit.planTitle": "監査ログは有料プランの機能です",
+  "audit.planRequired":
+    "監査ログは {plan} プランに含まれます。変更はすでに記録されているため、プランに含まれると直近 90 日分がここに表示されます。",
+  "audit.forbidden.title": "監査ログを見られるのは管理者だけです",
+  "audit.forbidden.body":
+    "誰が何を変更したか知る必要がある場合は、このワークスペースの管理者に確認してください。",
+  "audit.loading": "監査ログを読み込んでいます",
+  "audit.error.title": "監査ログを読み込めませんでした",
+  "audit.empty.title": "記録された変更はありません",
+  "audit.empty.body": "直近 {days} 日間で、このフィルターに一致するものはありません。",
+  "audit.caption": "このスペースの変更 (新しい順)",
+  "audit.column.when": "日時",
+  "audit.column.who": "誰が",
+  "audit.column.what": "内容",
+  "audit.column.on": "対象",
+  "audit.loadMore": "さらに前の変更を表示",
+  "audit.filters": "監査ログを絞り込む",
+  "audit.filter.kind": "変更の種類",
+  "audit.filter.actor": "誰が",
+  "audit.filter.period": "期間",
+  "audit.group.all": "すべての変更",
+  "audit.group.access": "アクセスと共有",
+  "audit.group.lifecycle": "公開とライフサイクル",
+  "audit.group.integrations": "ドメイン、Webhook、ブランド",
+  "audit.group.members": "メンバー、トークン、プラン",
+  "audit.actor.all": "全員",
+  "audit.period.day": "過去 24 時間",
+  "audit.period.week": "過去 7 日間",
+  "audit.period.month": "過去 30 日間",
+  "audit.period.all": "保存されているすべて",
+  "audit.actor.removed": "削除されたメンバー",
+  "audit.actor.token": "{label}(サービストークン)",
+  "audit.actor.tokenGone": "取り消されたサービストークン",
+  "audit.actor.operator": "Portifact の運営者",
+  "audit.actor.system": "Portifact",
+  "audit.artifact.gone": "削除された Artifact",
+  "audit.target.space": "このスペース",
+  "audit.target.invitation": "招待",
+  "audit.kind.published": "バージョン {version} を公開しました",
+  "audit.kind.publishedFirst": "バージョン {version} で作成しました",
+  "audit.kind.rolledBack": "バージョン {from} のファイルに戻しました (現在はバージョン {version})",
+  "audit.kind.renewed": "更新しました",
+  "audit.kind.archived": "アーカイブしました",
+  "audit.kind.restored": "復元しました",
+  "audit.kind.deleted": "削除しました",
+  "audit.kind.pinned": "固定しました",
+  "audit.kind.unpinned": "固定を解除しました",
+  "audit.kind.transferredIn":
+    "{from, select, workspace {ワークスペース} other {個人スペース}}からここに移動しました",
+  "audit.kind.transferredOut":
+    "{to, select, workspace {ワークスペース} other {個人スペース}}に移動しました",
+  "audit.kind.accessChanged": "アクセスを変更しました: {changes}",
+  "audit.access.mode":
+    "{mode, select, public {公開にした} authenticated {サインインした全員に開いた} other {リストの閲覧者だけに制限した}}",
+  "audit.access.readersAdded": "{count, plural, one {閲覧者を # 人追加} other {閲覧者を # 人追加}}",
+  "audit.access.readersRemoved":
+    "{count, plural, one {閲覧者を # 人削除} other {閲覧者を # 人削除}}",
+  "audit.access.domains": "({domains})",
+  "audit.access.exceptions":
+    "{count, plural, one {# 人の閲覧者のコメント表示を変更} other {# 人の閲覧者のコメント表示を変更}}",
+  "audit.access.bar": "{on, select, true {Portifact バーをオン} other {Portifact バーをオフ}}",
+  "audit.access.comments":
+    "{visibility, select, everyone {コメントを全員に表示} other {コメントを所有者側だけに表示}}",
+  "audit.access.indexable":
+    "{on, select, true {検索エンジンのインデックスを許可} other {検索エンジンのインデックスを停止}}",
+  "audit.access.embeddable": "{on, select, true {埋め込みを許可} other {埋め込みを停止}}",
+  "audit.kind.shareLinkCreated":
+    "共有リンクを作成しました{password, select, true { (パスワード付き)} other {}}{expires, select, true { (期限あり)} other {}}",
+  "audit.kind.shareLinkRevoked": "共有リンクを取り消しました",
+  "audit.kind.domainAttached": "ドメイン {hostname} を接続しました",
+  "audit.kind.domainRemoved":
+    "{reason, select, removed {ドメイン {hostname} を削除しました} operator {Portifact がドメイン {hostname} を削除しました} other {ドメイン {hostname} は自動的に切り離されました}}",
+  "audit.kind.webhookCreated":
+    "{host} への{format, select, slack {Slack} discord {Discord} other {署名付き}} Webhook を追加しました",
+  "audit.kind.webhookChanged":
+    "{enabled, select, true {Webhook をオンにしました} false {Webhook をオフにしました} other {Webhook のイベントを変更しました}}",
+  "audit.kind.webhookRemoved": "Webhook を削除しました",
+  "audit.kind.brandChanged":
+    "{logo, select, true {ブランドのロゴを変更しました} other {ブランドの名前、色、リンクを変更しました}}",
+  "audit.kind.brandRemoved":
+    "{logo, select, true {ブランドのロゴを削除しました} other {ブランドを削除しました}}",
+  "audit.kind.memberInvited": "{domain} のユーザーを{role}として招待しました",
+  "audit.kind.invitationRevoked": "招待を取り消しました",
+  "audit.kind.memberJoined": "{member} が{role}として参加しました",
+  "audit.kind.roleChanged": "{member} を{from}から{to}に変更しました",
+  "audit.kind.memberRemoved": "{member} を削除しました",
+  "audit.kind.memberLeft": "{member} が退出しました",
+  "audit.kind.planGranted": "プランを {plan} ({seats, plural, one {# 席} other {# 席}}) にしました",
+  "audit.kind.planGrantedUntil":
+    "プランを {plan} ({seats, plural, one {# 席} other {# 席}}) にしました ({until} まで)",
+  "audit.kind.planRemoved": "プランを削除しました。スペースは Free に戻りました",
+  "audit.kind.tokenCreated":
+    "{days, plural, one {#日} other {#日}}後に期限切れになるサービストークンを作成しました",
+  "audit.kind.tokenRevoked": "サービストークンを取り消しました",
+  "audit.kind.emailDomainVerified": "メールドメイン {domain} を確認しました",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {メールドメイン {domain} を削除しました} claimed {別のworkspaceが証明したため、メールドメイン {domain} は削除されました} other {DNSレコードが見つからないため、メールドメイン {domain} は削除されました}}",
+  "shell.serviceTokensLink": "サービストークン",
+  "tokens.title": "サービストークン",
+  "tokens.description":
+    "CI などの自動処理が、人のログインなしで {workspace} に公開するための認証情報です。各トークンにはロール、権限、有効期限があり、取り消すとすぐに使えなくなります。",
+  "tokens.personal.title": "サービストークンはworkspaceに属します",
+  "tokens.personal.body": "トークンを作成するには、管理しているworkspaceに切り替えてください。",
+  "tokens.adminOnly.title": "サービストークンを管理できるのは管理者だけです",
+  "tokens.adminOnly.body": "このworkspaceの管理者にトークンを依頼してください。",
+  "tokens.planTitle": "このworkspaceのプランにはサービストークンが含まれていません",
+  "tokens.planRequired":
+    "サービストークンの作成は{plan}プランに含まれます。既存のトークンは一覧に表示され取り消せますが、プランに再び含まれるまで使えません。",
+  "tokens.list.title": "トークン",
+  "tokens.loading": "サービストークンを読み込み中",
+  "tokens.loadFailed": "サービストークンを読み込めませんでした",
+  "tokens.empty.title": "サービストークンはまだありません",
+  "tokens.empty.body":
+    "CIジョブ用に作成し、PORTIFACT_TOKENシークレットとして保存して、portifact CLIを実行してください。",
+  "tokens.secret.title": "今すぐトークンをコピーしてください",
+  "tokens.secret.body":
+    "表示されるのはこの一度だけです。PORTIFACT_TOKEN などのCIのシークレットとして保存してください。持っている人は、期限切れになるか取り消されるまで、その権限でできることを何でも行えます。",
+  "tokens.secret.label": "サービストークン {label}",
+  "tokens.secret.copy": "トークンをコピー",
+  "tokens.secret.done": "保存しました",
+  "tokens.create.title": "トークンを作成",
+  "tokens.create.hint":
+    "workspaceのために動作し、あなたの代わりには動作せず、メンバーにもなりません。",
+  "tokens.create.limit":
+    "このworkspaceのトークン数は上限({limit})に達しています。新しく作るには1つ取り消してください。",
+  "tokens.create.label": "ラベル",
+  "tokens.create.labelHint": "使う場所(例: GitHubプレビュー)",
+  "tokens.create.labelError": "1〜80文字のラベルを入力してください。",
+  "tokens.create.scopes": "できること",
+  "tokens.create.scopesError": "少なくとも1つ選んでください。",
+  "tokens.create.expiry": "有効期限",
+  "tokens.create.expiryHint": "期限が切れたら新しいトークンに置き換えます。",
+  "tokens.create.days": "{days, plural, one {#日} other {#日}}",
+  "tokens.create.restriction": "対象の制限",
+  "tokens.create.prefix": "キーのプレフィックス",
+  "tokens.create.prefixHint": "公開するすべてのartifactに、これで始まるキーが必要です(例: pr-)。",
+  "tokens.create.prefixError":
+    "英字、数字、ドット、アンダースコア、スラッシュ、ハイフンを使い、英字か数字で始めてください。",
+  "tokens.create.submit": "トークンを作成",
+  "tokens.scope.read": "読み取り",
+  "tokens.scope.readHint": "artifactとそのバージョンの一覧",
+  "tokens.scope.write": "公開",
+  "tokens.scope.writeHint": "新しいartifactとバージョンの公開、更新、アーカイブ",
+  "tokens.scope.share": "共有",
+  "tokens.scope.shareHint":
+    "artifactを開ける人の変更(公開を含む)。漏えいしたトークンでartifactが公開される恐れがあります。",
+  "tokens.scope.delete": "削除",
+  "tokens.scope.deleteHint":
+    "artifactの完全な削除。漏えいしたトークンで消される恐れがあるため、キーのプレフィックスで制限してください。",
+  "tokens.restriction.none": "workspaceのすべてのartifact",
+  "tokens.restriction.noneHint": "トークンはworkspaceのすべてのartifactに届きます。",
+  "tokens.restriction.own": "自分が作成したartifact",
+  "tokens.restriction.ownHint": "人や他のトークンが公開したものは存在しないように見えます。",
+  "tokens.restriction.key": "キーのプレフィックスを持つartifact",
+  "tokens.restriction.keyHint": "選んだプレフィックスのキーで公開されたartifactだけ。",
+  "tokens.created": "トークン {label} を作成しました",
+  "tokens.actionFailed": "うまくいきませんでした",
+  "tokens.reach.none": "workspaceのすべてのartifactに届きます",
+  "tokens.reach.own": "自分が作成したartifactだけに届きます",
+  "tokens.reach.key": "{prefix} で始まるキーだけに届きます",
+  "tokens.expired": "期限切れ",
+  "tokens.revoke": "取り消す",
+  "tokens.revokeLabel": "{label} を取り消す",
+  "tokens.scopes": "権限: {scopes}",
+  "tokens.expiresOn": "{date} に期限切れ",
+  "tokens.expiredOn": "{date} に期限切れになりました",
+  "tokens.lastUsed": "最終使用 {when}",
+  "tokens.neverUsed": "未使用",
+  "tokens.createdBy": "{name} が {date} に作成",
+  "tokens.createdOn": "{date} に作成",
+  "tokens.revoked": "トークン {label} を取り消しました",
+  "tokens.confirm.title": "{label} を取り消しますか?",
+  "tokens.confirm.body":
+    "これを使っているものは次のリクエストから動かなくなります。元に戻せません。",
+  "access.workspace": "ワークスペース全員",
+  "access.domain": "ワークスペースとそのメールドメイン",
+  "list.access.workspace": "ワークスペース",
+  "list.access.domain": "メールドメイン",
+  "accessSettings.mode.workspace":
+    "このワークスペースのメンバー {count, plural, one {# 人} other {# 人}}全員(ロールを問わず、サインイン後)。",
+  "accessSettings.mode.domain":
+    "このワークスペースのメンバー {count, plural, one {# 人} other {# 人}}と、{domains} の確認済みアドレスでサインインした人。",
+  "accessSettings.mode.domainNone":
+    "このワークスペースのメンバー {count, plural, one {# 人} other {# 人}}と、ワークスペースのメールドメインの確認済みアドレスでサインインした人。確認済みのドメインはまだありません。管理者がメンバーのページで追加します。",
+  "accessSettings.mode.listOnlyRestricted": "下のリストの人は、制限付きのあいだだけ開けます。",
+  "accessSettings.mode.workspacePlan": "{plan} プランに含まれます。",
+  "accessSettings.lapsed.title": "現在はメンバーだけがこの artifact を開けます",
+  "accessSettings.lapsed.body":
+    "ワークスペースのプランには現在メールドメインとの共有が含まれていないため、プランが再び含むまで、この artifact を開けるのはメンバーだけです。何も変更されていません。",
+  "emailDomains.title": "メールドメイン",
+  "emailDomains.description":
+    "これらのドメインの確認済みアドレスで Portifact にサインインした人は、メールドメインと共有されたワークスペースの artifact を開けます。数えるのは完全に一致するドメインだけで、サブドメインは含みません。",
+  "emailDomains.loading": "メールドメインを読み込んでいます",
+  "emailDomains.loadFailed": "メールドメインを読み込めませんでした",
+  "emailDomains.rules":
+    "各ドメインは DNS レコードで証明します。公開メールサービス(gmail.com など)、共有サフィックス、Portifact のドメインは拒否されます。Portifact は毎日レコードを確認し、3 回続けて見つからないとドメインを削除します。",
+  "emailDomains.addFailed": "ドメインは追加されませんでした",
+  "emailDomains.add": "ドメインを追加",
+  "emailDomains.domain": "ドメイン",
+  "emailDomains.domainHint": "組織の独自ドメイン(example.com など)。最大 {limit} 件。",
+  "emailDomains.domainRequired": "ドメインを入力してください。",
+  "emailDomains.empty": "メールドメインはまだありません。",
+  "emailDomains.added": "{domain} を追加しました。TXT レコードを作成してから確認してください。",
+  "emailDomains.planTitle": "メールドメインは有料プランの機能です",
+  "emailDomains.plan":
+    "メールドメインの確認は {plan} プランに含まれます。すでに一覧にあるドメインは残り、削除もできます。",
+  "emailDomains.state.verified": "確認済み",
+  "emailDomains.state.pending": "DNS レコード待ち",
+  "emailDomains.verifiedOn": "{date} に確認しました。",
+  "emailDomains.pendingUntil":
+    "{date} までにレコードを作成してください。過ぎると申請は取り消されます。",
+  "emailDomains.failing.title": "DNS レコードが見つかりません",
+  "emailDomains.failing.body":
+    "{count, plural, one {直近 # 回の毎日の確認でレコードが見つかりませんでした。} other {直近 # 回の毎日の確認でレコードが見つかりませんでした。}}{left, plural, one {あと # 回見つからないとドメインは削除されます。} other {あと # 回見つからないとドメインは削除されます。}}",
+  "emailDomains.actionFailed": "変更は保存されませんでした",
+  "emailDomains.recordHint":
+    "DNS プロバイダーでこのレコードを作成してください。反映まで時間がかかることがあります。",
+  "emailDomains.verify": "確認",
+  "emailDomains.verifyNamed": "{domain} を確認",
+  "emailDomains.remove": "削除",
+  "emailDomains.removeNamed": "{domain} を削除",
+  "emailDomains.verified": "{domain} を確認しました。",
+  "emailDomains.removed": "{domain} を削除しました。",
+  "emailDomains.confirmRemove.title": "{domain} を削除しますか?",
+  "emailDomains.confirmRemove.body":
+    "このドメインだけで artifact を開いている人は 1 分以内にアクセスを失います。あとで新しいレコードで再び追加できます。",
+  "emailDomains.confirmRemove.action": "ドメインを削除",
+  "emailDomains.error.quota_exceeded": "このワークスペースのメールドメインは上限に達しています。",
+  "emailDomains.error.version_conflict":
+    "その間にドメインが変わったか、別のワークスペースがまだ DNS で証明しています。再読み込みしてもう一度お試しください。",
+  "emailDomains.error.capacity_unavailable":
+    "現在 DNS を確認できません。しばらくしてからもう一度お試しください。",
+  "emailDomains.error.not_found": "そのドメインはもう一覧にありません。",
+  "emailDomains.error.refused":
+    "このドメインは追加できません。組織の独自ドメインを使ってください。公開メールサービス、共有サフィックス、予約名、Portifact のドメインは拒否されます。",
+  "emailDomains.error.recordMissing":
+    "このドメインの値を持つ TXT レコードはまだ見つかりません。DNS の変更は反映まで時間がかかることがあります。しばらくしてからもう一度お試しください。7 日を過ぎた申請は追加し直す必要があります。",
+  "transfer.confirm.accessReset":
+    "現在ワークスペースまたはメールドメインと共有されているため、制限付きになります。引き続き読めるのは閲覧者リストの人だけです。",
 } satisfies Catalog;

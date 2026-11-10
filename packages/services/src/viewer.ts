@@ -2,10 +2,11 @@
 // bar shows about an artifact and who is looking. Signed-in visitors pass the same access check
 // as reading the artifact; anonymous visitors see only public artifacts that are servable, so a
 // protected, unavailable or missing artifact gives the same answer until they sign in.
-import type { ViewerRole } from "@portifact/contracts";
+import type { AccessMode, ViewerRole } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
+  customHostWithoutClick,
   effectiveState,
   entitlements,
   fail,
@@ -15,17 +16,23 @@ import {
 import { eq } from "drizzle-orm";
 import { actorOn } from "./actors.ts";
 import { type ViewerBrandFacts, viewerBrandFacts } from "./branding.ts";
+import { activeCustomHost } from "./custom-domains.ts";
 import { checkReadAccess } from "./read-access.ts";
 
 export interface ViewerArtifact {
   name: string;
   type: "site" | "markdown" | "text";
   versionNumber: number;
-  accessMode: "public" | "authenticated" | "restricted";
+  accessMode: AccessMode;
   annotations: "off" | "open" | "locked";
   role: ViewerRole;
   /** The owner's brand for the bar, or null for the default bar (premium plan P9). */
   brand: ViewerBrandFacts | null;
+  /**
+   * The artifact's active custom host, given only to a visitor who may read it (this answer is
+   * one): the viewer frames it instead of the `.dev` origin (`viewerFrameOrigin`).
+   */
+  customHost: string | null;
 }
 
 const unavailable = () =>
@@ -34,7 +41,13 @@ const unavailable = () =>
 /** The artifact as the viewer shows it to `userId`, or to an anonymous visitor when null. */
 export async function getViewerArtifact(
   db: RegionalDb,
-  input: { artifactId: string; userId: string | null; now: number },
+  input: {
+    artifactId: string;
+    userId: string | null;
+    now: number;
+    /** Whether this Worker serves custom hosts (`customDomainsServing`). */
+    customDomains: boolean;
+  },
 ): Promise<Result<ViewerArtifact>> {
   const [artifact] = await db
     .select({
@@ -117,5 +130,10 @@ export async function getViewerArtifact(
         input.now,
       ),
     ),
+    // The frame's host: never for an `authenticated`, `workspace` or `domain` artifact, which the
+    // viewer frames on `.dev` because it opens with no click (`customHostWithoutClick`).
+    customHost: customHostWithoutClick(artifact.accessMode)
+      ? await activeCustomHost(db, input.artifactId, input.customDomains)
+      : null,
   });
 }

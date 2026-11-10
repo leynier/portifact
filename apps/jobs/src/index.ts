@@ -13,10 +13,13 @@ import {
   checkCustomDomains,
   type DomainDeps,
   type DomainEnv,
+  dohTxt,
   domainDbs,
   domainDepsFromEnv,
+  type EmailDomainDeps,
   personalHandles,
   pruneAccessEvents,
+  recheckEmailDomains,
   reconcileStorage,
   recordEmailEvent,
   relayOutbox,
@@ -28,7 +31,12 @@ import {
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
-import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
+import {
+  commentNotifierFromEnv,
+  domainNotifierFromEnv,
+  expiryNotifierFromEnv,
+  type NoticeEnv,
+} from "./notices.ts";
 import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
 
 export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, WebhookEnv {
@@ -37,6 +45,8 @@ export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv, We
   ACCESS_DB: D1Database;
   ARTIFACTS: R2Bucket;
   JOBS: Queue<JobMessage>;
+  /** Required here: notices name `.dev` addresses and the DNS check needs the CNAME target. */
+  CONTENT_DOMAIN: string;
 }
 
 /** Delay before a job that is not finished yet (an account with artifacts left) runs again. */
@@ -52,6 +62,11 @@ const errorName = (error: unknown) => (error instanceof Error ? error.message : 
 /** Cloudflare's custom hostnames and DNS, or null while custom domains are switched off. */
 export function domainsFromEnv(env: Env, fetcher: typeof fetch = fetch): DomainDeps | null {
   return domainDepsFromEnv(env, (input, init) => fetcher(input, init));
+}
+
+/** DNS over HTTPS for the daily re-check of workspace email domains (decision 0010). */
+export function emailDomainsFromEnv(fetcher: typeof fetch = fetch): EmailDomainDeps {
+  return { txt: dohTxt((input, init) => fetcher(input, init)) };
 }
 
 /** The schedule that only relays the outbox, every minute, so webhook deliveries go within minutes. */
@@ -76,7 +91,11 @@ export async function runScheduled(
   env: Env,
   now: number,
   domains = domainsFromEnv(env),
-  options: { relay?: boolean } = {},
+  options: {
+    relay?: boolean;
+    /** DNS for the email domain re-check; without it (tests that do not need it) it is skipped. */
+    emailDomains?: EmailDomainDeps | null;
+  } = {},
 ) {
   // One region for now; with a second (E5) the scans run once per region (decision 0005).
   const regions = regionsFromEnv(env);
@@ -89,6 +108,17 @@ export async function runScheduled(
   } catch (error) {
     customDomains = "failed";
     console.error(JSON.stringify({ event: "custom_domains_failed", error: errorName(error) }));
+  }
+  // Workspace email domains: a DNS failure is never a miss, and never hides the rest of the run.
+  let emailDomains: Awaited<ReturnType<typeof recheckEmailDomains>> | "skipped" | "failed" =
+    "skipped";
+  if (options.emailDomains) {
+    try {
+      emailDomains = await recheckEmailDomains(regions.global, options.emailDomains, now);
+    } catch (error) {
+      emailDomains = "failed";
+      console.error(JSON.stringify({ event: "email_domains_failed", error: errorName(error) }));
+    }
   }
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
   const relayed = options.relay === false ? "scheduled" : await runRelay(env, now);
@@ -117,6 +147,7 @@ export async function runScheduled(
     webhookKeysLeft: webhookKeyRotation.left,
     webhooksStopped,
     customDomains,
+    emailDomains,
   };
   console.log(JSON.stringify({ event: "maintenance", ...result }));
   return result;
@@ -187,6 +218,7 @@ export async function runQueue(
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   const notifier = expiryNotifierFromEnv(env);
   const commentNotifier = commentNotifierFromEnv(env);
+  const domainNotifier = domainNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const run = async (message: Message<unknown>) => {
     const parsed = JobMessage.safeParse(message.body);
@@ -203,6 +235,7 @@ export async function runQueue(
         commentNotifier,
         webhooks,
         domains,
+        domainNotifier,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });
@@ -234,7 +267,10 @@ export default {
       return;
     }
     ctx.waitUntil(
-      runScheduled(env, controller.scheduledTime, domainsFromEnv(env), { relay: false }),
+      runScheduled(env, controller.scheduledTime, domainsFromEnv(env), {
+        relay: false,
+        emailDomains: emailDomainsFromEnv(),
+      }),
     );
     // Independent of maintenance: a failing scan must not stop the budget's protection.
     ctx.waitUntil(runScheduledBudget(env, controller.scheduledTime));

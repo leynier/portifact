@@ -3,6 +3,7 @@
 // `DomainDeps`, injected into the services, so tests and the e2e stack use `FakeDomains` and never
 // reach Cloudflare. `domainDepsFromEnv` builds the real ones only when a deployment switched the
 // feature on and holds the token; otherwise custom domains are unavailable and nothing calls out.
+import { cnameTarget } from "@portifact/contracts";
 import type { CloudflareStatus } from "@portifact/domain";
 
 const API = "https://api.cloudflare.com/client/v4";
@@ -19,9 +20,23 @@ export interface CustomHostnames {
 /** TXT strings at a name, from a resolver Portifact does not run. */
 export type TxtLookup = (name: string) => Promise<string[]>;
 
+/**
+ * Whether a name is the apex of its own DNS zone (it answers its own SOA record), which cannot
+ * hold the CNAME Cloudflare for SaaS needs. Throws when DNS could not be asked.
+ */
+export type ZoneApexLookup = (hostname: string) => Promise<boolean>;
+
+/**
+ * Whether a hostname resolves to Portifact's CNAME target: its CNAME chain names the target, or
+ * the addresses it resolves to are among the target's. Throws when DNS could not be asked.
+ */
+export type PointingLookup = (hostname: string) => Promise<boolean>;
+
 export interface DomainDeps {
   hostnames: CustomHostnames;
   txt: TxtLookup;
+  apex: ZoneApexLookup;
+  pointing: PointingLookup;
 }
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -154,6 +169,84 @@ export function dohTxt(fetcher: Fetch): TxtLookup {
   };
 }
 
+/**
+ * Zone apexes through DNS over HTTPS: a name is the apex of a zone exactly when an SOA query for
+ * it answers an SOA record of that same name (a name inside a zone gets its zone's SOA in the
+ * authority section instead, and a CNAME's target zone has another name). This is how names like
+ * `example.co.uk` are refused without the Public Suffix List: whatever the suffix, a registrable
+ * domain is the apex of its zone.
+ */
+export function dohZoneApex(fetcher: Fetch): ZoneApexLookup {
+  return async (hostname) => {
+    const url = `${DOH}?name=${encodeURIComponent(hostname)}&type=SOA`;
+    const response = await fetcher(url, {
+      headers: { accept: "application/dns-json" },
+      redirect: "manual",
+    });
+    if (!response.ok) throw new Error(`DNS over HTTPS: ${response.status}`);
+    const body = (await response.json()) as {
+      Status: number;
+      Answer?: { name: string; type: number }[];
+    };
+    if (body.Status === 3) return false;
+    if (body.Status !== 0) throw new Error(`DNS over HTTPS: rcode ${body.Status}`);
+    const name = hostname.toLowerCase();
+    return (body.Answer ?? []).some(
+      (answer) => answer.type === 6 && answer.name.toLowerCase().replace(/\.$/, "") === name,
+    );
+  };
+}
+
+/** One DNS over HTTPS question: its answers, none for a name that does not exist. */
+async function dohAnswers(
+  fetcher: Fetch,
+  name: string,
+  type: "A" | "AAAA",
+): Promise<{ type: number; data: string }[]> {
+  const url = `${DOH}?name=${encodeURIComponent(name)}&type=${type}`;
+  const response = await fetcher(url, {
+    headers: { accept: "application/dns-json" },
+    redirect: "manual",
+  });
+  if (!response.ok) throw new Error(`DNS over HTTPS: ${response.status}`);
+  const body = (await response.json()) as {
+    Status: number;
+    Answer?: { type: number; data: string }[];
+  };
+  if (body.Status === 3) return [];
+  if (body.Status !== 0) throw new Error(`DNS over HTTPS: rcode ${body.Status}`);
+  return body.Answer ?? [];
+}
+
+const CNAME_TYPE = 5;
+const bare = (name: string) => name.toLowerCase().replace(/\.$/, "");
+
+/**
+ * Where a name points, through DNS over HTTPS (decision 0006, "Where the name points"): an
+ * address query follows the CNAME chain, so a chain that names the target is Portifact's. A
+ * customer whose DNS provider flattens or proxies the CNAME shows addresses instead; those count
+ * when every one is among the target's own (both families asked). Anything else, including a
+ * name that no longer resolves, points elsewhere.
+ */
+export function dohPointing(fetcher: Fetch, target: string): PointingLookup {
+  const wanted = bare(target);
+  return async (hostname) => {
+    const answers = [
+      ...(await dohAnswers(fetcher, hostname, "A")),
+      ...(await dohAnswers(fetcher, hostname, "AAAA")),
+    ];
+    if (answers.some((a) => a.type === CNAME_TYPE && bare(a.data) === wanted)) return true;
+    const addresses = answers.filter((a) => a.type !== CNAME_TYPE).map((a) => a.data);
+    if (addresses.length === 0) return false;
+    const targets = new Set(
+      [...(await dohAnswers(fetcher, wanted, "A")), ...(await dohAnswers(fetcher, wanted, "AAAA"))]
+        .filter((a) => a.type !== CNAME_TYPE)
+        .map((a) => a.data),
+    );
+    return addresses.every((address) => targets.has(address));
+  };
+}
+
 /** The variables and secret a Worker reads to switch custom domains on. */
 export interface DomainEnv {
   /** Exactly `"true"` switches custom domains on; anything else leaves them unavailable. */
@@ -162,6 +255,19 @@ export interface DomainEnv {
   CF_CONTENT_ZONE_ID?: string | undefined;
   /** API token with SSL and Certificates Edit on that zone only (secret). */
   CF_HOSTNAMES_TOKEN?: string | undefined;
+  /** The deployment's content domain, whose CNAME target names must point at. */
+  CONTENT_DOMAIN?: string | undefined;
+}
+
+/**
+ * Whether this Worker serves artifacts on their custom hosts: exactly `CUSTOM_DOMAINS_ENABLED`
+ * set to `"true"`. The app and content Workers decide with this same function, so where the app
+ * sends codes and frames, the content Worker answers. Adding and checking domains also need the
+ * zone ID and the token (`domainDepsFromEnv`); a Worker switched on without them still serves the
+ * domains that exist and logs `custom_domains_misconfigured`.
+ */
+export function customDomainsServing(env: Pick<DomainEnv, "CUSTOM_DOMAINS_ENABLED">): boolean {
+  return env.CUSTOM_DOMAINS_ENABLED === "true";
 }
 
 /**
@@ -170,9 +276,19 @@ export interface DomainEnv {
  * `capacity_unavailable`.
  */
 export function domainDepsFromEnv(env: DomainEnv, fetcher: Fetch): DomainDeps | null {
-  if (env.CUSTOM_DOMAINS_ENABLED !== "true") return null;
+  if (!customDomainsServing(env)) return null;
   const zone = env.CF_CONTENT_ZONE_ID ?? "";
   const token = env.CF_HOSTNAMES_TOKEN ?? "";
-  if (!ZONE_ID.test(zone) || token.length < 20) return null;
-  return { hostnames: cloudflareHostnames(fetcher, zone, token), txt: dohTxt(fetcher) };
+  const contentDomain = env.CONTENT_DOMAIN ?? "";
+  if (!ZONE_ID.test(zone) || token.length < 20 || contentDomain === "") {
+    // Switched on without the zone or the token: loudly, since the deployments disagree.
+    console.error(JSON.stringify({ event: "custom_domains_misconfigured" }));
+    return null;
+  }
+  return {
+    hostnames: cloudflareHostnames(fetcher, zone, token),
+    txt: dohTxt(fetcher),
+    apex: dohZoneApex(fetcher),
+    pointing: dohPointing(fetcher, cnameTarget(contentDomain)),
+  };
 }

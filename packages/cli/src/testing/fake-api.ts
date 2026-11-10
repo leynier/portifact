@@ -19,12 +19,14 @@ import {
   type ArtifactStatsView,
   type ArtifactSummary,
   type ArtifactType,
+  type AuditEventView,
   type CommentScope,
   type CommentVisibility,
   CustomDomainAdd,
   type CustomDomainView,
   ERROR_STATUS,
   type ErrorCode,
+  type FeedbackItem,
   IdempotencyKey,
   type ManifestFile,
   PLANS,
@@ -35,6 +37,7 @@ import {
   ShareLinkCreate,
   type ShareLinkView,
   type SourceOrigin,
+  UNTRUSTED_ANNOTATIONS_NOTICE,
   UploadedPart,
   VERSION_DIFF,
   type WebhookAttempt,
@@ -61,6 +64,8 @@ export interface FakeArtifact {
   archivedAt: number | null;
   purgeAt: number | null;
   pinned: boolean;
+  /** The active custom domain, if the test gives the artifact one. */
+  customHost?: string;
   createdAt: number;
   updatedAt: number;
   access: {
@@ -77,6 +82,10 @@ export interface FakeArtifact {
   suspensionReason?: AbuseReason;
   /** The workspace it lives in; absent for the personal space. */
   workspace?: string | undefined;
+  /** Its publish key (decision 0011), if it was created with one. */
+  key?: string | undefined;
+  /** Who the workspace modes reach, as the access view shows it; absent means null. */
+  audience?: AccessPolicyView["audience"];
 }
 
 export interface FakeWorkspace {
@@ -118,6 +127,7 @@ interface UploadSession {
   entrypoint: string;
   files: ManifestFile[];
   sourceOrigin: SourceOrigin | null;
+  key: string | undefined;
   /** Objects this upload must send; they stay pending until the commit verifies them. */
   needed: Map<string, number>;
   /** Objects uploaded in parts, by SHA-256. */
@@ -153,8 +163,17 @@ export interface FakeApiState {
   artifacts: Map<string, FakeArtifact>;
   /** Access log entries by artifact, newest first, as GET /artifacts/:id/access-log pages them. */
   accessLogs: Map<string, AccessLogEntry[]>;
+  /** Audit events by space (`personal` or a slug), newest first, as GET /audit pages them. */
+  audit: Map<string, AuditEventView[]>;
+  /** The query strings GET /audit received, in order. */
+  auditQueries: string[];
   /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
   stats: Map<string, ArtifactStatsView>;
+  /**
+   * Open feedback by space (`personal` or a workspace slug), newest first, as GET /feedback pages
+   * it; a workspace's needs `workspaces` in `usage.plan.features`.
+   */
+  feedback: Map<string, FeedbackItem[]>;
   /** Share links by artifact, newest first, without their tokens. */
   shareLinks: Map<string, ShareLinkView[]>;
   /** Tokens of the links created, which the CLI may print only once, at creation. */
@@ -231,7 +250,10 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   const state: FakeApiState = {
     artifacts: new Map(),
     accessLogs: new Map(),
+    audit: new Map(),
+    auditQueries: [],
     stats: new Map(),
+    feedback: new Map(),
     shareLinks: new Map(),
     shareTokens: [],
     shareLinksEnabled: true,
@@ -894,6 +916,25 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const request = parsed.data;
     let artifactId = newArtifactId();
     let versionNumber = 1;
+    let isNew = !request.artifactId;
+    if (request.key !== undefined) {
+      if (request.artifactId)
+        return error("invalid_input", "Send an artifact ID or a key, not both.");
+      const keyed = [...state.artifacts.values()].find(
+        (artifact) =>
+          artifact.key === request.key &&
+          artifact.workspace === workspace &&
+          artifact.state !== "deleted",
+      );
+      if (keyed) {
+        if (keyed.state === "archived") {
+          return error("artifact_archived", "Restore the artifact before publishing to it.");
+        }
+        artifactId = keyed.id;
+        versionNumber = keyed.versions + 1;
+        isNew = false;
+      }
+    }
     if (request.artifactId) {
       const artifact = state.artifacts.get(request.artifactId);
       if (!artifact || artifact.state === "deleted")
@@ -927,7 +968,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       id: `up_${randomUUID().replaceAll("-", "")}`,
       ownerId,
       artifactId,
-      isNew: !request.artifactId,
+      isNew,
       workspace: request.artifactId ? undefined : workspace,
       name: request.name,
       type: request.type,
@@ -936,6 +977,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       entrypoint: request.entrypoint,
       files: request.files,
       sourceOrigin: request.sourceOrigin ?? null,
+      key: request.key,
       needed,
       multipart,
       state: "uploading",
@@ -998,6 +1040,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       },
       policyGeneration: 1,
       workspace: session.workspace,
+      key: session.key,
     };
     artifact.name = session.name;
     artifact.versions = session.versionNumber - 1;
@@ -1077,7 +1120,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       return error("invalid_input", "Invalid cursor or limit.");
     }
     const query = Object.fromEntries(
-      ["search", "state", "type", "access", "annotations"].flatMap((name) => {
+      ["search", "state", "type", "access", "annotations", "key"].flatMap((name) => {
         const value = url.searchParams.get(name);
         return value ? [[name, value]] : [];
       }),
@@ -1092,7 +1135,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       (filters.data.state === undefined || item.state === filters.data.state) &&
       (filters.data.type === undefined || item.type === filters.data.type) &&
       (filters.data.access === undefined || item.accessMode === filters.data.access) &&
-      (filters.data.annotations === undefined || item.annotations === filters.data.annotations);
+      (filters.data.annotations === undefined || item.annotations === filters.data.annotations) &&
+      (filters.data.key === undefined || item.key === filters.data.key);
     const all = [...state.artifacts.values()]
       .filter((artifact) => artifact.state !== "deleted" && artifact.workspace === workspace)
       .filter((artifact) => matches(summary(artifact, state.workspaces)));
@@ -1296,6 +1340,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     const view: AccessPolicyView = {
       ...artifact.access,
       policyGeneration: artifact.policyGeneration,
+      audience: artifact.audience ?? null,
     };
     return { status: 200, body: view };
   }
@@ -1410,7 +1455,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       };
     }
     const workspace = url.searchParams.get("workspace") ?? undefined;
-    if (["POST /publishes", "GET /artifacts", "GET /usage"].includes(route)) {
+    if (["POST /publishes", "GET /artifacts", "GET /usage", "GET /feedback"].includes(route)) {
       state.workspaceParams.push(`${route} ${workspace ?? "personal"}`);
       if (workspace !== undefined && !state.workspaces.some((w) => w.slug === workspace)) {
         return error("not_found", "Workspace not found.");
@@ -1432,6 +1477,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     if (route === "GET /artifacts") return listArtifacts(url, workspace);
     if (route === "GET /usage") return { status: 200, body: state.usage };
+    if (route === "GET /feedback") return feedbackPageOf(state, url, workspace);
     const statsPath = /^\/artifacts\/([^/]+)\/stats$/.exec(path);
     if (statsPath && method === "GET") {
       const id = decodeURIComponent(statsPath[1] as string);
@@ -1447,6 +1493,27 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     const hooks = webhookRoute(method, path, raw);
     if (hooks) return hooks;
+    if (route === "GET /audit") {
+      state.auditQueries.push(url.search);
+      const space = url.searchParams.get("workspace") ?? "personal";
+      const all = state.audit.get(space);
+      if (!all) return error("not_found", "Workspace not found.");
+      const offset = Number(url.searchParams.get("cursor") ?? "0");
+      const size = Number(url.searchParams.get("limit") ?? "50");
+      const next = offset + size;
+      return {
+        status: 200,
+        body: {
+          owner:
+            space === "personal"
+              ? { kind: "personal" }
+              : { kind: "workspace", slug: space, name: space },
+          events: all.slice(offset, next),
+          nextCursor: next < all.length ? String(next) : null,
+          retentionDays: 90,
+        },
+      };
+    }
     const log = /^\/artifacts\/([^/]+)\/access-log$/.exec(path);
     if (log && method === "GET") return accessLog(decodeURIComponent(log[1] as string), url);
     if (route === "GET /domains") return domainList(url);
@@ -1483,7 +1550,33 @@ export function createFakeApi(origin: () => string, clock: () => number) {
 }
 
 /** The scope each API route needs, as apps/app/src/api/routes.ts checks it. */
+/** A page of GET /feedback: the cursor is the index of the next item. */
+function feedbackPageOf(state: FakeApiState, url: URL, workspace: string | undefined): Reply {
+  if (workspace !== undefined && !state.usage.plan.features.includes("workspaces")) {
+    return planRequired("workspaces");
+  }
+  const items = state.feedback.get(workspace ?? "personal") ?? [];
+  const limit = Number(url.searchParams.get("limit") ?? 20);
+  const cursor = url.searchParams.get("cursor");
+  const start = cursor === null ? 0 : Number(cursor);
+  if (!Number.isInteger(start) || start < 0) return error("invalid_input", "Invalid cursor.");
+  const page = items.slice(start, start + limit);
+  const next = start + limit < items.length ? String(start + limit) : null;
+  const ws = state.workspaces.find((one) => one.slug === workspace);
+  return {
+    status: 200,
+    body: {
+      notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+      owner: ws ? { kind: "workspace", slug: ws.slug, name: ws.name } : { kind: "personal" },
+      role: "owner",
+      items: page,
+      nextCursor: next,
+    },
+  };
+}
+
 export function scopeFor(method: string, path: string): string {
+  if (path === "/api/v1/feedback") return "annotations:read";
   if (path.startsWith("/api/v1/publishes")) return "artifacts:write";
   if (/\/access$/.test(path)) return method === "PATCH" ? "artifacts:share" : "artifacts:read";
   if (/\/share-links(\/|$)/.test(path)) return "artifacts:share";
@@ -1512,6 +1605,8 @@ function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): Arti
     archivedAt: artifact.archivedAt === null ? null : iso(artifact.archivedAt),
     purgeAt: artifact.purgeAt === null ? null : iso(artifact.purgeAt),
     pinned: artifact.pinned,
+    key: artifact.key ?? null,
+    ...(artifact.customHost ? { customHost: artifact.customHost } : {}),
     createdAt: iso(artifact.createdAt),
     updatedAt: iso(artifact.updatedAt),
   };

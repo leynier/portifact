@@ -1,12 +1,15 @@
 // The Cloudflare custom hostnames client and the DNS over HTTPS lookup, against a fake `fetch`:
 // what they send, how they read answers and failures, and that nothing is built without the
 // explicit switch, the zone and the token.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CloudflareError,
   cloudflareHostnames,
   cloudflareStatus,
+  customDomainsServing,
+  dohPointing,
   dohTxt,
+  dohZoneApex,
   domainDepsFromEnv,
   type Fetch,
 } from "../src/cloudflare-hostnames.ts";
@@ -184,6 +187,7 @@ describe("the switch", () => {
     CUSTOM_DOMAINS_ENABLED: "true",
     CF_CONTENT_ZONE_ID: ZONE,
     CF_HOSTNAMES_TOKEN: TOKEN,
+    CONTENT_DOMAIN: "portifact.dev",
   };
 
   it("builds the clients only with the variable, the zone and the token", () => {
@@ -197,8 +201,29 @@ describe("the switch", () => {
       { ...on, CF_CONTENT_ZONE_ID: "zone" },
       { ...on, CF_HOSTNAMES_TOKEN: undefined },
       { ...on, CF_HOSTNAMES_TOKEN: "short" },
+      { ...on, CONTENT_DOMAIN: undefined },
     ]) {
       expect(domainDepsFromEnv(env, fetcher), JSON.stringify(env)).toBeNull();
+    }
+  });
+
+  it("serves with the variable alone, and says loudly when the rest is missing", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(customDomainsServing(on)).toBe(true);
+      expect(customDomainsServing({ CUSTOM_DOMAINS_ENABLED: "true" })).toBe(true);
+      for (const value of [undefined, "1", "TRUE", "false"]) {
+        expect(customDomainsServing({ CUSTOM_DOMAINS_ENABLED: value })).toBe(false);
+      }
+      expect(domainDepsFromEnv({ CUSTOM_DOMAINS_ENABLED: "true" }, fetcher)).toBeNull();
+      expect(log.mock.calls.map((call) => call[0])).toEqual([
+        JSON.stringify({ event: "custom_domains_misconfigured" }),
+      ]);
+      // Switched off, nothing is logged.
+      domainDepsFromEnv({}, fetcher);
+      expect(log).toHaveBeenCalledTimes(1);
+    } finally {
+      log.mockRestore();
     }
   });
 });
@@ -270,7 +295,11 @@ describe("the client's details", () => {
 
   it("needs a token of at least 20 characters", () => {
     const fetcher: Fetch = async () => json({});
-    const on = { CUSTOM_DOMAINS_ENABLED: "true", CF_CONTENT_ZONE_ID: ZONE };
+    const on = {
+      CUSTOM_DOMAINS_ENABLED: "true",
+      CF_CONTENT_ZONE_ID: ZONE,
+      CONTENT_DOMAIN: "portifact.dev",
+    };
     expect(
       domainDepsFromEnv({ ...on, CF_HOSTNAMES_TOKEN: "t".repeat(20) }, fetcher),
     ).not.toBeNull();
@@ -279,5 +308,138 @@ describe("the client's details", () => {
 
   it("reads a DNS answer without an Answer section as no values", async () => {
     expect(await dohTxt(fakeFetch(() => json({ Status: 0, Answer: [] })).fetcher)("x")).toEqual([]);
+  });
+});
+
+describe("zone apexes over DNS over HTTPS", () => {
+  it("is an apex only when the SOA answer names the hostname itself", async () => {
+    const answer = (Answer: unknown[]) => fakeFetch(() => json({ Status: 0, Answer })).fetcher;
+    const { sent, fetcher } = fakeFetch(() =>
+      json({
+        Status: 0,
+        Answer: [{ name: "Example.co.uk.", type: 6, data: "ns. host. 1 2 3 4 5" }],
+      }),
+    );
+    expect(await dohZoneApex(fetcher)("example.co.uk")).toBe(true);
+    expect(sent[0]?.url).toBe("https://cloudflare-dns.com/dns-query?name=example.co.uk&type=SOA");
+    expect(sent[0]?.init?.redirect).toBe("manual");
+    // A name inside a zone gets no SOA answer of its own; a CNAME's target zone has another name.
+    expect(await dohZoneApex(answer([]))("docs.example.co.uk")).toBe(false);
+    expect(
+      await dohZoneApex(
+        answer([
+          { name: "docs.example.com.", type: 5, data: "domains.portifact.dev." },
+          { name: "portifact.dev.", type: 6, data: "x" },
+        ]),
+      )("docs.example.com"),
+    ).toBe(false);
+    expect(
+      await dohZoneApex(answer([{ name: "docs.example.com.", type: 5, data: "x" }]))(
+        "docs.example.com",
+      ),
+    ).toBe(false);
+    expect(await dohZoneApex(fakeFetch(() => json({ Status: 0 })).fetcher)("x.example")).toBe(
+      false,
+    );
+    expect(await dohZoneApex(fakeFetch(() => json({ Status: 3 })).fetcher)("x.example")).toBe(
+      false,
+    );
+    await expect(
+      dohZoneApex(fakeFetch(() => json({ Status: 2 })).fetcher)("x.example"),
+    ).rejects.toThrow("rcode 2");
+    await expect(dohZoneApex(fakeFetch(() => json({}, 500)).fetcher)("x.example")).rejects.toThrow(
+      "500",
+    );
+  });
+});
+
+describe("where a name points", () => {
+  const TARGET = "domains.portifact.dev";
+  /** Answers per `name type` pair; anything else is an empty NOERROR. */
+  const dns = (records: Record<string, { type: number; data: string }[] | number>) =>
+    fakeFetch((url) => {
+      const query = new URL(url).searchParams;
+      const found = records[`${query.get("name")} ${query.get("type")}`];
+      if (typeof found === "number") return json({ Status: found });
+      return json({ Status: 0, Answer: found ?? [] });
+    });
+
+  it("follows the CNAME chain to the target, without following HTTP redirects", async () => {
+    const { sent, fetcher } = dns({
+      "docs.example.com A": [
+        { type: 5, data: "Domains.Portifact.dev." },
+        { type: 1, data: "203.0.113.7" },
+      ],
+    });
+    expect(await dohPointing(fetcher, TARGET)("docs.example.com")).toBe(true);
+    expect(sent.map((call) => call.url)).toEqual([
+      "https://cloudflare-dns.com/dns-query?name=docs.example.com&type=A",
+      "https://cloudflare-dns.com/dns-query?name=docs.example.com&type=AAAA",
+    ]);
+    expect(sent.every((call) => call.init?.redirect === "manual")).toBe(true);
+  });
+
+  it("accepts flattened or proxied addresses only when every one is the target's", async () => {
+    const target = {
+      "domains.portifact.dev A": [{ type: 1, data: "198.51.100.1" }],
+      "domains.portifact.dev AAAA": [{ type: 28, data: "2001:db8::1" }],
+    };
+    const flattened = dns({
+      ...target,
+      "docs.example.com A": [{ type: 1, data: "198.51.100.1" }],
+      "docs.example.com AAAA": [{ type: 28, data: "2001:db8::1" }],
+    });
+    expect(await dohPointing(flattened.fetcher, TARGET)("docs.example.com")).toBe(true);
+    const mixed = dns({
+      ...target,
+      "docs.example.com A": [
+        { type: 1, data: "198.51.100.1" },
+        { type: 1, data: "203.0.113.7" },
+      ],
+    });
+    expect(await dohPointing(mixed.fetcher, TARGET)("docs.example.com")).toBe(false);
+    const other = dns({
+      ...target,
+      "docs.example.com A": [
+        { type: 5, data: "own-server.example.net." },
+        { type: 1, data: "203.0.113.7" },
+      ],
+    });
+    expect(await dohPointing(other.fetcher, TARGET)("docs.example.com")).toBe(false);
+  });
+
+  it("reads a chain through another name by the addresses at its end, asking for JSON", async () => {
+    const { sent, fetcher } = dns({
+      "domains.portifact.dev A": [
+        { type: 5, data: "edge.portifact.dev." },
+        { type: 1, data: "198.51.100.1" },
+      ],
+      "docs.example.com A": [
+        { type: 5, data: "proxy.example.net." },
+        { type: 1, data: "198.51.100.1" },
+      ],
+    });
+    expect(await dohPointing(fetcher, TARGET)("docs.example.com")).toBe(true);
+    expect(
+      sent.every(
+        (call) => new Headers(call.init?.headers).get("accept") === "application/dns-json",
+      ),
+    ).toBe(true);
+    // An address record whose data looks like the target is not a CNAME to it.
+    const odd = dns({ "docs.example.com A": [{ type: 1, data: "domains.portifact.dev." }] });
+    expect(await dohPointing(odd.fetcher, TARGET)("docs.example.com")).toBe(false);
+  });
+
+  it("says elsewhere for a name that does not resolve, and throws when DNS fails", async () => {
+    const gone = dns({ "docs.example.com A": 3, "docs.example.com AAAA": 3 });
+    expect(await dohPointing(gone.fetcher, TARGET)("docs.example.com")).toBe(false);
+    // No answers at all asks nothing about the target.
+    expect(gone.sent).toHaveLength(2);
+    const failing = dns({ "docs.example.com A": 2 });
+    await expect(dohPointing(failing.fetcher, TARGET)("docs.example.com")).rejects.toThrow(
+      "rcode 2",
+    );
+    const down = fakeFetch(() => json({}, 503));
+    await expect(dohPointing(down.fetcher, TARGET)("docs.example.com")).rejects.toThrow("503");
   });
 });

@@ -7,7 +7,7 @@ import { createWorkspace } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
-import { createHarness, type Harness, ORIGIN } from "./harness.ts";
+import { createHarness, type Harness, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 import { api, apiToken, callTool, connect, mcpToken, type ToolResult } from "./mcp-helpers.ts";
 
 const NOW = Date.parse("2026-11-10T09:00:00Z");
@@ -436,7 +436,7 @@ describe("member and invitation routes", () => {
     const email = h.outbox[before];
     expect(email?.to).toBe("wsi-new@example.test");
     expect(email?.subject).toBe("You are invited to a workspace on Portifact");
-    const token = /invitations\?token=([A-Za-z0-9_-]{43})/.exec(email?.text ?? "")?.[1];
+    const token = /invitations#token=([A-Za-z0-9_-]{43})/.exec(email?.text ?? "")?.[1];
     expect(token).toBeDefined();
 
     const invitee = createHarness();
@@ -457,6 +457,103 @@ describe("member and invitation routes", () => {
     expect(accepted.status).toBe(200);
     expect(await accepted.json()).toMatchObject({ slug: t.slug, role: "editor" });
     expect((await accept()).status).toBe(404);
+  });
+
+  it("look up a link's token for the invitation page: the invitee sees it, others only the address", async () => {
+    const t = await team("wlk");
+    const adminCookie = await t.admin.h.signIn(t.admin.email);
+    const before = t.admin.h.outbox.length;
+    await t.admin.h.request(
+      `/api/v1/workspaces/${t.slug}/invitations`,
+      dashboard(adminCookie, "POST", { email: "wsl-new@example.test", role: "member" }),
+    );
+    const token = /invitations#token=([A-Za-z0-9_-]{43})/.exec(
+      t.admin.h.outbox[before]?.text ?? "",
+    )?.[1];
+    expect(token).toBeDefined();
+    const invitee = createHarness();
+    const inviteeCookie = await invitee.signIn("wsl-new@example.test");
+    const mine = await invitee.request(
+      "/api/v1/invitations/lookup",
+      dashboard(inviteeCookie, "POST", { token }),
+    );
+    expect(mine.status).toBe(200);
+    expect(mine.headers.get("cache-control")).toBe("no-store");
+    expect(await mine.json()).toMatchObject({
+      status: "invited",
+      invitation: { workspace: { slug: t.slug, name: "Team" }, role: "member" },
+    });
+    const editorCookie = await t.editor.h.signIn(t.editor.email);
+    const other = await t.editor.h.request(
+      "/api/v1/invitations/lookup",
+      dashboard(editorCookie, "POST", { token }),
+    );
+    expect(await other.json()).toEqual({ status: "other_account", email: "wsl-new@example.test" });
+    const unknown = await t.editor.h.request(
+      "/api/v1/invitations/lookup",
+      dashboard(editorCookie, "POST", { token: "B".repeat(43) }),
+    );
+    expect(unknown.status).toBe(404);
+    const malformed = await t.editor.h.request(
+      "/api/v1/invitations/lookup",
+      dashboard(editorCookie, "POST", { token: "short" }),
+    );
+    expect(malformed.status).toBe(400);
+    // Session only: a bearer token never reads it.
+    expect(
+      (await viaApi(t.editor, "/api/v1/invitations/lookup", json("POST", { token }))).status,
+    ).toBe(403);
+  });
+
+  it("refuse what a role may not do and a session that no longer exists", async () => {
+    const t = await team("wrf");
+    const editorCookie = await t.editor.h.signIn(t.editor.email);
+    const adminCookie = await t.admin.h.signIn(t.admin.email);
+    const base = `/api/v1/workspaces/${t.slug}`;
+    for (const [path, method] of [
+      [`${base}/invitations`, "GET"],
+      [`${base}/members/${t.member.userId}`, "DELETE"],
+    ] as const) {
+      const response = await t.editor.h.request(path, dashboard(editorCookie, method));
+      expect(response.status, `${method} ${path}`).toBe(403);
+    }
+    const unknown = await t.admin.h.request(
+      `${base}/invitations/inv_${"0".repeat(32)}`,
+      dashboard(adminCookie, "DELETE"),
+    );
+    expect(unknown.status).toBe(404);
+    const forged = await t.admin.h.request(
+      `${base}/members`,
+      dashboard(`${SESSION_COOKIE}=forged.value`),
+    );
+    expect(forged.status).toBe(401);
+  });
+
+  it("brand a workspace through the query, for its admins only, and refuse other spaces", async () => {
+    const t = await team("wbr");
+    const path = (slug?: string) =>
+      `/api/v1/account/branding${slug === undefined ? "" : `?workspace=${slug}`}`;
+    const adminCookie = await t.admin.h.signIn(t.admin.email);
+    const saved = await t.admin.h.request(
+      path(t.slug),
+      dashboard(adminCookie, "PUT", { name: "Team brand", link: null, accentColor: null }),
+    );
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ available: true, brand: { name: "Team brand" } });
+    const personal = await t.admin.h.request(path(), dashboard(adminCookie));
+    expect(await personal.json()).toMatchObject({ available: false, brand: null });
+    // An empty parameter names the personal space too.
+    const empty = await t.admin.h.request(path(""), dashboard(adminCookie));
+    expect(await empty.json()).toMatchObject({ available: false, brand: null });
+    const editorCookie = await t.editor.h.signIn(t.editor.email);
+    const editor = await t.editor.h.request(path(t.slug), dashboard(editorCookie));
+    expect(editor.status).toBe(403);
+    const outsiderCookie = await t.outsider.h.signIn(t.outsider.email);
+    for (const slug of [t.slug, "Bad%20Slug", "nobody-here"]) {
+      const response = await t.outsider.h.request(path(slug), dashboard(outsiderCookie));
+      expect(response.status, slug).toBe(404);
+      expect(await response.json()).toEqual(missingWorkspace);
+    }
   });
 
   it("change roles, remove members, revoke invitations and let members leave", async () => {

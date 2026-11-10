@@ -32,6 +32,7 @@ import {
   user,
   value,
 } from "./fixtures.ts";
+import { raceBeforeFirstWrite } from "./race.ts";
 
 const at = (userId: string, artifactId: string, now = NOW) => ({ userId, artifactId, now });
 
@@ -150,34 +151,12 @@ describe("pinning", () => {
   it("refuses a conflicting change with version_conflict", async () => {
     const { owner, artifactId } = await proSite();
     // Another request bumps the generation between the read and the guarded update.
-    const real = db();
-    const raced = new Proxy(real, {
-      get(target, property, receiver) {
-        if (property !== "update") return Reflect.get(target, property, receiver);
-        return (table: typeof schema.artifacts) => {
-          const builder = target.update(table);
-          return {
-            set: (values: Parameters<typeof builder.set>[0]) => {
-              const statement = builder.set(values);
-              return {
-                where: (condition: Parameters<typeof statement.where>[0]) => {
-                  const guarded = statement.where(condition);
-                  return {
-                    returning: async (fields: Parameters<typeof guarded.returning>[0]) => {
-                      await target
-                        .update(schema.artifacts)
-                        .set({ lifecycleGeneration: 999 })
-                        .where(eq(schema.artifacts.id, artifactId));
-                      return guarded.returning(fields);
-                    },
-                  };
-                },
-              };
-            },
-          };
-        };
-      },
-    }) as typeof real;
+    const raced = raceBeforeFirstWrite(async () => {
+      await db()
+        .update(schema.artifacts)
+        .set({ lifecycleGeneration: 999 })
+        .where(eq(schema.artifacts.id, artifactId));
+    });
     expect(await pinArtifact(raced, at(owner.id, artifactId))).toMatchObject({
       ok: false,
       code: "version_conflict",

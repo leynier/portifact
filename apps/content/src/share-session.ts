@@ -9,7 +9,7 @@ import type { Db } from "@portifact/db";
 import { entitlements, hasFeature } from "@portifact/domain";
 import { redeemShareHandoff, refreshShareSession } from "@portifact/services";
 import { clearCookie, cookieValue, seal, setCookie, unseal, usableSecret } from "./cookies.ts";
-import type { ReadDecision, ReadEnv, ServableArtifact } from "./read-session.ts";
+import type { ReadDecision, ReadEnv, RequestHosts, ServableArtifact } from "./read-session.ts";
 
 const SECOND_MS = 1000;
 const CLAIMS_TTL_SECONDS = 60;
@@ -58,6 +58,7 @@ export async function handleLinkCallback(
   db: Db,
   artifactId: string,
   now: number,
+  hosts: RequestHosts,
 ): Promise<LinkStep> {
   const secret = env.READ_SESSION_SECRET;
   if (!usableSecret(secret)) return { kind: "unavailable" };
@@ -74,7 +75,7 @@ export async function handleLinkCallback(
   const codes = new URL(request.url).searchParams.getAll("code");
   const code = codes.length === 1 ? OpaqueToken.safeParse(codes[0]) : null;
   if (!code?.success) return failed;
-  const redeemed = await redeemShareHandoff(db, { code: code.data, artifactId, now });
+  const redeemed = await redeemShareHandoff(db, { code: code.data, artifactId, ...hosts, now });
   if (!redeemed.ok) return failed;
   const session = redeemed.value;
   return {

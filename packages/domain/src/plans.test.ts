@@ -48,6 +48,7 @@ const FREE: PlanLimits = {
   previousVersionRetentionDays: 7,
   accessLogRetentionDays: 30,
   customDomains: 0,
+  auditRetentionDays: 90,
 };
 const PRO: PlanLimits = {
   activeArtifacts: 500,
@@ -62,6 +63,7 @@ const PRO: PlanLimits = {
   previousVersionRetentionDays: 90,
   accessLogRetentionDays: 365,
   customDomains: 1,
+  auditRetentionDays: 90,
 };
 const TEAM: PlanLimits = {
   activeArtifacts: 2_000,
@@ -76,6 +78,7 @@ const TEAM: PlanLimits = {
   previousVersionRetentionDays: 365,
   accessLogRetentionDays: 365,
   customDomains: 5,
+  auditRetentionDays: 90,
 };
 const PRO_FEATURES = [
   "pin",

@@ -1,0 +1,1 @@
+ALTER TABLE `custom_domains` ADD `missed_point_checks` integer DEFAULT 0 NOT NULL;

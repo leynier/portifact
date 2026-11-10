@@ -4,15 +4,19 @@ import {
   ArtifactListItem,
   ArtifactSummary,
   CommittedPublish,
+  FeedbackPage,
   LifecycleResult,
   type OwnerView,
+  UNTRUSTED_ANNOTATIONS_NOTICE,
 } from "@portifact/contracts";
 import type {
   ArtifactRow,
   CommittedPublish as CommittedVersion,
+  FeedbackResult,
   LifecycleOutcome,
   ListedArtifact,
 } from "@portifact/services";
+import { customDomainsServing } from "@portifact/services";
 import type { Env } from "../env.ts";
 
 /** An artifact's summary, with where it lives (`ownerView` in the services). */
@@ -25,15 +29,17 @@ export function artifactSummary(env: Env, row: ArtifactRow, owner: OwnerView): A
     accessMode: row.accessMode,
     annotations: row.annotations,
     currentVersionId: row.currentVersionId,
-    url: contentUrl(env, row.id),
+    url: artifactUrl(env, row),
     owner,
     expiresAt: isoOrNull(row.expiresAt),
     archivedAt: isoOrNull(row.archivedAt),
     purgeAt: isoOrNull(row.purgeAt),
     pinned: row.pinned,
+    key: row.externalKey,
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),
+    ...(servedHost(env, row) ? { customHost: servedHost(env, row) } : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });
@@ -57,6 +63,26 @@ export function artifactListItem(
   });
 }
 
+/** A page of a space's open feedback; `GET /api/v1/feedback` and `list_open_feedback`. */
+export function feedbackPage(env: Env, value: FeedbackResult, owner: OwnerView): FeedbackPage {
+  return FeedbackPage.parse({
+    notice: UNTRUSTED_ANNOTATIONS_NOTICE,
+    owner,
+    role: value.role,
+    items: value.items.map(({ artifact, thread, counts }) => ({
+      artifact: {
+        id: artifact.id,
+        name: artifact.name,
+        type: artifact.type,
+        url: artifactUrl(env, artifact),
+      },
+      thread,
+      counts,
+    })),
+    nextCursor: value.nextCursor,
+  });
+}
+
 export function committedPublish(env: Env, value: CommittedVersion): CommittedPublish {
   return CommittedPublish.parse({
     artifactId: value.artifactId,
@@ -74,6 +100,17 @@ export function lifecycleResult(value: LifecycleOutcome): LifecycleResult {
     purgeAt: isoOrNull(value.purgeAt),
     pinned: value.pinned,
   });
+}
+
+/** The custom host the artifact is served on: none while this deployment does not serve them. */
+function servedHost(env: Env, row: { customHost: string | null }): string | null {
+  return customDomainsServing(env) ? row.customHost : null;
+}
+
+/** The address people should use: the active custom host, otherwise the `.dev` origin. */
+function artifactUrl(env: Env, row: { id: string; customHost: string | null }): string {
+  const host = servedHost(env, row);
+  return host ? `https://${host}/` : contentUrl(env, row.id);
 }
 
 function contentUrl(env: Env, artifactId: string): string {

@@ -57,7 +57,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run check
       - run: bun run test
-      - run: shellcheck scripts/*.sh
+      - run: shellcheck scripts/*.sh action/*.sh
       - run: node scripts/check-release-notes.mjs
       - name: Validate the app Worker bundle
         working-directory: apps/app
@@ -165,9 +165,12 @@ jobs:
           gitleaks git --no-banner --redact --verbose --log-opts="${BASE_SHA}..${HEAD_SHA}" .
       - name: Scan the checked-out tree
         run: gitleaks dir --no-banner --redact --verbose .
+      # Only what this run's commit reaches. The checkout has every branch, and without the option
+      # gitleaks reads them all: another open pull request's branch would be judged by this one's
+      # rules, so its allowlisted false positive failed every pull request that touched the rules.
       - name: Scan the whole history
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.secrets_history != 'false' }}
-        run: gitleaks git --no-banner --redact --verbose .
+        run: gitleaks git --no-banner --redact --verbose --log-opts="HEAD" .
 
   coverage-badge:
     name: coverage-badge
