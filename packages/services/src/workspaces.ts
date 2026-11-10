@@ -529,6 +529,9 @@ export async function deleteWorkspace(
       .select(sql`select ${input.workspaceId}, ${input.now} where ${exists}`)
       .onConflictDoNothing(),
     ...claimArtifacts(db, input.workspaceId, input.now),
+    // Its webhooks stop at once, as an account's do: no foreign key ties them to their owner,
+    // and their pending events and delivery log cascade from them.
+    db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, input.workspaceId), exists)),
     db.delete(w).where(eq(w.id, input.workspaceId)).returning({ id: w.id }),
   ])) as unknown[];
   const deleted = (results.at(-1) as unknown[]).length === 1;
@@ -615,6 +618,8 @@ export async function advanceWorkspaceDeletion(
     db
       .delete(schema.ownerPlans)
       .where(and(eq(schema.ownerPlans.ownerId, workspaceId), nothingLeft)),
+    // Any webhook a restore or a race brought back since the deletion was requested.
+    db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
     db
       .delete(schema.accountUsage)
       .where(

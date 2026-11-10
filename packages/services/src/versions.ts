@@ -27,6 +27,7 @@ import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
 import { retainedVersionSql } from "./retention.ts";
+import { markWebhookEvent } from "./webhook-activity.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -622,6 +623,17 @@ export async function rollbackArtifact(
       .select(
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'rolled_back', ${JSON.stringify({ fromVersionId: target.id, versionId })}, ${input.now} where ${switched}`,
       ),
+    // A rollback is a new version for the owner's webhooks, numbered by the insert above.
+    ...markWebhookEvent(db, {
+      entitlements: owner,
+      ownerId,
+      artifactId: artifact.id,
+      type: "artifact.published",
+      actorId: input.userId,
+      version: sql`(select ${v.number} from ${v} where ${v.id} = ${versionId})`,
+      now: input.now,
+      condition: switched,
+    }),
   ]);
 
   if (switchedRows.length === 0) {

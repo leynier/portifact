@@ -202,6 +202,16 @@ export async function transferArtifact(
         .update(schema.annotationMessages)
         .set({ ownerId: to })
         .where(guarded(eq(schema.annotationMessages.artifactId, artifact.id))),
+      // Events still waiting for the source's webhooks: a delivery only builds events for
+      // artifacts its webhook's owner still owns, so they would be dropped later and linger here.
+      // Activity after the move goes to the target's webhooks, which key on the current owner.
+      db
+        .delete(schema.webhookEvents)
+        .where(
+          guarded(
+            sql`${schema.webhookEvents.artifactId} = ${artifact.id} and ${schema.webhookEvents.webhookId} in (select ${schema.webhooks.id} from ${schema.webhooks} where ${schema.webhooks.ownerId} = ${from})`,
+          ),
+        ),
       // The access history follows the artifact (the job re-owns its openings and views).
       accessHistoryMoveJob(db, artifact.id, unchanged, input.now),
       db.insert(schema.lifecycleEvents).select(

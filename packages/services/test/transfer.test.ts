@@ -561,4 +561,43 @@ describe("transferring an artifact", () => {
     await db().delete(schema.customDomains).where(eq(schema.customDomains.hostname, hostname));
     expect(value(await move(alice.id, id, ws.slug)).ownerId).toBe(ws.id);
   });
+  it("drops the pending webhook events of the artifact for the source's webhooks", async () => {
+    const alice = await user();
+    const ws = await workspace(alice);
+    const id = await publish(alice.id, alice.id, { "index.html": `<p>${crypto.randomUUID()}</p>` });
+    const kept = await publish(alice.id, alice.id, {
+      "index.html": `<p>${crypto.randomUUID()}</p>`,
+    });
+    const webhookId = `wh_${crypto.randomUUID().replaceAll("-", "")}`;
+    await db().insert(schema.webhooks).values({
+      id: webhookId,
+      ownerId: alice.id,
+      host: "hooks.example.com",
+      format: "generic",
+      events: 1,
+      keyId: "k1",
+      urlBox: "sealed",
+      createdVia: "session",
+    });
+    const pending = (artifactId: string) => ({
+      webhookId,
+      artifactId,
+      type: "artifact.published",
+      count: 1,
+      firstAt: NOW,
+      lastAt: NOW,
+    });
+    await db()
+      .insert(schema.webhookEvents)
+      .values([pending(id), pending(kept)]);
+
+    value(await move(alice.id, id, ws.slug));
+    // The source's webhook would never deliver them (it no longer owns the artifact): they go
+    // with the move instead of lingering, and its other artifacts' events stay.
+    const left = await db()
+      .select({ artifactId: schema.webhookEvents.artifactId })
+      .from(schema.webhookEvents)
+      .where(eq(schema.webhookEvents.webhookId, webhookId));
+    expect(left).toEqual([{ artifactId: kept }]);
+  });
 });

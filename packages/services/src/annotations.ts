@@ -74,6 +74,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { actorOn, ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
+import { markWebhookEvent } from "./webhook-activity.ts";
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 24 * 60 * MINUTE_MS;
@@ -447,7 +448,10 @@ function touchThread(db: RegionalDb, threadId: string, writeId: string, now: num
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
 
-/** The comment notice mark of a claimed write, when the owner's plan has comment notices. */
+/**
+ * The comment notice mark and the webhook events of a claimed write, each only when the owner's
+ * plan has the feature.
+ */
 function noticeMark(
   db: RegionalDb,
   loaded: Loaded,
@@ -466,7 +470,18 @@ function noticeMark(
     ownerSide: loaded.ownerSide,
     claimed: claimed(writeId),
   });
-  return statement ? [statement] : [];
+  // The owner's webhooks (decision 0009): a comment or reply is `comment.created`, a resolution
+  // `thread.resolved`; the actor is named only when they act for the owner.
+  const hooks = markWebhookEvent(db, {
+    entitlements: loaded.entitlements,
+    ownerId: loaded.artifact.ownerId,
+    artifactId: loaded.artifact.id,
+    type: mark.activity === "resolved" ? "thread.resolved" : "comment.created",
+    actorId: loaded.ownerSide.includes(mark.actorId) ? mark.actorId : null,
+    now: mark.now,
+    condition: claimed(writeId),
+  });
+  return [...(statement ? [statement] : []), ...hooks];
 }
 
 /**

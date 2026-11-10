@@ -305,4 +305,51 @@ describe("deleting a workspace", () => {
       await db().select().from(schema.ownerBrands).where(eq(schema.ownerBrands.ownerId, ws.id)),
     ).toEqual([]);
   });
+  it("deletes the workspace's webhooks at once, with what they hold", async () => {
+    const { ws } = await newWorkspace();
+    const webhookId = `wh_${crypto.randomUUID().replaceAll("-", "")}`;
+    // No foreign key ties a webhook to its owner (an owner may be a workspace).
+    await db().insert(schema.webhooks).values({
+      id: webhookId,
+      ownerId: ws.id,
+      host: "hooks.example.com",
+      format: "generic",
+      events: 1,
+      keyId: "k1",
+      urlBox: "sealed",
+      secretBox: "sealed",
+      createdVia: "session",
+    });
+    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    // Before any job runs: a deleted workspace's destination must not receive another event.
+    expect(
+      await db().select().from(schema.webhooks).where(eq(schema.webhooks.ownerId, ws.id)),
+    ).toEqual([]);
+  });
+  it("removes again, after a restore, the webhooks of a workspace deleted before it", async () => {
+    const { ws } = await newWorkspace();
+    value(await deleteWorkspace(db(), { workspaceId: ws.id, now: NOW }));
+    for (let i = 0; i < 5; i += 1) {
+      if ((await advanceWorkspaceDeletion(db(), env.ARTIFACTS, ws.id, NOW + 1)) !== "pending")
+        break;
+    }
+    const markers = await exportTombstones(db());
+    expect(markers).toContainEqual({ kind: "workspace", id: ws.id, deletedAt: NOW + 1 });
+    // The restore brought back only a webhook of the deleted workspace.
+    const webhookId = `wh_${crypto.randomUUID().replaceAll("-", "")}`;
+    await db().insert(schema.webhooks).values({
+      id: webhookId,
+      ownerId: ws.id,
+      host: "hooks.example.com",
+      format: "generic",
+      events: 1,
+      keyId: "k1",
+      urlBox: "sealed",
+      createdVia: "session",
+    });
+    await applyTombstones(db(), markers, NOW + DAY);
+    expect(
+      await db().select().from(schema.webhooks).where(eq(schema.webhooks.id, webhookId)),
+    ).toEqual([]);
+  });
 });

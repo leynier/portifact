@@ -1,7 +1,7 @@
 // Who is calling /api/v1. OAuth clients (CLI, MCP later) send a bearer token for the API
 // resource; the dashboard on the same origin sends its session cookie. Both paths end in the
 // same principal, a user ID, and the same scope check, so a route behaves the same for either.
-import { OAuthScope } from "@portifact/contracts";
+import { CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
 import { COOKIE_PREFIX } from "../auth/auth.ts";
 import {
   authorizeResourceRequest,
@@ -52,6 +52,35 @@ export async function authorizeApiRequest(
     scope,
   ]);
   return decision.ok ? { ok: true, userId: decision.principal.userId } : decision;
+}
+
+/** Who manages account-level credentials and channels: the dashboard or the first-party CLI. */
+export type AccountDecision =
+  | { ok: true; userId: string; via: string }
+  | { ok: false; response: Response };
+
+/**
+ * For operations that open a standing channel out of the account (webhooks, decision 0003's
+ * addendum): the dashboard session, or a bearer token holding `credentials:manage`, which only
+ * the Portifact CLI's client record lists. `via` is `dashboard` or the token's client ID.
+ */
+export async function authorizeAccountRequest(
+  caller: ApiCaller,
+  request: Request,
+): Promise<AccountDecision> {
+  if (!request.headers.has("authorization") && hasSessionCookie(request.headers.get("cookie"))) {
+    if (!fromAppOrigin(request, new URL(caller.resource.identifier).origin)) {
+      return { ok: false, response: forbidden() };
+    }
+    const userId = await caller.session(request);
+    if (userId) return { ok: true, userId, via: "dashboard" };
+  }
+  const decision = await authorizeResourceRequest(caller.introspect, request, caller.resource, [
+    CREDENTIALS_SCOPE,
+  ]);
+  return decision.ok
+    ? { ok: true, userId: decision.principal.userId, via: decision.principal.clientId }
+    : decision;
 }
 
 export function hasSessionCookie(header: string | null): boolean {

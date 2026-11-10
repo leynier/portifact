@@ -63,6 +63,7 @@ export const DASHBOARD_ROUTES = [
   "/profile",
   "/apps",
   "/usage",
+  "/webhooks",
   "/branding",
   "/settings",
   // The old account page; the dashboard sends it on to the page that holds each section now.

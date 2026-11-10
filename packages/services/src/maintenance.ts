@@ -23,6 +23,7 @@ import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneShareLinks } from "./share-links.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
+import { maintainWebhooks } from "./webhooks.ts";
 import { processWorkspaceDeletions } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;
@@ -562,5 +563,6 @@ export async function runMaintenance(db: RegionalDb, bucket: R2Bucket, now: numb
     prunedEmailSuppressions: await pruneEmailSuppressions(db, now),
     alignedPlanLimits: (await alignPlanLimits(db, now)).processed,
     unpinned: (await unpinLapsedPlans(db, now)).processed,
+    webhooks: await maintainWebhooks(db, now),
   };
 }

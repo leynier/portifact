@@ -12,6 +12,7 @@ export const OutboxTopic = z.enum([
   "expiry_notice",
   "comment_notice",
   "owner_retention",
+  "webhook_delivery",
   "delete_custom_hostname",
   "workspace_deletion",
   "access_history_move",
@@ -96,11 +97,11 @@ export const CommentNoticePayload = z.strictObject({
 export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
 
 /**
- * One purged or deleted artifact or account, or a revoked share link, that a restored backup must
- * not bring back.
+ * One purged or deleted artifact or account, a revoked share link or a removed webhook, that a
+ * restored backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
-  kind: z.enum(["artifact", "account", "share_link", "workspace"]),
+  kind: z.enum(["artifact", "account", "share_link", "workspace", "webhook"]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
 });

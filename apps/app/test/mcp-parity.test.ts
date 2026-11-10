@@ -2736,3 +2736,81 @@ describe("API and MCP parity for reading content", () => {
     expect(denied.headers.get("www-authenticate")).toContain('scope="artifacts:read"');
   });
 });
+
+describe("API and MCP parity for webhooks", () => {
+  const READ = "artifacts:read offline_access";
+  const hook = {
+    url: "https://hooks.example.com/in?token=abc",
+    format: "generic",
+    events: ["comment.created", "artifact.published"],
+  };
+  const json = (method: string, body?: unknown): RequestInit => ({
+    method,
+    headers: { "content-type": "application/json" },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+
+  it("lists webhooks and their deliveries with the same bodies, and only reads through MCP", async () => {
+    const b = await both("parity-webhooks@example.test", READ);
+    await env.DB.prepare(
+      "insert into owner_plans (owner_id, plan, seats, granted_by, updated_at) values (?, 'pro', 1, 'test', ?)",
+    )
+      .bind(await ownerId(b), NOW)
+      .run();
+    const cli = await apiToken(
+      b.h,
+      "parity-webhooks@example.test",
+      "artifacts:read credentials:manage",
+    );
+    const created = await api(b.h, cli, "/api/v1/webhooks", json("POST", hook));
+    expect(created.status).toBe(201);
+    const { webhook } = await created.json<{ webhook: { id: string } }>();
+
+    const listed = fromTool(await b.tool("list_webhooks", {}));
+    expect(listed).toEqual(await fromApi(await b.apiCall("/api/v1/webhooks")));
+    expect(listed.body).toMatchObject({
+      available: true,
+      serviceAvailable: true,
+      webhooks: [{ id: webhook.id, createdVia: "portifact-cli" }],
+    });
+    expect(JSON.stringify(listed.body)).not.toContain("token=abc");
+    expect(fromTool(await b.tool("list_webhook_deliveries", { webhookId: webhook.id }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/webhooks/${webhook.id}/deliveries`)),
+    );
+    const missing = `wh_${"0".repeat(32)}`;
+    expect(fromTool(await b.tool("list_webhook_deliveries", { webhookId: missing }))).toEqual(
+      await fromApi(await b.apiCall(`/api/v1/webhooks/${missing}/deliveries`)),
+    );
+    // No MCP tool creates, changes, tests or removes a webhook.
+    for (const tool of ["create_webhook", "update_webhook", "test_webhook", "delete_webhook"]) {
+      await expect(b.tool(tool, {}), tool).rejects.toThrow(`Tool ${tool} not found`);
+    }
+  });
+
+  it("needs artifacts:read to list at both, and refuses management to every token without credentials:manage", async () => {
+    const b = await both("parity-webhooks-scope@example.test", READ);
+    const writer = await mcpToken(b.h, "parity-webhooks-scope@example.test", "artifacts:write");
+    for (const tool of ["list_webhooks", "list_webhook_deliveries"]) {
+      const denied = await rawCall(b.h, writer, tool, { webhookId: `wh_${"1".repeat(32)}` });
+      expect(denied.status, tool).toBe(403);
+      expect(denied.headers.get("www-authenticate"), tool).toContain('scope="artifacts:read"');
+    }
+    // Every product scope, sharing included, is not enough to manage webhooks.
+    const product = await apiToken(
+      b.h,
+      "parity-webhooks-scope@example.test",
+      "artifacts:read artifacts:write artifacts:share artifacts:delete annotations:read annotations:write annotations:moderate",
+    );
+    const id = `wh_${"1".repeat(32)}`;
+    for (const [path, init] of [
+      ["/api/v1/webhooks", json("POST", hook)],
+      [`/api/v1/webhooks/${id}`, json("PATCH", { enabled: false })],
+      [`/api/v1/webhooks/${id}`, json("DELETE")],
+      [`/api/v1/webhooks/${id}/test`, json("POST")],
+    ] as const) {
+      const denied = await api(b.h, product, path, init);
+      expect(denied.status, path).toBe(403);
+      expect(denied.headers.get("www-authenticate"), path).toContain('scope="credentials:manage"');
+    }
+  });
+});
