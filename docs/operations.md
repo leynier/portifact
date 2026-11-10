@@ -164,6 +164,16 @@ Owners whose plan includes `webhooks` (Pro and above) send events about their ar
 
 To turn webhooks off for good (or keep them off), leave `WEBHOOKS_ENABLED` unset on both Workers: the app refuses new ones and the jobs Worker's next maintenance run disables every enabled webhook with the reason `unavailable` (`webhooksStopped` in its log line); admins enable them again once the variable is back. To stop every delivery in an emergency without disabling anything (a receiver complains, a bug sends too much), set the emergency stop on the jobs Worker: `echo 1 | npx wrangler secret put WEBHOOKS_PAUSED --name portifact-jobs` from `apps/jobs`. A secret change takes effect without a code deploy; jobs then wait 15 minutes at a time, keeping their events. `npx wrangler secret delete WEBHOOKS_PAUSED --name portifact-jobs` resumes them. Deleting `WEBHOOK_KEY` from the jobs Worker also stops them (every job fails before sending), but it is a key, not a switch: prefer `WEBHOOKS_PAUSED`.
 
+## Brands
+
+Owners whose plan includes `branding` show a name, logo, color and link on the viewer's bar ("Owner branding" in [security.md](security.md)). A brand that impersonates someone, imitates Portifact or links to phishing is handled like an abusive artifact, but its suspension is separate:
+
+- `brand <owner>` (user ID, email or workspace ID) prints the brand with its text on one quoted line each, the logo's type, size and hash, whether it is suspended and whether the viewer shows it.
+- `suspend-brand <owner> --reason <reason>` sets `owner_brands.suspended_at`: the viewer shows the default bar on every artifact of the owner at once and the logo stops being served; the brand is kept, the owner sees "Your brand is suspended" on the Branding page and cannot delete it. Suspend the artifacts too when they are abusive themselves. `reinstate-brand <owner>` lifts it. Both are idempotent; there is no web route for either.
+- When the owner's plan stops including `branding`, the default bar shows and the brand is kept; nothing needs doing. A logo counts in the owner's storage and is released when it is replaced, removed or the brand is deleted, through a `delete_objects` job.
+- Logos are stored at `brands/<owner>/<sha256>` in R2, which the storage reconciliation does not scan (it lists `objects/`). Deleting an account deletes its brand and logo when the deletion finishes.
+- A D1 Time Travel restore rewinds `owner_brands`: brands changed since come back as they were (a logo deleted since then is missing and the viewer shows the brand without it), and so do suspensions, like artifact suspensions. Before restoring, note the suspended brands (`npx wrangler d1 execute portifact-control --remote --command "select owner_id, suspension_reason from owner_brands where suspended_at is not null"`) and suspend them again after `apply-tombstones`. `apply-tombstones` deletes the brand of a deleted account the restore brought back.
+
 ## Account deletions
 
 Deletions need no operator action: the request removes the user at once and the scheduled jobs finish the rest (see "Account deletion" in [security.md](security.md)). `select * from account_deletions` lists the ones still in progress.

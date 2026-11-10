@@ -267,7 +267,7 @@ export async function applyTombstones(
   const tombstonedAccounts = sql`select ${t.id} from ${t} where ${t.kind} = 'account'`;
   const resurrectedArtifact = sql`${a.state} <> 'purging' and (${a.id} in (select ${t.id} from ${t} where ${t.kind} = 'artifact') or ${a.ownerId} in (${tombstonedAccounts}))`;
   // An account with anything left of it and no deletion in progress.
-  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
+  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}) or exists (select 1 from ${schema.ownerBrands} where ${schema.ownerBrands.ownerId} = ${t.id}))`;
 
   const l = schema.shareLinks;
   const results = await db.batch([

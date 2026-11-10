@@ -22,6 +22,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
+import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
@@ -221,6 +222,7 @@ export async function exportAccount(
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
       // Destinations only by host: never the URL or the signing secret.
       webhooks: await exportWebhooks(db, input.userId),
+      brand: await exportedBrand(db, input.userId),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
@@ -541,7 +543,7 @@ export async function processAccountDeletions(
  * Advances one pending account deletion. Each call claims artifacts that appeared after the
  * request (an upload already in flight), leaves the claimed ones to their purge jobs and
  * `purgeArchived`, erases a batch of the account's comments elsewhere, and finishes the account
- * once neither is left: its storage objects, counters (usage and traffic), plan row, idempotency records and upload sessions
+ * once neither is left: its storage objects, counters (usage and traffic), plan row, brand and its logo, idempotency records and upload sessions
  * are deleted and an `account` tombstone replaces the deletion row. Every step is idempotent and
  * safe to run concurrently. Returns `absent` when no deletion is pending for the account.
  */
@@ -585,6 +587,8 @@ export async function advanceAccountDeletion(
     .from(schema.objects)
     .where(eq(schema.objects.ownerId, userId));
   await releaseOrphans(db, bucket, objects, now);
+  // The brand of the account's space and its logo (no foreign key: an owner may be a workspace).
+  await eraseOwnerBrand(db, bucket, userId);
 
   const nothingLeft = sql`not exists (select 1 from ${schema.artifacts} where ${schema.artifacts.ownerId} = ${userId})`;
   const tombstoned = sql`exists (select 1 from ${schema.tombstones} where ${schema.tombstones.kind} = 'account' and ${schema.tombstones.id} = ${userId})`;

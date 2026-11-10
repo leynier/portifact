@@ -19,6 +19,7 @@ import {
   ViewerInfo,
 } from "@portifact/contracts";
 import {
+  brandLogoUrl,
   getViewerArtifact,
   type IssuedReviewHandoff,
   issueReviewHandoff,
@@ -122,11 +123,22 @@ export function reviewRoutes(deps: ReviewDeps) {
       now,
     });
     if (!found.ok) return error(c, found.code, found.message);
+    const origin = `https://${artifactId}.${c.env.CONTENT_DOMAIN}`;
+    const { brand, ...artifact } = found.value;
     return c.json(
       ViewerInfo.parse({
         artifactId,
-        origin: `https://${artifactId}.${c.env.CONTENT_DOMAIN}`,
-        ...found.value,
+        origin,
+        ...artifact,
+        // The logo is served by the artifact's own origin, never by the app's.
+        brand: brand && {
+          ...brand,
+          logo: brand.logo && {
+            url: brandLogoUrl(origin, brand.logo.sha256),
+            width: brand.logo.width,
+            height: brand.logo.height,
+          },
+        },
       }),
     );
   });

@@ -13,6 +13,7 @@ import {
 import { AppsScreen } from "./screens/apps.tsx";
 import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx";
+import { BrandingScreen } from "./screens/branding.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { NotFoundScreen } from "./screens/not-found.tsx";
@@ -110,6 +111,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/settings",
     component: SettingsScreen,
   });
+  const branding = createRoute({
+    getParentRoute: () => root,
+    path: "/branding",
+    component: BrandingScreen,
+  });
   // The old account page: links and bookmarks to it, with or without an anchor, still work.
   const account = createRoute({
     getParentRoute: () => root,
@@ -136,6 +142,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       apps,
       usage,
       webhooks,
+      branding,
       settings,
       account,
       viewer,

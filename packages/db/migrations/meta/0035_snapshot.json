@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a24aaab2-958a-4a99-9a77-25ecabf6d1cf",
+  "id": "7d13cf6f-fea1-45a2-b926-79de671b9a49",
   "prevId": "84b2db8f-3807-4cc4-968b-ec977ef2dcf4",
   "tables": {
     "abuse_reports": {
@@ -2079,6 +2079,129 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "owner_brands": {
+      "name": "owner_brands",
+      "columns": {
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accent_color": {
+          "name": "accent_color",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "link": {
+          "name": "link",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_sha256": {
+          "name": "logo_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_type": {
+          "name": "logo_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_width": {
+          "name": "logo_width",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_height": {
+          "name": "logo_height",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "logo_bytes": {
+          "name": "logo_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "suspended_at": {
+          "name": "suspended_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "suspension_reason": {
+          "name": "suspension_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "owner_brands_accent": {
+          "name": "owner_brands_accent",
+          "value": "\"owner_brands\".\"accent_color\" is null or (length(\"owner_brands\".\"accent_color\") = 7 and \"owner_brands\".\"accent_color\" glob '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')"
+        },
+        "owner_brands_logo": {
+          "name": "owner_brands_logo",
+          "value": "(\"owner_brands\".\"logo_sha256\" is null and \"owner_brands\".\"logo_type\" is null and \"owner_brands\".\"logo_width\" is null and \"owner_brands\".\"logo_height\" is null and \"owner_brands\".\"logo_bytes\" is null) or (length(\"owner_brands\".\"logo_sha256\") = 64 and \"owner_brands\".\"logo_type\" in ('image/png', 'image/jpeg', 'image/webp') and \"owner_brands\".\"logo_width\" > 0 and \"owner_brands\".\"logo_height\" > 0 and \"owner_brands\".\"logo_bytes\" between 1 and 100000)"
+        },
+        "owner_brands_suspension": {
+          "name": "owner_brands_suspension",
+          "value": "(\"owner_brands\".\"suspended_at\" is null) = (\"owner_brands\".\"suspension_reason\" is null)"
+        }
+      }
+    },
     "owner_plans": {
       "name": "owner_plans",
       "columns": {
@@ -3714,354 +3837,6 @@
         "versions_bytes_nonnegative": {
           "name": "versions_bytes_nonnegative",
           "value": "\"versions\".\"published_bytes\" >= 0 and \"versions\".\"source_bytes\" >= 0"
-        }
-      }
-    },
-    "webhook_deliveries": {
-      "name": "webhook_deliveries",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "webhook_id": {
-          "name": "webhook_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "delivery_id": {
-          "name": "delivery_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "attempt": {
-          "name": "attempt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "at": {
-          "name": "at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "webhook_deliveries_webhook_idx": {
-          "name": "webhook_deliveries_webhook_idx",
-          "columns": ["webhook_id", "at"],
-          "isUnique": false
-        },
-        "webhook_deliveries_owner_idx": {
-          "name": "webhook_deliveries_owner_idx",
-          "columns": ["owner_id", "at"],
-          "isUnique": false
-        },
-        "webhook_deliveries_at_idx": {
-          "name": "webhook_deliveries_at_idx",
-          "columns": ["at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "webhook_deliveries_webhook_id_webhooks_id_fk": {
-          "name": "webhook_deliveries_webhook_id_webhooks_id_fk",
-          "tableFrom": "webhook_deliveries",
-          "tableTo": "webhooks",
-          "columnsFrom": ["webhook_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "webhook_events": {
-      "name": "webhook_events",
-      "columns": {
-        "webhook_id": {
-          "name": "webhook_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "type": {
-          "name": "type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "count": {
-          "name": "count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "first_at": {
-          "name": "first_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "last_at": {
-          "name": "last_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "actor_id": {
-          "name": "actor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "access": {
-          "name": "access",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "webhook_events_first_idx": {
-          "name": "webhook_events_first_idx",
-          "columns": ["webhook_id", "first_at"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "webhook_events_webhook_id_webhooks_id_fk": {
-          "name": "webhook_events_webhook_id_webhooks_id_fk",
-          "tableFrom": "webhook_events",
-          "tableTo": "webhooks",
-          "columnsFrom": ["webhook_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "webhook_events_webhook_id_artifact_id_type_pk": {
-          "columns": ["webhook_id", "artifact_id", "type"],
-          "name": "webhook_events_webhook_id_artifact_id_type_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "webhooks": {
-      "name": "webhooks",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "host": {
-          "name": "host",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "format": {
-          "name": "format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "events": {
-          "name": "events",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "key_id": {
-          "name": "key_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "url_box": {
-          "name": "url_box",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "secret_box": {
-          "name": "secret_box",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "disabled_reason": {
-          "name": "disabled_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "failures": {
-          "name": "failures",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "probation": {
-          "name": "probation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": false
-        },
-        "reenables": {
-          "name": "reenables",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "reenable_day": {
-          "name": "reenable_day",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_via": {
-          "name": "created_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "webhooks_owner_idx": {
-          "name": "webhooks_owner_idx",
-          "columns": ["owner_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "webhooks_events": {
-          "name": "webhooks_events",
-          "value": "\"webhooks\".\"events\" between 1 and 31"
-        },
-        "webhooks_failures": {
-          "name": "webhooks_failures",
-          "value": "\"webhooks\".\"failures\" >= 0"
         }
       }
     },

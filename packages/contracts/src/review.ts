@@ -3,6 +3,7 @@
 // the artifact origin sets when the viewer's iframe redeems the code. See
 // docs/decisions/0002-review-mode-cookies.md.
 import { z } from "zod";
+import { ViewerBrand } from "./branding.ts";
 import { ArtifactId, ArtifactType } from "./core.ts";
 import { OpaqueToken } from "./read.ts";
 
@@ -112,5 +113,10 @@ export const ViewerInfo = z.object({
   accessMode: z.enum(["public", "authenticated", "restricted"]),
   annotations: z.enum(["off", "open", "locked"]),
   role: ViewerRole,
+  /**
+   * The owner's brand for the bar (premium plan P9), or null for the default bar: no brand, an
+   * owner whose plan lacks `branding`, or a brand the operator suspended.
+   */
+  brand: ViewerBrand.nullable(),
 });
 export type ViewerInfo = z.infer<typeof ViewerInfo>;

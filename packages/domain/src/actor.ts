@@ -36,6 +36,8 @@ const ADMIN: readonly RoleAction[] = [
   "delete_workspace",
   // Webhooks send the owner's activity to a destination outside Portifact (decision 0009).
   "webhooks",
+  // The owner's brand on the viewer's bar (premium plan P9): what visitors see as the owner.
+  "brand",
 ];
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {

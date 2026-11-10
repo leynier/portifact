@@ -59,7 +59,7 @@ describe("settings page", () => {
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Settings"]);
+    ).toEqual(["Artifacts", "Publish", "Apps", "Usage", "Webhooks", "Branding", "Settings"]);
     fireEvent.click(within(nav).getByRole("link", { name: "Settings" }));
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
     expect(await screen.findByRole("heading", { level: 1, name: "Settings" })).toBeTruthy();

@@ -4,9 +4,17 @@
 // protected, unavailable or missing artifact gives the same answer until they sign in.
 import type { ViewerRole } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
-import { actsForOwner, effectiveState, fail, ok, type Result } from "@portifact/domain";
+import {
+  actsForOwner,
+  effectiveState,
+  entitlements,
+  fail,
+  ok,
+  type Result,
+} from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { actorOn } from "./actors.ts";
+import { type ViewerBrandFacts, viewerBrandFacts } from "./branding.ts";
 import { checkReadAccess } from "./read-access.ts";
 
 export interface ViewerArtifact {
@@ -16,6 +24,8 @@ export interface ViewerArtifact {
   accessMode: "public" | "authenticated" | "restricted";
   annotations: "off" | "open" | "locked";
   role: ViewerRole;
+  /** The owner's brand for the bar, or null for the default bar (premium plan P9). */
+  brand: ViewerBrandFacts | null;
 }
 
 const unavailable = () =>
@@ -37,9 +47,23 @@ export async function getViewerArtifact(
       expiresAt: schema.artifacts.expiresAt,
       archivedAt: schema.artifacts.archivedAt,
       versionNumber: schema.versions.number,
+      // The owner's brand and plan come with the artifact, so an unbranded owner costs no read.
+      brandName: schema.ownerBrands.name,
+      brandAccent: schema.ownerBrands.accentColor,
+      brandLink: schema.ownerBrands.link,
+      brandLogo: schema.ownerBrands.logoSha256,
+      brandLogoWidth: schema.ownerBrands.logoWidth,
+      brandLogoHeight: schema.ownerBrands.logoHeight,
+      brandSuspendedAt: schema.ownerBrands.suspendedAt,
+      plan: schema.ownerPlans.plan,
+      planSeats: schema.ownerPlans.seats,
+      planValidUntil: schema.ownerPlans.validUntil,
+      planOverrides: schema.ownerPlans.overrides,
     })
     .from(schema.artifacts)
     .innerJoin(schema.versions, eq(schema.versions.id, schema.artifacts.currentVersionId))
+    .leftJoin(schema.ownerBrands, eq(schema.ownerBrands.ownerId, schema.artifacts.ownerId))
+    .leftJoin(schema.ownerPlans, eq(schema.ownerPlans.ownerId, schema.artifacts.ownerId))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   if (!artifact) return unavailable();
@@ -69,5 +93,29 @@ export async function getViewerArtifact(
     accessMode: artifact.accessMode,
     annotations: artifact.annotations,
     role,
+    brand: viewerBrandFacts(
+      artifact.brandName === null
+        ? null
+        : {
+            name: artifact.brandName,
+            accentColor: artifact.brandAccent,
+            link: artifact.brandLink,
+            logoSha256: artifact.brandLogo,
+            logoWidth: artifact.brandLogoWidth,
+            logoHeight: artifact.brandLogoHeight,
+            suspendedAt: artifact.brandSuspendedAt,
+          },
+      entitlements(
+        artifact.plan === null
+          ? null
+          : {
+              plan: artifact.plan,
+              seats: artifact.planSeats ?? 1,
+              validUntil: artifact.planValidUntil,
+              overrides: artifact.planOverrides,
+            },
+        input.now,
+      ),
+    ),
   });
 }

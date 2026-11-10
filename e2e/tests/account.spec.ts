@@ -36,6 +36,7 @@ test("the sidebar collapses to icons, resizes from its edge and remembers both",
     "Apps",
     "Usage",
     "Webhooks",
+    "Branding",
     "Settings",
   ]);
   const handle = page.getByRole("separator", { name: "Resize sidebar" });

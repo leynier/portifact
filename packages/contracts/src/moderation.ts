@@ -2,6 +2,7 @@
 // 5 and 13). Report text and the reporter's email are untrusted input from anyone on the web.
 import { z } from "zod";
 import { AccountSettings } from "./account.ts";
+import { Brand } from "./branding.ts";
 import { ArtifactId, Email } from "./core.ts";
 import { PlanView } from "./plans.ts";
 
@@ -212,6 +213,11 @@ export const AccountExport = z.object({
         createdAt: z.iso.datetime(),
       }),
     ),
+    /**
+     * The brand of the account's space for the viewer's bar, kept whatever the plan, or null.
+     * The logo's bytes are on the Branding page; the export lists what it is.
+     */
+    brand: Brand.nullable(),
   }),
   artifacts: z.array(ExportArtifact),
   /**

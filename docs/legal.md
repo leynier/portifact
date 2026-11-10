@@ -79,6 +79,13 @@ Changes that shipped and that the legal pages do not describe yet, to be written
 
 - Webhooks (premium plan P6): a customer-chosen destination receiving activity data. The Privacy page must say that an owner on a plan with webhooks can have Portifact send, to an HTTPS address the owner chooses (their own server, Slack or Discord), events about their artifacts: the artifact's name and links, event types, times, counts, version numbers, the access mode and the display name of the owner's member who acted; never comment text, quotes or readers' email addresses; that this data then leaves Portifact under the owner's responsibility, and for an EU workspace leaves the region ([decision 0005](decisions/0005-regions.md), section 6); and what is stored: the destination (sealed), the host, the chosen events, pending events (IDs and counts, deleted when delivered) and a 7-day delivery log (time, outcome and HTTP status), deleted with the webhook or the account and listed, without the address or secret, in the account export. The Terms should say that the owner is responsible for the destinations they choose and must not use webhooks to send requests to systems they are not allowed to, and may list webhooks among the paid features.
 
+- Owner branding (premium plan P9): owners on a paid plan can show their name, logo, accent color and link on the viewer's bar above their artifacts. The texts must say:
+  - **Terms.** The owner is responsible for having the rights to the name, logo and link they show (trademarks); a brand may not imitate Portifact or another person or organization; Portifact may suspend a brand without notice, which brings back the default bar, and the bar always says the page is hosted on Portifact. Branding stops while the plan does not include it and the brand is kept until the owner deletes it.
+  - **Acceptable Use.** Impersonation through a brand (another company's name or logo, Portifact's own, or a look-alike) and links that lead to phishing or malware are forbidden, and reports about a branded bar are handled like reports about the artifact.
+  - **Privacy.** For a brand Portifact keeps the name, color, link and the logo file (counted in the owner's storage), part of the account export and deleted with the brand or the account; visitors' browsers load the logo from the artifact's own address, with no referrer and no cookie.
+
+  The Terms and Acceptable Use changes are material (new obligations for owners), so they go in the wave's single `TERMS_VERSION` bump.
+
 ## Changing the texts
 
 1. Edit the pages. A change to wording that does not alter anyone's rights can keep the version.

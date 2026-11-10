@@ -1307,6 +1307,48 @@ export const ownerPlans = sqliteTable(
 );
 
 /**
+ * The owner's brand on the viewer's bar (premium plan P9, feature `branding`), one row per owner
+ * (a user's personal space or a workspace), so no foreign key, like `owner_plans`; account
+ * deletion removes it with its logo (`advanceAccountDeletion`). Four validated values and the
+ * logo's facts: never markup. The logo's bytes are in R2 at `brands/<owner>/<sha256>` and count in
+ * the owner's `account_usage.stored_bytes` while this row names them. `revision` guards changes.
+ * The operator suspends a brand (`suspended_at`), which brings back the default bar.
+ */
+export const ownerBrands = sqliteTable(
+  "owner_brands",
+  {
+    ownerId: text("owner_id").primaryKey(),
+    name: text("name").notNull(),
+    accentColor: text("accent_color"),
+    link: text("link"),
+    logoSha256: text("logo_sha256"),
+    logoType: text("logo_type", { enum: ["image/png", "image/jpeg", "image/webp"] }),
+    logoWidth: integer("logo_width"),
+    logoHeight: integer("logo_height"),
+    logoBytes: integer("logo_bytes"),
+    revision: integer("revision").notNull().default(1),
+    suspendedAt: timestamp("suspended_at"),
+    suspensionReason: text("suspension_reason", { enum: ABUSE_REASONS }),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    check(
+      "owner_brands_accent",
+      sql`${t.accentColor} is null or (length(${t.accentColor}) = 7 and ${t.accentColor} glob '#[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]')`,
+    ),
+    check(
+      "owner_brands_logo",
+      sql`(${t.logoSha256} is null and ${t.logoType} is null and ${t.logoWidth} is null and ${t.logoHeight} is null and ${t.logoBytes} is null) or (length(${t.logoSha256}) = 64 and ${t.logoType} in ('image/png', 'image/jpeg', 'image/webp') and ${t.logoWidth} > 0 and ${t.logoHeight} > 0 and ${t.logoBytes} between 1 and 100000)`,
+    ),
+    check(
+      "owner_brands_suspension",
+      sql`(${t.suspendedAt} is null) = (${t.suspensionReason} is null)`,
+    ),
+  ],
+);
+
+/**
  * Workspaces (premium plan F3, decision 0004): an owner that is not a user. Changed only by
  * packages/services, in D1 batches; Better Auth never sees these tables. The region is fixed at
  * creation (decision 0005): a trigger in 0029_workspaces.sql refuses changing it.

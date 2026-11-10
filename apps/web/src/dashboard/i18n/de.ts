@@ -1339,4 +1339,74 @@ export const de = {
   "webhooks.via.by": "von {name}",
   "webhooks.probation":
     "Nach Fehlern wieder aktiviert: Wenige weitere Fehler deaktivieren ihn, bis eine Zustellung gelingt.",
+  "shell.brandingLink": "Branding",
+  "branding.title": "Branding",
+  "branding.description":
+    "Zeig deinen Namen, dein Logo, deine Farbe und deinen Link in der Leiste über deinen Artifacts im Viewer. Der Hinweis auf Portifact, die Adresse des Artifacts und der Link zum Melden bleiben immer in der Leiste.",
+  "branding.loading": "Dein Branding wird geladen",
+  "branding.error": "Dein Branding konnte nicht geladen werden",
+  "branding.paidTitle": "Branding gehört zu einem kostenpflichtigen Plan",
+  "branding.paid":
+    "Branding in der Leiste des Viewers gehört zum Plan {plan}. Deine Artifacts zeigen die Standardleiste, und ein gespeichertes Branding bleibt hier, bis dein Plan es wieder enthält.",
+  "branding.suspendedTitle": "Dein Branding ist gesperrt",
+  "branding.suspended":
+    "Deine Artifacts zeigen die Standardleiste, solange die Sperre gilt. Schreib dazu an abuse@portifact.com.",
+  "branding.form.title": "Branding",
+  "branding.form.hint":
+    "Wird als Text und Link gezeigt. Nichts hier ändert, wie die Artifacts selbst aussehen.",
+  "branding.form.name": "Name",
+  "branding.form.nameHint": "Bis zu {max} Zeichen. Er darf sich nicht wie Portifact lesen.",
+  "branding.form.nameRequired": "Gib den Namen ein, der gezeigt wird.",
+  "branding.form.nameTooLong": "Verwende höchstens {max} Zeichen.",
+  "branding.form.link": "Link (optional)",
+  "branding.form.linkHint":
+    "Deine eigene Website, in einem neuen Tab geöffnet. Sie beginnt mit https://.",
+  "branding.form.linkInvalid": "Gib eine Adresse ein, die mit https:// beginnt.",
+  "branding.form.color": "Akzentfarbe (optional)",
+  "branding.form.colorHint":
+    "Eine Farbe wie #1a2b3c. Sie füllt das Feld des Brandings, und der Text darauf wird schwarz oder weiß, damit er lesbar bleibt.",
+  "branding.form.colorPicker": "Akzentfarbe auswählen",
+  "branding.form.colorInvalid": "Verwende eine Farbe wie #1a2b3c.",
+  "branding.form.save": "Branding speichern",
+  "branding.form.saved": "Branding gespeichert.",
+  "branding.form.failed": "Das Branding konnte nicht gespeichert werden",
+  "branding.form.invalid":
+    "Prüf den Namen und den Link: Der Name darf sich nicht wie Portifact lesen, und der Link muss die https-Adresse deiner eigenen Website sein.",
+  "branding.logo.title": "Logo",
+  "branding.logo.hint":
+    "Ein PNG-, JPEG- oder WebP-Bild mit höchstens {kb} KB und {px} mal {px} Pixeln, ohne Animation. Es zählt zu deinem Speicher.",
+  "branding.logo.needsName":
+    "Speichere zuerst den Namen des Brandings und füg dann ein Logo hinzu.",
+  "branding.logo.none": "Noch kein Logo.",
+  "branding.logo.current": "{type}, {width} mal {height} Pixel, {size}.",
+  "branding.logo.choose": "Logo auswählen",
+  "branding.logo.replace": "Logo ersetzen",
+  "branding.logo.remove": "Logo entfernen",
+  "branding.logo.uploaded": "Logo gespeichert.",
+  "branding.logo.removed": "Logo entfernt.",
+  "branding.logo.failed": "Das Logo konnte nicht gespeichert werden",
+  "branding.logo.invalid":
+    "Verwende ein PNG-, JPEG- oder WebP-Bild mit höchstens {kb} KB und {px} mal {px} Pixeln, ohne Animation und ohne darin gespeicherten Text.",
+  "branding.logo.full": "Dein Speicher ist voll. Lösch zuerst etwas.",
+  "branding.preview.title": "Vorschau",
+  "branding.preview.hint":
+    "Die Leiste in jedem Design mit dem Inhalt des Formulars, gespeichert oder nicht.",
+  "branding.preview.light": "Helles Design",
+  "branding.preview.dark": "Dunkles Design",
+  "branding.preview.sample": "Quartalsbericht",
+  "branding.preview.noName": "Dein Name",
+  "branding.preview.origin": "a1b2c3d4e5.portifact.dev",
+  "branding.delete.title": "Branding löschen",
+  "branding.delete.hint":
+    "Deine Artifacts zeigen wieder die Standardleiste, und das Logo wird gelöscht.",
+  "branding.delete.action": "Branding löschen",
+  "branding.delete.confirm": "Branding löschen?",
+  "branding.delete.body":
+    "Name, Farbe, Link und Logo werden entfernt, und der Viewer zeigt bei all deinen Artifacts die Standardleiste.",
+  "branding.delete.done": "Branding gelöscht.",
+  "branding.delete.failed": "Das Branding konnte nicht gelöscht werden",
+  "branding.delete.cancel": "Abbrechen",
+  "viewer.brandNewTab": "(öffnet sich in einem neuen Tab)",
+  "viewer.hosting.poweredBy": "Bereitgestellt von Portifact",
+  "viewer.hosting.origin": "Veröffentlicht unter",
 } satisfies Catalog;
